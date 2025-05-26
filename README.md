@@ -40,10 +40,10 @@ Run specific tasks or engage in interactive mode:
 
 ```bash
 # Execute a task directly
-python main.py "Describe the task here"
+uv run python main.py "write me a C++ hello world program in /tmp/main.cpp then compile it and run it"
 
 # Enter interactive mode
-python main.py --interactive
+uv run python main.py --interactive
 ```
 
 ### Python API

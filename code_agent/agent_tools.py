@@ -511,7 +511,7 @@ def run_shell_command(context: RunContext, command: str, cwd: str = None, timeou
             
             if stderr.strip():
                 console.print("[bold yellow]STDERR:[/bold yellow]")
-                console.print(Syntax(stderr.strip(), "bash", theme="monokai", background_color="default", style="yellow"))
+                console.print(Syntax(stderr.strip(), "bash", theme="monokai", background_color="default"))
             
             # Show execution summary
             if exit_code == 0:
@@ -560,7 +560,7 @@ def run_shell_command(context: RunContext, command: str, cwd: str = None, timeou
             }
     except Exception as e:
         # Display error information
-        console.print(f"[bold red]Error executing command:[/bold red] {str(e)}")
+        console.print_exception(show_locals=True)
         console.print("[dim]"+ "-" * 60 + "[/dim]\n")
         
         return {
