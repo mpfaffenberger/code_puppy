@@ -58,19 +58,26 @@ async def interactive_mode() -> None:
     console.print("[bold green]Code Generation Agent[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
     console.print("Type 'clear' to reset the conversation history.")
+    console.print("End multiline input with a single '.' on a new line.")
     
     message_history = []
     
     while True:
-        task = console.input("[bold blue]Enter your coding task:[/bold blue] ")
+        task = ""
+        console.print("[bold blue]Enter your coding task (multiline is supported, end with '.' on a new line):[/bold blue]")
+        while True:
+            line = console.input()
+            if line.strip() == ".":
+                break
+            task += line + "\n"
         
         # Check for exit commands
-        if task.lower() in ["exit", "quit"]:
+        if task.strip().lower() in ["exit", "quit"]:
             console.print("[bold green]Goodbye![/bold green]")
             break
         
         # Check for clear command
-        if task.lower() == "clear":
+        if task.strip().lower() == "clear":
             message_history = []
             console.print("[bold yellow]Conversation history cleared![/bold yellow]")
             console.print("[dim]The agent will not remember previous interactions.[/dim]\n")
@@ -111,12 +118,8 @@ async def interactive_mode() -> None:
                     
                     # Check the structured response
                     if agent_response:
-                        # Check if the agent should continue
-                        if not agent_response.should_continue:
-                            is_done = True
-                            console.print("\n[bold green]✓ Agent has completed the task![/bold green]")
                         # Check if the agent needs user input
-                        elif agent_response.needs_user_input_to_continue:
+                        if agent_response.awaiting_user_input:
                             console.print("\n[bold yellow]⚠ Agent needs your input to continue.[/bold yellow]")
                             is_done = True  # Exit the loop to get user input
                         # Otherwise, auto-continue if we haven't reached the limit

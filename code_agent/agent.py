@@ -10,8 +10,7 @@ api_key = os.environ.get("OPENAI_API_KEY", "")
 class AgentResponse(pydantic.BaseModel):
     """Represents a response from the agent."""
     output_message: str = pydantic.Field(..., description="The final output message to display to the user")
-    needs_user_input_to_continue: Optional[bool] = pydantic.Field(False, description="Set to True if the agent needs user input to continue")
-    should_continue: bool = pydantic.Field(False, description="Set to True if you haven't finished your current plan yet")
+    awaiting_user_input: bool = pydantic.Field(False, description="True if user input is needed to continue the task")
 
 # Create agent with tool usage explicitly enabled
 code_generation_agent = Agent(

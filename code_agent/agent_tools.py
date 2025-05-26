@@ -635,8 +635,3 @@ def web_search(context: RunContext, query: str, num_results: int = 5) -> List[Di
             results.append({"title": title, "url": url})
 
     return results
-
-
-# Models for structured thinking output and planning are now imported from the models package
-
-
