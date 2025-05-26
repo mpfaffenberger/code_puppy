@@ -14,7 +14,8 @@ dependencies = [
     "rich>=13.4.2",
     "logfire>=0.7.1",
     "pydantic>=2.4.0",
-    "python-dotenv>=1.0.0"
+    "python-dotenv>=1.0.0",
+    "bs4>=0.0.2",
 ]
 authors = [
     {name = "Windsurf Engineering Team"}

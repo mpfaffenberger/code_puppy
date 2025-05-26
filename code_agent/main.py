@@ -3,15 +3,11 @@ import argparse
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.syntax import Syntax
-from rich.live import Live
-from rich.console import Console, ConsoleOptions, RenderResult
-from rich.markdown import CodeBlock, Markdown
-from rich.syntax import Syntax
+from rich.console import ConsoleOptions, RenderResult
+from rich.markdown import CodeBlock
 from rich.text import Text
 
 from pydantic_ai import Agent
-from pydantic_ai.models import KnownModelName
 # Initialize rich console for pretty output
 
 # These imports need to be relative for the package structure
@@ -61,7 +57,7 @@ async def interactive_mode() -> None:
     """Run the agent in interactive mode."""
     console.print("[bold green]Code Generation Agent[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
-    console.print("Type 'clear' to reset the conversation history.\n")
+    console.print("Type 'clear' to reset the conversation history.")
     
     message_history = []
     
@@ -83,25 +79,63 @@ async def interactive_mode() -> None:
         if task.strip():
             console.print(f"\n[bold blue]Processing task:[/bold blue] {task}\n")
             
-            try:
-                prettier_code_blocks()
-                console.log(f'Asking: {task}...', style='cyan')
+            # Counter for consecutive auto-continue invocations
+            auto_continue_count = 0
+            max_auto_continues = 10
+            is_done = False
+            
+            while not is_done and auto_continue_count <= max_auto_continues:
+                try:
+                    prettier_code_blocks()
+                    
+                    # Only show "asking" message for initial query or if not auto-continuing
+                    if auto_continue_count == 0:
+                        console.log(f'Asking: {task}...', style='cyan')
+                    else:
+                        console.log(f'Auto-continuing ({auto_continue_count}/{max_auto_continues})...', style='cyan')
+                    
+                    # Store agent's full response
+                    agent_response = None
+                    response_content = ""
+                    
+                    result = await code_generation_agent.run(task, message_history=message_history)
+                    # Get the structured response
+                    agent_response = result.output
+                    console.print(agent_response.output_message)
+                    
+                    # Update message history with all messages from this interaction
+                    message_history = result.new_messages()
+                    
+                    # Show usage statistics
+                    console.print(result.usage())
+                    
+                    # Check the structured response
+                    if agent_response:
+                        # Check if the agent should continue
+                        if not agent_response.should_continue:
+                            is_done = True
+                            console.print("\n[bold green]✓ Agent has completed the task![/bold green]")
+                        # Check if the agent needs user input
+                        elif agent_response.needs_user_input_to_continue:
+                            console.print("\n[bold yellow]⚠ Agent needs your input to continue.[/bold yellow]")
+                            is_done = True  # Exit the loop to get user input
+                        # Otherwise, auto-continue if we haven't reached the limit
+                        elif auto_continue_count < max_auto_continues:
+                            auto_continue_count += 1
+                            task = "please continue"
+                            console.print("\n[yellow]Agent continuing automatically...[/yellow]")
+                        else:
+                            # Reached max auto-continues
+                            console.print(f"\n[bold yellow]⚠ Reached maximum of {max_auto_continues} automatic continuations.[/bold yellow]")
+                            console.print("[dim]You can enter a new request or type 'please continue' to resume.[/dim]")
+                            is_done = True  # Exit the inner loop
+                    
+                    # Show context status
+                    console.print(f"[dim]Context: {len(message_history)} messages in history[/dim]\n")
                 
-                with Live('', console=console) as live:
-                    async with code_generation_agent.run_stream(task, message_history=message_history) as result:
-                        async for message in result.stream():
-                            live.update(Markdown(message))
-                
-                # Update message history with all messages from this interaction
-                [message_history.append(msg) for msg in result.all_messages()]
-                
-                # Show usage statistics
-                console.print(result.usage())
-                
-                # Show context status
-                console.print(f"[dim]Context: {len(message_history)} messages in history[/dim]\n")
-            except Exception as e:
-                console.print(f"[bold red]Error:[/bold red] {str(e)}")
+                except Exception:
+                    console.print_exception(show_locals=True)
+                    is_done = True  # Exit on error
 
 def main_entry():
     """Entry point for the installed CLI tool."""

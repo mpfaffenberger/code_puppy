@@ -7,29 +7,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "agents"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "httpx" },
-    { name = "logfire" },
-    { name = "pydantic" },
-    { name = "pydantic-ai" },
-    { name = "python-dotenv" },
-    { name = "rich" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.24.1" },
-    { name = "logfire", specifier = ">=0.7.1" },
-    { name = "pydantic", specifier = ">=2.4.0" },
-    { name = "pydantic-ai", specifier = ">=0.1.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "rich", specifier = ">=13.4.2" },
-]
-
-[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -81,6 +58,19 @@ wheels = [
 ]
 
 [[package]]
+name = "beautifulsoup4"
+version = "4.13.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "soupsieve" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d8/e4/0c4c39e18fd76d6a628d4dd8da40543d136ce2d1752bd6eeeab0791f4d6b/beautifulsoup4-4.13.4.tar.gz", hash = "sha256:dbb3c4e1ceae6aefebdaf2423247260cd062430a410e38c66f2baa50a8437195", size = 621067, upload-time = "2025-04-15T17:05:13.836Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/50/cd/30110dc0ffcf3b131156077b90e9f60ed75711223f306da4db08eff8403b/beautifulsoup4-4.13.4-py3-none-any.whl", hash = "sha256:9bbbb14bfde9d79f38b8cd5f8c7c85f4b8f2523190ebed90e950a8dea4cb1c4b", size = 187285, upload-time = "2025-04-15T17:05:12.221Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.38.23"
 source = { registry = "https://pypi.org/simple" }
@@ -107,6 +97,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4d/d5/134a28a30cb1b0c9aa08ceb5d1a3e7afe956f7fa7abad2adda7c5c01d6a1/botocore-1.38.23.tar.gz", hash = "sha256:29685c91050a870c3809238dc5da1ac65a48a3a20b4bca46b6057dcb6b39c72a", size = 13908529, upload-time = "2025-05-23T19:25:15.199Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ab/dd/e047894efa3a39509f8fcc103dd096999aa52907c969d195af6b0d8e282f/botocore-1.38.23-py3-none-any.whl", hash = "sha256:a7f818672f10d7a080c2c4558428011c3e0abc1039a047d27ac76ec846158457", size = 13567446, upload-time = "2025-05-23T19:25:10.795Z" },
+]
+
+[[package]]
+name = "bs4"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "beautifulsoup4" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/aa/4acaf814ff901145da37332e05bb510452ebed97bc9602695059dd46ef39/bs4-0.0.2.tar.gz", hash = "sha256:a48685c58f50fe127722417bae83fe6badf500d54b55f7e39ffe43b798653925", size = 698, upload-time = "2024-01-17T18:15:47.371Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/bb/bf7aab772a159614954d84aa832c129624ba6c32faa559dfb200a534e50b/bs4-0.0.2-py2.py3-none-any.whl", hash = "sha256:abf8742c0805ef7f662dce4b51cca104cffe52b835238afc169142ab9b3fbccc", size = 1189, upload-time = "2024-01-17T18:15:48.613Z" },
 ]
 
 [[package]]
@@ -211,6 +213,31 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/60/6c/8ca2efa64cf75a977a0d7fac081354553ebe483345c734fb6b6515d96bbc/click-8.2.1.tar.gz", hash = "sha256:27c491cc05d968d271d5a1db13e3b5a184636d9d930f148c50b038f0d0646202", size = 286342, upload-time = "2025-05-20T23:19:49.832Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/85/32/10bb5764d90a8eee674e9dc6f4db6a0ab47c8c4d0d83c27f7c39ac415a4d/click-8.2.1-py3-none-any.whl", hash = "sha256:61a3265b914e850b85317d0b3109c7f8cd35a670f963866005d6ef1d5175a12b", size = 102215, upload-time = "2025-05-20T23:19:47.796Z" },
+]
+
+[[package]]
+name = "code-agent"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "bs4" },
+    { name = "httpx" },
+    { name = "logfire" },
+    { name = "pydantic" },
+    { name = "pydantic-ai" },
+    { name = "python-dotenv" },
+    { name = "rich" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bs4", specifier = ">=0.0.2" },
+    { name = "httpx", specifier = ">=0.24.1" },
+    { name = "logfire", specifier = ">=0.7.1" },
+    { name = "pydantic", specifier = ">=2.4.0" },
+    { name = "pydantic-ai", specifier = ">=0.1.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "rich", specifier = ">=13.4.2" },
 ]
 
 [[package]]
@@ -1300,6 +1327,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372, upload-time = "2024-02-25T23:20:04.057Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
+]
+
+[[package]]
+name = "soupsieve"
+version = "2.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/f4/4a80cd6ef364b2e8b65b15816a843c0980f7a5a2b4dc701fc574952aa19f/soupsieve-2.7.tar.gz", hash = "sha256:ad282f9b6926286d2ead4750552c8a6142bc4c783fd66b0293547c8fe6ae126a", size = 103418, upload-time = "2025-04-20T18:50:08.518Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e7/9c/0e6afc12c269578be5c0c1c9f4b49a8d32770a080260c333ac04cc1c832d/soupsieve-2.7-py3-none-any.whl", hash = "sha256:6e60cc5c1ffaf1cebcc12e8188320b72071e922c2e897f737cadce79ad5d30c4", size = 36677, upload-time = "2025-04-20T18:50:07.196Z" },
 ]
 
 [[package]]
