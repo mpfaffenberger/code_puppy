@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "code_agent"
+version = "0.1.0"
+description = "Code generation agent similar to Windsurf or Cursor"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pydantic-ai>=0.1.0",
+    "httpx>=0.24.1",
+    "rich>=13.4.2",
+    "logfire>=0.7.1",
+    "pydantic>=2.4.0",
+    "python-dotenv>=1.0.0"
+]
+authors = [
+    {name = "Windsurf Engineering Team"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Code Generators",
+]
+
+[project.scripts]
+code-agent = "code_agent.main:main_entry"
+
+[tool.logfire]
+ignore_no_config = true
+
+[tool.hatch.build]
+packages = ["code_agent"]
