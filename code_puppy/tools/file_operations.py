@@ -293,17 +293,15 @@ def create_file(
 
 @code_generation_agent.tool
 def read_file(
-    context: RunContext, file_path: str, start_line: int = 0, end_line: int = None
+    context: RunContext, file_path: str
 ) -> Dict[str, Any]:
     console.log(
-        f"📄 Reading [bold cyan]{file_path}[/bold cyan] (lines {start_line} to {end_line or 'end'})"
+        f"📄 Reading [bold cyan]{file_path}[/bold cyan]"
     )
-    """Read the contents of a file, optionally within a line range.
+    """Read the contents of a file.
     
     Args:
         file_path: Path to the file to read
-        start_line: Starting line number (0-indexed). Defaults to 0.
-        end_line: Ending line number (inclusive, 0-indexed). Defaults to None (read to end).
         
     Returns:
         A dictionary with the file contents and metadata.
@@ -318,18 +316,7 @@ def read_file(
 
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-        # Handle line range
-        if end_line is None:
-            end_line = len(lines) - 1
-
-        # Ensure valid range
-        start_line = max(0, min(start_line, len(lines) - 1))
-        end_line = max(start_line, min(end_line, len(lines) - 1))
-
-        selected_lines = lines[start_line : end_line + 1]
-        content = "".join(selected_lines)
+            content = f.read()
 
         # Get file extension
         _, ext = os.path.splitext(file_path)
@@ -338,10 +325,7 @@ def read_file(
             "content": content,
             "path": file_path,
             "extension": ext.lstrip("."),
-            "total_lines": len(lines),
-            "read_lines": end_line - start_line + 1,
-            "start_line": start_line,
-            "end_line": end_line,
+            "total_lines": len(content.splitlines()),
         }
     except UnicodeDecodeError:
         # For binary files, return an error

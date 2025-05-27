@@ -34,6 +34,22 @@ def run_shell_command(
         console.print(f"[dim]Working directory: {cwd}[/dim]")
     console.print("[dim]" + "-" * 60 + "[/dim]")
 
+    import os
+    
+    # Check for YOLO_MODE environment variable to bypass safety check
+    yolo_mode = os.getenv('YOLO_MODE', 'false').lower() == 'true'
+    
+    if not yolo_mode:
+        # Prompt user for confirmation before running the command
+        user_input = input(f"Are you sure you want to run this command? (yes/no): ")
+        if user_input.strip().lower() not in {'yes', 'y'}:
+            console.print("[bold yellow]Command execution canceled by user.[/bold yellow]")
+            return {
+                "success": False,
+                "command": command,
+                "error": "User canceled command execution",
+            }
+
     try:
         start_time = time.time()
 
