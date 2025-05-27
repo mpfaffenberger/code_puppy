@@ -118,3 +118,26 @@ def test_delete_file_not_file():
          patch("os.path.isfile", return_value=False):
         result = delete_file(None, "dummy_path")
         assert "error" in result
+import pytest
+from unittest.mock import patch, mock_open
+from code_agent.tools.file_modifications import modify_file, delete_file
+
+# Previous tests here...
+
+# === Add missing except block coverage tests ===
+def test_modify_file_unicode_decode_error():
+    with patch("os.path.exists", return_value=True):
+        with patch("builtins.open", side_effect=UnicodeDecodeError("utf8", b"", 0, 1, "fail")):
+            result = modify_file(None, "dummy_path", "new", "target")
+            assert "error" in result and "binary" in result["error"]
+
+def test_modify_file_generic_exception():
+    with patch("os.path.exists", return_value=True):
+        with patch("builtins.open", side_effect=Exception("kaboom")):
+            result = modify_file(None, "dummy_path", "new", "target")
+            assert "error" in result and "kaboom" in result["error"]
+def test_modify_file_file_is_directory():
+    with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=True):
+        result = modify_file(None, "dummy_path", "some change")
+        assert result["message"].startswith("No changes needed for")
+        assert not result["changed"]

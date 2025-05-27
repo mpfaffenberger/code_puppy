@@ -76,3 +76,90 @@ def test_list_files():
         mock_getsize.return_value = 123
         result = list_files(None, directory="/test", recursive=True)
         assert len(result) > 0
+from code_agent.tools.file_operations import list_files
+from unittest.mock import patch
+import pytest
+
+def test_list_files_nonexistent_dir():
+    with patch("os.path.exists", return_value=False):
+        result = list_files(directory="nope")
+        assert result[0]["error"] == "Directory 'nope' does not exist"
+
+
+def test_list_files_not_a_directory():
+    with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=False):
+        result = list_files(directory="fakefile")
+        assert result[0]["error"].startswith("'fakefile' is not a directory")
+
+
+def test_list_files_permission_error_on_getsize(tmp_path):
+    # Create a directory and pretend a file exists, but getsize fails
+    fake_dir = tmp_path
+    fake_file = fake_dir / "file.txt"
+    fake_file.write_text("hello")
+    with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=True), \
+         patch("os.walk", return_value=[(str(fake_dir), [], ["file.txt"])]), \
+         patch("code_agent.tools.file_operations.should_ignore_path", return_value=False), \
+         patch("os.path.getsize", side_effect=PermissionError):
+        result = list_files(directory=str(fake_dir))
+        # Should not throw, just quietly ignore
+        assert all(f["type"] != "file" or f["path"] != "file.txt" for f in result)
+from code_agent.tools.file_operations import list_files
+from unittest.mock import patch
+import pytest
+
+def test_list_files_nonexistent_dir():
+    with patch("os.path.exists", return_value=False):
+        result = list_files(None, directory="nope")
+        assert result[0]["error"] == "Directory 'nope' does not exist"
+
+
+def test_list_files_not_a_directory():
+    with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=False):
+        result = list_files(None, directory="fakefile")
+        assert result[0]["error"].startswith("'fakefile' is not a directory")
+
+
+def test_list_files_permission_error_on_getsize(tmp_path):
+    # Create a directory and pretend a file exists, but getsize fails
+    fake_dir = tmp_path
+    fake_file = fake_dir / "file.txt"
+    fake_file.write_text("hello")
+    with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=True), \
+         patch("os.walk", return_value=[(str(fake_dir), [], ["file.txt"])]), \
+         patch("code_agent.tools.file_operations.should_ignore_path", return_value=False), \
+         patch("os.path.getsize", side_effect=PermissionError):
+        result = list_files(None, directory=str(fake_dir))
+        # Should not throw, just quietly ignore
+        assert all(f["type"] != "file" or f["path"] != "file.txt" for f in result)
+import os
+from code_agent.tools.file_operations import list_files
+from unittest.mock import patch
+import pytest
+
+def test_list_files_nonexistent_dir():
+    with patch("os.path.exists", return_value=False):
+        abs_path = os.path.abspath("nope")
+        result = list_files(None, directory="nope")
+        assert result[0]["error"] == f"Directory '{abs_path}' does not exist"
+
+
+def test_list_files_not_a_directory():
+    with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=False):
+        abs_path = os.path.abspath("fakefile")
+        result = list_files(None, directory="fakefile")
+        assert result[0]["error"].startswith(f"'{abs_path}' is not a directory")
+
+
+def test_list_files_permission_error_on_getsize(tmp_path):
+    # Create a directory and pretend a file exists, but getsize fails
+    fake_dir = tmp_path
+    fake_file = fake_dir / "file.txt"
+    fake_file.write_text("hello")
+    with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=True), \
+         patch("os.walk", return_value=[(str(fake_dir), [], ["file.txt"])]), \
+         patch("code_agent.tools.file_operations.should_ignore_path", return_value=False), \
+         patch("os.path.getsize", side_effect=PermissionError):
+        result = list_files(None, directory=str(fake_dir))
+        # Should not throw, just quietly ignore
+        assert all(f["type"] != "file" or f["path"] != "file.txt" for f in result)
