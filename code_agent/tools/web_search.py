@@ -4,11 +4,11 @@ import requests
 from bs4 import BeautifulSoup
 from pydantic_ai import RunContext
 
-from code_agent.tools.common import console
-
 
 @code_generation_agent.tool
-def web_search(context: RunContext, query: str, num_results: int = 5) -> List[Dict[str, str]]:
+def web_search(
+    context: RunContext, query: str, num_results: int = 5
+) -> List[Dict[str, str]]:
     """Perform a web search and return a list of results with titles and URLs.
 
     Args:
@@ -30,12 +30,12 @@ def web_search(context: RunContext, query: str, num_results: int = 5) -> List[Di
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
 
-    for g in soup.find_all('div', class_='tF2Cxc')[:num_results]:
-        title_element = g.find('h3')
-        link_element = g.find('a')
+    for g in soup.find_all("div", class_="tF2Cxc")[:num_results]:
+        title_element = g.find("h3")
+        link_element = g.find("a")
         if title_element and link_element:
             title = title_element.get_text()
-            url = link_element['href']
+            url = link_element["href"]
             results.append({"title": title, "url": url})
 
     return results

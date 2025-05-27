@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "bs4>=0.0.2",
     "pytest-cov>=6.1.1",
+    "ruff>=0.11.11",
 ]
 authors = [
     {name = "Windsurf Engineering Team"}
@@ -40,3 +41,6 @@ ignore_no_config = true
 
 [tool.hatch.build]
 packages = ["code_agent"]
+[tool.pytest.ini_options]
+addopts = "--cov=code_agent --cov-report=term-missing"
+testpaths = ["tests"]

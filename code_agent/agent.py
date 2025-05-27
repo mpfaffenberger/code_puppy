@@ -1,7 +1,6 @@
 import os
 import pydantic
 from pydantic_ai import Agent
-from typing import Optional
 from code_agent.agent_prompts import SYSTEM_PROMPT
 
 # Check if we have a valid API key
@@ -14,7 +13,7 @@ class AgentResponse(pydantic.BaseModel):
 
 # Create agent with tool usage explicitly enabled
 code_generation_agent = Agent(
-    model='openai:gpt-4o',
+    model='openai:gpt-4.1',
     system_prompt=SYSTEM_PROMPT,
     output_type=AgentResponse,
 )
