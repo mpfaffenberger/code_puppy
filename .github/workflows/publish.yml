@@ -33,7 +33,7 @@ jobs:
 
       - name: Build package
         run: |
-          uv run python -m build
+          uv build
 
       - name: Publish to PyPI
         env:
