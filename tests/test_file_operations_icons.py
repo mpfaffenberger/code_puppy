@@ -1,4 +1,4 @@
-from code_agent.tools.file_operations import list_files
+from code_puppy.tools.file_operations import list_files
 from unittest.mock import patch
 
 all_types = [
@@ -12,7 +12,7 @@ def test_list_files_get_file_icon_full_coverage():
          patch("os.path.exists", return_value=True), \
          patch("os.path.isdir", return_value=True), \
          patch("os.walk", return_value=fake_entries), \
-         patch("code_agent.tools.file_operations.should_ignore_path", return_value=False), \
+         patch("code_puppy.tools.file_operations.should_ignore_path", return_value=False), \
          patch("os.path.getsize", return_value=420):
         results = list_files(None, directory="/repo")
         paths = set(f["path"] for f in results)

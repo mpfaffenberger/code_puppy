@@ -1,6 +1,5 @@
-import pytest
 from unittest.mock import patch, mock_open
-from code_agent.tools.file_modifications import delete_snippet_from_file
+from code_puppy.tools.file_modifications import delete_snippet_from_file
 
 def test_delete_snippet_success():
     content = "This is foo text containing the SNIPPET to delete."

@@ -11,9 +11,8 @@ from rich.text import Text
 from rich.syntax import Syntax
 
 # Initialize rich console for pretty output
-from code_agent.tools.common import console
-from code_agent.agent import code_generation_agent
-
+from code_puppy.tools.common import console
+from code_puppy.agent import code_generation_agent
 
 # Define a function to get the secret file path
 def get_secret_file_path():
@@ -22,7 +21,6 @@ def get_secret_file_path():
         os.makedirs(hidden_directory)
     return os.path.join(hidden_directory, "history.txt")
 
-
 async def main():
     global shutdown_flag
 
@@ -30,33 +28,25 @@ async def main():
     load_dotenv()
 
     # Set up argument parser
-    parser = argparse.ArgumentParser(
-        description="Code Generation Agent - Similar to Windsurf or Cursor"
-    )
-    parser.add_argument(
-        "--interactive", "-i", action="store_true", help="Run in interactive mode"
-    )
-    parser.add_argument("command", nargs="*", help="Run a single command")
+    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
+    parser.add_argument("--interactive", "-i", action="store_true", help="Run in interactive mode")
+    parser.add_argument("command", nargs='*', help="Run a single command")
     args = parser.parse_args()
 
     history_file_path = get_secret_file_path()
 
     if args.command:
         # Join the list of command arguments into a single string command
-        command = " ".join(args.command)
+        command = ' '.join(args.command)
         try:
             while not shutdown_flag:
                 response = await code_generation_agent.run(command)
                 console.print(response.output_message)
                 if response.awaiting_user_input:
-                    console.print(
-                        "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
-                    )
+                    console.print("[bold red]The agent requires further input. Interactive mode is recommended for such tasks.")
         except AttributeError as e:
             console.print(f"[bold red]AttributeError:[/bold red] {str(e)}")
-            console.print(
-                "[bold yellow]\u26a0 The response might not be in the expected format, missing attributes like 'output_message'."
-            )
+            console.print("[bold yellow]\u26a0 The response might not be in the expected format, missing attributes like 'output_message'.")
         except Exception as e:
             console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
     elif args.interactive:
@@ -64,57 +54,52 @@ async def main():
     else:
         parser.print_help()
 
-
 # Add the file handling functionality for interactive mode
 async def interactive_mode(history_file_path: str) -> None:
     """Run the agent in interactive mode."""
-    console.print("[bold green]Code Generation Agent[/bold green] - Interactive Mode")
+    console.print("[bold green]Code Puppy[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
     console.print("Type 'clear' to reset the conversation history.")
 
     message_history = []
 
     # Set up readline history file in home directory
-    history_file = os.path.expanduser("~/.code_agent_history.txt")
+    history_file = os.path.expanduser('~/.code_puppy_history.txt')
     history_dir = os.path.dirname(history_file)
-
+    
     # Ensure history directory exists
     if history_dir and not os.path.exists(history_dir):
         try:
             os.makedirs(history_dir, exist_ok=True)
         except Exception as e:
-            console.print(
-                f"[yellow]Warning: Could not create history directory: {e}[/yellow]"
-            )
-
+            console.print(f"[yellow]Warning: Could not create history directory: {e}[/yellow]")
+    
     # Try to read history file
     try:
         if os.path.exists(history_file):
             readline.read_history_file(history_file)
     except (FileNotFoundError, OSError) as e:
         console.print(f"[yellow]Warning: Could not read history file: {e}[/yellow]")
-
+    
     readline.set_history_length(100)
 
     while True:
         console.print("[bold blue]Enter your coding task:[/bold blue]")
-
+        
         try:
             # Simple single-line input
             task = input(">>> ")
-
+            
             # Add to readline history if not empty
             if task.strip():
                 readline.add_history(task)
-
+            
             # Save history
             try:
                 readline.write_history_file(history_file)
             except Exception as e:
-                console.print(
-                    f"[yellow]Warning: Could not write history file: {e}[/yellow]"
-                )
-
+                console.print(f"[yellow]Warning: Could not write history file: {e}[/yellow]")
+            
         except (KeyboardInterrupt, EOFError):
             # Handle Ctrl+C or Ctrl+D
             console.print("\n[yellow]Input cancelled[/yellow]")
@@ -129,18 +114,16 @@ async def interactive_mode(history_file_path: str) -> None:
         if task.strip().lower() == "clear":
             message_history = []
             console.print("[bold yellow]Conversation history cleared![/bold yellow]")
-            console.print(
-                "[dim]The agent will not remember previous interactions.[/dim]\n"
-            )
+            console.print("[dim]The agent will not remember previous interactions.[/dim]\n")
             continue
 
         if task.strip():
             console.print(f"\n[bold blue]Processing task:[/bold blue] {task}\n")
 
             # Write to the secret file for permanent history
-            with open(history_file_path, "a") as history_file:
+            with open(history_file_path, 'a') as history_file:
                 history_file.write(f"{task}\n")
-
+            
             # Counter for consecutive auto-continue invocations
             auto_continue_count = 0
             max_auto_continues = 10
@@ -152,19 +135,14 @@ async def interactive_mode(history_file_path: str) -> None:
 
                     # Only show "asking" message for initial query or if not auto-continuing
                     if auto_continue_count == 0:
-                        console.log(f"Asking: {task}...", style="cyan")
+                        console.log(f'Asking: {task}...', style='cyan')
                     else:
-                        console.log(
-                            f"Auto-continuing ({auto_continue_count}/{max_auto_continues})...",
-                            style="cyan",
-                        )
+                        console.log(f'Auto-continuing ({auto_continue_count}/{max_auto_continues})...', style='cyan')
 
                     # Store agent's full response
                     agent_response = None
 
-                    result = await code_generation_agent.run(
-                        task, message_history=message_history
-                    )
+                    result = await code_generation_agent.run(task, message_history=message_history)
                     # Get the structured response
                     agent_response = result.output
                     console.print(agent_response.output_message)
@@ -174,36 +152,25 @@ async def interactive_mode(history_file_path: str) -> None:
                     if agent_response:
                         # Check if the agent needs user input
                         if agent_response.awaiting_user_input:
-                            console.print(
-                                "\n[bold yellow]\u26a0 Agent needs your input to continue.[/bold yellow]"
-                            )
+                            console.print("\n[bold yellow]\u26a0 Agent needs your input to continue.[/bold yellow]")
                             is_done = True  # Exit the loop to get user input
                         # Otherwise, auto-continue if we haven't reached the limit
                         elif auto_continue_count < max_auto_continues:
                             auto_continue_count += 1
                             task = "please continue"
-                            console.print(
-                                "\n[yellow]Agent continuing automatically...[/yellow]"
-                            )
+                            console.print("\n[yellow]Agent continuing automatically...[/yellow]")
                         else:
                             # Reached max auto-continues
-                            console.print(
-                                f"\n[bold yellow]\u26a0 Reached maximum of {max_auto_continues} automatic continuations.[/bold yellow]"
-                            )
-                            console.print(
-                                "[dim]You can enter a new request or type 'please continue' to resume.[/dim]"
-                            )
+                            console.print(f"\n[bold yellow]\u26a0 Reached maximum of {max_auto_continues} automatic continuations.[/bold yellow]")
+                            console.print("[dim]You can enter a new request or type 'please continue' to resume.[/dim]")
                             is_done = True
 
                     # Show context status
-                    console.print(
-                        f"[dim]Context: {len(message_history)} messages in history[/dim]\n"
-                    )
+                    console.print(f"[dim]Context: {len(message_history)} messages in history[/dim]\n")
 
                 except Exception:
                     console.print_exception(show_locals=True)
                     is_done = True
-
 
 def prettier_code_blocks():
     class SimpleCodeBlock(CodeBlock):
@@ -211,24 +178,22 @@ def prettier_code_blocks():
             self, console: Console, options: ConsoleOptions
         ) -> RenderResult:
             code = str(self.text).rstrip()
-            yield Text(self.lexer_name, style="dim")
+            yield Text(self.lexer_name, style='dim')
             syntax = Syntax(
                 code,
                 self.lexer_name,
                 theme=self.theme,
-                background_color="default",
-                line_numbers=True,
+                background_color='default',
+                line_numbers=True
             )
             yield syntax
-            yield Text(f"/{self.lexer_name}", style="dim")
+            yield Text(f'/{self.lexer_name}', style='dim')
 
-    Markdown.elements["fence"] = SimpleCodeBlock
-
+    Markdown.elements['fence'] = SimpleCodeBlock
 
 def main_entry():
     """Entry point for the installed CLI tool."""
     asyncio.run(main())
-
 
 if __name__ == "__main__":
     main_entry()

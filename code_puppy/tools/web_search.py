@@ -1,4 +1,4 @@
-from code_agent.agent import code_generation_agent
+from code_puppy.agent import code_generation_agent
 from typing import List, Dict
 import requests
 from bs4 import BeautifulSoup

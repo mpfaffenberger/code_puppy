@@ -1,6 +1,6 @@
 import requests
 from unittest.mock import patch
-from code_agent.tools.web_search import web_search
+from code_puppy.tools.web_search import web_search
 
 def test_web_search_success():
     query = "python testing"
@@ -23,33 +23,6 @@ def test_web_search_http_error():
             web_search(None, query)
         except requests.HTTPError:
             assert True
-import requests
-from unittest.mock import patch
-from code_agent.tools.web_search import web_search
-
-def test_web_search_success():
-    query = "python testing"
-    with patch("requests.get") as mock_get:
-        mock_response = mock_get.return_value
-        mock_response.status_code = 200
-        mock_response.text = '<div class="tF2Cxc"><h3>Test Title</h3><a href="http://example.com">Link</a></div>'
-        results = web_search(None, query)
-
-        assert len(results) == 1
-        assert results[0]['title'] == 'Test Title'
-        assert results[0]['url'] == 'http://example.com'
-
-def test_web_search_http_error():
-    query = "python testing"
-    with patch("requests.get") as mock_get:
-        mock_response = mock_get.return_value
-        mock_response.raise_for_status.side_effect = requests.HTTPError
-        try:
-            web_search(None, query)
-        except requests.HTTPError:
-            assert True
-        else:
-            assert False
 
 def test_web_search_no_results():
     query = "something_not_found"

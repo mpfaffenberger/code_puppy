@@ -1,8 +1,6 @@
-import pytest
 from unittest.mock import patch, mock_open
-from code_agent.tools.file_modifications import modify_file, delete_file
+from code_puppy.tools.file_modifications import modify_file
 
-# Clean, deduplicated file. All relevant modify_file calls receive (ctx, path, proposed, replace_content)
 def test_modify_file_append():
     with patch("os.path.exists", return_value=True), patch("os.path.isfile", return_value=True), patch("builtins.open", mock_open(read_data="Original content")) as mock_file:
         result = modify_file(None, "dummy_path", " New content", "Original content")
@@ -38,11 +36,8 @@ def test_modify_file_file_not_exist(file_exists):
                 assert "New content" in mock_file().write.call_args[0][0]
 
 def test_modify_file_file_is_directory():
-    from code_agent.tools.file_modifications import modify_file
+    from code_puppy.tools.file_modifications import modify_file
     with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=True):
         result = modify_file(None, "dummy_path", "some change", "some change")
-        # Actual code returns an error dict with 'error' key and no 'changed' key
         assert "error" in result
         assert result.get("changed") is None
-
-# The rest of the tests unchanged.

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "code-puppy"
 version = "0.0.2"
-description = "Code generation agent similar to Windsurf or Cursor"
+description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -20,7 +20,7 @@ dependencies = [
     "ruff>=0.11.11",
 ]
 authors = [
-    {name = "Windsurf Engineering Team"}
+    {name = "Michael Pfaffenberger"}
 ]
 license = {text = "MIT"}
 classifiers = [
@@ -34,16 +34,16 @@ classifiers = [
 ]
 
 [project.scripts]
-code-puppy = "code_agent.main:main_entry"
+code-puppy = "code_puppy.main:main_entry"
 
 [tool.logfire]
 ignore_no_config = true
 
 [tool.hatch.build]
-packages = ["code_agent"]
+packages = ["code_puppy"]
 [tool.pytest.ini_options]
-addopts = "--cov=code_agent --cov-report=term-missing"
+addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
 
 [tool.coverage.run]
-omit = ["code_agent/main.py"]
+omit = ["code_puppy/main.py"]

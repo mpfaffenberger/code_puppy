@@ -1,6 +1,6 @@
 import subprocess
 from unittest.mock import patch
-from code_agent.tools.command_runner import run_shell_command
+from code_puppy.tools.command_runner import run_shell_command
 
 def test_run_shell_command_timeout():
     with patch("subprocess.Popen") as mock_popen:
@@ -11,57 +11,6 @@ def test_run_shell_command_timeout():
         assert result.get("timeout")
         assert "Command timed out" in result.get("error")
         assert result.get("exit_code") is None
-import subprocess
-from unittest.mock import patch, MagicMock
-from code_agent.tools.command_runner import run_shell_command
-
-def test_run_shell_command_timeout():
-    mock_process = MagicMock()
-    mock_process.communicate.side_effect = subprocess.TimeoutExpired(cmd="cmd", timeout=1)
-    mock_process.kill = MagicMock()
-
-    with patch("subprocess.Popen", return_value=mock_process):
-        result = run_shell_command(None, "dummy_command", timeout=1)
-
-    assert result.get("timeout") is True
-    assert "Command timed out" in result.get("error")
-    assert result.get("exit_code") is None
-import subprocess
-from unittest.mock import patch, MagicMock
-from code_agent.tools.command_runner import run_shell_command
-
-def test_run_shell_command_timeout():
-    mock_process = MagicMock()
-    mock_process.communicate.side_effect = [subprocess.TimeoutExpired(cmd="cmd", timeout=1), ("stdout", "stderr")]
-    mock_process.kill = MagicMock()
-
-    with patch("subprocess.Popen", return_value=mock_process):
-        result = run_shell_command(None, "dummy_command", timeout=1)
-
-    assert result.get("timeout") is True
-    assert "Command timed out" in result.get("error")
-    assert result.get("stdout") == "stdout"
-    assert result.get("stderr") == "stderr"
-    assert result.get("exit_code") is None
-import subprocess
-from unittest.mock import patch, MagicMock
-from code_agent.tools.command_runner import run_shell_command
-
-# Existing test
-
-def test_run_shell_command_timeout():
-    mock_process = MagicMock()
-    mock_process.communicate.side_effect = subprocess.TimeoutExpired(cmd="cmd", timeout=1)
-    mock_process.kill = MagicMock()
-
-    with patch("subprocess.Popen", return_value=mock_process):
-        result = run_shell_command(None, "dummy_command", timeout=1)
-
-    assert result.get("timeout") is True
-    assert "Command timed out" in result.get("error")
-    assert result.get("exit_code") is None
-
-# New tests to increase coverage
 
 def test_run_shell_command_empty_command():
     result = run_shell_command(None, " ")
@@ -93,30 +42,3 @@ def test_run_shell_command_error():
     assert result["exit_code"] == 1
     assert result["stdout"] == ""
     assert result["stderr"] == "error"
-import subprocess
-from unittest.mock import MagicMock, patch
-from code_agent.tools.command_runner import run_shell_command
-
-
-def test_run_shell_command_timeout():
-    mock_process = MagicMock()
-    mock_process.communicate.side_effect = [
-        subprocess.TimeoutExpired(cmd="cmd", timeout=1),
-        ("", "")
-    ]
-    mock_process.kill = MagicMock()
-
-    with patch("subprocess.Popen", return_value=mock_process):
-        result = run_shell_command(None, "dummy_command", timeout=1)
-
-    assert result.get("timeout") is True
-    assert "Command timed out" in result.get("error")
-    assert result.get("exit_code") is None
-
-
-def test_run_shell_command_empty_command():
-    result = run_shell_command(None, " ")
-    assert "error" in result
-    assert result["error"] == "Command cannot be empty"
-
-

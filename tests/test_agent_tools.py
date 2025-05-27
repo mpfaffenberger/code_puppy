@@ -1,27 +1,36 @@
-from code_agent.tools.file_operations import should_ignore_path, list_files
+from unittest.mock import patch, mock_open, MagicMock
+from code_puppy.tools.file_operations import read_file, create_file
+from code_puppy.tools.command_runner import run_shell_command
+from code_puppy.tools.file_modifications import modify_file
 
 
-class FakeContext:
-    pass
+def test_read_file_nonexistent():
+    with patch('os.path.exists', return_value=False):
+        result = read_file({}, 'fake_path')
+        assert 'error' in result
+        assert "does not exist" in result['error']
 
 
-def test_list_files(tmpdir):
-    """Test listing files in a directory"""
-    temp_dir = tmpdir.mkdir("test_dir")
-    temp_file = temp_dir.join("test_file.py")
-    temp_file.write("print('hello world')")
-
-    context = FakeContext()
-    results = list_files(context=context, directory=str(temp_dir))
-
-    assert len(results) == 1
-    assert results[0]["path"] == "test_file.py"
-    assert results[0]["type"] == "file"
-    assert results[0]["size"] == len("print('hello world')")
+def test_create_file_already_exists():
+    with patch('os.path.exists', return_value=True):
+        result = create_file({}, 'existing_file.txt')
+        assert 'error' in result
+        assert "already exists" in result['error']
 
 
-def test_should_ignore_path():
-    assert should_ignore_path("temp.py") == False
-    assert should_ignore_path("/some/path/__pycache__/") == True
-    assert should_ignore_path(".gitignore") == False
-    assert should_ignore_path("/another/path/.git/") == True
+def test_modify_file_no_change():
+    with patch('os.path.isfile', return_value=True), \
+         patch('builtins.open', mock_open(read_data='same content')):
+        result = modify_file({}, 'file.txt', 'same content', 'same content')
+
+
+def test_run_shell_command_success():
+    mock_proc = MagicMock()
+    mock_proc.communicate.return_value = ('output', '')
+    mock_proc.returncode = 0
+
+    with patch('subprocess.Popen', return_value=mock_proc):
+        result = run_shell_command({}, 'echo Hello')
+        assert result
+        assert result['success']
+        assert "output" in result['stdout']

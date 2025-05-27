@@ -1,8 +1,0 @@
-{
-    "servers": {
-        "archon": {
-            "type": "sse",
-            "url": "http://localhostL8100"
-        }
-    }
-}
