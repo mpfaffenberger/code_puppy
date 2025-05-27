@@ -40,6 +40,35 @@ export YOLO_MODE=true # to bypass the safety confirmation prompt when running sh
 
 code-puppy --interactive
 ```
+Running in a super weird corporate environment? 
+
+Try this:
+```bash
+export MODEL_NAME=my-custom-model
+export YOLO_MODE=true
+export MODELS_JSON_PATH=/path/to/custom/models.json
+```
+
+```json
+{
+    "my-custom-model": {
+        "type": "custom_openai",
+        "name": "o4-mini-high",
+        "max_requests_per_minute": 100,
+        "max_retries": 3,
+        "retry_base_delay": 10,
+        "custom_endpoint": {
+            "url": "https://my.custom.endpoint:8080",
+            "headers": {
+                "X-Api-Key": "<Your_API_Key>",
+                "Some-Other-Header": "<Some_Value>"
+            },
+            "ca_certs_path": "/path/to/cert.pem"
+        }
+    }
+}
+```
+Open an issue if your environment is somehow weirder than mine.
 
 Run specific tasks or engage in interactive mode:
 
