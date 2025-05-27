@@ -1,12 +1,19 @@
 # command_runner.py
 import subprocess
 import time
+import os
 from typing import Dict, Any
 from code_puppy.tools.common import console
 from code_puppy.agent import code_generation_agent
 from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.syntax import Syntax
+
+# Environment variables used in this module:
+# - YOLO_MODE: When set to "true" (case-insensitive), bypasses the safety confirmation
+#              prompt when running shell commands. This allows commands to execute
+#              without user intervention, which can be useful for automation but
+#              introduces security risks. Default is "false".
 
 
 @code_generation_agent.tool

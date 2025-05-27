@@ -6,6 +6,13 @@ from pydantic_ai import Agent
 from code_puppy.agent_prompts import SYSTEM_PROMPT
 from code_puppy.model_factory import ModelFactory
 
+# Environment variables used in this module:
+# - MODELS_JSON_PATH: Optional path to a custom models.json configuration file.
+#                     If not set, uses the default file in the package directory.
+# - MODEL_NAME: The model to use for code generation. Defaults to "gpt-4o".
+#               Must match a key in the models.json configuration.
+
+MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH", None)
 
 class AgentResponse(pydantic.BaseModel):
     """Represents a response from the agent."""
@@ -18,12 +25,13 @@ class AgentResponse(pydantic.BaseModel):
     )
 
 
-# Get model name from environment variable, default to gemini-2.0-flash
-model_name = os.environ.get("MODEL_NAME", "gpt-4o")
-# Load models.json from the same directory as this file
-models_path = Path(__file__).parent / "models.json"
+model_name = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+if not MODELS_JSON_PATH:
+    models_path = Path(__file__).parent / "models.json"
+else:
+    models_path = Path(MODELS_JSON_PATH)
+
 model = ModelFactory.get_model(model_name, ModelFactory.load_config(models_path))
-# Create agent with tool usage explicitly enabled
 code_generation_agent = Agent(
     model=model,
     system_prompt=SYSTEM_PROMPT,

@@ -12,6 +12,14 @@ from httpx import Response
 import threading
 from collections import deque
 
+# Environment variables used in this module:
+# - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
+# - OPENAI_API_KEY: API key for OpenAI models. Required when using OpenAI models or custom_openai endpoints.
+#
+# When using custom endpoints (type: "custom_openai" in models.json):
+# - Environment variables can be referenced in header values by prefixing with $ in models.json.
+#   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
+
 
 def make_client(
     max_requests_per_minute: int = 10, max_retries: int = 3, retry_base_delay: int = 10

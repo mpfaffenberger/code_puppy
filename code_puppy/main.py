@@ -17,6 +17,8 @@ from code_puppy.command_line.prompt_toolkit_completion import (
 from code_puppy.tools.common import console
 from code_puppy.agent import code_generation_agent
 
+from code_puppy.tools import *
+
 
 # Define a function to get the secret file path
 def get_secret_file_path():
@@ -78,7 +80,8 @@ async def interactive_mode(history_file_path: str) -> None:
 
     # Check if prompt_toolkit is installed
     try:
-        
+        import prompt_toolkit
+
         console.print("[dim]Using prompt_toolkit for enhanced tab completion[/dim]")
     except ImportError:
         console.print(
