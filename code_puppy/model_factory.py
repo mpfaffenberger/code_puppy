@@ -169,10 +169,14 @@ class ModelFactory:
             for key, value in custom_config.get("headers", {}).items():
                 headers[key] = value
 
-            client = httpx.AsyncClient(headers=headers)
+            if "ca_certs_path" in custom_config:
+                ca_certs_path = custom_config.get("ca_certs_path")
+            
+            client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
+
             provider = OpenAIProvider(
                 base_url=url,
-                http_client=client
+                http_client=client,
             )
             
             return OpenAIModel(model_name=model_config["name"], provider=provider)

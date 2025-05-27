@@ -65,7 +65,8 @@
       "url": "https://my.cute.endpoint:8080",
       "headers": {
         "X-Api-Key": "$OPENAI_API_KEY"
-      }
+      },
+      "ca_certs_path": "/path/to/cert.pem"
     }
   }
 }
