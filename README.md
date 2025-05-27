@@ -1,6 +1,6 @@
 # Code Puppy
-
-![Code Puppy](code_puppy.gif)
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 
 ## Overview
 
@@ -12,26 +12,27 @@ Code Puppy is a sophisticated AI-powered code generation agent, designed to unde
 - **Interactive CLI**: A command-line interface for interactive use.
 - **Detailed explanations**: Provides insights into generated code to understand its logic and structure.
 
-## Badges
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
-
 ## Command Line Animation
-]
+
+![Code Puppy](code_puppy.gif)
+
+## Installation
+
 `pip install code-puppy`
 
 ## Usage
+```bash
+export MODEL_NAME=gpt-4.1 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
+export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
 
-### Command Line Interface
+code-puppy --interactive
+```
 
 Run specific tasks or engage in interactive mode:
 
 ```bash
 # Execute a task directly
 code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it and run it"
-
-# Enter interactive mode
-code-puppy --interactive
 ```
 
 ## Requirements
