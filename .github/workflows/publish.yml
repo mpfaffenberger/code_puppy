@@ -1,6 +1,9 @@
 # Publishes your package to PyPI using Astral/uv for builds.
 # Set PYPI_API_TOKEN in repo secrets.
 
+permissions:
+  contents: write # Allows writing to the repository
+
 name: Build and Publish to PyPI
 
 on:
@@ -11,6 +14,8 @@ on:
 jobs:
   build-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Allows writing to the repository
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,8 +30,6 @@ jobs:
 
       - name: Setup uv virtual environment
         run: uv venv
-
-
 
       - name: Bump version
         run: uv version --bump patch
