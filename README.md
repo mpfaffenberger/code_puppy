@@ -1,4 +1,4 @@
-# Code Puppy
+# 🐶 Code Puppy 🐶
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 
