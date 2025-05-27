@@ -44,3 +44,6 @@ packages = ["code_agent"]
 [tool.pytest.ini_options]
 addopts = "--cov=code_agent --cov-report=term-missing"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+omit = ["code_agent/main.py"]
