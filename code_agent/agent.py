@@ -14,7 +14,7 @@ class AgentResponse(pydantic.BaseModel):
 
 # Create agent with tool usage explicitly enabled
 code_generation_agent = Agent(
-    model='openai:gpt-4o',  # This can be any model capable of code generation
+    model='openai:gpt-4o',
     system_prompt=SYSTEM_PROMPT,
     output_type=AgentResponse,
 )

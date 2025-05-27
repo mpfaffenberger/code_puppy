@@ -1,8 +1,9 @@
 import asyncio
 import argparse
 import sys
-import os  # Add import os for file operations
+import os
 from dotenv import load_dotenv
+from pydantic_ai.messages import SystemPromptPart, ToolCallPart, ToolReturnPart
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -12,16 +13,13 @@ from rich.text import Text
 from prompt_toolkit import prompt
 from prompt_toolkit.document import Document
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.history import InMemoryHistory  # Added for history cycling
+from prompt_toolkit.history import InMemoryHistory
 import signal
-from pydantic_ai import Agent
 
 # Initialize rich console for pretty output
-# These imports need to be relative for the package structure
-from code_agent.models.codesnippet import CodeResponse
+import code_agent.tools
+from code_agent.tools.common import console
 from code_agent.agent import code_generation_agent
-from code_agent.agent_tools import console
-
 shutdown_flag = False
 
 # Function to handle shutdown signal
@@ -29,6 +27,7 @@ def handle_shutdown(signum, frame):
     global shutdown_flag
     shutdown_flag = True
     console.print("[bold red] Shutdown requested. Exiting...[/bold red]")
+    sys.exit(0)
 
 # Define a function to get the secret file path
 def get_secret_file_path():
@@ -59,13 +58,14 @@ async def main():
         # Join the list of command arguments into a single string command
         command = ' '.join(args.command)
         try:
-            response = await code_generation_agent.run(command)
-            console.print(response.output_message)
-            if response.awaiting_user_input:
-                console.print("[bold red]The agent requires further input. Interactive mode is recommended for such tasks.")
+            while not shutdown_flag:
+                response = await code_generation_agent.run(command)
+                console.print(response.output_message)
+                if response.awaiting_user_input:
+                    console.print("[bold red]The agent requires further input. Interactive mode is recommended for such tasks.")
         except AttributeError as e:
             console.print(f"[bold red]AttributeError:[/bold red] {str(e)}")
-            console.print("[bold yellow]⚠ The response might not be in the expected format, missing attributes like 'output_message'.")
+            console.print("[bold yellow]\u26a0 The response might not be in the expected format, missing attributes like 'output_message'.")
         except Exception as e:
             console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
     elif args.interactive:
@@ -120,7 +120,7 @@ async def interactive_mode(history_file_path: str) -> None:
         current_line = doc.current_line
         is_current_line_empty = not current_line.strip()
 
-        # If current line is empty and last line was also empty, and we have content, submit
+        # If current line is empty and last line was also empty and we have content, submit
         if is_current_line_empty and last_empty_line[0] and doc.text.strip():
             buffer.validate_and_handle()
             last_empty_line[0] = False
@@ -134,7 +134,7 @@ async def interactive_mode(history_file_path: str) -> None:
         task = ""
         console.print("[bold blue]Enter your coding task (multiline is supported):[/bold blue]")
 
-        task = prompt('> ', key_bindings=bindings, history=history, multiline=True, prompt_continuation=prompt_continuation, in_thread=True)  # Add history to prompt
+        task = prompt('> ', key_bindings=bindings, history=history, multiline=True, prompt_continuation=prompt_continuation, in_thread=True)
 
         if shutdown_flag:
             break
@@ -186,11 +186,10 @@ async def interactive_mode(history_file_path: str) -> None:
 
                     # Update message history with all messages from this interaction
                     message_history = result.new_messages()
-
                     if agent_response:
                         # Check if the agent needs user input
                         if agent_response.awaiting_user_input:
-                            console.print("\n[bold yellow]⚠ Agent needs your input to continue.[/bold yellow]")
+                            console.print("\n[bold yellow]\u26a0 Agent needs your input to continue.[/bold yellow]")
                             is_done = True  # Exit the loop to get user input
                         # Otherwise, auto-continue if we haven't reached the limit
                         elif auto_continue_count < max_auto_continues:
@@ -199,19 +198,18 @@ async def interactive_mode(history_file_path: str) -> None:
                             console.print("\n[yellow]Agent continuing automatically...[/yellow]")
                         else:
                             # Reached max auto-continues
-                            console.print(f"\n[bold yellow]⚠ Reached maximum of {max_auto_continues} automatic continuations.[/bold yellow]")
+                            console.print(f"\n[bold yellow]\u26a0 Reached maximum of {max_auto_continues} automatic continuations.[/bold yellow]")
                             console.print("[dim]You can enter a new request or type 'please continue' to resume.[/dim]")
-                            is_done = True  # Exit the inner loop
+                            is_done = True
 
                     # Show context status
                     console.print(f"[dim]Context: {len(message_history)} messages in history[/dim]\n")
 
                 except Exception:
                     console.print_exception(show_locals=True)
-                    is_done = True  # Exit on error
+                    is_done = True
 
 def prettier_code_blocks():
-    "Make rich code blocks prettier and easier to copy."
     class SimpleCodeBlock(CodeBlock):
         def __rich_console__(
             self, console: Console, options: ConsoleOptions
