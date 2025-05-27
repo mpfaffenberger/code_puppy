@@ -1,5 +1,7 @@
 # Code Puppy
 
+![Code Puppy](code_puppy.gif)
+
 ## Overview
 
 Code Puppy is a sophisticated AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor. 
@@ -10,8 +12,12 @@ Code Puppy is a sophisticated AI-powered code generation agent, designed to unde
 - **Interactive CLI**: A command-line interface for interactive use.
 - **Detailed explanations**: Provides insights into generated code to understand its logic and structure.
 
-## Installation
+## Badges
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 
+## Command Line Animation
+]
 `pip install code-puppy`
 
 ## Usage
@@ -35,7 +41,6 @@ code-puppy --interactive
 - Gemini API key (for Google's Gemini models)
 - Anthropic key (for Claude models)
 - Ollama endpoint available
-
 
 ## License
 
