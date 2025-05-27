@@ -16,20 +16,22 @@ This project is a sophisticated AI-powered code generation agent, designed to un
 
 ## Installation
 
+> **NOTE:** This project uses [astral-sh/uv](https://github.com/astral-sh/uv) for all dependency management and builds. Please install [uv](https://github.com/astral-sh/uv) before continuing.
+
 1. **Clone the repository**:
    ```bash
    git clone <repository_url>
    cd <repository_name>
    ```
-
 2. **Install dependencies**:
    ```bash
-   pip install -e .
-   # OR
-   pip install -r requirements.txt
+   uv pip install -e .
    ```
-
-3. **Configure environment variables**:
+3. **(optional)** If contributing, install additional development dependencies:
+   ```bash
+   uv pip install -r dev-requirements.txt  # If present
+   ```
+4. **Configure environment variables**:
    - Create an `.env` file in the root, using `.env.example` as a template, to store required API keys.
 
 ## Usage
@@ -92,12 +94,13 @@ Contributions are welcome! Please follow these steps:
 ## Requirements
 
 - Python 3.9+
+- [uv](https://github.com/astral-sh/uv) (for dependency management & builds)
 - OpenAI API key (for GPT models)
 - Optionally: Gemini API key (for Google's Gemini models)
 
 ## Troubleshooting
 
-- Ensure all dependencies are installed correctly and the environment is properly configured.
+- Ensure all dependencies are installed correctly via uv and the environment is properly configured.
 - Check that API keys are valid and not expired.
 
 ## License

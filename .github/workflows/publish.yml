@@ -1,0 +1,41 @@
+# Publishes your package to PyPI using Astral/uv for builds.
+# Set PYPI_API_TOKEN in repo secrets.
+
+name: Build and Publish to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv (astral-sh/uv)
+        run: |
+          pip install uv
+
+      - name: Install build and twine
+        run: |
+          uv pip install build twine
+
+      - name: Build package
+        run: |
+          uv pip install .
+          uv run python -m build
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          uv run twine upload dist/*
