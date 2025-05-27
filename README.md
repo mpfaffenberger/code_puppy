@@ -3,13 +3,19 @@
 ![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 
 
-"Who needs an IDE?" - someone, probably.
+*"Who needs an IDE?"* - someone, probably.
 
 ## Overview
 
 *This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.* 
 
-Code Puppy is a sophisticated AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor. 
+*You could also run 50 code puppies at once if you were insane enough.*
+
+*Would you rather plow a field with one ox or 1024 puppies?* 
+    - If you pick the ox, better slam that back button in your browser.
+    
+
+Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor. 
 
 ## Features
 
