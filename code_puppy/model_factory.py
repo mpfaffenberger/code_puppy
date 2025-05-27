@@ -147,6 +147,27 @@ class ModelFactory:
             )
 
             return OpenAIModel(model_name=model_config["name"], provider=provider)
+            
+        elif model_type == "custom_openai":
+            custom_config = model_config.get("custom_endpoint", {})
+            if not custom_config:
+                raise ValueError("Custom model requires 'custom_endpoint' configuration")
+                
+            url = custom_config.get("url")
+            if not url:
+                raise ValueError("Custom endpoint requires 'url' field")
+                
+            headers = {}
+            for key, value in custom_config.get("headers", {}).items():
+                headers[key] = value
+
+            provider = OpenAIProvider(
+                base_url=url,
+                headers=headers,
+                http_client=client
+            )
+            
+            return OpenAIModel(model_name=model_config["name"], provider=provider)
 
         else:
             raise ValueError(f"Unsupported model type: {model_type}")

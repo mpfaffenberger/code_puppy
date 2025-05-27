@@ -54,5 +54,18 @@
     "max_requests_per_minute": 100,
     "max_retries": 3,
     "retry_base_delay": 10
+  },
+  "gpt-4o-custom": {
+    "type": "custom_openai",
+    "name": "gpt-4o",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 10,
+    "custom_endpoint": {
+      "url": "https://my.cute.endpoint:8080",
+      "headers": {
+        "X-Api-Key": "$OPENAI_API_KEY"
+      }
+    }
   }
 }
