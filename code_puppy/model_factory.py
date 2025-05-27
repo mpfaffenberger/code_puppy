@@ -144,14 +144,14 @@ class ModelFactory:
 
         if model_type == "gemini":
             provider = GoogleGLAProvider(
-                api_key=os.environ.get("GEMINI_API_KEY", ""), http_client=client
+                api_key=os.environ.get("GEMINI_API_KEY", "")
             )
 
             return GeminiModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "openai":
             provider = OpenAIProvider(
-                api_key=os.environ.get("OPENAI_API_KEY", ""), http_client=client
+                api_key=os.environ.get("OPENAI_API_KEY", "")
             )
 
             return OpenAIModel(model_name=model_config["name"], provider=provider)
