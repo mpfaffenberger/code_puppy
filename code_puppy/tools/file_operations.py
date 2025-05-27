@@ -176,9 +176,7 @@ def list_files(
     # Display tree structure
     if results:
         # Sort directories and files
-        directories = sorted(
-            [d for d in results if d["type"] == "directory"], key=lambda x: x["path"]
-        )
+        
         files = sorted(
             [f for f in results if f["type"] == "file"], key=lambda x: x["path"]
         )
@@ -188,11 +186,10 @@ def list_files(
             f"📁 [bold blue]{os.path.basename(directory) or directory}[/bold blue]"
         )
 
-# After gathering all results
+    # After gathering all results
     # Combine both directories and files, then sort
-    all_items = sorted(results, key=lambda x: x['path'])
+    all_items = sorted(results, key=lambda x: x["path"])
 
-    current_depth = 0
     parent_dirs_with_content = set()
 
     for i, item in enumerate(all_items):
@@ -292,12 +289,8 @@ def create_file(
 
 
 @code_generation_agent.tool
-def read_file(
-    context: RunContext, file_path: str
-) -> Dict[str, Any]:
-    console.log(
-        f"📄 Reading [bold cyan]{file_path}[/bold cyan]"
-    )
+def read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+    console.log(f"📄 Reading [bold cyan]{file_path}[/bold cyan]")
     """Read the contents of a file.
     
     Args:

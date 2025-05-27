@@ -1,0 +1,58 @@
+{
+  "gemini-2.5-flash-preview-05-20": {
+    "type": "gemini",
+    "name": "gemini-2.5-flash-preview-05-20",
+    "max_requests_per_minute": 10,
+    "max_retries": 3,
+    "retry_base_delay": 10
+  },
+  "gemini-2.0-flash": {
+    "type": "gemini",
+    "name": "gemini-2.0-flash",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 10
+  },
+  "gpt-4o": {
+    "type": "openai",
+    "name": "gpt-4o",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 10
+  },
+  "gpt-4o-mini": {
+    "type": "openai",
+    "name": "gpt-4o-mini",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 10
+  },
+  "gpt-4.1": {
+    "type": "openai",
+    "name": "gpt-4.1",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 10
+  },
+  "gpt-4.1-mini": {
+    "type": "openai",
+    "name": "gpt-4.1-mini",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 10
+  },
+  "gpt-4.1-nano": {
+    "type": "openai",
+    "name": "gpt-4.1-nano",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 10
+  },
+  "o3-mini": {
+    "type": "openai",
+    "name": "o3-mini",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 10
+  }
+}

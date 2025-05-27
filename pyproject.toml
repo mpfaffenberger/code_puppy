@@ -7,7 +7,7 @@ name = "code-puppy"
 version = "0.0.2"
 description = "Code generation agent"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "pydantic-ai>=0.1.0",
     "httpx>=0.24.1",
@@ -18,6 +18,8 @@ dependencies = [
     "bs4>=0.0.2",
     "pytest-cov>=6.1.1",
     "ruff>=0.11.11",
+    "httpx-limiter>=0.3.0",
+    "prompt-toolkit>=3.0.38",
 ]
 authors = [
     {name = "Michael Pfaffenberger"}
@@ -41,6 +43,13 @@ ignore_no_config = true
 
 [tool.hatch.build]
 packages = ["code_puppy"]
+build_data = true
+
+[tool.hatch.build.targets.wheel.shared-data]
+"code_puppy/models.json" = "code_puppy/models.json"
+
+[[tool.hatch.build.targets.sdist.include]]
+path = "code_puppy/models.json"
 [tool.pytest.ini_options]
 addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
