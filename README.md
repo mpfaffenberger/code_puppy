@@ -2,7 +2,12 @@
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 
+
+"Who needs an IDE?" - someone, probably.
+
 ## Overview
+
+*This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.* 
 
 Code Puppy is a sophisticated AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor. 
 
@@ -24,6 +29,7 @@ Code Puppy is a sophisticated AI-powered code generation agent, designed to unde
 ```bash
 export MODEL_NAME=gpt-4.1 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
 export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
+export YOLO_MODE=true # to bypass the safety confirmation prompt when running shell commands
 
 code-puppy --interactive
 ```
