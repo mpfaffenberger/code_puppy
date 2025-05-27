@@ -277,6 +277,8 @@ def create_file(
     # Create the file
     try:
         with open(file_path, "w", encoding="utf-8") as f:
+            console.print("[yellow]Writing to file:[/yellow]")
+            console.print(content)
             f.write(content)
 
         return {
