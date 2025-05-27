@@ -169,9 +169,9 @@ class ModelFactory:
             for key, value in custom_config.get("headers", {}).items():
                 headers[key] = value
 
+            client = httpx.AsyncClient(headers=headers)
             provider = OpenAIProvider(
                 base_url=url,
-                headers=headers,
                 http_client=client
             )
             
