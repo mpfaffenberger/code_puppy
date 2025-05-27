@@ -1,3 +1,5 @@
+import pytest
+
 from unittest.mock import patch, mock_open
 from code_puppy.tools.file_modifications import modify_file
 

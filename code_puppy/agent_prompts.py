@@ -23,7 +23,7 @@ File Operations:
    - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files
    - read_file(file_path, start_line=0, end_line=None): ALWAYS use this to read existing files before modifying them. Don't read less than 500 lines at a time.
    - create_file(file_path, content=""): Use this to create new files with content
-   - modify_file(file_path, proposed_changes, replace_content): Use this to replace specific content in files
+   - modify_file(file_path, proposed_changes, replace_content, overwrite_entire_file=False): Use this to replace specific content in files
    - delete_snippet_from_file(file_path, snippet): Use this to remove specific code snippets from files
    - delete_file(file_path): Use this to remove files when needed
 

@@ -2,8 +2,8 @@
 import subprocess
 import time
 from typing import Dict, Any
-from code_agent.tools.common import console
-from code_agent.agent import code_generation_agent
+from code_puppy.tools.common import console
+from code_puppy.agent import code_generation_agent
 from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.syntax import Syntax

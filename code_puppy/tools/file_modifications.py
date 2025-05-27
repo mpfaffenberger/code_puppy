@@ -1,17 +1,17 @@
 # file_modifications.py
 import os
 import difflib
-from code_agent.tools.common import console
+from code_puppy.tools.common import console
 from typing import Dict, Any, Optional
-from code_agent.agent import code_generation_agent
+from code_puppy.agent import code_generation_agent
 from pydantic_ai import RunContext
 
 
 import os
 import difflib
-from code_agent.tools.common import console
+from code_puppy.tools.common import console
 from typing import Dict, Any, Optional
-from code_agent.agent import code_generation_agent
+from code_puppy.agent import code_generation_agent
 from pydantic_ai import RunContext
 
 @code_generation_agent.tool

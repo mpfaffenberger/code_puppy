@@ -129,48 +129,36 @@ async def interactive_mode(history_file_path: str) -> None:
             max_auto_continues = 10
             is_done = False
 
-            while not is_done and auto_continue_count <= max_auto_continues:
-                try:
-                    prettier_code_blocks()
+            # Counter for consecutive auto-continue invocations
+            auto_continue_count = 0
+            max_auto_continues = 10
+            is_done = False
 
-                    # Only show "asking" message for initial query or if not auto-continuing
-                    if auto_continue_count == 0:
-                        console.log(f'Asking: {task}...', style='cyan')
-                    else:
-                        console.log(f'Auto-continuing ({auto_continue_count}/{max_auto_continues})...', style='cyan')
+            try:
+                prettier_code_blocks()
 
-                    # Store agent's full response
-                    agent_response = None
+                console.log(f'Asking: {task}...', style='cyan')
 
-                    result = await code_generation_agent.run(task, message_history=message_history)
-                    # Get the structured response
-                    agent_response = result.output
-                    console.print(agent_response.output_message)
+                # Store agent's full response
+                agent_response = None
 
-                    # Update message history with all messages from this interaction
-                    message_history = result.new_messages()
-                    if agent_response:
-                        # Check if the agent needs user input
-                        if agent_response.awaiting_user_input:
-                            console.print("\n[bold yellow]\u26a0 Agent needs your input to continue.[/bold yellow]")
-                            is_done = True  # Exit the loop to get user input
-                        # Otherwise, auto-continue if we haven't reached the limit
-                        elif auto_continue_count < max_auto_continues:
-                            auto_continue_count += 1
-                            task = "please continue"
-                            console.print("\n[yellow]Agent continuing automatically...[/yellow]")
-                        else:
-                            # Reached max auto-continues
-                            console.print(f"\n[bold yellow]\u26a0 Reached maximum of {max_auto_continues} automatic continuations.[/bold yellow]")
-                            console.print("[dim]You can enter a new request or type 'please continue' to resume.[/dim]")
-                            is_done = True
+                result = await code_generation_agent.run(task, message_history=message_history)
+                # Get the structured response
+                agent_response = result.output
+                console.print(agent_response.output_message)
 
-                    # Show context status
-                    console.print(f"[dim]Context: {len(message_history)} messages in history[/dim]\n")
+                # Update message history with all messages from this interaction
+                message_history = result.new_messages()
 
-                except Exception:
-                    console.print_exception(show_locals=True)
-                    is_done = True
+                if agent_response and agent_response.awaiting_user_input:
+                    console.print("\n[bold yellow]\u26a0 Agent needs your input to continue.[/bold yellow]")
+
+                # Show context status
+                console.print(f"[dim]Context: {len(message_history)} messages in history[/dim]\n")
+
+            except Exception:
+                console.print_exception(show_locals=True)
+                is_done = True
 
 def prettier_code_blocks():
     class SimpleCodeBlock(CodeBlock):

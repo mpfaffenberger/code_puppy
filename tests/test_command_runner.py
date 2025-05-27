@@ -1,15 +1,20 @@
 import subprocess
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from code_puppy.tools.command_runner import run_shell_command
 
 def test_run_shell_command_timeout():
     with patch("subprocess.Popen") as mock_popen:
         mock_process = mock_popen.return_value
-        mock_process.communicate.side_effect = subprocess.TimeoutExpired("cmd", 60)
+        # When communicate is called with timeout param, raise TimeoutExpired
+        def communicate_side_effect(*args, **kwargs):
+            if 'timeout' in kwargs:
+                raise subprocess.TimeoutExpired(cmd="dummy_command", timeout=1)
+            return ("", "")
+        mock_process.communicate.side_effect = communicate_side_effect
         mock_process.kill.side_effect = lambda: None
         result = run_shell_command(None, "dummy_command", timeout=1)
-        assert result.get("timeout")
-        assert "Command timed out" in result.get("error")
+        assert result.get("timeout") is True
+        assert "timed out" in result.get("error")
         assert result.get("exit_code") is None
 
 def test_run_shell_command_empty_command():

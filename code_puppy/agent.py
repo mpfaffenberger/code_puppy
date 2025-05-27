@@ -1,7 +1,7 @@
 import os
 import pydantic
 from pydantic_ai import Agent
-from code_agent.agent_prompts import SYSTEM_PROMPT
+from code_puppy.agent_prompts import SYSTEM_PROMPT
 
 # Check if we have a valid API key
 api_key = os.environ.get("OPENAI_API_KEY", "")
