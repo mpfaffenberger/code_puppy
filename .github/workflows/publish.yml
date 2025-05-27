@@ -5,8 +5,8 @@ name: Build and Publish to PyPI
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
 
 jobs:
   build-publish:
@@ -21,12 +21,13 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv (astral-sh/uv)
-        run: |
-          pip install uv
+        run: pip install uv
 
       - name: Install build and twine
-        run: |
-          uv pip install build twine
+        run: uv pip install build twine
+
+      - name: Bump version
+        run: uv version --bump patch
 
       - name: Build package
         run: |
@@ -37,5 +38,15 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv run twine upload dist/*
+
+      - name: Push version bump to GitHub
+        if: ${{ success() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          uv run twine upload dist/*
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .
+          git commit -m "chore: bump version [ci skip]" || echo "No changes to commit"
+          git push
