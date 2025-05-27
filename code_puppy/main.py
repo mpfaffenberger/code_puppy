@@ -123,7 +123,7 @@ async def interactive_mode(history_file_path: str) -> None:
             try:
                 # Use the async version of get_input_with_path_completion
                 task = await get_input_with_path_completion(
-                    ">>> ", symbol="@", history_file=history_file_path_prompt
+                    ">>> 🐶 ", symbol="@", history_file=history_file_path_prompt
                 )
             except ImportError:
                 # Fall back to basic input if prompt_toolkit is not available
