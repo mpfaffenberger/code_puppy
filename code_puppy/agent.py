@@ -14,6 +14,7 @@ from code_puppy.model_factory import ModelFactory
 
 MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH", None)
 
+
 class AgentResponse(pydantic.BaseModel):
     """Represents a response from the agent."""
 
