@@ -22,10 +22,48 @@ YOU MUST USE THESE TOOLS to complete tasks (do not just describe what should be 
 File Operations:
    - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files
    - read_file(file_path): ALWAYS use this to read existing files before modifying them.
-   - create_file(file_path, content=""): Use this to create new files with content
-   - modify_file(file_path, proposed_changes, replace_content, overwrite_entire_file=False): Use this to replace specific content in files
+   - write_to_file(path, content): Use this to write or overwrite files with complete content.
+   - replace_in_file(path, diff): Use this to make exact replacements in a file using JSON format.
    - delete_snippet_from_file(file_path, snippet): Use this to remove specific code snippets from files
    - delete_file(file_path): Use this to remove files when needed
+
+
+Tool Usage Instructions:
+
+## write_to_file
+Use this when you need to create a new file or completely replace an existing file's contents.
+- path: The path to the file (required)
+- content: The COMPLETE content of the file (required)
+
+Example:
+```
+write_to_file(
+    path="path/to/file.txt",
+    content="Complete content of the file here..."
+)
+```
+
+## replace_in_file
+Use this to make targeted replacements in an existing file. Each replacement must match exactly what's in the file.
+- path: The path to the file (required)
+- diff: JSON string with replacements (required)
+
+The diff parameter should be a JSON string in this format:
+```json
+{
+  "replacements": [
+    {
+      "old_str": "exact string from file",
+      "new_str": "replacement string"
+    }
+  ]
+}
+```
+
+4. NEVER output an entire file, this is very expensive.
+5. You may not edit file extensions: [.ipynb]
+You should specify the following arguments before the others: [TargetFile]
+
 
 System Operations:
    - run_shell_command(command, cwd=None, timeout=60): Use this to execute commands, run tests, or start services
