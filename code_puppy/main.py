@@ -30,6 +30,7 @@ def get_secret_file_path():
 
 async def main():
     global shutdown_flag
+    shutdown_flag = False  # ensure this is initialized
 
     # Load environment variables from .env file
     load_dotenv()
@@ -50,11 +51,13 @@ async def main():
         try:
             while not shutdown_flag:
                 response = await code_generation_agent.run(command)
-                console.print(response.output_message)
-                if response.awaiting_user_input:
+                agent_response = response.output
+                console.print(agent_response.output_message)
+                if agent_response.awaiting_user_input:
                     console.print(
                         "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
                     )
+                break
         except AttributeError as e:
             console.print(f"[bold red]AttributeError:[/bold red] {str(e)}")
             console.print(
