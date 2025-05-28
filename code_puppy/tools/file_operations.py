@@ -176,7 +176,7 @@ def list_files(
     # Display tree structure
     if results:
         # Sort directories and files
-        
+
         files = sorted(
             [f for f in results if f["type"] == "file"], key=lambda x: x["path"]
         )

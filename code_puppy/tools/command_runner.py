@@ -41,8 +41,6 @@ def run_shell_command(
         console.print(f"[dim]Working directory: {cwd}[/dim]")
     console.print("[dim]" + "-" * 60 + "[/dim]")
 
-    import os
-
     # Check for YOLO_MODE environment variable to bypass safety check
     yolo_mode = os.getenv("YOLO_MODE", "false").lower() == "true"
 

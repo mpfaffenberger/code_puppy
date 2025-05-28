@@ -3,9 +3,10 @@ import os
 import difflib
 import json
 from code_puppy.tools.common import console
-from typing import Dict, Any, List
+from typing import Dict, Any
 from code_puppy.agent import code_generation_agent
 from pydantic_ai import RunContext
+
 
 @code_generation_agent.tool
 def delete_snippet_from_file(
@@ -112,44 +113,40 @@ def delete_snippet_from_file(
 
 
 @code_generation_agent.tool
-def write_to_file(
-    context: RunContext,
-    path: str, 
-    content: str
-) -> Dict[str, Any]:
+def write_to_file(context: RunContext, path: str, content: str) -> Dict[str, Any]:
     """Write content to a file at the specified path.
-    
+
     If the file exists, it will be overwritten with the provided content.
     If the file doesn't exist, it will be created.
     This function will automatically create any directories needed to write the file.
-    
+
     Args:
         path: The path of the file to write to (relative to the current working directory)
         content: The content to write to the file. ALWAYS provide the COMPLETE intended content of the file.
-        
+
     Returns:
         A dictionary with status and message about the operation.
     """
     try:
         # Convert to absolute path if not already
         file_path = os.path.abspath(path)
-        
+
         # Create directories if they don't exist
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        
+
         # Display information
         console.print("\n[bold white on blue] FILE WRITE [/bold white on blue]")
         console.print(f"[bold yellow]Writing to:[/bold yellow] {file_path}")
-        
+
         # Check if file exists
         file_exists = os.path.exists(file_path)
-        
+
         # Create a diff if the file exists
         diff_text = ""
         if file_exists and os.path.isfile(file_path):
             with open(file_path, "r", encoding="utf-8") as f:
                 current_content = f.read()
-                
+
             # Generate diff for display
             diff_lines = list(
                 difflib.unified_diff(
@@ -161,7 +158,7 @@ def write_to_file(
                 )
             )
             diff_text = "".join(diff_lines)
-            
+
             # Display the diff
             if diff_text.strip():
                 console.print("[bold cyan]Changes to be applied:[/bold cyan]")
@@ -177,12 +174,14 @@ def write_to_file(
                         formatted_diff += line
                 console.print(formatted_diff)
             else:
-                console.print("[dim]No changes detected - file content is identical[/dim]")
-        
+                console.print(
+                    "[dim]No changes detected - file content is identical[/dim]"
+                )
+
         # Write the content to the file
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
-        
+
         action = "updated" if file_exists else "created"
         return {
             "success": True,
@@ -191,81 +190,89 @@ def write_to_file(
             "diff": diff_text,
             "changed": True,
         }
-    
+
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {str(e)}")
         return {"error": f"Error writing to file '{path}': {str(e)}"}
 
 
 @code_generation_agent.tool
-def replace_in_file(
-    context: RunContext,
-    path: str, 
-    diff: str
-) -> Dict[str, Any]:
+def replace_in_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
     """Replace text in a file based on a JSON-formatted replacements object.
-    
+
     Args:
         path: The path of the file to modify
         diff: A JSON string containing replacements, formatted as:
               {"replacements": [{"old_str": "text to find", "new_str": "replacement"}]}
-              
+
     Returns:
         A dictionary with status and message about the operation.
     """
     try:
         # Convert to absolute path if not already
         file_path = os.path.abspath(path)
-        
+
         # Display information
-        console.print("\n[bold white on yellow] FILE REPLACEMENTS [/bold white on yellow]")
+        console.print(
+            "\n[bold white on yellow] FILE REPLACEMENTS [/bold white on yellow]"
+        )
         console.print(f"[bold yellow]Modifying:[/bold yellow] {file_path}")
-        
+
         # Check if the file exists
         if not os.path.exists(file_path):
-            console.print(f"[bold red]Error:[/bold red] File '{file_path}' does not exist")
+            console.print(
+                f"[bold red]Error:[/bold red] File '{file_path}' does not exist"
+            )
             return {"error": f"File '{file_path}' does not exist"}
-            
+
         if not os.path.isfile(file_path):
             console.print(f"[bold red]Error:[/bold red] '{file_path}' is not a file")
             return {"error": f"'{file_path}' is not a file."}
-        
+
         # Parse the JSON replacements
         try:
             replacements_data = json.loads(diff)
             replacements = replacements_data.get("replacements", [])
-            
+
             if not replacements:
-                console.print("[bold red]Error:[/bold red] No replacements provided in the diff")
+                console.print(
+                    "[bold red]Error:[/bold red] No replacements provided in the diff"
+                )
                 return {"error": "No replacements provided in the diff"}
         except json.JSONDecodeError as e:
             console.print(f"[bold red]Error:[/bold red] Invalid JSON in diff: {str(e)}")
             return {"error": f"Invalid JSON in diff: {str(e)}"}
-        
+
         # Read the current file content
         with open(file_path, "r", encoding="utf-8") as f:
             current_content = f.read()
-        
+
         # Apply all replacements
         modified_content = current_content
         applied_replacements = []
-        
+
         for i, replacement in enumerate(replacements, 1):
             old_str = replacement.get("old_str", "")
             new_str = replacement.get("new_str", "")
-            
+
             if not old_str:
-                console.print(f"[bold yellow]Warning:[/bold yellow] Replacement #{i} has empty old_str")
+                console.print(
+                    f"[bold yellow]Warning:[/bold yellow] Replacement #{i} has empty old_str"
+                )
                 continue
-                
+
             if old_str not in modified_content:
-                console.print(f"[bold red]Error:[/bold red] Text not found in file: {old_str[:50]}...")
-                return {"error": f"Text to replace not found in file (replacement #{i})"}
-            
+                console.print(
+                    f"[bold red]Error:[/bold red] Text not found in file: {old_str[:50]}..."
+                )
+                return {
+                    "error": f"Text to replace not found in file (replacement #{i})"
+                }
+
             # Apply the replacement
             modified_content = modified_content.replace(old_str, new_str)
             applied_replacements.append({"old_str": old_str, "new_str": new_str})
-        
+
         # Generate a diff for display
         diff_lines = list(
             difflib.unified_diff(
@@ -277,7 +284,7 @@ def replace_in_file(
             )
         )
         diff_text = "".join(diff_lines)
-        
+
         # Display the diff
         console.print("[bold cyan]Changes to be applied:[/bold cyan]")
         if diff_text.strip():
@@ -301,20 +308,20 @@ def replace_in_file(
                 "diff": "",
                 "changed": False,
             }
-        
+
         # Write the modified content to the file
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(modified_content)
-        
+
         return {
             "success": True,
             "path": file_path,
             "message": f"Applied {len(applied_replacements)} replacements to '{file_path}'",
             "diff": diff_text,
             "changed": True,
-            "replacements_applied": len(applied_replacements)
+            "replacements_applied": len(applied_replacements),
         }
-    
+
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {str(e)}")
         return {"error": f"Error replacing in file '{path}': {str(e)}"}

@@ -144,28 +144,26 @@ class ModelFactory:
         )
 
         if model_type == "gemini":
-            provider = GoogleGLAProvider(
-                api_key=os.environ.get("GEMINI_API_KEY", "")
-            )
+            provider = GoogleGLAProvider(api_key=os.environ.get("GEMINI_API_KEY", ""))
 
             return GeminiModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "openai":
-            provider = OpenAIProvider(
-                api_key=os.environ.get("OPENAI_API_KEY", "")
-            )
+            provider = OpenAIProvider(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
             return OpenAIModel(model_name=model_config["name"], provider=provider)
-            
+
         elif model_type == "custom_openai":
             custom_config = model_config.get("custom_endpoint", {})
             if not custom_config:
-                raise ValueError("Custom model requires 'custom_endpoint' configuration")
-                
+                raise ValueError(
+                    "Custom model requires 'custom_endpoint' configuration"
+                )
+
             url = custom_config.get("url")
             if not url:
                 raise ValueError("Custom endpoint requires 'url' field")
-                
+
             headers = {}
             for key, value in custom_config.get("headers", {}).items():
                 if value.startswith("$"):
@@ -175,7 +173,7 @@ class ModelFactory:
             ca_certs_path = None
             if "ca_certs_path" in custom_config:
                 ca_certs_path = custom_config.get("ca_certs_path")
-            
+
             client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
 
             provider_args = dict(
@@ -184,11 +182,13 @@ class ModelFactory:
             )
             if "api_key" in custom_config:
                 if custom_config["api_key"].startswith("$"):
-                    provider_args["api_key"] = os.environ.get(custom_config["api_key"][1:])
+                    provider_args["api_key"] = os.environ.get(
+                        custom_config["api_key"][1:]
+                    )
                 else:
                     provider_args["api_key"] = custom_config["api_key"]
             provider = OpenAIProvider(**provider_args)
-            
+
             return OpenAIModel(model_name=model_config["name"], provider=provider)
 
         else:
