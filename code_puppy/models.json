@@ -68,5 +68,26 @@
       },
       "ca_certs_path": "/path/to/cert.pem"
     }
+  },
+  "ollama-llama3.3": {
+    "type": "custom_openai",
+    "name": "llama3.3",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 5,
+    "custom_endpoint": {
+      "url": "http://localhost:11434/v1"
+    }
+  },
+  "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
+    "type": "custom_openai",
+    "name": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 5,
+    "custom_endpoint": {
+      "url": "https://api.together.xyz/v1",
+      "api_key": "$TOGETHER_API_KEY"
+    }
   }
 }

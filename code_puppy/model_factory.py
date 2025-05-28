@@ -15,6 +15,7 @@ from collections import deque
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
 # - OPENAI_API_KEY: API key for OpenAI models. Required when using OpenAI models or custom_openai endpoints.
+# - TOGETHER_AI_KEY: API key for Together AI models. Required when using Together AI models.
 #
 # When using custom endpoints (type: "custom_openai" in models.json):
 # - Environment variables can be referenced in header values by prefixing with $ in models.json.
@@ -167,17 +168,26 @@ class ModelFactory:
                 
             headers = {}
             for key, value in custom_config.get("headers", {}).items():
+                if value.startswith("$"):
+                    value = os.environ.get(value[1:])
                 headers[key] = value
 
+            ca_certs_path = None
             if "ca_certs_path" in custom_config:
                 ca_certs_path = custom_config.get("ca_certs_path")
             
             client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
 
-            provider = OpenAIProvider(
+            provider_args = dict(
                 base_url=url,
                 http_client=client,
             )
+            if "api_key" in custom_config:
+                if custom_config["api_key"].startswith("$"):
+                    provider_args["api_key"] = os.environ.get(custom_config["api_key"][1:])
+                else:
+                    provider_args["api_key"] = custom_config["api_key"]
+            provider = OpenAIProvider(**provider_args)
             
             return OpenAIModel(model_name=model_config["name"], provider=provider)
 
