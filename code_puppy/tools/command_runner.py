@@ -158,8 +158,8 @@ def run_shell_command(
             return {
                 "success": False,
                 "command": command,
-                "stdout": stdout,
-                "stderr": stderr,
+                "stdout": stdout[-1000:],
+                "stderr": stderr[-1000:],
                 "exit_code": None,  # No exit code since the process was killed
                 "execution_time": execution_time,
                 "timeout": True,
