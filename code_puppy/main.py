@@ -33,6 +33,8 @@ def get_secret_file_path():
 async def main():
     current_version = __version__
     latest_version = fetch_latest_version('code-puppy')
+    console.print(f'Current version: {current_version}')
+    console.print(f'Latest version: {latest_version}')
     if latest_version and latest_version != current_version:
         console.print(f'[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]')
         console.print('[bold green]Please consider updating![/bold green]')
