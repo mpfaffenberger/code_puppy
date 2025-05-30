@@ -32,7 +32,7 @@ jobs:
         run: uv venv
 
       - name: Bump version
-        run: python3 code_puppy/tools/version_bump.py; uv version --bump patch
+        run: uv version --bump patch
 
       - name: Build package
         run: |
