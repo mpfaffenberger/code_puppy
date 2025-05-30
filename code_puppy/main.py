@@ -2,6 +2,7 @@ import asyncio
 import argparse
 import os
 from code_puppy.version_checker import fetch_latest_version
+from code_puppy import __version__
 import sys
 from dotenv import load_dotenv
 from rich.console import Console
