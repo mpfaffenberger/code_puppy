@@ -88,3 +88,23 @@ code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Puppy Rules
+Puppy rules allow you to define and enforce coding standards and styles that your code should comply with. These rules can cover various aspects such as formatting, naming conventions, and even design guidelines.
+
+### Example of a Puppy Rule
+For instance, if you want to ensure that your application follows a specific design guideline, like using a dark mode theme with teal accents, you can define a puppy rule like this:
+
+```plaintext
+# Puppy Rule: Dark Mode with Teal Accents
+
+  - theme: dark
+  - accent-color: teal
+  - background-color: #121212
+  - text-color: #e0e0e0
+
+Ensure that all components follow these color schemes to promote consistency in design.
+```
+
+## Conclusion
+By using Code Puppy, you can maintain code quality and adhere to design guidelines with ease.

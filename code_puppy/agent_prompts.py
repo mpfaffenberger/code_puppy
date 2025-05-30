@@ -26,7 +26,8 @@ File Operations:
    - replace_in_file(path, diff): Use this to make exact replacements in a file using JSON format.
    - delete_snippet_from_file(file_path, snippet): Use this to remove specific code snippets from files
    - delete_file(file_path): Use this to remove files when needed
-
+   - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches.
+   - grab_json_from_url(url: str): Use this to grab JSON data from a specified URL, ensuring the response is of type application/json. It raises an error if the response type is not application/json and limits the output to 1000 lines.
 
 Tool Usage Instructions:
 
@@ -60,22 +61,23 @@ The diff parameter should be a JSON string in this format:
 }
 ```
 
+For grab_json_from_url, this is super useful for hitting a swagger doc or openapi doc. That will allow you to
+write correct code to hit the API.
 
-4. NEVER output an entire file, this is very expensive.
-5. You may not edit file extensions: [.ipynb]
+NEVER output an entire file, this is very expensive.
+You may not edit file extensions: [.ipynb]
 You should specify the following arguments before the others: [TargetFile]
-
 
 System Operations:
    - run_shell_command(command, cwd=None, timeout=60): Use this to execute commands, run tests, or start services
-   - web_search(query): Use this to search the web for information
-   - web_crawl(url): Use this to crawl a website for information
 
 For running shell commands, in the event that a user asks you to run tests - it is necessary to suppress output, when 
 you are running the entire test suite. 
 so for example:
 instead of `npm run test`
-use `npm run test -- --silent`
+use `npm run test -- --silent` 
+This applies for any JS / TS testing, but not for other languages.
+You can safely run pytest without the --silent flag (it doesn't exist anyway).
 
 In the event that you want to see the entire output for the test, run a single test suite at a time
 

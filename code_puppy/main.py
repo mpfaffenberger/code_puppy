@@ -1,6 +1,7 @@
 import asyncio
 import argparse
 import os
+from code_puppy.tools.version_checker import fetch_latest_version
 import sys
 from dotenv import load_dotenv
 from rich.console import Console
@@ -29,6 +30,11 @@ def get_secret_file_path():
 
 
 async def main():
+    current_version = __version__
+    latest_version = fetch_latest_version('code-puppy')
+    if latest_version and latest_version != current_version:
+        console.print(f'[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]')
+        console.print('[bold green]Please consider updating![/bold green]')
     global shutdown_flag
     shutdown_flag = False  # ensure this is initialized
 
