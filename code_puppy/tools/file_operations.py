@@ -325,3 +325,40 @@ def read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
         return {"error": f"Cannot read '{file_path}' as text - it may be a binary file"}
     except Exception as e:
         return {"error": f"Error reading file '{file_path}': {str(e)}"}
+
+
+@code_generation_agent.tool
+def grep(
+    context: RunContext, search_string: str, directory: str = "."
+) -> List[Dict[str, Any]]:
+    """Recursively search for a string in files starting from a given directory.
+
+    Args:
+        search_string: The string to search for.
+        directory: The directory to start the search from.
+
+    Returns:
+        A list of dictionaries containing file paths and line numbers where matches occur.
+    """
+    matches = []
+    max_matches = 200
+    directory = os.path.abspath(directory)
+
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if should_ignore_path(file_path):
+                continue
+
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    for line_number, line in enumerate(f, start=1):
+                        if search_string in line:
+                            matches.append({"file_path": file_path, "line_number": line_number})
+                            if len(matches) >= max_matches:
+                                return matches
+            except (FileNotFoundError, PermissionError, UnicodeDecodeError):
+                # Skip files that can't be accessed or are not text files
+                continue
+
+    return matches
