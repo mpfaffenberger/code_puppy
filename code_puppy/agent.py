@@ -45,6 +45,7 @@ if PUPPY_RULES:
 
 code_generation_agent = Agent(
     model=model,
-    system_prompt=SYSTEM_PROMPT,
+    instructions=SYSTEM_PROMPT,
     output_type=AgentResponse,
+    retries=3,
 )
