@@ -192,7 +192,7 @@ class ModelFactory:
                 base_url=url,
                 http_client=client,
             )
-            provider = AnthropicProvider(client=anthropic_client)
+            provider = AnthropicProvider(anthropic_client=anthropic_client)
 
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
