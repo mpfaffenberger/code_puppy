@@ -7,6 +7,8 @@ from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.anthropic import AnthropicProvider
+from anthropic import AsyncAnthropic
 import httpx
 from httpx import Response
 import threading
@@ -186,7 +188,7 @@ class ModelFactory:
         elif model_type == "custom_anthropic":
             url, headers, ca_certs_path, api_key = get_custom_config(model_config)
             client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
-            anthropic_client = AnthropicClient(
+            anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
             )
