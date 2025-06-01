@@ -170,7 +170,7 @@ def write_to_file(
             "success": True,
             "path": file_path,
             "message": f"File '{file_path}' {action} successfully.",
-            "diff": diff_text,
+            "diff": trimmed_content,
             "changed": True,
         }
     
@@ -179,7 +179,7 @@ def write_to_file(
         return {"error": f"Error writing to file '{path}': {str(e)}"}
 
 
-@code_generation_agent.tool
+@code_generation_agent.tool(retries=5)
 def replace_in_file(
     context: RunContext,
     path: str, 
