@@ -153,6 +153,20 @@ class ModelFactory:
 
             return OpenAIModel(model_name=model_config["name"], provider=provider)
 
+        elif model_type == "custom_anthropic":
+            api_key = os.environ.get("ANTHROPIC_API_KEY", None)
+            if "api_key" in custom_config:
+                if custom_config["api_key"].startswith("$"):
+                    api_key = os.environ.get(custom_config["api_key"][1:])
+                else:
+                    api_key = custom_config["api_key"]
+            if not api_key:
+                raise ValueError("Custom anthropic model requires 'api_key' configuration")
+            os.environ["ANTHROPIC_BASE_URL"] = custom_config.get("url", "https://api.anthropic.com")
+            provider = AnthropicProvider(api_key = api_key)
+
+            return AnthropicModel(model_name=model_config["name"], provider=provider)
+
         elif model_type == "custom_openai":
             custom_config = model_config.get("custom_endpoint", {})
             if not custom_config:
