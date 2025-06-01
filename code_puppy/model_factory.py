@@ -114,6 +114,36 @@ def make_client(
     return client
 
 
+def get_custom_config(model_config):
+    custom_config = model_config.get("custom_endpoint", {})
+    if not custom_config:
+        raise ValueError(
+            "Custom model requires 'custom_endpoint' configuration"
+        )
+
+    url = custom_config.get("url")
+    if not url:
+        raise ValueError("Custom endpoint requires 'url' field")
+
+    headers = {}
+    for key, value in custom_config.get("headers", {}).items():
+        if value.startswith("$"):
+            value = os.environ.get(value[1:])
+        headers[key] = value
+
+    ca_certs_path = None
+    if "ca_certs_path" in custom_config:
+        ca_certs_path = custom_config.get("ca_certs_path")
+
+    api_key = None
+    if "api_key" in model_config:
+        if model_config["api_key"].startswith("$"):
+            api_key = os.environ.get(model_config["api_key"][1:])
+        else:
+            api_key = model_config["api_key"]
+    return url, headers, ca_certs_path, api_key
+
+
 class ModelFactory:
     """A factory for creating and managing different AI models."""
 
@@ -154,53 +184,25 @@ class ModelFactory:
             return OpenAIModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_anthropic":
-            api_key = os.environ.get("ANTHROPIC_API_KEY", None)
-            if "api_key" in custom_config:
-                if custom_config["api_key"].startswith("$"):
-                    api_key = os.environ.get(custom_config["api_key"][1:])
-                else:
-                    api_key = custom_config["api_key"]
-            if not api_key:
-                raise ValueError("Custom anthropic model requires 'api_key' configuration")
-            os.environ["ANTHROPIC_BASE_URL"] = custom_config.get("url", "https://api.anthropic.com")
-            provider = AnthropicProvider(api_key = api_key)
+            url, headers, ca_certs_path, api_key = get_custom_config(model_config)
+            client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
+            anthropic_client = AnthropicClient(
+                base_url=url,
+                http_client=client,
+            )
+            provider = AnthropicProvider(client=anthropic_client)
 
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_openai":
-            custom_config = model_config.get("custom_endpoint", {})
-            if not custom_config:
-                raise ValueError(
-                    "Custom model requires 'custom_endpoint' configuration"
-                )
-
-            url = custom_config.get("url")
-            if not url:
-                raise ValueError("Custom endpoint requires 'url' field")
-
-            headers = {}
-            for key, value in custom_config.get("headers", {}).items():
-                if value.startswith("$"):
-                    value = os.environ.get(value[1:])
-                headers[key] = value
-
-            ca_certs_path = None
-            if "ca_certs_path" in custom_config:
-                ca_certs_path = custom_config.get("ca_certs_path")
-
+            url, headers, ca_certs_path, api_key = get_custom_config(model_config)
             client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
-
             provider_args = dict(
                 base_url=url,
                 http_client=client,
             )
-            if "api_key" in custom_config:
-                if custom_config["api_key"].startswith("$"):
-                    provider_args["api_key"] = os.environ.get(
-                        custom_config["api_key"][1:]
-                    )
-                else:
-                    provider_args["api_key"] = custom_config["api_key"]
+            if api_key:
+                provider_args["api_key"] = api_key
             provider = OpenAIProvider(**provider_args)
 
             return OpenAIModel(model_name=model_config["name"], provider=provider)
