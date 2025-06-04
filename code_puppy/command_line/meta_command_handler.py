@@ -4,6 +4,21 @@ import os
 from rich.table import Table
 
 def handle_meta_command(command: str, console: Console) -> bool:
+    # ~codemap (code structure visualization)
+    if command.startswith("~codemap"):
+        from code_puppy.tools.code_map import make_code_map
+        import os
+        tokens = command.split()
+        if len(tokens) > 1:
+            target_dir = os.path.expanduser(tokens[1])
+        else:
+            target_dir = os.getcwd()
+        try:
+            tree = make_code_map(target_dir, show_doc=True)
+            console.print(tree)
+        except Exception as e:
+            console.print(f'[red]Error generating code map:[/red] {e}')
+        return True
     """
     Handle meta/config commands prefixed with '~'.
     Returns True if the command was handled (even if just an error/help), False if not.
@@ -54,7 +69,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
         console.print(f"[yellow]Usage:[/yellow] ~m <model_name>")
         return True
     if command in ("~help", "~h"):
-        console.print("[bold magenta]Meta commands available:[/bold magenta]\n  ~m <model>: Pick a model from your list!\n  ~ls [dir]: List/change directories\n  ~help: Show this help\n  (More soon. Woof!)")
+        console.print("[bold magenta]Meta commands available:[/bold magenta]\n  ~m <model>: Pick a model from your list!\n  ~ls [dir]: List/change directories\n  ~codemap [dir]: Visualize project code structure\n  ~help: Show this help\n  (More soon. Woof!)")
         return True
     if command.startswith("~"):
         name = command[1:].split()[0] if len(command)>1 else ""
