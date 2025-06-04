@@ -19,4 +19,14 @@ def test_ollama_load_model():
     assert "chat" in dir(model), "OllamaModel must have a .chat method!"
 
 
-# Optionally, a future test can actually attempt to make an async call, but that would require a running Ollama backend, so... let's not.
+def test_anthropic_load_model():
+    config = ModelFactory.load_config(TEST_CONFIG_PATH)
+    if "anthropic-test" not in config:
+        pytest.skip("Model 'anthropic-test' not found in configuration, skipping test.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        pytest.skip("ANTHROPIC_API_KEY not set in environment, skipping test.")
+
+    model = ModelFactory.get_model("anthropic-test", config)
+    assert hasattr(model, "provider")
+    assert hasattr(model.provider, "anthropic_client")
+    # Note: Do not make actual Anthropic network calls in CI, just validate instantiation.
