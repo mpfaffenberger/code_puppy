@@ -1,156 +1,119 @@
 import os
-import glob
-from typing import Optional, Iterable
+from code_puppy.command_line.utils import list_directory
+# ANSI color codes are no longer necessary because prompt_toolkit handles
+# styling via the `Style` class. We keep them here commented-out in case
+# someone needs raw ANSI later, but they are unused in the current code.
+# RESET = '\033[0m'
+# GREEN = '\033[1;32m'
+# CYAN = '\033[1;36m'
+# YELLOW = '\033[1;33m'
+# BOLD = '\033[1m'
 import asyncio
-
+from typing import Optional
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.completion import merge_completers
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.document import Document
+from prompt_toolkit.styles import Style
 
+from code_puppy.command_line.model_picker_completion import (
+    ModelNameCompleter,
+    get_active_model,
+    update_model_in_input,
+)
+from code_puppy.command_line.file_path_completion import FilePathCompleter
 
-class FilePathCompleter(Completer):
-    """A simple file path completer that works with a trigger symbol."""
+from prompt_toolkit.completion import Completer, Completion
 
-    def __init__(self, symbol: str = "@"):
-        self.symbol = symbol
-
-    def get_completions(
-        self, document: Document, complete_event
-    ) -> Iterable[Completion]:
-        text = document.text
-        cursor_position = document.cursor_position
-
-        # Check if our symbol is in the text before the cursor
-        text_before_cursor = text[:cursor_position]
-        if self.symbol not in text_before_cursor:
-            return  # Symbol not found, no completions
-
-        # Find the position of the last occurrence of the symbol before cursor
-        symbol_pos = text_before_cursor.rfind(self.symbol)
-
-        # Get the text after the symbol up to the cursor
-        text_after_symbol = text_before_cursor[symbol_pos + len(self.symbol) :]
-
-        # Calculate start position - entire path will be replaced
-        start_position = -(len(text_after_symbol))
-
-        # Get matching files using glob pattern
+class LSCompleter(Completer):
+    def __init__(self, trigger: str = '~ls'):
+        self.trigger = trigger
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.strip().startswith(self.trigger):
+            return
+        tokens = text.strip().split()
+        if len(tokens) == 1:
+            base = ''
+        else:
+            base = tokens[1]
         try:
-            pattern = text_after_symbol + "*"
-
-            # For empty pattern or pattern ending with /, list current directory
-            if not pattern.strip("*") or pattern.strip("*").endswith("/"):
-                base_path = pattern.strip("*")
-                if not base_path:  # If empty, use current directory
-                    base_path = "."
-
-                # Make sure we have an absolute path or handle ~ expansion
-                if base_path.startswith("~"):
-                    base_path = os.path.expanduser(base_path)
-
-                # List all files in the directory
-                if os.path.isdir(base_path):
-                    paths = [
-                        os.path.join(base_path, f)
-                        for f in os.listdir(base_path)
-                        if not f.startswith(".") or text_after_symbol.endswith(".")
-                    ]
+            prefix = os.path.expanduser(base)
+            part = os.path.dirname(prefix) if os.path.dirname(prefix) else '.'
+            dirs, _ = list_directory(part)
+            dirnames = [d for d in dirs if d.startswith(os.path.basename(base))]
+            base_dir = os.path.dirname(base)
+            for d in dirnames:
+                # Build the completion text so we keep the already-typed directory parts.
+                if base_dir and base_dir != '.':
+                    suggestion = os.path.join(base_dir, d)
                 else:
-                    paths = []
-            else:
-                # For partial filename, use glob directly
-                paths = glob.glob(pattern)
-
-                # Filter out hidden files unless explicitly requested
-                if not pattern.startswith(".") and not pattern.startswith("*/."):
-                    paths = [
-                        p for p in paths if not os.path.basename(p).startswith(".")
-                    ]
-
-            # Sort for consistent display
-            paths.sort()
-
-            for path in paths:
-                is_dir = os.path.isdir(path)
-                display = os.path.basename(path)
-
-                # Determine display path (what gets inserted)
-                if os.path.isabs(path):
-                    # Already absolute path
-                    display_path = path
-                else:
-                    # Convert to relative or absolute based on input
-                    if text_after_symbol.startswith("/"):
-                        # User wants absolute path
-                        display_path = os.path.abspath(path)
-                    elif text_after_symbol.startswith("~"):
-                        # User wants home-relative path
-                        home = os.path.expanduser("~")
-                        if path.startswith(home):
-                            display_path = "~" + path[len(home) :]
-                        else:
-                            display_path = path
-                    else:
-                        # Keep it as is (relative to current directory)
-                        display_path = path
-
-                display_meta = "Directory" if is_dir else "File"
-
-                yield Completion(
-                    display_path,
-                    start_position=start_position,
-                    display=display,
-                    display_meta=display_meta,
-                )
-        except (PermissionError, FileNotFoundError, OSError):
-            # Handle access errors gracefully
+                    suggestion = d
+                # Append trailing slash so the user can continue tabbing into sub-dirs.
+                suggestion = suggestion.rstrip(os.sep) + os.sep
+                yield Completion(suggestion, start_position=-len(base), display=d + os.sep, display_meta='Directory')
+        except Exception:
+            # Silently ignore errors (e.g., permission issues, non-existent dir)
             pass
 
+from prompt_toolkit.formatted_text import FormattedText
+def get_prompt_with_active_model(base: str = '>>> '):
+    model = get_active_model() or '(default)'
+    cwd = os.getcwd()
+    # Abbreviate the home directory to ~ for brevity in the prompt
+    home = os.path.expanduser('~')
+    if cwd.startswith(home):
+        cwd_display = '~' + cwd[len(home):]
+    else:
+        cwd_display = cwd
+    return FormattedText([
+        ('bold', '🐶'),
+        ('class:model', f'[' + str(model) + '] '),
+        ('class:cwd', f'(' + str(cwd_display) + ') '),
+        ('class:arrow', str(base)),
+    ])
 
-async def get_input_with_path_completion(
-    prompt_str: str = ">>> ", symbol: str = "@", history_file: Optional[str] = None
-) -> str:
-    """
-    Get user input with path completion support.
-
-    Args:
-        prompt_str: The prompt string to display
-        symbol: The symbol that triggers path completion
-        history_file: Path to the history file
-
-    Returns:
-        The user input string
-    """
-    # Create history instance if a history file is provided
-    history = FileHistory(os.path.expanduser(history_file)) if history_file else None
-
-    # Create a session with our custom completer
+async def get_input_with_combined_completion(prompt_str = '>>> ', history_file: Optional[str] = None) -> str:
+    history = FileHistory(history_file) if history_file else None
+    completer = merge_completers([
+        FilePathCompleter(symbol='@'),
+        ModelNameCompleter(trigger='~m'),
+        LSCompleter(trigger='~ls'),
+    ])
     session = PromptSession(
-        completer=FilePathCompleter(symbol), history=history, complete_while_typing=True
+        completer=completer,
+        history=history,
+        complete_while_typing=True
     )
+    # If they pass a string, backward-compat: convert it to formatted_text
+    if isinstance(prompt_str, str):
+        from prompt_toolkit.formatted_text import FormattedText
+        prompt_str = FormattedText([(None, prompt_str)])
+    style = Style.from_dict({
+        # Keys must AVOID the 'class:' prefix – that prefix is used only when
+        # tagging tokens in `FormattedText`. See prompt_toolkit docs.
+        'model': 'bold cyan',
+        'cwd': 'bold green',
+        'arrow': 'bold yellow',
+    })
+    text = await session.prompt_async(prompt_str, style=style)
+    possibly_stripped = update_model_in_input(text)
+    if possibly_stripped is not None:
+        return possibly_stripped
+    return text
 
-    # Get input with completion - using async prompt to work with existing event loop
-    return await session.prompt_async(prompt_str)
-
-
-# Example usage
 if __name__ == "__main__":
-    print(
-        "Type '@' followed by a path to see completion in action. Press Ctrl+D to exit."
-    )
-
+    print("Type '@' for path-completion or '~m' to pick a model. Ctrl+D to exit.")
     async def main():
         while True:
             try:
-                user_input = await get_input_with_path_completion(
-                    ">>> ", history_file="~/.path_completion_history.txt"
+                inp = await get_input_with_combined_completion(
+                    get_prompt_with_active_model(),
+                    history_file="~/.path_completion_history.txt"
                 )
-                print(f"You entered: {user_input}")
+                print(f"You entered: {inp}")
             except KeyboardInterrupt:
                 continue
             except EOFError:
                 break
         print("\nGoodbye!")
-
     asyncio.run(main())
