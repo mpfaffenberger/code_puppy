@@ -1,13 +1,12 @@
 from code_puppy.command_line.model_picker_completion import update_model_in_input, load_model_names, get_active_model
 from rich.console import Console
 import os
-from rich.table import Table
+from code_puppy.command_line.utils import make_directory_table
 
 def handle_meta_command(command: str, console: Console) -> bool:
     # ~codemap (code structure visualization)
     if command.startswith("~codemap"):
         from code_puppy.tools.code_map import make_code_map
-        import os
         tokens = command.split()
         if len(tokens) > 1:
             target_dir = os.path.expanduser(tokens[1])
@@ -27,22 +26,11 @@ def handle_meta_command(command: str, console: Console) -> bool:
     if command.startswith("~ls"):
         tokens = command.split()
         if len(tokens) == 1:
-            entries = []
             try:
-                entries = [e for e in os.listdir(os.getcwd())]
+                table = make_directory_table()
+                console.print(table)
             except Exception as e:
                 console.print(f'[red]Error listing directory:[/red] {e}')
-                return True
-            dirs = [e for e in entries if os.path.isdir(e)]
-            files = [e for e in entries if not os.path.isdir(e)]
-            table = Table(title=f"📁 [bold blue]Current directory:[/bold blue] [cyan]{os.getcwd()}[/cyan]")
-            table.add_column('Type', style='dim', width=8)
-            table.add_column('Name', style='bold')
-            for d in sorted(dirs):
-                table.add_row('[green]dir[/green]', f'[cyan]{d}[/cyan]')
-            for f in sorted(files):
-                table.add_row('[yellow]file[/yellow]', f'{f}')
-            console.print(table)
             return True
         elif len(tokens) == 2:
             dirname = tokens[1]

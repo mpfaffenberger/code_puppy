@@ -1,4 +1,5 @@
 import os
+from code_puppy.command_line.utils import list_directory
 # ANSI color codes are no longer necessary because prompt_toolkit handles
 # styling via the `Style` class. We keep them here commented-out in case
 # someone needs raw ANSI later, but they are unused in the current code.
@@ -38,13 +39,20 @@ class LSCompleter(Completer):
         try:
             prefix = os.path.expanduser(base)
             part = os.path.dirname(prefix) if os.path.dirname(prefix) else '.'
-            dirnames = [
-                f for f in os.listdir(part)
-                if os.path.isdir(os.path.join(part, f)) and f.startswith(os.path.basename(base))
-            ]
+            dirs, _ = list_directory(part)
+            dirnames = [d for d in dirs if d.startswith(os.path.basename(base))]
+            base_dir = os.path.dirname(base)
             for d in dirnames:
-                yield Completion(d, start_position=-len(base), display=d, display_meta='Directory')
+                # Build the completion text so we keep the already-typed directory parts.
+                if base_dir and base_dir != '.':
+                    suggestion = os.path.join(base_dir, d)
+                else:
+                    suggestion = d
+                # Append trailing slash so the user can continue tabbing into sub-dirs.
+                suggestion = suggestion.rstrip(os.sep) + os.sep
+                yield Completion(suggestion, start_position=-len(base), display=d + os.sep, display_meta='Directory')
         except Exception:
+            # Silently ignore errors (e.g., permission issues, non-existent dir)
             pass
 
 from prompt_toolkit.formatted_text import FormattedText
