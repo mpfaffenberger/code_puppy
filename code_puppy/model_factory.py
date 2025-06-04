@@ -186,6 +186,14 @@ class ModelFactory:
 
             return OpenAIModel(model_name=model_config["name"], provider=provider)
 
+        elif model_type == "anthropic":
+            api_key = os.environ.get("ANTHROPIC_API_KEY", None)
+            if not api_key:
+                raise ValueError('ANTHROPIC_API_KEY environment variable must be set for Anthropic models.')
+            anthropic_client = AsyncAnthropic(api_key=api_key)
+            provider = AnthropicProvider(anthropic_client=anthropic_client)
+            return AnthropicModel(model_name=model_config["name"], provider=provider)
+
         elif model_type == "custom_anthropic":
             url, headers, ca_certs_path, api_key = get_custom_config(model_config)
             client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
@@ -195,7 +203,6 @@ class ModelFactory:
                 api_key=api_key,
             )
             provider = AnthropicProvider(anthropic_client=anthropic_client)
-
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_openai":
