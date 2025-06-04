@@ -12,12 +12,13 @@ from rich.markdown import CodeBlock
 from rich.text import Text
 from rich.syntax import Syntax
 from code_puppy.command_line.prompt_toolkit_completion import (
-    get_input_with_path_completion,
+    get_input_with_combined_completion,
+    get_prompt_with_active_model
 )
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
-from code_puppy.agent import code_generation_agent
+from code_puppy.agent import get_code_generation_agent, session_memory
 
 from code_puppy.tools import *
 
@@ -59,9 +60,18 @@ async def main():
         command = " ".join(args.command)
         try:
             while not shutdown_flag:
-                response = await code_generation_agent.run(command)
+                agent = get_code_generation_agent()
+                response = await agent.run(command)
                 agent_response = response.output
                 console.print(agent_response.output_message)
+                # Log to session memory
+                session_memory().log_task(
+                    f'Command executed: {command}',
+                    extras={ 
+                        'output': agent_response.output_message,
+                        'awaiting_user_input': agent_response.awaiting_user_input
+                    }
+                )
                 if agent_response.awaiting_user_input:
                     console.print(
                         "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
@@ -82,13 +92,12 @@ async def main():
 
 # Add the file handling functionality for interactive mode
 async def interactive_mode(history_file_path: str) -> None:
+    from code_puppy.command_line.meta_command_handler import handle_meta_command
     """Run the agent in interactive mode."""
     console.print("[bold green]Code Puppy[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
     console.print("Type 'clear' to reset the conversation history.")
-    console.print(
-        "Type [bold blue]@[/bold blue] followed by a path to use file path completion."
-    )
+    console.print("Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model.")
 
     # Check if prompt_toolkit is installed
     try:
@@ -133,9 +142,10 @@ async def interactive_mode(history_file_path: str) -> None:
         try:
             # Use prompt_toolkit for enhanced input with path completion
             try:
-                # Use the async version of get_input_with_path_completion
-                task = await get_input_with_path_completion(
-                    ">>> 🐶 ", symbol="@", history_file=history_file_path_prompt
+                # Use the async version of get_input_with_combined_completion
+                task = await get_input_with_combined_completion(
+                    get_prompt_with_active_model(),
+                    history_file=history_file_path_prompt
                 )
             except ImportError:
                 # Fall back to basic input if prompt_toolkit is not available
@@ -151,8 +161,8 @@ async def interactive_mode(history_file_path: str) -> None:
             console.print("[bold green]Goodbye![/bold green]")
             break
 
-        # Check for clear command
-        if task.strip().lower() == "clear":
+        # Check for clear command (supports both `clear` and `~clear`)
+        if task.strip().lower() in ("clear", "~clear"):
             message_history = []
             console.print("[bold yellow]Conversation history cleared![/bold yellow]")
             console.print(
@@ -160,6 +170,10 @@ async def interactive_mode(history_file_path: str) -> None:
             )
             continue
 
+        # Handle ~ meta/config commands before anything else
+        if task.strip().startswith('~'):
+            if handle_meta_command(task.strip(), console):
+                continue
         if task.strip():
             console.print(f"\n[bold blue]Processing task:[/bold blue] {task}\n")
 
@@ -175,15 +189,28 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Store agent's full response
                 agent_response = None
 
-                result = await code_generation_agent.run(
-                    task, message_history=message_history
-                )
+                agent = get_code_generation_agent()
+                result = await agent.run(task, message_history=message_history)
                 # Get the structured response
                 agent_response = result.output
                 console.print(agent_response.output_message)
+                # Log to session memory
+                session_memory().log_task(
+                    f'Interactive task: {task}',
+                    extras={ 
+                        'output': agent_response.output_message,
+                        'awaiting_user_input': agent_response.awaiting_user_input
+                    }
+                )
 
-                # Update message history with all messages from this interaction
-                message_history = result.new_messages()
+                # Update message history but apply filters & limits
+                new_msgs = result.new_messages()
+                # 1. Drop any system/config messages (e.g., "agent loaded with model")
+                filtered = [m for m in new_msgs if not (isinstance(m, dict) and m.get("role") == "system")]
+                # 2. Append to existing history and keep only the most recent 40
+                message_history.extend(filtered)
+                if len(message_history) > 40:
+                    message_history = message_history[-40:]
 
                 if agent_response and agent_response.awaiting_user_input:
                     console.print(

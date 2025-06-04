@@ -1,0 +1,92 @@
+import os
+import json
+from typing import Optional, Iterable
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.document import Document
+from prompt_toolkit import PromptSession
+
+MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH")
+if not MODELS_JSON_PATH:
+    MODELS_JSON_PATH = os.path.join(os.path.dirname(__file__), '..', 'models.json')
+    MODELS_JSON_PATH = os.path.abspath(MODELS_JSON_PATH)
+MODEL_STATE_PATH = os.path.expanduser('~/.code_puppy_model')
+
+def load_model_names():
+    with open(MODELS_JSON_PATH, 'r') as f:
+        models = json.load(f)
+    return list(models.keys())
+
+def get_active_model():
+    env_model = os.environ.get('MODEL_NAME')
+    if env_model:
+        return env_model
+    try:
+        with open(MODEL_STATE_PATH, 'r') as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+def set_active_model(model_name: str):
+    with open(MODEL_STATE_PATH, 'w') as f:
+        f.write(model_name.strip())
+    os.environ['MODEL_NAME'] = model_name.strip()
+    # Reload agent globally
+    try:
+        from code_puppy.agent import reload_code_generation_agent, get_code_generation_agent
+        reload_code_generation_agent() # This will reload dynamically everywhere
+    except Exception as e:
+        pass  # If reload fails, agent will still be switched next interpreter run
+
+class ModelNameCompleter(Completer):
+    """
+    A completer that triggers on '~m' to show available models from models.json.
+    Only '~m' (not just '~') will trigger the dropdown.
+    """
+    def __init__(self, trigger: str = "~m"):
+        self.trigger = trigger
+        self.model_names = load_model_names()
+
+    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+        text = document.text
+        cursor_position = document.cursor_position
+        text_before_cursor = text[:cursor_position]
+        if self.trigger not in text_before_cursor:
+            return
+        symbol_pos = text_before_cursor.rfind(self.trigger)
+        text_after_trigger = text_before_cursor[symbol_pos + len(self.trigger):]
+        start_position = -(len(text_after_trigger))
+        for model_name in self.model_names:
+            meta = "Model (selected)" if model_name == get_active_model() else "Model"
+            yield Completion(
+                model_name,
+                start_position=start_position,
+                display=model_name,
+                display_meta=meta,
+            )
+
+def update_model_in_input(text: str) -> Optional[str]:
+    # If input starts with ~m and a model name, set model and strip it out
+    content = text.strip()
+    if content.startswith("~m"):
+        rest = content[2:].strip()
+        for model in load_model_names():
+            if rest.startswith(model):
+                set_active_model(model)
+                # Remove ~mmodel from the input
+                idx = text.find("~m"+model)
+                if idx != -1:
+                    new_text = (text[:idx] + text[idx+len("~m"+model):]).strip()
+                    return new_text
+    return None
+
+async def get_input_with_model_completion(prompt_str: str = ">>> ", trigger: str = "~m", history_file: Optional[str] = None) -> str:
+    history = FileHistory(os.path.expanduser(history_file)) if history_file else None
+    session = PromptSession(
+        completer=ModelNameCompleter(trigger), history=history, complete_while_typing=True
+    )
+    text = await session.prompt_async(prompt_str)
+    possibly_stripped = update_model_in_input(text)
+    if possibly_stripped is not None:
+        return possibly_stripped
+    return text
