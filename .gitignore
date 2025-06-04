@@ -13,7 +13,6 @@ wheels/
 
 # Session memory
 .puppy_session_memory.json
-puppysessionmemory
 
 # Pytest cache
 .pytest_cache/
