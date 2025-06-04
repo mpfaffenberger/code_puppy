@@ -5,6 +5,7 @@ from code_puppy.version_checker import fetch_latest_version
 from code_puppy import __version__
 import sys
 from dotenv import load_dotenv
+from code_puppy.config import ensure_config_exists
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.console import ConsoleOptions, RenderResult
@@ -32,6 +33,8 @@ def get_secret_file_path():
 
 
 async def main():
+    # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
+    ensure_config_exists()
     current_version = __version__
     latest_version = fetch_latest_version('code-puppy')
     console.print(f'Current version: {current_version}')
