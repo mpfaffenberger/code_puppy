@@ -12,7 +12,8 @@ from rich.markdown import CodeBlock
 from rich.text import Text
 from rich.syntax import Syntax
 from code_puppy.command_line.prompt_toolkit_completion import (
-    get_input_with_path_completion,
+    get_input_with_combined_completion,
+    get_prompt_with_active_model
 )
 
 # Initialize rich console for pretty output
@@ -82,13 +83,12 @@ async def main():
 
 # Add the file handling functionality for interactive mode
 async def interactive_mode(history_file_path: str) -> None:
+    from code_puppy.command_line.meta_command_handler import handle_meta_command
     """Run the agent in interactive mode."""
     console.print("[bold green]Code Puppy[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
     console.print("Type 'clear' to reset the conversation history.")
-    console.print(
-        "Type [bold blue]@[/bold blue] followed by a path to use file path completion."
-    )
+    console.print("Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model.")
 
     # Check if prompt_toolkit is installed
     try:
@@ -133,9 +133,10 @@ async def interactive_mode(history_file_path: str) -> None:
         try:
             # Use prompt_toolkit for enhanced input with path completion
             try:
-                # Use the async version of get_input_with_path_completion
-                task = await get_input_with_path_completion(
-                    ">>> 🐶 ", symbol="@", history_file=history_file_path_prompt
+                # Use the async version of get_input_with_combined_completion
+                task = await get_input_with_combined_completion(
+                    get_prompt_with_active_model(),
+                    history_file=history_file_path_prompt
                 )
             except ImportError:
                 # Fall back to basic input if prompt_toolkit is not available
@@ -160,6 +161,10 @@ async def interactive_mode(history_file_path: str) -> None:
             )
             continue
 
+        # Handle ~ meta/config commands before anything else
+        if task.strip().startswith('~'):
+            if handle_meta_command(task.strip(), console):
+                continue
         if task.strip():
             console.print(f"\n[bold blue]Processing task:[/bold blue] {task}\n")
 
