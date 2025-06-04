@@ -18,7 +18,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
-from code_puppy.agent import get_code_generation_agent
+from code_puppy.agent import get_code_generation_agent, session_memory
 
 from code_puppy.tools import *
 
@@ -64,6 +64,14 @@ async def main():
                 response = await agent.run(command)
                 agent_response = response.output
                 console.print(agent_response.output_message)
+                # Log to session memory
+                session_memory().log_task(
+                    f'Command executed: {command}',
+                    extras={ 
+                        'output': agent_response.output_message,
+                        'awaiting_user_input': agent_response.awaiting_user_input
+                    }
+                )
                 if agent_response.awaiting_user_input:
                     console.print(
                         "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
@@ -186,6 +194,14 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Get the structured response
                 agent_response = result.output
                 console.print(agent_response.output_message)
+                # Log to session memory
+                session_memory().log_task(
+                    f'Interactive task: {task}',
+                    extras={ 
+                        'output': agent_response.output_message,
+                        'awaiting_user_input': agent_response.awaiting_user_input
+                    }
+                )
 
                 # Update message history with all messages from this interaction
                 message_history = result.new_messages()
