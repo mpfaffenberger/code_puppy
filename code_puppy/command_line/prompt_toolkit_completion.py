@@ -25,8 +25,8 @@ from code_puppy.command_line.file_path_completion import FilePathCompleter
 
 from prompt_toolkit.completion import Completer, Completion
 
-class LSCompleter(Completer):
-    def __init__(self, trigger: str = '~ls'):
+class CDCompleter(Completer):
+    def __init__(self, trigger: str = '~cd'):
         self.trigger = trigger
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
@@ -81,7 +81,7 @@ async def get_input_with_combined_completion(prompt_str = '>>> ', history_file: 
     completer = merge_completers([
         FilePathCompleter(symbol='@'),
         ModelNameCompleter(trigger='~m'),
-        LSCompleter(trigger='~ls'),
+        CDCompleter(trigger='~cd'),
     ])
     session = PromptSession(
         completer=completer,
