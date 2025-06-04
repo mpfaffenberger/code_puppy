@@ -139,11 +139,11 @@ def get_custom_config(model_config):
         ca_certs_path = custom_config.get("ca_certs_path")
 
     api_key = None
-    if "api_key" in model_config:
-        if model_config["api_key"].startswith("$"):
-            api_key = os.environ.get(model_config["api_key"][1:])
+    if "api_key" in custom_config:
+        if custom_config["api_key"].startswith("$"):
+            api_key = os.environ.get(custom_config["api_key"][1:])
         else:
-            api_key = model_config["api_key"]
+            api_key = custom_config["api_key"]
     return url, headers, ca_certs_path, api_key
 
 
