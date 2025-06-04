@@ -6,6 +6,7 @@ from pydantic_ai import Agent
 from code_puppy.agent_prompts import SYSTEM_PROMPT
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.common import console
+from code_puppy.tools import register_all_tools
 
 # Environment variables used in this module:
 # - MODELS_JSON_PATH: Optional path to a custom models.json configuration file.
@@ -24,7 +25,6 @@ if PUPPY_RULES_PATH.exists():
 
 class AgentResponse(pydantic.BaseModel):
     """Represents a response from the agent."""
-
     output_message: str = pydantic.Field(
         ..., description="The final output message to display to the user"
     )
@@ -46,12 +46,14 @@ def reload_code_generation_agent():
     instructions = SYSTEM_PROMPT
     if PUPPY_RULES:
         instructions += f'\n{PUPPY_RULES}'
-    _code_generation_agent = Agent(
+    agent = Agent(
         model=model,
         instructions=instructions,
         output_type=AgentResponse,
         retries=3,
     )
+    register_all_tools(agent)
+    _code_generation_agent = agent
     _LAST_MODEL_NAME = model_name
     return _code_generation_agent
 
