@@ -6,8 +6,10 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.document import Document
 from prompt_toolkit import PromptSession
 
-MODELS_JSON_PATH = os.path.join(os.path.dirname(__file__), '..', 'models.json')
-MODELS_JSON_PATH = os.path.abspath(MODELS_JSON_PATH)
+MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH")
+if not MODELS_JSON_PATH:
+    MODELS_JSON_PATH = os.path.join(os.path.dirname(__file__), '..', 'models.json')
+    MODELS_JSON_PATH = os.path.abspath(MODELS_JSON_PATH)
 MODEL_STATE_PATH = os.path.expanduser('~/.code_puppy_model')
 
 def load_model_names():
@@ -29,6 +31,12 @@ def set_active_model(model_name: str):
     with open(MODEL_STATE_PATH, 'w') as f:
         f.write(model_name.strip())
     os.environ['MODEL_NAME'] = model_name.strip()
+    # Reload agent globally
+    try:
+        from code_puppy.agent import reload_code_generation_agent, get_code_generation_agent
+        reload_code_generation_agent() # This will reload dynamically everywhere
+    except Exception as e:
+        pass  # If reload fails, agent will still be switched next interpreter run
 
 class ModelNameCompleter(Completer):
     """

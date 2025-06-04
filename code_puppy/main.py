@@ -18,7 +18,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
-from code_puppy.agent import code_generation_agent
+from code_puppy.agent import get_code_generation_agent
 
 from code_puppy.tools import *
 
@@ -60,7 +60,8 @@ async def main():
         command = " ".join(args.command)
         try:
             while not shutdown_flag:
-                response = await code_generation_agent.run(command)
+                agent = get_code_generation_agent()
+                response = await agent.run(command)
                 agent_response = response.output
                 console.print(agent_response.output_message)
                 if agent_response.awaiting_user_input:
@@ -180,9 +181,8 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Store agent's full response
                 agent_response = None
 
-                result = await code_generation_agent.run(
-                    task, message_history=message_history
-                )
+                agent = get_code_generation_agent()
+                result = await agent.run(task, message_history=message_history)
                 # Get the structured response
                 agent_response = result.output
                 console.print(agent_response.output_message)

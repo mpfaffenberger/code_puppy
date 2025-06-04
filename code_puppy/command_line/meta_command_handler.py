@@ -27,6 +27,9 @@ def handle_meta_command(command: str, console: Console) -> bool:
         if name:
             console.print(f"[yellow]Unknown meta command:[/yellow] {command}\n[dim]Type ~help for options.[/dim]")
         else:
-            console.print(f"[yellow]Tilde found! Try ~m or ~help for cuteness.[/yellow]")
+            # Show current model ONLY here
+            from code_puppy.command_line.model_picker_completion import get_active_model
+            current_model = get_active_model()
+            console.print(f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]")
         return True
     return False
