@@ -89,15 +89,49 @@ def register_file_modifications_tools(agent):
                 return {"error": f"File '{file_path}' does not exist"}
             if not os.path.isfile(file_path):
                 return {"error": f"'{file_path}' is not a file."}
+            # ------------------------------------------------------------------
+            # Robust parsing of the diff argument
+            # The agent sometimes sends single-quoted or otherwise invalid JSON.
+            # Attempt to recover by trying several strategies before giving up.
+            # ------------------------------------------------------------------
+            parsed_successfully = False
+            replacements: List[Dict[str, str]] = []
             try:
                 replacements_data = json.loads(diff)
                 replacements = replacements_data.get("replacements", [])
-                if not replacements:
-                    console.print("[bold red]Error:[/bold red] No replacements provided in the diff")
-                    return {"error": "No replacements provided in the diff"}
-            except json.JSONDecodeError as e:
-                console.print(f"[bold red]Error:[/bold red] Invalid JSON in diff: {str(e)}")
-                return {"error": f"Invalid JSON in diff: {str(e)}"}
+                parsed_successfully = True
+            except json.JSONDecodeError:
+                # Fallback 1: convert single quotes to double quotes and retry
+                try:
+                    sanitized = diff.replace("'", '"')
+                    replacements_data = json.loads(sanitized)
+                    replacements = replacements_data.get("replacements", [])
+                    parsed_successfully = True
+                except json.JSONDecodeError:
+                    # Fallback 2: attempt Python literal eval
+                    try:
+                        import ast
+                        replacements_data = ast.literal_eval(diff)
+                        if isinstance(replacements_data, dict):
+                            replacements = replacements_data.get("replacements", []) if "replacements" in replacements_data else []
+                            # If dict keys look like a single replacement, wrap it
+                            if not replacements:
+                                # maybe it's already {"old_str": ..., "new_str": ...}
+                                if all(k in replacements_data for k in ("old_str", "new_str")):
+                                    replacements = [
+                                        {
+                                            "old_str": replacements_data["old_str"],
+                                            "new_str": replacements_data["new_str"],
+                                        }
+                                    ]
+                            parsed_successfully = True
+                    except Exception as e2:
+                        console.print(
+                            f"[bold red]Error:[/bold red] Could not parse diff as JSON or Python literal. Reason: {e2}"
+                        )
+            if not parsed_successfully or not replacements:
+                console.print("[bold red]Error:[/bold red] No valid replacements found in the diff after all parsing attempts")
+                return {"error": "No valid replacements found in the diff"}
             with open(file_path, "r", encoding="utf-8") as f:
                 current_content = f.read()
             modified_content = current_content

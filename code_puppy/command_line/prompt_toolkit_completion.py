@@ -1,8 +1,18 @@
+import os
+# ANSI color codes are no longer necessary because prompt_toolkit handles
+# styling via the `Style` class. We keep them here commented-out in case
+# someone needs raw ANSI later, but they are unused in the current code.
+# RESET = '\033[0m'
+# GREEN = '\033[1;32m'
+# CYAN = '\033[1;36m'
+# YELLOW = '\033[1;33m'
+# BOLD = '\033[1m'
 import asyncio
 from typing import Optional
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import merge_completers
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.styles import Style
 
 from code_puppy.command_line.model_picker_completion import (
     ModelNameCompleter,
@@ -11,22 +21,73 @@ from code_puppy.command_line.model_picker_completion import (
 )
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 
-def get_prompt_with_active_model(base: str = ">>> ") -> str:
-    model = get_active_model() or "(default)"
-    return f"🐶[{model}] {base}"
+from prompt_toolkit.completion import Completer, Completion
 
-async def get_input_with_combined_completion(prompt_str: str = ">>> ", history_file: Optional[str] = None) -> str:
+class LSCompleter(Completer):
+    def __init__(self, trigger: str = '~ls'):
+        self.trigger = trigger
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.strip().startswith(self.trigger):
+            return
+        tokens = text.strip().split()
+        if len(tokens) == 1:
+            base = ''
+        else:
+            base = tokens[1]
+        try:
+            prefix = os.path.expanduser(base)
+            part = os.path.dirname(prefix) if os.path.dirname(prefix) else '.'
+            dirnames = [
+                f for f in os.listdir(part)
+                if os.path.isdir(os.path.join(part, f)) and f.startswith(os.path.basename(base))
+            ]
+            for d in dirnames:
+                yield Completion(d, start_position=-len(base), display=d, display_meta='Directory')
+        except Exception:
+            pass
+
+from prompt_toolkit.formatted_text import FormattedText
+def get_prompt_with_active_model(base: str = '>>> '):
+    model = get_active_model() or '(default)'
+    cwd = os.getcwd()
+    # Abbreviate the home directory to ~ for brevity in the prompt
+    home = os.path.expanduser('~')
+    if cwd.startswith(home):
+        cwd_display = '~' + cwd[len(home):]
+    else:
+        cwd_display = cwd
+    return FormattedText([
+        ('bold', '🐶'),
+        ('class:model', f'[' + str(model) + '] '),
+        ('class:cwd', f'(' + str(cwd_display) + ') '),
+        ('class:arrow', str(base)),
+    ])
+
+async def get_input_with_combined_completion(prompt_str = '>>> ', history_file: Optional[str] = None) -> str:
     history = FileHistory(history_file) if history_file else None
     completer = merge_completers([
-        FilePathCompleter(symbol="@"),
-        ModelNameCompleter(trigger="~m")
+        FilePathCompleter(symbol='@'),
+        ModelNameCompleter(trigger='~m'),
+        LSCompleter(trigger='~ls'),
     ])
     session = PromptSession(
         completer=completer,
         history=history,
         complete_while_typing=True
     )
-    text = await session.prompt_async(prompt_str)
+    # If they pass a string, backward-compat: convert it to formatted_text
+    if isinstance(prompt_str, str):
+        from prompt_toolkit.formatted_text import FormattedText
+        prompt_str = FormattedText([(None, prompt_str)])
+    style = Style.from_dict({
+        # Keys must AVOID the 'class:' prefix – that prefix is used only when
+        # tagging tokens in `FormattedText`. See prompt_toolkit docs.
+        'model': 'bold cyan',
+        'cwd': 'bold green',
+        'arrow': 'bold yellow',
+    })
+    text = await session.prompt_async(prompt_str, style=style)
     possibly_stripped = update_model_in_input(text)
     if possibly_stripped is not None:
         return possibly_stripped
