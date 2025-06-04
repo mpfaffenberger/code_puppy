@@ -3,7 +3,7 @@ import pydantic
 from pathlib import Path
 from pydantic_ai import Agent
 
-from code_puppy.agent_prompts import SYSTEM_PROMPT
+from code_puppy.agent_prompts import get_system_prompt
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.common import console
 from code_puppy.tools import register_all_tools
@@ -54,7 +54,7 @@ def reload_code_generation_agent():
     console.print(f'[bold cyan]Loading Model: {model_name}[/bold cyan]')
     models_path = Path(MODELS_JSON_PATH) if MODELS_JSON_PATH else Path(__file__).parent / "models.json"
     model = ModelFactory.get_model(model_name, ModelFactory.load_config(models_path))
-    instructions = SYSTEM_PROMPT
+    instructions = get_system_prompt()
     if PUPPY_RULES:
         instructions += f'\n{PUPPY_RULES}'
     agent = Agent(
