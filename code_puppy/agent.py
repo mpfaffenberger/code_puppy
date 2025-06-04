@@ -7,6 +7,7 @@ from code_puppy.agent_prompts import SYSTEM_PROMPT
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.common import console
 from code_puppy.tools import register_all_tools
+from code_puppy.session_memory import SessionMemory
 
 # Environment variables used in this module:
 # - MODELS_JSON_PATH: Optional path to a custom models.json configuration file.
@@ -35,6 +36,16 @@ class AgentResponse(pydantic.BaseModel):
 # --- NEW DYNAMIC AGENT LOGIC ---
 _LAST_MODEL_NAME = None
 _code_generation_agent = None
+_session_memory = None
+
+def session_memory():
+    '''
+    Returns a singleton SessionMemory instance to allow agent and tools to persist and recall context/history.
+    '''
+    global _session_memory
+    if _session_memory is None:
+        _session_memory = SessionMemory()
+    return _session_memory
 
 def reload_code_generation_agent():
     """Force-reload the agent, usually after a model change."""
@@ -55,6 +66,11 @@ def reload_code_generation_agent():
     register_all_tools(agent)
     _code_generation_agent = agent
     _LAST_MODEL_NAME = model_name
+    # NEW: Log session event
+    try:
+        session_memory().log_task(f'Agent loaded with model: {model_name}')
+    except Exception:
+        pass
     return _code_generation_agent
 
 def get_code_generation_agent(force_reload=False):
