@@ -1,6 +1,6 @@
 import os
 from code_puppy.command_line.utils import list_directory
-from code_puppy.config import get_puppy_name
+from code_puppy.config import get_puppy_name, get_owner_name
 # ANSI color codes are no longer necessary because prompt_toolkit handles
 # styling via the `Style` class. We keep them here commented-out in case
 # someone needs raw ANSI later, but they are unused in the current code.
@@ -58,6 +58,8 @@ class LSCompleter(Completer):
 
 from prompt_toolkit.formatted_text import FormattedText
 def get_prompt_with_active_model(base: str = '>>> '):
+    puppy = get_puppy_name()
+    owner = get_owner_name()
     model = get_active_model() or '(default)'
     cwd = os.getcwd()
     home = os.path.expanduser('~')
@@ -65,9 +67,10 @@ def get_prompt_with_active_model(base: str = '>>> '):
         cwd_display = '~' + cwd[len(home):]
     else:
         cwd_display = cwd
-    puppy_name = get_puppy_name()
     return FormattedText([
-        ('bold', f'🐶 {puppy_name} '),
+        ('bold', '🐶 '),
+        ('class:puppy', f'{puppy}'),
+        ('', ' '),
         ('class:model', f'[' + str(model) + '] '),
         ('class:cwd', f'(' + str(cwd_display) + ') '),
         ('class:arrow', str(base)),
@@ -92,6 +95,8 @@ async def get_input_with_combined_completion(prompt_str = '>>> ', history_file: 
     style = Style.from_dict({
         # Keys must AVOID the 'class:' prefix – that prefix is used only when
         # tagging tokens in `FormattedText`. See prompt_toolkit docs.
+        'puppy': 'bold magenta',
+        'owner': 'bold white',
         'model': 'bold cyan',
         'cwd': 'bold green',
         'arrow': 'bold yellow',
