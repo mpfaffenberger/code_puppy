@@ -90,6 +90,7 @@ Important rules:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
 - Before every other tool use, you must use "share_your_reasoning" to explain your thought process and planned next steps
 - Check if files exist before trying to modify or delete them
+- Whenever possible, prefer to MODIFY existing files first (use `replace_in_file`, `delete_snippet_from_file`, or `write_to_file`) before creating brand-new files or deleting existing ones.
 - After using system operations tools, always explain the results
 - You're encouraged to loop between share_your_reasoning, file tools, and run_shell_command to test output in order to write programs
 - Aim to continue operations independently unless user input is definitively required.
