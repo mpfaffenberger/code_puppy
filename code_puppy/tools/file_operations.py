@@ -4,7 +4,8 @@ import fnmatch
 from typing import List, Dict, Any
 from code_puppy.tools.common import console
 from pydantic_ai import RunContext
-from code_puppy.agent import code_generation_agent
+from code_puppy.agent import get_code_generation_agent
+agent = get_code_generation_agent()
 
 
 # Constants for file operations
@@ -37,7 +38,7 @@ def should_ignore_path(path: str) -> bool:
     return False
 
 
-@code_generation_agent.tool
+@agent.tool
 def list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> List[Dict[str, Any]]:
@@ -241,7 +242,7 @@ def list_files(
     return results
 
 
-@code_generation_agent.tool
+@agent.tool
 def create_file(
     context: RunContext, file_path: str, content: str = ""
 ) -> Dict[str, Any]:
@@ -288,7 +289,7 @@ def create_file(
         return {"error": f"Error creating file '{file_path}': {str(e)}"}
 
 
-@code_generation_agent.tool
+@agent.tool
 def read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
     console.log(f"📄 Reading [bold cyan]{file_path}[/bold cyan]")
     """Read the contents of a file.
@@ -327,7 +328,7 @@ def read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
         return {"error": f"Error reading file '{file_path}': {str(e)}"}
 
 
-@code_generation_agent.tool
+@agent.tool
 def grep(
     context: RunContext, search_string: str, directory: str = "."
 ) -> List[Dict[str, Any]]:

@@ -4,7 +4,8 @@ import time
 import os
 from typing import Dict, Any
 from code_puppy.tools.common import console
-from code_puppy.agent import code_generation_agent
+from code_puppy.agent import get_code_generation_agent
+agent = get_code_generation_agent()
 from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -16,7 +17,7 @@ from rich.syntax import Syntax
 #              introduces security risks. Default is "false".
 
 
-@code_generation_agent.tool
+@agent.tool
 def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> Dict[str, Any]:
@@ -181,7 +182,7 @@ def run_shell_command(
         }
 
 
-@code_generation_agent.tool
+@agent.tool
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str = None
 ) -> Dict[str, Any]:

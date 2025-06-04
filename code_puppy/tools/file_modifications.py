@@ -4,11 +4,12 @@ import difflib
 import json
 from code_puppy.tools.common import console
 from typing import Dict, Any, List
-from code_puppy.agent import code_generation_agent
+from code_puppy.agent import get_code_generation_agent
+agent = get_code_generation_agent()
 from pydantic_ai import RunContext
 
 
-@code_generation_agent.tool
+@agent.tool
 def delete_snippet_from_file(
     context: RunContext, file_path: str, snippet: str
 ) -> Dict[str, Any]:
@@ -112,7 +113,7 @@ def delete_snippet_from_file(
         return {"error": f"Error deleting file '{file_path}': {str(e)}"}
 
 
-@code_generation_agent.tool
+@agent.tool
 def write_to_file(
     context: RunContext,
     path: str, 
@@ -179,7 +180,7 @@ def write_to_file(
         return {"error": f"Error writing to file '{path}': {str(e)}"}
 
 
-@code_generation_agent.tool(retries=5)
+@agent.tool(retries=5)
 def replace_in_file(
     context: RunContext,
     path: str, 
@@ -302,7 +303,7 @@ def replace_in_file(
         return {"error": f"Error replacing in file '{path}': {str(e)}"}
 
 
-@code_generation_agent.tool
+@agent.tool
 def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
     console.log(f"🗑️ Deleting file [bold red]{file_path}[/bold red]")
     """Delete a file at the given file path.

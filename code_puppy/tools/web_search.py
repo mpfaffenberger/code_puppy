@@ -1,10 +1,11 @@
-from code_puppy.agent import code_generation_agent
+from code_puppy.agent import get_code_generation_agent
+agent = get_code_generation_agent()
 from typing import Dict
 import requests
 from pydantic_ai import RunContext
 
 
-@code_generation_agent.tool
+@agent.tool
 def grab_json_from_url(context: RunContext, url: str) -> Dict:
     """Grab JSON from a URL if the response is of type application/json.
 
