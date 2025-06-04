@@ -161,8 +161,8 @@ async def interactive_mode(history_file_path: str) -> None:
             console.print("[bold green]Goodbye![/bold green]")
             break
 
-        # Check for clear command
-        if task.strip().lower() == "clear":
+        # Check for clear command (supports both `clear` and `~clear`)
+        if task.strip().lower() in ("clear", "~clear"):
             message_history = []
             console.print("[bold yellow]Conversation history cleared![/bold yellow]")
             console.print(
@@ -203,8 +203,14 @@ async def interactive_mode(history_file_path: str) -> None:
                     }
                 )
 
-                # Update message history with all messages from this interaction
-                message_history = result.new_messages()
+                # Update message history but apply filters & limits
+                new_msgs = result.new_messages()
+                # 1. Drop any system/config messages (e.g., "agent loaded with model")
+                filtered = [m for m in new_msgs if not (isinstance(m, dict) and m.get("role") == "system")]
+                # 2. Append to existing history and keep only the most recent 40
+                message_history.extend(filtered)
+                if len(message_history) > 40:
+                    message_history = message_history[-40:]
 
                 if agent_response and agent_response.awaiting_user_input:
                     console.print(
