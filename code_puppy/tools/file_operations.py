@@ -149,7 +149,7 @@ def register_file_operations_tools(agent):
     def create_file(context: RunContext, file_path: str, content: str = "") -> Dict[str, Any]:
         file_path = os.path.abspath(file_path)
         if os.path.exists(file_path):
-            return {"error": f"File '{file_path}' already exists. Use modify_file to edit it."}
+            return {"error": f"File '{file_path}' already exists. Use replace_in_file or write_to_file to edit it."}
         directory = os.path.dirname(file_path)
         if directory and not os.path.exists(directory):
             try:
