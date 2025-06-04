@@ -10,3 +10,9 @@ wheels/
 .venv
 
 .coverage
+
+# Session memory
+.puppy_session_memory.json
+
+# Pytest cache
+.pytest_cache/

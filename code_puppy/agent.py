@@ -5,6 +5,9 @@ from pydantic_ai import Agent
 
 from code_puppy.agent_prompts import SYSTEM_PROMPT
 from code_puppy.model_factory import ModelFactory
+from code_puppy.tools.common import console
+from code_puppy.tools import register_all_tools
+from code_puppy.session_memory import SessionMemory
 
 # Environment variables used in this module:
 # - MODELS_JSON_PATH: Optional path to a custom models.json configuration file.
@@ -23,7 +26,6 @@ if PUPPY_RULES_PATH.exists():
 
 class AgentResponse(pydantic.BaseModel):
     """Represents a response from the agent."""
-
     output_message: str = pydantic.Field(
         ..., description="The final output message to display to the user"
     )
@@ -31,21 +33,53 @@ class AgentResponse(pydantic.BaseModel):
         False, description="True if user input is needed to continue the task"
     )
 
-model_name = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-if not MODELS_JSON_PATH:
-    models_path = Path(__file__).parent / "models.json"
-else:
-    models_path = Path(MODELS_JSON_PATH)
+# --- NEW DYNAMIC AGENT LOGIC ---
+_LAST_MODEL_NAME = None
+_code_generation_agent = None
+_session_memory = None
 
-model = ModelFactory.get_model(model_name, ModelFactory.load_config(models_path))
+def session_memory():
+    '''
+    Returns a singleton SessionMemory instance to allow agent and tools to persist and recall context/history.
+    '''
+    global _session_memory
+    if _session_memory is None:
+        _session_memory = SessionMemory()
+    return _session_memory
 
-# Inject puppy rules if they exist to the system prompt
-if PUPPY_RULES:
-    SYSTEM_PROMPT += f'\n{PUPPY_RULES}'
+def reload_code_generation_agent():
+    """Force-reload the agent, usually after a model change."""
+    global _code_generation_agent, _LAST_MODEL_NAME
+    model_name = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    console.print(f'[bold cyan]Loading Model: {model_name}[/bold cyan]')
+    models_path = Path(MODELS_JSON_PATH) if MODELS_JSON_PATH else Path(__file__).parent / "models.json"
+    model = ModelFactory.get_model(model_name, ModelFactory.load_config(models_path))
+    instructions = SYSTEM_PROMPT
+    if PUPPY_RULES:
+        instructions += f'\n{PUPPY_RULES}'
+    agent = Agent(
+        model=model,
+        instructions=instructions,
+        output_type=AgentResponse,
+        retries=3,
+    )
+    register_all_tools(agent)
+    _code_generation_agent = agent
+    _LAST_MODEL_NAME = model_name
+    # NEW: Log session event
+    try:
+        session_memory().log_task(f'Agent loaded with model: {model_name}')
+    except Exception:
+        pass
+    return _code_generation_agent
 
-code_generation_agent = Agent(
-    model=model,
-    instructions=SYSTEM_PROMPT,
-    output_type=AgentResponse,
-    retries=3,
-)
+def get_code_generation_agent(force_reload=False):
+    """
+    Retrieve the agent with the currently set MODEL_NAME.
+    Forces a reload if the model has changed, or if force_reload is passed.
+    """
+    global _code_generation_agent, _LAST_MODEL_NAME
+    model_name = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    if _code_generation_agent is None or _LAST_MODEL_NAME != model_name or force_reload:
+        return reload_code_generation_agent()
+    return _code_generation_agent
