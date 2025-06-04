@@ -89,5 +89,16 @@
       "url": "https://api.together.xyz/v1",
       "api_key": "$TOGETHER_API_KEY"
     }
+  },
+  "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
+    "type": "custom_openai",
+    "name": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 5,
+    "custom_endpoint": {
+      "url": "https://api.together.xyz/v1",
+      "api_key": "$TOGETHER_API_KEY"
+    }
   }
 }
