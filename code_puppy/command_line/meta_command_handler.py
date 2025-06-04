@@ -23,7 +23,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
     Returns True if the command was handled (even if just an error/help), False if not.
     """
     command = command.strip()
-    if command.startswith("~ls"):
+    if command.startswith("~cd"):
         tokens = command.split()
         if len(tokens) == 1:
             try:
@@ -57,7 +57,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
         console.print(f"[yellow]Usage:[/yellow] ~m <model_name>")
         return True
     if command in ("~help", "~h"):
-        console.print("[bold magenta]Meta commands available:[/bold magenta]\n  ~m <model>: Pick a model from your list!\n  ~ls [dir]: List/change directories\n  ~codemap [dir]: Visualize project code structure\n  ~help: Show this help\n  (More soon. Woof!)")
+        console.print("[bold magenta]Meta commands available:[/bold magenta]\n  ~m <model>: Pick a model from your list!\n  ~cd [dir]: Change directories\n  ~codemap [dir]: Visualize project code structure\n  ~help: Show this help\n  (More soon. Woof!)")
         return True
     if command.startswith("~"):
         name = command[1:].split()[0] if len(command)>1 else ""
