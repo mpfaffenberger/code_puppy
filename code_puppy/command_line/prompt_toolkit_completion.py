@@ -1,5 +1,6 @@
 import os
 from code_puppy.command_line.utils import list_directory
+from code_puppy.config import get_puppy_name
 # ANSI color codes are no longer necessary because prompt_toolkit handles
 # styling via the `Style` class. We keep them here commented-out in case
 # someone needs raw ANSI later, but they are unused in the current code.
@@ -59,14 +60,14 @@ from prompt_toolkit.formatted_text import FormattedText
 def get_prompt_with_active_model(base: str = '>>> '):
     model = get_active_model() or '(default)'
     cwd = os.getcwd()
-    # Abbreviate the home directory to ~ for brevity in the prompt
     home = os.path.expanduser('~')
     if cwd.startswith(home):
         cwd_display = '~' + cwd[len(home):]
     else:
         cwd_display = cwd
+    puppy_name = get_puppy_name()
     return FormattedText([
-        ('bold', '🐶'),
+        ('bold', f'🐶 {puppy_name} '),
         ('class:model', f'[' + str(model) + '] '),
         ('class:cwd', f'(' + str(cwd_display) + ') '),
         ('class:arrow', str(base)),
