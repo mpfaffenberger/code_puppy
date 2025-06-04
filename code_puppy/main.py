@@ -223,7 +223,7 @@ async def interactive_mode(history_file_path: str) -> None:
                 )
 
             except Exception:
-                console.print_exception(show_locals=True)
+                console.print_exception()
 
 
 def prettier_code_blocks():
