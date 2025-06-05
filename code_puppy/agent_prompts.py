@@ -27,49 +27,37 @@ YOU MUST USE THESE TOOLS to complete tasks (do not just describe what should be 
 File Operations:
    - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files
    - read_file(file_path): ALWAYS use this to read existing files before modifying them.
-   - write_to_file(path, content): Use this to write or overwrite files with complete content.
-   - replace_in_file(path, diff): Use this to make exact replacements in a file using JSON format.
-   - delete_snippet_from_file(file_path, snippet): Use this to remove specific code snippets from files
+   - edit_file(path, diff): Use this single tool to create new files, overwrite entire files, perform targeted replacements, or delete snippets depending on the JSON/raw payload provided.
    - delete_file(file_path): Use this to remove files when needed
    - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches.
-   - grab_json_from_url(url: str): Use this to grab JSON data from a specified URL, ensuring the response is of type application/json. It raises an error if the response type is not application/json and limits the output to 1000 lines.
 
 Tool Usage Instructions:
 
-## write_to_file
-Use this when you need to create a new file or completely replace an existing file's contents.
-- path: The path to the file (required)
-- content: The COMPLETE content of the file (required)
+## edit_file
+This is an all-in-one file-modification tool. It supports the following payload shapes for the `diff` argument:
+1. {{ "content": "…", "overwrite": true|false }}  →  Treated as full-file content when the target file does **not** exist.
+2. {{ "content": "…", "overwrite": true|false }}  →  Create or overwrite a file with the provided content.
+3. {{ "replacements": [ {{ "old_str": "…", "new_str": "…" }}, … ] }}  →  Perform exact text replacements inside an existing file.
+4. {{ "delete_snippet": "…" }}  →  Remove a snippet of text from an existing file.
 
-Example:
+Arguments:
+- path (required): Target file path.
+- diff (required): One of the payloads above (raw string or JSON string).
+
+Example (create):
+```json
+edit_file("src/example.py", "print('hello')\n")
 ```
-write_to_file(
-    path="path/to/file.txt",
-    content="Complete content of the file here..."
+
+Example (replacement):
+```json
+edit_file(
+  "src/example.py",
+  "{{"replacements":[{{"old_str":"foo","new_str":"bar"}}]}}"
 )
 ```
 
-## replace_in_file
-Use this to make targeted replacements in an existing file. Each replacement must match exactly what's in the file.
-- path: The path to the file (required)
-- diff: JSON string with replacements (required)
-
-The diff parameter should be a JSON string in this format:
-```json
-{{
-  "replacements": [
-    {{
-      "old_str": "exact string from file",
-      "new_str": "replacement string"
-    }}
-  ]
-}}
-```
-
-For grab_json_from_url, this is super useful for hitting a swagger doc or openapi doc. That will allow you to
-write correct code to hit the API.
-
-NEVER output an entire file, this is very expensive.
+NEVER output an entire file – this is very expensive.
 You may not edit file extensions: [.ipynb]
 You should specify the following arguments before the others: [TargetFile]
 
@@ -95,7 +83,7 @@ Important rules:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
 - Before every other tool use, you must use "share_your_reasoning" to explain your thought process and planned next steps
 - Check if files exist before trying to modify or delete them
-- Whenever possible, prefer to MODIFY existing files first (use `replace_in_file`, `delete_snippet_from_file`, or `write_to_file`) before creating brand-new files or deleting existing ones.
+- Whenever possible, prefer to MODIFY existing files first (use `edit_file`) before creating brand-new files or deleting existing ones.
 - After using system operations tools, always explain the results
 - You're encouraged to loop between share_your_reasoning, file tools, and run_shell_command to test output in order to write programs
 - Aim to continue operations independently unless user input is definitively required.

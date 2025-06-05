@@ -6,6 +6,82 @@ from code_puppy.tools.common import console
 from typing import Dict, Any, List
 from pydantic_ai import RunContext
 
+# ---------------------------------------------------------------------------
+# Module-level helper functions (exposed for unit tests; *not* registered)
+# ---------------------------------------------------------------------------
+
+def delete_snippet_from_file(context: RunContext | None, file_path: str, snippet: str) -> Dict[str, Any]:
+    """Remove *snippet* from *file_path* if present, returning a diff summary."""
+    file_path = os.path.abspath(file_path)
+    try:
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return {"error": f"File '{file_path}' does not exist."}
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        if snippet not in content:
+            return {"error": f"Snippet not found in file '{file_path}'."}
+        modified_content = content.replace(snippet, "")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(modified_content)
+        return {"success": True, "path": file_path, "message": "Snippet deleted from file."}
+    except PermissionError:
+        return {"error": f"Permission denied to modify '{file_path}'."}
+    except FileNotFoundError:
+        return {"error": f"File '{file_path}' does not exist."}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def write_to_file(context: RunContext | None, path: str, content: str) -> Dict[str, Any]:
+    file_path = os.path.abspath(path)
+    if os.path.exists(file_path):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": f"Cowardly refusing to overwrite existing file: {file_path}",
+            "changed": False,
+        }
+    os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return {
+        "success": True,
+        "path": file_path,
+        "message": f"File '{file_path}' created successfully.",
+        "changed": True,
+    }
+
+
+def replace_in_file(context: RunContext | None, path: str, diff: str) -> Dict[str, Any]:
+    file_path = os.path.abspath(path)
+    if not os.path.exists(file_path):
+        return {"error": f"File '{file_path}' does not exist"}
+    try:
+        import json, ast, difflib
+        replacements_data = None
+        try:
+            replacements_data = json.loads(diff)
+        except json.JSONDecodeError:
+            replacements_data = json.loads(diff.replace("'", '"'))
+        replacements = replacements_data.get("replacements", []) if isinstance(replacements_data, dict) else []
+        if not replacements:
+            return {"error": "No valid replacements found"}
+        with open(file_path, "r", encoding="utf-8") as f:
+            original = f.read()
+        modified = original
+        for rep in replacements:
+            modified = modified.replace(rep.get("old_str", ""), rep.get("new_str", ""))
+        if modified == original:
+            return {"success": False, "path": file_path, "message": "No changes to apply.", "changed": False}
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(modified)
+        diff_text = "".join(difflib.unified_diff(original.splitlines(keepends=True), modified.splitlines(keepends=True)))
+        return {"success": True, "path": file_path, "message": "Replacements applied.", "diff": diff_text, "changed": True}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+# ---------------------------------------------------------------------------
+
 def register_file_modifications_tools(agent):
     # @agent.tool
     def delete_snippet_from_file(context: RunContext, file_path: str, snippet: str) -> Dict[str, Any]:
