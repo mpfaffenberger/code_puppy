@@ -111,5 +111,15 @@
       "url": "https://api.x.ai/v1",
       "api_key": "$XAI_API_KEY"
     }
+  },
+  "azure-gpt-4.1": {
+    "type": "azure_openai",
+    "name": "gpt-4.1",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 5,
+    "api_version": "2024-12-01-preview",
+    "api_key": "$AZURE_OPENAI_API_KEY",
+    "azure_endpoint": "$AZURE_OPENAI_ENDPOINT"
   }
 }
