@@ -15,6 +15,8 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import merge_completers
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 
 from code_puppy.command_line.model_picker_completion import (
     ModelNameCompleter,
@@ -83,10 +85,17 @@ async def get_input_with_combined_completion(prompt_str = '>>> ', history_file: 
         ModelNameCompleter(trigger='~m'),
         CDCompleter(trigger='~cd'),
     ])
+    # Add custom key bindings for Alt+M to insert a new line without submitting
+    bindings = KeyBindings()
+    @bindings.add(Keys.Escape, 'm')  # Alt+M
+    def _(event):
+        event.app.current_buffer.insert_text('\n')
+
     session = PromptSession(
         completer=completer,
         history=history,
-        complete_while_typing=True
+        complete_while_typing=True,
+        key_bindings=bindings
     )
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
