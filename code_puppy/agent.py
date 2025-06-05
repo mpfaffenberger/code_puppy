@@ -50,7 +50,8 @@ def session_memory():
 def reload_code_generation_agent():
     """Force-reload the agent, usually after a model change."""
     global _code_generation_agent, _LAST_MODEL_NAME
-    model_name = os.environ.get("MODEL_NAME", "gpt-4.1")
+    from code_puppy.config import get_model_name
+    model_name = get_model_name()
     console.print(f'[bold cyan]Loading Model: {model_name}[/bold cyan]')
     models_path = Path(MODELS_JSON_PATH) if MODELS_JSON_PATH else Path(__file__).parent / "models.json"
     model = ModelFactory.get_model(model_name, ModelFactory.load_config(models_path))
@@ -79,7 +80,8 @@ def get_code_generation_agent(force_reload=False):
     Forces a reload if the model has changed, or if force_reload is passed.
     """
     global _code_generation_agent, _LAST_MODEL_NAME
-    model_name = os.environ.get("MODEL_NAME", "gpt-4.1")
+    from code_puppy.config import get_model_name
+    model_name = get_model_name()
     if _code_generation_agent is None or _LAST_MODEL_NAME != model_name or force_reload:
         return reload_code_generation_agent()
     return _code_generation_agent
