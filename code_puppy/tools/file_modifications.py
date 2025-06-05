@@ -58,14 +58,34 @@ def replace_in_file(context: RunContext | None, path: str, diff: str) -> Dict[st
         return {"error": f"File '{file_path}' does not exist"}
     try:
         import json, ast, difflib
-        replacements_data = None
+        preview = (diff[:200] + '...') if len(diff) > 200 else diff
         try:
             replacements_data = json.loads(diff)
-        except json.JSONDecodeError:
-            replacements_data = json.loads(diff.replace("'", '"'))
+        except json.JSONDecodeError as e1:
+            try:
+                replacements_data = json.loads(diff.replace("'", '"'))
+            except Exception as e2:
+                return {
+                    "error": "Could not parse diff as JSON.",
+                    "reason": str(e2),
+                    "received": preview,
+                }
+        # If still not a dict -> maybe python literal
+        if not isinstance(replacements_data, dict):
+            try:
+                replacements_data = ast.literal_eval(diff)
+            except Exception as e3:
+                return {
+                    "error": "Diff is neither valid JSON nor Python literal.",
+                    "reason": str(e3),
+                    "received": preview,
+                }
         replacements = replacements_data.get("replacements", []) if isinstance(replacements_data, dict) else []
         if not replacements:
-            return {"error": "No valid replacements found"}
+            return {
+                "error": "No valid replacements found in diff.",
+                "received": preview,
+            }
         with open(file_path, "r", encoding="utf-8") as f:
             original = f.read()
         modified = original
@@ -170,44 +190,34 @@ def register_file_modifications_tools(agent):
             # The agent sometimes sends single-quoted or otherwise invalid JSON.
             # Attempt to recover by trying several strategies before giving up.
             # ------------------------------------------------------------------
-            parsed_successfully = False
-            replacements: List[Dict[str, str]] = []
+            preview = (diff[:200] + '...') if len(diff) > 200 else diff
             try:
                 replacements_data = json.loads(diff)
-                replacements = replacements_data.get("replacements", [])
-                parsed_successfully = True
-            except json.JSONDecodeError:
-                # Fallback 1: convert single quotes to double quotes and retry
+            except json.JSONDecodeError as e1:
                 try:
-                    sanitized = diff.replace("'", '"')
-                    replacements_data = json.loads(sanitized)
-                    replacements = replacements_data.get("replacements", [])
-                    parsed_successfully = True
-                except json.JSONDecodeError:
-                    # Fallback 2: attempt Python literal eval
-                    try:
-                        import ast
-                        replacements_data = ast.literal_eval(diff)
-                        if isinstance(replacements_data, dict):
-                            replacements = replacements_data.get("replacements", []) if "replacements" in replacements_data else []
-                            # If dict keys look like a single replacement, wrap it
-                            if not replacements:
-                                # maybe it's already {"old_str": ..., "new_str": ...}
-                                if all(k in replacements_data for k in ("old_str", "new_str")):
-                                    replacements = [
-                                        {
-                                            "old_str": replacements_data["old_str"],
-                                            "new_str": replacements_data["new_str"],
-                                        }
-                                    ]
-                            parsed_successfully = True
-                    except Exception as e2:
-                        console.print(
-                            f"[bold red]Error:[/bold red] Could not parse diff as JSON or Python literal. Reason: {e2}"
-                        )
-            if not parsed_successfully or not replacements:
-                console.print("[bold red]Error:[/bold red] No valid replacements found in the diff after all parsing attempts")
-                return {"error": "No valid replacements found in the diff"}
+                    replacements_data = json.loads(diff.replace("'", '"'))
+                except Exception as e2:
+                    return {
+                        "error": "Could not parse diff as JSON.",
+                        "reason": str(e2),
+                        "received": preview,
+                    }
+            # If still not a dict -> maybe python literal
+            if not isinstance(replacements_data, dict):
+                try:
+                    replacements_data = ast.literal_eval(diff)
+                except Exception as e3:
+                    return {
+                        "error": "Diff is neither valid JSON nor Python literal.",
+                        "reason": str(e3),
+                        "received": preview,
+                    }
+            replacements = replacements_data.get("replacements", []) if isinstance(replacements_data, dict) else []
+            if not replacements:
+                return {
+                    "error": "No valid replacements found in diff.",
+                    "received": preview,
+                }
             with open(file_path, "r", encoding="utf-8") as f:
                 current_content = f.read()
             modified_content = current_content

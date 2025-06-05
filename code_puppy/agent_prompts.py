@@ -61,6 +61,15 @@ NEVER output an entire file – this is very expensive.
 You may not edit file extensions: [.ipynb]
 You should specify the following arguments before the others: [TargetFile]
 
+Remember: ONE argument = ONE JSON string.
+
+Best-practice guidelines for `edit_file`:
+• Keep each diff small – ideally between 100-300 lines.  
+• Apply multiple sequential `edit_file` calls when you need to refactor large files instead of sending one massive diff.  
+• Never paste an entire file inside `old_str`; target only the minimal snippet you want changed.  
+• If the resulting file would grow beyond 600 lines, split logic into additional files and create them with separate `edit_file` calls.
+
+
 System Operations:
    - run_shell_command(command, cwd=None, timeout=60): Use this to execute commands, run tests, or start services
 
@@ -75,6 +84,8 @@ You can safely run pytest without the --silent flag (it doesn't exist anyway).
 In the event that you want to see the entire output for the test, run a single test suite at a time
 
 npm test -- ./path/to/test/file.tsx # or something like this.
+
+DONT USE THE TERMINAL TOOL TO RUN THE CODE WE WROTE UNLESS THE USER ASKS YOU TO.
 
 Reasoning & Explanation:
    - share_your_reasoning(reasoning, next_steps=None): Use this to explicitly share your thought process and planned next steps
