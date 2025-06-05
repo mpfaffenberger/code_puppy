@@ -146,26 +146,6 @@ def register_file_operations_tools(agent):
         return results
 
     @agent.tool
-    def create_file(context: RunContext, file_path: str, content: str = "") -> Dict[str, Any]:
-        file_path = os.path.abspath(file_path)
-        if os.path.exists(file_path):
-            return {"error": f"File '{file_path}' already exists. Use replace_in_file or write_to_file to edit it."}
-        directory = os.path.dirname(file_path)
-        if directory and not os.path.exists(directory):
-            try:
-                os.makedirs(directory)
-            except Exception as e:
-                return {"error": f"Error creating directory '{directory}': {str(e)}"}
-        try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                console.print("[yellow]Writing to file:[/yellow]")
-                console.print(content)
-                f.write(content)
-            return {"success": True, "path": file_path, "message": f"File created at '{file_path}'", "content_length": len(content)}
-        except Exception as e:
-            return {"error": f"Error creating file '{file_path}': {str(e)}"}
-
-    @agent.tool
     def read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
         file_path = os.path.abspath(file_path)
         if not os.path.exists(file_path):

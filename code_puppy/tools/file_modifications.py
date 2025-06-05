@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 from pydantic_ai import RunContext
 
 def register_file_modifications_tools(agent):
-    @agent.tool
+    # @agent.tool
     def delete_snippet_from_file(context: RunContext, file_path: str, snippet: str) -> Dict[str, Any]:
         console.log(f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]")
         file_path = os.path.abspath(file_path)
@@ -53,7 +53,7 @@ def register_file_modifications_tools(agent):
         except Exception as e:
             return {"error": f"Error deleting file '{file_path}': {str(e)}"}
 
-    @agent.tool
+    # @agent.tool
     def write_to_file(context: RunContext, path: str, content: str) -> Dict[str, Any]:
         try:
             file_path = os.path.abspath(path)
@@ -78,7 +78,7 @@ def register_file_modifications_tools(agent):
             console.print(f"[bold red]Error:[/bold red] {str(e)}")
             return {"error": f"Error writing to file '{path}': {str(e)}"}
 
-    @agent.tool(retries=5)
+    # @agent.tool(retries=5)
     def replace_in_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
         try:
             file_path = os.path.abspath(path)
@@ -189,3 +189,86 @@ def register_file_modifications_tools(agent):
             return {"error": f"File '{file_path}' does not exist."}
         except Exception as e:
             return {"error": f"Error deleting file '{file_path}': {str(e)}"}
+
+    @agent.tool(retries=5)
+    def edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
+        """
+        Unified file editing tool that can:
+        - Create/write a new file when the target does not exist (using raw content or a JSON payload with a "content" key)
+        - Replace text within an existing file via a JSON payload with "replacements" (delegates to internal replace logic)
+        - Delete a snippet from an existing file via a JSON payload with "delete_snippet"
+
+        Parameters
+        ----------
+        path : str
+            Path to the target file (relative or absolute)
+        diff : str
+            Either:
+              * Raw file content (for file creation)
+              * A JSON string with one of the following shapes:
+                  {"content": "full file contents", "overwrite": true}
+                  {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
+                  {"delete_snippet": "text to remove"}
+
+        The function auto-detects the payload type and routes to the appropriate internal helper.
+        """
+        file_path = os.path.abspath(path)
+
+        # 1. Attempt to parse the incoming `diff` as JSON (robustly, allowing single quotes)
+        parsed_payload: Dict[str, Any] | None = None
+        try:
+            parsed_payload = json.loads(diff)
+        except json.JSONDecodeError:
+            # Fallback: try to sanitise single quotes
+            try:
+                parsed_payload = json.loads(diff.replace("'", '"'))
+            except Exception:
+                parsed_payload = None
+
+        # ------------------------------------------------------------------
+        # Case A: JSON payload recognised
+        # ------------------------------------------------------------------
+        if isinstance(parsed_payload, dict):
+            # Delete-snippet mode
+            if "delete_snippet" in parsed_payload:
+                snippet = parsed_payload["delete_snippet"]
+                return delete_snippet_from_file(context, file_path, snippet)
+
+            # Replacement mode
+            if "replacements" in parsed_payload:
+                # Forward the ORIGINAL diff string (not parsed) so that the existing logic
+                # which handles various JSON quirks can run unchanged.
+                return replace_in_file(context, file_path, diff)
+
+            # Write / create mode via content field
+            if "content" in parsed_payload:
+                content = parsed_payload["content"]
+                overwrite = bool(parsed_payload.get("overwrite", False))
+                file_exists = os.path.exists(file_path)
+                if file_exists and not overwrite:
+                    return {"success": False, "path": file_path, "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.", "changed": False}
+                if file_exists and overwrite:
+                    # Overwrite directly
+                    try:
+                        with open(file_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                        return {"success": True, "path": file_path, "message": f"File '{file_path}' overwritten successfully.", "changed": True}
+                    except Exception as e:
+                        return {"error": f"Error overwriting file '{file_path}': {str(e)}"}
+                # File does not exist -> create
+                return write_to_file(context, file_path, content)
+
+        # ------------------------------------------------------------------
+        # Case B: Not JSON or unrecognised structure.
+        # Treat `diff` as raw content for file creation OR as replacement diff.
+        # ------------------------------------------------------------------
+        if not os.path.exists(file_path):
+            # Create new file with provided raw content
+            return write_to_file(context, file_path, diff)
+
+        # If file exists, attempt to treat the raw input as a replacement diff spec.
+        replacement_result = replace_in_file(context, file_path, diff)
+        if replacement_result.get("error"):
+            # Fallback: refuse to overwrite blindly
+            return {"success": False, "path": file_path, "message": "Unrecognised payload and cannot derive edit instructions.", "changed": False}
+        return replacement_result
