@@ -100,5 +100,16 @@
       "url": "https://api.together.xyz/v1",
       "api_key": "$TOGETHER_API_KEY"
     }
+  },
+  "grok-3-mini-fast": {
+    "type": "custom_openai",
+    "name": "grok-3-mini-fast",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 5,
+    "custom_endpoint": {
+      "url": "https://api.x.ai/v1",
+      "api_key": "$XAI_API_KEY"
+    }
   }
 }
