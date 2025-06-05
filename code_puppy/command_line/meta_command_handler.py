@@ -48,8 +48,10 @@ def handle_meta_command(command: str, console: Console) -> bool:
         # Try setting model and show confirmation
         new_input = update_model_in_input(command)
         if new_input is not None:
+            from code_puppy.agent import get_code_generation_agent
             model = get_active_model()
-            console.print(f"[bold green]Active model set to:[/bold green] [cyan]{model}[/cyan]")
+            get_code_generation_agent(force_reload=True)
+            console.print(f"[bold green]Active model set and loaded:[/bold green] [cyan]{model}[/cyan]")
             return True
         # If no model matched, show available models
         model_names = load_model_names()
