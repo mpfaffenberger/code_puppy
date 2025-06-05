@@ -19,18 +19,10 @@ def load_model_names():
 
 def get_active_model():
     """
-    Returns the active model in order of priority:
-    1. Model stored in config (sticky, highest priority)
-    2. MODEL_NAME environment variable (for temporary override/testing)
-    3. None if unset
+    Returns the active model from the config using get_model_name().
+    This ensures consistency across the codebase by always using the config value.
     """
-    model = get_model_name()
-    if model:
-        return model
-    env_model = os.environ.get('MODEL_NAME')
-    if env_model:
-        return env_model
-    return None
+    return get_model_name()
 
 def set_active_model(model_name: str):
     """
