@@ -90,6 +90,10 @@ async def get_input_with_combined_completion(prompt_str = '>>> ', history_file: 
     @bindings.add(Keys.Escape, 'm')  # Alt+M
     def _(event):
         event.app.current_buffer.insert_text('\n')
+    @bindings.add(Keys.Escape)
+    def _(event):
+        """Cancel the current prompt when the user presses the ESC key alone."""
+        event.app.exit(exception=KeyboardInterrupt)
 
     session = PromptSession(
         completer=completer,
