@@ -18,7 +18,7 @@ def test_create_file():
                 return True
         mock_exists.side_effect = side_effect
         mock_makedirs.return_value = None
-        result = agent.tools['create_file'](None, test_file, "content")
+        result = agent.tools['edit_file'](None, test_file, "content")
         assert "success" in result
         assert result["success"] is True
         assert result["path"].endswith(test_file)
