@@ -10,6 +10,7 @@ from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from anthropic import AsyncAnthropic
+from openai import AsyncAzureOpenAI # For Azure OpenAI client
 import httpx
 from httpx import Response
 import threading
@@ -204,6 +205,58 @@ class ModelFactory:
             )
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
+
+        elif model_type == "azure_openai":
+            azure_endpoint_config = model_config.get("azure_endpoint")
+            if not azure_endpoint_config:
+                raise ValueError(
+                    "Azure OpenAI model type requires 'azure_endpoint' in its configuration."
+                )
+            azure_endpoint = azure_endpoint_config
+            if azure_endpoint_config.startswith("$"):
+                azure_endpoint = os.environ.get(azure_endpoint_config[1:])
+            if not azure_endpoint:
+                raise ValueError(
+                    f"Azure OpenAI endpoint environment variable '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else ''}' not found or is empty."
+                )
+
+            api_version_config = model_config.get("api_version")
+            if not api_version_config:
+                raise ValueError(
+                    "Azure OpenAI model type requires 'api_version' in its configuration."
+                )
+            api_version = api_version_config
+            if api_version_config.startswith("$"):
+                api_version = os.environ.get(api_version_config[1:])
+            if not api_version:
+                raise ValueError(
+                    f"Azure OpenAI API version environment variable '{api_version_config[1:] if api_version_config.startswith('$') else ''}' not found or is empty."
+                )
+            
+            api_key_config = model_config.get("api_key")
+            if not api_key_config:
+                raise ValueError(
+                    "Azure OpenAI model type requires 'api_key' in its configuration."
+                )
+            api_key = api_key_config
+            if api_key_config.startswith("$"):
+                api_key = os.environ.get(api_key_config[1:])
+            if not api_key:
+                raise ValueError(
+                    f"Azure OpenAI API key environment variable '{api_key_config[1:] if api_key_config.startswith('$') else ''}' not found or is empty."
+                )
+
+            # Configure max_retries for the Azure client, defaulting if not specified in config
+            azure_max_retries = model_config.get("max_retries", 2)
+
+            azure_client = AsyncAzureOpenAI(
+                azure_endpoint=azure_endpoint,
+                api_version=api_version,
+                api_key=api_key,
+                max_retries=azure_max_retries
+            )
+            provider = OpenAIProvider(openai_client=azure_client)
+            return OpenAIModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_openai":
             url, headers, ca_certs_path, api_key = get_custom_config(model_config)
