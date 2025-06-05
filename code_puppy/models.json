@@ -6,27 +6,6 @@
     "max_retries": 3,
     "retry_base_delay": 10
   },
-  "gemini-2.0-flash": {
-    "type": "gemini",
-    "name": "gemini-2.0-flash",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 10
-  },
-  "gpt-4o": {
-    "type": "openai",
-    "name": "gpt-4o",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 10
-  },
-  "gpt-4o-mini": {
-    "type": "openai",
-    "name": "gpt-4o-mini",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 10
-  },
   "gpt-4.1": {
     "type": "openai",
     "name": "gpt-4.1",
@@ -48,16 +27,9 @@
     "max_retries": 3,
     "retry_base_delay": 10
   },
-  "o3-mini": {
-    "type": "openai",
-    "name": "o3-mini",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 10
-  },
-  "gpt-4o-custom": {
+  "gpt-4.1-custom": {
     "type": "custom_openai",
-    "name": "gpt-4o",
+    "name": "gpt-4.1-custom",
     "max_requests_per_minute": 100,
     "max_retries": 3,
     "retry_base_delay": 10,
@@ -90,15 +62,25 @@
       "api_key": "$TOGETHER_API_KEY"
     }
   },
-  "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
+  "grok-3-mini-fast": {
     "type": "custom_openai",
-    "name": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+    "name": "grok-3-mini-fast",
     "max_requests_per_minute": 100,
     "max_retries": 3,
     "retry_base_delay": 5,
     "custom_endpoint": {
-      "url": "https://api.together.xyz/v1",
-      "api_key": "$TOGETHER_API_KEY"
+      "url": "https://api.x.ai/v1",
+      "api_key": "$XAI_API_KEY"
     }
+  },
+  "azure-gpt-4.1": {
+    "type": "azure_openai",
+    "name": "gpt-4.1",
+    "max_requests_per_minute": 100,
+    "max_retries": 3,
+    "retry_base_delay": 5,
+    "api_version": "2024-12-01-preview",
+    "api_key": "$AZURE_OPENAI_API_KEY",
+    "azure_endpoint": "$AZURE_OPENAI_ENDPOINT"
   }
 }
