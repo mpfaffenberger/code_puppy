@@ -5,12 +5,12 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.document import Document
 from prompt_toolkit import PromptSession
+from code_puppy.config import get_model_name, set_model_name
 
 MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH")
 if not MODELS_JSON_PATH:
     MODELS_JSON_PATH = os.path.join(os.path.dirname(__file__), '..', 'models.json')
     MODELS_JSON_PATH = os.path.abspath(MODELS_JSON_PATH)
-MODEL_STATE_PATH = os.path.expanduser('~/.code_puppy_model')
 
 def load_model_names():
     with open(MODELS_JSON_PATH, 'r') as f:
@@ -18,18 +18,26 @@ def load_model_names():
     return list(models.keys())
 
 def get_active_model():
+    """
+    Returns the active model in order of priority:
+    1. Model stored in config (sticky, highest priority)
+    2. MODEL_NAME environment variable (for temporary override/testing)
+    3. None if unset
+    """
+    model = get_model_name()
+    if model:
+        return model
     env_model = os.environ.get('MODEL_NAME')
     if env_model:
         return env_model
-    try:
-        with open(MODEL_STATE_PATH, 'r') as f:
-            return f.read().strip()
-    except Exception:
-        return None
+    return None
 
 def set_active_model(model_name: str):
-    with open(MODEL_STATE_PATH, 'w') as f:
-        f.write(model_name.strip())
+    """
+    Sets the active model name by updating both config (for persistence)
+    and env (for process lifetime override).
+    """
+    set_model_name(model_name)
     os.environ['MODEL_NAME'] = model_name.strip()
     # Reload agent globally
     try:
