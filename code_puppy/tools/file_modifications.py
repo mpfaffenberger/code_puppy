@@ -6,8 +6,104 @@ from code_puppy.tools.common import console
 from typing import Dict, Any, List
 from pydantic_ai import RunContext
 
+# ---------------------------------------------------------------------------
+# Module-level helper functions (exposed for unit tests; *not* registered)
+# ---------------------------------------------------------------------------
+
+def delete_snippet_from_file(context: RunContext | None, file_path: str, snippet: str) -> Dict[str, Any]:
+    """Remove *snippet* from *file_path* if present, returning a diff summary."""
+    file_path = os.path.abspath(file_path)
+    try:
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return {"error": f"File '{file_path}' does not exist."}
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        if snippet not in content:
+            return {"error": f"Snippet not found in file '{file_path}'."}
+        modified_content = content.replace(snippet, "")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(modified_content)
+        return {"success": True, "path": file_path, "message": "Snippet deleted from file."}
+    except PermissionError:
+        return {"error": f"Permission denied to modify '{file_path}'."}
+    except FileNotFoundError:
+        return {"error": f"File '{file_path}' does not exist."}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def write_to_file(context: RunContext | None, path: str, content: str) -> Dict[str, Any]:
+    file_path = os.path.abspath(path)
+    if os.path.exists(file_path):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": f"Cowardly refusing to overwrite existing file: {file_path}",
+            "changed": False,
+        }
+    os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return {
+        "success": True,
+        "path": file_path,
+        "message": f"File '{file_path}' created successfully.",
+        "changed": True,
+    }
+
+
+def replace_in_file(context: RunContext | None, path: str, diff: str) -> Dict[str, Any]:
+    file_path = os.path.abspath(path)
+    if not os.path.exists(file_path):
+        return {"error": f"File '{file_path}' does not exist"}
+    try:
+        import json, ast, difflib
+        preview = (diff[:200] + '...') if len(diff) > 200 else diff
+        try:
+            replacements_data = json.loads(diff)
+        except json.JSONDecodeError as e1:
+            try:
+                replacements_data = json.loads(diff.replace("'", '"'))
+            except Exception as e2:
+                return {
+                    "error": "Could not parse diff as JSON.",
+                    "reason": str(e2),
+                    "received": preview,
+                }
+        # If still not a dict -> maybe python literal
+        if not isinstance(replacements_data, dict):
+            try:
+                replacements_data = ast.literal_eval(diff)
+            except Exception as e3:
+                return {
+                    "error": "Diff is neither valid JSON nor Python literal.",
+                    "reason": str(e3),
+                    "received": preview,
+                }
+        replacements = replacements_data.get("replacements", []) if isinstance(replacements_data, dict) else []
+        if not replacements:
+            return {
+                "error": "No valid replacements found in diff.",
+                "received": preview,
+            }
+        with open(file_path, "r", encoding="utf-8") as f:
+            original = f.read()
+        modified = original
+        for rep in replacements:
+            modified = modified.replace(rep.get("old_str", ""), rep.get("new_str", ""))
+        if modified == original:
+            return {"success": False, "path": file_path, "message": "No changes to apply.", "changed": False}
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(modified)
+        diff_text = "".join(difflib.unified_diff(original.splitlines(keepends=True), modified.splitlines(keepends=True)))
+        return {"success": True, "path": file_path, "message": "Replacements applied.", "diff": diff_text, "changed": True}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+# ---------------------------------------------------------------------------
+
 def register_file_modifications_tools(agent):
-    @agent.tool
+    # @agent.tool
     def delete_snippet_from_file(context: RunContext, file_path: str, snippet: str) -> Dict[str, Any]:
         console.log(f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]")
         file_path = os.path.abspath(file_path)
@@ -53,7 +149,7 @@ def register_file_modifications_tools(agent):
         except Exception as e:
             return {"error": f"Error deleting file '{file_path}': {str(e)}"}
 
-    @agent.tool
+    # @agent.tool
     def write_to_file(context: RunContext, path: str, content: str) -> Dict[str, Any]:
         try:
             file_path = os.path.abspath(path)
@@ -78,7 +174,7 @@ def register_file_modifications_tools(agent):
             console.print(f"[bold red]Error:[/bold red] {str(e)}")
             return {"error": f"Error writing to file '{path}': {str(e)}"}
 
-    @agent.tool(retries=5)
+    # @agent.tool(retries=5)
     def replace_in_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
         try:
             file_path = os.path.abspath(path)
@@ -94,44 +190,34 @@ def register_file_modifications_tools(agent):
             # The agent sometimes sends single-quoted or otherwise invalid JSON.
             # Attempt to recover by trying several strategies before giving up.
             # ------------------------------------------------------------------
-            parsed_successfully = False
-            replacements: List[Dict[str, str]] = []
+            preview = (diff[:200] + '...') if len(diff) > 200 else diff
             try:
                 replacements_data = json.loads(diff)
-                replacements = replacements_data.get("replacements", [])
-                parsed_successfully = True
-            except json.JSONDecodeError:
-                # Fallback 1: convert single quotes to double quotes and retry
+            except json.JSONDecodeError as e1:
                 try:
-                    sanitized = diff.replace("'", '"')
-                    replacements_data = json.loads(sanitized)
-                    replacements = replacements_data.get("replacements", [])
-                    parsed_successfully = True
-                except json.JSONDecodeError:
-                    # Fallback 2: attempt Python literal eval
-                    try:
-                        import ast
-                        replacements_data = ast.literal_eval(diff)
-                        if isinstance(replacements_data, dict):
-                            replacements = replacements_data.get("replacements", []) if "replacements" in replacements_data else []
-                            # If dict keys look like a single replacement, wrap it
-                            if not replacements:
-                                # maybe it's already {"old_str": ..., "new_str": ...}
-                                if all(k in replacements_data for k in ("old_str", "new_str")):
-                                    replacements = [
-                                        {
-                                            "old_str": replacements_data["old_str"],
-                                            "new_str": replacements_data["new_str"],
-                                        }
-                                    ]
-                            parsed_successfully = True
-                    except Exception as e2:
-                        console.print(
-                            f"[bold red]Error:[/bold red] Could not parse diff as JSON or Python literal. Reason: {e2}"
-                        )
-            if not parsed_successfully or not replacements:
-                console.print("[bold red]Error:[/bold red] No valid replacements found in the diff after all parsing attempts")
-                return {"error": "No valid replacements found in the diff"}
+                    replacements_data = json.loads(diff.replace("'", '"'))
+                except Exception as e2:
+                    return {
+                        "error": "Could not parse diff as JSON.",
+                        "reason": str(e2),
+                        "received": preview,
+                    }
+            # If still not a dict -> maybe python literal
+            if not isinstance(replacements_data, dict):
+                try:
+                    replacements_data = ast.literal_eval(diff)
+                except Exception as e3:
+                    return {
+                        "error": "Diff is neither valid JSON nor Python literal.",
+                        "reason": str(e3),
+                        "received": preview,
+                    }
+            replacements = replacements_data.get("replacements", []) if isinstance(replacements_data, dict) else []
+            if not replacements:
+                return {
+                    "error": "No valid replacements found in diff.",
+                    "received": preview,
+                }
             with open(file_path, "r", encoding="utf-8") as f:
                 current_content = f.read()
             modified_content = current_content
@@ -189,3 +275,86 @@ def register_file_modifications_tools(agent):
             return {"error": f"File '{file_path}' does not exist."}
         except Exception as e:
             return {"error": f"Error deleting file '{file_path}': {str(e)}"}
+
+    @agent.tool(retries=5)
+    def edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
+        """
+        Unified file editing tool that can:
+        - Create/write a new file when the target does not exist (using raw content or a JSON payload with a "content" key)
+        - Replace text within an existing file via a JSON payload with "replacements" (delegates to internal replace logic)
+        - Delete a snippet from an existing file via a JSON payload with "delete_snippet"
+
+        Parameters
+        ----------
+        path : str
+            Path to the target file (relative or absolute)
+        diff : str
+            Either:
+              * Raw file content (for file creation)
+              * A JSON string with one of the following shapes:
+                  {"content": "full file contents", "overwrite": true}
+                  {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
+                  {"delete_snippet": "text to remove"}
+
+        The function auto-detects the payload type and routes to the appropriate internal helper.
+        """
+        file_path = os.path.abspath(path)
+
+        # 1. Attempt to parse the incoming `diff` as JSON (robustly, allowing single quotes)
+        parsed_payload: Dict[str, Any] | None = None
+        try:
+            parsed_payload = json.loads(diff)
+        except json.JSONDecodeError:
+            # Fallback: try to sanitise single quotes
+            try:
+                parsed_payload = json.loads(diff.replace("'", '"'))
+            except Exception:
+                parsed_payload = None
+
+        # ------------------------------------------------------------------
+        # Case A: JSON payload recognised
+        # ------------------------------------------------------------------
+        if isinstance(parsed_payload, dict):
+            # Delete-snippet mode
+            if "delete_snippet" in parsed_payload:
+                snippet = parsed_payload["delete_snippet"]
+                return delete_snippet_from_file(context, file_path, snippet)
+
+            # Replacement mode
+            if "replacements" in parsed_payload:
+                # Forward the ORIGINAL diff string (not parsed) so that the existing logic
+                # which handles various JSON quirks can run unchanged.
+                return replace_in_file(context, file_path, diff)
+
+            # Write / create mode via content field
+            if "content" in parsed_payload:
+                content = parsed_payload["content"]
+                overwrite = bool(parsed_payload.get("overwrite", False))
+                file_exists = os.path.exists(file_path)
+                if file_exists and not overwrite:
+                    return {"success": False, "path": file_path, "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.", "changed": False}
+                if file_exists and overwrite:
+                    # Overwrite directly
+                    try:
+                        with open(file_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                        return {"success": True, "path": file_path, "message": f"File '{file_path}' overwritten successfully.", "changed": True}
+                    except Exception as e:
+                        return {"error": f"Error overwriting file '{file_path}': {str(e)}"}
+                # File does not exist -> create
+                return write_to_file(context, file_path, content)
+
+        # ------------------------------------------------------------------
+        # Case B: Not JSON or unrecognised structure.
+        # Treat `diff` as raw content for file creation OR as replacement diff.
+        # ------------------------------------------------------------------
+        if not os.path.exists(file_path):
+            # Create new file with provided raw content
+            return write_to_file(context, file_path, diff)
+
+        # If file exists, attempt to treat the raw input as a replacement diff spec.
+        replacement_result = replace_in_file(context, file_path, diff)
+        if replacement_result.get("error"):
+            # Fallback: refuse to overwrite blindly
+            return {"success": False, "path": file_path, "message": "Unrecognised payload and cannot derive edit instructions.", "changed": False}
+        return replacement_result

@@ -5,6 +5,83 @@ from typing import List, Dict, Any
 from code_puppy.tools.common import console
 from pydantic_ai import RunContext
 
+# ---------------------------------------------------------------------------
+# Module-level helper functions (exposed for unit tests _and_ used as tools)
+# ---------------------------------------------------------------------------
+IGNORE_PATTERNS = [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/__pycache__/**",
+    "**/.DS_Store",
+    "**/.env",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/.idea/**",
+    "**/.vscode/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/*.pyc",
+    "**/*.pyo",
+    "**/*.pyd",
+    "**/*.so",
+    "**/*.dll",
+    "**/*.exe",
+]
+
+def should_ignore_path(path: str) -> bool:
+    """Return True if *path* matches any pattern in IGNORE_PATTERNS."""
+    for pattern in IGNORE_PATTERNS:
+        if fnmatch.fnmatch(path, pattern):
+            return True
+    return False
+
+def list_files(context: RunContext | None, directory: str = ".", recursive: bool = True) -> List[Dict[str, Any]]:
+    """Light-weight `list_files` implementation sufficient for unit-tests and agent tooling."""
+    directory = os.path.abspath(directory)
+    results: List[Dict[str, Any]] = []
+    if not os.path.exists(directory) or not os.path.isdir(directory):
+        return [{"error": f"Directory '{directory}' does not exist or is not a directory"}]
+    for root, dirs, files in os.walk(directory):
+        rel_root = os.path.relpath(root, directory)
+        if rel_root == ".":
+            rel_root = ""
+        for f in files:
+            fp = os.path.join(rel_root, f) if rel_root else f
+            results.append({"path": fp, "type": "file"})
+        if not recursive:
+            break
+    return results
+
+def read_file(context: RunContext | None, file_path: str) -> Dict[str, Any]:
+    file_path = os.path.abspath(file_path)
+    if not os.path.exists(file_path):
+        return {"error": f"File '{file_path}' does not exist"}
+    if not os.path.isfile(file_path):
+        return {"error": f"'{file_path}' is not a file"}
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"content": content, "path": file_path, "total_lines": len(content.splitlines())}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+def grep(context: RunContext | None, search_string: str, directory: str = ".") -> List[Dict[str, Any]]:
+    matches: List[Dict[str, Any]] = []
+    directory = os.path.abspath(directory)
+    for root, dirs, files in os.walk(directory):
+        for f in files:
+            file_path = os.path.join(root, f)
+            try:
+                with open(file_path, "r", encoding="utf-8") as fh:
+                    for ln, line in enumerate(fh, 1):
+                        if search_string in line:
+                            matches.append({"file_path": file_path, "line_number": ln})
+                            if len(matches) >= 200:
+                                return matches
+            except Exception:
+                continue
+    return matches
+
 def register_file_operations_tools(agent):
     # Constants for file operations
     IGNORE_PATTERNS = [
@@ -144,26 +221,6 @@ def register_file_operations_tools(agent):
         console.print(f"\U0001F4C1 [blue]{dir_count} directories[/blue], \U0001F4C4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]")
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
         return results
-
-    @agent.tool
-    def create_file(context: RunContext, file_path: str, content: str = "") -> Dict[str, Any]:
-        file_path = os.path.abspath(file_path)
-        if os.path.exists(file_path):
-            return {"error": f"File '{file_path}' already exists. Use replace_in_file or write_to_file to edit it."}
-        directory = os.path.dirname(file_path)
-        if directory and not os.path.exists(directory):
-            try:
-                os.makedirs(directory)
-            except Exception as e:
-                return {"error": f"Error creating directory '{directory}': {str(e)}"}
-        try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                console.print("[yellow]Writing to file:[/yellow]")
-                console.print(content)
-                f.write(content)
-            return {"success": True, "path": file_path, "message": f"File created at '{file_path}'", "content_length": len(content)}
-        except Exception as e:
-            return {"error": f"Error creating file '{file_path}': {str(e)}"}
 
     @agent.tool
     def read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
