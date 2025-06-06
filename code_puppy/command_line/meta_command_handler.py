@@ -51,7 +51,8 @@ def handle_meta_command(command: str, console: Console) -> bool:
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         model = get_active_model()
-        yolo_mode = os.environ.get("YOLO_MODE", "false").lower() == "true"
+        from code_puppy.config import get_yolo_mode
+        yolo_mode = get_yolo_mode()
         console.print(f'''[bold magenta]🐶 Puppy Status[/bold magenta]
  \n[bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]     [cyan]{owner_name}[/cyan]
