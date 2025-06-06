@@ -71,7 +71,7 @@ def get_yolo_mode():
     Env var wins if both are set.
     Allowed env/cfg values: 1, '1', 'true', 'yes', 'on' (case-insensitive).
     """
-    env_val = os.getenv('CODE_PUPPY_YOLO')
+    env_val = os.getenv('YOLO_MODE')
     true_vals = {'1', 'true', 'yes', 'on'}
     if env_val is not None:
         if str(env_val).strip().lower() in true_vals:
