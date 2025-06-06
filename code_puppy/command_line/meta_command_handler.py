@@ -1,3 +1,13 @@
+META_COMMANDS_HELP = '''
+[bold magenta]Meta Commands Help[/bold magenta]
+~help, ~h             Show this help message
+~cd [dir]             Change directory or show directories
+~codemap [dir]        Show code structure for [dir]
+~m <model>            Set active model
+~show                 Show puppy status info
+~<unknown>            Show unknown meta command warning
+'''
+
 from code_puppy.command_line.model_picker_completion import update_model_in_input, load_model_names, get_active_model
 from rich.console import Console
 import os
@@ -75,7 +85,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
         console.print(f"[yellow]Usage:[/yellow] ~m <model_name>")
         return True
     if command in ("~help", "~h"):
-        console.print("[bold magenta]Meta commands available:[/bold magenta]\n  ~m <model>: Pick a model from your list!\n  ~cd [dir]: Change directories\n  ~codemap [dir]: Visualize project code structure\n  ~help: Show this help\n  (More soon. Woof!)")
+        console.print(META_COMMANDS_HELP)
         return True
     if command.startswith("~"):
         name = command[1:].split()[0] if len(command)>1 else ""

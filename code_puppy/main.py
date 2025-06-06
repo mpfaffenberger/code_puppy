@@ -102,6 +102,10 @@ async def interactive_mode(history_file_path: str) -> None:
     console.print("Type 'clear' to reset the conversation history.")
     console.print("Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model.")
 
+    # Show meta commands right at startup - DRY!
+    from code_puppy.command_line.meta_command_handler import META_COMMANDS_HELP
+    console.print(META_COMMANDS_HELP)
+
     # Check if prompt_toolkit is installed
     try:
         import prompt_toolkit
