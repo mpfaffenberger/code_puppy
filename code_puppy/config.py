@@ -55,7 +55,7 @@ def get_owner_name():
 # --- MODEL STICKY EXTENSION STARTS HERE ---
 def get_model_name():
     """Returns the last used model name stored in config, or None if unset."""
-    return get_value("model") or "gpt-4o"
+    return get_value("model") or "gpt-4.1"
 
 def set_model_name(model: str):
     """Sets the model name in the persistent config file."""
