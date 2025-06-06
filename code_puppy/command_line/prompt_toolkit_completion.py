@@ -1,6 +1,6 @@
 import os
 from code_puppy.command_line.utils import list_directory
-from code_puppy.config import get_puppy_name, get_owner_name, get_config_keys
+from code_puppy.config import get_puppy_name, get_owner_name, get_config_keys, get_value
 # ANSI color codes are no longer necessary because prompt_toolkit handles
 # styling via the `Style` class. We keep them here commented-out in case
 # someone needs raw ANSI later, but they are unused in the current code.
@@ -34,6 +34,9 @@ class SetCompleter(Completer):
         text = document.text_before_cursor
         if not text.strip().startswith(self.trigger):
             return
+        # If the only thing typed is exactly '~set', suggest space
+        if text.strip() == self.trigger:
+            yield Completion(self.trigger + ' ', start_position=-len(self.trigger), display=f'{self.trigger} ', display_meta='set config')
         tokens = text.strip().split()
         # completion for the first arg after ~set
         if len(tokens) == 1:
@@ -41,9 +44,25 @@ class SetCompleter(Completer):
             base = ''
         else:
             base = tokens[1]
+        # --- SPECIAL HANDLING FOR 'model' KEY ---
+        if base == 'model':
+            # Don't return any completions -- let ModelNameCompleter handle it
+            return
         for key in get_config_keys():
+            if key == 'model':
+                continue  # exclude 'model' from regular ~set completions
             if key.startswith(base):
-                yield Completion(key, start_position=-len(base), display_meta='puppy.cfg key')
+                prev_value = get_value(key)
+                # Ensure there's a space after '~set' if it's the only thing typed
+                if text.strip() == self.trigger or text.strip() == self.trigger + '':
+                    prefix = self.trigger + ' '  # Always enforce a space
+                    insert_text = f'{prefix}{key} = {prev_value}' if prev_value is not None else f'{prefix}{key} = '
+                    sp = -len(text)
+                else:
+                    insert_text = f'{key} = {prev_value}' if prev_value is not None else f'{key} = '
+                    sp = -len(base)
+                # Make it obvious the value part is from before
+                yield Completion(insert_text, start_position=sp, display_meta=f'puppy.cfg key (was: {prev_value})' if prev_value is not None else 'puppy.cfg key')
 
 class CDCompleter(Completer):
     def __init__(self, trigger: str = '~cd'):
