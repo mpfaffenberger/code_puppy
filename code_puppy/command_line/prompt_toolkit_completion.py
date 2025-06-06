@@ -1,6 +1,6 @@
 import os
 from code_puppy.command_line.utils import list_directory
-from code_puppy.config import get_puppy_name, get_owner_name
+from code_puppy.config import get_puppy_name, get_owner_name, get_config_keys
 # ANSI color codes are no longer necessary because prompt_toolkit handles
 # styling via the `Style` class. We keep them here commented-out in case
 # someone needs raw ANSI later, but they are unused in the current code.
@@ -26,6 +26,24 @@ from code_puppy.command_line.model_picker_completion import (
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 
 from prompt_toolkit.completion import Completer, Completion
+
+class SetCompleter(Completer):
+    def __init__(self, trigger: str = '~set'):
+        self.trigger = trigger
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.strip().startswith(self.trigger):
+            return
+        tokens = text.strip().split()
+        # completion for the first arg after ~set
+        if len(tokens) == 1:
+            # user just typed ~set <-- suggest config keys
+            base = ''
+        else:
+            base = tokens[1]
+        for key in get_config_keys():
+            if key.startswith(base):
+                yield Completion(key, start_position=-len(base), display_meta='puppy.cfg key')
 
 class CDCompleter(Completer):
     def __init__(self, trigger: str = '~cd'):
@@ -84,6 +102,7 @@ async def get_input_with_combined_completion(prompt_str = '>>> ', history_file: 
         FilePathCompleter(symbol='@'),
         ModelNameCompleter(trigger='~m'),
         CDCompleter(trigger='~cd'),
+        SetCompleter(trigger='~set'),
     ])
     # Add custom key bindings for Alt+M to insert a new line without submitting
     bindings = KeyBindings()
