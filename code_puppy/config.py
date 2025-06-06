@@ -50,6 +50,29 @@ def get_puppy_name():
 def get_owner_name():
     return get_value("owner_name") or "Master"
 
+# --- CONFIG SETTER STARTS HERE ---
+def get_config_keys():
+    '''
+    Returns the list of all config keys currently in puppy.cfg.
+    '''
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    if DEFAULT_SECTION not in config:
+        return []
+    return list(config[DEFAULT_SECTION].keys())
+
+def set_config_value(key: str, value: str):
+    '''
+    Sets a config value in the persistent config file.
+    '''
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    if DEFAULT_SECTION not in config:
+        config[DEFAULT_SECTION] = {}
+    config[DEFAULT_SECTION][key] = value
+    with open(CONFIG_FILE, 'w') as f:
+        config.write(f)
+
 # --- MODEL STICKY EXTENSION STARTS HERE ---
 def get_model_name():
     """Returns the last used model name stored in config, or None if unset."""
