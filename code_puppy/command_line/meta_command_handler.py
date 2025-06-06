@@ -70,6 +70,34 @@ def handle_meta_command(command: str, console: Console) -> bool:
 ''')
         return True
 
+    if command.startswith("~set"):
+        # Syntax: ~set KEY=VALUE or ~set KEY VALUE
+        from code_puppy.config import set_config_value, get_config_keys
+        tokens = command.split(None, 2)
+        argstr = command[len('~set'):].strip()
+        key = None
+        value = None
+        if '=' in argstr:
+            key, value = argstr.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+        elif len(tokens) >= 3:
+            key = tokens[1]
+            value = tokens[2]
+        elif len(tokens) == 2:
+            key = tokens[1]
+            value = ''
+        else:
+            console.print('[yellow]Usage:[/yellow] ~set KEY=VALUE or ~set KEY VALUE')
+            console.print('Config keys: ' + ', '.join(get_config_keys()))
+            return True
+        if key:
+            set_config_value(key, value)
+            console.print(f'[green]🌶 Set[/green] [cyan]{key}[/cyan] = "{value}" in puppy.cfg!')
+        else:
+            console.print('[red]You must supply a key.[/red]')
+        return True
+
     if command.startswith("~m"):
         # Try setting model and show confirmation
         new_input = update_model_in_input(command)
