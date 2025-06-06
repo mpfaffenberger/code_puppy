@@ -50,6 +50,31 @@ def get_puppy_name():
 def get_owner_name():
     return get_value("owner_name") or "Master"
 
+# --- CONFIG SETTER STARTS HERE ---
+def get_config_keys():
+    '''
+    Returns the list of all config keys currently in puppy.cfg,
+    plus certain preset expected keys (e.g. "yolo_mode", "model").
+    '''
+    default_keys = ['yolo_mode', 'model']
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
+    keys.update(default_keys)
+    return sorted(keys)
+
+def set_config_value(key: str, value: str):
+    '''
+    Sets a config value in the persistent config file.
+    '''
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    if DEFAULT_SECTION not in config:
+        config[DEFAULT_SECTION] = {}
+    config[DEFAULT_SECTION][key] = value
+    with open(CONFIG_FILE, 'w') as f:
+        config.write(f)
+
 # --- MODEL STICKY EXTENSION STARTS HERE ---
 def get_model_name():
     """Returns the last used model name stored in config, or None if unset."""
@@ -66,20 +91,25 @@ def set_model_name(model: str):
         config.write(f)
 
 def get_yolo_mode():
-    """Checks env var CODE_PUPPY_YOLO or puppy.cfg for 'yolo_mode'.
-    Returns True if either is explicitly truthy, else False by default.
-    Env var wins if both are set.
-    Allowed env/cfg values: 1, '1', 'true', 'yes', 'on' (case-insensitive).
     """
-    env_val = os.getenv('YOLO_MODE')
+    Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
+    If not set, checks YOLO_MODE env var:
+    - If found in env, saves that value to puppy.cfg for future use.
+    - If neither present, defaults to False.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+    Always prioritizes the config once set!
+    """
     true_vals = {'1', 'true', 'yes', 'on'}
-    if env_val is not None:
-        if str(env_val).strip().lower() in true_vals:
-            return True
-        return False
     cfg_val = get_value('yolo_mode')
     if cfg_val is not None:
         if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    env_val = os.getenv('YOLO_MODE')
+    if env_val is not None:
+        # Persist the env value now
+        set_config_value('yolo_mode', env_val)
+        if str(env_val).strip().lower() in true_vals:
             return True
         return False
     return False
