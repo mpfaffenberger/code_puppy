@@ -44,6 +44,23 @@ def handle_meta_command(command: str, console: Console) -> bool:
                 console.print(f'[red]Not a directory:[/red] [bold]{dirname}[/bold]')
             return True
 
+    if command.strip().startswith("~show"):
+        from code_puppy.config import get_puppy_name, get_owner_name
+        from code_puppy.command_line.model_picker_completion import get_active_model
+        import os
+        puppy_name = get_puppy_name()
+        owner_name = get_owner_name()
+        model = get_active_model()
+        from code_puppy.config import get_yolo_mode
+        yolo_mode = get_yolo_mode()
+        console.print(f'''[bold magenta]🐶 Puppy Status[/bold magenta]
+ \n[bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
+[bold]owner_name:[/bold]     [cyan]{owner_name}[/cyan]
+[bold]model:[/bold]          [green]{model}[/green]
+[bold]YOLO_MODE:[/bold]      {'[red]ON[/red]' if yolo_mode else '[yellow]off[/yellow]'}
+''')
+        return True
+
     if command.startswith("~m"):
         # Try setting model and show confirmation
         new_input = update_model_in_input(command)

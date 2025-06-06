@@ -7,7 +7,6 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
-
 def ensure_config_exists():
     """
     Ensure that the .code_puppy dir and puppy.cfg exist, prompting if needed.
@@ -45,7 +44,6 @@ def get_value(key: str):
     val = config.get(DEFAULT_SECTION, key, fallback=None)
     return val
 
-
 def get_puppy_name():
     return get_value("puppy_name") or "Puppy"
 
@@ -66,3 +64,22 @@ def set_model_name(model: str):
     config[DEFAULT_SECTION]["model"] = model or ""
     with open(CONFIG_FILE, "w") as f:
         config.write(f)
+
+def get_yolo_mode():
+    """Checks env var CODE_PUPPY_YOLO or puppy.cfg for 'yolo_mode'.
+    Returns True if either is explicitly truthy, else False by default.
+    Env var wins if both are set.
+    Allowed env/cfg values: 1, '1', 'true', 'yes', 'on' (case-insensitive).
+    """
+    env_val = os.getenv('YOLO_MODE')
+    true_vals = {'1', 'true', 'yes', 'on'}
+    if env_val is not None:
+        if str(env_val).strip().lower() in true_vals:
+            return True
+        return False
+    cfg_val = get_value('yolo_mode')
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return False
