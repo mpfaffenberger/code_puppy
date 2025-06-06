@@ -138,6 +138,8 @@ def get_custom_config(model_config):
     ca_certs_path = None
     if "ca_certs_path" in custom_config:
         ca_certs_path = custom_config.get("ca_certs_path")
+        if ca_certs_path.lower() == "false":
+            ca_certs_path = False
 
     api_key = None
     if "api_key" in custom_config:
