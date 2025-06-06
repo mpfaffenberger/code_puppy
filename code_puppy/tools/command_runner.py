@@ -19,7 +19,8 @@ def register_command_runner_tools(agent):
         if cwd:
             console.print(f"[dim]Working directory: {cwd}[/dim]")
         console.print("[dim]" + "-" * 60 + "[/dim]")
-        yolo_mode = os.getenv("YOLO_MODE", "false").lower() == "true"
+        from code_puppy.config import get_yolo_mode
+        yolo_mode = get_yolo_mode()
         if not yolo_mode:
             user_input = input("Are you sure you want to run this command? (yes/no): ")
             if user_input.strip().lower() not in {"yes", "y"}:
