@@ -47,7 +47,6 @@ def handle_meta_command(command: str, console: Console) -> bool:
     if command.strip().startswith("~show"):
         from code_puppy.config import get_puppy_name, get_owner_name
         from code_puppy.command_line.model_picker_completion import get_active_model
-        import os
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         model = get_active_model()
