@@ -61,6 +61,34 @@ def handle_meta_command(command: str, console: Console) -> bool:
 ''')
         return True
 
+    if command.startswith("~set"):
+        # Syntax: ~set KEY=VALUE or ~set KEY VALUE
+        from code_puppy.config import set_config_value, get_config_keys
+        tokens = command.split(None, 2)
+        argstr = command[len('~set'):].strip()
+        key = None
+        value = None
+        if '=' in argstr:
+            key, value = argstr.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+        elif len(tokens) >= 3:
+            key = tokens[1]
+            value = tokens[2]
+        elif len(tokens) == 2:
+            key = tokens[1]
+            value = ''
+        else:
+            console.print('[yellow]Usage:[/yellow] ~set KEY=VALUE or ~set KEY VALUE')
+            console.print('Config keys: ' + ', '.join(get_config_keys()))
+            return True
+        if key:
+            set_config_value(key, value)
+            console.print(f'[green]🌶 Set[/green] [cyan]{key}[/cyan] = "{value}" in puppy.cfg!')
+        else:
+            console.print('[red]You must supply a key.[/red]')
+        return True
+
     if command.startswith("~m"):
         # Try setting model and show confirmation
         new_input = update_model_in_input(command)
@@ -76,7 +104,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
         console.print(f"[yellow]Usage:[/yellow] ~m <model_name>")
         return True
     if command in ("~help", "~h"):
-        console.print("[bold magenta]Meta commands available:[/bold magenta]\n  ~m <model>: Pick a model from your list!\n  ~cd [dir]: Change directories\n  ~codemap [dir]: Visualize project code structure\n  ~help: Show this help\n  (More soon. Woof!)")
+        console.print("[bold magenta]Meta commands available:[/bold magenta]\n  ~m <model>: Pick a model from your list!\n  ~cd [dir]: Change directories\n  ~codemap [dir]: Visualize project code structure\n  ~set KEY=VALUE: Set a puppy.cfg setting!\n  ~help: Show this help\n  (More soon. Woof!)")
         return True
     if command.startswith("~"):
         name = command[1:].split()[0] if len(command)>1 else ""
