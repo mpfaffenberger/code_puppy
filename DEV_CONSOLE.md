@@ -10,6 +10,7 @@ Woof! Here’s the scoop on built-in dev-console `~` meta-commands and exactly h
 | `~show`             | Show puppy/owner/model status and metadata              |
 | `~m <model>`        | Switch the active code model for the agent              |
 | `~codemap [dir]`    | Visualize the project’s code structure/tree             |
+| `~set KEY=VALUE`      | Set a puppy.cfg setting!                                 |
 | `~help` or `~h`     | Show available meta-commands                            |
 | any unknown `~...`  | Warn user about unknown command and (for plain `~`)     |
 |                     | shows current model                                     |
@@ -27,6 +28,18 @@ All `~meta` commands are handled in **`code_puppy/command_line/meta_command_hand
     - Return `True` if you handle the command.
 
 ### 2. (Optional) Add Autocomplete
+
+### ~set: Update your code puppy’s settings
+
+`~set` lets you instantly update values in your puppy.cfg, like toggling YOLO_MODE or renaming your puppy on the fly!
+
+- Usage:
+  - `~set YOLO_MODE=true`
+  - `~set puppy_name Snoopy`
+  - `~set owner_name="Best Owner"`
+
+As you type `~set`, tab completion pops up with available config keys so you don’t have to remember them like a boring human.
+
 If your new command needs tab completion/prompt support, check these files:
 - `code_puppy/command_line/prompt_toolkit_completion.py` (has completer logic)
 - `code_puppy/command_line/model_picker_completion.py`, `file_path_completion.py` (for model/filename completions)
