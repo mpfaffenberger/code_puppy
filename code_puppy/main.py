@@ -1,25 +1,25 @@
-import asyncio
 import argparse
+import asyncio
 import os
-from code_puppy.version_checker import fetch_latest_version
-from code_puppy import __version__
 import sys
+
 from dotenv import load_dotenv
-from code_puppy.config import ensure_config_exists
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.console import ConsoleOptions, RenderResult
-from rich.markdown import CodeBlock
-from rich.text import Text
+from rich.console import Console, ConsoleOptions, RenderResult
+from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
+from rich.text import Text
+
+from code_puppy import __version__
+from code_puppy.agent import get_code_generation_agent, session_memory
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
 )
+from code_puppy.config import ensure_config_exists
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
-from code_puppy.agent import get_code_generation_agent, session_memory
+from code_puppy.version_checker import fetch_latest_version
 
 # from code_puppy.tools import *  # noqa: F403
 

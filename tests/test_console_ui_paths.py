@@ -1,6 +1,7 @@
+from unittest.mock import patch
+
 from code_puppy.tools.command_runner import share_your_reasoning
 from code_puppy.tools.file_operations import list_files
-from unittest.mock import patch
 
 # This test calls share_your_reasoning with reasoning only
 

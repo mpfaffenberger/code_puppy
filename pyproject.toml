@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.54"
+version = "0.0.55"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,6 +21,8 @@ dependencies = [
     "httpx-limiter>=0.3.0",
     "prompt-toolkit>=3.0.38",
     "pathspec>=0.11.0",
+    "rapidfuzz>=3.13.0",
+    "json-repair>=0.46.2",
 ]
 authors = [
     {name = "Michael Pfaffenberger"}
