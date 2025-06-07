@@ -1,4 +1,3 @@
-# file_modifications.py
 """Robust, always-diff-logging file-modification helpers + agent tools.
 
 Key guarantees
@@ -11,19 +10,16 @@ Key guarantees
 
 from __future__ import annotations
 
-import ast
 import difflib
 import json
 import os
 import traceback
 from typing import Any, Dict, List
 
-from code_puppy.tools.common import console
+from json_repair import repair_json
 from pydantic_ai import RunContext
 
-# ---------------------------------------------------------------------------
-# Console helpers – shared across tools
-# ---------------------------------------------------------------------------
+from code_puppy.tools.common import _find_best_window, console
 
 
 def _print_diff(diff_text: str) -> None:
@@ -52,11 +48,6 @@ def _log_error(msg: str, exc: Exception | None = None) -> None:
     console.print(f"[bold red]Error:[/bold red] {msg}")
     if exc is not None:
         console.print(traceback.format_exc(), highlight=False)
-
-
-# ---------------------------------------------------------------------------
-# Pure helpers – no console output
-# ---------------------------------------------------------------------------
 
 
 def _delete_snippet_from_file(
@@ -99,95 +90,73 @@ def _delete_snippet_from_file(
 
 
 def _replace_in_file(
-    context: RunContext | None, path: str, diff: str
+    context: RunContext | None, path: str, replacements: List[Dict[str, str]]
 ) -> Dict[str, Any]:
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
-    preview = (diff[:400] + "…") if len(diff) > 400 else diff  # for logs / errors
-    diff_text = ""
-    try:
-        if not os.path.exists(file_path):
-            return {"error": f"File '{file_path}' does not exist", "diff": preview}
 
-        # ── Parse diff payload (tolerate single quotes) ──────────────────
-        try:
-            payload = json.loads(diff)
-        except json.JSONDecodeError:
-            try:
-                payload = json.loads(diff.replace("'", '"'))
-            except Exception as exc:
-                return {
-                    "error": "Could not parse diff as JSON.",
-                    "reason": str(exc),
-                    "received": preview,
-                    "diff": preview,
-                }
-        if not isinstance(payload, dict):
-            try:
-                payload = ast.literal_eval(diff)
-            except Exception as exc:
-                return {
-                    "error": "Diff is neither valid JSON nor Python literal.",
-                    "reason": str(exc),
-                    "received": preview,
-                    "diff": preview,
-                }
+    with open(file_path, "r", encoding="utf-8") as f:
+        original = f.read()
 
-        replacements: List[Dict[str, str]] = payload.get("replacements", [])
-        if not replacements:
+    modified = original
+    for rep in replacements:
+        old_snippet = rep.get("old_str", "")
+        new_snippet = rep.get("new_str", "")
+
+        if old_snippet and old_snippet in modified:
+            modified = modified.replace(old_snippet, new_snippet)
+            continue
+
+        orig_lines = modified.splitlines()
+        loc, score = _find_best_window(orig_lines, old_snippet)
+
+        if loc is None:
             return {
-                "error": "No valid replacements found in diff.",
-                "received": preview,
-                "diff": preview,
+                "error": "No suitable match in file (JW < 0.95)",
+                "jw_score": score,
+                "received": old_snippet,
+                "diff": "",
             }
 
-        with open(file_path, "r", encoding="utf-8") as f:
-            original = f.read()
-
-        modified = original
-        for rep in replacements:
-            modified = modified.replace(rep.get("old_str", ""), rep.get("new_str", ""))
-
-        if modified == original:
-            # ── Explicit no‑op edge case ────────────────────────────────
-            console.print(
-                "[bold yellow]No changes to apply – proposed content is identical.[/bold yellow]"
-            )
-            return {
-                "success": False,
-                "path": file_path,
-                "message": "No changes to apply.",
-                "changed": False,
-                "diff": "",  # empty so _print_diff prints placeholder
-            }
-
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                modified.splitlines(keepends=True),
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
-            )
+        start, end = loc
+        modified = (
+            "\n".join(orig_lines[:start])
+            + "\n"
+            + new_snippet.rstrip("\n")
+            + "\n"
+            + "\n".join(orig_lines[end:])
         )
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(modified)
+
+    if modified == original:
+        console.print(
+            "[bold yellow]No changes to apply – proposed content is identical.[/bold yellow]"
+        )
         return {
-            "success": True,
+            "success": False,
             "path": file_path,
-            "message": "Replacements applied.",
-            "changed": True,
-            "diff": diff_text,
+            "message": "No changes to apply.",
+            "changed": False,
+            "diff": "",
         }
 
-    except Exception as exc:  # noqa: BLE001
-        # ── Explicit error edge case ────────────────────────────────────
-        _log_error("Unhandled exception in replace_in_file", exc)
-        return {
-            "error": str(exc),
-            "path": file_path,
-            "diff": preview,  # show the exact diff input that blew up
-        }
+    diff_text = "".join(
+        difflib.unified_diff(
+            original.splitlines(keepends=True),
+            modified.splitlines(keepends=True),
+            fromfile=f"a/{os.path.basename(file_path)}",
+            tofile=f"b/{os.path.basename(file_path)}",
+            n=3,
+        )
+    )
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(modified)
+    return {
+        "success": True,
+        "path": file_path,
+        "message": "Replacements applied.",
+        "changed": True,
+        "diff": diff_text,
+    }
 
 
 def _write_to_file(
@@ -209,10 +178,9 @@ def _write_to_file(
                 "diff": "",
             }
 
-        # --- NEW: build diff before writing ---
         diff_lines = difflib.unified_diff(
-            [] if not exists else [""],  # empty “old” file
-            content.splitlines(keepends=True),  # new file lines
+            [] if not exists else [""],
+            content.splitlines(keepends=True),
             fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
             tofile=f"b/{os.path.basename(file_path)}",
             n=3,
@@ -232,149 +200,118 @@ def _write_to_file(
             "diff": diff_text,
         }
 
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log_error("Unhandled exception in write_to_file", exc)
         return {"error": str(exc), "diff": ""}
 
 
-def _replace_in_file(
-    context: RunContext | None, path: str, diff: str
-) -> Dict[str, Any]:
-    """Robust replacement engine with explicit edge‑case reporting."""
-    file_path = os.path.abspath(path)
-    preview = (diff[:400] + "…") if len(diff) > 400 else diff  # for logs / errors
-    diff_text = ""
-    try:
-        if not os.path.exists(file_path):
-            return {"error": f"File '{file_path}' does not exist", "diff": preview}
-
-        # ── Parse diff payload (tolerate single quotes) ──────────────────
-        try:
-            payload = json.loads(diff)
-        except json.JSONDecodeError:
-            try:
-                payload = json.loads(diff.replace("'", '"'))
-            except Exception as exc:
-                return {
-                    "error": "Could not parse diff as JSON.",
-                    "reason": str(exc),
-                    "received": preview,
-                    "diff": preview,
-                }
-        if not isinstance(payload, dict):
-            try:
-                payload = ast.literal_eval(diff)
-            except Exception as exc:
-                return {
-                    "error": "Diff is neither valid JSON nor Python literal.",
-                    "reason": str(exc),
-                    "received": preview,
-                    "diff": preview,
-                }
-
-        replacements: List[Dict[str, str]] = payload.get("replacements", [])
-        if not replacements:
-            return {
-                "error": "No valid replacements found in diff.",
-                "received": preview,
-                "diff": preview,
-            }
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            original = f.read()
-
-        modified = original
-        for rep in replacements:
-            modified = modified.replace(rep.get("old_str", ""), rep.get("new_str", ""))
-
-        if modified == original:
-            # ── Explicit no‑op edge case ────────────────────────────────
-            console.print(
-                "[bold yellow]No changes to apply – proposed content is identical.[/bold yellow]"
-            )
-            return {
-                "success": False,
-                "path": file_path,
-                "message": "No changes to apply.",
-                "changed": False,
-                "diff": "",  # empty so _print_diff prints placeholder
-            }
-
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                modified.splitlines(keepends=True),
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
-            )
-        )
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(modified)
-        return {
-            "success": True,
-            "path": file_path,
-            "message": "Replacements applied.",
-            "changed": True,
-            "diff": diff_text,
-        }
-
-    except Exception as exc:  # noqa: BLE001
-        # ── Explicit error edge case ────────────────────────────────────
-        _log_error("Unhandled exception in replace_in_file", exc)
-        return {
-            "error": str(exc),
-            "path": file_path,
-            "diff": preview,  # show the exact diff input that blew up
-        }
-
-
-# ---------------------------------------------------------------------------
-# Agent-tool registration
-# ---------------------------------------------------------------------------
-
-
-def register_file_modifications_tools(agent):  # noqa: C901 – a bit long but clear
+def register_file_modifications_tools(agent):
     """Attach file-editing tools to *agent* with mandatory diff rendering."""
 
-    # ------------------------------------------------------------------
-    # Delete snippet
-    # ------------------------------------------------------------------
-    @agent.tool
     def delete_snippet_from_file(
         context: RunContext, file_path: str, snippet: str
     ) -> Dict[str, Any]:
         console.log(f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]")
         res = _delete_snippet_from_file(context, file_path, snippet)
-        _print_diff(res.get("diff", ""))
+        diff = res.get("diff", "")
+        if diff:
+            _print_diff(diff)
         return res
 
-    # ------------------------------------------------------------------
-    # Write / create file
-    # ------------------------------------------------------------------
-    @agent.tool
-    def write_to_file(context: RunContext, path: str, content: str) -> Dict[str, Any]:
+    def write_to_file(
+        context: RunContext, path: str, content: str, overwrite: bool
+    ) -> Dict[str, Any]:
         console.log(f"✏️ Writing file [bold blue]{path}[/bold blue]")
-        res = _write_to_file(context, path, content, overwrite=False)
-        _print_diff(res.get("diff", content))
+        res = _write_to_file(context, path, content, overwrite=overwrite)
+        diff = res.get("diff", "")
+        if diff:
+            _print_diff(diff)
         return res
 
-    # ------------------------------------------------------------------
-    # Replace text in file
-    # ------------------------------------------------------------------
-    @agent.tool
-    def replace_in_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
+    def replace_in_file(
+        context: RunContext, path: str, replacements: List[Dict[str, str]]
+    ) -> Dict[str, Any]:
         console.log(f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]")
-        res = _replace_in_file(context, path, diff)
-        _print_diff(res.get("diff", diff))
+        res = _replace_in_file(context, path, replacements)
+        diff = res.get("diff", "")
+        if diff:
+            _print_diff(diff)
         return res
 
-    # ------------------------------------------------------------------
-    # Delete entire file
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Delete entire file (with full diff)
-    # ------------------------------------------------------------------
+    @agent.tool(retries=5)
+    def edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
+        """
+        Unified file editing tool that can:
+        - Create/write a new file when the target does not exist (using raw content or a JSON payload with a "content" key)
+        - Replace text within an existing file via a JSON payload with "replacements" (delegates to internal replace logic)
+        - Delete a snippet from an existing file via a JSON payload with "delete_snippet"
+        Parameters
+        ----------
+        path : str
+            Path to the target file (relative or absolute)
+        diff : str
+            Either:
+              * Raw file content (for file creation)
+              * A JSON string with one of the following shapes:
+                  {"content": "full file contents", "overwrite": true}
+                  {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
+                  {"delete_snippet": "text to remove"}
+        The function auto-detects the payload type and routes to the appropriate internal helper.
+        """
+        console.print("\n[bold white on blue] EDIT FILE [/bold white on blue]")
+        file_path = os.path.abspath(path)
+        try:
+            parsed_payload = json.loads(diff)
+        except json.JSONDecodeError:
+            try:
+                console.print(
+                    "[bold yellow] JSON Parsing Failed! TRYING TO REPAIR! [/bold yellow]"
+                )
+                parsed_payload = json.loads(repair_json(diff))
+                console.print(
+                    "[bold green on cyan] SUCCESS - WOOF! [/bold green on cyan]"
+                )
+            except Exception as e:
+                console.print(
+                    f"[bold red] Unable to parse diff [/bold red] -- {str(e)}"
+                )
+                return {
+                    "success": False,
+                    "path": file_path,
+                    "message": f"Unable to parse diff JSON -- {str(e)}",
+                    "changed": False,
+                    "diff": "",
+                }
+        if isinstance(parsed_payload, dict):
+            if "delete_snippet" in parsed_payload:
+                snippet = parsed_payload["delete_snippet"]
+                return delete_snippet_from_file(context, file_path, snippet)
+            if "replacements" in parsed_payload:
+                replacements = parsed_payload["replacements"]
+                return replace_in_file(context, file_path, replacements)
+            if "content" in parsed_payload:
+                content = parsed_payload["content"]
+                overwrite = bool(parsed_payload.get("overwrite", False))
+                file_exists = os.path.exists(file_path)
+                if file_exists and not overwrite:
+                    return {
+                        "success": False,
+                        "path": file_path,
+                        "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
+                        "changed": False,
+                    }
+                return write_to_file(context, file_path, content, overwrite)
+        console.print(
+            "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
+        )
+        console.print("Inputs: ", path, diff)
+        return {
+            "success": False,
+            "path": file_path,
+            "message": "Wasn't able to route file modification to the right sub-tool!",
+            "changed": False,
+        }
+
     @agent.tool
     def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
         console.log(f"🗑️ Deleting file [bold red]{file_path}[/bold red]")
@@ -385,7 +322,6 @@ def register_file_modifications_tools(agent):  # noqa: C901 – a bit long but c
             else:
                 with open(file_path, "r", encoding="utf-8") as f:
                     original = f.read()
-                # Diff: original lines → empty file
                 diff_text = "".join(
                     difflib.unified_diff(
                         original.splitlines(keepends=True),
@@ -403,7 +339,7 @@ def register_file_modifications_tools(agent):  # noqa: C901 – a bit long but c
                     "changed": True,
                     "diff": diff_text,
                 }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log_error("Unhandled exception in delete_file", exc)
             res = {"error": str(exc), "diff": ""}
         _print_diff(res.get("diff", ""))

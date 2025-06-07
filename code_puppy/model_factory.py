@@ -1,20 +1,21 @@
-import os
-import json
 import asyncio
+import json
+import os
+import threading
 import time
-from typing import Dict, Any
+from collections import deque
+from typing import Any, Dict
+
+import httpx
+from anthropic import AsyncAnthropic
+from httpx import Response
+from openai import AsyncAzureOpenAI  # For Azure OpenAI client
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.providers.anthropic import AnthropicProvider
-from anthropic import AsyncAnthropic
-from openai import AsyncAzureOpenAI  # For Azure OpenAI client
-import httpx
-from httpx import Response
-import threading
-from collections import deque
 
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.

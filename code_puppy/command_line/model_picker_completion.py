@@ -1,10 +1,12 @@
-import os
 import json
-from typing import Optional, Iterable
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.document import Document
+import os
+from typing import Iterable, Optional
+
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
+from prompt_toolkit.history import FileHistory
+
 from code_puppy.config import get_model_name, set_model_name
 
 MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH")

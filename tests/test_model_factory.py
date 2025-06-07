@@ -1,7 +1,8 @@
 import os
-import pytest
-from code_puppy.model_factory import ModelFactory
 
+import pytest
+
+from code_puppy.model_factory import ModelFactory
 
 TEST_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../code_puppy/models.json")
 

@@ -1,6 +1,8 @@
 import os
-from code_puppy.tools.code_map import make_code_map
+
 from rich.tree import Tree
+
+from code_puppy.tools.code_map import make_code_map
 
 
 def test_make_code_map_tools_dir():

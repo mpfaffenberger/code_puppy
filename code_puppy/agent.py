@@ -1,13 +1,14 @@
 import os
-import pydantic
 from pathlib import Path
+
+import pydantic
 from pydantic_ai import Agent
 
 from code_puppy.agent_prompts import get_system_prompt
 from code_puppy.model_factory import ModelFactory
-from code_puppy.tools.common import console
-from code_puppy.tools import register_all_tools
 from code_puppy.session_memory import SessionMemory
+from code_puppy.tools import register_all_tools
+from code_puppy.tools.common import console
 
 # Environment variables used in this module:
 # - MODELS_JSON_PATH: Optional path to a custom models.json configuration file.

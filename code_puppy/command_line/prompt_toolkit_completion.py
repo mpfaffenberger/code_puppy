@@ -1,7 +1,3 @@
-import os
-from code_puppy.command_line.utils import list_directory
-from code_puppy.config import get_puppy_name, get_config_keys, get_value
-
 # ANSI color codes are no longer necessary because prompt_toolkit handles
 # styling via the `Style` class. We keep them here commented-out in case
 # someone needs raw ANSI later, but they are unused in the current code.
@@ -11,23 +7,25 @@ from code_puppy.config import get_puppy_name, get_config_keys, get_value
 # YELLOW = '\033[1;33m'
 # BOLD = '\033[1m'
 import asyncio
+import os
 from typing import Optional
+
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion, merge_completers
 from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.completion import merge_completers
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.styles import Style
 
+from code_puppy.command_line.file_path_completion import FilePathCompleter
 from code_puppy.command_line.model_picker_completion import (
     ModelNameCompleter,
     get_active_model,
     update_model_in_input,
 )
-from code_puppy.command_line.file_path_completion import FilePathCompleter
-
-from prompt_toolkit.completion import Completer, Completion
+from code_puppy.command_line.utils import list_directory
+from code_puppy.config import get_config_keys, get_puppy_name, get_value
 
 
 class SetCompleter(Completer):

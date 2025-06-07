@@ -1,5 +1,6 @@
 import os
-from typing import Tuple, List
+from typing import List, Tuple
+
 from rich.table import Table
 
 

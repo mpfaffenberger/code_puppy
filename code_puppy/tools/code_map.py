@@ -1,8 +1,9 @@
-import os
 import ast
-from rich.tree import Tree
-from rich.text import Text
+import os
+
 import pathspec
+from rich.text import Text
+from rich.tree import Tree
 
 
 def summarize_node(node: ast.AST) -> str:
