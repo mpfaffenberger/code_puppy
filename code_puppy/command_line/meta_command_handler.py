@@ -1,4 +1,12 @@
-META_COMMANDS_HELP = '''
+import os
+from rich.console import Console
+from code_puppy.command_line.model_picker_completion import (
+    load_model_names,
+    update_model_in_input,
+)
+from code_puppy.command_line.utils import make_directory_table
+
+META_COMMANDS_HELP = """
 [bold magenta]Meta Commands Help[/bold magenta]
 ~help, ~h             Show this help message
 ~cd [dir]             Change directory or show directories
@@ -6,12 +14,7 @@ META_COMMANDS_HELP = '''
 ~m <model>            Set active model
 ~show                 Show puppy status info
 ~<unknown>            Show unknown meta command warning
-'''
-
-from code_puppy.command_line.model_picker_completion import update_model_in_input, load_model_names, get_active_model
-from rich.console import Console
-import os
-from code_puppy.command_line.utils import make_directory_table
+"""
 
 
 def handle_meta_command(command: str, console: Console) -> bool:
@@ -59,8 +62,8 @@ def handle_meta_command(command: str, console: Console) -> bool:
             return True
 
     if command.strip().startswith("~show"):
-        from code_puppy.config import get_puppy_name, get_owner_name
         from code_puppy.command_line.model_picker_completion import get_active_model
+        from code_puppy.config import get_owner_name, get_puppy_name
 
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
@@ -78,7 +81,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
 
     if command.startswith("~set"):
         # Syntax: ~set KEY=VALUE or ~set KEY VALUE
-        from code_puppy.config import set_config_value, get_config_keys
+        from code_puppy.config import get_config_keys, set_config_value
 
         tokens = command.split(None, 2)
         argstr = command[len("~set") :].strip()
