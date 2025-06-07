@@ -14,14 +14,14 @@ from rich.text import Text
 from rich.syntax import Syntax
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
-    get_prompt_with_active_model
+    get_prompt_with_active_model,
 )
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
 from code_puppy.agent import get_code_generation_agent, session_memory
 
-from code_puppy.tools import *
+# from code_puppy.tools import *  # noqa: F403
 
 
 # Define a function to get the secret file path
@@ -36,12 +36,14 @@ async def main():
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()
     current_version = __version__
-    latest_version = fetch_latest_version('code-puppy')
-    console.print(f'Current version: {current_version}')
-    console.print(f'Latest version: {latest_version}')
+    latest_version = fetch_latest_version("code-puppy")
+    console.print(f"Current version: {current_version}")
+    console.print(f"Latest version: {latest_version}")
     if latest_version and latest_version != current_version:
-        console.print(f'[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]')
-        console.print('[bold green]Please consider updating![/bold green]')
+        console.print(
+            f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
+        )
+        console.print("[bold green]Please consider updating![/bold green]")
     global shutdown_flag
     shutdown_flag = False  # ensure this is initialized
 
@@ -69,11 +71,11 @@ async def main():
                 console.print(agent_response.output_message)
                 # Log to session memory
                 session_memory().log_task(
-                    f'Command executed: {command}',
-                    extras={ 
-                        'output': agent_response.output_message,
-                        'awaiting_user_input': agent_response.awaiting_user_input
-                    }
+                    f"Command executed: {command}",
+                    extras={
+                        "output": agent_response.output_message,
+                        "awaiting_user_input": agent_response.awaiting_user_input,
+                    },
                 )
                 if agent_response.awaiting_user_input:
                     console.print(
@@ -96,11 +98,14 @@ async def main():
 # Add the file handling functionality for interactive mode
 async def interactive_mode(history_file_path: str) -> None:
     from code_puppy.command_line.meta_command_handler import handle_meta_command
+
     """Run the agent in interactive mode."""
     console.print("[bold green]Code Puppy[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
     console.print("Type 'clear' to reset the conversation history.")
-    console.print("Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model.")
+    console.print(
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model."
+    )
 
     # Show meta commands right at startup - DRY!
     from code_puppy.command_line.meta_command_handler import META_COMMANDS_HELP
@@ -108,7 +113,7 @@ async def interactive_mode(history_file_path: str) -> None:
 
     # Check if prompt_toolkit is installed
     try:
-        import prompt_toolkit
+        import prompt_toolkit  # noqa: F401
 
         console.print("[dim]Using prompt_toolkit for enhanced tab completion[/dim]")
     except ImportError:
@@ -152,7 +157,7 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Use the async version of get_input_with_combined_completion
                 task = await get_input_with_combined_completion(
                     get_prompt_with_active_model(),
-                    history_file=history_file_path_prompt
+                    history_file=history_file_path_prompt,
                 )
             except ImportError:
                 # Fall back to basic input if prompt_toolkit is not available
@@ -178,7 +183,7 @@ async def interactive_mode(history_file_path: str) -> None:
             continue
 
         # Handle ~ meta/config commands before anything else
-        if task.strip().startswith('~'):
+        if task.strip().startswith("~"):
             if handle_meta_command(task.strip(), console):
                 continue
         if task.strip():
@@ -203,17 +208,21 @@ async def interactive_mode(history_file_path: str) -> None:
                 console.print(agent_response.output_message)
                 # Log to session memory
                 session_memory().log_task(
-                    f'Interactive task: {task}',
-                    extras={ 
-                        'output': agent_response.output_message,
-                        'awaiting_user_input': agent_response.awaiting_user_input
-                    }
+                    f"Interactive task: {task}",
+                    extras={
+                        "output": agent_response.output_message,
+                        "awaiting_user_input": agent_response.awaiting_user_input,
+                    },
                 )
 
                 # Update message history but apply filters & limits
                 new_msgs = result.new_messages()
                 # 1. Drop any system/config messages (e.g., "agent loaded with model")
-                filtered = [m for m in new_msgs if not (isinstance(m, dict) and m.get("role") == "system")]
+                filtered = [
+                    m
+                    for m in new_msgs
+                    if not (isinstance(m, dict) and m.get("role") == "system")
+                ]
                 # 2. Append to existing history and keep only the most recent 40
                 message_history.extend(filtered)
                 if len(message_history) > 40:

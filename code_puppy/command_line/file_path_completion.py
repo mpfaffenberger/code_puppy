@@ -4,18 +4,23 @@ from typing import Iterable
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 
+
 class FilePathCompleter(Completer):
     """A simple file path completer that works with a trigger symbol."""
+
     def __init__(self, symbol: str = "@"):
         self.symbol = symbol
-    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+
+    def get_completions(
+        self, document: Document, complete_event
+    ) -> Iterable[Completion]:
         text = document.text
         cursor_position = document.cursor_position
         text_before_cursor = text[:cursor_position]
         if self.symbol not in text_before_cursor:
             return
         symbol_pos = text_before_cursor.rfind(self.symbol)
-        text_after_symbol = text_before_cursor[symbol_pos + len(self.symbol):]
+        text_after_symbol = text_before_cursor[symbol_pos + len(self.symbol) :]
         start_position = -(len(text_after_symbol))
         try:
             pattern = text_after_symbol + "*"
@@ -36,7 +41,9 @@ class FilePathCompleter(Completer):
             else:
                 paths = glob.glob(pattern)
                 if not pattern.startswith(".") and not pattern.startswith("*/."):
-                    paths = [p for p in paths if not os.path.basename(p).startswith(".")]
+                    paths = [
+                        p for p in paths if not os.path.basename(p).startswith(".")
+                    ]
             paths.sort()
             for path in paths:
                 is_dir = os.path.isdir(path)
@@ -49,7 +56,7 @@ class FilePathCompleter(Completer):
                     elif text_after_symbol.startswith("~"):
                         home = os.path.expanduser("~")
                         if path.startswith(home):
-                            display_path = "~" + path[len(home):]
+                            display_path = "~" + path[len(home) :]
                         else:
                             display_path = path
                     else:
