@@ -31,6 +31,18 @@ jobs:
       - name: Setup uv virtual environment
         run: uv venv
 
+      - name: Install dev dependencies (ruff, pytest)
+        run: pip install ruff pytest
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Check formatting with ruff
+        run: ruff format --check .
+
+      - name: Run pytest
+        run: pytest
+
       - name: Bump version
         run: uv version --bump patch
 
