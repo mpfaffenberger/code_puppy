@@ -80,7 +80,7 @@ def update_model_in_input(text: str) -> Optional[str]:
     if content.startswith("~m"):
         rest = content[2:].strip()
         for model in load_model_names():
-            if rest.startswith(model):
+            if rest == model:
                 set_active_model(model)
                 # Remove ~mmodel from the input
                 idx = text.find("~m" + model)
