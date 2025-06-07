@@ -19,6 +19,8 @@ jobs:
 
       - name: Install dev dependencies (ruff, pytest)
         run: pip install ruff pytest pytest-cov
+
+      - name: Install code_puppy
         run: pip install .
 
       - name: Lint with ruff
