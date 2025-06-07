@@ -1,0 +1,33 @@
+name: Quality Checks
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dev dependencies (ruff, pytest)
+        run: pip install ruff pytest
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Check formatting with ruff
+        run: ruff format --check .
+
+      - name: Run pytest
+        run: pytest
