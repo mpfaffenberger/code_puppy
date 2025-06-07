@@ -16,3 +16,5 @@ wheels/
 
 # Pytest cache
 .pytest_cache/
+
+dummy_path
