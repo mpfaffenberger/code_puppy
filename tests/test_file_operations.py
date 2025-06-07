@@ -11,14 +11,16 @@ def test_create_file():
         patch("builtins.open", m),
         patch("os.makedirs") as mock_makedirs,
     ):
+
         def side_effect(path):
             if path == test_file or path.endswith(test_file):
                 return False
             else:
                 return True
+
         mock_exists.side_effect = side_effect
         mock_makedirs.return_value = None
-        result = agent.tools['edit_file'](None, test_file, "content")
+        result = agent.tools["edit_file"](None, test_file, "content")
         assert "success" in result
         assert result["success"] is True
         assert result["path"].endswith(test_file)
@@ -35,7 +37,7 @@ def test_read_file():
     ):
         mock_exists.return_value = True
         mock_isfile.return_value = True
-        result = agent.tools['read_file'](None, test_file)
+        result = agent.tools["read_file"](None, test_file)
         assert "content" in result
 
 
@@ -48,8 +50,10 @@ def test_list_files_permission_error_on_getsize(tmp_path):
         patch("os.path.exists", return_value=True),
         patch("os.path.isdir", return_value=True),
         patch("os.walk", return_value=[(str(fake_dir), [], ["file.txt"])]),
-        patch("code_puppy.tools.file_operations.should_ignore_path", return_value=False),
+        patch(
+            "code_puppy.tools.file_operations.should_ignore_path", return_value=False
+        ),
         patch("os.path.getsize", side_effect=PermissionError),
     ):
-        result = agent.tools['list_files'](None, directory=str(fake_dir))
+        result = agent.tools["list_files"](None, directory=str(fake_dir))
         assert all(f["type"] != "file" or f["path"] != "file.txt" for f in result)

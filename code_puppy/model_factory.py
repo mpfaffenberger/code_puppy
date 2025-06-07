@@ -10,7 +10,7 @@ from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from anthropic import AsyncAnthropic
-from openai import AsyncAzureOpenAI # For Azure OpenAI client
+from openai import AsyncAzureOpenAI  # For Azure OpenAI client
 import httpx
 from httpx import Response
 import threading
@@ -121,9 +121,7 @@ def make_client(
 def get_custom_config(model_config):
     custom_config = model_config.get("custom_endpoint", {})
     if not custom_config:
-        raise ValueError(
-            "Custom model requires 'custom_endpoint' configuration"
-        )
+        raise ValueError("Custom model requires 'custom_endpoint' configuration")
 
     url = custom_config.get("url")
     if not url:
@@ -192,7 +190,9 @@ class ModelFactory:
         elif model_type == "anthropic":
             api_key = os.environ.get("ANTHROPIC_API_KEY", None)
             if not api_key:
-                raise ValueError('ANTHROPIC_API_KEY environment variable must be set for Anthropic models.')
+                raise ValueError(
+                    "ANTHROPIC_API_KEY environment variable must be set for Anthropic models."
+                )
             anthropic_client = AsyncAnthropic(api_key=api_key)
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
@@ -234,7 +234,7 @@ class ModelFactory:
                 raise ValueError(
                     f"Azure OpenAI API version environment variable '{api_version_config[1:] if api_version_config.startswith('$') else ''}' not found or is empty."
                 )
-            
+
             api_key_config = model_config.get("api_key")
             if not api_key_config:
                 raise ValueError(
@@ -255,7 +255,7 @@ class ModelFactory:
                 azure_endpoint=azure_endpoint,
                 api_version=api_version,
                 api_key=api_key,
-                max_retries=azure_max_retries
+                max_retries=azure_max_retries,
             )
             provider = OpenAIProvider(openai_client=azure_client)
             return OpenAIModel(model_name=model_config["name"], provider=provider)

@@ -13,10 +13,12 @@ from rich.console import Console
 import os
 from code_puppy.command_line.utils import make_directory_table
 
+
 def handle_meta_command(command: str, console: Console) -> bool:
     # ~codemap (code structure visualization)
     if command.startswith("~codemap"):
         from code_puppy.tools.code_map import make_code_map
+
         tokens = command.split()
         if len(tokens) > 1:
             target_dir = os.path.expanduser(tokens[1])
@@ -26,7 +28,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
             tree = make_code_map(target_dir, show_doc=True)
             console.print(tree)
         except Exception as e:
-            console.print(f'[red]Error generating code map:[/red] {e}')
+            console.print(f"[red]Error generating code map:[/red] {e}")
         return True
     """
     Handle meta/config commands prefixed with '~'.
@@ -40,7 +42,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
                 table = make_directory_table()
                 console.print(table)
             except Exception as e:
-                console.print(f'[red]Error listing directory:[/red] {e}')
+                console.print(f"[red]Error listing directory:[/red] {e}")
             return True
         elif len(tokens) == 2:
             dirname = tokens[1]
@@ -49,36 +51,41 @@ def handle_meta_command(command: str, console: Console) -> bool:
                 target = os.path.join(os.getcwd(), target)
             if os.path.isdir(target):
                 os.chdir(target)
-                console.print(f'[bold green]Changed directory to:[/bold green] [cyan]{target}[/cyan]')
+                console.print(
+                    f"[bold green]Changed directory to:[/bold green] [cyan]{target}[/cyan]"
+                )
             else:
-                console.print(f'[red]Not a directory:[/red] [bold]{dirname}[/bold]')
+                console.print(f"[red]Not a directory:[/red] [bold]{dirname}[/bold]")
             return True
 
     if command.strip().startswith("~show"):
         from code_puppy.config import get_puppy_name, get_owner_name
         from code_puppy.command_line.model_picker_completion import get_active_model
+
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         model = get_active_model()
         from code_puppy.config import get_yolo_mode
+
         yolo_mode = get_yolo_mode()
-        console.print(f'''[bold magenta]🐶 Puppy Status[/bold magenta]
+        console.print(f"""[bold magenta]🐶 Puppy Status[/bold magenta]
  \n[bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]     [cyan]{owner_name}[/cyan]
 [bold]model:[/bold]          [green]{model}[/green]
-[bold]YOLO_MODE:[/bold]      {'[red]ON[/red]' if yolo_mode else '[yellow]off[/yellow]'}
-''')
+[bold]YOLO_MODE:[/bold]      {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
+""")
         return True
 
     if command.startswith("~set"):
         # Syntax: ~set KEY=VALUE or ~set KEY VALUE
         from code_puppy.config import set_config_value, get_config_keys
+
         tokens = command.split(None, 2)
-        argstr = command[len('~set'):].strip()
+        argstr = command[len("~set") :].strip()
         key = None
         value = None
-        if '=' in argstr:
-            key, value = argstr.split('=', 1)
+        if "=" in argstr:
+            key, value = argstr.split("=", 1)
             key = key.strip()
             value = value.strip()
         elif len(tokens) >= 3:
@@ -86,16 +93,18 @@ def handle_meta_command(command: str, console: Console) -> bool:
             value = tokens[2]
         elif len(tokens) == 2:
             key = tokens[1]
-            value = ''
+            value = ""
         else:
-            console.print('[yellow]Usage:[/yellow] ~set KEY=VALUE or ~set KEY VALUE')
-            console.print('Config keys: ' + ', '.join(get_config_keys()))
+            console.print("[yellow]Usage:[/yellow] ~set KEY=VALUE or ~set KEY VALUE")
+            console.print("Config keys: " + ", ".join(get_config_keys()))
             return True
         if key:
             set_config_value(key, value)
-            console.print(f'[green]🌶 Set[/green] [cyan]{key}[/cyan] = "{value}" in puppy.cfg!')
+            console.print(
+                f'[green]🌶 Set[/green] [cyan]{key}[/cyan] = "{value}" in puppy.cfg!'
+            )
         else:
-            console.print('[red]You must supply a key.[/red]')
+            console.print("[red]You must supply a key.[/red]")
         return True
 
     if command.startswith("~m"):
@@ -103,26 +112,34 @@ def handle_meta_command(command: str, console: Console) -> bool:
         new_input = update_model_in_input(command)
         if new_input is not None:
             from code_puppy.agent import get_code_generation_agent
+
             model = get_active_model()
             get_code_generation_agent(force_reload=True)
-            console.print(f"[bold green]Active model set and loaded:[/bold green] [cyan]{model}[/cyan]")
+            console.print(
+                f"[bold green]Active model set and loaded:[/bold green] [cyan]{model}[/cyan]"
+            )
             return True
         # If no model matched, show available models
         model_names = load_model_names()
         console.print(f"[yellow]Available models:[/yellow] {', '.join(model_names)}")
-        console.print(f"[yellow]Usage:[/yellow] ~m <model_name>")
+        console.print("[yellow]Usage:[/yellow] ~m <model_name>")
         return True
     if command in ("~help", "~h"):
         console.print(META_COMMANDS_HELP)
         return True
     if command.startswith("~"):
-        name = command[1:].split()[0] if len(command)>1 else ""
+        name = command[1:].split()[0] if len(command) > 1 else ""
         if name:
-            console.print(f"[yellow]Unknown meta command:[/yellow] {command}\n[dim]Type ~help for options.[/dim]")
+            console.print(
+                f"[yellow]Unknown meta command:[/yellow] {command}\n[dim]Type ~help for options.[/dim]"
+            )
         else:
             # Show current model ONLY here
             from code_puppy.command_line.model_picker_completion import get_active_model
+
             current_model = get_active_model()
-            console.print(f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]")
+            console.print(
+                f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]"
+            )
         return True
     return False
