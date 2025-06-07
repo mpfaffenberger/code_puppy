@@ -13,7 +13,7 @@ def list_directory(path: str = None) -> Tuple[List[str], List[str]]:
     try:
         entries = [e for e in os.listdir(path)]
     except Exception as e:
-        raise RuntimeError(f'Error listing directory: {e}')
+        raise RuntimeError(f"Error listing directory: {e}")
     dirs = [e for e in entries if os.path.isdir(os.path.join(path, e))]
     files = [e for e in entries if not os.path.isdir(os.path.join(path, e))]
     return dirs, files
@@ -26,11 +26,13 @@ def make_directory_table(path: str = None) -> Table:
     if path is None:
         path = os.getcwd()
     dirs, files = list_directory(path)
-    table = Table(title=f"\U0001F4C1 [bold blue]Current directory:[/bold blue] [cyan]{path}[/cyan]")
-    table.add_column('Type', style='dim', width=8)
-    table.add_column('Name', style='bold')
+    table = Table(
+        title=f"\U0001f4c1 [bold blue]Current directory:[/bold blue] [cyan]{path}[/cyan]"
+    )
+    table.add_column("Type", style="dim", width=8)
+    table.add_column("Name", style="bold")
     for d in sorted(dirs):
-        table.add_row('[green]dir[/green]', f'[cyan]{d}[/cyan]')
+        table.add_row("[green]dir[/green]", f"[cyan]{d}[/cyan]")
     for f in sorted(files):
-        table.add_row('[yellow]file[/yellow]', f'{f}')
+        table.add_row("[yellow]file[/yellow]", f"{f}")
     return table

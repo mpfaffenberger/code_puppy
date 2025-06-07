@@ -1,9 +1,7 @@
 import os
 import ast
-from typing import List, Tuple
 from rich.tree import Tree
 from rich.text import Text
-from pathlib import Path
 import pathspec
 
 
@@ -36,8 +34,8 @@ def map_python_file(file_path: str, show_doc: bool = True) -> Tree:
                 if doc:
                     t.add(Text(f'"{doc}"', style="dim"))
             # Add inner functions
-            if hasattr(node, 'body'):
-                for subnode in getattr(node, 'body'):
+            if hasattr(node, "body"):
+                for subnode in getattr(node, "body"):
                     subsum = summarize_node(subnode)
                     if subsum:
                         sub_t = Tree(subsum)
@@ -50,13 +48,14 @@ def map_python_file(file_path: str, show_doc: bool = True) -> Tree:
 
 
 def load_gitignore(directory: str):
-    gitignore_file = os.path.join(directory, '.gitignore')
+    gitignore_file = os.path.join(directory, ".gitignore")
     if os.path.exists(gitignore_file):
-        with open(gitignore_file, 'r') as f:
-            spec = pathspec.PathSpec.from_lines('gitwildmatch', f)
+        with open(gitignore_file, "r") as f:
+            spec = pathspec.PathSpec.from_lines("gitwildmatch", f)
         return spec
     else:
-        return pathspec.PathSpec.from_lines('gitwildmatch', [])
+        return pathspec.PathSpec.from_lines("gitwildmatch", [])
+
 
 def make_code_map(directory: str, show_doc: bool = True) -> Tree:
     """
@@ -71,16 +70,22 @@ def make_code_map(directory: str, show_doc: bool = True) -> Tree:
     for root, dirs, files in os.walk(directory):
         rel_root = os.path.relpath(root, abs_directory)
         # Remove ignored directories in-place for os.walk to not descend
-        dirs[:] = [d for d in dirs if not spec.match_file(os.path.normpath(os.path.join(rel_root, d)))]
+        dirs[:] = [
+            d
+            for d in dirs
+            if not spec.match_file(os.path.normpath(os.path.join(rel_root, d)))
+        ]
         for fname in files:
             rel_file = os.path.normpath(os.path.join(rel_root, fname))
-            if fname.endswith('.py') and not fname.startswith("__"):
+            if fname.endswith(".py") and not fname.startswith("__"):
                 if not spec.match_file(rel_file):
                     fpath = os.path.join(root, fname)
                     try:
                         file_tree = map_python_file(fpath, show_doc=show_doc)
                         base_tree.add(file_tree)
                     except Exception as e:
-                        err = Tree(Text(f"[error reading {fname}: {e}]", style="bold red"))
+                        err = Tree(
+                            Text(f"[error reading {fname}: {e}]", style="bold red")
+                        )
                         base_tree.add(err)
     return base_tree

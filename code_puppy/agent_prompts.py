@@ -106,10 +106,9 @@ Return your final response as a structured output having the following fields:
  * awaiting_user_input: True if user input is needed to continue the task. If you get an error, you might consider asking the user for help.
 """
 
+
 def get_system_prompt():
     """Returns the main system prompt, populated with current puppy and owner name."""
     return SYSTEM_PROMPT_TEMPLATE.format(
-        puppy_name=get_puppy_name(),
-        owner_name=get_owner_name()
+        puppy_name=get_puppy_name(), owner_name=get_owner_name()
     )
-
