@@ -1,9 +1,6 @@
 name: Quality Checks
 
 on:
-  push:
-    branches:
-      - '**'
   pull_request:
     branches:
       - '**'
@@ -21,7 +18,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dev dependencies (ruff, pytest)
-        run: pip install ruff pytest
+        run: pip install ruff pytest pytest-cov
 
       - name: Lint with ruff
         run: ruff check .
@@ -30,4 +27,4 @@ jobs:
         run: ruff format --check .
 
       - name: Run pytest
-        run: pytest
+        run: pytest --cov=code_puppy
