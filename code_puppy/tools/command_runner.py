@@ -1,10 +1,12 @@
 import subprocess
 import time
-from typing import Dict, Any
-from code_puppy.tools.common import console
+from typing import Any, Dict
+
 from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.syntax import Syntax
+
+from code_puppy.tools.common import console
 
 
 def run_shell_command(
@@ -138,8 +140,8 @@ def run_shell_command(
             "success": False,
             "command": command,
             "error": f"Error executing command: {str(e)}",
-            "stdout": "",
-            "stderr": "",
+            "stdout": stdout[-1000:],
+            "stderr": stderr[-1000:],
             "exit_code": -1,
             "timeout": False,
         }

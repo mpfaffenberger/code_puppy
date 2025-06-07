@@ -1,9 +1,11 @@
 # file_operations.py
-import os
 import fnmatch
-from typing import List, Dict, Any
-from code_puppy.tools.common import console
+import os
+from typing import Any, Dict, List
+
 from pydantic_ai import RunContext
+
+from code_puppy.tools.common import console
 
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)

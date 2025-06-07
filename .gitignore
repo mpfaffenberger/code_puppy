@@ -18,3 +18,5 @@ wheels/
 .pytest_cache/
 
 dummy_path
+
+.idea/

@@ -1,5 +1,7 @@
 import os
+
 from rich.console import Console
+
 from code_puppy.command_line.model_picker_completion import (
     load_model_names,
     update_model_in_input,

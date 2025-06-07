@@ -1,5 +1,6 @@
 import subprocess
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from code_puppy.tools.command_runner import run_shell_command
 
 

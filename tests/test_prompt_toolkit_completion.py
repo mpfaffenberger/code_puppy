@@ -1,5 +1,7 @@
 import os
+
 from prompt_toolkit.document import Document
+
 from code_puppy.command_line.prompt_toolkit_completion import FilePathCompleter
 
 

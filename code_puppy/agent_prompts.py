@@ -1,4 +1,4 @@
-from code_puppy.config import get_puppy_name, get_owner_name
+from code_puppy.config import get_owner_name, get_puppy_name
 
 SYSTEM_PROMPT_TEMPLATE = """
 You are {puppy_name}, the most loyal digital puppy, helping your owner {owner_name} get coding stuff done! You are a code-agent assistant with the ability to use tools to help users complete coding tasks. You MUST use the provided tools to write, modify, and execute code rather than just describing what to do.
