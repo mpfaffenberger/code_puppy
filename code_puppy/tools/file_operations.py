@@ -1,5 +1,5 @@
 # file_operations.py
-import fnmatch
+
 import os
 from typing import Any, Dict, List
 
@@ -10,50 +10,7 @@ from code_puppy.tools.common import console
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
-IGNORE_PATTERNS = [
-    "**/node_modules/**",
-    "**/node_modules/**/*.js",
-    "node_modules/**",
-    "node_modules",
-    "**/.git/**",
-    "**/.git",
-    ".git/**",
-    ".git",
-    "**/__pycache__/**",
-    "**/__pycache__",
-    "__pycache__/**",
-    "__pycache__",
-    "**/.DS_Store",
-    ".DS_Store",
-    "**/.env",
-    ".env",
-    "**/.venv/**",
-    "**/.venv",
-    "**/venv/**",
-    "**/venv",
-    "**/.idea/**",
-    "**/.idea",
-    "**/.vscode/**",
-    "**/.vscode",
-    "**/dist/**",
-    "**/dist",
-    "**/build/**",
-    "**/build",
-    "**/*.pyc",
-    "**/*.pyo",
-    "**/*.pyd",
-    "**/*.so",
-    "**/*.dll",
-    "**/*.exe",
-]
-
-
-def should_ignore_path(path: str) -> bool:
-    """Return True if *path* matches any pattern in IGNORE_PATTERNS."""
-    for pattern in IGNORE_PATTERNS:
-        if fnmatch.fnmatch(path, pattern):
-            return True
-    return False
+from code_puppy.tools.common import should_ignore_path
 
 
 def _list_files(
@@ -323,3 +280,20 @@ def register_file_operations_tools(agent):
         context: RunContext, search_string: str, directory: str = "."
     ) -> List[Dict[str, Any]]:
         return _grep(context, search_string, directory)
+
+    @agent.tool
+    def code_map(context: RunContext, directory: str = ".") -> str:
+        """Generate a code map for the specified directory.
+           This will have a list of all function / class names and nested structure
+        Args:
+            context: The context object.
+            directory: The directory to generate the code map for.
+
+        Returns:
+            A string containing the code map.
+        """
+        console.print("[bold white on blue] CODE MAP [/bold white on blue]")
+        from code_puppy.tools.ts_code_map import make_code_map
+
+        result = make_code_map(directory, ignore_tests=True)
+        return result
