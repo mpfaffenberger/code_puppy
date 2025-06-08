@@ -18,7 +18,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dev dependencies (ruff, pytest)
-        run: pip install ruff pytest pytest-cov
+        run: pip install ruff pytest pytest-cov pytest-asyncio
 
       - name: Install code_puppy
         run: pip install .
