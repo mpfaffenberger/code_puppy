@@ -301,16 +301,19 @@ def register_file_modifications_tools(agent):
                         "changed": False,
                     }
                 return write_to_file(context, file_path, content, overwrite)
-        console.print(
-            "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
-        )
-        console.print("Inputs: ", path, diff)
-        return {
-            "success": False,
-            "path": file_path,
-            "message": "Wasn't able to route file modification to the right sub-tool!",
-            "changed": False,
-        }
+        try:
+            write_to_file(context, file_path, diff, overwrite=False)
+        except Exception as e:
+            console.print(
+                "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
+            )
+            console.print(str(e))
+            return {
+                "success": False,
+                "path": file_path,
+                "message": "Wasn't able to route file modification to the right sub-tool!",
+                "changed": False,
+            }
 
     @agent.tool
     def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
