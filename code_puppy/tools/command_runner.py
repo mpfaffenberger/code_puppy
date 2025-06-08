@@ -136,12 +136,17 @@ def run_shell_command(
     except Exception as e:
         console.print_exception(show_locals=True)
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
+        # Ensure stdout and stderr are always defined
+        if "stdout" not in locals():
+            stdout = None
+        if "stderr" not in locals():
+            stderr = None
         return {
             "success": False,
             "command": command,
             "error": f"Error executing command: {str(e)}",
-            "stdout": stdout[-1000:],
-            "stderr": stderr[-1000:],
+            "stdout": stdout[-1000:] if stdout else None,
+            "stderr": stderr[-1000:] if stderr else None,
             "exit_code": -1,
             "timeout": False,
         }

@@ -49,7 +49,7 @@ Example (create):
 edit_file("src/example.py", "print('hello')\n")
 ```
 
-Example (replacement):
+Example (replacement): -- YOU SHOULD PREFER THIS AS THE PRIMARY WAY TO EDIT FILES.
 ```json
 edit_file(
   "src/example.py",

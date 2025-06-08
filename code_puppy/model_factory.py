@@ -1,14 +1,9 @@
-import asyncio
 import json
 import os
-import threading
-import time
-from collections import deque
 from typing import Any, Dict
 
 import httpx
 from anthropic import AsyncAnthropic
-from httpx import Response
 from openai import AsyncAzureOpenAI  # For Azure OpenAI client
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
@@ -25,98 +20,6 @@ from pydantic_ai.providers.openai import OpenAIProvider
 # When using custom endpoints (type: "custom_openai" in models.json):
 # - Environment variables can be referenced in header values by prefixing with $ in models.json.
 #   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
-
-
-def make_client(
-    max_requests_per_minute: int = 10, max_retries: int = 3, retry_base_delay: int = 10
-) -> httpx.AsyncClient:
-    # Create a rate limiter using a token bucket approach
-    class RateLimiter:
-        def __init__(self, max_requests_per_minute):
-            self.max_requests_per_minute = max_requests_per_minute
-            self.interval = (
-                60.0 / max_requests_per_minute
-            )  # Time between requests in seconds
-            self.request_times = deque(maxlen=max_requests_per_minute)
-            self.lock = threading.Lock()
-
-        async def acquire(self):
-            """Wait until a request can be made according to the rate limit."""
-            while True:
-                with self.lock:
-                    now = time.time()
-
-                    # Remove timestamps older than 1 minute
-                    while self.request_times and now - self.request_times[0] > 60:
-                        self.request_times.popleft()
-
-                    # If we haven't reached the limit, add the timestamp and proceed
-                    if len(self.request_times) < self.max_requests_per_minute:
-                        self.request_times.append(now)
-                        return
-
-                    # Otherwise, calculate the wait time until we can make another request
-                    oldest = self.request_times[0]
-                    wait_time = max(0, oldest + 60 - now)
-
-                if wait_time > 0:
-                    print(
-                        f"Rate limit would be exceeded. Waiting {wait_time:.2f} seconds before sending request."
-                    )
-                    await asyncio.sleep(wait_time)
-                else:
-                    # Try again immediately
-                    continue
-
-    # Create the rate limiter instance
-    rate_limiter = RateLimiter(max_requests_per_minute)
-
-    def should_retry(response: Response) -> bool:
-        return response.status_code == 429 or (500 <= response.status_code < 600)
-
-    async def request_hook(request):
-        # Wait until we can make a request according to our rate limit
-        await rate_limiter.acquire()
-        return request
-
-    async def response_hook(response: Response) -> Response:
-        retries = getattr(response.request, "_retries", 0)
-
-        if should_retry(response) and retries < max_retries:
-            setattr(response.request, "_retries", retries + 1)
-
-            delay = retry_base_delay * (2**retries)
-
-            if response.status_code == 429:
-                print(
-                    f"Rate limit exceeded. Retrying in {delay:.2f} seconds (attempt {retries + 1}/{max_retries})"
-                )
-            else:
-                print(
-                    f"Server error {response.status_code}. Retrying in {delay:.2f} seconds (attempt {retries + 1}/{max_retries})"
-                )
-
-            await asyncio.sleep(delay)
-
-            new_request = response.request.copy()
-            async with httpx.AsyncClient() as client:
-                # Apply rate limiting to the retry request as well
-                await rate_limiter.acquire()
-                new_response = await client.request(
-                    new_request.method,
-                    str(new_request.url),
-                    headers=new_request.headers,
-                    content=new_request.content,
-                    params=dict(new_request.url.params),
-                )
-                return new_response
-        return response
-
-    # Setup both request and response hooks
-    event_hooks = {"request": [request_hook], "response": [response_hook]}
-
-    client = httpx.AsyncClient(event_hooks=event_hooks)
-    return client
 
 
 def get_custom_config(model_config):
@@ -166,17 +69,6 @@ class ModelFactory:
             raise ValueError(f"Model '{model_name}' not found in configuration.")
 
         model_type = model_config.get("type")
-
-        # Common configuration for rate limiting and retries
-        max_requests_per_minute = model_config.get("max_requests_per_minute", 100)
-        max_retries = model_config.get("max_retries", 3)
-        retry_base_delay = model_config.get("retry_base_delay", 1.0)
-
-        client = make_client(
-            max_requests_per_minute=max_requests_per_minute,
-            max_retries=max_retries,
-            retry_base_delay=retry_base_delay,
-        )
 
         if model_type == "gemini":
             provider = GoogleGLAProvider(api_key=os.environ.get("GEMINI_API_KEY", ""))

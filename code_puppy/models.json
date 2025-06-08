@@ -1,38 +1,23 @@
 {
   "gemini-2.5-flash-preview-05-20": {
     "type": "gemini",
-    "name": "gemini-2.5-flash-preview-05-20",
-    "max_requests_per_minute": 10,
-    "max_retries": 3,
-    "retry_base_delay": 10
+    "name": "gemini-2.5-flash-preview-05-20"
   },
   "gpt-4.1": {
     "type": "openai",
-    "name": "gpt-4.1",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 10
+    "name": "gpt-4.1"
   },
   "gpt-4.1-mini": {
     "type": "openai",
-    "name": "gpt-4.1-mini",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 10
+    "name": "gpt-4.1-mini"
   },
   "gpt-4.1-nano": {
     "type": "openai",
-    "name": "gpt-4.1-nano",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 10
+    "name": "gpt-4.1-nano"
   },
   "gpt-4.1-custom": {
     "type": "custom_openai",
     "name": "gpt-4.1-custom",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 10,
     "custom_endpoint": {
       "url": "https://my.cute.endpoint:8080",
       "headers": {
@@ -44,9 +29,6 @@
   "ollama-llama3.3": {
     "type": "custom_openai",
     "name": "llama3.3",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 5,
     "custom_endpoint": {
       "url": "http://localhost:11434/v1"
     }
@@ -54,9 +36,6 @@
   "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
     "type": "custom_openai",
     "name": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 5,
     "custom_endpoint": {
       "url": "https://api.together.xyz/v1",
       "api_key": "$TOGETHER_API_KEY"
@@ -65,9 +44,6 @@
   "grok-3-mini-fast": {
     "type": "custom_openai",
     "name": "grok-3-mini-fast",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 5,
     "custom_endpoint": {
       "url": "https://api.x.ai/v1",
       "api_key": "$XAI_API_KEY"
@@ -76,9 +52,6 @@
   "azure-gpt-4.1": {
     "type": "azure_openai",
     "name": "gpt-4.1",
-    "max_requests_per_minute": 100,
-    "max_retries": 3,
-    "retry_base_delay": 5,
     "api_version": "2024-12-01-preview",
     "api_key": "$AZURE_OPENAI_API_KEY",
     "azure_endpoint": "$AZURE_OPENAI_ENDPOINT"

@@ -6,6 +6,7 @@ from code_puppy.command_line.model_picker_completion import (
     load_model_names,
     update_model_in_input,
 )
+from code_puppy.config import get_config_keys
 from code_puppy.command_line.utils import make_directory_table
 
 META_COMMANDS_HELP = """
@@ -20,6 +21,12 @@ META_COMMANDS_HELP = """
 
 
 def handle_meta_command(command: str, console: Console) -> bool:
+    """
+    Handle meta/config commands prefixed with '~'.
+    Returns True if the command was handled (even if just an error/help), False if not.
+    """
+    command = command.strip()
+
     # ~codemap (code structure visualization)
     if command.startswith("~codemap"):
         from code_puppy.tools.code_map import make_code_map
@@ -35,11 +42,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
         except Exception as e:
             console.print(f"[red]Error generating code map:[/red] {e}")
         return True
-    """
-    Handle meta/config commands prefixed with '~'.
-    Returns True if the command was handled (even if just an error/help), False if not.
-    """
-    command = command.strip()
+
     if command.startswith("~cd"):
         tokens = command.split()
         if len(tokens) == 1:
@@ -83,7 +86,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
 
     if command.startswith("~set"):
         # Syntax: ~set KEY=VALUE or ~set KEY VALUE
-        from code_puppy.config import get_config_keys, set_config_value
+        from code_puppy.config import set_config_value
 
         tokens = command.split(None, 2)
         argstr = command[len("~set") :].strip()
@@ -100,8 +103,9 @@ def handle_meta_command(command: str, console: Console) -> bool:
             key = tokens[1]
             value = ""
         else:
-            console.print("[yellow]Usage:[/yellow] ~set KEY=VALUE or ~set KEY VALUE")
-            console.print("Config keys: " + ", ".join(get_config_keys()))
+            console.print(
+                f"[yellow]Usage:[/yellow] ~set KEY=VALUE or ~set KEY VALUE\nConfig keys: {', '.join(get_config_keys())}"
+            )
             return True
         if key:
             set_config_value(key, value)
@@ -116,9 +120,11 @@ def handle_meta_command(command: str, console: Console) -> bool:
         # Try setting model and show confirmation
         new_input = update_model_in_input(command)
         if new_input is not None:
+            from code_puppy.command_line.model_picker_completion import get_active_model
             from code_puppy.agent import get_code_generation_agent
 
             model = get_active_model()
+            # Make sure this is called for the test
             get_code_generation_agent(force_reload=True)
             console.print(
                 f"[bold green]Active model set and loaded:[/bold green] [cyan]{model}[/cyan]"
@@ -126,8 +132,8 @@ def handle_meta_command(command: str, console: Console) -> bool:
             return True
         # If no model matched, show available models
         model_names = load_model_names()
+        console.print("[yellow]Usage:[/yellow] ~m <model-name>")
         console.print(f"[yellow]Available models:[/yellow] {', '.join(model_names)}")
-        console.print("[yellow]Usage:[/yellow] ~m <model_name>")
         return True
     if command in ("~help", "~h"):
         console.print(META_COMMANDS_HELP)
