@@ -1,8 +1,7 @@
 import os
-
 from prompt_toolkit.document import Document
 
-from code_puppy.command_line.prompt_toolkit_completion import FilePathCompleter
+from code_puppy.command_line.prompt_toolkit_completion import FilePathCompleter, SetCompleter, CDCompleter, get_prompt_with_active_model
 
 
 def setup_files(tmp_path):
@@ -97,3 +96,34 @@ def test_completion_handles_permissionerror(monkeypatch):
     doc = Document(text="@", cursor_position=1)
     # Should not raise:
     list(completer.get_completions(doc, None))
+
+def test_set_completer_on_non_trigger():
+    completer = SetCompleter()
+    doc = Document(text="not_a_set_command")
+    assert list(completer.get_completions(doc, None)) == []
+
+def test_set_completer_on_set_trigger(monkeypatch):
+    # Simulate config keys
+    monkeypatch.setattr("code_puppy.config.get_config_keys", lambda: ["foo", "bar"])
+    monkeypatch.setattr("code_puppy.config.get_value", lambda key: "woo" if key == "foo" else None)
+    completer = SetCompleter()
+    doc = Document(text='~set ')
+    completions = list(completer.get_completions(doc, None))
+    completion_texts = [c.text for c in completions]
+    assert completion_texts
+
+def test_cd_completer_on_non_trigger():
+    completer = CDCompleter()
+    doc = Document(text="something_else")
+    assert list(completer.get_completions(doc, None)) == []
+
+def test_get_prompt_with_active_model(monkeypatch):
+    monkeypatch.setattr("code_puppy.config.get_puppy_name", lambda: 'Biscuit')
+    monkeypatch.setattr("code_puppy.command_line.model_picker_completion.get_active_model", lambda: 'TestModel')
+    monkeypatch.setattr("os.getcwd", lambda: '/home/user/test')
+    monkeypatch.setattr("os.path.expanduser", lambda x: x.replace('~', '/home/user'))
+    formatted = get_prompt_with_active_model()
+    text = ''.join(fragment[1] for fragment in formatted)
+    assert 'biscuit' in text.lower()
+    assert '[b]' in text.lower()   # Model abbreviation, update if prompt changes
+    assert "/test" in text
