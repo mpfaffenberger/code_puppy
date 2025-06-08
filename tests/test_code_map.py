@@ -157,4 +157,3 @@ def test_code_map_extracts_nodes(ext: str, snippet: str, tmp_path: Path):
         assert expected in rendered, (
             f"{ext}: '{expected}' not found in output for sample file\n{rendered}"
         )
-    
