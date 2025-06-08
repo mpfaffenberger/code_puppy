@@ -33,53 +33,60 @@ class SetCompleter(Completer):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
-        text = document.text_before_cursor
-        if not text.strip().startswith(self.trigger):
+        text_before_cursor = document.text_before_cursor
+        stripped_text_for_trigger_check = text_before_cursor.lstrip()
+
+        if not stripped_text_for_trigger_check.startswith(self.trigger):
             return
-        # If the only thing typed is exactly '~set', suggest space
-        if text.strip() == self.trigger:
+
+        # Determine the part of the text that is relevant for this completer
+        # This handles cases like "  ~set foo" where the trigger isn't at the start of the string
+        actual_trigger_pos = text_before_cursor.find(self.trigger)
+        effective_input = text_before_cursor[
+            actual_trigger_pos:
+        ]  # e.g., "~set keypart" or "~set " or "~set"
+
+        tokens = effective_input.split()
+
+        # Case 1: Input is exactly the trigger (e.g., "~set") and nothing more (not even a trailing space on effective_input).
+        # Suggest adding a space.
+        if (
+            len(tokens) == 1
+            and tokens[0] == self.trigger
+            and not effective_input.endswith(" ")
+        ):
             yield Completion(
-                self.trigger + " ",
-                start_position=-len(self.trigger),
-                display=f"{self.trigger} ",
-                display_meta="set config",
+                text=self.trigger + " ",  # Text to insert
+                start_position=-len(tokens[0]),  # Replace the trigger itself
+                display=self.trigger + " ",  # Visual display
+                display_meta="set config key",
             )
-        tokens = text.strip().split()
-        # completion for the first arg after ~set
-        if len(tokens) == 1:
-            # user just typed ~set <-- suggest config keys
-            base = ""
-        else:
-            base = tokens[1]
+            return
+
+        # Case 2: Input is trigger + space (e.g., "~set ") or trigger + partial key (e.g., "~set partial")
+        base_to_complete = ""
+        if len(tokens) > 1:  # e.g., ["~set", "partialkey"]
+            base_to_complete = tokens[1]
+        # If len(tokens) == 1, it implies effective_input was like "~set ", so base_to_complete remains ""
+        # This means we list all keys.
+
         # --- SPECIAL HANDLING FOR 'model' KEY ---
-        if base == "model":
+        if base_to_complete == "model":
             # Don't return any completions -- let ModelNameCompleter handle it
             return
         for key in get_config_keys():
             if key == "model":
                 continue  # exclude 'model' from regular ~set completions
-            if key.startswith(base):
+            if key.startswith(base_to_complete):
                 prev_value = get_value(key)
-                # Ensure there's a space after '~set' if it's the only thing typed
-                if text.strip() == self.trigger or text.strip() == self.trigger + "":
-                    prefix = self.trigger + " "  # Always enforce a space
-                    insert_text = (
-                        f"{prefix}{key} = {prev_value}"
-                        if prev_value is not None
-                        else f"{prefix}{key} = "
-                    )
-                    sp = -len(text)
-                else:
-                    insert_text = (
-                        f"{key} = {prev_value}"
-                        if prev_value is not None
-                        else f"{key} = "
-                    )
-                    sp = -len(base)
-                # Make it obvious the value part is from before
+                value_part = f" = {prev_value}" if prev_value is not None else " = "
+                completion_text = f"{key}{value_part}"
+
                 yield Completion(
-                    insert_text,
-                    start_position=sp,
+                    completion_text,
+                    start_position=-len(
+                        base_to_complete
+                    ),  # Correctly replace only the typed part of the key
                     display_meta=f"puppy.cfg key (was: {prev_value})"
                     if prev_value is not None
                     else "puppy.cfg key",

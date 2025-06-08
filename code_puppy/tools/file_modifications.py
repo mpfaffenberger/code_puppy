@@ -205,145 +205,152 @@ def _write_to_file(
         return {"error": str(exc), "diff": ""}
 
 
-def register_file_modifications_tools(agent):
-    """Attach file-editing tools to *agent* with mandatory diff rendering."""
+def delete_snippet_from_file(
+    context: RunContext, file_path: str, snippet: str
+) -> Dict[str, Any]:
+    console.log(f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]")
+    res = _delete_snippet_from_file(context, file_path, snippet)
+    diff = res.get("diff", "")
+    if diff:
+        _print_diff(diff)
+    return res
 
-    def delete_snippet_from_file(
-        context: RunContext, file_path: str, snippet: str
-    ) -> Dict[str, Any]:
-        console.log(f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]")
-        res = _delete_snippet_from_file(context, file_path, snippet)
-        diff = res.get("diff", "")
-        if diff:
-            _print_diff(diff)
-        return res
 
-    def write_to_file(
-        context: RunContext, path: str, content: str, overwrite: bool
-    ) -> Dict[str, Any]:
-        console.log(f"✏️ Writing file [bold blue]{path}[/bold blue]")
-        res = _write_to_file(context, path, content, overwrite=overwrite)
-        diff = res.get("diff", "")
-        if diff:
-            _print_diff(diff)
-        return res
+def write_to_file(
+    context: RunContext, path: str, content: str, overwrite: bool
+) -> Dict[str, Any]:
+    console.log(f"✏️ Writing file [bold blue]{path}[/bold blue]")
+    res = _write_to_file(context, path, content, overwrite=overwrite)
+    diff = res.get("diff", "")
+    if diff:
+        _print_diff(diff)
+    return res
 
-    def replace_in_file(
-        context: RunContext, path: str, replacements: List[Dict[str, str]]
-    ) -> Dict[str, Any]:
-        console.log(f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]")
-        res = _replace_in_file(context, path, replacements)
-        diff = res.get("diff", "")
-        if diff:
-            _print_diff(diff)
-        return res
 
-    @agent.tool(retries=5)
-    def edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
-        """
-        Unified file editing tool that can:
-        - Create/write a new file when the target does not exist (using raw content or a JSON payload with a "content" key)
-        - Replace text within an existing file via a JSON payload with "replacements" (delegates to internal replace logic)
-        - Delete a snippet from an existing file via a JSON payload with "delete_snippet"
-        Parameters
-        ----------
-        path : str
-            Path to the target file (relative or absolute)
-        diff : str
-            Either:
-              * Raw file content (for file creation)
-              * A JSON string with one of the following shapes:
-                  {"content": "full file contents", "overwrite": true}
-                  {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
-                  {"delete_snippet": "text to remove"}
-        The function auto-detects the payload type and routes to the appropriate internal helper.
-        """
-        console.print("\n[bold white on blue] EDIT FILE [/bold white on blue]")
-        file_path = os.path.abspath(path)
+def replace_in_file(
+    context: RunContext, path: str, replacements: List[Dict[str, str]]
+) -> Dict[str, Any]:
+    console.log(f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]")
+    res = _replace_in_file(context, path, replacements)
+    diff = res.get("diff", "")
+    if diff:
+        _print_diff(diff)
+    return res
+
+
+def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
+    """
+    Unified file editing tool that can:
+    - Create/write a new file when the target does not exist (using raw content or a JSON payload with a "content" key)
+    - Replace text within an existing file via a JSON payload with "replacements" (delegates to internal replace logic)
+    - Delete a snippet from an existing file via a JSON payload with "delete_snippet"
+    Parameters
+    ----------
+    path : str
+        Path to the target file (relative or absolute)
+    diff : str
+        Either:
+            * Raw file content (for file creation)
+            * A JSON string with one of the following shapes:
+                {"content": "full file contents", "overwrite": true}
+                {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
+                {"delete_snippet": "text to remove"}
+    The function auto-detects the payload type and routes to the appropriate internal helper.
+    """
+    console.print("\n[bold white on blue] EDIT FILE [/bold white on blue]")
+    file_path = os.path.abspath(path)
+    try:
+        parsed_payload = json.loads(diff)
+    except json.JSONDecodeError:
         try:
-            parsed_payload = json.loads(diff)
-        except json.JSONDecodeError:
-            try:
-                console.print(
-                    "[bold yellow] JSON Parsing Failed! TRYING TO REPAIR! [/bold yellow]"
-                )
-                parsed_payload = json.loads(repair_json(diff))
-                console.print(
-                    "[bold green on cyan] SUCCESS - WOOF! [/bold green on cyan]"
-                )
-            except Exception as e:
-                console.print(
-                    f"[bold red] Unable to parse diff [/bold red] -- {str(e)}"
-                )
-                return {
-                    "success": False,
-                    "path": file_path,
-                    "message": f"Unable to parse diff JSON -- {str(e)}",
-                    "changed": False,
-                    "diff": "",
-                }
-        try:
-            if isinstance(parsed_payload, dict):
-                if "delete_snippet" in parsed_payload:
-                    snippet = parsed_payload["delete_snippet"]
-                    return delete_snippet_from_file(context, file_path, snippet)
-                if "replacements" in parsed_payload:
-                    replacements = parsed_payload["replacements"]
-                    return replace_in_file(context, file_path, replacements)
-                if "content" in parsed_payload:
-                    content = parsed_payload["content"]
-                    overwrite = bool(parsed_payload.get("overwrite", False))
-                    file_exists = os.path.exists(file_path)
-                    if file_exists and not overwrite:
-                        return {
-                            "success": False,
-                            "path": file_path,
-                            "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
-                            "changed": False,
-                        }
-                    return write_to_file(context, file_path, content, overwrite)
-            return write_to_file(context, file_path, diff, overwrite=False)
-        except Exception as e:
             console.print(
-                "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
+                "[bold yellow] JSON Parsing Failed! TRYING TO REPAIR! [/bold yellow]"
             )
-            console.print(str(e))
+            parsed_payload = json.loads(repair_json(diff))
+            console.print("[bold white on blue] SUCCESS - WOOF! [/bold white on blue]")
+        except Exception as e:
+            console.print(f"[bold red] Unable to parse diff [/bold red] -- {str(e)}")
             return {
                 "success": False,
                 "path": file_path,
-                "message": f"Something went wrong in file editing: {str(e)}",
+                "message": f"Unable to parse diff JSON -- {str(e)}",
                 "changed": False,
+                "diff": "",
             }
+    try:
+        if isinstance(parsed_payload, dict):
+            if "delete_snippet" in parsed_payload:
+                snippet = parsed_payload["delete_snippet"]
+                return delete_snippet_from_file(context, file_path, snippet)
+            if "replacements" in parsed_payload:
+                replacements = parsed_payload["replacements"]
+                return replace_in_file(context, file_path, replacements)
+            if "content" in parsed_payload:
+                content = parsed_payload["content"]
+                overwrite = bool(parsed_payload.get("overwrite", False))
+                file_exists = os.path.exists(file_path)
+                if file_exists and not overwrite:
+                    return {
+                        "success": False,
+                        "path": file_path,
+                        "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
+                        "changed": False,
+                    }
+                return write_to_file(context, file_path, content, overwrite)
+        return write_to_file(context, file_path, diff, overwrite=False)
+    except Exception as e:
+        console.print(
+            "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
+        )
+        console.print(str(e))
+        return {
+            "success": False,
+            "path": file_path,
+            "message": f"Something went wrong in file editing: {str(e)}",
+            "changed": False,
+        }
 
-    @agent.tool
-    def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
-        console.log(f"🗑️ Deleting file [bold red]{file_path}[/bold red]")
-        file_path = os.path.abspath(file_path)
-        try:
-            if not os.path.exists(file_path) or not os.path.isfile(file_path):
-                res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-            else:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    original = f.read()
-                diff_text = "".join(
-                    difflib.unified_diff(
-                        original.splitlines(keepends=True),
-                        [],
-                        fromfile=f"a/{os.path.basename(file_path)}",
-                        tofile=f"b/{os.path.basename(file_path)}",
-                        n=3,
-                    )
+
+def _delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+    console.log(f"🗑️ Deleting file [bold red]{file_path}[/bold red]")
+    file_path = os.path.abspath(file_path)
+    try:
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+        else:
+            with open(file_path, "r", encoding="utf-8") as f:
+                original = f.read()
+            diff_text = "".join(
+                difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    [],
+                    fromfile=f"a/{os.path.basename(file_path)}",
+                    tofile=f"b/{os.path.basename(file_path)}",
+                    n=3,
                 )
-                os.remove(file_path)
-                res = {
-                    "success": True,
-                    "path": file_path,
-                    "message": f"File '{file_path}' deleted successfully.",
-                    "changed": True,
-                    "diff": diff_text,
-                }
-        except Exception as exc:
-            _log_error("Unhandled exception in delete_file", exc)
-            res = {"error": str(exc), "diff": ""}
-        _print_diff(res.get("diff", ""))
-        return res
+            )
+            os.remove(file_path)
+            res = {
+                "success": True,
+                "path": file_path,
+                "message": f"File '{file_path}' deleted successfully.",
+                "changed": True,
+                "diff": diff_text,
+            }
+    except Exception as exc:
+        _log_error("Unhandled exception in delete_file", exc)
+        res = {"error": str(exc), "diff": ""}
+    _print_diff(res.get("diff", ""))
+    return res
+
+
+def register_file_modifications_tools(agent):
+    """Attach file-editing tools to *agent* with mandatory diff rendering."""
+
+    @agent.tool(retries=5)
+    def edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
+        return _edit_file(context, path, diff)
+
+    @agent.tool(retries=5)
+    def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+        return _delete_file(context, file_path)

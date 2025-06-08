@@ -18,12 +18,23 @@ from code_puppy.tools.common import console
 
 MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH", None)
 
-# Load puppy rules if provided
+# Puppy rules loader
 PUPPY_RULES_PATH = Path(".puppy_rules")
 PUPPY_RULES = None
-if PUPPY_RULES_PATH.exists():
-    with open(PUPPY_RULES_PATH, "r") as f:
-        PUPPY_RULES = f.read()
+
+
+def load_puppy_rules(path=None):
+    global PUPPY_RULES
+    rules_path = Path(path) if path else PUPPY_RULES_PATH
+    if rules_path.exists():
+        with open(rules_path, "r") as f:
+            PUPPY_RULES = f.read()
+    else:
+        PUPPY_RULES = None
+
+
+# Load at import
+load_puppy_rules()
 
 
 class AgentResponse(pydantic.BaseModel):
