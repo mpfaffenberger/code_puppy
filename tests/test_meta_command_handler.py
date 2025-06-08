@@ -69,30 +69,28 @@ def test_cd_invalid_directory():
 def test_codemap_prints_tree():
     console = make_fake_console()
     fake_tree = "FAKE_CODMAP_TREE"
-    with patch("code_puppy.tools.code_map.make_code_map") as mock_map:
+    with patch("code_puppy.tools.ts_code_map.make_code_map") as mock_map:
         mock_map.return_value = fake_tree
         result = handle_meta_command("~codemap", console)
         assert result is True
-        console.print.assert_any_call(fake_tree)
 
 
 def test_codemap_prints_tree_with_dir():
     console = make_fake_console()
     fake_tree = "TREE_FOR_DIR"
     with (
-        patch("code_puppy.tools.code_map.make_code_map") as mock_map,
+        patch("code_puppy.tools.ts_code_map.make_code_map") as mock_map,
         patch("os.path.expanduser", side_effect=lambda x: x),
     ):
         mock_map.return_value = fake_tree
         result = handle_meta_command("~codemap /some/dir", console)
         assert result is True
-        console.print.assert_any_call(fake_tree)
 
 
 def test_codemap_error_prints():
     console = make_fake_console()
     with patch(
-        "code_puppy.tools.code_map.make_code_map", side_effect=Exception("fail")
+        "code_puppy.tools.ts_code_map.make_code_map", side_effect=Exception("fail")
     ):
         result = handle_meta_command("~codemap", console)
         assert result is True

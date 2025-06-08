@@ -29,7 +29,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
 
     # ~codemap (code structure visualization)
     if command.startswith("~codemap"):
-        from code_puppy.tools.code_map import make_code_map
+        from code_puppy.tools.ts_code_map import make_code_map
 
         tokens = command.split()
         if len(tokens) > 1:
@@ -37,8 +37,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
         else:
             target_dir = os.getcwd()
         try:
-            tree = make_code_map(target_dir, show_doc=True)
-            console.print(tree)
+            make_code_map(target_dir, ignore_tests=True)
         except Exception as e:
             console.print(f"[red]Error generating code map:[/red] {e}")
         return True

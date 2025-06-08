@@ -1,4 +1,5 @@
 import os
+import fnmatch
 
 from typing import Optional, Tuple
 
@@ -7,6 +8,56 @@ from rich.console import Console
 
 NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
 console = Console(no_color=NO_COLOR)
+
+
+# -------------------
+# Shared ignore patterns/helpers
+# -------------------
+IGNORE_PATTERNS = [
+    "**/node_modules/**",
+    "**/node_modules/**/*.js",
+    "node_modules/**",
+    "node_modules",
+    "**/.git/**",
+    "**/.git",
+    ".git/**",
+    ".git",
+    "**/__pycache__/**",
+    "**/__pycache__",
+    "__pycache__/**",
+    "__pycache__",
+    "**/.DS_Store",
+    ".DS_Store",
+    "**/.env",
+    ".env",
+    "**/.venv/**",
+    "**/.venv",
+    "**/venv/**",
+    "**/venv",
+    "**/.idea/**",
+    "**/.idea",
+    "**/.vscode/**",
+    "**/.vscode",
+    "**/dist/**",
+    "**/dist",
+    "**/build/**",
+    "**/build",
+    "**/*.pyc",
+    "**/*.pyo",
+    "**/*.pyd",
+    "**/*.so",
+    "**/*.dll",
+    "**/.*",
+]
+
+
+def should_ignore_path(path: str) -> bool:
+    """Return True if *path* matches any pattern in IGNORE_PATTERNS."""
+    for pattern in IGNORE_PATTERNS:
+        if fnmatch.fnmatch(path, pattern):
+            return True
+    return False
+
 
 JW_THRESHOLD = 0.95
 

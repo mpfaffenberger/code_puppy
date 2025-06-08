@@ -295,7 +295,7 @@ class TestRegisterTools:
         register_file_operations_tools(mock_agent)
 
         # Verify that the tools were registered
-        assert mock_agent.tool.call_count == 3
+        assert mock_agent.tool.call_count == 4
 
         # Get the names of registered functions by examining the mock calls
         # Extract function names from the decorator calls
