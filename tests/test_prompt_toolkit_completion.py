@@ -545,6 +545,6 @@ def test_get_prompt_with_active_model(monkeypatch):
     monkeypatch.setattr("os.path.expanduser", lambda x: x.replace("~", "/home/user"))
     formatted = get_prompt_with_active_model()
     text = "".join(fragment[1] for fragment in formatted)
-    assert "biscuit" in text.lower()
+    assert "Biscuit" in text
     assert "[b]" in text.lower()  # Model abbreviation, update if prompt changes
     assert "/test" in text
