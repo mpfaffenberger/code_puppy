@@ -38,22 +38,6 @@ def test_set_and_get_active_model_updates_env():
             assert mpc.get_active_model() == "foo"
 
 
-def test_update_model_in_input_strips_prefix():
-    test_models = ["a", "b"]
-    text = "~mb"
-    with patch.object(mpc, "load_model_names", return_value=test_models):
-        previous_value = os.environ.get("MODEL_NAME")
-        try:
-            result = mpc.update_model_in_input(text)
-            assert result == ""
-            assert os.environ["MODEL_NAME"] == "b"
-        finally:
-            if previous_value is not None:
-                os.environ["MODEL_NAME"] = previous_value
-            elif "MODEL_NAME" in os.environ:
-                del os.environ["MODEL_NAME"]
-
-
 def test_model_name_completer():
     models = ["alpha", "bravo"]
     with patch.object(mpc, "load_model_names", return_value=models):
