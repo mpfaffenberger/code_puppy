@@ -181,12 +181,16 @@ class ModelFactory:
         if model_type == "gemini":
             provider = GoogleGLAProvider(api_key=os.environ.get("GEMINI_API_KEY", ""))
 
-            return GeminiModel(model_name=model_config["name"], provider=provider)
+            model = GeminiModel(model_name=model_config["name"], provider=provider)
+            setattr(model, "provider", provider)
+            return model
 
         elif model_type == "openai":
             provider = OpenAIProvider(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
-            return OpenAIModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIModel(model_name=model_config["name"], provider=provider)
+            setattr(model, "provider", provider)
+            return model
 
         elif model_type == "anthropic":
             api_key = os.environ.get("ANTHROPIC_API_KEY", None)
@@ -259,7 +263,9 @@ class ModelFactory:
                 max_retries=azure_max_retries,
             )
             provider = OpenAIProvider(openai_client=azure_client)
-            return OpenAIModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIModel(model_name=model_config["name"], provider=provider)
+            setattr(model, "provider", provider)
+            return model
 
         elif model_type == "custom_openai":
             url, headers, ca_certs_path, api_key = get_custom_config(model_config)
@@ -272,7 +278,9 @@ class ModelFactory:
                 provider_args["api_key"] = api_key
             provider = OpenAIProvider(**provider_args)
 
-            return OpenAIModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIModel(model_name=model_config["name"], provider=provider)
+            setattr(model, "provider", provider)
+            return model
 
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
