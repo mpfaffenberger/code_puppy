@@ -9,7 +9,6 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     CDCompleter,
     FilePathCompleter,
     SetCompleter,
-    get_prompt_with_active_model,  # Corrected import name
     get_input_with_combined_completion,
 )
 
