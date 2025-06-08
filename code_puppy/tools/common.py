@@ -38,4 +38,4 @@ def _find_best_window(
     console.log(f"Best span: {best_span}")
     console.log(f"Best window: {best_window}")
     console.log(f"Best score: {best_score}")
-    return (best_span, best_score)
+    return best_span, best_score
