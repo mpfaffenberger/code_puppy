@@ -30,4 +30,4 @@ jobs:
         run: ruff format --check .
 
       - name: Run pytest
-        run: pytest --cov=code_puppy
+        run: pytest --cov=code_puppy -s
