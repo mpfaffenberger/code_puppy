@@ -282,27 +282,27 @@ def register_file_modifications_tools(agent):
                     "changed": False,
                     "diff": "",
                 }
-        if isinstance(parsed_payload, dict):
-            if "delete_snippet" in parsed_payload:
-                snippet = parsed_payload["delete_snippet"]
-                return delete_snippet_from_file(context, file_path, snippet)
-            if "replacements" in parsed_payload:
-                replacements = parsed_payload["replacements"]
-                return replace_in_file(context, file_path, replacements)
-            if "content" in parsed_payload:
-                content = parsed_payload["content"]
-                overwrite = bool(parsed_payload.get("overwrite", False))
-                file_exists = os.path.exists(file_path)
-                if file_exists and not overwrite:
-                    return {
-                        "success": False,
-                        "path": file_path,
-                        "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
-                        "changed": False,
-                    }
-                return write_to_file(context, file_path, content, overwrite)
         try:
-            write_to_file(context, file_path, diff, overwrite=False)
+            if isinstance(parsed_payload, dict):
+                if "delete_snippet" in parsed_payload:
+                    snippet = parsed_payload["delete_snippet"]
+                    return delete_snippet_from_file(context, file_path, snippet)
+                if "replacements" in parsed_payload:
+                    replacements = parsed_payload["replacements"]
+                    return replace_in_file(context, file_path, replacements)
+                if "content" in parsed_payload:
+                    content = parsed_payload["content"]
+                    overwrite = bool(parsed_payload.get("overwrite", False))
+                    file_exists = os.path.exists(file_path)
+                    if file_exists and not overwrite:
+                        return {
+                            "success": False,
+                            "path": file_path,
+                            "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
+                            "changed": False,
+                        }
+                    return write_to_file(context, file_path, content, overwrite)
+            return write_to_file(context, file_path, diff, overwrite=False)
         except Exception as e:
             console.print(
                 "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
@@ -311,7 +311,7 @@ def register_file_modifications_tools(agent):
             return {
                 "success": False,
                 "path": file_path,
-                "message": "Wasn't able to route file modification to the right sub-tool!",
+                "message": f"Something went wrong in file editing: {str(e)}",
                 "changed": False,
             }
 
