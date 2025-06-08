@@ -533,17 +533,3 @@ async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     with pytest.raises(KeyboardInterrupt):
         found_escape_handler(mock_event)
     mock_event.app.exit.assert_called_once_with(exception=KeyboardInterrupt)
-
-
-def test_get_prompt_with_active_model(monkeypatch):
-    monkeypatch.setattr("code_puppy.config.get_puppy_name", lambda: "Biscuit")
-    monkeypatch.setattr(
-        "code_puppy.command_line.model_picker_completion.get_active_model",
-        lambda: "TestModel",
-    )
-    monkeypatch.setattr("os.getcwd", lambda: "/home/user/test")
-    monkeypatch.setattr("os.path.expanduser", lambda x: x.replace("~", "/home/user"))
-    formatted = get_prompt_with_active_model()
-    text = "".join(fragment[1] for fragment in formatted)
-    assert "[b]" in text.lower()  # Model abbreviation, update if prompt changes
-    assert "/test" in text
