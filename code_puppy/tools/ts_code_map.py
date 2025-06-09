@@ -279,12 +279,6 @@ LANGS = {
             "function_definition": partial(_f("function {name}()"), style="green")
         },
     },
-    # ─────────  web / data description (pure-function view)  ───────────
-    ".html": {
-        "lang": "html",
-        "name_field": "name",  # rarely useful, but included for completeness
-        "nodes": {"element": partial(_f("<{name}>"), style="yellow")},
-    },
     ".css": {
         "lang": "css",
         "name_field": "name",
@@ -390,4 +384,4 @@ def make_code_map(directory: str, ignore_tests: bool = True) -> str:
 
     buf = Console(record=True, width=120)
     buf.print(base_tree)
-    return buf.export_text()
+    return buf.export_text()[-1000:]
