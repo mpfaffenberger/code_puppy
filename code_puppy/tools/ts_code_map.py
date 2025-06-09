@@ -279,14 +279,6 @@ LANGS = {
             "function_definition": partial(_f("function {name}()"), style="green")
         },
     },
-    ".css": {
-        "lang": "css",
-        "name_field": "name",
-        "nodes": {
-            "class_selector": partial(_f(".{name}"), style="yellow"),
-            "id_selector": partial(_f("#{name}"), style="yellow"),
-        },
-    },
 }
 
 # Cache parsers so we don’t re-create them file-after-file
