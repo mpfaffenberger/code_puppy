@@ -59,9 +59,6 @@ def should_ignore_path(path: str) -> bool:
     return False
 
 
-JW_THRESHOLD = 0.95
-
-
 def _find_best_window(
     haystack_lines: list[str],
     needle: str,
