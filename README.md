@@ -38,6 +38,11 @@ export MODEL_NAME=gpt-4.1 # or gemini-2.5-flash-preview-05-20 as an example for 
 export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
 export YOLO_MODE=true # to bypass the safety confirmation prompt when running shell commands
 
+# or ...
+
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=...
+
 code-puppy --interactive
 ```
 Running in a super weird corporate environment? 
