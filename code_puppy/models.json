@@ -15,6 +15,10 @@
     "type": "openai",
     "name": "gpt-4.1-nano"
   },
+  "o3": {
+    "type": "openai",
+    "name": "o3"
+  },
   "gpt-4.1-custom": {
     "type": "custom_openai",
     "name": "gpt-4.1-custom",
