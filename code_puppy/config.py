@@ -57,6 +57,18 @@ def get_owner_name():
     return get_value("owner_name") or "Master"
 
 
+def get_message_history_limit():
+    """
+    Returns the user-configured message truncation limit (for remembering context),
+    or 40 if unset or misconfigured.
+    Configurable by 'message_history_limit' key.
+    """
+    val = get_value("message_history_limit")
+    try:
+        return max(1, int(val)) if val else 40
+    except (ValueError, TypeError):
+        return 40
+
 # --- CONFIG SETTER STARTS HERE ---
 def get_config_keys():
     """

@@ -59,5 +59,12 @@
     "api_version": "2024-12-01-preview",
     "api_key": "$AZURE_OPENAI_API_KEY",
     "azure_endpoint": "$AZURE_OPENAI_ENDPOINT"
+  },
+  "Llama-4-Scout-17B-16E-Instruct": {
+    "type": "azure_openai",
+    "name": "Llama-4-Scout-17B-16E-Instruct",
+    "api_version": "2024-12-01-preview",
+    "api_key": "$AZURE_OPENAI_API_KEY",
+    "azure_endpoint": "$AZURE_OPENAI_ENDPOINT"
   }
 }
