@@ -12,8 +12,8 @@ from code_puppy.command_line.utils import make_directory_table
 META_COMMANDS_HELP = """
 [bold magenta]Meta Commands Help[/bold magenta]
 ~help, ~h             Show this help message
-~cd [dir]             Change directory or show directories
-~codemap [dir]        Show code structure for [dir]
+~cd <dir>             Change directory or show directories
+~codemap <dir>        Show code structure for <dir>
 ~m <model>            Set active model
 ~motd                 Show the latest message of the day (MOTD)
 ~show                 Show puppy config key-values
