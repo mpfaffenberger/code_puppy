@@ -15,10 +15,14 @@ META_COMMANDS_HELP = """
 ~cd [dir]             Change directory or show directories
 ~codemap [dir]        Show code structure for [dir]
 ~m <model>            Set active model
-~show                 Show puppy status info
+~motd                 Show the latest message of the day (MOTD)
+~show                 Show puppy config key-values
+~set                  Set puppy config key-values
 ~<unknown>            Show unknown meta command warning
 """
 
+
+from code_puppy.command_line.motd import print_motd
 
 def handle_meta_command(command: str, console: Console) -> bool:
     """
@@ -26,6 +30,10 @@ def handle_meta_command(command: str, console: Console) -> bool:
     Returns True if the command was handled (even if just an error/help), False if not.
     """
     command = command.strip()
+
+    if command.strip().startswith("~motd"):
+        print_motd(console, force=True)
+        return True
 
     # ~codemap (code structure visualization)
     if command.startswith("~codemap"):
@@ -67,20 +75,20 @@ def handle_meta_command(command: str, console: Console) -> bool:
 
     if command.strip().startswith("~show"):
         from code_puppy.command_line.model_picker_completion import get_active_model
-        from code_puppy.config import get_owner_name, get_puppy_name
-
+        from code_puppy.config import get_owner_name, get_puppy_name, get_yolo_mode, get_message_history_limit
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         model = get_active_model()
-        from code_puppy.config import get_yolo_mode
-
         yolo_mode = get_yolo_mode()
-        console.print(f"""[bold magenta]🐶 Puppy Status[/bold magenta]
- \n[bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
+        msg_limit = get_message_history_limit()
+        console.print(f'''[bold magenta]🐶 Puppy Status[/bold magenta]
+
+[bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]     [cyan]{owner_name}[/cyan]
 [bold]model:[/bold]          [green]{model}[/green]
-[bold]YOLO_MODE:[/bold]      {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
-""")
+[bold]YOLO_MODE:[/bold]      {'[red]ON[/red]' if yolo_mode else '[yellow]off[/yellow]'}
+[bold]message_history_limit:[/bold]   Keeping last [cyan]{msg_limit}[/cyan] messages in context
+''')
         return True
 
     if command.startswith("~set"):
