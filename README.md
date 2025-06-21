@@ -111,5 +111,45 @@ For instance, if you want to ensure that your application follows a specific des
 Ensure that all components follow these color schemes to promote consistency in design.
 ```
 
+## Using MCP Servers for External Tools
+
+Code Puppy supports **MCP (Multi-Channel Plugin) servers** to give you access to external code tools and advanced features like code search, documentation lookups, and more—including Context7 integration for deep docs and search!
+
+### What is an MCP Server?
+An MCP server is a standalone process (can be local or remote) that offers specialized functionality (plugins, doc search, code analysis, etc.). Code Puppy can connect to one or more MCP servers at startup, unlocking these extra commands inside your coding agent.
+
+### Configuration
+Create a config file at `~/.code_puppy/mcp_servers.json`. Here’s an example that connects to a local Context7 MCP server:
+
+```json
+{
+  "mcp_servers": {
+     "context7": { 
+        "url": "https://mcp.context7.com/sse"
+     }
+  }
+}
+```
+
+You can list multiple objects (one per server).
+
+### How to Use
+- Drop the config file in `~/.code_puppy/mcp_servers.json`.
+- Start your MCP (like context7, or anything compatible).
+- Run Code Puppy as usual. It’ll discover and use all configured MCP servers.
+
+#### Example usage
+```bash
+code-puppy --interactive
+# Then ask: Use context7 to look up FastAPI docs!
+```
+
+That’s it!
+If you need to run more exotic setups or connect to remote MCPs, just update your `mcp_servers.json` accordingly.
+
+**NOTE:** Want to add your own server or tool? Just follow the config pattern above—no code changes needed!
+
+---
+
 ## Conclusion
 By using Code Puppy, you can maintain code quality and adhere to design guidelines with ease.

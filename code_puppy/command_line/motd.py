@@ -5,20 +5,32 @@ Stores seen versions in ~/.puppy_cfg/motd.txt.
 import os
 from typing import Optional
 
-MOTD_VERSION = "20240601"
+MOTD_VERSION = "20240614"
 MOTD_MESSAGE = """
-June 14th, 2025 - Wow... code_puppy has been downloaded 10s of thousands of times. 
+June 21th, 2025 - 🚀 Woof-tastic news! Code Puppy now supports **MCP (Model Context Protocol) servers** for EXTREME PUPPY POWER!!!!.
 
-This new update has a bug fix where message truncation would sometimes cause tool-calls and tool-replies
-to become isolated, and an exception would be raied creating a situation only recoverable by restarting
-code-puppy or using the `clear` command to get rid of all message history. 
+You can now connect plugins like doc search, Context7 integration, and more by simply dropping their info in your `~/.code_puppy/mcp_servers.json`. I’ll bark at remote docs or wrangle code tools for you—no extra fetches needed.
 
-Thankfully that is fixed. Message truncation max-length is configurable with the following command:
-`~set message_history_length 25` if you want to truncate to 25 messages. The default is 40. 
+Setup is easy:
+1. Add your MCP config to `~/.code_puppy/mcp_servers.json`.
+2. Fire up something like Context7, or any MCP server you want.
+3. Ask me to search docs, analyze, and more.
 
-This message-of-the-day will not appear again unless you run ~motd.
+The following example will let code_puppy use Context7! 
+Example config (+ more details in the README): 
 
-Please open issues on GitHub if you find any bugs! Cheers!
+{
+  "mcp_servers": {
+     "context7": { 
+        "url": "https://mcp.context7.com/sse"
+     }
+  }
+}
+
+I fetch docs and power-ups via those servers. If you break stuff, please file an issue—bonus treat for reproducible bugs! 🦴
+
+This message-of-the-day won’t bug you again unless you run ~motd. Stay fluffy!
+
 """
 MOTD_TRACK_FILE = os.path.expanduser("~/.puppy_cfg/motd.txt")
 

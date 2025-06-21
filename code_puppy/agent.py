@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pydantic
 from pydantic_ai import Agent
+from pydantic_ai.mcp import MCPServerSSE
 
 from code_puppy.agent_prompts import get_system_prompt
 from code_puppy.model_factory import ModelFactory
@@ -64,8 +65,24 @@ def session_memory():
     return _session_memory
 
 
+def _load_mcp_servers():
+    from code_puppy.config import load_mcp_server_configs
+    configs = load_mcp_server_configs()
+    servers = []
+    for name, conf in configs.items():
+        url = conf.get("url")
+        if url:
+            console.print(f"Registering MCP Server - {url}")
+            servers.append(MCPServerSSE(url))
+    return servers
+
 def reload_code_generation_agent():
     """Force-reload the agent, usually after a model change."""
+    global _code_generation_agent, _LAST_MODEL_NAME
+    from code_puppy.config import get_model_name
+
+    model_name = get_model_name()
+    console.print(f"[bold cyan]Loading Model: {model_name}")
     global _code_generation_agent, _LAST_MODEL_NAME
     from code_puppy.config import get_model_name
 
@@ -80,11 +97,14 @@ def reload_code_generation_agent():
     instructions = get_system_prompt()
     if PUPPY_RULES:
         instructions += f"\n{PUPPY_RULES}"
+
+    mcp_servers = _load_mcp_servers()
     agent = Agent(
         model=model,
         instructions=instructions,
         output_type=AgentResponse,
         retries=3,
+        mcp_servers=mcp_servers
     )
     register_all_tools(agent)
     _code_generation_agent = agent
