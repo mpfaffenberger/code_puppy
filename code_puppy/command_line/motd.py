@@ -5,7 +5,7 @@ Stores seen versions in ~/.puppy_cfg/motd.txt.
 import os
 from typing import Optional
 
-MOTD_VERSION = "20240614"
+MOTD_VERSION = "20240621"
 MOTD_MESSAGE = """
 June 21th, 2025 - 🚀 Woof-tastic news! Code Puppy now supports **MCP (Model Context Protocol) servers** for EXTREME PUPPY POWER!!!!.
 
