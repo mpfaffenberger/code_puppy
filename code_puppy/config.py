@@ -1,8 +1,11 @@
 import configparser
 import os
+import json
+import pathlib
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
+MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -97,6 +100,23 @@ def set_config_value(key: str, value: str):
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
+def load_mcp_server_configs():
+    """
+    Loads the MCP server configurations from ~/.code_puppy/mcp_servers.json.
+    Returns a dict mapping names to their URL or config dict.
+    If file does not exist, returns an empty dict.
+    """
+    try:
+        if not pathlib.Path(MCP_SERVERS_FILE).exists():
+            print("No MCP configuration was found")
+            return {}
+        with open(MCP_SERVERS_FILE, "r") as f:
+            conf = json.loads(f.read())
+            return conf["mcp_servers"]
+    except Exception as e:
+        print(f"Failed to load MCP servers - {str(e)}")
+        return {}
+
 def get_model_name():
     """Returns the last used model name stored in config, or None if unset."""
     return get_value("model") or "gpt-4.1"
