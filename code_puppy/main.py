@@ -67,7 +67,8 @@ async def main():
         try:
             while not shutdown_flag:
                 agent = get_code_generation_agent()
-                response = await agent.run(command)
+                async with agent.run_mcp_servers():
+                    response = await agent.run(command)
                 agent_response = response.output
                 console.print(agent_response.output_message)
                 # Log to session memory
@@ -210,7 +211,8 @@ async def interactive_mode(history_file_path: str) -> None:
                 agent_response = None
 
                 agent = get_code_generation_agent()
-                result = await agent.run(task, message_history=message_history)
+                async with agent.run_mcp_servers():
+                    result = await agent.run(task, message_history=message_history)
                 # Get the structured response
                 agent_response = result.output
                 console.print(agent_response.output_message)
