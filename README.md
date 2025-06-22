@@ -113,7 +113,7 @@ Ensure that all components follow these color schemes to promote consistency in 
 
 ## Using MCP Servers for External Tools
 
-Code Puppy supports **MCP (Model Context Protocol) servers** to give you access to external code tools and advanced features like code search, documentation lookups, and more—including Context7 integration for deep docs and search!
+Code Puppy supports **MCP (Model Context Protocol) servers** to give you access to external code tools and advanced features like code search, documentation lookups, and more—including Context7 (https://context7.com/) integration for deep docs and search!
 
 ### What is an MCP Server?
 An MCP server is a standalone process (can be local or remote) that offers specialized functionality (plugins, doc search, code analysis, etc.). Code Puppy can connect to one or more MCP servers at startup, unlocking these extra commands inside your coding agent.
