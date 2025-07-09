@@ -8,6 +8,7 @@ from code_puppy.command_line.model_picker_completion import (
 )
 from code_puppy.config import get_config_keys
 from code_puppy.command_line.utils import make_directory_table
+from code_puppy.command_line.motd import print_motd
 
 META_COMMANDS_HELP = """
 [bold magenta]Meta Commands Help[/bold magenta]
@@ -22,7 +23,6 @@ META_COMMANDS_HELP = """
 """
 
 
-from code_puppy.command_line.motd import print_motd
 
 def handle_meta_command(command: str, console: Console) -> bool:
     """
