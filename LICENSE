@@ -1,21 +1,55 @@
-MIT License
 
-Copyright (c) 2025 Mike Pfaffenberger
+WMT Code Puppy - Walmart Inc.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+========================================================================
+PREAMBLE
+========================================================================
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This repository represents a fork of the original open-source project
+"Code Puppy" (https://github.com/mpfaffenberger/code_puppy/), created
+and maintained by the original contributors listed below.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+========================================================================
+LICENSING TERMS
+========================================================================
+
+SECTION I: LEGACY OPEN SOURCE CODE (Pre-July 7, 2025)
+-------------------------------------------------------
+
+All code, documentation, and associated materials committed to this
+repository PRIOR TO July 7, 2025, 11:59:59 PM UTC, remains licensed
+under the MIT License as granted by the original contributors. Code merged from that repo is also subject to the MIT License.
+
+Original Contributors and Copyright Holders:
+• Michael Pfaffenberger <mike.pfaffenberger@gmail.com>
+• John Choi <johnjdonna@gmail.com>
+• Jacob A Simpson <jacob@yobo.dev>
+
+SECTION II: WALMART PROPRIETARY CODE (Post-July 7, 2025)
+--------------------------------------------------------
+
+All code, documentation, modifications, enhancements, and associated 
+materials committed to this repository ON OR AFTER July 7, 2025, 
+12:00:00 AM UTC, are the exclusive proprietary property of Walmart Inc.
+
+Proprietary License Terms:
+
+Copyright (c) 2025-Present Walmart Inc.
+All Rights Reserved.
+
+This proprietary code is confidential and contains trade secrets of 
+Walmart Inc. Any reproduction, distribution, modification, or use of 
+this proprietary code without the express written consent of Walmart Inc. 
+is strictly prohibited and may result in severe civil and criminal penalties.
+
+========================================================================
+ACKNOWLEDGMENTS
+========================================================================
+
+Walmart Inc. acknowledges and appreciates the foundational work provided
+by the original open-source contributors. This fork builds upon their
+innovative contributions to create enhanced enterprise solutions.
+
+Original Repository: https://github.com/mpfaffenberger/code_puppy/
+
+Effective Date: July 7, 2025

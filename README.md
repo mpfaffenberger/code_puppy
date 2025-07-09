@@ -1,22 +1,34 @@
-# 🐶 Code Puppy 🐶
+# 🐶 Code Puppy - Walmart Global Tech Edition 🐶
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
+![Walmart Internal](https://img.shields.io/badge/walmart-internal-blue)
+![Enterprise Ready](https://img.shields.io/badge/enterprise-ready-green)
   <a href="https://github.com/mpfaffenberger/code_puppy"><img src="https://img.shields.io/pypi/pyversions/pydantic-ai.svg" alt="versions"></a>
   <a href="https://github.com/mpfaffenberger/code_puppy/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pydantic/pydantic-ai.svg?v" alt="license"></a>
 
-*"Who needs an IDE?"* - someone, probably.
+*"Who needs an IDE when you have enterprise-grade code puppies?"* - Walmart Global Tech, 2025.
+
+## 🏢 Walmart Internal Fork Notice
+
+**⚠️ This is a Walmart Inc. internal fork** of the original open-source [Code Puppy](https://github.com/mpfaffenberger/code_puppy/) project, specifically optimized for **Walmart Global Tech developer workflows**.
+
+### 📜 Licensing Information
+- **Legacy Code (Pre-July 7, 2025):** Open Source (MIT License)
+- **Walmart Enhancements (Post-July 7, 2025):** Proprietary Walmart Inc.
+- **Original Contributors:** Michael Pfaffenberger, John Choi, Jacob Simpson
+- **See [LICENSE](LICENSE) for complete dual licensing details**
 
 ## Overview
 
-*This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.* 
+*This enterprise fork builds upon the original open-source foundation, enhanced specifically for Walmart's global technology ecosystem.*
 
-*You could also run 50 code puppies at once if you were insane enough.*
+*Optimized for massive scale: Because Walmart Global Tech doesn't just plow fields - we revolutionize retail technology worldwide.*
 
-*Would you rather plow a field with one ox or 1024 puppies?* 
-    - If you pick the ox, better slam that back button in your browser.
+*Would you rather deploy with one monolithic system or 1024 enterprise-ready code puppies?* 
+    - If you pick the monolith, you're probably not ready for Walmart scale.
     
 
-Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor. 
+Code Puppy Walmart Edition is an AI-powered code generation agent, designed to understand enterprise programming tasks, generate high-quality production code, and explain its reasoning while seamlessly integrating with Walmart's global technology infrastructure. 
 
 ## Features
 
@@ -90,9 +102,26 @@ code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it 
 - Anthropic key (for Claude models)
 - Ollama endpoint available
 
-## License
+## 🏢 Enterprise Licensing
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This Walmart internal fork operates under a **dual licensing model**:
+
+- **Legacy Open Source Code (Pre-July 7, 2025):** MIT License from original contributors
+- **Walmart Proprietary Enhancements (Post-July 7, 2025):** Exclusive Walmart Inc. property
+
+**Original Repository:** [github.com/mpfaffenberger/code_puppy](https://github.com/mpfaffenberger/code_puppy/)
+
+See the [LICENSE](LICENSE) file for complete legal details and contributor acknowledgments.
+
+## 🌟 Walmart Global Tech Optimizations
+
+This enterprise edition includes exclusive enhancements for Walmart's technology ecosystem:
+
+- **Enterprise Security:** Enhanced security protocols for Walmart's infrastructure
+- **Global Scale:** Optimized for Walmart's worldwide development teams
+- **Internal Tool Integration:** Seamless connectivity with Walmart's proprietary systems
+- **Compliance Framework:** Built-in adherence to Walmart's coding standards and practices
+- **Enterprise Support:** Dedicated support channels for Walmart Global Tech teams
 
 ## Puppy Rules
 Puppy rules allow you to define and enforce coding standards and styles that your code should comply with. These rules can cover various aspects such as formatting, naming conventions, and even design guidelines.
@@ -152,4 +181,9 @@ If you need to run more exotic setups or connect to remote MCPs, just update you
 ---
 
 ## Conclusion
-By using Code Puppy, you can maintain code quality and adhere to design guidelines with ease.
+By using Code Puppy Walmart Edition, Walmart Global Tech teams can maintain enterprise-grade code quality, adhere to Walmart's design guidelines, and accelerate development workflows at global retail scale.
+
+---
+
+**For Walmart Global Tech Internal Use Only**  
+*Contact your development team lead for access credentials and enterprise configuration.*
