@@ -218,6 +218,7 @@ version = "0.0.73"
 source = { editable = "." }
 dependencies = [
     { name = "bs4" },
+    { name = "fastapi" },
     { name = "httpx" },
     { name = "httpx-limiter" },
     { name = "json-repair" },
@@ -233,11 +234,13 @@ dependencies = [
     { name = "ruff" },
     { name = "tree-sitter-language-pack" },
     { name = "tree-sitter-typescript" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "bs4", specifier = ">=0.0.2" },
+    { name = "fastapi", specifier = ">=0.110.0" },
     { name = "httpx", specifier = ">=0.24.1" },
     { name = "httpx-limiter", specifier = ">=0.3.0" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -253,6 +256,7 @@ requires-dist = [
     { name = "ruff", specifier = ">=0.11.11" },
     { name = "tree-sitter-language-pack", specifier = ">=0.8.0" },
     { name = "tree-sitter-typescript", specifier = ">=0.23.2" },
+    { name = "uvicorn", specifier = ">=0.29.0" },
 ]
 
 [[package]]
@@ -416,6 +420,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ba/21/c79bd6082ce107275449d180d49af9248068bb2f10375666f963a418e20c/fasta2a-0.3.2.tar.gz", hash = "sha256:cfb8f6d4a7e72f4c23f57c08476563889efbd64218cdb0dbb051faeca53f5989", size = 12292, upload-time = "2025-06-21T05:25:08.298Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ff/e8/b7f49806f697f8f2d2556ae6e6eb7573055c06e9e6e87dfbc618e36fcd61/fasta2a-0.3.2-py3-none-any.whl", hash = "sha256:da5b442d2559b2f4bb44807c997139ba15e22ba74f5790181f568be9a75d833b", size = 15328, upload-time = "2025-06-21T05:24:58.737Z" },
+]
+
+[[package]]
+name = "fastapi"
+version = "0.116.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/20/38/e1da78736143fd885c36213a3ccc493c384ae8fea6a0f0bc272ef42ebea8/fastapi-0.116.0.tar.gz", hash = "sha256:80dc0794627af0390353a6d1171618276616310d37d24faba6648398e57d687a", size = 296518, upload-time = "2025-07-07T15:09:27.82Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2f/68/d80347fe2360445b5f58cf290e588a4729746e7501080947e6cdae114b1f/fastapi-0.116.0-py3-none-any.whl", hash = "sha256:fdcc9ed272eaef038952923bef2b735c02372402d1203ee1210af4eea7a78d2b", size = 95625, upload-time = "2025-07-07T15:09:26.348Z" },
 ]
 
 [[package]]
