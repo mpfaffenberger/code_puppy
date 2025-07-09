@@ -49,8 +49,8 @@ flows:
   python_flow:
     - node(docker-daemon):
         - dockerAgent(python-agent):
-            - shell: pip install -e .
-            - shell: pip install pytest pytest-cov pytest-asyncio build bumpversion twine
+            - shell: pip install pytest pytest-cov pytest-asyncio build bumpversion twine uv
+            - shell: uv pip install -e .
             - shell: pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - shell: bumpversion patch --allow-dirty
             - call: python_releaseSteps()
