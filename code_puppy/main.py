@@ -280,16 +280,16 @@ async def interactive_mode(history_file_path: str) -> None:
                     grouped, no_group = group_by_tool_call_id(message_history)
                     # Flatten into groups or singletons
                     grouped_msgs = list(grouped.values()) + [[m] for m in no_group]
-                    # Flattened history (latest groups/singletons last, trunc to N messages total),
-                    # but always keep complete tool_call_id groups together
-                    truncated = []
+                    # Keep complete tool_call_id groups together while preserving chronological order
+                    groups_to_keep = []
                     count = 0
                     for group in reversed(grouped_msgs):
                         if count + len(group) > limit:
                             break
-                        truncated[:0] = group  # insert at front
+                        groups_to_keep.append(group)
                         count += len(group)
-                    message_history = truncated
+                    # Reverse to restore chronological order, then flatten
+                    message_history = [msg for group in reversed(groups_to_keep) for msg in group]
                 # --- END GROUP-AWARE TRUNCATION LOGIC ---
 
 
