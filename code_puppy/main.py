@@ -40,7 +40,13 @@ def get_secret_file_path():
 async def main():
     # Start the HTTP server in the background
     async def run_http_server():
-        config = uvicorn.Config(http_app, host="0.0.0.0", port=8090, log_level="info")
+        config = uvicorn.Config(
+            http_app,
+            host="0.0.0.0",
+            port=8090,
+            log_level="critical",  # suppress most logs
+            access_log=False        # suppress access logs
+        )
         server = uvicorn.Server(config)
         await server.serve()
 
