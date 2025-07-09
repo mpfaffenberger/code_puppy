@@ -18,6 +18,10 @@ from code_puppy.command_line.prompt_toolkit_completion import (
 )
 from code_puppy.config import ensure_config_exists
 
+# HTTP server imports
+import uvicorn
+from code_puppy.http_server import app as http_app
+
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
 from code_puppy.version_checker import fetch_latest_version
@@ -34,6 +38,14 @@ def get_secret_file_path():
 
 
 async def main():
+    # Start the HTTP server in the background
+    async def run_http_server():
+        config = uvicorn.Config(http_app, host="0.0.0.0", port=8090, log_level="info")
+        server = uvicorn.Server(config)
+        await server.serve()
+
+    http_server_task = asyncio.create_task(run_http_server())
+
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()
     current_version = __version__
@@ -95,6 +107,9 @@ async def main():
         await interactive_mode(history_file_path)
     else:
         parser.print_help()
+
+    # Optionally, await the HTTP server task if you want the process to stay alive
+    # await http_server_task
 
 
 # Add the file handling functionality for interactive mode
