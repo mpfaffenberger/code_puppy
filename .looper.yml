@@ -1,7 +1,5 @@
 tools:
   - python: true
-    sonarscanner: 4.8.1.3023
-    nodejs: 23.9.0
 
 docker:
   - name: "python-agent"
@@ -50,7 +48,6 @@ flows:
     - node(docker-daemon):
         - dockerAgent(python-agent):
             - shell: pip install pytest pytest-cov pytest-asyncio build bumpversion twine uv
-
             - shell: pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - shell: bumpversion patch --allow-dirty
             - call: python_releaseSteps()
@@ -72,13 +69,6 @@ flows:
 
   commitVersion:
     - shell: git push origin $LOOPER_TARGET_BRANCH
-
-  sonar:
-    - shell: echo "Running Sonar analysis"
-    - sonar("Sonar"):
-        - sonar-scanner
-          -Dproject.settings=sonar-project.properties
-          -Dsonar.branch.name=${TARGET_BRANCH}
 
   slackBuildMessagePython:
     - slack.postMessage:
