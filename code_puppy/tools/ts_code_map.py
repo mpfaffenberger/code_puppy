@@ -392,7 +392,11 @@ def _walk_fix(ts_node, rich_parent, info):
         n_type = child.type
         if n_type in nodes_cfg:
             style = nodes_cfg[n_type].keywords["style"]
-            ident = child.child_by_field_name(name_field) if name_field else _first_identifier(child)
+            ident = (
+                child.child_by_field_name(name_field)
+                if name_field
+                else _first_identifier(child)
+            )
             label_text = ident.text.decode() if ident else "<anon>"
             label = nodes_cfg[n_type].func(label_text)
             emoji = _emoji_for_node_type(n_type)
@@ -402,6 +406,8 @@ def _walk_fix(ts_node, rich_parent, info):
             _walk_fix(child, branch, info)
         else:
             _walk_fix(child, rich_parent, info)
+
+
 # ----------------------------------------------------------------------
 
 
@@ -465,7 +471,9 @@ def make_code_map(directory: str, ignore_tests: bool = True) -> str:
     base_tree = RichTree(Text(Path(directory).name, style="bold magenta"))
 
     # Cache to ensure we reuse RichTree nodes per directory path
-    dir_nodes: dict[str, RichTree] = {Path(directory).resolve(): base_tree}  # key=abs path
+    dir_nodes: dict[str, RichTree] = {
+        Path(directory).resolve(): base_tree
+    }  # key=abs path
 
     for root, dirs, files in os.walk(directory):
         # ignore dot-folders early

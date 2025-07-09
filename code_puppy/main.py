@@ -115,9 +115,10 @@ async def interactive_mode(history_file_path: str) -> None:
     # Show MOTD if user hasn't seen it after an update
     try:
         from code_puppy.command_line.motd import print_motd
+
         print_motd(console, force=False)
     except Exception as e:
-        console.print(f'[yellow]MOTD error: {e}[/yellow]')
+        console.print(f"[yellow]MOTD error: {e}[/yellow]")
 
     # Check if prompt_toolkit is installed
     try:
@@ -234,19 +235,21 @@ async def interactive_mode(history_file_path: str) -> None:
                 ]
                 # 2. Append to existing history and keep only the most recent set by config
                 from code_puppy.config import get_message_history_limit
+
                 message_history.extend(filtered)
 
                 # --- BEGIN GROUP-AWARE TRUNCATION LOGIC ---
                 limit = get_message_history_limit()
                 if len(message_history) > limit:
+
                     def group_by_tool_call_id(msgs):
                         grouped = {}
                         no_group = []
                         for m in msgs:
                             # Find all tool_call_id in message parts
                             tool_call_ids = set()
-                            for part in getattr(m, 'parts', []):
-                                if hasattr(part, 'tool_call_id') and part.tool_call_id:
+                            for part in getattr(m, "parts", []):
+                                if hasattr(part, "tool_call_id") and part.tool_call_id:
                                     tool_call_ids.add(part.tool_call_id)
                             if tool_call_ids:
                                 for tcid in tool_call_ids:
@@ -269,7 +272,6 @@ async def interactive_mode(history_file_path: str) -> None:
                         count += len(group)
                     message_history = truncated
                 # --- END GROUP-AWARE TRUNCATION LOGIC ---
-
 
                 if agent_response and agent_response.awaiting_user_input:
                     console.print(
