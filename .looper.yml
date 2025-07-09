@@ -1,0 +1,90 @@
+tools:
+  - python: true
+    sonarscanner: 4.8.1.3023
+    nodejs: 23.9.0
+
+docker:
+  - name: "python-agent"
+    image: "docker.ci.artifacts.walmart.com/devtools-docker-prod-local/python-looper-agent:3.12-main"
+
+envs:
+  global:
+    variables:
+      BRANCH_NAME: ""
+      BRANCH_NAME_LOWERCASE: ""
+      BUILD_STATUS: ""
+      COMMIT_USER: ""
+      ALLOW_ARTIFACTORY: true
+
+  build_success:
+    variables:
+      BUILD_STATUS: ":looper-green:"
+
+  build_failed:
+    variables:
+      BUILD_STATUS: ":looper-red:"
+
+rules:
+  before:
+    - var(BRANCH_NAME): '%{TRIGGER_BRANCH.replaceAll(".+/","")}'
+    - var(BRANCH_NAME_LOWERCASE): "%{BRANCH_NAME.toLowerCase()}"
+    - var(COMMIT_USER): git log -1 --format="%aN"
+
+triggers:
+  - push:
+      ignoreMessage:
+        - .+\*{3}NO_CI\*{3}.*
+      ignoreAuthor:
+        - jenkinspan
+  - manual:
+      name: build_python
+      call: python_flow()
+
+flows:
+  default:
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - call: python_flow()
+
+  python_flow:
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - shell: cd python && pip install -e .
+            - shell: cd python && pip install pytest pytest-cov pytest-asyncio setuptools bumpversion twine
+            - shell: cd python && pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
+            - shell: cd python && bumpversion patch --allow-dirty
+            - call: python_releaseSteps()
+            - call: commitVersion()
+            - call: slackBuildMessagePython()
+
+  pr:
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - shell: cd python && pip install -e .
+            - shell: cd python && pip install pytest
+            - shell: cd python && pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
+            - shell: cd python && python setup.py sdist bdist_wheel
+
+  ### Functions ###
+  python_releaseSteps:
+    - shell: cd python && python setup.py sdist bdist_wheel
+    - shell: cd python && python -m twine upload dist/*
+
+  commitVersion:
+    - shell: git push origin $LOOPER_TARGET_BRANCH
+
+  sonar:
+    - shell: echo "Running Sonar analysis"
+    - sonar("Sonar"):
+        - sonar-scanner
+          -Dproject.settings=sonar-project.properties
+          -Dsonar.branch.name=${TARGET_BRANCH}
+
+  slackBuildMessagePython:
+    - slack.postMessage:
+        message: "*_Library Build_*\n
+          code-puppy Python library\n
+          *Branch*: ${GITHUB_BRANCH_NAME}\n
+          *User*: ${COMMIT_USER}\n
+          *Status*: ${BUILD_STATUS}"
+        channelId: code-puppy
