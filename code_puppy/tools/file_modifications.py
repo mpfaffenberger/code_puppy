@@ -110,7 +110,7 @@ def _replace_in_file(
         orig_lines = modified.splitlines()
         loc, score = _find_best_window(orig_lines, old_snippet)
 
-        if score < 0.95 or loc == None:
+        if score < 0.95 or loc is None:
             return {
                 "error": "No suitable match in file (JW < 0.95)",
                 "jw_score": score,
