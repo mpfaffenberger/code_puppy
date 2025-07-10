@@ -29,6 +29,18 @@ from code_puppy.version_checker import fetch_latest_version
 # from code_puppy.tools import *  # noqa: F403
 
 
+def display_disclaimer():
+    """Display a disclaimer message about data sensitivity and usage guidelines."""
+    console.print("\n[bold yellow]DISCLAIMER[/bold yellow]")
+    console.print("[yellow]Prompt responsibly: Only use internal data available to all HO associates. No permission based data should be included in prompts.[/yellow]")
+    console.print(
+        "[yellow]All information entered will be monitored in accordance with "
+        "applicable Walmart policies and used for enhancement of this tool and "
+        "AI adoption at Walmart. Refer to "
+        "[link=https://one.walmart.com/content/uswire/en_us/work1/policies/"
+        "people-policies/company-issued-equipment-useage.html]usage[/link] "
+        "for best practices on secure usage.[/yellow]\n")
+
 # Define a function to get the secret file path
 def get_secret_file_path():
     hidden_directory = os.path.join(os.path.expanduser("~"), ".agent_secret")
@@ -92,6 +104,9 @@ async def main():
     latest_version = fetch_latest_version("code-puppy")
     console.print(f"Current version: {current_version}")
     console.print(f"Latest version: {latest_version}")
+    
+    # Display the disclaimer message
+    display_disclaimer()
     if latest_version and latest_version != current_version:
         console.print(
             f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
@@ -163,6 +178,9 @@ async def interactive_mode(history_file_path: str) -> None:
     console.print(
         "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model."
     )
+    
+    # Display the disclaimer message in interactive mode as well
+    display_disclaimer()
 
     # Show meta commands right at startup - DRY!
     from code_puppy.command_line.meta_command_handler import META_COMMANDS_HELP
