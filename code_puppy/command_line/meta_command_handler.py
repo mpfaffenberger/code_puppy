@@ -1,6 +1,7 @@
 import os
 
 from rich.console import Console
+from code_puppy.command_line.motd import print_motd
 
 from code_puppy.command_line.model_picker_completion import (
     load_model_names,
@@ -21,8 +22,6 @@ META_COMMANDS_HELP = """
 ~<unknown>            Show unknown meta command warning
 """
 
-
-from code_puppy.command_line.motd import print_motd
 
 
 def handle_meta_command(command: str, console: Console) -> bool:

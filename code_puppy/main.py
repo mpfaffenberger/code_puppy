@@ -4,7 +4,6 @@ import os
 import sys
 
 from dotenv import load_dotenv
-from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
@@ -50,7 +49,7 @@ async def main():
         server = uvicorn.Server(config)
         await server.serve()
 
-    http_server_task = asyncio.create_task(run_http_server())
+    
 
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()
@@ -144,7 +143,7 @@ async def interactive_mode(history_file_path: str) -> None:
 
     # Check if prompt_toolkit is installed
     try:
-        import prompt_toolkit  # noqa: F401
+        
 
         console.print("[dim]Using prompt_toolkit for enhanced tab completion[/dim]")
     except ImportError:
