@@ -141,60 +141,53 @@ class ChatView(VerticalScroll):
         super().__init__(**kwargs)
         self.messages: List[ChatMessage] = []
 
-    def _parse_message_content(self, content: str, message_type: MessageType) -> Console:
-        """Parse message content and apply syntax highlighting for code blocks."""
-        console = Console(width=80, legacy_windows=False)
+    def _render_agent_message_with_syntax(self, prefix: str, content: str):
+        """Render agent message with proper syntax highlighting for code blocks."""
+        from rich.console import Group
+        from rich.text import Text
         
-        # Code block pattern: ```language\ncode\n``` or ```\ncode\n```
-        code_block_pattern = r'```(\w+)?\n(.*?)\n```'
-        inline_code_pattern = r'`([^`]+)`'
+        # Split content by code blocks
+        parts = re.split(r'(```[\s\S]*?```)', content)
+        rendered_parts = []
         
-        if message_type == MessageType.AGENT and ('```' in content or '`' in content):
-            # For agent messages, process markdown-style code blocks
-            parts = []
-            last_end = 0
-            
-            # Find all code blocks
-            for match in re.finditer(code_block_pattern, content, re.DOTALL):
-                # Add text before code block
-                if match.start() > last_end:
-                    text_before = content[last_end:match.start()]
-                    parts.append(Text(text_before))
-                
-                # Add syntax-highlighted code block
-                language = match.group(1) or 'text'
-                code = match.group(2)
-                
-                try:
-                    syntax = Syntax(code, language, theme="monokai", background_color="default")
-                    parts.append(syntax)
-                except Exception:
-                    # Fallback to plain text if syntax highlighting fails
-                    parts.append(Text(f"```{language}\n{code}\n```", style="dim"))
-                
-                last_end = match.end()
-            
-            # Add remaining text
-            if last_end < len(content):
-                remaining_text = content[last_end:]
-                # Handle inline code in remaining text
-                remaining_text = re.sub(inline_code_pattern, r'[bold cyan]\1[/bold cyan]', remaining_text)
-                parts.append(Text.from_markup(remaining_text))
-            
-            # If we found code blocks, render them
-            if parts:
-                for part in parts:
-                    console.print(part)
-                return console
+        # Add prefix as the first part
+        rendered_parts.append(Text(prefix, style="bold"))
         
-        # For regular messages or messages without code, handle inline code
-        if '`' in content:
-            content = re.sub(inline_code_pattern, r'[bold cyan]\1[/bold cyan]', content)
-            console.print(Text.from_markup(content))
-        else:
-            console.print(content)
+        for i, part in enumerate(parts):
+            if part.startswith('```') and part.endswith('```'):
+                # This is a code block
+                lines = part.strip('`').split('\n')
+                if lines:
+                    # First line might contain language identifier
+                    language = lines[0].strip() if lines[0].strip() else "text"
+                    code_content = '\n'.join(lines[1:]) if len(lines) > 1 else ""
+                    
+                    if code_content.strip():
+                        # Create syntax highlighted code
+                        try:
+                            syntax = Syntax(
+                                code_content,
+                                language,
+                                theme="github-dark",
+                                background_color="default",
+                                line_numbers=True,
+                                word_wrap=True
+                            )
+                            rendered_parts.append(syntax)
+                        except Exception:
+                            # Fallback to plain text if syntax highlighting fails
+                            rendered_parts.append(Text(part))
+                    else:
+                        rendered_parts.append(Text(part))
+                else:
+                    rendered_parts.append(Text(part))
+            else:
+                # Regular text
+                if part.strip():
+                    rendered_parts.append(Text(part))
         
-        return console
+        return Group(*rendered_parts)
+
 
     def add_message(self, message: ChatMessage) -> None:
         """Add a new message to the chat view."""
@@ -209,12 +202,17 @@ class ChatView(VerticalScroll):
             message_widget = Label(content, classes=css_class)
         elif message.type == MessageType.AGENT:
             prefix = f"[{timestamp_str}] Agent: "
-            # Use Static widget with Rich console for agent messages to support syntax highlighting
+            # Use Static widget with Rich renderable for agent messages to support syntax highlighting
             try:
-                console = self._parse_message_content(message.content, message.type)
-                # Create a rich text object with the prefix and parsed content
-                full_content = Text(prefix) + Text.from_ansi(console.export_text())
-                message_widget = Static(full_content, classes=css_class)
+                # Check if the message contains code blocks
+                if '```' in message.content:
+                    # Parse and render code blocks with syntax highlighting
+                    rendered_content = self._render_agent_message_with_syntax(prefix, message.content)
+                    message_widget = Static(rendered_content, classes=css_class)
+                else:
+                    # Regular text message
+                    content = f"[{timestamp_str}] Agent: {message.content}"
+                    message_widget = Label(content, classes=css_class)
             except Exception:
                 # Fallback to simple label if parsing fails
                 content = f"[{timestamp_str}] Agent: {message.content}"
