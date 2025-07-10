@@ -68,10 +68,20 @@ flows:
   ### Functions ###
   python_releaseSteps:
     - shell: uv --native-tls build
-    - shell: uv pip install --native-tls gh
     - shell: |
+        # Install GitHub CLI via direct download (more reliable in Docker)
+        curl -fsSL https://github.com/cli/cli/releases/download/v2.40.1/gh_2.40.1_linux_amd64.tar.gz -o gh.tar.gz
+        tar -xzf gh.tar.gz
+        sudo mv gh_2.40.1_linux_amd64/bin/gh /usr/local/bin/
+        rm -rf gh.tar.gz gh_2.40.1_linux_amd64
+    - shell: |
+        # Configure gh for GitHub Enterprise
+        export GH_HOST=gecgithub01.walmart.com
         VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
-        uv run gh release create "v$VERSION" dist/*.whl --title "Release v$VERSION" --notes "Automated release of code-puppy v$VERSION" --repo gecgithub01.walmart.com:genaica/code-puppy
+        gh release create "v$VERSION" dist/*.whl \
+          --title "Release v$VERSION" \
+          --notes "Automated release of code-puppy v$VERSION" \
+          --repo genaica/code-puppy
     # - shell: uv --native-tls run twine upload --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ dist/*
 
   commitVersion:
