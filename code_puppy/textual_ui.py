@@ -190,14 +190,16 @@ class InputArea(Container):
         height: 1;
         width: 8;
         background: $primary;
-        color: $text;
+        color: #ffffff;
         text-align: center;
         content-align: center middle;
         text-style: bold;
+        border: thick white;
     }
     
     #send-button:hover {
-        background: $primary-lighten-1;
+        background: $accent;
+        text-style: bold;
     }
     """
     
@@ -207,7 +209,7 @@ class InputArea(Container):
                 placeholder="Enter your message... (Enter to send)",
                 id="input-field"
             )
-            yield Static("[Send]", id="send-button")
+            yield Label("Send", id="send-button")
 
 
 class Sidebar(Container):
@@ -353,10 +355,11 @@ class CodePuppyTUI(App):
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
     
-    def on_click(self, event) -> None:
-        """Handle clicks on the send button."""
-        if event.widget.id == "send-button":
+    def on_mouse_down(self, event) -> None:
+        """Handle mouse clicks."""
+        if hasattr(event.widget, 'id') and event.widget.id == "send-button":
             self.action_send_message()
+            event.prevent_default()
     
     @on(Input.Submitted, "#input-field")
     def input_submitted(self) -> None:
