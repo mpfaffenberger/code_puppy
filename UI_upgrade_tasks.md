@@ -16,15 +16,15 @@ This document outlines the comprehensive plan for upgrading Code Puppy's termina
 ## Phase 3: Basic Interface (Medium Priority)
 - [x] Create proof-of-concept Textual interface with basic chat functionality
 - [x] Implement core UI components (chat area, input field, sidebar)
-- [ ] Add syntax highlighting for code blocks in responses
-- [ ] Implement keyboard shortcuts and navigation
+- [x] Add syntax highlighting for code blocks in responses
+- [x] Implement keyboard shortcuts and navigation
 
 ## Phase 4: Advanced Features (Medium Priority)
 - [ ] Add model selection and configuration UI
 - [ ] Integrate session memory and history display
-- [ ] Implement meta-command handling in Textual interface
+- [x] Implement meta-command handling in Textual interface
 - [ ] Add real-time agent status and progress indicators
-- [ ] Add comprehensive error handling for UI edge cases
+- [x] Add comprehensive error handling for UI edge cases
 - [ ] Implement responsive design for different terminal sizes
 
 ## Phase 5: Enhancement & Polish (Low Priority)
