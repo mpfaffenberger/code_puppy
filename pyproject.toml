@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "code-puppy"
+name = "walmart-genaica-code-puppy"
 version = "0.0.73"
 description = "Code generation agent"
 readme = "README.md"
@@ -47,6 +47,11 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Code Generators",
 ]
+
+[[tool.uv.index]]
+# Configure uv to use Walmart's internal PyPI registry
+url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
+trusted-host = "pypi.ci.artifacts.walmart.com"
 
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
