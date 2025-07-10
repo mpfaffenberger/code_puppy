@@ -197,10 +197,15 @@ class InputArea(Container):
     def compose(self) -> ComposeResult:
         with Horizontal():
             yield TextArea(
-                placeholder="Enter your message... (Ctrl+Enter to send)",
+                text="",
                 id="input-field"
             )
             yield Button("Send", id="send-button", variant="primary")
+    
+    def on_mount(self) -> None:
+        """Set placeholder text after mounting."""
+        input_field = self.query_one("#input-field", TextArea)
+        input_field.placeholder = "Enter your message... (Ctrl+Enter to send)"
 
 
 class Sidebar(Container):
