@@ -102,4 +102,4 @@ flows:
           *Branch*: ${GITHUB_BRANCH_NAME}\n
           *User*: ${COMMIT_USER}\n
           *Status*: ${BUILD_STATUS}"
-        channelId: code-puppy
+        channelId: gg-gi-walmart-puppy-deployments
