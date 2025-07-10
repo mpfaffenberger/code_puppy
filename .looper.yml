@@ -91,6 +91,8 @@ flows:
     # - shell: uv --native-tls run twine upload --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ dist/*
 
   commitVersion:
+    - shell: git add pyproject.toml
+    - shell: git commit -m "CI SKIP"
     - shell: git push origin $LOOPER_TARGET_BRANCH
 
   slackBuildMessagePython:
