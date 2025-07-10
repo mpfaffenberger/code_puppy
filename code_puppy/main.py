@@ -133,7 +133,10 @@ async def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
-        "--interactive", "-i", action="store_true", help="Run in interactive mode"
+        "--interactive", "-i", action="store_true", help="Run in interactive mode (legacy CLI)"
+    )
+    parser.add_argument(
+        "--tui", "-t", action="store_true", help="Run in TUI mode (modern interface)"
     )
     parser.add_argument("command", nargs="*", help="Run a single command")
     args = parser.parse_args()
@@ -170,6 +173,19 @@ async def main():
             )
         except Exception as e:
             console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
+    elif args.tui:
+        # Import here to avoid dependency issues if textual is not available
+        try:
+            from code_puppy.textual_ui import run_textual_ui
+            await run_textual_ui()
+        except ImportError:
+            console.print("[bold red]Error:[/bold red] Textual UI not available. Install with: pip install textual")
+            console.print("[yellow]Falling back to interactive mode...[/yellow]")
+            await interactive_mode(history_file_path)
+        except Exception as e:
+            console.print(f"[bold red]TUI Error:[/bold red] {str(e)}")
+            console.print("[yellow]Falling back to interactive mode...[/yellow]")
+            await interactive_mode(history_file_path)
     elif args.interactive:
         await interactive_mode(history_file_path)
     else:
