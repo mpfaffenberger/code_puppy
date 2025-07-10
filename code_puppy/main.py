@@ -39,12 +39,12 @@ def get_secret_file_path():
 
 def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
     """Find an available port in the given range.
-    
+
     Args:
         start_port: First port to try (default: 8090)
         end_port: Last port to try (default: 9010)
         host: Host to bind to (default: 127.0.0.1)
-        
+
     Returns:
         int: Available port number, or None if no ports available
     """
@@ -65,11 +65,15 @@ async def main():
     # Find an available port for the HTTP server
     available_port = find_available_port()
     if available_port is None:
-        console.print("[bold red]Error: No available ports in range 8090-9010![/bold red]")
+        console.print(
+            "[bold red]Error: No available ports in range 8090-9010![/bold red]"
+        )
         return
-    
-    console.print(f"[dim]Starting HTTP server on http://127.0.0.1:{available_port}[/dim]")
-    
+
+    console.print(
+        f"[dim]Starting HTTP server on http://127.0.0.1:{available_port}[/dim]"
+    )
+
     # Start the HTTP server in the background
     async def run_http_server():
         config = uvicorn.Config(
@@ -81,8 +85,6 @@ async def main():
         )
         server = uvicorn.Server(config)
         await server.serve()
-
-    
 
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()
@@ -176,8 +178,6 @@ async def interactive_mode(history_file_path: str) -> None:
 
     # Check if prompt_toolkit is installed
     try:
-        
-
         console.print("[dim]Using prompt_toolkit for enhanced tab completion[/dim]")
     except ImportError:
         console.print(

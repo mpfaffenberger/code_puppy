@@ -23,7 +23,6 @@ META_COMMANDS_HELP = """
 """
 
 
-
 def handle_meta_command(command: str, console: Console) -> bool:
     """
     Handle meta/config commands prefixed with '~'.
