@@ -104,31 +104,32 @@ class ChatView(VerticalScroll):
     }
 
     .user-message {
-        background: $primary;
-        color: $text;
+        background: #1e3a8a;
+        color: #ffffff;
         margin: 1 0;
         padding: 1;
     }
 
     .agent-message {
-        background: $surface;
-        color: $text;
+        background: #374151;
+        color: #f3f4f6;
         margin: 1 0;
         padding: 1;
-        border-left: thick $accent;
+        border-left: thick #10b981;
     }
 
     .system-message {
-        background: $warning;
-        color: $text;
+        background: #1f2937;
+        color: #d1d5db;
         margin: 1 0;
         padding: 1;
         text-style: italic;
+        border-left: thick #6b7280;
     }
 
     .error-message {
-        background: $error;
-        color: $text;
+        background: #7f1d1d;
+        color: #fef2f2;
         margin: 1 0;
         padding: 1;
     }
@@ -371,8 +372,39 @@ class CodePuppyTUI(App):
                     self.action_clear_chat()
                     return
 
-                # For other meta commands, we'd integrate with the existing handler
-                self.add_system_message(f"Meta command: {message}")
+                # Use the existing meta command handler
+                try:
+                    from code_puppy.tools.common import console as rich_console
+                    from io import StringIO
+                    import sys
+                    
+                    # Capture the output from the meta command handler
+                    old_stdout = sys.stdout
+                    captured_output = StringIO()
+                    sys.stdout = captured_output
+                    
+                    # Also capture Rich console output
+                    temp_console = rich_console
+                    rich_console.file = captured_output
+                    
+                    try:
+                        # Call the existing meta command handler
+                        result = handle_meta_command(message.strip(), rich_console)
+                        if result:  # Command was handled
+                            output = captured_output.getvalue()
+                            if output.strip():
+                                self.add_system_message(output.strip())
+                            else:
+                                self.add_system_message(f"Meta command '{message}' executed")
+                        else:
+                            self.add_system_message(f"Unknown meta command: {message}")
+                    finally:
+                        # Restore stdout and console
+                        sys.stdout = old_stdout
+                        rich_console.file = sys.__stdout__
+                    
+                except Exception as e:
+                    self.add_error_message(f"Error executing meta command: {str(e)}")
                 return
 
             # Process with agent
