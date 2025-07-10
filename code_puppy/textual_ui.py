@@ -176,15 +176,15 @@ class InputArea(Container):
     InputArea {
         dock: bottom;
         height: 3;
-        background: $surface;
         margin: 1;
-        padding: 1;
     }
     
     #input-field {
         height: 1;
         width: 1fr;
+        margin: 1;
         border: round $primary;
+        background: $surface;
     }
     """
     
