@@ -72,16 +72,19 @@ flows:
         # Install GitHub CLI via direct download (more reliable in Docker)
         curl -fsSL https://github.com/cli/cli/releases/download/v2.40.1/gh_2.40.1_linux_amd64.tar.gz -o gh.tar.gz
         tar -xzf gh.tar.gz
-        sudo mv gh_2.40.1_linux_amd64/bin/gh /usr/local/bin/
-        rm -rf gh.tar.gz gh_2.40.1_linux_amd64
+        # Add gh to PATH for this session instead of using sudo
+        export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
     - shell: |
-        # Configure gh for GitHub Enterprise
+        # Configure gh for GitHub Enterprise and use local gh binary
+        export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
         export GH_HOST=gecgithub01.walmart.com
         VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
         gh release create "v$VERSION" dist/*.whl \
           --title "Release v$VERSION" \
           --notes "Automated release of code-puppy v$VERSION" \
           --repo genaica/code-puppy
+        # Clean up after release
+        rm -rf gh.tar.gz gh_2.40.1_linux_amd64
     # - shell: uv --native-tls run twine upload --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ dist/*
 
   commitVersion:
