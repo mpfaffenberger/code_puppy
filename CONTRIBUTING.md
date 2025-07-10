@@ -68,20 +68,20 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
     Here is what the experience looks like
 
     ```sh
-      ~/workspace/github-wm 
+      ~/workspace/github-wm
       > cd code-puppy
       direnv: loading ~/workspace/github-wm/code-puppy/.envrc
       Virtual env (.venv) Python 3.13.0 activated
       direnv: export +VIRTUAL_ENV +VIRTUAL_ENV_PROMPT ~PATH
-      (.venv) ~/workspace/github-wm/code-puppy  ↰ main 
+      (.venv) ~/workspace/github-wm/code-puppy  ↰ main
       > which python
       /Users/l0m0eby/workspace/github-wm/code-puppy/.venv/bin/python
       > cd
       direnv: unloading
-      ~ 
+      ~
       > which python
       /Users/l0m0eby/.pyenv/shims/python
- ```
+    ```
 
     </details>
 
