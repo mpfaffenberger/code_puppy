@@ -68,7 +68,7 @@ flows:
   ### Functions ###
   python_releaseSteps:
     - shell: uv --native-tls build
-    - shell: uv --native-tls run twine upload dist/*
+    - shell: uv --native-tls run twine upload --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ dist/*
 
   commitVersion:
     - shell: git push origin $LOOPER_TARGET_BRANCH
