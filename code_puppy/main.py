@@ -74,7 +74,7 @@ async def main():
     async def run_http_server():
         config = uvicorn.Config(
             http_app,
-            host="0.0.0.0",
+            host="127.0.0.1",
             port=available_port,
             log_level="critical",  # suppress most logs
             access_log=False,  # suppress access logs
