@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Form
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
@@ -16,6 +16,7 @@ app.add_middleware(
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILENAME = "puppy.cfg"
 CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+
 
 @app.post("/save_token")
 async def save_token(puppy_token: str = Form(...)):

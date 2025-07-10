@@ -72,6 +72,7 @@ def get_message_history_limit():
     except (ValueError, TypeError):
         return 40
 
+
 # --- CONFIG SETTER STARTS HERE ---
 def get_config_keys():
     """
@@ -116,6 +117,7 @@ def load_mcp_server_configs():
     except Exception as e:
         print(f"Failed to load MCP servers - {str(e)}")
         return {}
+
 
 def get_model_name():
     """Returns the last used model name stored in config, or None if unset."""

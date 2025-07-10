@@ -67,6 +67,7 @@ def session_memory():
 
 def _load_mcp_servers():
     from code_puppy.config import load_mcp_server_configs
+
     configs = load_mcp_server_configs()
     servers = []
     for name, conf in configs.items():
@@ -75,6 +76,7 @@ def _load_mcp_servers():
             console.print(f"Registering MCP Server - {url}")
             servers.append(MCPServerSSE(url))
     return servers
+
 
 def reload_code_generation_agent():
     """Force-reload the agent, usually after a model change."""
@@ -104,7 +106,7 @@ def reload_code_generation_agent():
         instructions=instructions,
         output_type=AgentResponse,
         retries=3,
-        mcp_servers=mcp_servers
+        mcp_servers=mcp_servers,
     )
     register_all_tools(agent)
     _code_generation_agent = agent
