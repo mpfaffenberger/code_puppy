@@ -22,6 +22,7 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.reactive import reactive
 from textual import on, work
+from textual.events import Key
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -55,6 +56,52 @@ class ChatMessage:
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+
+
+class CustomTextArea(TextArea):
+    """Custom TextArea that sends a message with Enter and allows new lines with Shift+Enter."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._placeholder_active = False
+    
+    async def on_focus(self) -> None:
+        """Clear placeholder when focused."""
+        if self._placeholder_active:
+            self.text = ""
+            self._placeholder_active = False
+    
+    def _on_key(self, event: Key) -> None:
+        """Override internal key handler to intercept Enter keys."""
+        # Debug: Log all key events to understand what we're receiving
+        # self.app.log(f"Key event: {event.key}, str: {str(event)}, repr: {repr(event)}")
+        
+        # Clear placeholder on any key press (except special keys)
+        if self._placeholder_active and event.key not in ("escape", "tab", "up", "down", "left", "right"):
+            self.text = ""
+            self._placeholder_active = False
+        
+        # Handle Enter and Shift+Enter specifically
+        if event.key == "enter":
+            # Plain Enter: send message
+            self.post_message(self.MessageSent())
+            return  # Don't call super() to prevent default newline behavior
+        
+        # Try multiple ways to detect Shift+Enter
+        event_str = str(event).lower()
+        if (event.key == "shift+enter" or 
+            "shift+enter" in event_str or
+            (event.key == "enter" and "shift" in event_str)):
+            # Shift+Enter: insert newline
+            self.insert("\n")
+            return  # Don't call super()
+        
+        # For all other keys, use the default TextArea behavior
+        super()._on_key(event)
+    
+    class MessageSent(Message):
+        """Message sent when Enter key is pressed (without Shift)."""
+        pass
 
 
 class StatusBar(Static):
@@ -259,9 +306,9 @@ class InputArea(Container):
     """
 
     def compose(self) -> ComposeResult:
-        yield Input(
-            placeholder="Type your message and press Enter to send...",
-            id="input-field"
+        yield CustomTextArea(
+            id="input-field",
+            show_line_numbers=False
         )
 
 
@@ -323,7 +370,6 @@ class CodePuppyTUI(App):
         Binding("ctrl+down", "scroll_chat_down", "Scroll Down"),
         Binding("ctrl+home", "scroll_chat_top", "Scroll to Top"),
         Binding("ctrl+end", "scroll_chat_bottom", "Scroll to Bottom"),
-        Binding("enter", "send_message", "Send Message"),
     ]
 
     # Reactive variables for app state
@@ -366,6 +412,11 @@ class CodePuppyTUI(App):
         self.add_system_message(
             f"Welcome to Code Puppy TUI! Model: {self.current_model}"
         )
+
+        # Set placeholder text for input field
+        input_field = self.query_one("#input-field", CustomTextArea)
+        input_field.text = "Type your message and press Enter to send (Ctrl+Enter for new line)..."
+        input_field._placeholder_active = True
 
         # Load available models
         self.load_models_list()
@@ -418,25 +469,45 @@ class CodePuppyTUI(App):
         chat_view.add_message(message)
 
 
-    @on(Input.Submitted, "#input-field")
-    def input_submitted(self) -> None:
-        """Handle Enter key press in input field."""
+    def on_custom_text_area_message_sent(self, event: CustomTextArea.MessageSent) -> None:
+        """Handle message sent from custom text area."""
         self.action_send_message()
+    
+    async def on_key(self, event) -> None:
+        """Handle app-level key events."""
+        input_field = self.query_one("#input-field", CustomTextArea)
+        
+        # Only handle keys when input field is focused
+        if input_field.has_focus:
+            # Handle Ctrl+Enter for new lines (more reliable than Shift+Enter)
+            if event.key == "ctrl+enter":
+                if input_field._placeholder_active:
+                    input_field.text = ""
+                    input_field._placeholder_active = False
+                input_field.insert("\n")
+                event.prevent_default()
+                return
+        
+        # Let other keys pass through normally
 
     def action_send_message(self) -> None:
         """Send the current message."""
-        input_field = self.query_one("#input-field", Input)
-        message = input_field.value.strip()
+        input_field = self.query_one("#input-field", CustomTextArea)
+        message = input_field.text.strip()
 
         if message:
             # Clear input
-            input_field.value = ""
+            input_field.text = ""
 
             # Add user message to chat
             self.add_user_message(message)
 
             # Process the message
             self.process_message(message)
+        else:
+            # If field is empty, restore placeholder
+            input_field.text = "Type your message and press Enter to send (Ctrl+Enter for new line)..."
+            input_field._placeholder_active = True
 
     @work(exclusive=True)
     async def process_message(self, message: str) -> None:
@@ -526,10 +597,15 @@ class CodePuppyTUI(App):
         help_text = """
 Code Puppy TUI Help:
 
+Input Controls:
+- Enter: Send message
+- Ctrl+Enter: New line (multi-line input)
+- Cmd+Left/Right: Move to beginning/end of line
+- Standard text editing shortcuts supported
+
 Keyboard Shortcuts:
 - Ctrl+Q/Ctrl+C: Quit application
 - Ctrl+L: Clear chat history
-- Enter: Send message
 - F1: Show this help
 - F2: Toggle sidebar
 - F3: Focus input field
@@ -565,7 +641,7 @@ Agent responses support syntax highlighting for code blocks.
     
     def action_focus_input(self) -> None:
         """Focus the input field."""
-        input_field = self.query_one("#input-field", Input)
+        input_field = self.query_one("#input-field", CustomTextArea)
         input_field.focus()
     
     def action_focus_chat(self) -> None:
