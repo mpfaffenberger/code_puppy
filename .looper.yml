@@ -51,7 +51,7 @@ flows:
             - shell: uv venv
             - shell: uv pip install -e .
             - shell: uv run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
-            - shell: bumpversion patch --allow-dirty
+            - shell: uv version --bump patch
             - call: python_releaseSteps()
             - call: commitVersion()
             - call: slackBuildMessagePython()
@@ -63,12 +63,12 @@ flows:
             - shell: uv venv
             - shell: uv pip install -e .
             - shell: uv run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
-            - shell: python -m build
+            - shell: uv build
 
   ### Functions ###
   python_releaseSteps:
-    - shell: python -m build
-    - shell: python -m twine upload dist/*
+    - shell: uv build
+    - shell: uv run twine upload dist/*
 
   commitVersion:
     - shell: git push origin $LOOPER_TARGET_BRANCH
