@@ -175,10 +175,11 @@ class InputArea(Container):
     DEFAULT_CSS = """
     InputArea {
         dock: bottom;
-        height: 5;
+        height: 3;
         background: $surface;
         border: round $primary;
         margin: 1;
+        align: center middle;
     }
     
     #input-field {
@@ -186,12 +187,15 @@ class InputArea(Container):
         background: $surface;
         height: 1;
         width: 1fr;
+        margin: 0 1;
     }
     
     #send-button {
         height: 1;
-        width: 12;
-        margin: 1;
+        min-width: 6;
+        width: auto;
+        margin: 0 1;
+        padding: 0 1;
     }
     """
     
@@ -201,7 +205,7 @@ class InputArea(Container):
                 placeholder="Enter your message... (Enter to send)",
                 id="input-field"
             )
-            yield Button("Send", id="send-button", variant="primary")
+            yield Button("Send", id="send-button")
 
 
 class Sidebar(Container):
