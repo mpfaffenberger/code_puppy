@@ -48,7 +48,8 @@ flows:
     - node(docker-daemon):
         - dockerAgent(python-agent):
             - shell: pip install --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple pytest pytest-cov pytest-asyncio build bumpversion twine uv
-            - shell: pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
+            - shell: uv pip install -e .
+            - shell: uv run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - shell: bumpversion patch --allow-dirty
             - call: python_releaseSteps()
             - call: commitVersion()
@@ -59,7 +60,7 @@ flows:
         - dockerAgent(python-agent):
             - shell: pip install --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple pytest pytest-cov pytest-asyncio build uv
             - shell: uv pip install -e .
-            - shell: pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
+            - shell: uv run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - shell: python -m build
 
   ### Functions ###
