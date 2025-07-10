@@ -184,28 +184,24 @@ class InputArea(Container):
     #input-field {
         border: none;
         background: $surface;
-        height: 3;
+        height: 1;
+        width: 1fr;
     }
     
     #send-button {
         height: 1;
-        width: 10;
-        margin: 1 0;
+        width: 12;
+        margin: 1;
     }
     """
     
     def compose(self) -> ComposeResult:
         with Horizontal():
-            yield TextArea(
-                text="",
+            yield Input(
+                placeholder="Enter your message... (Enter to send)",
                 id="input-field"
             )
             yield Button("Send", id="send-button", variant="primary")
-    
-    def on_mount(self) -> None:
-        """Set placeholder text after mounting."""
-        input_field = self.query_one("#input-field", TextArea)
-        input_field.placeholder = "Enter your message... (Ctrl+Enter to send)"
 
 
 class Sidebar(Container):
@@ -356,14 +352,19 @@ class CodePuppyTUI(App):
         """Handle send button press."""
         self.action_send_message()
     
+    @on(Input.Submitted, "#input-field")
+    def input_submitted(self) -> None:
+        """Handle Enter key press in input field."""
+        self.action_send_message()
+    
     def action_send_message(self) -> None:
         """Send the current message."""
-        input_field = self.query_one("#input-field", TextArea)
-        message = input_field.text.strip()
+        input_field = self.query_one("#input-field", Input)
+        message = input_field.value.strip()
         
         if message:
             # Clear input
-            input_field.text = ""
+            input_field.value = ""
             
             # Add user message to chat
             self.add_user_message(message)
