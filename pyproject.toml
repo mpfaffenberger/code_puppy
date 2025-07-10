@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "walmart-genaica-code-puppy"
+name = "code-puppy"
 version = "0.0.73"
 description = "Code generation agent"
 readme = "README.md"
