@@ -2,6 +2,7 @@
 MOTD (Message of the Day) feature for code-puppy.
 Stores seen versions in ~/.puppy_cfg/motd.txt.
 """
+
 import os
 from typing import Optional
 
