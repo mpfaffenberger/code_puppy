@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import socket
 import sys
 
 from dotenv import load_dotenv
@@ -36,13 +37,45 @@ def get_secret_file_path():
     return os.path.join(hidden_directory, "history.txt")
 
 
+def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
+    """Find an available port in the given range.
+    
+    Args:
+        start_port: First port to try (default: 8090)
+        end_port: Last port to try (default: 9010)
+        host: Host to bind to (default: 127.0.0.1)
+        
+    Returns:
+        int: Available port number, or None if no ports available
+    """
+    for port in range(start_port, end_port + 1):
+        try:
+            # Try to bind to the port to check if it's available
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind((host, port))
+                return port
+        except OSError:
+            # Port is in use, try the next one
+            continue
+    return None
+
+
 async def main():
+    # Find an available port for the HTTP server
+    available_port = find_available_port()
+    if available_port is None:
+        console.print("[bold red]Error: No available ports in range 8090-9010![/bold red]")
+        return
+    
+    console.print(f"[dim]Starting HTTP server on http://127.0.0.1:{available_port}[/dim]")
+    
     # Start the HTTP server in the background
     async def run_http_server():
         config = uvicorn.Config(
             http_app,
             host="0.0.0.0",
-            port=8090,
+            port=available_port,
             log_level="critical",  # suppress most logs
             access_log=False,  # suppress access logs
         )

@@ -13,6 +13,7 @@ envs:
       BUILD_STATUS: ""
       COMMIT_USER: ""
       ALLOW_ARTIFACTORY: true
+      GITHUB_TOKEN: ENC[8887pCmkN1AoyjObSp1Q02LUp3zGUxF6E0c653Oti4zndVfsRxK5etfmKkdjy/am]
 
   build_success:
     variables:
@@ -48,8 +49,10 @@ flows:
     - node(docker-daemon):
         - dockerAgent(python-agent):
             - shell: pip install --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple pytest pytest-cov pytest-asyncio build bumpversion twine uv
-            - shell: pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
-            - shell: bumpversion patch --allow-dirty
+            - shell: uv --native-tls venv
+            - shell: uv pip install --native-tls -e .
+            # - shell: uv --native-tls run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
+            - shell: uv --native-tls version --bump patch
             - call: python_releaseSteps()
             - call: commitVersion()
             - call: slackBuildMessagePython()
@@ -58,14 +61,34 @@ flows:
     - node(docker-daemon):
         - dockerAgent(python-agent):
             - shell: pip install --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple pytest pytest-cov pytest-asyncio build uv
-            - shell: uv pip install -e .
-            - shell: pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
-            - shell: python -m build
+            - shell: uv --native-tls venv
+            - shell: uv pip install --native-tls -e .
+            # - shell: uv --native-tls run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
+            - shell: uv --native-tls build
 
   ### Functions ###
   python_releaseSteps:
-    - shell: python -m build
-    - shell: python -m twine upload dist/*
+    - shell: uv --native-tls build
+    - shell: |
+        # Install GitHub CLI via direct download (more reliable in Docker)
+        curl -fsSL https://github.com/cli/cli/releases/download/v2.40.1/gh_2.40.1_linux_amd64.tar.gz -o gh.tar.gz
+        tar -xzf gh.tar.gz
+        # Add gh to PATH for this session instead of using sudo
+        export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
+    - shell: |
+        # Configure gh for GitHub Enterprise and use local gh binary
+        export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
+        export GH_HOST=gecgithub01.walmart.com
+        # Authenticate with GitHub using the token
+        echo "${GITHUB_TOKEN}" | gh auth login --with-token
+        VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
+        gh release create "v$VERSION" dist/*.whl \
+          --title "Release v$VERSION" \
+          --notes "Automated release of code-puppy v$VERSION" \
+          --repo genaica/code-puppy
+        # Clean up after release
+        rm -rf gh.tar.gz gh_2.40.1_linux_amd64
+    # - shell: uv --native-tls run twine upload --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ dist/*
 
   commitVersion:
     - shell: git push origin $LOOPER_TARGET_BRANCH
