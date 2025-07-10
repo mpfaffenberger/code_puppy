@@ -179,12 +179,9 @@ class InputArea(Container):
         background: $surface;
         border: round $primary;
         margin: 1;
-        align: center middle;
     }
     
     #input-field {
-        border: none;
-        background: $surface;
         height: 1;
         width: 1fr;
         margin: 0 1;
@@ -192,10 +189,12 @@ class InputArea(Container):
     
     #send-button {
         height: 1;
-        min-width: 6;
-        width: auto;
+        width: 8;
         margin: 0 1;
-        padding: 0 1;
+        background: $primary;
+        color: $text;
+        text-style: bold;
+        content-align: center middle;
     }
     """
     
@@ -205,7 +204,7 @@ class InputArea(Container):
                 placeholder="Enter your message... (Enter to send)",
                 id="input-field"
             )
-            yield Button("Send", id="send-button")
+            yield Button("Send", id="send-button", variant="primary")
 
 
 class Sidebar(Container):
