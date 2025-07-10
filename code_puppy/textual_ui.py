@@ -184,32 +184,15 @@ class InputArea(Container):
     #input-field {
         height: 1;
         width: 1fr;
-    }
-    
-    #send-button {
-        height: 1;
-        width: 8;
-        background: $primary;
-        color: #ffffff;
-        text-align: center;
-        content-align: center middle;
-        text-style: bold;
-        border: thick white;
-    }
-    
-    #send-button:hover {
-        background: $accent;
-        text-style: bold;
+        border: round $primary;
     }
     """
     
     def compose(self) -> ComposeResult:
-        with Horizontal():
-            yield Input(
-                placeholder="Enter your message... (Enter to send)",
-                id="input-field"
-            )
-            yield Label("Send", id="send-button")
+        yield Input(
+            placeholder="Type your message and press Enter to send...",
+            id="input-field"
+        )
 
 
 class Sidebar(Container):
@@ -261,7 +244,7 @@ class CodePuppyTUI(App):
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
         Binding("f1", "show_help", "Help"),
         Binding("f2", "toggle_sidebar", "Toggle Sidebar"),
-        Binding("ctrl+enter", "send_message", "Send Message"),
+        Binding("enter", "send_message", "Send Message"),
     ]
     
     # Reactive variables for app state
@@ -355,11 +338,6 @@ class CodePuppyTUI(App):
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
     
-    def on_mouse_down(self, event) -> None:
-        """Handle mouse clicks."""
-        if hasattr(event.widget, 'id') and event.widget.id == "send-button":
-            self.action_send_message()
-            event.prevent_default()
     
     @on(Input.Submitted, "#input-field")
     def input_submitted(self) -> None:
