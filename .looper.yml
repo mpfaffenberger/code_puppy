@@ -71,7 +71,7 @@ flows:
     - shell: uv pip install --native-tls gh
     - shell: |
         VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
-        gh release create "v$VERSION" dist/*.whl --title "Release v$VERSION" --notes "Automated release of code-puppy v$VERSION" --repo gecgithub01.walmart.com:genaica/code-puppy
+        uv run gh release create "v$VERSION" dist/*.whl --title "Release v$VERSION" --notes "Automated release of code-puppy v$VERSION" --repo gecgithub01.walmart.com:genaica/code-puppy
     # - shell: uv --native-tls run twine upload --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ dist/*
 
   commitVersion:
