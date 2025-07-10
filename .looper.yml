@@ -68,7 +68,7 @@ flows:
   ### Functions ###
   python_releaseSteps:
     - shell: uv --native-tls build
-    - shell: pip install gh
+    - shell: uv pip install --native-tls gh
     - shell: |
         VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
         gh release create "v$VERSION" dist/*.whl --title "Release v$VERSION" --notes "Automated release of code-puppy v$VERSION" --repo gecgithub01.walmart.com:genaica/code-puppy
