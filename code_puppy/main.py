@@ -31,7 +31,7 @@ from code_puppy.version_checker import fetch_latest_version
 
 def display_disclaimer():
     """Display a disclaimer message about data sensitivity and usage guidelines."""
-    console.print("\n[bold yellow]DISCLAIMER[/bold yellow]")
+    console.print("\n[bold yellow]DISCLAIMER : Be a responsible Puppy Owner[/bold yellow]")
     console.print("[yellow]Prompt responsibly: Only use internal data available to all HO associates. No permission based data should be included in prompts.[/yellow]")
     console.print(
         "[yellow]All information entered will be monitored in accordance with "
