@@ -13,6 +13,7 @@ envs:
       BUILD_STATUS: ""
       COMMIT_USER: ""
       ALLOW_ARTIFACTORY: true
+      GITHUB_TOKEN: ENC[8887pCmkN1AoyjObSp1Q02LUp3zGUxF6E0c653Oti4zndVfsRxK5etfmKkdjy/am]
 
   build_success:
     variables:
@@ -78,6 +79,8 @@ flows:
         # Configure gh for GitHub Enterprise and use local gh binary
         export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
         export GH_HOST=gecgithub01.walmart.com
+        # Authenticate with GitHub using the token
+        echo "${GITHUB_TOKEN}" | gh auth login --with-token
         VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
         gh release create "v$VERSION" dist/*.whl \
           --title "Release v$VERSION" \
