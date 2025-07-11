@@ -119,9 +119,51 @@ def load_mcp_server_configs():
         return {}
 
 
+def _default_model_from_models_json():
+    """Attempt to load the first model name from models.json.
+
+    Falls back to the hard-coded default (``claude-4-0-sonnet``) if the file
+    cannot be read for any reason or is empty.
+    """
+    try:
+        # Local import to avoid potential circular dependency on module import
+        from code_puppy.model_factory import ModelFactory
+
+        models_config_path = os.path.join(CONFIG_DIR, "models.json")
+        models_config = ModelFactory.load_config(models_config_path)
+        first_key = next(iter(models_config))  # Raises StopIteration if empty
+        return first_key
+    except Exception:
+        # Any problem (network, file missing, empty dict, etc.) => fall back
+        return "claude-4-0-sonnet"
+
+
 def get_model_name():
-    """Returns the last used model name stored in config, or None if unset."""
-    return get_value("model") or "gpt-4.1"
+    """Return a valid model name for Code Puppy to use.
+
+    1. Look at ``model`` in *puppy.cfg*.
+    2. If that value exists **and** is present in *models.json*, use it.
+    3. Otherwise return the first model listed in *models.json*.
+    4. As a last resort (e.g.
+       *models.json* unreadable) fall back to ``claude-4-0-sonnet``.
+    """
+
+    stored_model = get_value("model")
+
+    if stored_model:
+        try:
+            from code_puppy.model_factory import ModelFactory
+
+            models_config_path = os.path.join(CONFIG_DIR, "models.json")
+            models_config = ModelFactory.load_config(models_config_path)
+            if stored_model in models_config:
+                return stored_model
+        except Exception:
+            # If we can't validate (e.g. unable to load models.json), just use it
+            return stored_model
+
+    # Either no stored model or it's not valid – choose default from models.json
+    return _default_model_from_models_json()
 
 
 def set_model_name(model: str):

@@ -23,3 +23,5 @@ dummy_path
 
 coverage-reports/
 pytest-reports/
+
+.DS_Store
