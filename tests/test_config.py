@@ -441,103 +441,26 @@ class TestModelName:
 
 class TestGetYoloMode:
     @patch("code_puppy.config.get_value")
-    @patch("os.getenv")
-    @patch("code_puppy.config.set_config_value")
-    def test_get_yolo_mode_from_config_true(
-        self, mock_set_config, mock_getenv, mock_get_value
-    ):
+    def test_get_yolo_mode_from_config_true(self, mock_get_value):
         true_values = ["true", "1", "YES", "ON"]
         for val in true_values:
             mock_get_value.reset_mock()
-            mock_getenv.reset_mock()
-            mock_set_config.reset_mock()
             mock_get_value.return_value = val
             assert cp_config.get_yolo_mode() is True, f"Failed for config value: {val}"
             mock_get_value.assert_called_once_with("yolo_mode")
-            mock_getenv.assert_not_called()
-            mock_set_config.assert_not_called()
 
     @patch("code_puppy.config.get_value")
-    @patch("os.getenv")
-    @patch("code_puppy.config.set_config_value")
-    def test_get_yolo_mode_from_config_false(
-        self, mock_set_config, mock_getenv, mock_get_value
-    ):
+    def test_get_yolo_mode_from_config_false(self, mock_get_value):
         false_values = ["false", "0", "NO", "OFF", "anything_else"]
         for val in false_values:
             mock_get_value.reset_mock()
-            mock_getenv.reset_mock()
-            mock_set_config.reset_mock()
             mock_get_value.return_value = val
             assert cp_config.get_yolo_mode() is False, f"Failed for config value: {val}"
             mock_get_value.assert_called_once_with("yolo_mode")
-            mock_getenv.assert_not_called()
-            mock_set_config.assert_not_called()
 
     @patch("code_puppy.config.get_value")
-    @patch("os.getenv")
-    @patch("code_puppy.config.set_config_value")
-    def test_get_yolo_mode_from_env_true_persists(
-        self, mock_set_config, mock_getenv, mock_get_value
-    ):
+    def test_get_yolo_mode_not_in_config_defaults_false(self, mock_get_value):
         mock_get_value.return_value = None
-        true_env_values = ["true", "1", "YES", "ON"]
-        for val in true_env_values:
-            mock_get_value.reset_mock()
-            mock_getenv.reset_mock()
-            mock_set_config.reset_mock()
-            mock_get_value.return_value = None
-            mock_getenv.return_value = val
-
-            assert cp_config.get_yolo_mode() is True, f"Failed for env value: {val}"
-            mock_get_value.assert_called_once_with("yolo_mode")
-            mock_getenv.assert_called_once_with("YOLO_MODE")
-            mock_set_config.assert_called_once_with("yolo_mode", val)
-
-    @patch("code_puppy.config.get_value")
-    @patch("os.getenv")
-    @patch("code_puppy.config.set_config_value")
-    def test_get_yolo_mode_from_env_false_persists(
-        self, mock_set_config, mock_getenv, mock_get_value
-    ):
-        mock_get_value.return_value = None
-        false_env_values = ["false", "0", "NO", "OFF", "anything_else_env"]
-        for val in false_env_values:
-            mock_get_value.reset_mock()
-            mock_getenv.reset_mock()
-            mock_set_config.reset_mock()
-            mock_get_value.return_value = None
-            mock_getenv.return_value = val
-
-            assert cp_config.get_yolo_mode() is False, f"Failed for env value: {val}"
-            mock_get_value.assert_called_once_with("yolo_mode")
-            mock_getenv.assert_called_once_with("YOLO_MODE")
-            mock_set_config.assert_called_once_with("yolo_mode", val)
-
-    @patch("code_puppy.config.get_value")
-    @patch("os.getenv")
-    @patch("code_puppy.config.set_config_value")
-    def test_get_yolo_mode_not_in_config_or_env_defaults_false(
-        self, mock_set_config, mock_getenv, mock_get_value
-    ):
-        mock_get_value.return_value = None
-        mock_getenv.return_value = None
 
         assert cp_config.get_yolo_mode() is False
         mock_get_value.assert_called_once_with("yolo_mode")
-        mock_getenv.assert_called_once_with("YOLO_MODE")
-        mock_set_config.assert_not_called()
-
-    @patch("code_puppy.config.get_value")
-    @patch("os.getenv")
-    @patch("code_puppy.config.set_config_value")
-    def test_get_yolo_mode_config_precedence_over_env(
-        self, mock_set_config, mock_getenv, mock_get_value
-    ):
-        mock_get_value.return_value = "true"
-        mock_getenv.return_value = "false"
-
-        assert cp_config.get_yolo_mode() is True
-        mock_get_value.assert_called_once_with("yolo_mode")
-        mock_getenv.assert_not_called()
-        mock_set_config.assert_not_called()

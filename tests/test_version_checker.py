@@ -23,13 +23,17 @@ def test_fetch_latest_version_success():
             "draft": False,
         },
         "message": "Latest release info fetched successfully! 🐶",
-        "cached": False
+        "cached": False,
     }
     with patch("requests.get", return_value=mock_response) as mock_get:
         version = fetch_latest_version("some-pkg")
-        assert version == "v0.0.78"
+        assert (
+            version == "0.0.78"
+        )  # fetch_latest_version normalizes by stripping 'v' prefix
         # Verify we're calling the right endpoint with SSL verification
-        mock_get.assert_called_once_with("https://puppy.stg.walmart.com/api/releases/latest", timeout=5, verify=True)
+        mock_get.assert_called_once_with(
+            "https://puppy.stg.walmart.com/api/releases/latest", timeout=5, verify=True
+        )
 
 
 def test_fetch_latest_version_request_error():
@@ -41,7 +45,9 @@ def test_fetch_latest_version_request_error():
 
 def test_fetch_latest_version_timeout():
     """Test handling of request timeout."""
-    with patch("requests.get", side_effect=requests.exceptions.Timeout("Request timed out")):
+    with patch(
+        "requests.get", side_effect=requests.exceptions.Timeout("Request timed out")
+    ):
         version = fetch_latest_version()
         assert version is None
 
@@ -53,7 +59,7 @@ def test_fetch_latest_version_api_failure():
     mock_response.json.return_value = {
         "success": False,
         "message": "API is down for maintenance",
-        "data": None
+        "data": None,
     }
     with patch("requests.get", return_value=mock_response):
         version = fetch_latest_version()
@@ -70,7 +76,7 @@ def test_fetch_latest_version_missing_version():
             "name": "Some release",
             # version field is missing!
         },
-        "message": "Success but no version"
+        "message": "Success but no version",
     }
     with patch("requests.get", return_value=mock_response):
         version = fetch_latest_version()
@@ -105,16 +111,16 @@ def test_versions_are_equal():
     assert versions_are_equal("v1.2.3", "1.2.3") is True
     assert versions_are_equal("v1.2.3", "v1.2.3") is True
     assert versions_are_equal("1.2.3", "1.2.3") is True
-    
+
     # The specific case from our API
     assert versions_are_equal("0.0.78", "v0.0.78") is True
     assert versions_are_equal("v0.0.78", "0.0.78") is True
-    
+
     # Different versions
     assert versions_are_equal("1.2.3", "1.2.4") is False
     assert versions_are_equal("v1.2.3", "v1.2.4") is False
     assert versions_are_equal("1.2.3", "v1.2.4") is False
-    
+
     # Edge cases
     assert versions_are_equal("", "") is True
     assert versions_are_equal(None, None) is True

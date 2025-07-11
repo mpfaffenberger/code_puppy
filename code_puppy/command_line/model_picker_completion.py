@@ -1,4 +1,3 @@
-import json
 import os
 from typing import Iterable, Optional
 
@@ -7,18 +6,15 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 
-from code_puppy.config import get_model_name, set_model_name
-
-MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH")
-if not MODELS_JSON_PATH:
-    MODELS_JSON_PATH = os.path.join(os.path.dirname(__file__), "..", "models.json")
-    MODELS_JSON_PATH = os.path.abspath(MODELS_JSON_PATH)
+from code_puppy.config import get_model_name, set_model_name, CONFIG_DIR
+from code_puppy.model_factory import ModelFactory
 
 
 def load_model_names():
-    with open(MODELS_JSON_PATH, "r") as f:
-        models = json.load(f)
-    return list(models.keys())
+    """Load model names from the config that's fetched from the endpoint."""
+    models_config_path = os.path.join(CONFIG_DIR, "models.json")
+    models_config = ModelFactory.load_config(models_config_path)
+    return list(models_config.keys())
 
 
 def get_active_model():
@@ -31,11 +27,9 @@ def get_active_model():
 
 def set_active_model(model_name: str):
     """
-    Sets the active model name by updating both config (for persistence)
-    and env (for process lifetime override).
+    Sets the active model name by updating the config (for persistence).
     """
     set_model_name(model_name)
-    os.environ["MODEL_NAME"] = model_name.strip()
     # Reload agent globally
     try:
         from code_puppy.agent import reload_code_generation_agent

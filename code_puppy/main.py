@@ -12,6 +12,7 @@ from rich.text import Text
 
 from code_puppy import __version__
 from code_puppy.agent import get_code_generation_agent, session_memory
+from code_puppy.auth import authenticate_puppy, get_puppy_token
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
@@ -31,15 +32,21 @@ from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 
 def display_disclaimer():
     """Display a disclaimer message about data sensitivity and usage guidelines."""
-    console.print("\n[bold yellow]DISCLAIMER : Be a responsible Puppy Owner[/bold yellow]")
-    console.print("[yellow]Prompt responsibly: Only use internal data available to all HO associates. No permission based data should be included in prompts.[/yellow]")
+    console.print(
+        "\n[bold yellow]DISCLAIMER : Be a responsible Puppy Owner[/bold yellow]"
+    )
+    console.print(
+        "[yellow]Prompt responsibly: Only use internal data available to all HO associates. No permission based data should be included in prompts.[/yellow]"
+    )
     console.print(
         "[yellow]All information entered will be monitored in accordance with "
         "applicable Walmart policies and used for enhancement of this tool and "
         "AI adoption at Walmart. Refer to "
         "[link=https://one.walmart.com/content/uswire/en_us/work1/policies/"
         "people-policies/company-issued-equipment-useage.html]usage[/link] "
-        "for best practices on secure usage.[/yellow]\n")
+        "for best practices on secure usage.[/yellow]\n"
+    )
+
 
 # Define a function to get the secret file path
 def get_secret_file_path():
@@ -98,13 +105,15 @@ async def main():
         server = uvicorn.Server(config)
         await server.serve()
 
+    http_server_task = asyncio.create_task(run_http_server())
+
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()
     current_version = __version__
     latest_version = fetch_latest_version("code-puppy")
     console.print(f"Current version: {current_version}")
     console.print(f"Latest version: {latest_version}")
-    
+
     # Display the disclaimer message
     display_disclaimer()
     if latest_version and not versions_are_equal(current_version, latest_version):
@@ -117,7 +126,10 @@ async def main():
 
     # Load environment variables from .env file
     load_dotenv()
+    await authenticate_puppy(available_port)
 
+    token = get_puppy_token()
+    os.environ["puppy_token"] = token
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(

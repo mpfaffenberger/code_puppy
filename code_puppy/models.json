@@ -1,70 +1,45 @@
 {
-  "gemini-2.5-flash-preview-05-20": {
-    "type": "gemini",
-    "name": "gemini-2.5-flash-preview-05-20"
+  "claude-4-0-sonnet": {
+    "type": "custom_anthropic",
+    "name": "claude-sonnet-4",
+    "custom_endpoint": {
+      "url": "https://puppy-backend.dev.walmart.com/anthropic",
+      "api_key": "$puppy_token",
+      "headers": {
+	      "X-Api-Key": "$puppy_token"
+      }
+    } 
   },
-  "gpt-4.1": {
-    "type": "openai",
-    "name": "gpt-4.1"
-  },
-  "gpt-4.1-mini": {
-    "type": "openai",
-    "name": "gpt-4.1-mini"
-  },
-  "gpt-4.1-nano": {
-    "type": "openai",
-    "name": "gpt-4.1-nano"
-  },
-  "o3": {
-    "type": "openai",
-    "name": "o3"
+  "o3-custom": {
+    "type": "custom_openai",
+    "name": "o3",
+    "custom_endpoint": {
+      "url": "https://puppy-backend.dev.walmart.com",
+      "headers": {
+        "X-Api-Key": "$puppy_token"
+      }
+    }
   },
   "gpt-4.1-custom": {
     "type": "custom_openai",
-    "name": "gpt-4.1-custom",
-    "custom_endpoint": {
-      "url": "https://my.cute.endpoint:8080",
-      "headers": {
-        "X-Api-Key": "$OPENAI_API_KEY"
-      },
-      "ca_certs_path": "/path/to/cert.pem"
-    }
-  },
-  "ollama-llama3.3": {
-    "type": "custom_openai",
-    "name": "llama3.3",
-    "custom_endpoint": {
-      "url": "http://localhost:11434/v1"
-    }
-  },
-  "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
-    "type": "custom_openai",
-    "name": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-    "custom_endpoint": {
-      "url": "https://api.together.xyz/v1",
-      "api_key": "$TOGETHER_API_KEY"
-    }
-  },
-  "grok-3-mini-fast": {
-    "type": "custom_openai",
-    "name": "grok-3-mini-fast",
-    "custom_endpoint": {
-      "url": "https://api.x.ai/v1",
-      "api_key": "$XAI_API_KEY"
-    }
-  },
-  "azure-gpt-4.1": {
-    "type": "azure_openai",
     "name": "gpt-4.1",
-    "api_version": "2024-12-01-preview",
-    "api_key": "$AZURE_OPENAI_API_KEY",
-    "azure_endpoint": "$AZURE_OPENAI_ENDPOINT"
+    "custom_endpoint": {
+      "url": "https://puppy-backend.dev.walmart.com",
+      "headers": {
+         "X-Api-Key": "$puppy_token"
+      }
+    }
   },
-  "Llama-4-Scout-17B-16E-Instruct": {
-    "type": "azure_openai",
-    "name": "Llama-4-Scout-17B-16E-Instruct",
-    "api_version": "2024-12-01-preview",
-    "api_key": "$AZURE_OPENAI_API_KEY",
-    "azure_endpoint": "$AZURE_OPENAI_ENDPOINT"
+  "claude-3-7-sonnet": {
+    "type": "custom_anthropic",
+    "name": "claude-3-7-sonnet",
+    "api_key": "$puppy_token",
+    "custom_endpoint": {
+      "url": "https://puppy-backend.dev.walmart.com/anthropic",
+      "api_key": "$puppy_token",
+      "headers": {
+         "X-Api-Key": "$puppy_token"
+      }
+    }
   }
 }

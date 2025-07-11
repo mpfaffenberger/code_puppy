@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -43,7 +43,7 @@ class SessionMemory:
 
     def log_task(self, description: str, extras: Optional[Dict[str, Any]] = None):
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "description": description,
         }
         if extras:
@@ -56,7 +56,7 @@ class SessionMemory:
     def get_history(self, within_minutes: Optional[int] = None) -> List[Dict[str, Any]]:
         if not within_minutes:
             return list(self._data["history"])
-        cutoff = datetime.utcnow() - timedelta(minutes=within_minutes)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=within_minutes)
         return [
             h
             for h in self._data["history"]

@@ -1,6 +1,10 @@
 import os
+import json
+import tempfile
+from unittest.mock import patch, Mock
 
 import pytest
+import httpx
 
 from code_puppy.model_factory import ModelFactory
 
@@ -182,3 +186,116 @@ def test_custom_anthropic_missing_url():
     }
     with pytest.raises(ValueError):
         ModelFactory.get_model("x", config)
+
+
+# Tests for the new remote config fetching functionality
+def test_load_config_remote_success():
+    """Test successful remote config fetch and local update"""
+    remote_config = {"test_model": {"type": "openai", "name": "gpt-4"}}
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        local_path = f.name
+        json.dump({"old_model": {"type": "openai", "name": "gpt-3.5"}}, f)
+
+    try:
+        with patch("httpx.Client") as mock_client:
+            mock_response = Mock()
+            mock_response.json.return_value = remote_config
+            mock_response.raise_for_status.return_value = None
+            mock_client.return_value.__enter__.return_value.get.return_value = (
+                mock_response
+            )
+
+            result = ModelFactory.load_config(local_path)
+
+            assert result == remote_config
+
+            # Check that local file was updated
+            with open(local_path, "r") as f:
+                updated_local = json.load(f)
+            assert updated_local == remote_config
+    finally:
+        os.unlink(local_path)
+
+
+def test_load_config_remote_fail_local_fallback():
+    """Test fallback to local config when remote fetch fails"""
+    local_config = {"local_model": {"type": "openai", "name": "gpt-3.5"}}
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        local_path = f.name
+        json.dump(local_config, f)
+
+    try:
+        with patch("httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = (
+                httpx.RequestError("Network error")
+            )
+
+            result = ModelFactory.load_config(local_path)
+
+            assert result == local_config
+    finally:
+        os.unlink(local_path)
+
+
+def test_load_config_remote_same_as_local():
+    """Test that local file is not updated when remote config is same as local"""
+    config = {"same_model": {"type": "openai", "name": "gpt-4"}}
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        local_path = f.name
+        json.dump(config, f)
+
+    try:
+        with patch("httpx.Client") as mock_client:
+            mock_response = Mock()
+            mock_response.json.return_value = config  # Same as local
+            mock_response.raise_for_status.return_value = None
+            mock_client.return_value.__enter__.return_value.get.return_value = (
+                mock_response
+            )
+
+            result = ModelFactory.load_config(local_path)
+
+            assert result == config
+    finally:
+        os.unlink(local_path)
+
+
+def test_load_config_no_local_no_remote():
+    """Test error when neither remote nor local config is available"""
+    non_existent_path = "/tmp/does_not_exist.json"
+
+    with patch("httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.side_effect = (
+            httpx.RequestError("Network error")
+        )
+
+        with pytest.raises(FileNotFoundError):
+            ModelFactory.load_config(non_existent_path)
+
+
+def test_load_config_remote_success_no_local_file():
+    """Test creating local file when remote fetch succeeds but no local file exists"""
+    remote_config = {"new_model": {"type": "openai", "name": "gpt-4"}}
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        local_path = os.path.join(temp_dir, "subdir", "models.json")
+
+        with patch("httpx.Client") as mock_client:
+            mock_response = Mock()
+            mock_response.json.return_value = remote_config
+            mock_response.raise_for_status.return_value = None
+            mock_client.return_value.__enter__.return_value.get.return_value = (
+                mock_response
+            )
+
+            result = ModelFactory.load_config(local_path)
+
+            assert result == remote_config
+            assert os.path.exists(local_path)
+
+            with open(local_path, "r") as f:
+                saved_config = json.load(f)
+            assert saved_config == remote_config

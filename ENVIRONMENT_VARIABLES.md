@@ -6,8 +6,7 @@ This document lists all environment variables that can be used to configure Code
 
 | Variable | Description | Default | Used In |
 |----------|-------------|---------|---------|
-| `MODEL_NAME` | The model to use for code generation. Must match a key in the models.json configuration. | `gpt-4o` | agent.py |
-| `MODELS_JSON_PATH` | Optional path to a custom models.json configuration file. | Package directory models.json | agent.py |
+
 | `GEMINI_API_KEY` | API key for Google's Gemini models. | None | model_factory.py |
 | `OPENAI_API_KEY` | API key for OpenAI models. | None | model_factory.py |
 
@@ -15,7 +14,7 @@ This document lists all environment variables that can be used to configure Code
 
 | Variable | Description | Default | Used In |
 |----------|-------------|---------|---------|
-| `YOLO_MODE` | When set to "true" (case-insensitive), bypasses the safety confirmation prompt when running shell commands. This allows commands to execute without user intervention. | `false` | tools/command_runner.py |
+
 
 ## Custom Endpoints
 
@@ -44,27 +43,25 @@ In this example, `$OPENAI_API_KEY` will be replaced with the value from the envi
 
 ### Setting the Model
 
-```bash
-# Use a specific model defined in models.json
-export MODEL_NAME=gemini-2.5-flash-preview-05-20
-code-puppy --interactive
-```
-
-### Using a Custom Models Configuration
+Model selection is now handled through the config file and interactive commands:
 
 ```bash
-# Use a custom models.json file
-export MODELS_JSON_PATH=/path/to/custom/models.json
+# In interactive mode, use ~m to switch models
 code-puppy --interactive
+# Then type: ~mgpt-4.1
+# Or use the dev console: ~set model=gpt-4.1
 ```
 
-### Bypassing Command Confirmation
+### Model Configuration
 
-```bash
-# Run in YOLO mode to bypass command confirmations (use with caution)
-export YOLO_MODE=true
-code-puppy --interactive
-```
+Models are now automatically fetched from the remote endpoint (https://puppy.stg.walmart.com/api/puppy-models/latest) and cached locally in ~/.code_puppy/models.json. No environment variable configuration is needed.
+
+The system will:
+1. Try to fetch the latest config from the remote endpoint
+2. Fall back to the local cached version if remote is unavailable  
+3. Automatically update the local cache when remote config changes
+
+
 
 ### Setting API Keys
 
