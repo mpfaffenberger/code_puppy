@@ -22,7 +22,7 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.reactive import reactive
 from textual import on, work
-from textual.events import Key
+from textual.events import Key, Resize
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -148,7 +148,7 @@ class StatusBar(Static):
         self.update_status()
 
     def update_status(self) -> None:
-        """Update the status bar content."""
+        """Update the status bar content with responsive design."""
         from rich.text import Text
         
         status_widget = self.query_one("#status-content", Static)
@@ -167,14 +167,36 @@ class StatusBar(Static):
             status_indicator = "✅"
             status_color = "green"
         
-        status_text = f"🐶 {self.puppy_name} | Model: {self.current_model} | {status_indicator} {self.agent_status}"
+        # Get terminal width for responsive content
+        try:
+            terminal_width = self.app.size.width if hasattr(self.app, 'size') else 80
+        except:
+            terminal_width = 80
         
-        # Create right-aligned Rich Text object with colored status
+        # Create responsive status text based on terminal width
         rich_text = Text()
-        rich_text.append(f"🐶 {self.puppy_name} | Model: {self.current_model} | ")
-        rich_text.append(f"{status_indicator} {self.agent_status}", style=status_color)
-        rich_text.justify = "right"
         
+        if terminal_width >= 100:
+            # Full status display for wide terminals
+            rich_text.append(f"🐶 {self.puppy_name} | Model: {self.current_model} | ")
+            rich_text.append(f"{status_indicator} {self.agent_status}", style=status_color)
+        elif terminal_width >= 80:
+            # Medium display - shorten model name if needed
+            model_display = self.current_model[:15] + "..." if len(self.current_model) > 18 else self.current_model
+            rich_text.append(f"🐶 {self.puppy_name} | {model_display} | ")
+            rich_text.append(f"{status_indicator} {self.agent_status}", style=status_color)
+        elif terminal_width >= 60:
+            # Compact display - use abbreviations
+            puppy_short = self.puppy_name[:8] + "..." if len(self.puppy_name) > 10 else self.puppy_name
+            model_short = self.current_model[:12] + "..." if len(self.current_model) > 15 else self.current_model
+            rich_text.append(f"🐶 {puppy_short} | {model_short} | ")
+            rich_text.append(f"{status_indicator}", style=status_color)
+        else:
+            # Minimal display for very narrow terminals
+            rich_text.append(f"🐶 {self.puppy_name[:6]} | ")
+            rich_text.append(f"{status_indicator}", style=status_color)
+        
+        rich_text.justify = "right"
         status_widget.update(rich_text)
 
 
@@ -369,6 +391,8 @@ class Sidebar(Container):
     Sidebar {
         dock: left;
         width: 30;
+        min-width: 20;
+        max-width: 50;
         background: $surface;
         border-right: solid $primary;
     }
@@ -447,10 +471,12 @@ class CodePuppyTUI(App):
     #main-area {
         layout: vertical;
         width: 1fr;
+        min-width: 40;
     }
 
     #chat-container {
         height: 1fr;
+        min-height: 10;
     }
     """
 
@@ -526,6 +552,9 @@ class CodePuppyTUI(App):
 
         # Load configuration
         self.load_config_list()
+
+        # Apply responsive design adjustments
+        self.apply_responsive_layout()
 
     def add_system_message(self, content: str) -> None:
         """Add a system message to the chat."""
@@ -876,45 +905,8 @@ class CodePuppyTUI(App):
         self.add_system_message("Chat history cleared")
 
     def action_show_help(self) -> None:
-        """Show help information."""
-        help_text = """
-Code Puppy TUI Help:
-
-Input Controls:
-- Enter: Send message
-- Ctrl+Enter: New line (multi-line input)
-- Cmd+Left/Right: Move to beginning/end of line
-- Standard text editing shortcuts supported
-
-Keyboard Shortcuts:
-- Ctrl+Q/Ctrl+C: Quit application
-- Ctrl+L: Clear chat history
-- F1: Show this help
-- F2: Toggle sidebar
-- F3: Focus input field
-- F4: Focus chat area
-
-Tab Navigation:
-- Ctrl+1: Switch to History tab
-- Ctrl+2: Switch to Models tab (use arrows + Enter to select)
-- Ctrl+3: Switch to Config tab
-
-Chat Navigation:
-- Ctrl+Up/Down: Scroll chat up/down
-- Ctrl+Home: Scroll to top
-- Ctrl+End: Scroll to bottom
-
-Meta Commands:
-- ~clear: Clear chat history
-- ~m <model>: Switch model
-- ~cd <dir>: Change directory
-- ~help: Show help
-- ~status: Show current status
-
-Use the input area at the bottom to type messages.
-The sidebar shows conversation history, available models, and configuration.
-Agent responses support syntax highlighting for code blocks.
-        """
+        """Show responsive help information."""
+        help_text = self.get_responsive_help_text()
         self.add_system_message(help_text)
 
     def action_toggle_sidebar(self) -> None:
@@ -1039,6 +1031,23 @@ Agent responses support syntax highlighting for code blocks.
                     if not entry.get("description", "").startswith("Agent loaded")
                 ]
                 
+                # Get sidebar width for responsive text truncation
+                try:
+                    sidebar_width = self.query_one("Sidebar").size.width if hasattr(self.query_one("Sidebar"), 'size') else 30
+                except:
+                    sidebar_width = 30
+                
+                # Adjust text length based on sidebar width
+                if sidebar_width >= 35:
+                    max_text_length = 45
+                    time_format = "%H:%M:%S"
+                elif sidebar_width >= 25:
+                    max_text_length = 30
+                    time_format = "%H:%M"
+                else:
+                    max_text_length = 20
+                    time_format = "%H:%M"
+                
                 for entry in reversed(filtered_history[-20:]):  # Show last 20 entries
                     timestamp_str = entry.get("timestamp", "")
                     description = entry.get("description", "Unknown task")
@@ -1046,28 +1055,34 @@ Agent responses support syntax highlighting for code blocks.
                     # Parse timestamp for display
                     try:
                         timestamp_obj = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        time_display = timestamp_obj.strftime("%H:%M:%S")
+                        time_display = timestamp_obj.strftime(time_format)
                         date_display = timestamp_obj.strftime("%m/%d")
                     except:
-                        time_display = timestamp_str[:8] if len(timestamp_str) > 8 else "??:??:??"
+                        time_display = timestamp_str[:5] if sidebar_width < 25 else timestamp_str[:8]
+                        if len(time_display) < 5:
+                            time_display = "??:??"
                         date_display = "??/??"
                     
-                    # Format description for display
+                    # Format description for display with responsive truncation
                     if description.startswith("Interactive task:"):
                         task_text = description[17:].strip()  # Remove "Interactive task: "
-                        display_text = f"[{time_display}] 💬 {task_text[:40]}{'...' if len(task_text) > 40 else ''}"
+                        truncated = task_text[:max_text_length] + ('...' if len(task_text) > max_text_length else '')
+                        display_text = f"[{time_display}] 💬 {truncated}"
                         css_class = "history-interactive"
                     elif description.startswith("TUI interaction:"):
                         task_text = description[16:].strip()  # Remove "TUI interaction: "
-                        display_text = f"[{time_display}] 🖥️ {task_text[:40]}{'...' if len(task_text) > 40 else ''}"
+                        truncated = task_text[:max_text_length] + ('...' if len(task_text) > max_text_length else '')
+                        display_text = f"[{time_display}] 🖥️ {truncated}"
                         css_class = "history-tui"
                     elif description.startswith("Command executed"):
                         cmd_text = description[18:].strip()  # Remove "Command executed: "
-                        display_text = f"[{time_display}] ⚡ {cmd_text[:35]}{'...' if len(cmd_text) > 35 else ''}"
+                        truncated = cmd_text[:max_text_length-5] + ('...' if len(cmd_text) > max_text_length-5 else '')
+                        display_text = f"[{time_display}] ⚡ {truncated}"
                         css_class = "history-command"
                     else:
                         # Generic entry
-                        display_text = f"[{time_display}] 📝 {description[:40]}{'...' if len(description) > 40 else ''}"
+                        truncated = description[:max_text_length] + ('...' if len(description) > max_text_length else '')
+                        display_text = f"[{time_display}] 📝 {truncated}"
                         css_class = "history-generic"
                     
                     label = Label(display_text, classes=css_class)
@@ -1188,6 +1203,122 @@ Agent responses support syntax highlighting for code blocks.
     def stop_agent_progress(self) -> None:
         """Stop showing agent progress indicators."""
         self.set_agent_status("Ready", show_progress=False)
+
+    def on_resize(self, event: Resize) -> None:
+        """Handle terminal resize events to update responsive elements."""
+        try:
+            # Apply responsive layout adjustments
+            self.apply_responsive_layout()
+            
+            # Update status bar to reflect new width
+            status_bar = self.query_one(StatusBar)
+            status_bar.update_status()
+            
+            # Refresh history display with new responsive truncation
+            self.refresh_history_display()
+            
+        except Exception:
+            pass  # Silently handle resize errors
+
+    def apply_responsive_layout(self) -> None:
+        """Apply responsive layout adjustments based on terminal size."""
+        try:
+            terminal_width = self.size.width if hasattr(self, 'size') else 80
+            terminal_height = self.size.height if hasattr(self, 'size') else 24
+            sidebar = self.query_one(Sidebar)
+            
+            # Responsive sidebar width based on terminal width
+            if terminal_width >= 120:
+                sidebar.styles.width = 35
+            elif terminal_width >= 100:
+                sidebar.styles.width = 30
+            elif terminal_width >= 80:
+                sidebar.styles.width = 25
+            elif terminal_width >= 60:
+                sidebar.styles.width = 20
+            else:
+                sidebar.styles.width = 15
+            
+            # Auto-hide sidebar on very narrow terminals
+            if terminal_width < 50:
+                if sidebar.display:
+                    sidebar.display = False
+                    self.add_system_message("💡 Sidebar auto-hidden for narrow terminal. Press F2 to toggle.")
+            elif terminal_width >= 60 and not sidebar.display:
+                sidebar.display = True
+            
+            # Adjust input area height for very short terminals
+            if terminal_height < 20:
+                input_area = self.query_one(InputArea)
+                input_area.styles.height = 6
+            else:
+                input_area = self.query_one(InputArea)
+                input_area.styles.height = 8
+                
+        except Exception:
+            pass
+
+    def get_responsive_help_text(self) -> str:
+        """Generate responsive help text based on terminal size."""
+        try:
+            terminal_width = self.size.width if hasattr(self, 'size') else 80
+        except:
+            terminal_width = 80
+            
+        if terminal_width < 60:
+            # Compact help for narrow terminals
+            return """
+Code Puppy TUI (Compact Mode):
+
+Controls:
+- Enter: Send message
+- Ctrl+Enter: New line
+- Ctrl+Q: Quit
+- F2: Toggle sidebar
+- F3: Focus input
+
+Use F1 for full help.
+"""
+        else:
+            # Return the existing full help text
+            return """
+Code Puppy TUI Help:
+
+Input Controls:
+- Enter: Send message
+- Ctrl+Enter: New line (multi-line input)
+- Cmd+Left/Right: Move to beginning/end of line
+- Standard text editing shortcuts supported
+
+Keyboard Shortcuts:
+- Ctrl+Q/Ctrl+C: Quit application
+- Ctrl+L: Clear chat history
+- F1: Show this help
+- F2: Toggle sidebar
+- F3: Focus input field
+- F4: Focus chat area
+
+Tab Navigation:
+- Ctrl+1: Switch to History tab
+- Ctrl+2: Switch to Models tab (use arrows + Enter to select)
+- Ctrl+3: Switch to Config tab
+
+Chat Navigation:
+- Ctrl+Up/Down: Scroll chat up/down
+- Ctrl+Home: Scroll to top
+- Ctrl+End: Scroll to bottom
+
+Meta Commands:
+- ~clear: Clear chat history
+- ~m <model>: Switch model
+- ~cd <dir>: Change directory
+- ~help: Show help
+- ~status: Show current status
+
+Use the input area at the bottom to type messages.
+The sidebar shows conversation history, available models, and configuration.
+Agent responses support syntax highlighting for code blocks.
+"""
 
 
 async def run_textual_ui():
