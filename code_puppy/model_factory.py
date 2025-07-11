@@ -1,6 +1,7 @@
 import json
 import os
 from typing import Any, Dict
+import logging
 
 import httpx
 from anthropic import AsyncAnthropic
@@ -37,19 +38,13 @@ def get_custom_config(model_config):
             value = os.environ.get(value[1:])
         headers[key] = value
 
-    ca_certs_path = None
-    if "ca_certs_path" in custom_config:
-        ca_certs_path = custom_config.get("ca_certs_path")
-        if ca_certs_path.lower() == "false":
-            ca_certs_path = False
-
     api_key = None
     if "api_key" in custom_config:
         if custom_config["api_key"].startswith("$"):
             api_key = os.environ.get(custom_config["api_key"][1:])
         else:
             api_key = custom_config["api_key"]
-    return url, headers, ca_certs_path, api_key
+    return url, headers, api_key
 
 
 class ModelFactory:
@@ -57,9 +52,69 @@ class ModelFactory:
 
     @staticmethod
     def load_config(config_path: str) -> Dict[str, Any]:
-        """Loads model configurations from a JSON file."""
-        with open(config_path, "r") as f:
-            return json.load(f)
+        """Loads model configurations, checking for updates from remote source first."""
+        remote_url = "https://puppy.stg.walmart.com/api/puppy-models/latest"
+        logger = logging.getLogger(__name__)
+
+        # Try to fetch the latest config from remote
+        remote_config = None
+        try:
+            logger.info(f"Fetching latest model config from {remote_url}")
+            with httpx.Client(timeout=10.0, verify=False) as client:
+                response = client.get(remote_url)
+                response.raise_for_status()
+                remote_config = response.json()["config"]
+                logger.info("Successfully fetched remote model config")
+        except Exception as e:
+            logger.warning(f"Failed to fetch remote config: {e}")
+
+        # Try to load existing local config
+        local_config = None
+        config_exists = os.path.exists(config_path)
+        if config_exists:
+            try:
+                with open(config_path, "r") as f:
+                    local_config = json.load(f)
+                logger.info(f"Loaded local config from {config_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load local config: {e}")
+
+        # Determine which config to use and whether to update local file
+        config_to_use = None
+        should_update_local = False
+
+        if remote_config:
+            # We have remote config - use it
+            config_to_use = remote_config
+
+            # Check if we need to update local file
+            if not config_exists or local_config != remote_config:
+                should_update_local = True
+                logger.info("Remote config differs from local, will update local file")
+        elif local_config:
+            # No remote config but we have local - use local
+            config_to_use = local_config
+            logger.info("Using local config as fallback")
+        else:
+            # Neither remote nor local config available
+            raise FileNotFoundError(
+                f"Could not load model configuration: remote fetch failed and no local config exists at {config_path}"
+            )
+
+        # Update local file if needed
+        if should_update_local:
+            try:
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(config_path), exist_ok=True)
+
+                with open(config_path, "w") as f:
+                    json.dump(config_to_use, f, indent=2)
+                logger.info(f"Updated local config file at {config_path}")
+            except Exception as e:
+                logger.error(f"Failed to update local config file: {e}")
+                # Don't fail if we can't write - we still have the config to use
+
+        return config_to_use
 
     @staticmethod
     def get_model(model_name: str, config: Dict[str, Any]) -> Any:
@@ -95,14 +150,15 @@ class ModelFactory:
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_anthropic":
-            url, headers, ca_certs_path, api_key = get_custom_config(model_config)
-            client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
+            url, headers, api_key = get_custom_config(model_config)
+            client = httpx.AsyncClient(headers=headers, verify=False)
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
                 api_key=api_key,
             )
             provider = AnthropicProvider(anthropic_client=anthropic_client)
+            print(model_config)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "azure_openai":
@@ -160,8 +216,8 @@ class ModelFactory:
             return model
 
         elif model_type == "custom_openai":
-            url, headers, ca_certs_path, api_key = get_custom_config(model_config)
-            client = httpx.AsyncClient(headers=headers, verify=ca_certs_path)
+            url, headers, api_key = get_custom_config(model_config)
+            client = httpx.AsyncClient(headers=headers, verify=False)
             provider_args = dict(
                 base_url=url,
                 http_client=client,

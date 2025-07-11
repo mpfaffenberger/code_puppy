@@ -135,26 +135,26 @@ def set_model_name(model: str):
         config.write(f)
 
 
+def get_puppy_token():
+    """Returns the puppy_token from config, or None if not set."""
+    return get_value("puppy_token")
+
+
+def set_puppy_token(token: str):
+    """Sets the puppy_token in the persistent config file."""
+    set_config_value("puppy_token", token)
+
+
 def get_yolo_mode():
     """
     Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
-    If not set, checks YOLO_MODE env var:
-    - If found in env, saves that value to puppy.cfg for future use.
-    - If neither present, defaults to False.
+    Defaults to False if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
-    Always prioritizes the config once set!
     """
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("yolo_mode")
     if cfg_val is not None:
         if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    env_val = os.getenv("YOLO_MODE")
-    if env_val is not None:
-        # Persist the env value now
-        set_config_value("yolo_mode", env_val)
-        if str(env_val).strip().lower() in true_vals:
             return True
         return False
     return False

@@ -27,6 +27,7 @@ dependencies = [
     "tree-sitter-typescript>=0.23.2",
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",
+    "PyJWT>=2.8.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
@@ -71,6 +72,16 @@ path = "code_puppy/models.json"
 [tool.pytest.ini_options]
 addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "asyncio: marks tests as async (deferred from pytest-asyncio)"
+]
 
 [tool.coverage.run]
 omit = ["code_puppy/main.py"]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.0.0",
+]

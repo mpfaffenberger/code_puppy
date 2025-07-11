@@ -5,26 +5,26 @@ import urllib3
 def normalize_version(version_str):
     """
     Normalize version string by removing 'v' prefix for comparison.
-    
+
     Args:
         version_str: Version string like "v0.0.78" or "0.0.78"
-        
+
     Returns:
         str: Normalized version string without 'v' prefix
     """
     if not version_str:
         return version_str
-    return version_str.lstrip('v')
+    return version_str.lstrip("v")
 
 
 def versions_are_equal(current, latest):
     """
     Compare two version strings, ignoring 'v' prefix differences.
-    
+
     Args:
         current: Current version string
         latest: Latest version string
-        
+
     Returns:
         bool: True if versions are equivalent
     """
@@ -34,48 +34,50 @@ def versions_are_equal(current, latest):
 def fetch_latest_version(package_name=None):
     """
     Fetch the latest version from the code-puppy staging API.
-    
+
     Args:
         package_name: Ignored for backwards compatibility. We always fetch from the staging API.
-        
+
     Returns:
         str: Latest version string (e.g., "v0.0.78") or None if fetch fails
     """
     try:
         # Disable SSL warnings for internal staging environment
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
+
         # Try with SSL verification first
         try:
             response = requests.get(
-                "https://puppy.stg.walmart.com/api/releases/latest", 
+                "https://puppy.stg.walmart.com/api/releases/latest",
                 timeout=5,
-                verify=True
+                verify=True,
             )
         except requests.exceptions.SSLError:
             # If SSL verification fails, try without verification for internal staging API
             response = requests.get(
-                "https://puppy.stg.walmart.com/api/releases/latest", 
+                "https://puppy.stg.walmart.com/api/releases/latest",
                 timeout=5,
-                verify=False
+                verify=False,
             )
-            
+
         response.raise_for_status()  # Raise an error for bad responses
         data = response.json()
-        
+
         # Check if the response has the expected structure
         if not data.get("success"):
-            print(f"API returned unsuccessful response: {data.get('message', 'Unknown error')}")
+            print(
+                f"API returned unsuccessful response: {data.get('message', 'Unknown error')}"
+            )
             return None
-            
+
         # Extract version from nested structure
         version = data.get("data", {}).get("version")
         if not version:
             print("Error: Version not found in API response")
             return None
-            
+
         return normalize_version(version)
-        
+
     except requests.exceptions.Timeout:
         print("Error fetching version: Request timed out")
         return None

@@ -46,10 +46,8 @@ Code Puppy Walmart Edition is an AI-powered code generation agent, designed to u
 
 ## Usage
 ```bash
-export MODEL_NAME=gpt-4.1 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
+# Models are automatically fetched from the endpoint and cached locally
 export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
-export YOLO_MODE=true # to bypass the safety confirmation prompt when running shell commands
-
 # or ...
 
 export AZURE_OPENAI_API_KEY=...
@@ -61,9 +59,8 @@ Running in a super weird corporate environment?
 
 Try this:
 ```bash
-export MODEL_NAME=my-custom-model
-export YOLO_MODE=true
-export MODELS_JSON_PATH=/path/to/custom/models.json
+# Use the ~m command in interactive mode to switch models
+# Models are now automatically fetched from the endpoint and cached locally
 ```
 
 ```json

@@ -31,10 +31,10 @@ All `~meta` commands are handled in **`code_puppy/command_line/meta_command_hand
 
 ### ~set: Update your code puppy’s settings
 
-`~set` lets you instantly update values in your puppy.cfg, like toggling YOLO_MODE or renaming your puppy on the fly!
+`~set` lets you instantly update values in your puppy.cfg, like renaming your puppy or changing settings on the fly!
 
 - Usage:
-  - `~set YOLO_MODE=true`
+  - `~set yolo_mode=true`
   - `~set puppy_name Snoopy`
   - `~set owner_name="Best Owner"`
 
