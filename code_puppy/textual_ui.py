@@ -382,7 +382,7 @@ class InputArea(Container):
 
 
 class Sidebar(Container):
-    """Sidebar with history, models, and configuration."""
+    """Sidebar with session history."""
 
     DEFAULT_CSS = """
     Sidebar {
@@ -392,25 +392,20 @@ class Sidebar(Container):
         max-width: 50;
         background: $surface;
         border-right: solid $primary;
+        display: none;
     }
 
-    .current-model {
-        color: #10b981;
-        text-style: bold;
+    #sidebar-title {
+        dock: top;
+        height: 3;
+        text-align: center;
+        background: $primary;
+        color: $text;
+        padding: 1;
     }
 
-    .config-item {
-        color: #f3f4f6;
-    }
-
-    .config-separator {
-        color: #6b7280;
-        text-style: dim;
-    }
-
-    .config-session {
-        color: #60a5fa;
-        text-style: italic;
+    #history-list {
+        height: 1fr;
     }
 
     .history-interactive {
@@ -445,13 +440,8 @@ class Sidebar(Container):
     """
 
     def compose(self) -> ComposeResult:
-        with TabbedContent(initial="config"):
-            with TabPane("History", id="history"):
-                yield ListView(id="history-list")
-            with TabPane("Models", id="models"):
-                yield ListView(id="model-list")
-            with TabPane("Config", id="config"):
-                yield ListView(id="config-list")
+        yield Static("📜 Session History", id="sidebar-title")
+        yield ListView(id="history-list")
 
 
 class SettingsScreen(ModalScreen):
@@ -464,7 +454,7 @@ class SettingsScreen(ModalScreen):
 
     #settings-dialog {
         width: 80;
-        height: 23;
+        height: 33;
         border: thick $primary;
         background: $surface;
         padding: 1;
@@ -665,13 +655,10 @@ class CodePuppyTUI(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
         Binding("f1", "show_help", "Help"),
-        Binding("f2", "toggle_sidebar", "Toggle Sidebar"),
+        Binding("f2", "toggle_history", "History"),
         Binding("f3", "focus_input", "Focus Input"),
         Binding("f4", "focus_chat", "Focus Chat"),
         Binding("f5", "open_settings", "Settings"),
-        Binding("ctrl+1", "switch_to_history", "History Tab"),
-        Binding("ctrl+2", "switch_to_models", "Models Tab"),
-        Binding("ctrl+3", "switch_to_config", "Config Tab"),
         Binding("ctrl+up", "scroll_chat_up", "Scroll Up"),
         Binding("ctrl+down", "scroll_chat_down", "Scroll Down"),
         Binding("ctrl+home", "scroll_chat_top", "Scroll to Top"),
@@ -722,14 +709,8 @@ class CodePuppyTUI(App):
 
         # Input field starts empty and focused, help text shows below
 
-        # Load available models
-        self.load_models_list()
-
         # Load session history
         self.load_history_list()
-
-        # Load configuration
-        self.load_config_list()
 
         # Apply responsive design adjustments
         self.apply_responsive_layout()
@@ -798,37 +779,11 @@ class CodePuppyTUI(App):
                 event.prevent_default()
                 return
 
-        # Handle arrow keys for models list navigation
-        if input_field.has_focus:
-            pass  # Already handled above
-        else:
-            # Check if models or history tab is active and handle arrow keys
+        # Handle arrow keys for history list navigation when sidebar is visible
+        if not input_field.has_focus:
             try:
-                tabbed_content = self.query_one(TabbedContent)
-                if tabbed_content.active == "models":
-                    model_list = self.query_one("#model-list", ListView)
-                    if event.key == "up":
-                        # Move up in the models list
-                        current_index = model_list.index
-                        if current_index > 0:
-                            model_list.index = current_index - 1
-                        event.prevent_default()
-                        return
-                    elif event.key == "down":
-                        # Move down in the models list
-                        current_index = model_list.index
-                        if current_index < len(model_list.children) - 1:
-                            model_list.index = current_index + 1
-                        event.prevent_default()
-                        return
-                    elif event.key == "enter":
-                        # Select current model
-                        if model_list.highlighted_child and hasattr(model_list.highlighted_child, 'model_name'):
-                            model_name = model_list.highlighted_child.model_name
-                            self.switch_model(model_name)
-                        event.prevent_default()
-                        return
-                elif tabbed_content.active == "history":
+                sidebar = self.query_one(Sidebar)
+                if sidebar.display:
                     history_list = self.query_one("#history-list", ListView)
                     if event.key == "up":
                         # Move up in the history list
@@ -856,107 +811,6 @@ class CodePuppyTUI(App):
 
         # Let other keys pass through normally
 
-    @on(TabbedContent.TabActivated)
-    def tab_activated(self, event: TabbedContent.TabActivated) -> None:
-        """Handle tab activation to focus appropriate content."""
-        if event.tab.id == "models":
-            # Focus the models list when Models tab is activated
-            try:
-                model_list = self.query_one("#model-list", ListView)
-                model_list.focus()
-                # Also set can_focus to True to ensure it can receive focus
-                model_list.can_focus = True
-            except Exception:
-                pass
-        elif event.tab.id == "history":
-            # Focus the history list when History tab is activated
-            try:
-                history_list = self.query_one("#history-list", ListView)
-                history_list.focus()
-                history_list.can_focus = True
-            except Exception:
-                pass
-
-    @on(ListView.Selected, "#model-list")
-    def model_selected(self, event: ListView.Selected) -> None:
-        """Handle model selection from the models list."""
-        if event.item and hasattr(event.item, 'model_name'):
-            # Use the stored original model name
-            model_name = event.item.model_name
-            self.switch_model(model_name)
-
-    def switch_model(self, model_name: str) -> None:
-        """Switch to a different model."""
-        try:
-            from code_puppy.config import set_model_name
-
-            # Show progress while switching models
-            self.start_agent_progress("Switching")
-
-            # Update configuration
-            set_model_name(model_name)
-            self.current_model = model_name
-
-            # Update status bar
-            status_bar = self.query_one(StatusBar)
-            status_bar.current_model = model_name
-
-            self.update_agent_progress("Loading", 50)
-
-            # Reinitialize agent with new model
-            self.agent = get_code_generation_agent()
-
-            # Update model highlighting without refreshing the entire list
-            self.update_model_highlighting()
-
-            # Refresh configuration display
-            self.refresh_config_display()
-
-            # Add confirmation message
-            self.add_system_message(f"Switched to model: {model_name}")
-
-        except Exception as e:
-            self.add_error_message(f"Failed to switch model: {str(e)}")
-        finally:
-            self.stop_agent_progress()
-
-    def refresh_config_display(self) -> None:
-        """Refresh the configuration display with current values."""
-        try:
-            config_list = self.query_one("#config-list", ListView)
-            config_list.clear()
-            self.load_config_list()
-        except Exception:
-            pass  # Silently fail if config list not available
-
-    def update_model_highlighting(self) -> None:
-        """Update model highlighting to show current selection without recreating widgets."""
-        try:
-            model_list = self.query_one("#model-list", ListView)
-
-            # Update each model item's visual appearance
-            for item in model_list.children:
-                if hasattr(item, 'model_name'):
-                    model_name = item.model_name
-                    label = item.query_one(Label)
-
-                    # Get model type from the current label text
-                    current_text = str(label.renderable)
-                    if "(" in current_text and ")" in current_text:
-                        model_type = current_text.split("(")[1].split(")")[0]
-                    else:
-                        model_type = "unknown"
-
-                    # Update label text and styling
-                    if model_name == self.current_model:
-                        label.update(f"● {model_name} ({model_type})")
-                        label.add_class("current-model")
-                    else:
-                        label.update(f"  {model_name} ({model_type})")
-                        label.remove_class("current-model")
-
-        except Exception:
-            pass  # Silently fail if models list not available
 
     def refresh_history_display(self) -> None:
         """Refresh the history display with current session memory."""
@@ -1084,8 +938,8 @@ class CodePuppyTUI(App):
         help_text = self.get_responsive_help_text()
         self.add_system_message(help_text)
 
-    def action_toggle_sidebar(self) -> None:
-        """Toggle sidebar visibility."""
+    def action_toggle_history(self) -> None:
+        """Toggle history sidebar visibility."""
         sidebar = self.query_one(Sidebar)
         sidebar.display = not sidebar.display
 
@@ -1107,32 +961,6 @@ class CodePuppyTUI(App):
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.focus()
 
-    def action_switch_to_history(self) -> None:
-        """Switch to history tab in sidebar."""
-        try:
-            tabbed_content = self.query_one(TabbedContent)
-            tabbed_content.active = "history"
-        except Exception:
-            pass
-
-    def action_switch_to_models(self) -> None:
-        """Switch to models tab in sidebar."""
-        try:
-            tabbed_content = self.query_one(TabbedContent)
-            tabbed_content.active = "models"
-            # Focus the models list for keyboard navigation
-            model_list = self.query_one("#model-list", ListView)
-            model_list.focus()
-        except Exception:
-            pass
-
-    def action_switch_to_config(self) -> None:
-        """Switch to config tab in sidebar."""
-        try:
-            tabbed_content = self.query_one(TabbedContent)
-            tabbed_content.active = "config"
-        except Exception:
-            pass
 
     def action_scroll_chat_up(self) -> None:
         """Scroll chat view up."""
@@ -1158,9 +986,6 @@ class CodePuppyTUI(App):
         """Open the settings configuration screen."""
         def handle_settings_result(result):
             if result and result.get("success"):
-                # Refresh the config display to show updated values
-                self.refresh_config_display()
-
                 # Update reactive variables
                 from code_puppy.config import get_puppy_name, get_model_name
                 self.puppy_name = get_puppy_name()
@@ -1171,8 +996,6 @@ class CodePuppyTUI(App):
                     self.current_model = new_model
                     # Reinitialize agent with new model
                     self.agent = get_code_generation_agent()
-                    # Update model highlighting in sidebar
-                    self.update_model_highlighting()
 
                 # Update status bar
                 status_bar = self.query_one(StatusBar)
@@ -1186,43 +1009,6 @@ class CodePuppyTUI(App):
                 self.add_error_message(result.get("message", "Settings update failed"))
 
         self.push_screen(SettingsScreen(), handle_settings_result)
-
-    def load_models_list(self) -> None:
-        """Load available models into the models tab."""
-        try:
-            import json
-            from pathlib import Path
-            import os
-
-            # Use the same models file that the config system uses
-            # Check for user's custom models file first, then fall back to default
-            models_path = Path.home() / ".codepuppy_models.json"
-            if not models_path.exists():
-                models_path = Path(__file__).parent / "models.json"
-
-            with open(models_path, 'r') as f:
-                models_data = json.load(f)
-
-            model_list = self.query_one("#model-list", ListView)
-
-            # Add each model as a selectable item
-            for model_name, model_config in models_data.items():
-                model_type = model_config.get("type", "unknown")
-                # Highlight current model
-                if model_name == self.current_model:
-                    label_text = f"● {model_name} ({model_type})"
-                    label = Label(label_text, classes="current-model")
-                else:
-                    label_text = f"  {model_name} ({model_type})"
-                    label = Label(label_text)
-
-                # Create a valid ID by replacing invalid characters
-                safe_id = f"model-{model_name}".replace(".", "_").replace("-", "_").replace("/", "_")
-                model_item = ListItem(label, id=safe_id)
-                model_item.model_name = model_name  # Store original name as attribute
-                model_list.append(model_item)
-        except Exception as e:
-            self.add_error_message(f"Failed to load models: {e}")
 
     def load_history_list(self) -> None:
         """Load session history into the history tab."""
@@ -1310,30 +1096,6 @@ class CodePuppyTUI(App):
 
         except Exception as e:
             self.add_error_message(f"Failed to load history: {e}")
-
-    def load_config_list(self) -> None:
-        """Load configuration into the config tab."""
-        try:
-            from code_puppy.config import get_message_history_limit
-
-            config_list = self.query_one("#config-list", ListView)
-
-            # Core configuration
-            config_list.append(ListItem(Label(f"Model: {get_model_name()}", classes="config-item")))
-            config_list.append(ListItem(Label(f"Puppy Name: {get_puppy_name()}", classes="config-item")))
-            config_list.append(ListItem(Label(f"Owner: {get_owner_name()}", classes="config-item")))
-            config_list.append(ListItem(Label(f"YOLO Mode: {get_yolo_mode()}", classes="config-item")))
-            config_list.append(ListItem(Label(f"History Limit: {get_message_history_limit()}", classes="config-item")))
-
-            # Add a separator
-            config_list.append(ListItem(Label("─" * 25, classes="config-separator")))
-
-            # Session information
-            config_list.append(ListItem(Label(f"Messages: {len(self.message_history)}", classes="config-session")))
-            config_list.append(ListItem(Label(f"Agent Status: {'Busy' if self.agent_busy else 'Ready'}", classes="config-session")))
-
-        except Exception as e:
-            self.add_error_message(f"Failed to load config: {e}")
 
     def show_history_details(self, history_entry: dict) -> None:
         """Show detailed information about a selected history entry."""
@@ -1460,8 +1222,6 @@ class CodePuppyTUI(App):
                 if sidebar.display:
                     sidebar.display = False
                     self.add_system_message("💡 Sidebar auto-hidden for narrow terminal. Press F2 to toggle.")
-            elif terminal_width >= 60 and not sidebar.display:
-                sidebar.display = True
 
             # Adjust input area height for very short terminals
             if terminal_height < 20:
@@ -1490,7 +1250,7 @@ Controls:
 - Enter: Send message
 - Ctrl+Enter: New line
 - Ctrl+Q: Quit
-- F2: Toggle sidebar
+- F2: Toggle history
 - F3: Focus input
 - F5: Settings
 
@@ -1510,15 +1270,10 @@ Keyboard Shortcuts:
 - Ctrl+Q/Ctrl+C: Quit application
 - Ctrl+L: Clear chat history
 - F1: Show this help
-- F2: Toggle sidebar
+- F2: Toggle history
 - F3: Focus input field
 - F4: Focus chat area
 - F5: Open settings
-
-Tab Navigation:
-- Ctrl+1: Switch to History tab
-- Ctrl+2: Switch to Models tab (use arrows + Enter to select)
-- Ctrl+3: Switch to Config tab
 
 Chat Navigation:
 - Ctrl+Up/Down: Scroll chat up/down
