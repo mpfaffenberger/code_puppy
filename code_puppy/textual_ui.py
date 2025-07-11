@@ -1012,9 +1012,6 @@ class CodePuppyTUI(App):
                 new_msgs = result.new_messages()
                 self.message_history.extend(new_msgs)
 
-                # Refresh config display to show updated message count
-                self.refresh_config_display()
-
                 # Refresh history display to show new interaction
                 self.refresh_history_display()
 
