@@ -92,9 +92,7 @@ async def main():
         )
         return
 
-    console.print(
-        f"[dim]Starting HTTP server on http://127.0.0.1:{available_port}[/dim]"
-    )
+    # HTTP server starts silently in the background
 
     # Start the HTTP server in the background
     async def run_http_server():

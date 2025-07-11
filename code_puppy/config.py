@@ -119,12 +119,22 @@ def load_mcp_server_configs():
         return {}
 
 
+# Cache for model validation to prevent hitting ModelFactory on every call
+_model_validation_cache = {}
+_default_model_cache = None
+
 def _default_model_from_models_json():
     """Attempt to load the first model name from models.json.
 
     Falls back to the hard-coded default (``claude-4-0-sonnet``) if the file
     cannot be read for any reason or is empty.
     """
+    global _default_model_cache
+    
+    # Return cached default if we have one
+    if _default_model_cache is not None:
+        return _default_model_cache
+    
     try:
         # Local import to avoid potential circular dependency on module import
         from code_puppy.model_factory import ModelFactory
@@ -132,10 +142,43 @@ def _default_model_from_models_json():
         models_config_path = os.path.join(CONFIG_DIR, "models.json")
         models_config = ModelFactory.load_config(models_config_path)
         first_key = next(iter(models_config))  # Raises StopIteration if empty
+        _default_model_cache = first_key
         return first_key
     except Exception:
         # Any problem (network, file missing, empty dict, etc.) => fall back
+        _default_model_cache = "claude-4-0-sonnet"
         return "claude-4-0-sonnet"
+
+
+def _validate_model_exists(model_name: str) -> bool:
+    """Check if a model exists in models.json with caching to avoid redundant calls."""
+    global _model_validation_cache
+    
+    # Check cache first
+    if model_name in _model_validation_cache:
+        return _model_validation_cache[model_name]
+    
+    try:
+        from code_puppy.model_factory import ModelFactory
+        
+        models_config_path = os.path.join(CONFIG_DIR, "models.json")
+        models_config = ModelFactory.load_config(models_config_path)
+        exists = model_name in models_config
+        
+        # Cache the result
+        _model_validation_cache[model_name] = exists
+        return exists
+    except Exception:
+        # If we can't validate, assume it exists to avoid breaking things
+        _model_validation_cache[model_name] = True
+        return True
+
+
+def clear_model_cache():
+    """Clear the model validation cache. Call this when models.json changes."""
+    global _model_validation_cache, _default_model_cache
+    _model_validation_cache.clear()
+    _default_model_cache = None
 
 
 def get_model_name():
@@ -151,15 +194,8 @@ def get_model_name():
     stored_model = get_value("model")
 
     if stored_model:
-        try:
-            from code_puppy.model_factory import ModelFactory
-
-            models_config_path = os.path.join(CONFIG_DIR, "models.json")
-            models_config = ModelFactory.load_config(models_config_path)
-            if stored_model in models_config:
-                return stored_model
-        except Exception:
-            # If we can't validate (e.g. unable to load models.json), just use it
+        # Use cached validation to avoid hitting ModelFactory every time
+        if _validate_model_exists(stored_model):
             return stored_model
 
     # Either no stored model or it's not valid – choose default from models.json
@@ -175,6 +211,9 @@ def set_model_name(model: str):
     config[DEFAULT_SECTION]["model"] = model or ""
     with open(CONFIG_FILE, "w") as f:
         config.write(f)
+    
+    # Clear model cache when switching models to ensure fresh validation
+    clear_model_cache()
 
 
 def get_puppy_token():
