@@ -1,3 +1,5 @@
+
+
 import os
 import json
 import tempfile
@@ -200,7 +202,10 @@ def test_load_config_remote_success():
     try:
         with patch("httpx.Client") as mock_client:
             mock_response = Mock()
-            mock_response.json.return_value = remote_config
+            # Clear cache to prevent interference
+            ModelFactory.clear_cache()
+            # Fix mock response structure to match expected API format
+            mock_response.json.return_value = {"config": remote_config}
             mock_response.raise_for_status.return_value = None
             mock_client.return_value.__enter__.return_value.get.return_value = (
                 mock_response
@@ -249,8 +254,11 @@ def test_load_config_remote_same_as_local():
 
     try:
         with patch("httpx.Client") as mock_client:
+            # Clear cache to prevent interference
+            ModelFactory.clear_cache()
             mock_response = Mock()
-            mock_response.json.return_value = config  # Same as local
+            # Fix mock response structure to match expected API format
+            mock_response.json.return_value = {"config": config}  # Same as local
             mock_response.raise_for_status.return_value = None
             mock_client.return_value.__enter__.return_value.get.return_value = (
                 mock_response
@@ -285,7 +293,10 @@ def test_load_config_remote_success_no_local_file():
 
         with patch("httpx.Client") as mock_client:
             mock_response = Mock()
-            mock_response.json.return_value = remote_config
+            # Clear cache to prevent interference
+            ModelFactory.clear_cache()
+            # Fix mock response structure to match expected API format
+            mock_response.json.return_value = {"config": remote_config}
             mock_response.raise_for_status.return_value = None
             mock_client.return_value.__enter__.return_value.get.return_value = (
                 mock_response
@@ -299,3 +310,11 @@ def test_load_config_remote_success_no_local_file():
             with open(local_path, "r") as f:
                 saved_config = json.load(f)
             assert saved_config == remote_config
+
+
+def test_load_config_caching_prevents_redundant_calls():
+    """Test that caching prevents redundant network calls for the same config path"""
+    # Clear cache to start fresh
+    ModelFactory.clear_cache()
+    
+    remote_config = {"cached_model": {"type": "openai"

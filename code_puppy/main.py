@@ -81,6 +81,9 @@ def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
 
 
 async def main():
+    # Show immediate loading feedback to user
+    console.print("[bold blue]🐶 Code Puppy is Loading...[/bold blue]")
+    
     # Find an available port for the HTTP server
     available_port = find_available_port()
     if available_port is None:
@@ -89,9 +92,7 @@ async def main():
         )
         return
 
-    console.print(
-        f"[dim]Starting HTTP server on http://127.0.0.1:{available_port}[/dim]"
-    )
+    # HTTP server starts silently in the background
 
     # Start the HTTP server in the background
     async def run_http_server():
