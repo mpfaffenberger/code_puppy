@@ -16,7 +16,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Header, Footer, Static, Input, Button, ListView, ListItem,
-    Label, RichLog, TextArea, TabbedContent, TabPane
+    Label, RichLog, TextArea, TabbedContent, TabPane, ProgressBar
 )
 from textual.binding import Binding
 from textual.message import Message
@@ -126,6 +126,8 @@ class StatusBar(Static):
     current_model = reactive("")
     puppy_name = reactive("")
     connection_status = reactive("Connected")
+    agent_status = reactive("Ready")
+    progress_visible = reactive(False)
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-content")
@@ -139,15 +141,40 @@ class StatusBar(Static):
     def watch_connection_status(self) -> None:
         self.update_status()
 
+    def watch_agent_status(self) -> None:
+        self.update_status()
+
+    def watch_progress_visible(self) -> None:
+        self.update_status()
+
     def update_status(self) -> None:
         """Update the status bar content."""
         from rich.text import Text
         
         status_widget = self.query_one("#status-content", Static)
-        status_text = f"🐶 {self.puppy_name} | Model: {self.current_model} | Status: {self.connection_status}"
         
-        # Create right-aligned Rich Text object
-        rich_text = Text(status_text, justify="right")
+        # Add agent status indicator with different colors
+        if self.agent_status == "Thinking":
+            status_indicator = "🤔"
+            status_color = "yellow"
+        elif self.agent_status == "Processing":
+            status_indicator = "⚡"
+            status_color = "blue"
+        elif self.agent_status == "Busy":
+            status_indicator = "🔄"
+            status_color = "orange"
+        else:  # Ready
+            status_indicator = "✅"
+            status_color = "green"
+        
+        status_text = f"🐶 {self.puppy_name} | Model: {self.current_model} | {status_indicator} {self.agent_status}"
+        
+        # Create right-aligned Rich Text object with colored status
+        rich_text = Text()
+        rich_text.append(f"🐶 {self.puppy_name} | Model: {self.current_model} | ")
+        rich_text.append(f"{status_indicator} {self.agent_status}", style=status_color)
+        rich_text.justify = "right"
+        
         status_widget.update(rich_text)
 
 
@@ -298,12 +325,12 @@ class ChatView(VerticalScroll):
 
 
 class InputArea(Container):
-    """Input area with text input and send button."""
+    """Input area with text input, progress bar, and send button."""
 
     DEFAULT_CSS = """
     InputArea {
         dock: bottom;
-        height: 7;
+        height: 8;
         margin: 1;
     }
 
@@ -314,9 +341,21 @@ class InputArea(Container):
         border: round $primary;
         background: $surface;
     }
+    
+    #progress-bar {
+        height: 1;
+        width: 1fr;
+        margin: 0 3 0 1;
+        display: none;
+    }
+    
+    #progress-bar.visible {
+        display: block;
+    }
     """
 
     def compose(self) -> ComposeResult:
+        yield ProgressBar(id="progress-bar", show_eta=False)
         yield CustomTextArea(
             id="input-field",
             show_line_numbers=False
@@ -351,6 +390,36 @@ class Sidebar(Container):
     .config-session {
         color: #60a5fa;
         text-style: italic;
+    }
+    
+    .history-interactive {
+        color: #34d399;
+    }
+    
+    .history-tui {
+        color: #60a5fa;
+    }
+    
+    .history-system {
+        color: #fbbf24;
+        text-style: italic;
+    }
+    
+    .history-command {
+        color: #f87171;
+    }
+    
+    .history-generic {
+        color: #d1d5db;
+    }
+    
+    .history-empty {
+        color: #6b7280;
+        text-style: italic;
+    }
+    
+    .history-error {
+        color: #ef4444;
     }
     """
 
@@ -437,6 +506,7 @@ class CodePuppyTUI(App):
         status_bar = self.query_one(StatusBar)
         status_bar.current_model = self.current_model
         status_bar.puppy_name = self.puppy_name
+        status_bar.agent_status = "Ready"
 
         # Add welcome message
         self.add_system_message(
@@ -450,6 +520,9 @@ class CodePuppyTUI(App):
 
         # Load available models
         self.load_models_list()
+
+        # Load session history
+        self.load_history_list()
 
         # Load configuration
         self.load_config_list()
@@ -522,7 +595,7 @@ class CodePuppyTUI(App):
         if input_field.has_focus:
             pass  # Already handled above
         else:
-            # Check if models tab is active and handle arrow keys
+            # Check if models or history tab is active and handle arrow keys
             try:
                 tabbed_content = self.query_one(TabbedContent)
                 if tabbed_content.active == "models":
@@ -548,6 +621,29 @@ class CodePuppyTUI(App):
                             self.switch_model(model_name)
                         event.prevent_default()
                         return
+                elif tabbed_content.active == "history":
+                    history_list = self.query_one("#history-list", ListView)
+                    if event.key == "up":
+                        # Move up in the history list
+                        current_index = history_list.index
+                        if current_index > 0:
+                            history_list.index = current_index - 1
+                        event.prevent_default()
+                        return
+                    elif event.key == "down":
+                        # Move down in the history list
+                        current_index = history_list.index
+                        if current_index < len(history_list.children) - 1:
+                            history_list.index = current_index + 1
+                        event.prevent_default()
+                        return
+                    elif event.key == "enter":
+                        # Show details of current history item
+                        if history_list.highlighted_child and hasattr(history_list.highlighted_child, 'history_entry'):
+                            history_entry = history_list.highlighted_child.history_entry
+                            self.show_history_details(history_entry)
+                        event.prevent_default()
+                        return
             except Exception:
                 pass
         
@@ -565,6 +661,14 @@ class CodePuppyTUI(App):
                 model_list.can_focus = True
             except Exception:
                 pass
+        elif event.tab.id == "history":
+            # Focus the history list when History tab is activated
+            try:
+                history_list = self.query_one("#history-list", ListView)
+                history_list.focus()
+                history_list.can_focus = True
+            except Exception:
+                pass
 
     @on(ListView.Selected, "#model-list")
     def model_selected(self, event: ListView.Selected) -> None:
@@ -579,6 +683,9 @@ class CodePuppyTUI(App):
         try:
             from code_puppy.config import set_model_name
             
+            # Show progress while switching models
+            self.start_agent_progress("Switching")
+            
             # Update configuration
             set_model_name(model_name)
             self.current_model = model_name
@@ -586,6 +693,8 @@ class CodePuppyTUI(App):
             # Update status bar
             status_bar = self.query_one(StatusBar)
             status_bar.current_model = model_name
+            
+            self.update_agent_progress("Loading", 50)
             
             # Reinitialize agent with new model
             self.agent = get_code_generation_agent()
@@ -601,6 +710,8 @@ class CodePuppyTUI(App):
             
         except Exception as e:
             self.add_error_message(f"Failed to switch model: {str(e)}")
+        finally:
+            self.stop_agent_progress()
     
     def refresh_config_display(self) -> None:
         """Refresh the configuration display with current values."""
@@ -639,6 +750,17 @@ class CodePuppyTUI(App):
                         
         except Exception:
             pass  # Silently fail if models list not available
+    
+    def refresh_history_display(self) -> None:
+        """Refresh the history display with current session memory."""
+        try:
+            history_list = self.query_one("#history-list", ListView)
+            # Remove all children manually to ensure proper clearing
+            for child in list(history_list.children):
+                child.remove()
+            self.load_history_list()
+        except Exception:
+            pass  # Silently fail if history list not available
 
     def action_send_message(self) -> None:
         """Send the current message."""
@@ -664,6 +786,7 @@ class CodePuppyTUI(App):
         """Process a user message asynchronously."""
         try:
             self.agent_busy = True
+            self.start_agent_progress("Thinking")
 
             # Handle meta commands
             if message.strip().startswith('~'):
@@ -708,9 +831,12 @@ class CodePuppyTUI(App):
 
             # Process with agent
             if self.agent:
+                self.update_agent_progress("Processing", 25)
                 async with self.agent.run_mcp_servers():
+                    self.update_agent_progress("Processing", 50)
                     result = await self.agent.run(message, message_history=self.message_history)
 
+                self.update_agent_progress("Processing", 75)
                 agent_response = result.output
                 self.add_agent_message(agent_response.output_message)
 
@@ -720,6 +846,9 @@ class CodePuppyTUI(App):
                 
                 # Refresh config display to show updated message count
                 self.refresh_config_display()
+                
+                # Refresh history display to show new interaction
+                self.refresh_history_display()
 
                 # Log to session memory
                 if self.session_memory:
@@ -737,6 +866,7 @@ class CodePuppyTUI(App):
             self.add_error_message(f"Error processing message: {str(e)}")
         finally:
             self.agent_busy = False
+            self.stop_agent_progress()
 
     def action_clear_chat(self) -> None:
         """Clear the chat history."""
@@ -886,6 +1016,70 @@ Agent responses support syntax highlighting for code blocks.
         except Exception as e:
             self.add_error_message(f"Failed to load models: {e}")
 
+    def load_history_list(self) -> None:
+        """Load session history into the history tab."""
+        try:
+            from datetime import datetime, timedelta
+            
+            history_list = self.query_one("#history-list", ListView)
+            
+            # Get history from session memory
+            if self.session_memory:
+                # Get recent history (last 24 hours by default)
+                recent_history = self.session_memory.get_history(within_minutes=24*60)
+                
+                if not recent_history:
+                    # No history available
+                    history_list.append(ListItem(Label("No recent history", classes="history-empty")))
+                    return
+                
+                # Filter out model loading entries and group history by type, display most recent first
+                filtered_history = [
+                    entry for entry in recent_history
+                    if not entry.get("description", "").startswith("Agent loaded")
+                ]
+                
+                for entry in reversed(filtered_history[-20:]):  # Show last 20 entries
+                    timestamp_str = entry.get("timestamp", "")
+                    description = entry.get("description", "Unknown task")
+                    
+                    # Parse timestamp for display
+                    try:
+                        timestamp_obj = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        time_display = timestamp_obj.strftime("%H:%M:%S")
+                        date_display = timestamp_obj.strftime("%m/%d")
+                    except:
+                        time_display = timestamp_str[:8] if len(timestamp_str) > 8 else "??:??:??"
+                        date_display = "??/??"
+                    
+                    # Format description for display
+                    if description.startswith("Interactive task:"):
+                        task_text = description[17:].strip()  # Remove "Interactive task: "
+                        display_text = f"[{time_display}] 💬 {task_text[:40]}{'...' if len(task_text) > 40 else ''}"
+                        css_class = "history-interactive"
+                    elif description.startswith("TUI interaction:"):
+                        task_text = description[16:].strip()  # Remove "TUI interaction: "
+                        display_text = f"[{time_display}] 🖥️ {task_text[:40]}{'...' if len(task_text) > 40 else ''}"
+                        css_class = "history-tui"
+                    elif description.startswith("Command executed"):
+                        cmd_text = description[18:].strip()  # Remove "Command executed: "
+                        display_text = f"[{time_display}] ⚡ {cmd_text[:35]}{'...' if len(cmd_text) > 35 else ''}"
+                        css_class = "history-command"
+                    else:
+                        # Generic entry
+                        display_text = f"[{time_display}] 📝 {description[:40]}{'...' if len(description) > 40 else ''}"
+                        css_class = "history-generic"
+                    
+                    label = Label(display_text, classes=css_class)
+                    history_item = ListItem(label)
+                    history_item.history_entry = entry  # Store full entry for detail view
+                    history_list.append(history_item)
+            else:
+                history_list.append(ListItem(Label("Session memory not available", classes="history-error")))
+                
+        except Exception as e:
+            self.add_error_message(f"Failed to load history: {e}")
+
     def load_config_list(self) -> None:
         """Load configuration into the config tab."""
         try:
@@ -909,6 +1103,91 @@ Agent responses support syntax highlighting for code blocks.
             
         except Exception as e:
             self.add_error_message(f"Failed to load config: {e}")
+
+    def show_history_details(self, history_entry: dict) -> None:
+        """Show detailed information about a selected history entry."""
+        try:
+            timestamp = history_entry.get("timestamp", "Unknown time")
+            description = history_entry.get("description", "No description")
+            output = history_entry.get("output", "")
+            awaiting_input = history_entry.get("awaiting_user_input", False)
+            
+            # Parse timestamp for better display
+            try:
+                from datetime import datetime
+                timestamp_obj = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                formatted_time = timestamp_obj.strftime("%Y-%m-%d %H:%M:%S")
+            except:
+                formatted_time = timestamp
+            
+            # Create detailed view content
+            details = [
+                f"Timestamp: {formatted_time}",
+                f"Description: {description}",
+                "",
+            ]
+            
+            if output:
+                details.extend([
+                    "Output:",
+                    "─" * 40,
+                    output,
+                    "",
+                ])
+            
+            if awaiting_input:
+                details.append("⚠️  Was awaiting user input")
+            
+            # Display details as a system message in the chat
+            detail_text = "\n".join(details)
+            self.add_system_message(f"History Details:\n{detail_text}")
+            
+        except Exception as e:
+            self.add_error_message(f"Failed to show history details: {e}")
+
+    def set_agent_status(self, status: str, show_progress: bool = False) -> None:
+        """Update agent status and optionally show/hide progress bar."""
+        try:
+            # Update status bar
+            status_bar = self.query_one(StatusBar)
+            status_bar.agent_status = status
+            
+            # Update progress bar visibility
+            progress_bar = self.query_one("#progress-bar", ProgressBar)
+            if show_progress:
+                progress_bar.add_class("visible")
+                progress_bar.display = True
+                if status == "Thinking":
+                    progress_bar.progress = 0  # Start from beginning
+                elif status == "Processing":
+                    progress_bar.progress = 50  # Mid-progress
+            else:
+                progress_bar.remove_class("visible")
+                progress_bar.display = False
+                progress_bar.progress = 0  # Reset progress
+                
+        except Exception:
+            pass  # Silently fail if widgets not available
+
+    def start_agent_progress(self, initial_status: str = "Thinking") -> None:
+        """Start showing agent progress indicators."""
+        self.set_agent_status(initial_status, show_progress=True)
+        
+    def update_agent_progress(self, status: str, progress: int = None) -> None:
+        """Update agent progress during processing."""
+        try:
+            status_bar = self.query_one(StatusBar)
+            status_bar.agent_status = status
+            
+            if progress is not None:
+                progress_bar = self.query_one("#progress-bar", ProgressBar)
+                progress_bar.progress = progress
+        except Exception:
+            pass
+            
+    def stop_agent_progress(self) -> None:
+        """Stop showing agent progress indicators."""
+        self.set_agent_status("Ready", show_progress=False)
 
 
 async def run_textual_ui():
