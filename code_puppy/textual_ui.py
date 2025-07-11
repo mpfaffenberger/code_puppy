@@ -126,8 +126,13 @@ class StatusBar(Static):
     def update_status(self) -> None:
         """Update the status bar content with responsive design."""
         from rich.text import Text
+        import os
 
         status_widget = self.query_one("#status-content", Static)
+
+        # Get current working directory
+        cwd = os.getcwd()
+        cwd_short = os.path.basename(cwd) if cwd != "/" else "/"
 
         # Add agent status indicator with different colors
         if self.agent_status == "Thinking":
@@ -152,24 +157,29 @@ class StatusBar(Static):
         # Create responsive status text based on terminal width
         rich_text = Text()
 
-        if terminal_width >= 100:
+        if terminal_width >= 120:
+            # Extra wide - show full path and all info
+            rich_text.append(f"📁 {cwd} | 🐶 {self.puppy_name} | Model: {self.current_model} | ")
+            rich_text.append(f"{status_indicator} {self.agent_status}", style=status_color)
+        elif terminal_width >= 100:
             # Full status display for wide terminals
-            rich_text.append(f"🐶 {self.puppy_name} | Model: {self.current_model} | ")
+            rich_text.append(f"📁 {cwd_short} | 🐶 {self.puppy_name} | Model: {self.current_model} | ")
             rich_text.append(f"{status_indicator} {self.agent_status}", style=status_color)
         elif terminal_width >= 80:
             # Medium display - shorten model name if needed
             model_display = self.current_model[:15] + "..." if len(self.current_model) > 18 else self.current_model
-            rich_text.append(f"🐶 {self.puppy_name} | {model_display} | ")
+            rich_text.append(f"📁 {cwd_short} | 🐶 {self.puppy_name} | {model_display} | ")
             rich_text.append(f"{status_indicator} {self.agent_status}", style=status_color)
         elif terminal_width >= 60:
             # Compact display - use abbreviations
             puppy_short = self.puppy_name[:8] + "..." if len(self.puppy_name) > 10 else self.puppy_name
             model_short = self.current_model[:12] + "..." if len(self.current_model) > 15 else self.current_model
-            rich_text.append(f"🐶 {puppy_short} | {model_short} | ")
+            rich_text.append(f"📁 {cwd_short} | 🐶 {puppy_short} | {model_short} | ")
             rich_text.append(f"{status_indicator}", style=status_color)
         else:
             # Minimal display for very narrow terminals
-            rich_text.append(f"🐶 {self.puppy_name[:6]} | ")
+            cwd_mini = cwd_short[:8] + "..." if len(cwd_short) > 10 else cwd_short
+            rich_text.append(f"📁 {cwd_mini} | ")
             rich_text.append(f"{status_indicator}", style=status_color)
 
         rich_text.justify = "right"
