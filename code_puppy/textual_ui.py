@@ -113,7 +113,13 @@ class StatusBar(Static):
         height: 1;
         background: $primary;
         color: $text;
-        text-align: center;
+        text-align: right;
+        padding: 0 1;
+    }
+    
+    #status-content {
+        text-align: right;
+        width: 100%;
     }
     """
 
@@ -135,9 +141,14 @@ class StatusBar(Static):
 
     def update_status(self) -> None:
         """Update the status bar content."""
+        from rich.text import Text
+        
         status_widget = self.query_one("#status-content", Static)
         status_text = f"🐶 {self.puppy_name} | Model: {self.current_model} | Status: {self.connection_status}"
-        status_widget.update(status_text)
+        
+        # Create right-aligned Rich Text object
+        rich_text = Text(status_text, justify="right")
+        status_widget.update(rich_text)
 
 
 class ChatView(VerticalScroll):
