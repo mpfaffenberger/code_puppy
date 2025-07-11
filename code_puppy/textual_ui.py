@@ -378,7 +378,7 @@ class InputArea(Container):
             id="input-field",
             show_line_numbers=False
         )
-        yield Static("Enter to send • Ctrl+Enter for new line • F1 for help", id="input-help")
+        yield Static("Enter to send • Ctrl+Enter for new line • Ctrl+1 for help", id="input-help")
 
 
 class Sidebar(Container):
@@ -574,9 +574,10 @@ Controls:
 - Enter: Send message
 - Ctrl+Enter: New line
 - Ctrl+Q: Quit
-- F2: Toggle history
-- F3: Focus input
-- F5: Settings
+- Ctrl+2: Toggle history
+- Ctrl+3: Settings
+- Ctrl+4: Focus prompt
+- Ctrl+5: Focus response
 
 Use this help for full details.
 """
@@ -593,11 +594,11 @@ Input Controls:
 Keyboard Shortcuts:
 - Ctrl+Q/Ctrl+C: Quit application
 - Ctrl+L: Clear chat history
-- F1: Show this help
-- F2: Toggle history
-- F3: Focus input field
-- F4: Focus chat area
-- F5: Open settings
+- Ctrl+1: Show this help
+- Ctrl+2: Toggle history
+- Ctrl+3: Open settings
+- Ctrl+4: Focus prompt (input field)
+- Ctrl+5: Focus response (chat area)
 
 Chat Navigation:
 - Ctrl+Up/Down: Scroll chat up/down
@@ -612,9 +613,9 @@ Meta Commands:
 - ~status: Show current status
 
 Use the input area at the bottom to type messages.
-Press F2 to view session history when needed.
+Press Ctrl+2 to view session history when needed.
 Agent responses support syntax highlighting for code blocks.
-Press F5 to access all configuration settings.
+Press Ctrl+3 to access all configuration settings.
 """
 
     @on(Button.Pressed, "#dismiss-button")
@@ -838,11 +839,11 @@ class CodePuppyTUI(App):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
-        Binding("f1", "show_help", "Help"),
-        Binding("f2", "toggle_history", "History"),
-        Binding("f3", "focus_input", "Focus Input"),
-        Binding("f4", "focus_chat", "Focus Chat"),
-        Binding("f5", "open_settings", "Settings"),
+        Binding("ctrl+1", "show_help", "Help"),
+        Binding("ctrl+2", "toggle_history", "History"),
+        Binding("ctrl+3", "open_settings", "Settings"),
+        Binding("ctrl+4", "focus_input", "Focus Prompt"),
+        Binding("ctrl+5", "focus_chat", "Focus Response"),
         Binding("ctrl+up", "scroll_chat_up", "Scroll Up"),
         Binding("ctrl+down", "scroll_chat_down", "Scroll Down"),
         Binding("ctrl+home", "scroll_chat_top", "Scroll to Top"),
