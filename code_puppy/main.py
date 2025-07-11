@@ -176,7 +176,7 @@ async def main():
     elif args.tui:
         # Import here to avoid dependency issues if textual is not available
         try:
-            from code_puppy.textual_ui import run_textual_ui
+            from code_puppy.tui import run_textual_ui
             await run_textual_ui()
         except ImportError:
             console.print("[bold red]Error:[/bold red] Textual UI not available. Install with: pip install textual")
