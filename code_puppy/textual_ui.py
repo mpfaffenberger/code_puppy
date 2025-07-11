@@ -60,45 +60,21 @@ class ChatMessage:
 
 class CustomTextArea(TextArea):
     """Custom TextArea that sends a message with Enter and allows new lines with Shift+Enter."""
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._placeholder_active = False
-    
-    async def on_focus(self) -> None:
-        """Clear placeholder when focused."""
-        if self._placeholder_active:
-            self.text = ""
-            self._placeholder_active = False
-    
+
     def _on_key(self, event: Key) -> None:
         """Override internal key handler to intercept Enter keys."""
-        # Debug: Log all key events to understand what we're receiving
-        # self.app.log(f"Key event: {event.key}, str: {str(event)}, repr: {repr(event)}")
-        
-        # Clear placeholder on any key press (except special keys)
-        if self._placeholder_active and event.key not in ("escape", "tab", "up", "down", "left", "right"):
-            self.text = ""
-            self._placeholder_active = False
-        
-        # Handle Enter and Shift+Enter specifically
+        # Handle Enter specifically
         if event.key == "enter":
             # Plain Enter: send message
             self.post_message(self.MessageSent())
             return  # Don't call super() to prevent default newline behavior
-        
-        # Try multiple ways to detect Shift+Enter
-        event_str = str(event).lower()
-        if (event.key == "shift+enter" or 
-            "shift+enter" in event_str or
-            (event.key == "enter" and "shift" in event_str)):
-            # Shift+Enter: insert newline
-            self.insert("\n")
-            return  # Don't call super()
-        
+
         # For all other keys, use the default TextArea behavior
         super()._on_key(event)
-    
+
     class MessageSent(Message):
         """Message sent when Enter key is pressed (without Shift)."""
         pass
@@ -116,7 +92,7 @@ class StatusBar(Static):
         text-align: right;
         padding: 0 1;
     }
-    
+
     #status-content {
         text-align: right;
         width: 100%;
@@ -150,9 +126,9 @@ class StatusBar(Static):
     def update_status(self) -> None:
         """Update the status bar content with responsive design."""
         from rich.text import Text
-        
+
         status_widget = self.query_one("#status-content", Static)
-        
+
         # Add agent status indicator with different colors
         if self.agent_status == "Thinking":
             status_indicator = "🤔"
@@ -166,16 +142,16 @@ class StatusBar(Static):
         else:  # Ready
             status_indicator = "✅"
             status_color = "green"
-        
+
         # Get terminal width for responsive content
         try:
             terminal_width = self.app.size.width if hasattr(self.app, 'size') else 80
         except:
             terminal_width = 80
-        
+
         # Create responsive status text based on terminal width
         rich_text = Text()
-        
+
         if terminal_width >= 100:
             # Full status display for wide terminals
             rich_text.append(f"🐶 {self.puppy_name} | Model: {self.current_model} | ")
@@ -195,7 +171,7 @@ class StatusBar(Static):
             # Minimal display for very narrow terminals
             rich_text.append(f"🐶 {self.puppy_name[:6]} | ")
             rich_text.append(f"{status_indicator}", style=status_color)
-        
+
         rich_text.justify = "right"
         status_widget.update(rich_text)
 
@@ -252,14 +228,14 @@ class ChatView(VerticalScroll):
         """Render agent message with proper syntax highlighting for code blocks."""
         from rich.console import Group
         from rich.text import Text
-        
+
         # Split content by code blocks
         parts = re.split(r'(```[\s\S]*?```)', content)
         rendered_parts = []
-        
+
         # Add prefix as the first part
         rendered_parts.append(Text(prefix, style="bold"))
-        
+
         for i, part in enumerate(parts):
             if part.startswith('```') and part.endswith('```'):
                 # This is a code block
@@ -268,7 +244,7 @@ class ChatView(VerticalScroll):
                     # First line might contain language identifier
                     language = lines[0].strip() if lines[0].strip() else "text"
                     code_content = '\n'.join(lines[1:]) if len(lines) > 1 else ""
-                    
+
                     if code_content.strip():
                         # Create syntax highlighted code
                         try:
@@ -292,7 +268,7 @@ class ChatView(VerticalScroll):
                 # Regular text
                 if part.strip():
                     rendered_parts.append(Text(part))
-        
+
         return Group(*rendered_parts)
 
 
@@ -347,30 +323,38 @@ class ChatView(VerticalScroll):
 
 
 class InputArea(Container):
-    """Input area with text input, progress bar, and send button."""
+    """Input area with text input, progress bar, help text, and send button."""
 
     DEFAULT_CSS = """
     InputArea {
         dock: bottom;
-        height: 8;
+        height: 9;
         margin: 1;
     }
 
     #input-field {
         height: 5;
         width: 1fr;
-        margin: 1 3 1 1;
+        margin: 1 3 0 1;
         border: round $primary;
         background: $surface;
     }
-    
+
+    #input-help {
+        height: 1;
+        width: 1fr;
+        margin: 0 3 1 1;
+        color: $text-muted;
+        text-align: center;
+    }
+
     #progress-bar {
         height: 1;
         width: 1fr;
         margin: 0 3 0 1;
         display: none;
     }
-    
+
     #progress-bar.visible {
         display: block;
     }
@@ -382,6 +366,7 @@ class InputArea(Container):
             id="input-field",
             show_line_numbers=False
         )
+        yield Static("Enter to send • Ctrl+Enter for new line", id="input-help")
 
 
 class Sidebar(Container):
@@ -396,52 +381,52 @@ class Sidebar(Container):
         background: $surface;
         border-right: solid $primary;
     }
-    
+
     .current-model {
         color: #10b981;
         text-style: bold;
     }
-    
+
     .config-item {
         color: #f3f4f6;
     }
-    
+
     .config-separator {
         color: #6b7280;
         text-style: dim;
     }
-    
+
     .config-session {
         color: #60a5fa;
         text-style: italic;
     }
-    
+
     .history-interactive {
         color: #34d399;
     }
-    
+
     .history-tui {
         color: #60a5fa;
     }
-    
+
     .history-system {
         color: #fbbf24;
         text-style: italic;
     }
-    
+
     .history-command {
         color: #f87171;
     }
-    
+
     .history-generic {
         color: #d1d5db;
     }
-    
+
     .history-empty {
         color: #6b7280;
         text-style: italic;
     }
-    
+
     .history-error {
         color: #ef4444;
     }
@@ -539,10 +524,7 @@ class CodePuppyTUI(App):
             f"Welcome to Code Puppy TUI! Model: {self.current_model}"
         )
 
-        # Set placeholder text for input field
-        input_field = self.query_one("#input-field", CustomTextArea)
-        input_field.text = "Type your message and press Enter to send (Ctrl+Enter for new line)..."
-        input_field._placeholder_active = True
+        # Input field starts empty and focused, help text shows below
 
         # Load available models
         self.load_models_list()
@@ -555,6 +537,9 @@ class CodePuppyTUI(App):
 
         # Apply responsive design adjustments
         self.apply_responsive_layout()
+
+        # Auto-focus the input field so user can start typing immediately
+        self.call_after_refresh(self.focus_input_field)
 
     def add_system_message(self, content: str) -> None:
         """Add a system message to the chat."""
@@ -604,22 +589,19 @@ class CodePuppyTUI(App):
     def on_custom_text_area_message_sent(self, event: CustomTextArea.MessageSent) -> None:
         """Handle message sent from custom text area."""
         self.action_send_message()
-    
+
     async def on_key(self, event) -> None:
         """Handle app-level key events."""
         input_field = self.query_one("#input-field", CustomTextArea)
-        
+
         # Only handle keys when input field is focused
         if input_field.has_focus:
             # Handle Ctrl+Enter for new lines (more reliable than Shift+Enter)
             if event.key == "ctrl+enter":
-                if input_field._placeholder_active:
-                    input_field.text = ""
-                    input_field._placeholder_active = False
                 input_field.insert("\n")
                 event.prevent_default()
                 return
-        
+
         # Handle arrow keys for models list navigation
         if input_field.has_focus:
             pass  # Already handled above
@@ -675,7 +657,7 @@ class CodePuppyTUI(App):
                         return
             except Exception:
                 pass
-        
+
         # Let other keys pass through normally
 
     @on(TabbedContent.TabActivated)
@@ -711,37 +693,37 @@ class CodePuppyTUI(App):
         """Switch to a different model."""
         try:
             from code_puppy.config import set_model_name
-            
+
             # Show progress while switching models
             self.start_agent_progress("Switching")
-            
+
             # Update configuration
             set_model_name(model_name)
             self.current_model = model_name
-            
+
             # Update status bar
             status_bar = self.query_one(StatusBar)
             status_bar.current_model = model_name
-            
+
             self.update_agent_progress("Loading", 50)
-            
+
             # Reinitialize agent with new model
             self.agent = get_code_generation_agent()
-            
+
             # Update model highlighting without refreshing the entire list
             self.update_model_highlighting()
-            
+
             # Refresh configuration display
             self.refresh_config_display()
-            
+
             # Add confirmation message
             self.add_system_message(f"Switched to model: {model_name}")
-            
+
         except Exception as e:
             self.add_error_message(f"Failed to switch model: {str(e)}")
         finally:
             self.stop_agent_progress()
-    
+
     def refresh_config_display(self) -> None:
         """Refresh the configuration display with current values."""
         try:
@@ -750,25 +732,25 @@ class CodePuppyTUI(App):
             self.load_config_list()
         except Exception:
             pass  # Silently fail if config list not available
-    
+
     def update_model_highlighting(self) -> None:
         """Update model highlighting to show current selection without recreating widgets."""
         try:
             model_list = self.query_one("#model-list", ListView)
-            
+
             # Update each model item's visual appearance
             for item in model_list.children:
                 if hasattr(item, 'model_name'):
                     model_name = item.model_name
                     label = item.query_one(Label)
-                    
+
                     # Get model type from the current label text
                     current_text = str(label.renderable)
                     if "(" in current_text and ")" in current_text:
                         model_type = current_text.split("(")[1].split(")")[0]
                     else:
                         model_type = "unknown"
-                    
+
                     # Update label text and styling
                     if model_name == self.current_model:
                         label.update(f"● {model_name} ({model_type})")
@@ -776,10 +758,10 @@ class CodePuppyTUI(App):
                     else:
                         label.update(f"  {model_name} ({model_type})")
                         label.remove_class("current-model")
-                        
+
         except Exception:
             pass  # Silently fail if models list not available
-    
+
     def refresh_history_display(self) -> None:
         """Refresh the history display with current session memory."""
         try:
@@ -805,10 +787,7 @@ class CodePuppyTUI(App):
 
             # Process the message
             self.process_message(message)
-        else:
-            # If field is empty, restore placeholder
-            input_field.text = "Type your message and press Enter to send (Ctrl+Enter for new line)..."
-            input_field._placeholder_active = True
+        # If field is empty after sending, do nothing - help text shows persistently below
 
     @work(exclusive=True)
     async def process_message(self, message: str) -> None:
@@ -828,16 +807,16 @@ class CodePuppyTUI(App):
                     from code_puppy.tools.common import console as rich_console
                     from io import StringIO
                     import sys
-                    
+
                     # Capture the output from the meta command handler
                     old_stdout = sys.stdout
                     captured_output = StringIO()
                     sys.stdout = captured_output
-                    
+
                     # Also capture Rich console output
                     temp_console = rich_console
                     rich_console.file = captured_output
-                    
+
                     try:
                         # Call the existing meta command handler
                         result = handle_meta_command(message.strip(), rich_console)
@@ -853,7 +832,7 @@ class CodePuppyTUI(App):
                         # Restore stdout and console
                         sys.stdout = old_stdout
                         rich_console.file = sys.__stdout__
-                    
+
                 except Exception as e:
                     self.add_error_message(f"Error executing meta command: {str(e)}")
                 return
@@ -872,10 +851,10 @@ class CodePuppyTUI(App):
                 # Update message history
                 new_msgs = result.new_messages()
                 self.message_history.extend(new_msgs)
-                
+
                 # Refresh config display to show updated message count
                 self.refresh_config_display()
-                
+
                 # Refresh history display to show new interaction
                 self.refresh_history_display()
 
@@ -913,17 +892,25 @@ class CodePuppyTUI(App):
         """Toggle sidebar visibility."""
         sidebar = self.query_one(Sidebar)
         sidebar.display = not sidebar.display
-    
+
     def action_focus_input(self) -> None:
         """Focus the input field."""
         input_field = self.query_one("#input-field", CustomTextArea)
         input_field.focus()
-    
+
+    def focus_input_field(self) -> None:
+        """Focus the input field (used for auto-focus on startup)."""
+        try:
+            input_field = self.query_one("#input-field", CustomTextArea)
+            input_field.focus()
+        except Exception:
+            pass  # Silently handle if widget not ready yet
+
     def action_focus_chat(self) -> None:
         """Focus the chat area."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.focus()
-    
+
     def action_switch_to_history(self) -> None:
         """Switch to history tab in sidebar."""
         try:
@@ -931,7 +918,7 @@ class CodePuppyTUI(App):
             tabbed_content.active = "history"
         except Exception:
             pass
-    
+
     def action_switch_to_models(self) -> None:
         """Switch to models tab in sidebar."""
         try:
@@ -942,7 +929,7 @@ class CodePuppyTUI(App):
             model_list.focus()
         except Exception:
             pass
-    
+
     def action_switch_to_config(self) -> None:
         """Switch to config tab in sidebar."""
         try:
@@ -950,22 +937,22 @@ class CodePuppyTUI(App):
             tabbed_content.active = "config"
         except Exception:
             pass
-    
+
     def action_scroll_chat_up(self) -> None:
         """Scroll chat view up."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.scroll_up(animate=True)
-    
+
     def action_scroll_chat_down(self) -> None:
         """Scroll chat view down."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.scroll_down(animate=True)
-    
+
     def action_scroll_chat_top(self) -> None:
         """Scroll chat view to top."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.scroll_home(animate=True)
-    
+
     def action_scroll_chat_bottom(self) -> None:
         """Scroll chat view to bottom."""
         chat_view = self.query_one("#chat-view", ChatView)
@@ -977,18 +964,18 @@ class CodePuppyTUI(App):
             import json
             from pathlib import Path
             import os
-            
+
             # Use the same models file that the config system uses
             # Check for user's custom models file first, then fall back to default
             models_path = Path.home() / ".codepuppy_models.json"
             if not models_path.exists():
                 models_path = Path(__file__).parent / "models.json"
-            
+
             with open(models_path, 'r') as f:
                 models_data = json.load(f)
-            
+
             model_list = self.query_one("#model-list", ListView)
-            
+
             # Add each model as a selectable item
             for model_name, model_config in models_data.items():
                 model_type = model_config.get("type", "unknown")
@@ -999,7 +986,7 @@ class CodePuppyTUI(App):
                 else:
                     label_text = f"  {model_name} ({model_type})"
                     label = Label(label_text)
-                
+
                 # Create a valid ID by replacing invalid characters
                 safe_id = f"model-{model_name}".replace(".", "_").replace("-", "_").replace("/", "_")
                 model_item = ListItem(label, id=safe_id)
@@ -1012,31 +999,31 @@ class CodePuppyTUI(App):
         """Load session history into the history tab."""
         try:
             from datetime import datetime, timedelta
-            
+
             history_list = self.query_one("#history-list", ListView)
-            
+
             # Get history from session memory
             if self.session_memory:
                 # Get recent history (last 24 hours by default)
                 recent_history = self.session_memory.get_history(within_minutes=24*60)
-                
+
                 if not recent_history:
                     # No history available
                     history_list.append(ListItem(Label("No recent history", classes="history-empty")))
                     return
-                
+
                 # Filter out model loading entries and group history by type, display most recent first
                 filtered_history = [
                     entry for entry in recent_history
                     if not entry.get("description", "").startswith("Agent loaded")
                 ]
-                
+
                 # Get sidebar width for responsive text truncation
                 try:
                     sidebar_width = self.query_one("Sidebar").size.width if hasattr(self.query_one("Sidebar"), 'size') else 30
                 except:
                     sidebar_width = 30
-                
+
                 # Adjust text length based on sidebar width
                 if sidebar_width >= 35:
                     max_text_length = 45
@@ -1047,11 +1034,11 @@ class CodePuppyTUI(App):
                 else:
                     max_text_length = 20
                     time_format = "%H:%M"
-                
+
                 for entry in reversed(filtered_history[-20:]):  # Show last 20 entries
                     timestamp_str = entry.get("timestamp", "")
                     description = entry.get("description", "Unknown task")
-                    
+
                     # Parse timestamp for display
                     try:
                         timestamp_obj = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
@@ -1062,7 +1049,7 @@ class CodePuppyTUI(App):
                         if len(time_display) < 5:
                             time_display = "??:??"
                         date_display = "??/??"
-                    
+
                     # Format description for display with responsive truncation
                     if description.startswith("Interactive task:"):
                         task_text = description[17:].strip()  # Remove "Interactive task: "
@@ -1084,14 +1071,14 @@ class CodePuppyTUI(App):
                         truncated = description[:max_text_length] + ('...' if len(description) > max_text_length else '')
                         display_text = f"[{time_display}] 📝 {truncated}"
                         css_class = "history-generic"
-                    
+
                     label = Label(display_text, classes=css_class)
                     history_item = ListItem(label)
                     history_item.history_entry = entry  # Store full entry for detail view
                     history_list.append(history_item)
             else:
                 history_list.append(ListItem(Label("Session memory not available", classes="history-error")))
-                
+
         except Exception as e:
             self.add_error_message(f"Failed to load history: {e}")
 
@@ -1099,23 +1086,23 @@ class CodePuppyTUI(App):
         """Load configuration into the config tab."""
         try:
             from code_puppy.config import get_message_history_limit
-            
+
             config_list = self.query_one("#config-list", ListView)
-            
+
             # Core configuration
             config_list.append(ListItem(Label(f"Model: {get_model_name()}", classes="config-item")))
             config_list.append(ListItem(Label(f"Puppy Name: {get_puppy_name()}", classes="config-item")))
             config_list.append(ListItem(Label(f"Owner: {get_owner_name()}", classes="config-item")))
             config_list.append(ListItem(Label(f"YOLO Mode: {get_yolo_mode()}", classes="config-item")))
             config_list.append(ListItem(Label(f"History Limit: {get_message_history_limit()}", classes="config-item")))
-            
+
             # Add a separator
             config_list.append(ListItem(Label("─" * 25, classes="config-separator")))
-            
+
             # Session information
             config_list.append(ListItem(Label(f"Messages: {len(self.message_history)}", classes="config-session")))
             config_list.append(ListItem(Label(f"Agent Status: {'Busy' if self.agent_busy else 'Ready'}", classes="config-session")))
-            
+
         except Exception as e:
             self.add_error_message(f"Failed to load config: {e}")
 
@@ -1126,7 +1113,7 @@ class CodePuppyTUI(App):
             description = history_entry.get("description", "No description")
             output = history_entry.get("output", "")
             awaiting_input = history_entry.get("awaiting_user_input", False)
-            
+
             # Parse timestamp for better display
             try:
                 from datetime import datetime
@@ -1134,14 +1121,14 @@ class CodePuppyTUI(App):
                 formatted_time = timestamp_obj.strftime("%Y-%m-%d %H:%M:%S")
             except:
                 formatted_time = timestamp
-            
+
             # Create detailed view content
             details = [
                 f"Timestamp: {formatted_time}",
                 f"Description: {description}",
                 "",
             ]
-            
+
             if output:
                 details.extend([
                     "Output:",
@@ -1149,14 +1136,14 @@ class CodePuppyTUI(App):
                     output,
                     "",
                 ])
-            
+
             if awaiting_input:
                 details.append("⚠️  Was awaiting user input")
-            
+
             # Display details as a system message in the chat
             detail_text = "\n".join(details)
             self.add_system_message(f"History Details:\n{detail_text}")
-            
+
         except Exception as e:
             self.add_error_message(f"Failed to show history details: {e}")
 
@@ -1166,7 +1153,7 @@ class CodePuppyTUI(App):
             # Update status bar
             status_bar = self.query_one(StatusBar)
             status_bar.agent_status = status
-            
+
             # Update progress bar visibility
             progress_bar = self.query_one("#progress-bar", ProgressBar)
             if show_progress:
@@ -1180,26 +1167,26 @@ class CodePuppyTUI(App):
                 progress_bar.remove_class("visible")
                 progress_bar.display = False
                 progress_bar.progress = 0  # Reset progress
-                
+
         except Exception:
             pass  # Silently fail if widgets not available
 
     def start_agent_progress(self, initial_status: str = "Thinking") -> None:
         """Start showing agent progress indicators."""
         self.set_agent_status(initial_status, show_progress=True)
-        
+
     def update_agent_progress(self, status: str, progress: int = None) -> None:
         """Update agent progress during processing."""
         try:
             status_bar = self.query_one(StatusBar)
             status_bar.agent_status = status
-            
+
             if progress is not None:
                 progress_bar = self.query_one("#progress-bar", ProgressBar)
                 progress_bar.progress = progress
         except Exception:
             pass
-            
+
     def stop_agent_progress(self) -> None:
         """Stop showing agent progress indicators."""
         self.set_agent_status("Ready", show_progress=False)
@@ -1209,14 +1196,14 @@ class CodePuppyTUI(App):
         try:
             # Apply responsive layout adjustments
             self.apply_responsive_layout()
-            
+
             # Update status bar to reflect new width
             status_bar = self.query_one(StatusBar)
             status_bar.update_status()
-            
+
             # Refresh history display with new responsive truncation
             self.refresh_history_display()
-            
+
         except Exception:
             pass  # Silently handle resize errors
 
@@ -1226,7 +1213,7 @@ class CodePuppyTUI(App):
             terminal_width = self.size.width if hasattr(self, 'size') else 80
             terminal_height = self.size.height if hasattr(self, 'size') else 24
             sidebar = self.query_one(Sidebar)
-            
+
             # Responsive sidebar width based on terminal width
             if terminal_width >= 120:
                 sidebar.styles.width = 35
@@ -1238,7 +1225,7 @@ class CodePuppyTUI(App):
                 sidebar.styles.width = 20
             else:
                 sidebar.styles.width = 15
-            
+
             # Auto-hide sidebar on very narrow terminals
             if terminal_width < 50:
                 if sidebar.display:
@@ -1246,15 +1233,15 @@ class CodePuppyTUI(App):
                     self.add_system_message("💡 Sidebar auto-hidden for narrow terminal. Press F2 to toggle.")
             elif terminal_width >= 60 and not sidebar.display:
                 sidebar.display = True
-            
+
             # Adjust input area height for very short terminals
             if terminal_height < 20:
                 input_area = self.query_one(InputArea)
-                input_area.styles.height = 6
+                input_area.styles.height = 7
             else:
                 input_area = self.query_one(InputArea)
-                input_area.styles.height = 8
-                
+                input_area.styles.height = 9
+
         except Exception:
             pass
 
@@ -1264,7 +1251,7 @@ class CodePuppyTUI(App):
             terminal_width = self.size.width if hasattr(self, 'size') else 80
         except:
             terminal_width = 80
-            
+
         if terminal_width < 60:
             # Compact help for narrow terminals
             return """
