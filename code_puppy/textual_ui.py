@@ -16,8 +16,10 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Header, Footer, Static, Input, Button, ListView, ListItem,
-    Label, RichLog, TextArea, TabbedContent, TabPane, ProgressBar
+    Label, RichLog, TextArea, TabbedContent, TabPane, ProgressBar,
+    Select
 )
+from textual.screen import ModalScreen
 from textual.binding import Binding
 from textual.message import Message
 from textual.reactive import reactive
@@ -452,6 +454,140 @@ class Sidebar(Container):
                 yield ListView(id="config-list")
 
 
+class SettingsScreen(ModalScreen):
+    """Settings configuration screen."""
+
+    DEFAULT_CSS = """
+    SettingsScreen {
+        align: center middle;
+    }
+
+    #settings-dialog {
+        width: 60;
+        height: 20;
+        border: thick $primary;
+        background: $surface;
+        padding: 1;
+    }
+
+    #settings-form {
+        height: 1fr;
+    }
+
+    .setting-row {
+        layout: horizontal;
+        height: 3;
+        margin: 0 0 1 0;
+    }
+
+    .setting-label {
+        width: 20;
+        text-align: right;
+        padding: 1 1 0 0;
+    }
+
+    .setting-input {
+        width: 1fr;
+        margin: 0 0 0 1;
+    }
+
+    #settings-buttons {
+        layout: horizontal;
+        height: 3;
+        align: center middle;
+    }
+
+    #save-button, #cancel-button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.settings_data = {}
+
+    def compose(self) -> ComposeResult:
+        with Container(id="settings-dialog"):
+            yield Static("⚙️  Settings Configuration", id="settings-title")
+            with Container(id="settings-form"):
+                with Container(classes="setting-row"):
+                    yield Static("Puppy Name:", classes="setting-label")
+                    yield Input(id="puppy-name-input", classes="setting-input")
+                
+                with Container(classes="setting-row"):
+                    yield Static("Owner Name:", classes="setting-label")
+                    yield Input(id="owner-name-input", classes="setting-input")
+                
+                with Container(classes="setting-row"):
+                    yield Static("YOLO Mode:", classes="setting-label")
+                    yield Select([("Enabled", "true"), ("Disabled", "false")], value="false", id="yolo-select", classes="setting-input")
+                
+                with Container(classes="setting-row"):
+                    yield Static("History Limit:", classes="setting-label")
+                    yield Input(id="history-limit-input", classes="setting-input", placeholder="e.g., 50")
+            
+            with Container(id="settings-buttons"):
+                yield Button("Save", id="save-button", variant="primary")
+                yield Button("Cancel", id="cancel-button")
+
+    def on_mount(self) -> None:
+        """Load current settings when the screen mounts."""
+        from code_puppy.config import get_puppy_name, get_owner_name, get_yolo_mode, get_message_history_limit
+        
+        # Load current values
+        puppy_name_input = self.query_one("#puppy-name-input", Input)
+        owner_name_input = self.query_one("#owner-name-input", Input)
+        yolo_select = self.query_one("#yolo-select", Select)
+        history_limit_input = self.query_one("#history-limit-input", Input)
+        
+        puppy_name_input.value = get_puppy_name() or ""
+        owner_name_input.value = get_owner_name() or ""
+        history_limit_input.value = str(get_message_history_limit())
+        
+        # Set YOLO mode selection
+        current_yolo = get_yolo_mode()
+        yolo_select.value = "true" if current_yolo else "false"
+
+    @on(Button.Pressed, "#save-button")
+    def save_settings(self) -> None:
+        """Save the modified settings."""
+        from code_puppy.config import set_config_value, set_model_name
+        
+        try:
+            # Get values from inputs
+            puppy_name = self.query_one("#puppy-name-input", Input).value.strip()
+            owner_name = self.query_one("#owner-name-input", Input).value.strip()
+            yolo_mode = self.query_one("#yolo-select", Select).value
+            history_limit = self.query_one("#history-limit-input", Input).value.strip()
+            
+            # Validate and save
+            if puppy_name:
+                set_config_value("puppy_name", puppy_name)
+            if owner_name:
+                set_config_value("owner_name", owner_name)
+            
+            set_config_value("yolo_mode", yolo_mode)
+            
+            if history_limit.isdigit():
+                set_config_value("message_history_limit", history_limit)
+            
+            # Return success message
+            self.dismiss({"success": True, "message": "Settings saved successfully!"})
+            
+        except Exception as e:
+            self.dismiss({"success": False, "message": f"Error saving settings: {str(e)}"})
+
+    @on(Button.Pressed, "#cancel-button")
+    def cancel_settings(self) -> None:
+        """Cancel settings changes."""
+        self.dismiss({"success": False, "message": "Settings cancelled"})
+
+    def on_key(self, event) -> None:
+        """Handle key events."""
+        if event.key == "escape":
+            self.cancel_settings()
+
+
 class CodePuppyTUI(App):
     """Main Code Puppy TUI application."""
 
@@ -483,6 +619,7 @@ class CodePuppyTUI(App):
         Binding("f2", "toggle_sidebar", "Toggle Sidebar"),
         Binding("f3", "focus_input", "Focus Input"),
         Binding("f4", "focus_chat", "Focus Chat"),
+        Binding("f5", "open_settings", "Settings"),
         Binding("ctrl+1", "switch_to_history", "History Tab"),
         Binding("ctrl+2", "switch_to_models", "Models Tab"),
         Binding("ctrl+3", "switch_to_config", "Config Tab"),
@@ -968,6 +1105,26 @@ class CodePuppyTUI(App):
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.scroll_end(animate=True)
 
+    def action_open_settings(self) -> None:
+        """Open the settings configuration screen."""
+        def handle_settings_result(result):
+            if result and result.get("success"):
+                # Refresh the config display to show updated values
+                self.refresh_config_display()
+                # Update reactive variables
+                from code_puppy.config import get_puppy_name
+                self.puppy_name = get_puppy_name()
+                # Update status bar
+                status_bar = self.query_one(StatusBar)
+                status_bar.puppy_name = self.puppy_name
+                # Show success message
+                self.add_system_message(result.get("message", "Settings updated"))
+            elif result and not result.get("success") and "cancelled" not in result.get("message", "").lower():
+                # Show error message (but not for cancellation)
+                self.add_error_message(result.get("message", "Settings update failed"))
+
+        self.push_screen(SettingsScreen(), handle_settings_result)
+
     def load_models_list(self) -> None:
         """Load available models into the models tab."""
         try:
@@ -1273,6 +1430,7 @@ Controls:
 - Ctrl+Q: Quit
 - F2: Toggle sidebar
 - F3: Focus input
+- F5: Settings
 
 Use F1 for full help.
 """
@@ -1293,6 +1451,7 @@ Keyboard Shortcuts:
 - F2: Toggle sidebar
 - F3: Focus input field
 - F4: Focus chat area
+- F5: Open settings
 
 Tab Navigation:
 - Ctrl+1: Switch to History tab
