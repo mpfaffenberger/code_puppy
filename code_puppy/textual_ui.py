@@ -322,6 +322,25 @@ class Sidebar(Container):
         background: $surface;
         border-right: solid $primary;
     }
+    
+    .current-model {
+        color: #10b981;
+        text-style: bold;
+    }
+    
+    .config-item {
+        color: #f3f4f6;
+    }
+    
+    .config-separator {
+        color: #6b7280;
+        text-style: dim;
+    }
+    
+    .config-session {
+        color: #60a5fa;
+        text-style: italic;
+    }
     """
 
     def compose(self) -> ComposeResult:
@@ -488,7 +507,127 @@ class CodePuppyTUI(App):
                 event.prevent_default()
                 return
         
+        # Handle arrow keys for models list navigation
+        if input_field.has_focus:
+            pass  # Already handled above
+        else:
+            # Check if models tab is active and handle arrow keys
+            try:
+                tabbed_content = self.query_one(TabbedContent)
+                if tabbed_content.active == "models":
+                    model_list = self.query_one("#model-list", ListView)
+                    if event.key == "up":
+                        # Move up in the models list
+                        current_index = model_list.index
+                        if current_index > 0:
+                            model_list.index = current_index - 1
+                        event.prevent_default()
+                        return
+                    elif event.key == "down":
+                        # Move down in the models list
+                        current_index = model_list.index
+                        if current_index < len(model_list.children) - 1:
+                            model_list.index = current_index + 1
+                        event.prevent_default()
+                        return
+                    elif event.key == "enter":
+                        # Select current model
+                        if model_list.highlighted_child and hasattr(model_list.highlighted_child, 'model_name'):
+                            model_name = model_list.highlighted_child.model_name
+                            self.switch_model(model_name)
+                        event.prevent_default()
+                        return
+            except Exception:
+                pass
+        
         # Let other keys pass through normally
+
+    @on(TabbedContent.TabActivated)
+    def tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Handle tab activation to focus appropriate content."""
+        if event.tab.id == "models":
+            # Focus the models list when Models tab is activated
+            try:
+                model_list = self.query_one("#model-list", ListView)
+                model_list.focus()
+                # Also set can_focus to True to ensure it can receive focus
+                model_list.can_focus = True
+            except Exception:
+                pass
+
+    @on(ListView.Selected, "#model-list")
+    def model_selected(self, event: ListView.Selected) -> None:
+        """Handle model selection from the models list."""
+        if event.item and hasattr(event.item, 'model_name'):
+            # Use the stored original model name
+            model_name = event.item.model_name
+            self.switch_model(model_name)
+
+    def switch_model(self, model_name: str) -> None:
+        """Switch to a different model."""
+        try:
+            from code_puppy.config import set_model_name
+            
+            # Update configuration
+            set_model_name(model_name)
+            self.current_model = model_name
+            
+            # Update status bar
+            status_bar = self.query_one(StatusBar)
+            status_bar.current_model = model_name
+            
+            # Reinitialize agent with new model
+            self.agent = get_code_generation_agent()
+            
+            # Update model highlighting without refreshing the entire list
+            self.update_model_highlighting()
+            
+            # Refresh configuration display
+            self.refresh_config_display()
+            
+            # Add confirmation message
+            self.add_system_message(f"Switched to model: {model_name}")
+            
+        except Exception as e:
+            self.add_error_message(f"Failed to switch model: {str(e)}")
+    
+    def refresh_config_display(self) -> None:
+        """Refresh the configuration display with current values."""
+        try:
+            config_list = self.query_one("#config-list", ListView)
+            config_list.clear()
+            self.load_config_list()
+        except Exception:
+            pass  # Silently fail if config list not available
+    
+    def update_model_highlighting(self) -> None:
+        """Update model highlighting to show current selection without recreating widgets."""
+        try:
+            model_list = self.query_one("#model-list", ListView)
+            
+            # Update each model item's visual appearance
+            for item in model_list.children:
+                if hasattr(item, 'model_name'):
+                    model_name = item.model_name
+                    label = item.query_one(Label)
+                    
+                    # Get model type from the current label text
+                    current_text = str(label.renderable)
+                    if "(" in current_text and ")" in current_text:
+                        model_type = current_text.split("(")[1].split(")")[0]
+                    else:
+                        model_type = "unknown"
+                    
+                    # Update label text and styling
+                    if model_name == self.current_model:
+                        label.update(f"● {model_name} ({model_type})")
+                        label.add_class("current-model")
+                    else:
+                        label.update(f"  {model_name} ({model_type})")
+                        label.remove_class("current-model")
+                        
+        except Exception:
+            pass  # Silently fail if models list not available
 
     def action_send_message(self) -> None:
         """Send the current message."""
@@ -567,6 +706,9 @@ class CodePuppyTUI(App):
                 # Update message history
                 new_msgs = result.new_messages()
                 self.message_history.extend(new_msgs)
+                
+                # Refresh config display to show updated message count
+                self.refresh_config_display()
 
                 # Log to session memory
                 if self.session_memory:
@@ -613,7 +755,7 @@ Keyboard Shortcuts:
 
 Tab Navigation:
 - Ctrl+1: Switch to History tab
-- Ctrl+2: Switch to Models tab
+- Ctrl+2: Switch to Models tab (use arrows + Enter to select)
 - Ctrl+3: Switch to Config tab
 
 Chat Navigation:
@@ -662,6 +804,9 @@ Agent responses support syntax highlighting for code blocks.
         try:
             tabbed_content = self.query_one(TabbedContent)
             tabbed_content.active = "models"
+            # Focus the models list for keyboard navigation
+            model_list = self.query_one("#model-list", ListView)
+            model_list.focus()
         except Exception:
             pass
     
@@ -696,21 +841,61 @@ Agent responses support syntax highlighting for code blocks.
     def load_models_list(self) -> None:
         """Load available models into the models tab."""
         try:
-            # This would load from the models.json file
-            # For now, just show current model
+            import json
+            from pathlib import Path
+            import os
+            
+            # Use the same models file that the config system uses
+            # Check for user's custom models file first, then fall back to default
+            models_path = Path.home() / ".codepuppy_models.json"
+            if not models_path.exists():
+                models_path = Path(__file__).parent / "models.json"
+            
+            with open(models_path, 'r') as f:
+                models_data = json.load(f)
+            
             model_list = self.query_one("#model-list", ListView)
-            model_list.append(ListItem(Label(f"Current: {self.current_model}")))
+            
+            # Add each model as a selectable item
+            for model_name, model_config in models_data.items():
+                model_type = model_config.get("type", "unknown")
+                # Highlight current model
+                if model_name == self.current_model:
+                    label_text = f"● {model_name} ({model_type})"
+                    label = Label(label_text, classes="current-model")
+                else:
+                    label_text = f"  {model_name} ({model_type})"
+                    label = Label(label_text)
+                
+                # Create a valid ID by replacing invalid characters
+                safe_id = f"model-{model_name}".replace(".", "_").replace("-", "_").replace("/", "_")
+                model_item = ListItem(label, id=safe_id)
+                model_item.model_name = model_name  # Store original name as attribute
+                model_list.append(model_item)
         except Exception as e:
             self.add_error_message(f"Failed to load models: {e}")
 
     def load_config_list(self) -> None:
         """Load configuration into the config tab."""
         try:
+            from code_puppy.config import get_message_history_limit
+            
             config_list = self.query_one("#config-list", ListView)
-            config_list.append(ListItem(Label(f"Model: {get_model_name()}")))
-            config_list.append(ListItem(Label(f"Puppy: {get_puppy_name()}")))
-            config_list.append(ListItem(Label(f"Owner: {get_owner_name()}")))
-            config_list.append(ListItem(Label(f"YOLO Mode: {get_yolo_mode()}")))
+            
+            # Core configuration
+            config_list.append(ListItem(Label(f"Model: {get_model_name()}", classes="config-item")))
+            config_list.append(ListItem(Label(f"Puppy Name: {get_puppy_name()}", classes="config-item")))
+            config_list.append(ListItem(Label(f"Owner: {get_owner_name()}", classes="config-item")))
+            config_list.append(ListItem(Label(f"YOLO Mode: {get_yolo_mode()}", classes="config-item")))
+            config_list.append(ListItem(Label(f"History Limit: {get_message_history_limit()}", classes="config-item")))
+            
+            # Add a separator
+            config_list.append(ListItem(Label("─" * 25, classes="config-separator")))
+            
+            # Session information
+            config_list.append(ListItem(Label(f"Messages: {len(self.message_history)}", classes="config-session")))
+            config_list.append(ListItem(Label(f"Agent Status: {'Busy' if self.agent_busy else 'Ready'}", classes="config-session")))
+            
         except Exception as e:
             self.add_error_message(f"Failed to load config: {e}")
 
