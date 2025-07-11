@@ -265,8 +265,6 @@ async def interactive_mode(history_file_path: str) -> None:
             if handle_meta_command(task.strip(), console):
                 continue
         if task.strip():
-            console.print(f"\n[bold blue]Processing task:[/bold blue] {task}\n")
-
             # Write to the secret file for permanent history
             with open(history_file_path, "a") as f:
                 f.write(f"{task}\n")

@@ -84,11 +84,6 @@ def reload_code_generation_agent():
     from code_puppy.config import get_model_name
 
     model_name = get_model_name()
-    console.print(f"[bold cyan]Loading Model: {model_name}")
-    global _code_generation_agent, _LAST_MODEL_NAME
-    from code_puppy.config import get_model_name
-
-    model_name = get_model_name()
     console.print(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
     models_path = (
         Path(MODELS_JSON_PATH)
