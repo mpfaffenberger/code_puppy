@@ -126,9 +126,9 @@ async def main():
         
         try:
             # Run the update command
-            console.print("[dim]Running: curl -sSL https://puppy-dev.walmart.com/api/releases/setup | bash[/dim]")
+            console.print("[dim]Running: curl -sSL https://puppy.dev.walmart.com/api/releases/setup | bash[/dim]")
             result = subprocess.run(
-                ["curl", "-sSL", "https://puppy-dev.walmart.com/api/releases/setup"],
+                ["curl", "-sSL", "https://puppy.dev.walmart.com/api/releases/setup"],
                 capture_output=True,
                 text=True,
                 timeout=60
