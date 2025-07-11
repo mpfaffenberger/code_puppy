@@ -463,8 +463,8 @@ class SettingsScreen(ModalScreen):
     }
 
     #settings-dialog {
-        width: 60;
-        height: 20;
+        width: 80;
+        height: 23;
         border: thick $primary;
         background: $surface;
         padding: 1;
@@ -513,67 +513,116 @@ class SettingsScreen(ModalScreen):
                 with Container(classes="setting-row"):
                     yield Static("Puppy Name:", classes="setting-label")
                     yield Input(id="puppy-name-input", classes="setting-input")
-                
+
                 with Container(classes="setting-row"):
                     yield Static("Owner Name:", classes="setting-label")
                     yield Input(id="owner-name-input", classes="setting-input")
-                
+
+                with Container(classes="setting-row"):
+                    yield Static("Model:", classes="setting-label")
+                    yield Select([], id="model-select", classes="setting-input")
+
                 with Container(classes="setting-row"):
                     yield Static("YOLO Mode:", classes="setting-label")
                     yield Select([("Enabled", "true"), ("Disabled", "false")], value="false", id="yolo-select", classes="setting-input")
-                
+
                 with Container(classes="setting-row"):
                     yield Static("History Limit:", classes="setting-label")
                     yield Input(id="history-limit-input", classes="setting-input", placeholder="e.g., 50")
-            
+
             with Container(id="settings-buttons"):
                 yield Button("Save", id="save-button", variant="primary")
                 yield Button("Cancel", id="cancel-button")
 
     def on_mount(self) -> None:
         """Load current settings when the screen mounts."""
-        from code_puppy.config import get_puppy_name, get_owner_name, get_yolo_mode, get_message_history_limit
-        
+        from code_puppy.config import get_puppy_name, get_owner_name, get_yolo_mode, get_message_history_limit, get_model_name
+
         # Load current values
         puppy_name_input = self.query_one("#puppy-name-input", Input)
         owner_name_input = self.query_one("#owner-name-input", Input)
+        model_select = self.query_one("#model-select", Select)
         yolo_select = self.query_one("#yolo-select", Select)
         history_limit_input = self.query_one("#history-limit-input", Input)
-        
+
         puppy_name_input.value = get_puppy_name() or ""
         owner_name_input.value = get_owner_name() or ""
         history_limit_input.value = str(get_message_history_limit())
-        
+
+        # Load available models
+        self.load_model_options(model_select)
+
+        # Set current model selection
+        current_model = get_model_name()
+        model_select.value = current_model
+
         # Set YOLO mode selection
         current_yolo = get_yolo_mode()
         yolo_select.value = "true" if current_yolo else "false"
+
+    def load_model_options(self, model_select):
+        """Load available models into the model select widget."""
+        try:
+            import json
+            from pathlib import Path
+
+            # Use the same models file that the config system uses
+            models_path = Path.home() / ".codepuppy_models.json"
+            if not models_path.exists():
+                models_path = Path(__file__).parent / "models.json"
+
+            with open(models_path, 'r') as f:
+                models_data = json.load(f)
+
+            # Create options as (display_name, model_name) tuples
+            model_options = []
+            for model_name, model_config in models_data.items():
+                model_type = model_config.get("type", "unknown")
+                display_name = f"{model_name} ({model_type})"
+                model_options.append((display_name, model_name))
+
+            # Set the options on the select widget
+            model_select.set_options(model_options)
+
+        except Exception as e:
+            # Fallback to a basic option if loading fails
+            model_select.set_options([("gpt-4.1 (openai)", "gpt-4.1")])
 
     @on(Button.Pressed, "#save-button")
     def save_settings(self) -> None:
         """Save the modified settings."""
         from code_puppy.config import set_config_value, set_model_name
-        
+
         try:
             # Get values from inputs
             puppy_name = self.query_one("#puppy-name-input", Input).value.strip()
             owner_name = self.query_one("#owner-name-input", Input).value.strip()
+            selected_model = self.query_one("#model-select", Select).value
             yolo_mode = self.query_one("#yolo-select", Select).value
             history_limit = self.query_one("#history-limit-input", Input).value.strip()
-            
+
             # Validate and save
             if puppy_name:
                 set_config_value("puppy_name", puppy_name)
             if owner_name:
                 set_config_value("owner_name", owner_name)
-            
+
+            # Save model selection
+            if selected_model:
+                set_model_name(selected_model)
+
             set_config_value("yolo_mode", yolo_mode)
-            
+
             if history_limit.isdigit():
                 set_config_value("message_history_limit", history_limit)
-            
-            # Return success message
-            self.dismiss({"success": True, "message": "Settings saved successfully!"})
-            
+
+            # Return success message with model change info
+            message = "Settings saved successfully!"
+            if selected_model:
+                message += f" Model switched to: {selected_model}"
+
+            self.dismiss({"success": True, "message": message, "model_changed": bool(selected_model)})
+
         except Exception as e:
             self.dismiss({"success": False, "message": f"Error saving settings: {str(e)}"})
 
@@ -1111,12 +1160,25 @@ class CodePuppyTUI(App):
             if result and result.get("success"):
                 # Refresh the config display to show updated values
                 self.refresh_config_display()
+
                 # Update reactive variables
-                from code_puppy.config import get_puppy_name
+                from code_puppy.config import get_puppy_name, get_model_name
                 self.puppy_name = get_puppy_name()
+
+                # Handle model change if needed
+                if result.get("model_changed"):
+                    new_model = get_model_name()
+                    self.current_model = new_model
+                    # Reinitialize agent with new model
+                    self.agent = get_code_generation_agent()
+                    # Update model highlighting in sidebar
+                    self.update_model_highlighting()
+
                 # Update status bar
                 status_bar = self.query_one(StatusBar)
                 status_bar.puppy_name = self.puppy_name
+                status_bar.current_model = self.current_model
+
                 # Show success message
                 self.add_system_message(result.get("message", "Settings updated"))
             elif result and not result.get("success") and "cancelled" not in result.get("message", "").lower():
