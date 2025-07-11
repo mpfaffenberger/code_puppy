@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import os
 import socket
+import subprocess
 import sys
 
 from dotenv import load_dotenv
@@ -121,7 +122,44 @@ async def main():
         console.print(
             f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
         )
-        console.print("[bold green]Please consider updating![/bold green]")
+        console.print("[bold green]Auto-updating now...[/bold green]")
+        
+        try:
+            # Run the update command
+            console.print("[dim]Running: curl -sSL https://puppy-dev.walmart.com/api/releases/setup | bash[/dim]")
+            result = subprocess.run(
+                ["curl", "-sSL", "https://puppy-dev.walmart.com/api/releases/setup"],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                # Pipe the output to bash
+                bash_result = subprocess.run(
+                    ["bash"],
+                    input=result.stdout,
+                    text=True,
+                    timeout=120
+                )
+                
+                if bash_result.returncode == 0:
+                    console.print("[bold green]✅ Update completed successfully![/bold green]")
+                    console.print("[yellow]Restarting code-puppy...[/yellow]")
+                    sys.exit(0)
+                else:
+                    console.print(f"[bold red]❌ Update failed with exit code: {bash_result.returncode}[/bold red]")
+                    console.print("[yellow]Continuing with current version...[/yellow]")
+            else:
+                console.print(f"[bold red]❌ Failed to download update script: {result.stderr}[/bold red]")
+                console.print("[yellow]Continuing with current version...[/yellow]")
+                
+        except subprocess.TimeoutExpired:
+            console.print("[bold red]❌ Update timed out[/bold red]")
+            console.print("[yellow]Continuing with current version...[/yellow]")
+        except Exception as e:
+            console.print(f"[bold red]❌ Update failed: {str(e)}[/bold red]")
+            console.print("[yellow]Continuing with current version...[/yellow]")
     global shutdown_flag
     shutdown_flag = False  # ensure this is initialized
 
