@@ -1,0 +1,24 @@
+"""
+Chat message data model.
+"""
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Dict, Any
+
+from .enums import MessageType
+
+
+@dataclass
+class ChatMessage:
+    """Represents a message in the chat interface."""
+
+    id: str
+    type: MessageType
+    content: str
+    timestamp: datetime
+    metadata: Dict[str, Any] = None
+
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
