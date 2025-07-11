@@ -443,7 +443,7 @@ class Sidebar(Container):
     """
 
     def compose(self) -> ComposeResult:
-        with TabbedContent(initial="history"):
+        with TabbedContent(initial="config"):
             with TabPane("History", id="history"):
                 yield ListView(id="history-list")
             with TabPane("Models", id="models"):
@@ -1284,7 +1284,6 @@ Code Puppy TUI Help:
 Input Controls:
 - Enter: Send message
 - Ctrl+Enter: New line (multi-line input)
-- Cmd+Left/Right: Move to beginning/end of line
 - Standard text editing shortcuts supported
 
 Keyboard Shortcuts:
