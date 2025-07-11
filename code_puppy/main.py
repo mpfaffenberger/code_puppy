@@ -24,7 +24,7 @@ from code_puppy.http_server import app as http_app
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
-from code_puppy.version_checker import fetch_latest_version
+from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 
 # from code_puppy.tools import *  # noqa: F403
 
@@ -107,7 +107,7 @@ async def main():
     
     # Display the disclaimer message
     display_disclaimer()
-    if latest_version and latest_version != current_version:
+    if latest_version and not versions_are_equal(current_version, latest_version):
         console.print(
             f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
         )
@@ -178,9 +178,6 @@ async def interactive_mode(history_file_path: str) -> None:
     console.print(
         "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model."
     )
-    
-    # Display the disclaimer message in interactive mode as well
-    display_disclaimer()
 
     # Show meta commands right at startup - DRY!
     from code_puppy.command_line.meta_command_handler import META_COMMANDS_HELP
