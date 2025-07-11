@@ -378,7 +378,7 @@ class InputArea(Container):
             id="input-field",
             show_line_numbers=False
         )
-        yield Static("Enter to send • Ctrl+Enter for new line", id="input-help")
+        yield Static("Enter to send • Ctrl+Enter for new line • F1 for help", id="input-help")
 
 
 class Sidebar(Container):
@@ -442,6 +442,118 @@ class Sidebar(Container):
     def compose(self) -> ComposeResult:
         yield Static("📜 Session History", id="sidebar-title")
         yield ListView(id="history-list")
+
+
+class HelpScreen(ModalScreen):
+    """Help modal screen."""
+
+    DEFAULT_CSS = """
+    HelpScreen {
+        align: center middle;
+    }
+
+    #help-dialog {
+        width: 80;
+        height: 30;
+        border: thick $primary;
+        background: $surface;
+        padding: 1;
+    }
+
+    #help-content {
+        height: 1fr;
+        margin: 0 0 1 0;
+        overflow-y: auto;
+    }
+
+    #help-buttons {
+        layout: horizontal;
+        height: 3;
+        align: center middle;
+    }
+
+    #dismiss-button {
+        margin: 0 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Container(id="help-dialog"):
+            yield Static("📚 Code Puppy TUI Help", id="help-title")
+            with VerticalScroll(id="help-content"):
+                yield Static(self.get_help_content(), id="help-text")
+            with Container(id="help-buttons"):
+                yield Button("Dismiss", id="dismiss-button", variant="primary")
+
+    def get_help_content(self) -> str:
+        """Get the help content text."""
+        try:
+            # Get terminal width for responsive help
+            terminal_width = self.app.size.width if hasattr(self.app, 'size') else 80
+        except:
+            terminal_width = 80
+
+        if terminal_width < 60:
+            # Compact help for narrow terminals
+            return """
+Code Puppy TUI (Compact Mode):
+
+Controls:
+- Enter: Send message
+- Ctrl+Enter: New line
+- Ctrl+Q: Quit
+- F2: Toggle history
+- F3: Focus input
+- F5: Settings
+
+Use this help for full details.
+"""
+        else:
+            # Full help text
+            return """
+Code Puppy TUI Help:
+
+Input Controls:
+- Enter: Send message
+- Ctrl+Enter: New line (multi-line input)
+- Standard text editing shortcuts supported
+
+Keyboard Shortcuts:
+- Ctrl+Q/Ctrl+C: Quit application
+- Ctrl+L: Clear chat history
+- F1: Show this help
+- F2: Toggle history
+- F3: Focus input field
+- F4: Focus chat area
+- F5: Open settings
+
+Chat Navigation:
+- Ctrl+Up/Down: Scroll chat up/down
+- Ctrl+Home: Scroll to top
+- Ctrl+End: Scroll to bottom
+
+Meta Commands:
+- ~clear: Clear chat history
+- ~m <model>: Switch model
+- ~cd <dir>: Change directory
+- ~help: Show help
+- ~status: Show current status
+
+Use the input area at the bottom to type messages.
+Press F2 to view session history when needed.
+Agent responses support syntax highlighting for code blocks.
+Press F5 to access all configuration settings.
+"""
+
+    @on(Button.Pressed, "#dismiss-button")
+    def dismiss_help(self) -> None:
+        """Dismiss the help modal."""
+        self.dismiss()
+
+    def on_key(self, event) -> None:
+        """Handle key events."""
+        if event.key == "escape":
+            self.dismiss()
 
 
 class SettingsScreen(ModalScreen):
@@ -703,9 +815,7 @@ class CodePuppyTUI(App):
         status_bar.agent_status = "Ready"
 
         # Add welcome message
-        self.add_system_message(
-            f"Welcome to Code Puppy TUI! Model: {self.current_model}"
-        )
+        self.add_system_message("Welcome to Code Puppy 🐶!")
 
         # Input field starts empty and focused, help text shows below
 
@@ -934,9 +1044,8 @@ class CodePuppyTUI(App):
         self.add_system_message("Chat history cleared")
 
     def action_show_help(self) -> None:
-        """Show responsive help information."""
-        help_text = self.get_responsive_help_text()
-        self.add_system_message(help_text)
+        """Show help information in a modal."""
+        self.push_screen(HelpScreen())
 
     def action_toggle_history(self) -> None:
         """Toggle history sidebar visibility."""
@@ -1234,63 +1343,6 @@ class CodePuppyTUI(App):
         except Exception:
             pass
 
-    def get_responsive_help_text(self) -> str:
-        """Generate responsive help text based on terminal size."""
-        try:
-            terminal_width = self.size.width if hasattr(self, 'size') else 80
-        except:
-            terminal_width = 80
-
-        if terminal_width < 60:
-            # Compact help for narrow terminals
-            return """
-Code Puppy TUI (Compact Mode):
-
-Controls:
-- Enter: Send message
-- Ctrl+Enter: New line
-- Ctrl+Q: Quit
-- F2: Toggle history
-- F3: Focus input
-- F5: Settings
-
-Use F1 for full help.
-"""
-        else:
-            # Return the existing full help text
-            return """
-Code Puppy TUI Help:
-
-Input Controls:
-- Enter: Send message
-- Ctrl+Enter: New line (multi-line input)
-- Standard text editing shortcuts supported
-
-Keyboard Shortcuts:
-- Ctrl+Q/Ctrl+C: Quit application
-- Ctrl+L: Clear chat history
-- F1: Show this help
-- F2: Toggle history
-- F3: Focus input field
-- F4: Focus chat area
-- F5: Open settings
-
-Chat Navigation:
-- Ctrl+Up/Down: Scroll chat up/down
-- Ctrl+Home: Scroll to top
-- Ctrl+End: Scroll to bottom
-
-Meta Commands:
-- ~clear: Clear chat history
-- ~m <model>: Switch model
-- ~cd <dir>: Change directory
-- ~help: Show help
-- ~status: Show current status
-
-Use the input area at the bottom to type messages.
-The sidebar shows conversation history, available models, and configuration.
-Agent responses support syntax highlighting for code blocks.
-"""
 
 
 async def run_textual_ui():
