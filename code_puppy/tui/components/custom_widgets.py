@@ -26,4 +26,5 @@ class CustomTextArea(TextArea):
 
     class MessageSent(Message):
         """Message sent when Enter key is pressed (without Shift)."""
+
         pass

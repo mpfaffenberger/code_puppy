@@ -1,6 +1,7 @@
 import unittest
 from code_puppy.tui.screens.settings import SettingsScreen
 
+
 class TestSettingsScreen(unittest.TestCase):
     def setUp(self):
         self.screen = SettingsScreen()
@@ -13,11 +14,13 @@ class TestSettingsScreen(unittest.TestCase):
         class DummySelect:
             def set_options(self, options):
                 self.options = options
+
         select = DummySelect()
         # Should fallback to default if file not found
         self.screen.load_model_options(select)
-        self.assertTrue(hasattr(select, 'options'))
+        self.assertTrue(hasattr(select, "options"))
         self.assertGreaterEqual(len(select.options), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

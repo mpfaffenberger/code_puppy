@@ -1,6 +1,7 @@
 import unittest
 from code_puppy.tui.screens.help import HelpScreen
 
+
 class TestHelpScreen(unittest.TestCase):
     def setUp(self):
         self.screen = HelpScreen()
@@ -12,6 +13,7 @@ class TestHelpScreen(unittest.TestCase):
     def test_compose(self):
         widgets = list(self.screen.compose())
         self.assertGreaterEqual(len(widgets), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

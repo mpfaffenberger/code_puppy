@@ -8,6 +8,6 @@ from .settings import SettingsScreen
 
 __all__ = [
     "DisclaimerScreen",
-    "HelpScreen", 
+    "HelpScreen",
     "SettingsScreen",
 ]

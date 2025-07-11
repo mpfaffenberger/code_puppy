@@ -10,7 +10,7 @@ from .sidebar import Sidebar
 
 __all__ = [
     "CustomTextArea",
-    "StatusBar", 
+    "StatusBar",
     "ChatView",
     "InputArea",
     "Sidebar",

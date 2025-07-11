@@ -55,11 +55,15 @@ class DisclaimerScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="disclaimer-dialog"):
-            yield Static("⚠️  DISCLAIMER: Be a responsible Puppy Owner", id="disclaimer-title")
+            yield Static(
+                "⚠️  DISCLAIMER: Be a responsible Puppy Owner", id="disclaimer-title"
+            )
             with VerticalScroll(id="disclaimer-content"):
                 yield Static(self.get_disclaimer_content(), id="disclaimer-text")
             with Container(id="disclaimer-buttons"):
-                yield Button("I Understand", id="disclaimer-dismiss-button", variant="primary")
+                yield Button(
+                    "I Understand", id="disclaimer-dismiss-button", variant="primary"
+                )
 
     def get_disclaimer_content(self) -> str:
         """Get the disclaimer content text."""

@@ -6,7 +6,6 @@ import re
 from typing import List
 from textual.containers import VerticalScroll
 from textual.widgets import Label, Static
-from textual.app import ComposeResult
 from rich.console import Group
 from rich.text import Text
 from rich.syntax import Syntax
@@ -65,20 +64,20 @@ class ChatView(VerticalScroll):
     def _render_agent_message_with_syntax(self, prefix: str, content: str):
         """Render agent message with proper syntax highlighting for code blocks."""
         # Split content by code blocks
-        parts = re.split(r'(```[\s\S]*?```)', content)
+        parts = re.split(r"(```[\s\S]*?```)", content)
         rendered_parts = []
 
         # Add prefix as the first part
         rendered_parts.append(Text(prefix, style="bold"))
 
         for i, part in enumerate(parts):
-            if part.startswith('```') and part.endswith('```'):
+            if part.startswith("```") and part.endswith("```"):
                 # This is a code block
-                lines = part.strip('`').split('\n')
+                lines = part.strip("`").split("\n")
                 if lines:
                     # First line might contain language identifier
                     language = lines[0].strip() if lines[0].strip() else "text"
-                    code_content = '\n'.join(lines[1:]) if len(lines) > 1 else ""
+                    code_content = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
                     if code_content.strip():
                         # Create syntax highlighted code
@@ -89,7 +88,7 @@ class ChatView(VerticalScroll):
                                 theme="github-dark",
                                 background_color="default",
                                 line_numbers=True,
-                                word_wrap=True
+                                word_wrap=True,
                             )
                             rendered_parts.append(syntax)
                         except Exception:
@@ -122,9 +121,11 @@ class ChatView(VerticalScroll):
             # Use Static widget with Rich renderable for agent messages to support syntax highlighting
             try:
                 # Check if the message contains code blocks
-                if '```' in message.content:
+                if "```" in message.content:
                     # Parse and render code blocks with syntax highlighting
-                    rendered_content = self._render_agent_message_with_syntax(prefix, message.content)
+                    rendered_content = self._render_agent_message_with_syntax(
+                        prefix, message.content
+                    )
                     message_widget = Static(rendered_content, classes=css_class)
                 else:
                     # Regular text message

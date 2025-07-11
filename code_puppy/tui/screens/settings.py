@@ -81,11 +81,20 @@ class SettingsScreen(ModalScreen):
 
                 with Container(classes="setting-row"):
                     yield Static("YOLO Mode:", classes="setting-label")
-                    yield Select([("Enabled", "true"), ("Disabled", "false")], value="false", id="yolo-select", classes="setting-input")
+                    yield Select(
+                        [("Enabled", "true"), ("Disabled", "false")],
+                        value="false",
+                        id="yolo-select",
+                        classes="setting-input",
+                    )
 
                 with Container(classes="setting-row"):
                     yield Static("History Limit:", classes="setting-label")
-                    yield Input(id="history-limit-input", classes="setting-input", placeholder="e.g., 50")
+                    yield Input(
+                        id="history-limit-input",
+                        classes="setting-input",
+                        placeholder="e.g., 50",
+                    )
 
             with Container(id="settings-buttons"):
                 yield Button("Save", id="save-button", variant="primary")
@@ -93,7 +102,13 @@ class SettingsScreen(ModalScreen):
 
     def on_mount(self) -> None:
         """Load current settings when the screen mounts."""
-        from code_puppy.config import get_puppy_name, get_owner_name, get_yolo_mode, get_message_history_limit, get_model_name
+        from code_puppy.config import (
+            get_puppy_name,
+            get_owner_name,
+            get_yolo_mode,
+            get_message_history_limit,
+            get_model_name,
+        )
 
         # Load current values
         puppy_name_input = self.query_one("#puppy-name-input", Input)
@@ -125,7 +140,7 @@ class SettingsScreen(ModalScreen):
             if not models_path.exists():
                 models_path = Path(__file__).parent.parent.parent / "models.json"
 
-            with open(models_path, 'r') as f:
+            with open(models_path, "r") as f:
                 models_data = json.load(f)
 
             # Create options as (display_name, model_name) tuples
@@ -138,7 +153,7 @@ class SettingsScreen(ModalScreen):
             # Set the options on the select widget
             model_select.set_options(model_options)
 
-        except Exception as e:
+        except Exception:
             # Fallback to a basic option if loading fails
             model_select.set_options([("gpt-4.1 (openai)", "gpt-4.1")])
 
@@ -175,10 +190,18 @@ class SettingsScreen(ModalScreen):
             if selected_model:
                 message += f" Model switched to: {selected_model}"
 
-            self.dismiss({"success": True, "message": message, "model_changed": bool(selected_model)})
+            self.dismiss(
+                {
+                    "success": True,
+                    "message": message,
+                    "model_changed": bool(selected_model),
+                }
+            )
 
         except Exception as e:
-            self.dismiss({"success": False, "message": f"Error saving settings: {str(e)}"})
+            self.dismiss(
+                {"success": False, "message": f"Error saving settings: {str(e)}"}
+            )
 
     @on(Button.Pressed, "#cancel-button")
     def cancel_settings(self) -> None:

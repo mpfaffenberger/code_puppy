@@ -12,6 +12,7 @@ from .enums import MessageType
 @dataclass
 class ChatMessage:
     """Represents a message in the chat interface."""
+
     id: str
     type: MessageType
     content: str

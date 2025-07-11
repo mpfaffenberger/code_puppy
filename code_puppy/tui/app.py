@@ -2,20 +2,19 @@
 Main TUI application class.
 """
 
-import asyncio
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict
 
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import Footer, ListView, ListItem, Label, ProgressBar
 from textual.binding import Binding
 from textual.reactive import reactive
-from textual.events import Key, Resize
+from textual.events import Resize
 from textual import work
 
 from code_puppy.agent import get_code_generation_agent, session_memory
-from code_puppy.config import get_model_name, get_puppy_name, get_owner_name, get_yolo_mode
+from code_puppy.config import get_model_name, get_puppy_name
 from code_puppy.command_line.meta_command_handler import handle_meta_command
 
 from .models import ChatMessage, MessageType
@@ -119,7 +118,7 @@ class CodePuppyTUI(App):
             id=f"sys_{datetime.now().timestamp()}",
             type=MessageType.SYSTEM,
             content=content,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
@@ -130,7 +129,7 @@ class CodePuppyTUI(App):
             id=f"user_{datetime.now().timestamp()}",
             type=MessageType.USER,
             content=content,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
@@ -141,7 +140,7 @@ class CodePuppyTUI(App):
             id=f"agent_{datetime.now().timestamp()}",
             type=MessageType.AGENT,
             content=content,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
@@ -152,12 +151,14 @@ class CodePuppyTUI(App):
             id=f"error_{datetime.now().timestamp()}",
             type=MessageType.ERROR,
             content=content,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def on_custom_text_area_message_sent(self, event: CustomTextArea.MessageSent) -> None:
+    def on_custom_text_area_message_sent(
+        self, event: CustomTextArea.MessageSent
+    ) -> None:
         """Handle message sent from custom text area."""
         self.action_send_message()
 
@@ -195,7 +196,9 @@ class CodePuppyTUI(App):
                         return
                     elif event.key == "enter":
                         # Show details of current history item
-                        if history_list.highlighted_child and hasattr(history_list.highlighted_child, 'history_entry'):
+                        if history_list.highlighted_child and hasattr(
+                            history_list.highlighted_child, "history_entry"
+                        ):
                             history_entry = history_list.highlighted_child.history_entry
                             self.show_history_details(history_entry)
                         event.prevent_default()
@@ -237,8 +240,8 @@ class CodePuppyTUI(App):
             self.start_agent_progress("Thinking")
 
             # Handle meta commands
-            if message.strip().startswith('~'):
-                if message.strip().lower() in ('clear', '~clear'):
+            if message.strip().startswith("~"):
+                if message.strip().lower() in ("clear", "~clear"):
                     self.action_clear_chat()
                     return
 
@@ -253,8 +256,7 @@ class CodePuppyTUI(App):
                     captured_output = StringIO()
                     sys.stdout = captured_output
 
-                    # Also capture Rich console output
-                    temp_console = rich_console
+                    # Also capture Rich console output  
                     rich_console.file = captured_output
 
                     try:
@@ -265,7 +267,9 @@ class CodePuppyTUI(App):
                             if output.strip():
                                 self.add_system_message(output.strip())
                             else:
-                                self.add_system_message(f"Meta command '{message}' executed")
+                                self.add_system_message(
+                                    f"Meta command '{message}' executed"
+                                )
                         else:
                             self.add_system_message(f"Unknown meta command: {message}")
                     finally:
@@ -282,7 +286,9 @@ class CodePuppyTUI(App):
                 self.update_agent_progress("Processing", 25)
                 async with self.agent.run_mcp_servers():
                     self.update_agent_progress("Processing", 50)
-                    result = await self.agent.run(message, message_history=self.message_history)
+                    result = await self.agent.run(
+                        message, message_history=self.message_history
+                    )
 
                 self.update_agent_progress("Processing", 75)
                 agent_response = result.output
@@ -374,10 +380,12 @@ class CodePuppyTUI(App):
 
     def action_open_settings(self) -> None:
         """Open the settings configuration screen."""
+
         def handle_settings_result(result):
             if result and result.get("success"):
                 # Update reactive variables
                 from code_puppy.config import get_puppy_name, get_model_name
+
                 self.puppy_name = get_puppy_name()
 
                 # Handle model change if needed
@@ -394,7 +402,11 @@ class CodePuppyTUI(App):
 
                 # Show success message
                 self.add_system_message(result.get("message", "Settings updated"))
-            elif result and not result.get("success") and "cancelled" not in result.get("message", "").lower():
+            elif (
+                result
+                and not result.get("success")
+                and "cancelled" not in result.get("message", "").lower()
+            ):
                 # Show error message (but not for cancellation)
                 self.add_error_message(result.get("message", "Settings update failed"))
 
@@ -404,30 +416,37 @@ class CodePuppyTUI(App):
     def load_history_list(self) -> None:
         """Load session history into the history tab."""
         try:
-            from datetime import datetime, timedelta
+            from datetime import datetime
 
             history_list = self.query_one("#history-list", ListView)
 
             # Get history from session memory
             if self.session_memory:
                 # Get recent history (last 24 hours by default)
-                recent_history = self.session_memory.get_history(within_minutes=24*60)
+                recent_history = self.session_memory.get_history(within_minutes=24 * 60)
 
                 if not recent_history:
                     # No history available
-                    history_list.append(ListItem(Label("No recent history", classes="history-empty")))
+                    history_list.append(
+                        ListItem(Label("No recent history", classes="history-empty"))
+                    )
                     return
 
                 # Filter out model loading entries and group history by type, display most recent first
                 filtered_history = [
-                    entry for entry in recent_history
+                    entry
+                    for entry in recent_history
                     if not entry.get("description", "").startswith("Agent loaded")
                 ]
 
                 # Get sidebar width for responsive text truncation
                 try:
-                    sidebar_width = self.query_one("Sidebar").size.width if hasattr(self.query_one("Sidebar"), 'size') else 30
-                except:
+                    sidebar_width = (
+                        self.query_one("Sidebar").size.width
+                        if hasattr(self.query_one("Sidebar"), "size")
+                        else 30
+                    )
+                except Exception:
                     sidebar_width = 30
 
                 # Adjust text length based on sidebar width
@@ -447,43 +466,67 @@ class CodePuppyTUI(App):
 
                     # Parse timestamp for display
                     try:
-                        timestamp_obj = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        timestamp_obj = datetime.fromisoformat(
+                            timestamp_str.replace("Z", "+00:00")
+                        )
                         time_display = timestamp_obj.strftime(time_format)
-                        date_display = timestamp_obj.strftime("%m/%d")
-                    except:
-                        time_display = timestamp_str[:5] if sidebar_width < 25 else timestamp_str[:8]
+                    except Exception:
+                        time_display = (
+                            timestamp_str[:5]
+                            if sidebar_width < 25
+                            else timestamp_str[:8]
+                        )
                         if len(time_display) < 5:
                             time_display = "??:??"
-                        date_display = "??/??"
 
                     # Format description for display with responsive truncation
                     if description.startswith("Interactive task:"):
-                        task_text = description[17:].strip()  # Remove "Interactive task: "
-                        truncated = task_text[:max_text_length] + ('...' if len(task_text) > max_text_length else '')
+                        task_text = description[
+                            17:
+                        ].strip()  # Remove "Interactive task: "
+                        truncated = task_text[:max_text_length] + (
+                            "..." if len(task_text) > max_text_length else ""
+                        )
                         display_text = f"[{time_display}] 💬 {truncated}"
                         css_class = "history-interactive"
                     elif description.startswith("TUI interaction:"):
-                        task_text = description[16:].strip()  # Remove "TUI interaction: "
-                        truncated = task_text[:max_text_length] + ('...' if len(task_text) > max_text_length else '')
+                        task_text = description[
+                            16:
+                        ].strip()  # Remove "TUI interaction: "
+                        truncated = task_text[:max_text_length] + (
+                            "..." if len(task_text) > max_text_length else ""
+                        )
                         display_text = f"[{time_display}] 🖥️ {truncated}"
                         css_class = "history-tui"
                     elif description.startswith("Command executed"):
-                        cmd_text = description[18:].strip()  # Remove "Command executed: "
-                        truncated = cmd_text[:max_text_length-5] + ('...' if len(cmd_text) > max_text_length-5 else '')
+                        cmd_text = description[
+                            18:
+                        ].strip()  # Remove "Command executed: "
+                        truncated = cmd_text[: max_text_length - 5] + (
+                            "..." if len(cmd_text) > max_text_length - 5 else ""
+                        )
                         display_text = f"[{time_display}] ⚡ {truncated}"
                         css_class = "history-command"
                     else:
                         # Generic entry
-                        truncated = description[:max_text_length] + ('...' if len(description) > max_text_length else '')
+                        truncated = description[:max_text_length] + (
+                            "..." if len(description) > max_text_length else ""
+                        )
                         display_text = f"[{time_display}] 📝 {truncated}"
                         css_class = "history-generic"
 
                     label = Label(display_text, classes=css_class)
                     history_item = ListItem(label)
-                    history_item.history_entry = entry  # Store full entry for detail view
+                    history_item.history_entry = (
+                        entry  # Store full entry for detail view
+                    )
                     history_list.append(history_item)
             else:
-                history_list.append(ListItem(Label("Session memory not available", classes="history-error")))
+                history_list.append(
+                    ListItem(
+                        Label("Session memory not available", classes="history-error")
+                    )
+                )
 
         except Exception as e:
             self.add_error_message(f"Failed to load history: {e}")
@@ -499,9 +542,10 @@ class CodePuppyTUI(App):
             # Parse timestamp for better display
             try:
                 from datetime import datetime
-                timestamp_obj = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+                timestamp_obj = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                 formatted_time = timestamp_obj.strftime("%Y-%m-%d %H:%M:%S")
-            except:
+            except Exception:
                 formatted_time = timestamp
 
             # Create detailed view content
@@ -512,12 +556,14 @@ class CodePuppyTUI(App):
             ]
 
             if output:
-                details.extend([
-                    "Output:",
-                    "─" * 40,
-                    output,
-                    "",
-                ])
+                details.extend(
+                    [
+                        "Output:",
+                        "─" * 40,
+                        output,
+                        "",
+                    ]
+                )
 
             if awaiting_input:
                 details.append("⚠️  Was awaiting user input")
@@ -593,8 +639,8 @@ class CodePuppyTUI(App):
     def apply_responsive_layout(self) -> None:
         """Apply responsive layout adjustments based on terminal size."""
         try:
-            terminal_width = self.size.width if hasattr(self, 'size') else 80
-            terminal_height = self.size.height if hasattr(self, 'size') else 24
+            terminal_width = self.size.width if hasattr(self, "size") else 80
+            terminal_height = self.size.height if hasattr(self, "size") else 24
             sidebar = self.query_one(Sidebar)
 
             # Responsive sidebar width based on terminal width
@@ -613,7 +659,9 @@ class CodePuppyTUI(App):
             if terminal_width < 50:
                 if sidebar.display:
                     sidebar.display = False
-                    self.add_system_message("💡 Sidebar auto-hidden for narrow terminal. Press Ctrl+2 to toggle.")
+                    self.add_system_message(
+                        "💡 Sidebar auto-hidden for narrow terminal. Press Ctrl+2 to toggle."
+                    )
 
             # Adjust input area height for very short terminals
             if terminal_height < 20:

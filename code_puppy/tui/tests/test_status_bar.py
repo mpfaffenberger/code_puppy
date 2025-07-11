@@ -1,6 +1,7 @@
 import unittest
 from code_puppy.tui.components.status_bar import StatusBar
 
+
 class TestStatusBar(unittest.TestCase):
     def setUp(self):
         self.status_bar = StatusBar()
@@ -20,6 +21,7 @@ class TestStatusBar(unittest.TestCase):
         self.status_bar.watch_connection_status()
         self.status_bar.watch_agent_status()
         self.status_bar.watch_progress_visible()
+
 
 if __name__ == "__main__":
     unittest.main()

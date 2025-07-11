@@ -1,10 +1,11 @@
 import unittest
 from code_puppy.tui.components.custom_widgets import CustomTextArea
-from textual.events import Key
+
 
 class DummyEvent:
     def __init__(self, key):
         self.key = key
+
 
 class TestCustomTextArea(unittest.TestCase):
     def setUp(self):
@@ -19,6 +20,7 @@ class TestCustomTextArea(unittest.TestCase):
     def test_message_sent_class(self):
         msg = CustomTextArea.MessageSent()
         self.assertIsInstance(msg, CustomTextArea.MessageSent)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -54,8 +54,8 @@ class HelpScreen(ModalScreen):
         """Get the help content text."""
         try:
             # Get terminal width for responsive help
-            terminal_width = self.app.size.width if hasattr(self.app, 'size') else 80
-        except:
+            terminal_width = self.app.size.width if hasattr(self.app, "size") else 80
+        except Exception:
             terminal_width = 80
 
         if terminal_width < 60:
