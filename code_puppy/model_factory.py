@@ -158,7 +158,6 @@ class ModelFactory:
                 api_key=api_key,
             )
             provider = AnthropicProvider(anthropic_client=anthropic_client)
-            print(model_config)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "azure_openai":
