@@ -133,7 +133,7 @@ async def authenticate_puppy(port: int) -> bool:
     initial_token = get_puppy_token()
 
     # Open browser for authentication
-    auth_url = f"https://puppy.dev.walmart.com/authenticate_puppy?port={port}"
+    auth_url = f"https://puppy.stg.walmart.com/authenticate_puppy?port={port}"
     console.print(f"[blue]Opening browser for authentication: {auth_url}[/blue]")
 
     try:
