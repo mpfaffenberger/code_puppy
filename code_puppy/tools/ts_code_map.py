@@ -483,16 +483,21 @@ def make_code_map(directory: str, ignore_tests: bool = True) -> str:
 
         # Ensure current directory has a node; create if coming from parent
         if abs_root not in dir_nodes and abs_root != Path(directory).resolve():
-            rel_parts = abs_root.relative_to(directory).parts
-            parent_path = Path(directory).resolve()
-            for part in rel_parts:  # walk down creating nodes as needed
-                parent_node = dir_nodes[parent_path]
-                current_path = parent_path / part
-                if current_path not in dir_nodes:
-                    dir_label = Text(part, style="bold magenta")
-                    dir_node = parent_node.add(dir_label)
-                    dir_nodes[current_path] = dir_node
-                parent_path = current_path
+            try:
+                rel_parts = abs_root.relative_to(Path(directory).resolve()).parts
+                parent_path = Path(directory).resolve()
+                for part in rel_parts:  # walk down creating nodes as needed
+                    parent_node = dir_nodes[parent_path]
+                    current_path = parent_path / part
+                    if current_path not in dir_nodes:
+                        dir_label = Text(part, style="bold magenta")
+                        dir_node = parent_node.add(dir_label)
+                        dir_nodes[current_path] = dir_node
+                    parent_path = current_path
+            except ValueError:
+                # Path is not within the base directory (symlink, relative path escape, etc.)
+                # Skip this path to avoid the "not in subpath" error
+                continue
 
         current_node = dir_nodes.get(abs_root, base_tree)
 
