@@ -126,7 +126,53 @@ for ext, alias in list(LANGS.items()):
 
 
 # ----------------------------------------------------------------------
-# 4.  Parametrised test
+# 4.  Test for path traversal bug fix
+# ----------------------------------------------------------------------
+def test_make_code_map_handles_path_traversal_gracefully(tmp_path: Path, monkeypatch):
+    """Test that make_code_map handles paths outside the base directory gracefully.
+    
+    This test verifies the fix for the "not in subpath" error that occurs when
+    os.walk encounters paths that can't be computed relative to the base directory.
+    """
+    from code_puppy.tools.ts_code_map import make_code_map
+    from pathlib import Path
+    import os
+    
+    # Create a test directory structure
+    test_dir = tmp_path / "test_project"
+    test_dir.mkdir()
+    
+    # Create a simple Python file to ensure basic functionality works
+    py_file = test_dir / "example.py"
+    py_file.write_text("def hello(): pass\n")
+    
+    # Mock os.walk to simulate a problematic path that would cause the relative_to error
+    original_walk = os.walk
+    
+    def mock_walk(directory):
+        # First yield the normal directory
+        for item in original_walk(directory):
+            yield item
+        # Then yield a problematic path that would cause relative_to to fail
+        # This simulates a symlink or path that escapes the base directory
+        problematic_path = "/some/outside/path"
+        yield (problematic_path, [], ["badfile.py"])
+    
+    monkeypatch.setattr(os, "walk", mock_walk)
+    
+    # This should not raise a ValueError about "not in subpath"
+    # Before the fix, this would crash with the relative_to error
+    result = make_code_map(str(test_dir))
+    
+    # Verify we get a reasonable result (the function doesn't crash)
+    assert isinstance(result, str)
+    assert len(result) > 0
+    # The result should contain the project name
+    assert "test_project" in result
+
+
+# ----------------------------------------------------------------------
+# 5.  Parametrised test
 # ----------------------------------------------------------------------
 @pytest.mark.parametrize("ext,snippet", sorted(SAMPLES.items()))
 def test_code_map_extracts_nodes(ext: str, snippet: str, tmp_path: Path):
