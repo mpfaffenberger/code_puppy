@@ -2,7 +2,7 @@
 Main TUI application class.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict
 
 from textual.app import App, ComposeResult
@@ -115,10 +115,10 @@ class CodePuppyTUI(App):
     def add_system_message(self, content: str) -> None:
         """Add a system message to the chat."""
         message = ChatMessage(
-            id=f"sys_{datetime.now().timestamp()}",
+            id=f"sys_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.SYSTEM,
             content=content,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
@@ -126,10 +126,10 @@ class CodePuppyTUI(App):
     def add_user_message(self, content: str) -> None:
         """Add a user message to the chat."""
         message = ChatMessage(
-            id=f"user_{datetime.now().timestamp()}",
+            id=f"user_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.USER,
             content=content,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
@@ -137,10 +137,10 @@ class CodePuppyTUI(App):
     def add_agent_message(self, content: str) -> None:
         """Add an agent message to the chat."""
         message = ChatMessage(
-            id=f"agent_{datetime.now().timestamp()}",
+            id=f"agent_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.AGENT,
             content=content,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
@@ -148,10 +148,10 @@ class CodePuppyTUI(App):
     def add_error_message(self, content: str) -> None:
         """Add an error message to the chat."""
         message = ChatMessage(
-            id=f"error_{datetime.now().timestamp()}",
+            id=f"error_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.ERROR,
             content=content,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
@@ -416,7 +416,7 @@ class CodePuppyTUI(App):
     def load_history_list(self) -> None:
         """Load session history into the history tab."""
         try:
-            from datetime import datetime
+            from datetime import datetime, timezone
 
             history_list = self.query_one("#history-list", ListView)
 
@@ -464,20 +464,29 @@ class CodePuppyTUI(App):
                     timestamp_str = entry.get("timestamp", "")
                     description = entry.get("description", "Unknown task")
 
-                    # Parse timestamp for display
-                    try:
-                        timestamp_obj = datetime.fromisoformat(
-                            timestamp_str.replace("Z", "+00:00")
-                        )
-                        time_display = timestamp_obj.strftime(time_format)
-                    except Exception:
-                        time_display = (
-                            timestamp_str[:5]
-                            if sidebar_width < 25
-                            else timestamp_str[:8]
-                        )
-                        if len(time_display) < 5:
-                            time_display = "??:??"
+                    # Parse timestamp for display with safe parsing
+                    def parse_timestamp_safely_for_display(timestamp_str: str) -> str:
+                        """Parse timestamp string safely for display purposes."""
+                        try:
+                            # Handle 'Z' suffix (common UTC format)
+                            cleaned_timestamp = timestamp_str.replace("Z", "+00:00")
+                            parsed_dt = datetime.fromisoformat(cleaned_timestamp)
+                            
+                            # If the datetime is naive (no timezone), assume UTC
+                            if parsed_dt.tzinfo is None:
+                                parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                            
+                            return parsed_dt.strftime(time_format)
+                        except (ValueError, AttributeError, TypeError):
+                            # Handle invalid timestamp formats gracefully
+                            fallback = (
+                                timestamp_str[:5]
+                                if sidebar_width < 25
+                                else timestamp_str[:8]
+                            )
+                            return "??:??" if len(fallback) < 5 else fallback
+                    
+                    time_display = parse_timestamp_safely_for_display(timestamp_str)
 
                     # Format description for display with responsive truncation
                     if description.startswith("Interactive task:"):
@@ -539,14 +548,24 @@ class CodePuppyTUI(App):
             output = history_entry.get("output", "")
             awaiting_input = history_entry.get("awaiting_user_input", False)
 
-            # Parse timestamp for better display
-            try:
-                from datetime import datetime
-
-                timestamp_obj = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                formatted_time = timestamp_obj.strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
-                formatted_time = timestamp
+            # Parse timestamp for better display with safe parsing
+            def parse_timestamp_safely_for_details(timestamp_str: str) -> str:
+                """Parse timestamp string safely for detailed display."""
+                try:
+                    # Handle 'Z' suffix (common UTC format)
+                    cleaned_timestamp = timestamp_str.replace("Z", "+00:00")
+                    parsed_dt = datetime.fromisoformat(cleaned_timestamp)
+                    
+                    # If the datetime is naive (no timezone), assume UTC
+                    if parsed_dt.tzinfo is None:
+                        parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                    
+                    return parsed_dt.strftime("%Y-%m-%d %H:%M:%S")
+                except (ValueError, AttributeError, TypeError):
+                    # Handle invalid timestamp formats gracefully
+                    return timestamp_str
+            
+            formatted_time = parse_timestamp_safely_for_details(timestamp)
 
             # Create detailed view content
             details = [
