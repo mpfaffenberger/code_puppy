@@ -5,8 +5,19 @@ from typing import Optional, Tuple
 from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 
-NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
-console = Console(no_color=NO_COLOR)
+# Import our queue-based console system
+try:
+    from code_puppy.messaging import get_queue_console
+    # Use queue console by default, but allow fallback
+    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    _rich_console = Console(no_color=NO_COLOR)
+    console = get_queue_console()
+    # Set the fallback console for compatibility
+    console.fallback_console = _rich_console
+except ImportError:
+    # Fallback to regular Rich console if messaging system not available
+    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    console = Console(no_color=NO_COLOR)
 
 
 # -------------------

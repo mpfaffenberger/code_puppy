@@ -275,7 +275,10 @@ async def main():
 # Add the file handling functionality for interactive mode
 async def interactive_mode(history_file_path: str) -> None:
     from code_puppy.command_line.meta_command_handler import handle_meta_command
-
+    
+    # Import and start our message queue renderer for interactive mode
+    from code_puppy.messaging import get_global_queue, SynchronousInteractiveRenderer
+    
     """Run the agent in interactive mode."""
     console.print("[bold green]Code Puppy[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
@@ -318,6 +321,11 @@ async def interactive_mode(history_file_path: str) -> None:
 
     message_history = []
 
+    # Initialize and start the message queue renderer for interactive mode
+    message_queue = get_global_queue()
+    message_renderer = SynchronousInteractiveRenderer(message_queue, console)
+    message_renderer.start()
+    
     # Set up history file in home directory
     history_file_path_prompt = os.path.expanduser("~/.code_puppy_history.txt")
     history_dir = os.path.dirname(history_file_path_prompt)
@@ -354,6 +362,8 @@ async def interactive_mode(history_file_path: str) -> None:
         # Check for exit commands
         if task.strip().lower() in ["exit", "quit"]:
             console.print("[bold green]Goodbye![/bold green]")
+            # Stop the message renderer before exiting
+            message_renderer.stop()
             break
 
         # Check for clear command (supports both `clear` and `~clear`)

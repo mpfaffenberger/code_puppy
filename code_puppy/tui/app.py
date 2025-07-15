@@ -22,6 +22,9 @@ from code_puppy.command_line.meta_command_handler import handle_meta_command
 from code_puppy.config import get_model_name, get_puppy_name
 
 from .components import ChatView, CustomTextArea, InputArea, Sidebar, StatusBar
+# Import our message queue system
+from code_puppy.messaging import get_global_queue, TUIRenderer
+
 from .models import ChatMessage, MessageType
 from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
 
@@ -75,6 +78,11 @@ class CodePuppyTUI(App):
         self.agent = None
         self.session_memory = None
 
+        # Initialize message queue renderer
+        self.message_queue = get_global_queue()
+        self.message_renderer = TUIRenderer(self.message_queue, self)
+        self._renderer_started = False
+
     def compose(self) -> ComposeResult:
         """Create the UI layout."""
         yield StatusBar()
@@ -115,6 +123,9 @@ class CodePuppyTUI(App):
 
         # Show disclaimer modal when TUI starts
         self.call_after_refresh(self.show_disclaimer)
+
+        # Start the message renderer
+        self.call_after_refresh(self.start_message_renderer)
 
     def add_system_message(self, content: str) -> None:
         """Add a system message to the chat."""
@@ -699,6 +710,22 @@ class CodePuppyTUI(App):
 
         except Exception:
             pass
+
+    async def start_message_renderer(self):
+        """Start the message renderer to consume messages from the queue."""
+        if not self._renderer_started:
+            self._renderer_started = True
+            await self.message_renderer.start()
+
+    async def stop_message_renderer(self):
+        """Stop the message renderer."""
+        if self._renderer_started:
+            self._renderer_started = False
+            await self.message_renderer.stop()
+
+    async def on_unmount(self):
+        """Clean up when the app is unmounted."""
+        await self.stop_message_renderer()
 
 
 async def run_textual_ui():
