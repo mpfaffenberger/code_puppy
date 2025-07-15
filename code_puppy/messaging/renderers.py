@@ -36,11 +36,15 @@ class MessageRenderer(ABC):
             return
             
         self._running = True
+        # Mark the queue as having an active renderer
+        self.queue.mark_renderer_active()
         self._task = asyncio.create_task(self._consume_messages())
         
     async def stop(self):
         """Stop the renderer."""
         self._running = False
+        # Mark the queue as having no active renderer
+        self.queue.mark_renderer_inactive()
         if self._task:
             self._task.cancel()
             try:
@@ -170,6 +174,8 @@ class SynchronousInteractiveRenderer:
             return
             
         self._running = True
+        # Mark the queue as having an active renderer
+        self.queue.mark_renderer_active()
         # Add ourselves as a listener for immediate processing
         self.queue.add_listener(self._render_message)
         self._thread = threading.Thread(target=self._consume_messages, daemon=True)
@@ -178,6 +184,8 @@ class SynchronousInteractiveRenderer:
     def stop(self):
         """Stop the synchronous renderer."""
         self._running = False
+        # Mark the queue as having no active renderer
+        self.queue.mark_renderer_inactive()
         # Remove ourselves as a listener
         self.queue.remove_listener(self._render_message)
         if self._thread and self._thread.is_alive():

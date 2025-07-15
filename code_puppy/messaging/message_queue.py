@@ -64,6 +64,8 @@ class MessageQueue:
         self._listeners = []
         self._running = False
         self._thread = None
+        self._startup_buffer = []  # Buffer messages before any renderer starts
+        self._has_active_renderer = False
         
     def start(self):
         """Start the queue processing."""
@@ -76,7 +78,10 @@ class MessageQueue:
         
     def get_buffered_messages(self):
         """Get all currently buffered messages without waiting."""
-        messages = []
+        # First get any startup buffered messages
+        messages = list(self._startup_buffer)
+        
+        # Then get any queued messages
         while True:
             try:
                 message = self._queue.get_nowait()
@@ -84,6 +89,10 @@ class MessageQueue:
             except queue.Empty:
                 break
         return messages
+        
+    def clear_startup_buffer(self):
+        """Clear the startup buffer after processing."""
+        self._startup_buffer.clear()
         
     def stop(self):
         """Stop the queue processing."""
@@ -93,6 +102,11 @@ class MessageQueue:
             
     def emit(self, message: UIMessage):
         """Emit a message to the queue."""
+        # If no renderer is active yet, buffer the message for startup
+        if not self._has_active_renderer:
+            self._startup_buffer.append(message)
+            return
+            
         try:
             self._queue.put_nowait(message)
         except queue.Full:
@@ -161,11 +175,24 @@ class MessageQueue:
     def add_listener(self, callback):
         """Add a listener for messages (for direct sync consumption)."""
         self._listeners.append(callback)
+        # Mark that we have an active renderer
+        self._has_active_renderer = True
         
     def remove_listener(self, callback):
         """Remove a listener."""
         if callback in self._listeners:
             self._listeners.remove(callback)
+        # If no more listeners, mark as no active renderer
+        if not self._listeners:
+            self._has_active_renderer = False
+            
+    def mark_renderer_active(self):
+        """Mark that a renderer is now active and consuming messages."""
+        self._has_active_renderer = True
+        
+    def mark_renderer_inactive(self):
+        """Mark that no renderer is currently active."""
+        self._has_active_renderer = False
 
 
 # Global message queue instance
@@ -188,7 +215,9 @@ def get_global_queue() -> MessageQueue:
 def get_buffered_startup_messages():
     """Get any messages that were buffered before renderers started."""
     queue = get_global_queue()
-    return queue.get_buffered_messages()
+    # Only return startup buffer messages, don't clear them yet
+    messages = list(queue._startup_buffer)
+    return messages
 
 
 def emit_message(message_type: MessageType, content: Any, **metadata):

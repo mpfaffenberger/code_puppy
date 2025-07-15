@@ -734,11 +734,22 @@ class CodePuppyTUI(App):
             # Process any buffered startup messages first
             from code_puppy.messaging import get_buffered_startup_messages
             buffered_messages = get_buffered_startup_messages()
+            self.add_system_message(f"🐶 Processing {len(buffered_messages)} startup messages...")
+            
             for message in buffered_messages:
-                await self.message_renderer.render_message(message)
+                try:
+                    await self.message_renderer.render_message(message)
+                except Exception as e:
+                    self.add_error_message(f"Error processing startup message: {e}")
+            
+            if buffered_messages:
+                self.add_system_message(f"✅ Processed {len(buffered_messages)} startup messages")
+                # Clear the startup buffer after processing
+                self.message_queue.clear_startup_buffer()
             
             # Now start the regular message renderer
             await self.message_renderer.start()
+            self.add_system_message("🎯 Message renderer started - all output should now appear here!")
             
     async def stop_message_renderer(self):
         """Stop the message renderer."""
