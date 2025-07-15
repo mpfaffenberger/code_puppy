@@ -126,7 +126,8 @@ def get_code_generation_agent(force_reload=False):
 
 def get_custom_usage_limits():
     """
-    Returns custom usage limits with increased request limit.
+    Returns custom usage limits with increased request limit of 100 requests per minute.
     This centralizes the configuration of rate limiting for the agent.
+    Default pydantic-ai limit is 50, this increases it to 100.
     """
     return UsageLimits(request_limit=100)
