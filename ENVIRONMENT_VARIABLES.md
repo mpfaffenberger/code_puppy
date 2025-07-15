@@ -10,6 +10,12 @@ This document lists all environment variables that can be used to configure Code
 | `GEMINI_API_KEY` | API key for Google's Gemini models. | None | model_factory.py |
 | `OPENAI_API_KEY` | API key for OpenAI models. | None | model_factory.py |
 
+## Version Management
+
+| Variable | Description | Default | Used In |
+|----------|-------------|---------|---------|
+| `NO_VERSION_UPDATE` | Used for code-puppy development. Disables automatic version checking and updating. Set to "1", "true", "yes", or "on" to disable. | None | main.py |
+
 ## Command Execution
 
 | Variable | Description | Default | Used In |
@@ -58,7 +64,7 @@ Models are now automatically fetched from the remote endpoint (https://puppy.stg
 
 The system will:
 1. Try to fetch the latest config from the remote endpoint
-2. Fall back to the local cached version if remote is unavailable  
+2. Fall back to the local cached version if remote is unavailable
 3. Automatically update the local cache when remote config changes
 
 
@@ -70,4 +76,14 @@ The system will:
 export OPENAI_API_KEY=sk-...
 export GEMINI_API_KEY=...
 code-puppy --interactive
+```
+
+
+### Disabling Auto-Updates
+Sometimes, when doing development on code-puppy itself, we need to stay on the current version.
+
+```bash
+# Disable automatic version checking and updating
+# (set the variable to any of these values: "true", "yes", "on")
+NO_VERSION_UPDATE=1 uv run code-puppy --interactive
 ```

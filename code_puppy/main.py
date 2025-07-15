@@ -84,7 +84,7 @@ def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
 async def main():
     # Show immediate loading feedback to user
     console.print("[bold blue]🐶 Code Puppy is Loading...[/bold blue]")
-    
+
     # Find an available port for the HTTP server
     available_port = find_available_port()
     if available_port is None:
@@ -112,54 +112,81 @@ async def main():
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()
     current_version = __version__
-    latest_version = fetch_latest_version("code-puppy")
-    console.print(f"Current version: {current_version}")
-    console.print(f"Latest version: {latest_version}")
+
+    # Check if auto-update is disabled via environment variable
+    no_version_update = os.getenv("NO_VERSION_UPDATE", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    if no_version_update:
+        console.print(f"Current version: {current_version}")
+        console.print(
+            "[dim]Auto-update disabled via NO_VERSION_UPDATE environment variable[/dim]"
+        )
+    else:
+        latest_version = fetch_latest_version("code-puppy")
+        console.print(f"Current version: {current_version}")
+        console.print(f"Latest version: {latest_version}")
+
+        if latest_version and not versions_are_equal(current_version, latest_version):
+            console.print(
+                f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
+            )
+            console.print("[bold green]Auto-updating now...[/bold green]")
+
+            try:
+                # Run the update command
+                console.print(
+                    "[dim]Running: curl -skSL https://puppy.stg.walmart.com/api/releases/setup | bash[/dim]"
+                )
+                result = subprocess.run(
+                    [
+                        "curl",
+                        "-skSL",
+                        "https://puppy.stg.walmart.com/api/releases/setup",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+
+                if result.returncode == 0:
+                    # Pipe the output to bash
+                    bash_result = subprocess.run(
+                        ["bash"], input=result.stdout, text=True, timeout=120
+                    )
+
+                    if bash_result.returncode == 0:
+                        console.print(
+                            "[bold green]✅ Update completed successfully![/bold green]"
+                        )
+                        console.print("[yellow]Restarting code-puppy...[/yellow]")
+                        sys.exit(0)
+                    else:
+                        console.print(
+                            f"[bold red]❌ Update failed with exit code: {bash_result.returncode}[/bold red]"
+                        )
+                        console.print(
+                            "[yellow]Continuing with current version...[/yellow]"
+                        )
+                else:
+                    console.print(
+                        f"[bold red]❌ Failed to download update script: {result.stderr}[/bold red]"
+                    )
+                    console.print("[yellow]Continuing with current version...[/yellow]")
+
+            except subprocess.TimeoutExpired:
+                console.print("[bold red]❌ Update timed out[/bold red]")
+                console.print("[yellow]Continuing with current version...[/yellow]")
+            except Exception as e:
+                console.print(f"[bold red]❌ Update failed: {str(e)}[/bold red]")
+                console.print("[yellow]Continuing with current version...[/yellow]")
 
     # Display the disclaimer message
     display_disclaimer()
-    if latest_version and not versions_are_equal(current_version, latest_version):
-        console.print(
-            f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
-        )
-        console.print("[bold green]Auto-updating now...[/bold green]")
-        
-        try:
-            # Run the update command
-            console.print("[dim]Running: curl -skSL https://puppy.stg.walmart.com/api/releases/setup | bash[/dim]")
-            result = subprocess.run(
-                ["curl", "-skSL", "https://puppy.stg.walmart.com/api/releases/setup"],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            
-            if result.returncode == 0:
-                # Pipe the output to bash
-                bash_result = subprocess.run(
-                    ["bash"],
-                    input=result.stdout,
-                    text=True,
-                    timeout=120
-                )
-                
-                if bash_result.returncode == 0:
-                    console.print("[bold green]✅ Update completed successfully![/bold green]")
-                    console.print("[yellow]Restarting code-puppy...[/yellow]")
-                    sys.exit(0)
-                else:
-                    console.print(f"[bold red]❌ Update failed with exit code: {bash_result.returncode}[/bold red]")
-                    console.print("[yellow]Continuing with current version...[/yellow]")
-            else:
-                console.print(f"[bold red]❌ Failed to download update script: {result.stderr}[/bold red]")
-                console.print("[yellow]Continuing with current version...[/yellow]")
-                
-        except subprocess.TimeoutExpired:
-            console.print("[bold red]❌ Update timed out[/bold red]")
-            console.print("[yellow]Continuing with current version...[/yellow]")
-        except Exception as e:
-            console.print(f"[bold red]❌ Update failed: {str(e)}[/bold red]")
-            console.print("[yellow]Continuing with current version...[/yellow]")
     global shutdown_flag
     shutdown_flag = False  # ensure this is initialized
 
@@ -172,7 +199,10 @@ async def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
-        "--interactive", "-i", action="store_true", help="Run in interactive mode (legacy CLI)"
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Run in interactive mode (legacy CLI)",
     )
     parser.add_argument(
         "--tui", "-t", action="store_true", help="Run in TUI mode (modern interface)"
@@ -216,9 +246,12 @@ async def main():
         # Import here to avoid dependency issues if textual is not available
         try:
             from code_puppy.tui import run_textual_ui
+
             await run_textual_ui()
         except ImportError:
-            console.print("[bold red]Error:[/bold red] Textual UI not available. Install with: pip install textual")
+            console.print(
+                "[bold red]Error:[/bold red] Textual UI not available. Install with: pip install textual"
+            )
             console.print("[yellow]Falling back to interactive mode...[/yellow]")
             await interactive_mode(history_file_path)
         except Exception as e:
