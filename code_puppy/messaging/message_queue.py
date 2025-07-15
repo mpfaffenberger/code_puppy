@@ -12,28 +12,27 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional, Union
-from rich.console import Console
 from rich.text import Text
 
 
 class MessageType(Enum):
     """Types of messages that can be sent through the queue."""
-    
+
     # Basic content types
     INFO = "info"
-    SUCCESS = "success" 
+    SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
-    
+
     # Tool-specific types
     TOOL_OUTPUT = "tool_output"
     COMMAND_OUTPUT = "command_output"
     FILE_OPERATION = "file_operation"
-    
+
     # Agent-specific types
     AGENT_REASONING = "agent_reasoning"
     AGENT_STATUS = "agent_status"
-    
+
     # System types
     SYSTEM = "system"
     DEBUG = "debug"
@@ -42,12 +41,12 @@ class MessageType(Enum):
 @dataclass
 class UIMessage:
     """A message to be displayed in the UI."""
-    
+
     type: MessageType
     content: Union[str, Text, Any]  # Can be Rich Text, Table, Markdown, etc.
     timestamp: datetime = None
     metadata: Dict[str, Any] = None
-    
+
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.now(timezone.utc)
@@ -57,7 +56,7 @@ class UIMessage:
 
 class MessageQueue:
     """Thread-safe message queue for UI messages."""
-    
+
     def __init__(self, maxsize: int = 1000):
         self._queue = queue.Queue(maxsize=maxsize)
         self._async_queue = asyncio.Queue(maxsize=maxsize)
@@ -66,21 +65,21 @@ class MessageQueue:
         self._thread = None
         self._startup_buffer = []  # Buffer messages before any renderer starts
         self._has_active_renderer = False
-        
+
     def start(self):
         """Start the queue processing."""
         if self._running:
             return
-            
+
         self._running = True
         self._thread = threading.Thread(target=self._process_messages, daemon=True)
         self._thread.start()
-        
+
     def get_buffered_messages(self):
         """Get all currently buffered messages without waiting."""
         # First get any startup buffered messages
         messages = list(self._startup_buffer)
-        
+
         # Then get any queued messages
         while True:
             try:
@@ -89,24 +88,24 @@ class MessageQueue:
             except queue.Empty:
                 break
         return messages
-        
+
     def clear_startup_buffer(self):
         """Clear the startup buffer after processing."""
         self._startup_buffer.clear()
-        
+
     def stop(self):
         """Stop the queue processing."""
         self._running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
-            
+
     def emit(self, message: UIMessage):
         """Emit a message to the queue."""
         # If no renderer is active yet, buffer the message for startup
         if not self._has_active_renderer:
             self._startup_buffer.append(message)
             return
-            
+
         try:
             self._queue.put_nowait(message)
         except queue.Full:
@@ -116,32 +115,23 @@ class MessageQueue:
                 self._queue.put_nowait(message)
             except queue.Empty:
                 pass
-                
-    def emit_simple(
-        self, 
-        message_type: MessageType, 
-        content: Any, 
-        **metadata
-    ):
+
+    def emit_simple(self, message_type: MessageType, content: Any, **metadata):
         """Emit a simple message with just type and content."""
-        msg = UIMessage(
-            type=message_type,
-            content=content,
-            metadata=metadata
-        )
+        msg = UIMessage(type=message_type, content=content, metadata=metadata)
         self.emit(msg)
-        
+
     def get_nowait(self) -> Optional[UIMessage]:
         """Get a message without blocking."""
         try:
             return self._queue.get_nowait()
         except queue.Empty:
             return None
-            
+
     async def get_async(self) -> UIMessage:
         """Get a message asynchronously."""
         return await self._async_queue.get()
-        
+
     def _process_messages(self):
         """Process messages from sync to async queue."""
         while self._running:
@@ -150,6 +140,7 @@ class MessageQueue:
                 # Try to put in async queue if there's an event loop
                 try:
                     loop = asyncio.get_running_loop()
+
                     # Use thread-safe call to put message in async queue
                     def put_message():
                         try:
@@ -157,27 +148,28 @@ class MessageQueue:
                         except asyncio.QueueFull:
                             # Drop message if async queue is full
                             pass
+
                     loop.call_soon_threadsafe(put_message)
                 except RuntimeError:
                     # No running loop, skip async queue
                     pass
-                    
+
                 # Notify listeners immediately for sync processing
                 for listener in self._listeners:
                     try:
                         listener(message)
                     except Exception:
                         pass  # Don't let listener errors break processing
-                        
+
             except queue.Empty:
                 continue
-                
+
     def add_listener(self, callback):
         """Add a listener for messages (for direct sync consumption)."""
         self._listeners.append(callback)
         # Mark that we have an active renderer
         self._has_active_renderer = True
-        
+
     def remove_listener(self, callback):
         """Remove a listener."""
         if callback in self._listeners:
@@ -185,11 +177,11 @@ class MessageQueue:
         # If no more listeners, mark as no active renderer
         if not self._listeners:
             self._has_active_renderer = False
-            
+
     def mark_renderer_active(self):
         """Mark that a renderer is now active and consuming messages."""
         self._has_active_renderer = True
-        
+
     def mark_renderer_inactive(self):
         """Mark that no renderer is currently active."""
         self._has_active_renderer = False
@@ -203,15 +195,15 @@ _queue_lock = threading.Lock()
 def get_global_queue() -> MessageQueue:
     """Get or create the global message queue."""
     global _global_queue
-    
+
     with _queue_lock:
         if _global_queue is None:
             _global_queue = MessageQueue()
             _global_queue.start()
-    
+
     return _global_queue
-    
-    
+
+
 def get_buffered_startup_messages():
     """Get any messages that were buffered before renderers started."""
     queue = get_global_queue()

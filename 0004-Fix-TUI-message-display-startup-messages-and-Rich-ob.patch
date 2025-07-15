@@ -1,0 +1,170 @@
+From 0783bfbdaa87feaef299a0973fb9b1c77a43d4fa Mon Sep 17 00:00:00 2001
+From: l0m0eby <luc.masalar@walmart.com>
+Date: Tue, 15 Jul 2025 16:05:22 -0700
+Subject: [PATCH] Fix TUI message display - startup messages and Rich object
+ rendering
+
+- Fixed get_buffered_startup_messages() to properly return buffered messages
+- Removed premature startup buffer clearing from get_buffered_messages()
+- Added explicit clear_startup_buffer() method called after TUI processes messages
+- Rich markdown objects now render properly instead of showing object representations
+- TUI now correctly displays startup messages, agent reasoning, and shell output
+---
+ code_puppy/messaging/message_queue.py | 33 +++++++++++++++++++++++++--
+ code_puppy/messaging/renderers.py     |  8 +++++++
+ code_puppy/tui/app.py                 | 13 ++++++++++-
+ 3 files changed, 51 insertions(+), 3 deletions(-)
+
+diff --git a/code_puppy/messaging/message_queue.py b/code_puppy/messaging/message_queue.py
+index c7b38bc..ee27a13 100644
+--- a/code_puppy/messaging/message_queue.py
++++ b/code_puppy/messaging/message_queue.py
+@@ -64,6 +64,8 @@ class MessageQueue:
+         self._listeners = []
+         self._running = False
+         self._thread = None
++        self._startup_buffer = []  # Buffer messages before any renderer starts
++        self._has_active_renderer = False
+         
+     def start(self):
+         """Start the queue processing."""
+@@ -76,7 +78,10 @@ class MessageQueue:
+         
+     def get_buffered_messages(self):
+         """Get all currently buffered messages without waiting."""
+-        messages = []
++        # First get any startup buffered messages
++        messages = list(self._startup_buffer)
++        
++        # Then get any queued messages
+         while True:
+             try:
+                 message = self._queue.get_nowait()
+@@ -85,6 +90,10 @@ class MessageQueue:
+                 break
+         return messages
+         
++    def clear_startup_buffer(self):
++        """Clear the startup buffer after processing."""
++        self._startup_buffer.clear()
++        
+     def stop(self):
+         """Stop the queue processing."""
+         self._running = False
+@@ -93,6 +102,11 @@ class MessageQueue:
+             
+     def emit(self, message: UIMessage):
+         """Emit a message to the queue."""
++        # If no renderer is active yet, buffer the message for startup
++        if not self._has_active_renderer:
++            self._startup_buffer.append(message)
++            return
++            
+         try:
+             self._queue.put_nowait(message)
+         except queue.Full:
+@@ -161,11 +175,24 @@ class MessageQueue:
+     def add_listener(self, callback):
+         """Add a listener for messages (for direct sync consumption)."""
+         self._listeners.append(callback)
++        # Mark that we have an active renderer
++        self._has_active_renderer = True
+         
+     def remove_listener(self, callback):
+         """Remove a listener."""
+         if callback in self._listeners:
+             self._listeners.remove(callback)
++        # If no more listeners, mark as no active renderer
++        if not self._listeners:
++            self._has_active_renderer = False
++            
++    def mark_renderer_active(self):
++        """Mark that a renderer is now active and consuming messages."""
++        self._has_active_renderer = True
++        
++    def mark_renderer_inactive(self):
++        """Mark that no renderer is currently active."""
++        self._has_active_renderer = False
+ 
+ 
+ # Global message queue instance
+@@ -188,7 +215,9 @@ def get_global_queue() -> MessageQueue:
+ def get_buffered_startup_messages():
+     """Get any messages that were buffered before renderers started."""
+     queue = get_global_queue()
+-    return queue.get_buffered_messages()
++    # Only return startup buffer messages, don't clear them yet
++    messages = list(queue._startup_buffer)
++    return messages
+ 
+ 
+ def emit_message(message_type: MessageType, content: Any, **metadata):
+diff --git a/code_puppy/messaging/renderers.py b/code_puppy/messaging/renderers.py
+index 897611b..45a09e1 100644
+--- a/code_puppy/messaging/renderers.py
++++ b/code_puppy/messaging/renderers.py
+@@ -36,11 +36,15 @@ class MessageRenderer(ABC):
+             return
+             
+         self._running = True
++        # Mark the queue as having an active renderer
++        self.queue.mark_renderer_active()
+         self._task = asyncio.create_task(self._consume_messages())
+         
+     async def stop(self):
+         """Stop the renderer."""
+         self._running = False
++        # Mark the queue as having no active renderer
++        self.queue.mark_renderer_inactive()
+         if self._task:
+             self._task.cancel()
+             try:
+@@ -170,6 +174,8 @@ class SynchronousInteractiveRenderer:
+             return
+             
+         self._running = True
++        # Mark the queue as having an active renderer
++        self.queue.mark_renderer_active()
+         # Add ourselves as a listener for immediate processing
+         self.queue.add_listener(self._render_message)
+         self._thread = threading.Thread(target=self._consume_messages, daemon=True)
+@@ -178,6 +184,8 @@ class SynchronousInteractiveRenderer:
+     def stop(self):
+         """Stop the synchronous renderer."""
+         self._running = False
++        # Mark the queue as having no active renderer
++        self.queue.mark_renderer_inactive()
+         # Remove ourselves as a listener
+         self.queue.remove_listener(self._render_message)
+         if self._thread and self._thread.is_alive():
+diff --git a/code_puppy/tui/app.py b/code_puppy/tui/app.py
+index 00b4a2d..8319a4d 100644
+--- a/code_puppy/tui/app.py
++++ b/code_puppy/tui/app.py
+@@ -728,11 +728,22 @@ class CodePuppyTUI(App):
+             # Process any buffered startup messages first
+             from code_puppy.messaging import get_buffered_startup_messages
+             buffered_messages = get_buffered_startup_messages()
++            self.add_system_message(f"🐶 Processing {len(buffered_messages)} startup messages...")
++            
+             for message in buffered_messages:
+-                await self.message_renderer.render_message(message)
++                try:
++                    await self.message_renderer.render_message(message)
++                except Exception as e:
++                    self.add_error_message(f"Error processing startup message: {e}")
++            
++            if buffered_messages:
++                self.add_system_message(f"✅ Processed {len(buffered_messages)} startup messages")
++                # Clear the startup buffer after processing
++                self.message_queue.clear_startup_buffer()
+             
+             # Now start the regular message renderer
+             await self.message_renderer.start()
++            self.add_system_message("🎯 Message renderer started - all output should now appear here!")
+             
+     async def stop_message_renderer(self):
+         """Stop the message renderer."""
+-- 
+2.39.5 (Apple Git-154)
+

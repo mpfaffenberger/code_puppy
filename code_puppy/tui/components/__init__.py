@@ -11,7 +11,7 @@ from .sidebar import Sidebar, FileBrowser
 __all__ = [
     "CustomTextArea",
     "StatusBar",
-    "ChatView", 
+    "ChatView",
     "InputArea",
     "Sidebar",
     "FileBrowser",

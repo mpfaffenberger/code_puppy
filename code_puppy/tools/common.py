@@ -8,6 +8,7 @@ from rich.console import Console
 # Import our queue-based console system
 try:
     from code_puppy.messaging import get_queue_console
+
     # Use queue console by default, but allow fallback
     NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
     _rich_console = Console(no_color=NO_COLOR)

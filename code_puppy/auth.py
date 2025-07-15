@@ -26,6 +26,7 @@ def _output_message(message: str, style: str, tui_mode: bool) -> None:
     if tui_mode:
         # Import here to avoid circular imports
         from code_puppy.messaging import emit_system_message
+
         emit_system_message(message)
     else:
         console.print(f"[{style}]{message}[/{style}]")
@@ -77,7 +78,6 @@ def is_token_expired(token: str, silent: bool = False, tui_mode: bool = False) -
 
     # Calculate time until expiration and show it (only if not silent)
     if not silent:
-        exp - current_time
         exp_datetime = datetime.fromtimestamp(exp)
         msg = f"Token expires at: {exp_datetime.strftime('%Y-%m-%d %H:%M:%S')}"
         _output_message(msg, "dim", tui_mode)
@@ -129,7 +129,9 @@ async def wait_for_token_update(
 
         # Check if token changed from initial state
         if current_token != initial_token:
-            if current_token and not is_token_expired(current_token, silent=True, tui_mode=tui_mode):
+            if current_token and not is_token_expired(
+                current_token, silent=True, tui_mode=tui_mode
+            ):
                 msg = "✓ Authentication successful!"
                 _output_message(msg, "green", tui_mode)
                 return True
@@ -191,7 +193,9 @@ async def authenticate_puppy(port: int, tui_mode: bool = False) -> bool:
     if success:
         # Double-check the final token
         final_token = get_puppy_token()
-        if final_token and not is_token_expired(final_token, silent=True, tui_mode=tui_mode):
+        if final_token and not is_token_expired(
+            final_token, silent=True, tui_mode=tui_mode
+        ):
             return True
         else:
             msg = "Final token validation failed"

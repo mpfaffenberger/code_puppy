@@ -6,7 +6,7 @@ their output captured and routed through our message queue system.
 """
 
 import traceback
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from rich.console import Console
 from rich.text import Text
@@ -19,23 +19,27 @@ from .message_queue import MessageQueue, MessageType, get_global_queue
 class QueueConsole:
     """
     Console-like interface that sends messages to a queue instead of stdout.
-    
+
     This is designed to be a drop-in replacement for Rich Console that
     routes messages through our queue system.
     """
-    
-    def __init__(self, queue: Optional[MessageQueue] = None, fallback_console: Optional[Console] = None):
+
+    def __init__(
+        self,
+        queue: Optional[MessageQueue] = None,
+        fallback_console: Optional[Console] = None,
+    ):
         self.queue = queue or get_global_queue()
         self.fallback_console = fallback_console or Console()
-        
+
     def print(
-        self, 
-        *values: Any, 
+        self,
+        *values: Any,
         sep: str = " ",
         end: str = "\n",
         style: Optional[str] = None,
         highlight: bool = True,
-        **kwargs
+        **kwargs,
     ):
         """Print values to the message queue."""
         # Handle Rich objects properly
@@ -51,29 +55,28 @@ class QueueConsole:
                     # For Rich objects, try to extract their text content
                     from io import StringIO
                     from rich.console import Console
+
                     string_io = StringIO()
-                    temp_console = Console(file=string_io, width=80, legacy_windows=False)
+                    temp_console = Console(
+                        file=string_io, width=80, legacy_windows=False
+                    )
                     temp_console.print(v)
-                    processed_values.append(string_io.getvalue().rstrip('\n'))
+                    processed_values.append(string_io.getvalue().rstrip("\n"))
                 else:
                     processed_values.append(str(v))
-            
+
             content = sep.join(processed_values) + end
             message_type = self._infer_message_type(content, style)
-        
+
         # Create Rich Text object if style is provided and content is string
         if style and isinstance(content, str):
             content = Text(content, style=style)
-            
+
         # Emit to queue
         self.queue.emit_simple(
-            message_type,
-            content,
-            style=style,
-            highlight=highlight,
-            **kwargs
+            message_type, content, style=style, highlight=highlight, **kwargs
         )
-        
+
     def print_exception(
         self,
         *,
@@ -89,15 +92,15 @@ class QueueConsole:
         """Print exception information to the queue."""
         # Get the exception traceback
         exc_text = traceback.format_exc()
-        
+
         # Emit as error message
         self.queue.emit_simple(
             MessageType.ERROR,
             f"Exception:\n{exc_text}",
             exception=True,
-            show_locals=show_locals
+            show_locals=show_locals,
         )
-        
+
     def log(
         self,
         *values: Any,
@@ -112,24 +115,22 @@ class QueueConsole:
     ):
         """Log a message (similar to print but with logging semantics)."""
         content = sep.join(str(v) for v in values) + end
-        
+
         # Log messages are typically informational
         message_type = MessageType.INFO
         if style:
             message_type = self._infer_message_type(content, style)
-            
+
         if style and isinstance(content, str):
             content = Text(content, style=style)
-            
+
         self.queue.emit_simple(
-            message_type,
-            content,
-            log=True,
-            style=style,
-            log_locals=log_locals
+            message_type, content, log=True, style=style, log_locals=log_locals
         )
-        
-    def _infer_message_type_from_rich_object(self, content: Any, style: Optional[str] = None) -> MessageType:
+
+    def _infer_message_type_from_rich_object(
+        self, content: Any, style: Optional[str] = None
+    ) -> MessageType:
         """Infer message type from Rich object type and style."""
         if style:
             style_lower = style.lower()
@@ -145,7 +146,7 @@ class QueueConsole:
                 return MessageType.AGENT_REASONING
             elif "dim" in style_lower:
                 return MessageType.SYSTEM
-        
+
         # Infer from object type
         if isinstance(content, Markdown):
             return MessageType.AGENT_REASONING
@@ -153,10 +154,12 @@ class QueueConsole:
             return MessageType.TOOL_OUTPUT
         elif hasattr(content, "lexer_name"):  # Syntax object
             return MessageType.TOOL_OUTPUT
-            
+
         return MessageType.INFO
-        
-    def _infer_message_type(self, content: str, style: Optional[str] = None) -> MessageType:
+
+    def _infer_message_type(
+        self, content: str, style: Optional[str] = None
+    ) -> MessageType:
         """Infer message type from content and style."""
         if style:
             style_lower = style.lower()
@@ -172,20 +175,20 @@ class QueueConsole:
                 return MessageType.AGENT_REASONING
             elif "dim" in style_lower:
                 return MessageType.SYSTEM
-                
+
         # Infer from content patterns
         content_lower = content.lower()
         if any(word in content_lower for word in ["error", "failed", "exception"]):
             return MessageType.ERROR
         elif any(word in content_lower for word in ["warning", "warn"]):
-            return MessageType.WARNING  
+            return MessageType.WARNING
         elif any(word in content_lower for word in ["success", "completed", "done"]):
             return MessageType.SUCCESS
         elif any(word in content_lower for word in ["tool", "command", "running"]):
             return MessageType.TOOL_OUTPUT
-            
+
         return MessageType.INFO
-        
+
     # Additional methods to maintain Rich Console compatibility
     def rule(self, title: str = "", *, align: str = "center", style: str = "rule.line"):
         """Print a horizontal rule."""
@@ -193,24 +196,21 @@ class QueueConsole:
             MessageType.SYSTEM,
             f"─── {title} ───" if title else "─" * 40,
             rule=True,
-            style=style
+            style=style,
         )
-        
+
     def status(self, status: str, *, spinner: str = "dots"):
         """Show a status message (simplified)."""
         self.queue.emit_simple(
-            MessageType.INFO,
-            f"⏳ {status}",
-            status=True,
-            spinner=spinner
+            MessageType.INFO, f"⏳ {status}", status=True, spinner=spinner
         )
-        
+
     # File-like interface for compatibility
     @property
     def file(self):
         """Get the current file (for compatibility)."""
         return self.fallback_console.file
-        
+
     @file.setter
     def file(self, value):
         """Set the current file (for compatibility)."""

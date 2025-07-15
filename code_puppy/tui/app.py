@@ -25,7 +25,14 @@ from code_puppy.command_line.meta_command_handler import handle_meta_command
 from code_puppy.messaging import get_global_queue, TUIRenderer
 
 from .models import ChatMessage, MessageType
-from .components import StatusBar, ChatView, InputArea, Sidebar, CustomTextArea, FileBrowser
+from .components import (
+    StatusBar,
+    ChatView,
+    InputArea,
+    Sidebar,
+    CustomTextArea,
+    FileBrowser,
+)
 from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
 
 
@@ -77,7 +84,7 @@ class CodePuppyTUI(App):
         super().__init__(**kwargs)
         self.agent = None
         self.session_memory = None
-        
+
         # Initialize message queue renderer
         self.message_queue = get_global_queue()
         self.message_renderer = TUIRenderer(self.message_queue, self)
@@ -111,7 +118,7 @@ class CodePuppyTUI(App):
 
         # Add welcome message
         self.add_system_message("Welcome to Code Puppy 🐶!")
-        
+
         # Start the message renderer EARLY to catch startup messages
         # Using set_timer to start it as soon as possible after mount
         self.set_timer(0.01, self.start_message_renderer)
@@ -122,12 +129,12 @@ class CodePuppyTUI(App):
         # Apply responsive design adjustments
         self.apply_responsive_layout()
 
-        # Auto-focus the input field so user can start typing immediately  
+        # Auto-focus the input field so user can start typing immediately
         self.call_after_refresh(self.focus_input_field)
 
         # Show disclaimer modal when TUI starts (delayed to allow message renderer to start)
         self.set_timer(0.1, self.show_disclaimer)
-        
+
         # Set up file browser event handler
         self.setup_file_browser_handlers()
 
@@ -201,7 +208,7 @@ class CodePuppyTUI(App):
                     # Handle navigation for the currently active tab
                     tabs = self.query_one("#sidebar-tabs")
                     active_tab = tabs.active
-                    
+
                     if active_tab == "history-tab":
                         history_list = self.query_one("#history-list", ListView)
                         if event.key == "up":
@@ -220,7 +227,9 @@ class CodePuppyTUI(App):
                             if history_list.highlighted_child and hasattr(
                                 history_list.highlighted_child, "history_entry"
                             ):
-                                history_entry = history_list.highlighted_child.history_entry
+                                history_entry = (
+                                    history_list.highlighted_child.history_entry
+                                )
                                 self.show_history_details(history_entry)
                             event.prevent_default()
                             return
@@ -725,84 +734,108 @@ class CodePuppyTUI(App):
 
         except Exception:
             pass
-            
+
     async def start_message_renderer(self):
         """Start the message renderer to consume messages from the queue."""
         if not self._renderer_started:
             self._renderer_started = True
-            
+
             # Process any buffered startup messages first
             from code_puppy.messaging import get_buffered_startup_messages
+            from io import StringIO
+            from rich.console import Console
+
             buffered_messages = get_buffered_startup_messages()
-            
+
             if buffered_messages:
-                # self.add_system_message(f"🐶 Processing {len(buffered_messages)} startup messages...")
-                
+                # Group startup messages into a single display
+                startup_content_lines = []
+
                 for message in buffered_messages:
                     try:
-                        await self.message_renderer.render_message(message)
+                        # Convert message content to string for grouping
+                        if hasattr(message.content, "__rich_console__"):
+                            # For Rich objects, render to plain text
+                            string_io = StringIO()
+                            temp_console = Console(
+                                file=string_io, width=80, legacy_windows=False
+                            )
+                            temp_console.print(message.content)
+                            content_str = string_io.getvalue().rstrip("\n")
+                        else:
+                            content_str = str(message.content)
+
+                        startup_content_lines.append(content_str)
                     except Exception as e:
-                        self.add_error_message(f"Error processing startup message: {e}")
-                
-                # self.add_system_message(f"✅ Processed {len(buffered_messages)} startup messages")
+                        startup_content_lines.append(
+                            f"Error processing startup message: {e}"
+                        )
+
+                # Create a single grouped startup message
+                grouped_content = "\n".join(startup_content_lines)
+                self.add_system_message(grouped_content)
+
                 # Clear the startup buffer after processing
                 self.message_queue.clear_startup_buffer()
-            
+
             # Now start the regular message renderer
             await self.message_renderer.start()
-            # self.add_system_message("🎯 Message renderer started - ready for your queries!")
-            
+
     async def stop_message_renderer(self):
         """Stop the message renderer."""
         if self._renderer_started:
             self._renderer_started = False
             await self.message_renderer.stop()
-            
+
     def setup_file_browser_handlers(self) -> None:
         """Set up file browser event handlers."""
         pass  # FileBrowser events are handled via on_file_browser_file_selected
-    
+
     def on_file_browser_file_selected(self, event: FileBrowser.FileSelected) -> None:
         """Handle file selection from the file browser."""
         file_path = event.file_path
         # Add a system message showing the selected file
         self.add_system_message(f"📁 Selected file: {file_path}")
-        
+
         # You could extend this to:
         # 1. Show file contents in chat
         # 2. Add file to context for next query
         # 3. Open file editing capabilities
         # For now, we'll just show a helpful message
-        
-        if file_path.endswith(('.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.cpp', '.c', '.h')):
-            self.add_system_message(f"💡 Tip: Ask me to explain or modify this {file_path.split('.')[-1]} file!")
-    
+
+        if file_path.endswith(
+            (".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".cpp", ".c", ".h")
+        ):
+            self.add_system_message(
+                f"💡 Tip: Ask me to explain or modify this {file_path.split('.')[-1]} file!"
+            )
+
     def handle_model_selection(self, model_name: str) -> None:
         """Handle model selection from the models tab."""
         try:
             from code_puppy.config import set_model_name
             from code_puppy.agent import get_code_generation_agent
-            
+
             # Update the model configuration
             set_model_name(model_name)
-            
+
             # Reinitialize the agent with the new model
             self.agent = get_code_generation_agent()
-            
+
             # Update the current model reactive variable
             self.current_model = model_name
-            
+
             # Update status bar
             status_bar = self.query_one(StatusBar)
             status_bar.current_model = model_name
-            
+
             # Reload the models list to show the new active model
             sidebar = self.query_one(Sidebar)
             sidebar.load_models_list()
-            
+
             # Show success message
             self.add_system_message(f"🤖 Switched to model: {model_name}")
-            
+
         except Exception as e:
             self.add_error_message(f"Failed to switch model: {str(e)}")
 

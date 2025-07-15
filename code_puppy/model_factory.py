@@ -70,7 +70,6 @@ class ModelFactory:
             and ModelFactory._cache_initialized.get(config_path, False)
         ):
             return ModelFactory._config_cache[config_path]
-
         remote_url = get_models_url()
         logger = logging.getLogger(__name__)
 
@@ -112,7 +111,6 @@ class ModelFactory:
         elif local_config:
             # No remote config but we have local - use local
             config_to_use = local_config
-
             logger.info("Using local config as fallback")
         else:
             # Neither remote nor local config available

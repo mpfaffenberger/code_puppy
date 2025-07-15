@@ -155,7 +155,9 @@ async def main():
     # Print startup messages based on mode
     if no_version_update:
         version_msg = f"Current version: {current_version}"
-        update_disabled_msg = "Auto-update disabled via NO_VERSION_UPDATE environment variable"
+        update_disabled_msg = (
+            "Auto-update disabled via NO_VERSION_UPDATE environment variable"
+        )
 
         if not tui_mode:
             console.print(version_msg)
@@ -176,7 +178,9 @@ async def main():
             emit_system_message(latest_msg)
 
         if latest_version and not versions_are_equal(current_version, latest_version):
-            update_available_msg = f"A new version of code puppy is available: {latest_version}"
+            update_available_msg = (
+                f"A new version of code puppy is available: {latest_version}"
+            )
             updating_msg = "Auto-updating now..."
 
             if not tui_mode:
@@ -222,7 +226,9 @@ async def main():
                             emit_system_message(restart_msg)
                         sys.exit(0)
                     else:
-                        error_msg = f"❌ Update failed with exit code: {bash_result.returncode}"
+                        error_msg = (
+                            f"❌ Update failed with exit code: {bash_result.returncode}"
+                        )
                         continue_msg = "Continuing with current version..."
                         if not tui_mode:
                             console.print(f"[bold red]{error_msg}[/bold red]")
@@ -270,7 +276,6 @@ async def main():
     load_dotenv()
 
     # Import the modified authenticate_puppy that accepts tui_mode
-    from code_puppy.auth import authenticate_puppy
     await authenticate_puppy(available_port, tui_mode=tui_mode)
 
     token = get_puppy_token()
