@@ -12,7 +12,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy import __version__
-from code_puppy.agent import get_code_generation_agent, session_memory
+from code_puppy.agent import get_code_generation_agent, session_memory, get_custom_usage_limits
 from code_puppy.auth import authenticate_puppy, get_puppy_token
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
@@ -189,7 +189,7 @@ async def main():
             while not shutdown_flag:
                 agent = get_code_generation_agent()
                 async with agent.run_mcp_servers():
-                    response = await agent.run(command)
+                    response = await agent.run(command, usage_limits=get_custom_usage_limits())
                 agent_response = response.output
                 console.print(agent_response.output_message)
                 # Log to session memory
@@ -346,7 +346,7 @@ async def interactive_mode(history_file_path: str) -> None:
 
                 agent = get_code_generation_agent()
                 async with agent.run_mcp_servers():
-                    result = await agent.run(task, message_history=message_history)
+                    result = await agent.run(task, message_history=message_history, usage_limits=get_custom_usage_limits())
                 # Get the structured response
                 agent_response = result.output
                 console.print(agent_response.output_message)

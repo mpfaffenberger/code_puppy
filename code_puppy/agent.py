@@ -4,6 +4,7 @@ from pathlib import Path
 import pydantic
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPServerSSE
+from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
 from code_puppy.model_factory import ModelFactory
@@ -121,3 +122,11 @@ def get_code_generation_agent(force_reload=False):
     if _code_generation_agent is None or _LAST_MODEL_NAME != model_name or force_reload:
         return reload_code_generation_agent()
     return _code_generation_agent
+
+
+def get_custom_usage_limits():
+    """
+    Returns custom usage limits with increased request limit.
+    This centralizes the configuration of rate limiting for the agent.
+    """
+    return UsageLimits(request_limit=100)

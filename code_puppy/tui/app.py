@@ -13,7 +13,7 @@ from textual.reactive import reactive
 from textual.events import Resize
 from textual import work
 
-from code_puppy.agent import get_code_generation_agent, session_memory
+from code_puppy.agent import get_code_generation_agent, session_memory, get_custom_usage_limits
 from code_puppy.config import get_model_name, get_puppy_name
 from code_puppy.command_line.meta_command_handler import handle_meta_command
 
@@ -287,7 +287,7 @@ class CodePuppyTUI(App):
                 async with self.agent.run_mcp_servers():
                     self.update_agent_progress("Processing", 50)
                     result = await self.agent.run(
-                        message, message_history=self.message_history
+                        message, message_history=self.message_history, usage_limits=get_custom_usage_limits()
                     )
 
                 self.update_agent_progress("Processing", 75)
