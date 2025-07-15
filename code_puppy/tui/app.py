@@ -3,29 +3,29 @@ Main TUI application class.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import List, Dict
 
-from textual import work
 from textual.app import App, ComposeResult
-from textual.binding import Binding
 from textual.containers import Container
-from textual.events import Resize
+from textual.widgets import Footer, ListView, ListItem, Label, ProgressBar
+from textual.binding import Binding
 from textual.reactive import reactive
-from textual.widgets import Footer, Label, ListItem, ListView, ProgressBar
+from textual.events import Resize
+from textual import work
 
 from code_puppy.agent import (
     get_code_generation_agent,
-    get_custom_usage_limits,
     session_memory,
+    get_custom_usage_limits,
 )
-from code_puppy.command_line.meta_command_handler import handle_meta_command
 from code_puppy.config import get_model_name, get_puppy_name
+from code_puppy.command_line.meta_command_handler import handle_meta_command
 
-from .components import ChatView, CustomTextArea, InputArea, Sidebar, StatusBar
 # Import our message queue system
 from code_puppy.messaging import get_global_queue, TUIRenderer
 
 from .models import ChatMessage, MessageType
+from .components import StatusBar, ChatView, InputArea, Sidebar, CustomTextArea, FileBrowser
 from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
 
 
@@ -57,7 +57,7 @@ class CodePuppyTUI(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
         Binding("ctrl+1", "show_help", "Help"),
-        Binding("ctrl+2", "toggle_history", "History"),
+        Binding("ctrl+2", "toggle_sidebar", "Sidebar"),
         Binding("ctrl+3", "open_settings", "Settings"),
         Binding("ctrl+4", "focus_input", "Focus Prompt"),
         Binding("ctrl+5", "focus_chat", "Focus Response"),
@@ -77,7 +77,7 @@ class CodePuppyTUI(App):
         super().__init__(**kwargs)
         self.agent = None
         self.session_memory = None
-
+        
         # Initialize message queue renderer
         self.message_queue = get_global_queue()
         self.message_renderer = TUIRenderer(self.message_queue, self)
@@ -123,9 +123,12 @@ class CodePuppyTUI(App):
 
         # Show disclaimer modal when TUI starts
         self.call_after_refresh(self.show_disclaimer)
-
+        
         # Start the message renderer
         self.call_after_refresh(self.start_message_renderer)
+        
+        # Set up file browser event handler
+        self.setup_file_browser_handlers()
 
     def add_system_message(self, content: str) -> None:
         """Add a system message to the chat."""
@@ -189,35 +192,47 @@ class CodePuppyTUI(App):
                 event.prevent_default()
                 return
 
-        # Handle arrow keys for history list navigation when sidebar is visible
+        # Handle arrow keys for sidebar navigation when sidebar is visible
         if not input_field.has_focus:
             try:
                 sidebar = self.query_one(Sidebar)
                 if sidebar.display:
-                    history_list = self.query_one("#history-list", ListView)
-                    if event.key == "up":
-                        # Move up in the history list
-                        current_index = history_list.index
-                        if current_index > 0:
-                            history_list.index = current_index - 1
-                        event.prevent_default()
-                        return
-                    elif event.key == "down":
-                        # Move down in the history list
-                        current_index = history_list.index
-                        if current_index < len(history_list.children) - 1:
-                            history_list.index = current_index + 1
-                        event.prevent_default()
-                        return
-                    elif event.key == "enter":
-                        # Show details of current history item
-                        if history_list.highlighted_child and hasattr(
-                            history_list.highlighted_child, "history_entry"
-                        ):
-                            history_entry = history_list.highlighted_child.history_entry
-                            self.show_history_details(history_entry)
-                        event.prevent_default()
-                        return
+                    # Handle navigation for the currently active tab
+                    tabs = self.query_one("#sidebar-tabs")
+                    active_tab = tabs.active
+                    
+                    if active_tab == "history-tab":
+                        history_list = self.query_one("#history-list", ListView)
+                        if event.key == "up":
+                            current_index = history_list.index
+                            if current_index > 0:
+                                history_list.index = current_index - 1
+                            event.prevent_default()
+                            return
+                        elif event.key == "down":
+                            current_index = history_list.index
+                            if current_index < len(history_list.children) - 1:
+                                history_list.index = current_index + 1
+                            event.prevent_default()
+                            return
+                        elif event.key == "enter":
+                            if history_list.highlighted_child and hasattr(
+                                history_list.highlighted_child, "history_entry"
+                            ):
+                                history_entry = history_list.highlighted_child.history_entry
+                                self.show_history_details(history_entry)
+                            event.prevent_default()
+                            return
+                    elif active_tab == "models-tab":
+                        models_list = self.query_one("#models-list", ListView)
+                        if event.key == "enter":
+                            if models_list.highlighted_child and hasattr(
+                                models_list.highlighted_child, "model_name"
+                            ):
+                                model_name = models_list.highlighted_child.model_name
+                                self.handle_model_selection(model_name)
+                            event.prevent_default()
+                            return
             except Exception:
                 pass
 
@@ -262,10 +277,9 @@ class CodePuppyTUI(App):
 
                 # Use the existing meta command handler
                 try:
-                    import sys
-                    from io import StringIO
-
                     from code_puppy.tools.common import console as rich_console
+                    from io import StringIO
+                    import sys
 
                     # Capture the output from the meta command handler
                     old_stdout = sys.stdout
@@ -349,8 +363,8 @@ class CodePuppyTUI(App):
         """Show help information in a modal."""
         self.push_screen(HelpScreen())
 
-    def action_toggle_history(self) -> None:
-        """Toggle history sidebar visibility."""
+    def action_toggle_sidebar(self) -> None:
+        """Toggle sidebar visibility."""
         sidebar = self.query_one(Sidebar)
         sidebar.display = not sidebar.display
 
@@ -402,7 +416,7 @@ class CodePuppyTUI(App):
         def handle_settings_result(result):
             if result and result.get("success"):
                 # Update reactive variables
-                from code_puppy.config import get_model_name, get_puppy_name
+                from code_puppy.config import get_puppy_name, get_model_name
 
                 self.puppy_name = get_puppy_name()
 
@@ -710,18 +724,66 @@ class CodePuppyTUI(App):
 
         except Exception:
             pass
-
+            
     async def start_message_renderer(self):
         """Start the message renderer to consume messages from the queue."""
         if not self._renderer_started:
             self._renderer_started = True
             await self.message_renderer.start()
-
+            
     async def stop_message_renderer(self):
         """Stop the message renderer."""
         if self._renderer_started:
             self._renderer_started = False
             await self.message_renderer.stop()
+            
+    def setup_file_browser_handlers(self) -> None:
+        """Set up file browser event handlers."""
+        pass  # FileBrowser events are handled via on_file_browser_file_selected
+    
+    def on_file_browser_file_selected(self, event: FileBrowser.FileSelected) -> None:
+        """Handle file selection from the file browser."""
+        file_path = event.file_path
+        # Add a system message showing the selected file
+        self.add_system_message(f"📁 Selected file: {file_path}")
+        
+        # You could extend this to:
+        # 1. Show file contents in chat
+        # 2. Add file to context for next query
+        # 3. Open file editing capabilities
+        # For now, we'll just show a helpful message
+        
+        if file_path.endswith(('.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.cpp', '.c', '.h')):
+            self.add_system_message(f"💡 Tip: Ask me to explain or modify this {file_path.split('.')[-1]} file!")
+    
+    def handle_model_selection(self, model_name: str) -> None:
+        """Handle model selection from the models tab."""
+        try:
+            from code_puppy.config import set_model_name
+            from code_puppy.agent import get_code_generation_agent
+            
+            # Update the model configuration
+            set_model_name(model_name)
+            
+            # Reinitialize the agent with the new model
+            self.agent = get_code_generation_agent()
+            
+            # Update the current model reactive variable
+            self.current_model = model_name
+            
+            # Update status bar
+            status_bar = self.query_one(StatusBar)
+            status_bar.current_model = model_name
+            
+            # Reload the models list to show the new active model
+            sidebar = self.query_one(Sidebar)
+            sidebar.load_models_list()
+            
+            # Show success message
+            self.add_system_message(f"🤖 Switched to model: {model_name}")
+            
+        except Exception as e:
+            self.add_error_message(f"Failed to switch model: {str(e)}")
 
     async def on_unmount(self):
         """Clean up when the app is unmounted."""

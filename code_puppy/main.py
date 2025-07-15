@@ -32,6 +32,9 @@ from code_puppy.tools.common import console
 from code_puppy.urls import get_setup_url
 from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 
+# Create a direct console for startup messages that need immediate display
+startup_console = Console()
+
 # from code_puppy.tools import *  # noqa: F403
 
 
@@ -126,14 +129,14 @@ async def main():
     )
 
     if no_version_update:
-        console.print(f"Current version: {current_version}")
-        console.print(
+        startup_console.print(f"Current version: {current_version}")
+        startup_console.print(
             "[dim]Auto-update disabled via NO_VERSION_UPDATE environment variable[/dim]"
         )
     else:
         latest_version = fetch_latest_version("code-puppy")
-        console.print(f"Current version: {current_version}")
-        console.print(f"Latest version: {latest_version}")
+        startup_console.print(f"Current version: {current_version}")
+        startup_console.print(f"Latest version: {latest_version}")
 
         if latest_version and not versions_are_equal(current_version, latest_version):
             console.print(
@@ -278,8 +281,21 @@ async def interactive_mode(history_file_path: str) -> None:
     
     # Import and start our message queue renderer for interactive mode
     from code_puppy.messaging import get_global_queue, SynchronousInteractiveRenderer
+    from rich.console import Console
     
     """Run the agent in interactive mode."""
+    message_history = []
+
+    # Initialize and start the message queue renderer for interactive mode FIRST
+    # IMPORTANT: Use a separate Rich console for the renderer to avoid circular dependencies
+    # The tools use a QueueConsole that emits to the message queue, and this renderer
+    # consumes from that queue and displays via a regular Rich console
+    message_queue = get_global_queue()
+    display_console = Console()  # Separate console for rendering messages
+    message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
+    message_renderer.start()
+    
+    # Now that the renderer is started, we can safely use console.print() and see the output
     console.print("[bold green]Code Puppy[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
     console.print("Type 'clear' to reset the conversation history.")
@@ -318,13 +334,6 @@ async def interactive_mode(history_file_path: str) -> None:
             console.print(
                 "[yellow]Falling back to basic input without tab completion[/yellow]"
             )
-
-    message_history = []
-
-    # Initialize and start the message queue renderer for interactive mode
-    message_queue = get_global_queue()
-    message_renderer = SynchronousInteractiveRenderer(message_queue, console)
-    message_renderer.start()
     
     # Set up history file in home directory
     history_file_path_prompt = os.path.expanduser("~/.code_puppy_history.txt")

@@ -20,17 +20,20 @@ This document outlines the comprehensive plan for upgrading Code Puppy's termina
 - [x] Implement keyboard shortcuts and navigation
 
 ## Phase 4: Advanced Features (Medium Priority)
-- [ ] Add model selection and configuration UI
-- [ ] Integrate session memory and history display
+- [x] Add model selection and configuration UI
+- [x] Integrate session memory and history display
 - [x] Implement meta-command handling in Textual interface
-- [ ] Add real-time agent status and progress indicators
+- [x] Add real-time agent status and progress indicators
 - [x] Add comprehensive error handling for UI edge cases
-- [ ] Implement responsive design for different terminal sizes
+- [x] Implement responsive design for different terminal sizes
 
 ## Phase 5: Enhancement & Polish (Low Priority)
-- [ ] Implement file browser/explorer component
-- [ ] Create settings/configuration panel
+- [x] Implement file browser/explorer component
+- [x] Create enhanced settings/configuration panel (via tabbed sidebar)
 - [ ] Update documentation and help system
+- [ ] Advanced syntax highlighting for code blocks in chat
+- [ ] File content preview in sidebar
+- [ ] Advanced keyboard shortcuts documentation
 
 ## Development Notes
 
