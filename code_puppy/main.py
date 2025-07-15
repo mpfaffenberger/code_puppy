@@ -32,8 +32,7 @@ from code_puppy.tools.common import console
 from code_puppy.urls import get_setup_url
 from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 
-# Create a direct console for startup messages that need immediate display
-startup_console = Console()
+# Use the existing console from tools.common to maintain consistency with tests
 
 # from code_puppy.tools import *  # noqa: F403
 
@@ -89,15 +88,40 @@ def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
 
 
 async def main():
-    # Show immediate loading feedback to user
-    console.print("[bold blue]🐶 Code Puppy is Loading...[/bold blue]")
+    # Parse arguments FIRST to determine if we're in TUI mode
+    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
+    parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Run in interactive mode (legacy CLI)",
+    )
+    parser.add_argument(
+        "--tui", "-t", action="store_true", help="Run in TUI mode (modern interface)"
+    )
+    parser.add_argument("command", nargs="*", help="Run a single command")
+    args = parser.parse_args()
+
+    # Determine if we're in TUI mode early
+    tui_mode = args.tui
+
+    # Import message queue functions early for TUI mode
+    from code_puppy.messaging import emit_system_message
+
+    # Show immediate loading feedback to user (only if not TUI mode)
+    if not tui_mode:
+        console.print("[bold blue]🐶 Code Puppy is Loading...[/bold blue]")
+    else:
+        emit_system_message("🐶 Code Puppy is Loading...")
 
     # Find an available port for the HTTP server
     available_port = find_available_port()
     if available_port is None:
-        console.print(
-            "[bold red]Error: No available ports in range 8090-9010![/bold red]"
-        )
+        error_msg = "Error: No available ports in range 8090-9010!"
+        if not tui_mode:
+            console.print(f"[bold red]{error_msg}[/bold red]")
+        else:
+            emit_system_message(error_msg)
         return
 
     # HTTP server starts silently in the background
@@ -128,26 +152,48 @@ async def main():
         "on",
     )
 
+    # Print startup messages based on mode
     if no_version_update:
-        startup_console.print(f"Current version: {current_version}")
-        startup_console.print(
-            "[dim]Auto-update disabled via NO_VERSION_UPDATE environment variable[/dim]"
-        )
+        version_msg = f"Current version: {current_version}"
+        update_disabled_msg = "Auto-update disabled via NO_VERSION_UPDATE environment variable"
+
+        if not tui_mode:
+            console.print(version_msg)
+            console.print(f"[dim]{update_disabled_msg}[/dim]")
+        else:
+            emit_system_message(version_msg)
+            emit_system_message(update_disabled_msg)
     else:
         latest_version = fetch_latest_version("code-puppy")
-        startup_console.print(f"Current version: {current_version}")
-        startup_console.print(f"Latest version: {latest_version}")
+        version_msg = f"Current version: {current_version}"
+        latest_msg = f"Latest version: {latest_version}"
+
+        if not tui_mode:
+            console.print(version_msg)
+            console.print(latest_msg)
+        else:
+            emit_system_message(version_msg)
+            emit_system_message(latest_msg)
 
         if latest_version and not versions_are_equal(current_version, latest_version):
-            console.print(
-                f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
-            )
-            console.print("[bold green]Auto-updating now...[/bold green]")
+            update_available_msg = f"A new version of code puppy is available: {latest_version}"
+            updating_msg = "Auto-updating now..."
+
+            if not tui_mode:
+                console.print(f"[bold yellow]{update_available_msg}[/bold yellow]")
+                console.print("[bold green]Auto-updating now...[/bold green]")
+            else:
+                emit_system_message(update_available_msg)
+                emit_system_message(updating_msg)
 
             try:
                 # Run the update command
                 setup_url = get_setup_url()
-                console.print(f"[dim]Running: curl -skSL {setup_url} | bash[/dim]")
+                if not tui_mode:
+                    console.print(f"[dim]{setup_url}[/dim]")
+                else:
+                    emit_system_message(setup_url)
+
                 result = subprocess.run(
                     [
                         "curl",
@@ -166,55 +212,69 @@ async def main():
                     )
 
                     if bash_result.returncode == 0:
-                        console.print(
-                            "[bold green]✅ Update completed successfully![/bold green]"
-                        )
-                        console.print("[yellow]Restarting code-puppy...[/yellow]")
+                        success_msg = "✅ Update completed successfully!"
+                        restart_msg = "Restarting code-puppy..."
+                        if not tui_mode:
+                            console.print(f"[bold green]{success_msg}[/bold green]")
+                            console.print(f"[yellow]{restart_msg}[/yellow]")
+                        else:
+                            emit_system_message(success_msg)
+                            emit_system_message(restart_msg)
                         sys.exit(0)
                     else:
-                        console.print(
-                            f"[bold red]❌ Update failed with exit code: {bash_result.returncode}[/bold red]"
-                        )
-                        console.print(
-                            "[yellow]Continuing with current version...[/yellow]"
-                        )
+                        error_msg = f"❌ Update failed with exit code: {bash_result.returncode}"
+                        continue_msg = "Continuing with current version..."
+                        if not tui_mode:
+                            console.print(f"[bold red]{error_msg}[/bold red]")
+                            console.print(f"[yellow]{continue_msg}[/yellow]")
+                        else:
+                            emit_system_message(error_msg)
+                            emit_system_message(continue_msg)
                 else:
-                    console.print(
-                        f"[bold red]❌ Failed to download update script: {result.stderr}[/bold red]"
-                    )
-                    console.print("[yellow]Continuing with current version...[/yellow]")
+                    error_msg = f"❌ Failed to download update script: {result.stderr}"
+                    continue_msg = "Continuing with current version..."
+                    if not tui_mode:
+                        console.print(f"[bold red]{error_msg}[/bold red]")
+                        console.print(f"[yellow]{continue_msg}[/yellow]")
+                    else:
+                        emit_system_message(error_msg)
+                        emit_system_message(continue_msg)
 
             except subprocess.TimeoutExpired:
-                console.print("[bold red]❌ Update timed out[/bold red]")
-                console.print("[yellow]Continuing with current version...[/yellow]")
+                timeout_msg = "❌ Update timed out"
+                continue_msg = "Continuing with current version..."
+                if not tui_mode:
+                    console.print(f"[bold red]{timeout_msg}[/bold red]")
+                    console.print(f"[yellow]{continue_msg}[/yellow]")
+                else:
+                    emit_system_message(timeout_msg)
+                    emit_system_message(continue_msg)
             except Exception as e:
-                console.print(f"[bold red]❌ Update failed: {str(e)}[/bold red]")
-                console.print("[yellow]Continuing with current version...[/yellow]")
+                error_msg = f"❌ Update failed: {str(e)}"
+                continue_msg = "Continuing with current version..."
+                if not tui_mode:
+                    console.print(f"[bold red]{error_msg}[/bold red]")
+                    console.print(f"[yellow]{continue_msg}[/yellow]")
+                else:
+                    emit_system_message(error_msg)
+                    emit_system_message(continue_msg)
 
-    # Display the disclaimer message
-    display_disclaimer()
+    # Display the disclaimer message (only if not TUI mode)
+    if not tui_mode:
+        display_disclaimer()
+
     global shutdown_flag
     shutdown_flag = False  # ensure this is initialized
 
     # Load environment variables from .env file
     load_dotenv()
-    await authenticate_puppy(available_port)
+
+    # Import the modified authenticate_puppy that accepts tui_mode
+    from code_puppy.auth import authenticate_puppy
+    await authenticate_puppy(available_port, tui_mode=tui_mode)
 
     token = get_puppy_token()
     os.environ["puppy_token"] = token
-    # Set up argument parser
-    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
-    parser.add_argument(
-        "--interactive",
-        "-i",
-        action="store_true",
-        help="Run in interactive mode (legacy CLI)",
-    )
-    parser.add_argument(
-        "--tui", "-t", action="store_true", help="Run in TUI mode (modern interface)"
-    )
-    parser.add_argument("command", nargs="*", help="Run a single command")
-    args = parser.parse_args()
 
     history_file_path = get_secret_file_path()
 
@@ -250,7 +310,7 @@ async def main():
             )
         except Exception as e:
             console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
-    elif args.tui:
+    elif tui_mode:
         # Import here to avoid dependency issues if textual is not available
         try:
             from code_puppy.tui import run_textual_ui
@@ -278,11 +338,11 @@ async def main():
 # Add the file handling functionality for interactive mode
 async def interactive_mode(history_file_path: str) -> None:
     from code_puppy.command_line.meta_command_handler import handle_meta_command
-    
+
     # Import and start our message queue renderer for interactive mode
     from code_puppy.messaging import get_global_queue, SynchronousInteractiveRenderer
     from rich.console import Console
-    
+
     """Run the agent in interactive mode."""
     message_history = []
 
@@ -294,7 +354,7 @@ async def interactive_mode(history_file_path: str) -> None:
     display_console = Console()  # Separate console for rendering messages
     message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
     message_renderer.start()
-    
+
     # Now that the renderer is started, we can safely use console.print() and see the output
     console.print("[bold green]Code Puppy[/bold green] - Interactive Mode")
     console.print("Type 'exit' or 'quit' to exit the interactive mode.")
@@ -334,7 +394,7 @@ async def interactive_mode(history_file_path: str) -> None:
             console.print(
                 "[yellow]Falling back to basic input without tab completion[/yellow]"
             )
-    
+
     # Set up history file in home directory
     history_file_path_prompt = os.path.expanduser("~/.code_puppy_history.txt")
     history_dir = os.path.dirname(history_file_path_prompt)

@@ -12,6 +12,7 @@ from typing import Optional
 
 from rich.console import Console
 from rich.text import Text
+from io import StringIO
 
 from .message_queue import MessageQueue, UIMessage, MessageType
 
@@ -119,10 +120,11 @@ class TUIRenderer(MessageRenderer):
             
         # Convert content to string for TUI display
         if hasattr(message.content, "__rich_console__"):
-            # For Rich objects, convert to plain text
-            # This is a simplified approach - we could enhance this
-            # to preserve more formatting in the future
-            content_str = str(message.content)
+            # For Rich objects, render to plain text using a Console
+            string_io = StringIO()
+            temp_console = Console(file=string_io, width=80, legacy_windows=False)
+            temp_console.print(message.content)
+            content_str = string_io.getvalue().rstrip('\n')
         else:
             content_str = str(message.content)
             

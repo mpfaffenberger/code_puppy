@@ -74,6 +74,17 @@ class MessageQueue:
         self._thread = threading.Thread(target=self._process_messages, daemon=True)
         self._thread.start()
         
+    def get_buffered_messages(self):
+        """Get all currently buffered messages without waiting."""
+        messages = []
+        while True:
+            try:
+                message = self._queue.get_nowait()
+                messages.append(message)
+            except queue.Empty:
+                break
+        return messages
+        
     def stop(self):
         """Stop the queue processing."""
         self._running = False
@@ -172,6 +183,12 @@ def get_global_queue() -> MessageQueue:
             _global_queue.start()
     
     return _global_queue
+    
+    
+def get_buffered_startup_messages():
+    """Get any messages that were buffered before renderers started."""
+    queue = get_global_queue()
+    return queue.get_buffered_messages()
 
 
 def emit_message(message_type: MessageType, content: Any, **metadata):

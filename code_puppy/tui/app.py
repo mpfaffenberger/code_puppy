@@ -111,6 +111,10 @@ class CodePuppyTUI(App):
 
         # Add welcome message
         self.add_system_message("Welcome to Code Puppy 🐶!")
+        
+        # Start the message renderer EARLY to catch startup messages
+        # Using set_timer to start it as soon as possible after mount
+        self.set_timer(0.01, self.start_message_renderer)
 
         # Load session history
         self.load_history_list()
@@ -118,14 +122,11 @@ class CodePuppyTUI(App):
         # Apply responsive design adjustments
         self.apply_responsive_layout()
 
-        # Auto-focus the input field so user can start typing immediately
+        # Auto-focus the input field so user can start typing immediately  
         self.call_after_refresh(self.focus_input_field)
 
-        # Show disclaimer modal when TUI starts
-        self.call_after_refresh(self.show_disclaimer)
-        
-        # Start the message renderer
-        self.call_after_refresh(self.start_message_renderer)
+        # Show disclaimer modal when TUI starts (delayed to allow message renderer to start)
+        self.set_timer(0.1, self.show_disclaimer)
         
         # Set up file browser event handler
         self.setup_file_browser_handlers()
@@ -729,6 +730,14 @@ class CodePuppyTUI(App):
         """Start the message renderer to consume messages from the queue."""
         if not self._renderer_started:
             self._renderer_started = True
+            
+            # Process any buffered startup messages first
+            from code_puppy.messaging import get_buffered_startup_messages
+            buffered_messages = get_buffered_startup_messages()
+            for message in buffered_messages:
+                await self.message_renderer.render_message(message)
+            
+            # Now start the regular message renderer
             await self.message_renderer.start()
             
     async def stop_message_renderer(self):

@@ -38,13 +38,30 @@ class QueueConsole:
         **kwargs
     ):
         """Print values to the message queue."""
-        # Join all values into a single string
-        content = sep.join(str(v) for v in values) + end
+        # Handle Rich objects properly
+        if len(values) == 1 and hasattr(values[0], "__rich_console__"):
+            # Single Rich object - pass it through directly
+            content = values[0]
+            message_type = self._infer_message_type_from_rich_object(content, style)
+        else:
+            # Convert to string, but handle Rich objects properly
+            processed_values = []
+            for v in values:
+                if hasattr(v, "__rich_console__"):
+                    # For Rich objects, try to extract their text content
+                    from io import StringIO
+                    from rich.console import Console
+                    string_io = StringIO()
+                    temp_console = Console(file=string_io, width=80, legacy_windows=False)
+                    temp_console.print(v)
+                    processed_values.append(string_io.getvalue().rstrip('\n'))
+                else:
+                    processed_values.append(str(v))
+            
+            content = sep.join(processed_values) + end
+            message_type = self._infer_message_type(content, style)
         
-        # Determine message type based on style or content
-        message_type = self._infer_message_type(content, style)
-        
-        # Create Rich Text object if style is provided
+        # Create Rich Text object if style is provided and content is string
         if style and isinstance(content, str):
             content = Text(content, style=style)
             
@@ -111,6 +128,33 @@ class QueueConsole:
             style=style,
             log_locals=log_locals
         )
+        
+    def _infer_message_type_from_rich_object(self, content: Any, style: Optional[str] = None) -> MessageType:
+        """Infer message type from Rich object type and style."""
+        if style:
+            style_lower = style.lower()
+            if "red" in style_lower or "error" in style_lower:
+                return MessageType.ERROR
+            elif "yellow" in style_lower or "warning" in style_lower:
+                return MessageType.WARNING
+            elif "green" in style_lower or "success" in style_lower:
+                return MessageType.SUCCESS
+            elif "blue" in style_lower:
+                return MessageType.INFO
+            elif "purple" in style_lower or "magenta" in style_lower:
+                return MessageType.AGENT_REASONING
+            elif "dim" in style_lower:
+                return MessageType.SYSTEM
+        
+        # Infer from object type
+        if isinstance(content, Markdown):
+            return MessageType.AGENT_REASONING
+        elif isinstance(content, Table):
+            return MessageType.TOOL_OUTPUT
+        elif hasattr(content, "lexer_name"):  # Syntax object
+            return MessageType.TOOL_OUTPUT
+            
+        return MessageType.INFO
         
     def _infer_message_type(self, content: str, style: Optional[str] = None) -> MessageType:
         """Infer message type from content and style."""
