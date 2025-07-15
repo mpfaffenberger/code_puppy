@@ -57,10 +57,32 @@ class SessionMemory:
         if not within_minutes:
             return list(self._data["history"])
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=within_minutes)
+        
+        def parse_timestamp_safely(timestamp_str: str) -> Optional[datetime]:
+            """Parse timestamp string and ensure it's timezone-aware.
+            
+            Returns None if the timestamp is invalid or unparseable.
+            If the timestamp is naive (no timezone), assumes UTC.
+            """
+            try:
+                # Handle 'Z' suffix (common UTC format)
+                cleaned_timestamp = timestamp_str.replace("Z", "+00:00")
+                parsed_dt = datetime.fromisoformat(cleaned_timestamp)
+                
+                # If the datetime is naive (no timezone), assume UTC
+                if parsed_dt.tzinfo is None:
+                    parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                
+                return parsed_dt
+            except (ValueError, AttributeError, TypeError):
+                # Handle invalid timestamp formats gracefully
+                return None
+        
         return [
             h
             for h in self._data["history"]
-            if datetime.fromisoformat(h["timestamp"]) >= cutoff
+            if (parsed_ts := parse_timestamp_safely(h.get("timestamp", ""))) is not None
+            and parsed_ts >= cutoff
         ]
 
     def set_preference(self, key: str, value: Any):
