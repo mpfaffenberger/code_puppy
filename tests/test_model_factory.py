@@ -1,5 +1,3 @@
-
-
 import os
 import json
 import tempfile
@@ -317,4 +315,28 @@ def test_load_config_caching_prevents_redundant_calls():
     # Clear cache to start fresh
     ModelFactory.clear_cache()
     
-    remote_config = {"cached_model": {"type": "openai"
+    remote_config = {"cached_model": {"type": "openai", "name": "gpt-4"}}
+    
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        local_path = f.name
+        json.dump({"old_model": {"type": "openai", "name": "gpt-3.5"}}, f)
+    
+    try:
+        with patch("httpx.Client") as mock_client:
+            mock_response = Mock()
+            mock_response.json.return_value = {"config": remote_config}
+            mock_response.raise_for_status.return_value = None
+            mock_client.return_value.__enter__.return_value.get.return_value = mock_response
+            
+            # First call should make network request
+            result1 = ModelFactory.load_config(local_path)
+            assert result1 == remote_config
+            
+            # Second call should use cache, no network request
+            result2 = ModelFactory.load_config(local_path)
+            assert result2 == remote_config
+            
+            # Verify only one network call was made
+            assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+    finally:
+        os.unlink(local_path)
