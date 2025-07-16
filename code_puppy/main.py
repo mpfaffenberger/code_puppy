@@ -297,11 +297,24 @@ async def main():
             command = " ".join(args.command)
             try:
                 while not shutdown_flag:
-                    agent = get_code_generation_agent()
-                    async with agent.run_mcp_servers():
-                        response = await agent.run(
-                            command, usage_limits=get_custom_usage_limits()
-                        )
+                    # Show thinking message, then processing message, then spinner
+                    console.print("[bold cyan]🐶 Puppy is thinking...[/bold cyan]")
+
+                    # Use spinner animation (create Rich console for spinner)
+                    from rich.console import Console as RichConsole
+                    rich_console = RichConsole()
+                    with rich_console.status(
+                        "",
+                        # spinner="weather"
+                        # spinner="point"
+                        # spinner="earth"
+                        spinner="bouncingBall"
+                    ) as status:
+                        agent = get_code_generation_agent()
+                        async with agent.run_mcp_servers():
+                            response = await agent.run(
+                                command, usage_limits=get_custom_usage_limits()
+                            )
                     agent_response = response.output
                     console.print(agent_response.output_message)
                     # Log to session memory
@@ -486,13 +499,24 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Store agent's full response
                 agent_response = None
 
-                agent = get_code_generation_agent()
-                async with agent.run_mcp_servers():
-                    result = await agent.run(
-                        task,
-                        message_history=message_history,
-                        usage_limits=get_custom_usage_limits(),
-                    )
+                # Show thinking message, then processing message, then spinner
+                console.print("[bold cyan]🐶 Puppy is thinking...[/bold cyan]")
+
+                # Use spinner animation
+                with display_console.status(
+                    "",
+                    # spinner="weather"
+                    # spinner="point"
+                    # spinner="earth"
+                    spinner="bouncingBall"
+                ) as status:
+                    agent = get_code_generation_agent()
+                    async with agent.run_mcp_servers():
+                        result = await agent.run(
+                            task,
+                            message_history=message_history,
+                            usage_limits=get_custom_usage_limits(),
+                        )
                 # Get the structured response
                 agent_response = result.output
                 console.print(agent_response.output_message)

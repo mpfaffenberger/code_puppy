@@ -7,7 +7,7 @@ from typing import List, Dict
 
 from textual.app import App, ComposeResult
 from textual.containers import Container
-from textual.widgets import Footer, ListView, ListItem, Label, ProgressBar
+from textual.widgets import Footer, ListView, ListItem, Label
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.events import Resize
@@ -657,19 +657,17 @@ class CodePuppyTUI(App):
             status_bar = self.query_one(StatusBar)
             status_bar.agent_status = status
 
-            # Update progress bar visibility
-            progress_bar = self.query_one("#progress-bar", ProgressBar)
+            # Update spinner visibility
+            from .components.input_area import SimpleSpinnerWidget
+            spinner = self.query_one("#spinner", SimpleSpinnerWidget)
             if show_progress:
-                progress_bar.add_class("visible")
-                progress_bar.display = True
-                if status == "Thinking":
-                    progress_bar.progress = 0  # Start from beginning
-                elif status == "Processing":
-                    progress_bar.progress = 50  # Mid-progress
+                spinner.add_class("visible")
+                spinner.display = True
+                spinner.start_spinning()
             else:
-                progress_bar.remove_class("visible")
-                progress_bar.display = False
-                progress_bar.progress = 0  # Reset progress
+                spinner.remove_class("visible")
+                spinner.display = False
+                spinner.stop_spinning()
 
         except Exception:
             pass  # Silently fail if widgets not available
@@ -683,10 +681,7 @@ class CodePuppyTUI(App):
         try:
             status_bar = self.query_one(StatusBar)
             status_bar.agent_status = status
-
-            if progress is not None:
-                progress_bar = self.query_one("#progress-bar", ProgressBar)
-                progress_bar.progress = progress
+            # Note: LoadingIndicator doesn't use progress values, it just spins
         except Exception:
             pass
 
