@@ -1,7 +1,5 @@
 import subprocess
 import time
-import sys
-import os
 from typing import Any, Dict
 
 from pydantic_ai import RunContext
@@ -14,11 +12,13 @@ from code_puppy.tools.common import console
 # to determine if spinner should be shown
 _AWAITING_USER_INPUT = False
 
+
 # Function to check if user input is awaited
 def is_awaiting_user_input():
     """Check if command_runner is waiting for user input."""
     global _AWAITING_USER_INPUT
     return _AWAITING_USER_INPUT
+
 
 # Function to set user input flag
 def set_awaiting_user_input(awaiting=True):
@@ -26,8 +26,22 @@ def set_awaiting_user_input(awaiting=True):
     global _AWAITING_USER_INPUT
     _AWAITING_USER_INPUT = awaiting
 
+    # When we're setting this flag, also pause/resume all active spinners
+    if awaiting:
+        # Pause all active spinners (imported here to avoid circular imports)
+        from code_puppy.messaging.spinner import pause_all_spinners
 
-def get_confirmation(prompt: str = "Are you sure you want to run this command?") -> bool:
+        pause_all_spinners()
+    else:
+        # Resume all active spinners
+        from code_puppy.messaging.spinner import resume_all_spinners
+
+        resume_all_spinners()
+
+
+def get_confirmation(
+    prompt: str = "Are you sure you want to run this command?",
+) -> bool:
     """
     Get confirmation from user. Uses a simple approach to avoid issues with spinners.
     """
@@ -51,10 +65,6 @@ def get_confirmation(prompt: str = "Are you sure you want to run this command?")
         console.print("=" * 60)
         return False
 
-# This function is not currently used
-def is_awaiting_user_input():
-    """Check if we are awaiting user input - not used in current version."""
-    return False
 
 def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
@@ -76,12 +86,10 @@ def run_shell_command(
         console.print(f"[bold yellow]Command:[/bold yellow] [green]{command}[/green]")
 
         import sys
-        import inspect
-        import threading
 
         # Import here to minimize dependencies
         from code_puppy.messaging.spinner import ConsoleSpinner
-        
+
         # Simpler approach to find active spinners
         active_spinner = None
         try:
@@ -100,34 +108,45 @@ def run_shell_command(
             # Just continue if we can't pause the spinner
             pass
 
-        # Print directly to stdout to be more visible
-        sys.stdout.write("\nAre you sure you want to run this command? (yes/no): ")
+        # Set the flag to indicate we're awaiting user input
+        set_awaiting_user_input(True)
+
+        # Print directly to stdout to be more visible and use a custom prompt
+        # that won't be overwritten by the Rich console or spinners
+        sys.stdout.write("\n👉 Are you sure you want to run this command?\n")
+        sys.stdout.write("Enter 'yes' or 'y' to confirm, anything else to cancel: ")
         sys.stdout.flush()
 
         # Get user input
         try:
+            # Need to keep the flag set during input() to prevent spinner display
             user_input = input()
+            # Only clear the flag after we've got the input
             confirmed = user_input.strip().lower() in {"yes", "y"}
+
+            # Show the user's input in the console so it's visible
+            if user_input:
+                console.print(f"[dim]User entered: {user_input}[/dim]")
         except (KeyboardInterrupt, EOFError):
             console.print("\nCancelled by user")
             confirmed = False
-            
-        # Resume the spinner if we found one
-        if active_spinner:
-            try:
-                active_spinner.resume()
-            except Exception:
-                pass
+        finally:
+            # Clear the flag regardless of the outcome
+            # But wait until *after* we've processed the input
+            set_awaiting_user_input(False)
 
         if not confirmed:
             console.print(
                 "[bold yellow]Command execution canceled by user.[/bold yellow]"
             )
+            # No need to resume spinner if command was canceled
             return {
                 "success": False,
                 "command": command,
                 "error": "User canceled command execution",
             }
+
+        # Spinner will be automatically resumed when set_awaiting_user_input(False) was called
     try:
         start_time = time.time()
         process = subprocess.Popen(

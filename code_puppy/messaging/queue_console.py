@@ -211,7 +211,11 @@ class QueueConsole:
         This method coordinates with the TUI to pause any running spinners
         and properly display the user input prompt.
         """
-        # Signal TUI to pause spinner and prepare for user input
+        # Set the global flag that we're awaiting user input
+        from code_puppy.tools.command_runner import set_awaiting_user_input
+        set_awaiting_user_input(True)
+        
+        # Signal TUI to pause spinner and prepare for user input (legacy method)
         try:
             # Try to get the current TUI app instance and pause spinner
             from textual.app import App
@@ -260,7 +264,11 @@ class QueueConsole:
             )
             return ""
         finally:
-            # Signal TUI to resume spinner if needed
+            # Clear the global flag for awaiting user input
+            from code_puppy.tools.command_runner import set_awaiting_user_input
+            set_awaiting_user_input(False)
+            
+            # Signal TUI to resume spinner if needed (legacy method)
             try:
                 from textual.app import App
                 current_app = App.get_running_app()

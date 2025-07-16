@@ -10,46 +10,46 @@ class SpinnerBase(ABC):
 
     # Shared spinner frames across implementations
     FRAMES = [
-        "(●    )",
-        "( ●   )",
-        "(  ●  )",
-        "(   ● )",
-        "(    ●)",
-        "(   ● )",
-        "(  ●  )",
-        "( ●   )",
-        "(●    )",
+        "(●    ) ",
+        "( ●   ) ",
+        "(  ●  ) ",
+        "(   ● ) ",
+        "(    ●) ",
+        "(   ● ) ",
+        "(  ●  ) ",
+        "( ●   ) ",
+        "(●    ) ",
     ]
-    
-    MESSAGE = "🐶 Puppy is thinking... "
-    
+
+    MESSAGE = "🐶 Puppy is waiting... "
+
     def __init__(self):
         """Initialize the spinner."""
         self._is_spinning = False
         self._frame_index = 0
-    
+
     @abstractmethod
     def start(self):
         """Start the spinner animation."""
         self._is_spinning = True
         self._frame_index = 0
-    
+
     @abstractmethod
     def stop(self):
         """Stop the spinner animation."""
         self._is_spinning = False
-    
+
     @abstractmethod
     def update_frame(self):
         """Update to the next frame."""
         if self._is_spinning:
             self._frame_index = (self._frame_index + 1) % len(self.FRAMES)
-            
+
     @property
     def current_frame(self):
         """Get the current frame."""
         return self.FRAMES[self._frame_index]
-    
+
     @property
     def is_spinning(self):
         """Check if the spinner is currently spinning."""
