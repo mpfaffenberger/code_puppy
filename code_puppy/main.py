@@ -302,14 +302,15 @@ async def main():
 
                     # Use spinner animation (create Rich console for spinner)
                     from rich.console import Console as RichConsole
+
                     rich_console = RichConsole()
                     with rich_console.status(
                         "",
                         # spinner="weather"
                         # spinner="point"
                         # spinner="earth"
-                        spinner="bouncingBall"
-                    ) as status:
+                        spinner="bouncingBall",
+                    ):
                         agent = get_code_generation_agent()
                         async with agent.run_mcp_servers():
                             response = await agent.run(
@@ -508,8 +509,8 @@ async def interactive_mode(history_file_path: str) -> None:
                     # spinner="weather"
                     # spinner="point"
                     # spinner="earth"
-                    spinner="bouncingBall"
-                ) as status:
+                    spinner="bouncingBall",
+                ):
                     agent = get_code_generation_agent()
                     async with agent.run_mcp_servers():
                         result = await agent.run(

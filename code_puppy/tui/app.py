@@ -324,7 +324,7 @@ class CodePuppyTUI(App):
             if self.agent:
                 try:
                     self.update_agent_progress("Processing", 25)
-                    
+
                     # Handle MCP servers with specific TaskGroup exception handling
                     try:
                         async with self.agent.run_mcp_servers():
@@ -355,16 +355,24 @@ class CodePuppyTUI(App):
                                     "awaiting_user_input": agent_response.awaiting_user_input,
                                 },
                             )
-                    except BaseExceptionGroup as eg:
-                        # Handle TaskGroup exceptions specifically
-                        for e in eg.exceptions:
-                            self.add_error_message(f"MCP/Agent error: {str(e)}")
+                    except Exception as eg:
+                        # Handle TaskGroup and other exceptions
+                        # BaseExceptionGroup is only available in Python 3.11+
+                        if hasattr(eg, 'exceptions'):
+                            # Handle TaskGroup exceptions specifically (Python 3.11+)
+                            for e in eg.exceptions:
+                                self.add_error_message(f"MCP/Agent error: {str(e)}")
+                        else:
+                            # Handle regular exceptions
+                            self.add_error_message(f"MCP/Agent error: {str(eg)}")
                     except Exception as mcp_error:
                         # Handle individual MCP server exceptions
                         self.add_error_message(f"MCP server error: {str(mcp_error)}")
                 except Exception as agent_error:
                     # Handle any other errors in agent processing
-                    self.add_error_message(f"Agent processing failed: {str(agent_error)}")
+                    self.add_error_message(
+                        f"Agent processing failed: {str(agent_error)}"
+                    )
             else:
                 self.add_error_message("Agent not initialized")
 
@@ -659,6 +667,7 @@ class CodePuppyTUI(App):
 
             # Update spinner visibility
             from .components.input_area import SimpleSpinnerWidget
+
             spinner = self.query_one("#spinner", SimpleSpinnerWidget)
             if show_progress:
                 spinner.add_class("visible")

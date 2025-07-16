@@ -23,8 +23,8 @@ class SimpleSpinnerWidget(Static):
             "[bold cyan](   ● )[/bold cyan]",
             "[bold cyan](  ●  )[/bold cyan]",
             "[bold cyan]( ●   )[/bold cyan]",
-            "[bold cyan](●    )[/bold cyan]"
-            ]
+            "[bold cyan](●    )[/bold cyan]",
+        ]
         self._frame_index = 0
         self._is_spinning = False
         self._timer = None
@@ -34,7 +34,9 @@ class SimpleSpinnerWidget(Static):
         if not self._is_spinning:
             self._is_spinning = True
             self._frame_index = 0
-            self.update("[bold cyan]🐶 Puppy is thinking... [/bold cyan]" + self.frames[0])
+            self.update(
+                "[bold cyan]🐶 Puppy is thinking... [/bold cyan]" + self.frames[0]
+            )
             # Start the animation timer using Textual's timer system
             self._timer = self.set_interval(0.10, self._update_frame)
 
@@ -51,7 +53,9 @@ class SimpleSpinnerWidget(Static):
         if self._is_spinning:
             self._frame_index = (self._frame_index + 1) % len(self.frames)
             current_frame = self.frames[self._frame_index]
-            self.update("[bold cyan]🐶 Puppy is thinking... [/bold cyan]" + current_frame)
+            self.update(
+                "[bold cyan]🐶 Puppy is thinking... [/bold cyan]" + current_frame
+            )
 
 
 class InputArea(Container):
