@@ -11,7 +11,6 @@ from textual.widgets import Footer, ListView, ListItem, Label, ProgressBar
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.events import Resize
-from textual import work
 
 from code_puppy.agent import (
     get_code_generation_agent,
@@ -269,10 +268,9 @@ class CodePuppyTUI(App):
             # Add user message to chat
             self.add_user_message(message)
 
-            # Process the message
-            self.process_message(message)
+            # Process the message asynchronously using Textual's worker system
+            self.run_worker(self.process_message(message), exclusive=True)
 
-    @work(exclusive=True)
     async def process_message(self, message: str) -> None:
         """Process a user message asynchronously."""
         try:

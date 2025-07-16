@@ -9,7 +9,7 @@ from rich.console import Group
 from rich.syntax import Syntax
 from rich.text import Text
 from textual.containers import VerticalScroll
-from textual.widgets import Label, Static
+from textual.widgets import Static
 
 from ..models import ChatMessage, MessageType
 
@@ -31,6 +31,7 @@ class ChatView(VerticalScroll):
         color: #ffffff;
         margin: 1 0;
         padding: 1;
+        text-wrap: wrap;
     }
 
     .agent-message {
@@ -39,6 +40,7 @@ class ChatView(VerticalScroll):
         margin: 1 0;
         padding: 1;
         border-left: thick #10b981;
+        text-wrap: wrap;
     }
 
     .system-message {
@@ -48,6 +50,7 @@ class ChatView(VerticalScroll):
         padding: 1;
         text-style: italic;
         border-left: thick #6b7280;
+        text-wrap: wrap;
     }
 
     .error-message {
@@ -55,6 +58,7 @@ class ChatView(VerticalScroll):
         color: #fef2f2;
         margin: 1 0;
         padding: 1;
+        text-wrap: wrap;
     }
     """
 
@@ -116,7 +120,8 @@ class ChatView(VerticalScroll):
 
         if message.type == MessageType.USER:
             content = f"[{timestamp_str}] You: {message.content}"
-            message_widget = Label(content, classes=css_class)
+            # Use Static instead of Label to enable text wrapping
+            message_widget = Static(content, classes=css_class)
         elif message.type == MessageType.AGENT:
             prefix = f"[{timestamp_str}] Agent: "
             # Use Static widget with Rich renderable for agent messages to support syntax highlighting
@@ -131,17 +136,17 @@ class ChatView(VerticalScroll):
                 else:
                     # Regular text message
                     content = f"[{timestamp_str}] Agent: {message.content}"
-                    message_widget = Label(content, classes=css_class)
+                    message_widget = Static(content, classes=css_class)
             except Exception:
-                # Fallback to simple label if parsing fails
+                # Fallback to Static widget if parsing fails
                 content = f"[{timestamp_str}] Agent: {message.content}"
-                message_widget = Label(content, classes=css_class)
+                message_widget = Static(content, classes=css_class)
         elif message.type == MessageType.SYSTEM:
             content = f"[{timestamp_str}] System: {message.content}"
-            message_widget = Label(content, classes=css_class)
+            message_widget = Static(content, classes=css_class)
         else:  # ERROR
             content = f"[{timestamp_str}] Error: {message.content}"
-            message_widget = Label(content, classes=css_class)
+            message_widget = Static(content, classes=css_class)
 
         self.mount(message_widget)
 
@@ -151,8 +156,6 @@ class ChatView(VerticalScroll):
     def clear_messages(self) -> None:
         """Clear all messages from the chat view."""
         self.messages.clear()
-        # Remove all message widgets (both Label and Static)
-        for widget in self.query(Label):
-            widget.remove()
+        # Remove all message widgets (now only Static widgets)
         for widget in self.query(Static):
             widget.remove()
