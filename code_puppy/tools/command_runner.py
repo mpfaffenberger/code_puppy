@@ -1,5 +1,7 @@
 import subprocess
 import time
+import sys
+import os
 from typing import Any, Dict
 
 from pydantic_ai import RunContext
@@ -8,6 +10,51 @@ from rich.syntax import Syntax
 
 from code_puppy.tools.common import console
 
+# Flag to indicate if we need user input - this will be checked by interactive mode
+# to determine if spinner should be shown
+_AWAITING_USER_INPUT = False
+
+# Function to check if user input is awaited
+def is_awaiting_user_input():
+    """Check if command_runner is waiting for user input."""
+    global _AWAITING_USER_INPUT
+    return _AWAITING_USER_INPUT
+
+# Function to set user input flag
+def set_awaiting_user_input(awaiting=True):
+    """Set the flag indicating if user input is awaited."""
+    global _AWAITING_USER_INPUT
+    _AWAITING_USER_INPUT = awaiting
+
+
+def get_confirmation(prompt: str = "Are you sure you want to run this command?") -> bool:
+    """
+    Get confirmation from user. Uses a simple approach to avoid issues with spinners.
+    """
+    import time
+
+    # Print the prompt with an obvious prefix
+    console.print("\n" + "=" * 60)
+    console.print("👉 " + prompt + " (yes/no): ", end="")
+
+    # Sleep briefly to ensure the prompt is displayed before any spinner starts
+    time.sleep(3)
+
+    # Get user input
+    try:
+        user_input = input()
+        result = user_input.strip().lower() in {"yes", "y"}
+        console.print("=" * 60)
+        return result
+    except (KeyboardInterrupt, EOFError):
+        console.print("\nCancelled by user")
+        console.print("=" * 60)
+        return False
+
+# This function is not currently used
+def is_awaiting_user_input():
+    """Check if we are awaiting user input - not used in current version."""
+    return False
 
 def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
@@ -25,8 +72,24 @@ def run_shell_command(
 
     yolo_mode = get_yolo_mode()
     if not yolo_mode:
-        user_input = input("Are you sure you want to run this command? (yes/no): ")
-        if user_input.strip().lower() not in {"yes", "y"}:
+        # Create a very visible confirmation prompt
+        console.print(f"[bold yellow]Command:[/bold yellow] [green]{command}[/green]")
+
+        import sys
+
+        # Print directly to stdout to be more visible
+        sys.stdout.write("\nAre you sure you want to run this command? (yes/no): ")
+        sys.stdout.flush()
+
+        # Get user input
+        try:
+            user_input = input()
+            confirmed = user_input.strip().lower() in {"yes", "y"}
+        except (KeyboardInterrupt, EOFError):
+            console.print("\nCancelled by user")
+            confirmed = False
+
+        if not confirmed:
             console.print(
                 "[bold yellow]Command execution canceled by user.[/bold yellow]"
             )

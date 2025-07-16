@@ -299,23 +299,39 @@ async def main():
                 while not shutdown_flag:
                     # Show thinking message, then processing message, then spinner
                     console.print("[bold cyan]🐶 Puppy is thinking...[/bold cyan]")
-
-                    # Use spinner animation (create Rich console for spinner)
-                    from rich.console import Console as RichConsole
-
-                    rich_console = RichConsole()
-                    with rich_console.status(
-                        "",
-                        # spinner="weather"
-                        # spinner="point"
-                        # spinner="earth"
-                        spinner="bouncingBall",
-                    ):
-                        agent = get_code_generation_agent()
+                    
+                    # Check if any tool is waiting for user input before showing spinner
+                    try:
+                        from code_puppy.tools.command_runner import is_awaiting_user_input
+                        awaiting_input = is_awaiting_user_input()
+                    except ImportError:
+                        awaiting_input = False
+                    
+                    # Get the agent
+                    agent = get_code_generation_agent()
+                    
+                    # Run with or without spinner based on whether we're awaiting input
+                    if awaiting_input:
+                        # No spinner - just run the agent
                         async with agent.run_mcp_servers():
                             response = await agent.run(
                                 command, usage_limits=get_custom_usage_limits()
                             )
+                    else:
+                        # Use spinner animation (create Rich console for spinner)
+                        from rich.console import Console as RichConsole
+                        rich_console = RichConsole()
+                        with rich_console.status(
+                            "",
+                            # spinner="weather"
+                            # spinner="point"
+                            # spinner="earth"
+                            spinner="bouncingBall",
+                        ):
+                            async with agent.run_mcp_servers():
+                                response = await agent.run(
+                                    command, usage_limits=get_custom_usage_limits()
+                                )
                     agent_response = response.output
                     console.print(agent_response.output_message)
                     # Log to session memory
@@ -503,6 +519,17 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Show thinking message, then processing message, then spinner
                 console.print("[bold cyan]🐶 Puppy is thinking...[/bold cyan]")
 
+                # Check if any tool is waiting for user input before showing spinner
+                # Import here to avoid circular imports
+                try:
+                    from code_puppy.tools.command_runner import is_awaiting_user_input
+                    awaiting_input = is_awaiting_user_input()
+                except ImportError:
+                    awaiting_input = False
+                
+                # Just get the agent and run it with spinner
+                agent = get_code_generation_agent()
+                
                 # Use spinner animation
                 with display_console.status(
                     "",
@@ -511,7 +538,6 @@ async def interactive_mode(history_file_path: str) -> None:
                     # spinner="earth"
                     spinner="bouncingBall",
                 ):
-                    agent = get_code_generation_agent()
                     async with agent.run_mcp_servers():
                         result = await agent.run(
                             task,
