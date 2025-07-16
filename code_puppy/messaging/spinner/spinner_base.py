@@ -21,7 +21,14 @@ class SpinnerBase(ABC):
         "(●    ) ",
     ]
 
-    MESSAGE = "🐶 Puppy is waiting... "
+    # Default message when processing
+    THINKING_MESSAGE = "🐶 Puppy is thinking... "
+
+    # Message when waiting for user input
+    WAITING_MESSAGE = "🐶 Puppy is waiting... "
+
+    # Current message - starts with thinking by default
+    MESSAGE = THINKING_MESSAGE
 
     def __init__(self):
         """Initialize the spinner."""

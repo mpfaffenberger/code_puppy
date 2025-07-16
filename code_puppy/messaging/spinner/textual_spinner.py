@@ -12,7 +12,6 @@ class TextualSpinner(Static):
 
     # Use the frames from SpinnerBase
     FRAMES = SpinnerBase.FRAMES
-    MESSAGE = SpinnerBase.MESSAGE
 
     def __init__(self, **kwargs):
         """Initialize the textual spinner."""
@@ -58,8 +57,19 @@ class TextualSpinner(Static):
         if self._is_spinning:
             self.update_frame()
             current_frame = self.FRAMES[self._frame_index]
+
+            # Check if we're awaiting user input to determine which message to show
+            from code_puppy.tools.command_runner import is_awaiting_user_input
+
+            if is_awaiting_user_input():
+                # Show waiting message when waiting for user input
+                message = SpinnerBase.WAITING_MESSAGE
+            else:
+                # Show thinking message during normal processing
+                message = SpinnerBase.THINKING_MESSAGE
+
             self.update(
-                f"[bold cyan]{self.MESSAGE}[/bold cyan][bold cyan]{current_frame}[/bold cyan]"
+                f"[bold cyan]{message}[/bold cyan][bold cyan]{current_frame}[/bold cyan]"
             )
 
     def pause(self):

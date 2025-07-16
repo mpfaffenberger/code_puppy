@@ -108,8 +108,14 @@ def run_shell_command(
             # Just continue if we can't pause the spinner
             pass
 
-        # Set the flag to indicate we're awaiting user input
+        # First, set the flag to indicate we're awaiting user input - BEFORE printing anything
+        # This ensures spinners immediately show "waiting" instead of "thinking"
         set_awaiting_user_input(True)
+
+        # Allow a moment for spinners to update their text
+        import time
+
+        time.sleep(0.2)
 
         # Print directly to stdout to be more visible and use a custom prompt
         # that won't be overwritten by the Rich console or spinners

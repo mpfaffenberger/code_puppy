@@ -89,7 +89,17 @@ class ConsoleSpinner(SpinnerBase):
             return Text("")
 
         text = Text()
-        text.append("🐶 Puppy is waiting... ", style="bold cyan")
+
+        # Check if we're awaiting user input to determine which message to show
+        from code_puppy.tools.command_runner import is_awaiting_user_input
+
+        if is_awaiting_user_input():
+            # Show waiting message when waiting for user input
+            text.append(SpinnerBase.WAITING_MESSAGE, style="bold cyan")
+        else:
+            # Show thinking message during normal processing
+            text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
+
         text.append(self.current_frame, style="bold cyan")
 
         # Return a simple Text object instead of a Panel for a cleaner look
@@ -126,6 +136,22 @@ class ConsoleSpinner(SpinnerBase):
             # Update the live display to hide the spinner immediately
             if self._live:
                 try:
+                    # When pausing, first update with the waiting message
+                    # so it's visible briefly before disappearing
+                    from code_puppy.tools.command_runner import is_awaiting_user_input
+
+                    if is_awaiting_user_input():
+                        text = Text()
+                        text.append(SpinnerBase.WAITING_MESSAGE, style="bold cyan")
+                        text.append(self.current_frame, style="bold cyan")
+                        self._live.update(text)
+                        self._live.refresh()
+                        # Allow a moment for the waiting message to be visible
+                        import time
+
+                        time.sleep(0.1)
+
+                    # Then clear the display
                     self._live.update(Text(""))
                 except Exception:
                     # If update fails, try stopping it completely
