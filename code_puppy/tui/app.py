@@ -11,6 +11,8 @@ from textual.widgets import Footer, ListView, ListItem, Label
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.events import Resize
+from textual import on
+from textual.message import Message
 
 from code_puppy.agent import (
     get_code_generation_agent,
@@ -33,6 +35,9 @@ from .components import (
 )
 from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
 
+
+# Import shared message classes
+from .messages import HistoryEntrySelected
 
 class CodePuppyTUI(App):
     """Main Code Puppy TUI application."""
@@ -385,6 +390,31 @@ class CodePuppyTUI(App):
         """Toggle sidebar visibility."""
         sidebar = self.query_one(Sidebar)
         sidebar.display = not sidebar.display
+        
+        # If sidebar is now visible, focus the history list to enable immediate keyboard navigation
+        if sidebar.display:
+            try:
+                # Ensure history tab is active
+                tabs = self.query_one("#sidebar-tabs")
+                tabs.active = "history-tab"
+                
+                # Focus the history list
+                history_list = self.query_one("#history-list", ListView)
+                history_list.focus()
+                
+                # If the list has items, ensure the first item is highlighted
+                if len(history_list.children) > 0:
+                    history_list.index = 0
+            except Exception:
+                # Silently fail if there's an issue with focusing
+                pass
+        else:
+            # If sidebar is now hidden, focus the input field for a smooth workflow
+            try:
+                self.action_focus_input()
+            except Exception:
+                # Silently fail if there's an issue with focusing
+                pass
 
     def action_focus_input(self) -> None:
         """Focus the input field."""
@@ -800,6 +830,12 @@ class CodePuppyTUI(App):
                 self.add_system_message(f"Renderer stop error: {e}")
 
 
+
+    @on(HistoryEntrySelected)
+    def on_history_entry_selected(self, event: HistoryEntrySelected) -> None:
+        """Handle selection of a history entry from the sidebar."""
+        # Display the history entry details
+        self.show_history_details(event.history_entry)
 
     async def on_unmount(self):
         """Clean up when the app is unmounted."""
