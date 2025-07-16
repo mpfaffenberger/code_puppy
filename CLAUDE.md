@@ -36,6 +36,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `web_search.py`: Web search capabilities
 - Tools are registered via `register_all_tools()` function
 
+**Messaging System (`code_puppy/messaging/`)**
+- Message queue system for decoupling output from renderers
+- Supports multiple UI modes (TUI, interactive CLI)
+- Components:
+  - `message_queue.py`: Thread-safe queue for UI messages
+  - `queue_console.py`: Rich console replacement that routes to queue
+  - `renderers.py`: Renderer implementations for different UIs
+
 **Configuration (`code_puppy/config.py`)**
 - Config stored in `~/.code_puppy/puppy.cfg`
 - Model selection persists between sessions
@@ -50,10 +58,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Key Features
 
 **Interactive CLI (`code_puppy/main.py`)**
-- Two modes: single command execution and interactive mode
+- Multiple modes: single command, interactive CLI, and TUI
 - Enhanced input with `prompt_toolkit` for tab completion
 - Message history management with configurable limits
 - Background HTTP server (ports 8090-9010)
+
+**Text User Interface (`code_puppy/tui/`)**
+- Modern interface using Textual framework
+- Components:
+  - Chat view with message history
+  - Input area with completion
+  - Status bar and sidebar
+  - Settings and help screens
+- Spinner animation for long-running operations
 
 **Puppy Rules System**
 - Custom coding standards via `.puppy_rules` file
@@ -97,5 +114,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Entry Points
 - CLI: `code-puppy` command (via `main.py:main_entry`)
-- Interactive: `code-puppy --interactive`
+- Interactive CLI: `code-puppy --interactive`
+- TUI mode: `code-puppy --tui`
 - Single command: `code-puppy "your task here"`
