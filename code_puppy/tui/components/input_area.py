@@ -9,53 +9,10 @@ from textual.widgets import Static
 from .custom_widgets import CustomTextArea
 
 
-class SimpleSpinnerWidget(Static):
-    """A simple spinner widget using Static with timer-based animation."""
+from code_puppy.messaging.spinner import TextualSpinner
 
-    def __init__(self, **kwargs):
-        super().__init__("", **kwargs)
-        self.frames = [
-            "[bold cyan](●    )[/bold cyan]",
-            "[bold cyan]( ●   )[/bold cyan]",
-            "[bold cyan](  ●  )[/bold cyan]",
-            "[bold cyan](   ● )[/bold cyan]",
-            "[bold cyan](    ●)[/bold cyan]",
-            "[bold cyan](   ● )[/bold cyan]",
-            "[bold cyan](  ●  )[/bold cyan]",
-            "[bold cyan]( ●   )[/bold cyan]",
-            "[bold cyan](●    )[/bold cyan]",
-        ]
-        self._frame_index = 0
-        self._is_spinning = False
-        self._timer = None
-
-    def start_spinning(self) -> None:
-        """Start the spinner animation."""
-        if not self._is_spinning:
-            self._is_spinning = True
-            self._frame_index = 0
-            self.update(
-                "[bold cyan]🐶 Puppy is thinking... [/bold cyan]" + self.frames[0]
-            )
-            # Start the animation timer using Textual's timer system
-            self._timer = self.set_interval(0.10, self._update_frame)
-
-    def stop_spinning(self) -> None:
-        """Stop the spinner animation."""
-        self._is_spinning = False
-        if self._timer:
-            self._timer.stop()
-            self._timer = None
-        self.update("")
-
-    def _update_frame(self) -> None:
-        """Update to the next frame."""
-        if self._is_spinning:
-            self._frame_index = (self._frame_index + 1) % len(self.frames)
-            current_frame = self.frames[self._frame_index]
-            self.update(
-                "[bold cyan]🐶 Puppy is thinking... [/bold cyan]" + current_frame
-            )
+# Alias SimpleSpinnerWidget to TextualSpinner for backward compatibility
+SimpleSpinnerWidget = TextualSpinner
 
 
 class InputArea(Container):

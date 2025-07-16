@@ -318,16 +318,11 @@ async def main():
                                 command, usage_limits=get_custom_usage_limits()
                             )
                     else:
-                        # Use spinner animation (create Rich console for spinner)
+                        # Use our custom spinner for better compatibility with user input
+                        from code_puppy.messaging.spinner import ConsoleSpinner
                         from rich.console import Console as RichConsole
                         rich_console = RichConsole()
-                        with rich_console.status(
-                            "",
-                            # spinner="weather"
-                            # spinner="point"
-                            # spinner="earth"
-                            spinner="bouncingBall",
-                        ):
+                        with ConsoleSpinner(console=rich_console) as spinner:
                             async with agent.run_mcp_servers():
                                 response = await agent.run(
                                     command, usage_limits=get_custom_usage_limits()
@@ -530,14 +525,9 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Just get the agent and run it with spinner
                 agent = get_code_generation_agent()
                 
-                # Use spinner animation
-                with display_console.status(
-                    "",
-                    # spinner="weather"
-                    # spinner="point"
-                    # spinner="earth"
-                    spinner="bouncingBall",
-                ):
+                # Use our custom spinner for better compatibility with user input
+                from code_puppy.messaging.spinner import ConsoleSpinner
+                with ConsoleSpinner(console=display_console) as spinner:
                     async with agent.run_mcp_servers():
                         result = await agent.run(
                             task,

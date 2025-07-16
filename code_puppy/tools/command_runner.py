@@ -76,6 +76,29 @@ def run_shell_command(
         console.print(f"[bold yellow]Command:[/bold yellow] [green]{command}[/green]")
 
         import sys
+        import inspect
+        import threading
+
+        # Import here to minimize dependencies
+        from code_puppy.messaging.spinner import ConsoleSpinner
+        
+        # Simpler approach to find active spinners
+        active_spinner = None
+        try:
+            # Look for active spinner in the caller's stack frames
+            frame = sys._getframe()
+            while frame:
+                for var_name, var_val in frame.f_locals.items():
+                    if isinstance(var_val, ConsoleSpinner):
+                        active_spinner = var_val
+                        active_spinner.pause()
+                        break
+                if active_spinner:
+                    break
+                frame = frame.f_back
+        except Exception:
+            # Just continue if we can't pause the spinner
+            pass
 
         # Print directly to stdout to be more visible
         sys.stdout.write("\nAre you sure you want to run this command? (yes/no): ")
@@ -88,6 +111,13 @@ def run_shell_command(
         except (KeyboardInterrupt, EOFError):
             console.print("\nCancelled by user")
             confirmed = False
+            
+        # Resume the spinner if we found one
+        if active_spinner:
+            try:
+                active_spinner.resume()
+            except Exception:
+                pass
 
         if not confirmed:
             console.print(
