@@ -119,8 +119,8 @@ class CodePuppyTUI(App):
         self.add_system_message("Welcome to Code Puppy 🐶!")
 
         # Start the message renderer EARLY to catch startup messages
-        # Using set_timer to start it as soon as possible after mount
-        self.set_timer(0.01, self.start_message_renderer)
+        # Using call_after_refresh to start it as soon as possible after mount
+        self.call_after_refresh(self.start_message_renderer_sync)
 
         # Load session history
         self.load_history_list()
@@ -269,7 +269,8 @@ class CodePuppyTUI(App):
             self.add_user_message(message)
 
             # Process the message asynchronously using Textual's worker system
-            self.run_worker(self.process_message(message), exclusive=True)
+            # Using exclusive=False to avoid TaskGroup conflicts with MCP servers
+            self.run_worker(self.process_message(message), exclusive=False)
 
     async def process_message(self, message: str) -> None:
         """Process a user message asynchronously."""
@@ -321,35 +322,49 @@ class CodePuppyTUI(App):
 
             # Process with agent
             if self.agent:
-                self.update_agent_progress("Processing", 25)
-                async with self.agent.run_mcp_servers():
-                    self.update_agent_progress("Processing", 50)
-                    result = await self.agent.run(
-                        message,
-                        message_history=self.message_history,
-                        usage_limits=get_custom_usage_limits(),
-                    )
+                try:
+                    self.update_agent_progress("Processing", 25)
+                    
+                    # Handle MCP servers with specific TaskGroup exception handling
+                    try:
+                        async with self.agent.run_mcp_servers():
+                            self.update_agent_progress("Processing", 50)
+                            result = await self.agent.run(
+                                message,
+                                message_history=self.message_history,
+                                usage_limits=get_custom_usage_limits(),
+                            )
 
-                self.update_agent_progress("Processing", 75)
-                agent_response = result.output
-                self.add_agent_message(agent_response.output_message)
+                        self.update_agent_progress("Processing", 75)
+                        agent_response = result.output
+                        self.add_agent_message(agent_response.output_message)
 
-                # Update message history
-                new_msgs = result.new_messages()
-                self.message_history.extend(new_msgs)
+                        # Update message history
+                        new_msgs = result.new_messages()
+                        self.message_history.extend(new_msgs)
 
-                # Refresh history display to show new interaction
-                self.refresh_history_display()
+                        # Refresh history display to show new interaction
+                        self.refresh_history_display()
 
-                # Log to session memory
-                if self.session_memory:
-                    self.session_memory.log_task(
-                        f"TUI interaction: {message}",
-                        extras={
-                            "output": agent_response.output_message,
-                            "awaiting_user_input": agent_response.awaiting_user_input,
-                        },
-                    )
+                        # Log to session memory
+                        if self.session_memory:
+                            self.session_memory.log_task(
+                                f"TUI interaction: {message}",
+                                extras={
+                                    "output": agent_response.output_message,
+                                    "awaiting_user_input": agent_response.awaiting_user_input,
+                                },
+                            )
+                    except BaseExceptionGroup as eg:
+                        # Handle TaskGroup exceptions specifically
+                        for e in eg.exceptions:
+                            self.add_error_message(f"MCP/Agent error: {str(e)}")
+                    except Exception as mcp_error:
+                        # Handle individual MCP server exceptions
+                        self.add_error_message(f"MCP server error: {str(mcp_error)}")
+                except Exception as agent_error:
+                    # Handle any other errors in agent processing
+                    self.add_error_message(f"Agent processing failed: {str(agent_error)}")
             else:
                 self.add_error_message("Agent not initialized")
 
@@ -733,6 +748,10 @@ class CodePuppyTUI(App):
         except Exception:
             pass
 
+    def start_message_renderer_sync(self):
+        """Synchronous wrapper to start message renderer via run_worker."""
+        self.run_worker(self.start_message_renderer(), exclusive=False)
+
     async def start_message_renderer(self):
         """Start the message renderer to consume messages from the queue."""
         if not self._renderer_started:
@@ -783,7 +802,11 @@ class CodePuppyTUI(App):
         """Stop the message renderer."""
         if self._renderer_started:
             self._renderer_started = False
-            await self.message_renderer.stop()
+            try:
+                await self.message_renderer.stop()
+            except Exception as e:
+                # Log renderer stop errors but don't crash
+                self.add_system_message(f"Renderer stop error: {e}")
 
     def setup_file_browser_handlers(self) -> None:
         """Set up file browser event handlers."""
@@ -839,7 +862,15 @@ class CodePuppyTUI(App):
 
     async def on_unmount(self):
         """Clean up when the app is unmounted."""
-        await self.stop_message_renderer()
+        try:
+            await self.stop_message_renderer()
+        except Exception as e:
+            # Log unmount errors but don't crash during cleanup
+            try:
+                self.add_system_message(f"Unmount cleanup error: {e}")
+            except Exception:
+                # If we can't even add a message, just ignore
+                pass
 
 
 async def run_textual_ui():

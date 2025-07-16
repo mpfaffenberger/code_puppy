@@ -128,17 +128,25 @@ async def main():
 
     # Start the HTTP server in the background
     async def run_http_server():
-        config = uvicorn.Config(
-            http_app,
-            host="127.0.0.1",
-            port=available_port,
-            log_level="critical",  # suppress most logs
-            access_log=False,  # suppress access logs
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
+        try:
+            config = uvicorn.Config(
+                http_app,
+                host="127.0.0.1",
+                port=available_port,
+                log_level="critical",  # suppress most logs
+                access_log=False,  # suppress access logs
+            )
+            server = uvicorn.Server(config)
+            await server.serve()
+        except Exception as e:
+            # Log HTTP server errors but don't crash the main application
+            if not tui_mode:
+                console.print(f"[dim red]HTTP server error: {e}[/dim red]")
+            else:
+                emit_system_message(f"HTTP server error: {e}")
 
-    asyncio.create_task(run_http_server())
+    # Store the HTTP server task for proper lifecycle management
+    http_server_task = asyncio.create_task(run_http_server())
 
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()
@@ -283,61 +291,73 @@ async def main():
 
     history_file_path = get_secret_file_path()
 
-    if args.command:
-        # Join the list of command arguments into a single string command
-        command = " ".join(args.command)
-        try:
-            while not shutdown_flag:
-                agent = get_code_generation_agent()
-                async with agent.run_mcp_servers():
-                    response = await agent.run(
-                        command, usage_limits=get_custom_usage_limits()
+    try:
+        if args.command:
+            # Join the list of command arguments into a single string command
+            command = " ".join(args.command)
+            try:
+                while not shutdown_flag:
+                    agent = get_code_generation_agent()
+                    async with agent.run_mcp_servers():
+                        response = await agent.run(
+                            command, usage_limits=get_custom_usage_limits()
+                        )
+                    agent_response = response.output
+                    console.print(agent_response.output_message)
+                    # Log to session memory
+                    session_memory().log_task(
+                        f"Command executed: {command}",
+                        extras={
+                            "output": agent_response.output_message,
+                            "awaiting_user_input": agent_response.awaiting_user_input,
+                        },
                     )
-                agent_response = response.output
-                console.print(agent_response.output_message)
-                # Log to session memory
-                session_memory().log_task(
-                    f"Command executed: {command}",
-                    extras={
-                        "output": agent_response.output_message,
-                        "awaiting_user_input": agent_response.awaiting_user_input,
-                    },
+                    if agent_response.awaiting_user_input:
+                        console.print(
+                            "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
+                        )
+                    break
+            except AttributeError as e:
+                console.print(f"[bold red]AttributeError:[/bold red] {str(e)}")
+                console.print(
+                    "[bold yellow]\u26a0 The response might not be in the expected format, missing attributes like 'output_message'."
                 )
-                if agent_response.awaiting_user_input:
-                    console.print(
-                        "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
-                    )
-                break
-        except AttributeError as e:
-            console.print(f"[bold red]AttributeError:[/bold red] {str(e)}")
-            console.print(
-                "[bold yellow]\u26a0 The response might not be in the expected format, missing attributes like 'output_message'."
-            )
-        except Exception as e:
-            console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
-    elif tui_mode:
-        # Import here to avoid dependency issues if textual is not available
-        try:
-            from code_puppy.tui import run_textual_ui
+            except Exception as e:
+                console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
+        elif tui_mode:
+            # Import here to avoid dependency issues if textual is not available
+            try:
+                from code_puppy.tui import run_textual_ui
 
-            await run_textual_ui()
-        except ImportError:
-            console.print(
-                "[bold red]Error:[/bold red] Textual UI not available. Install with: pip install textual"
-            )
-            console.print("[yellow]Falling back to interactive mode...[/yellow]")
+                await run_textual_ui()
+            except ImportError:
+                console.print(
+                    "[bold red]Error:[/bold red] Textual UI not available. Install with: pip install textual"
+                )
+                console.print("[yellow]Falling back to interactive mode...[/yellow]")
+                await interactive_mode(history_file_path)
+            except Exception as e:
+                console.print(f"[bold red]TUI Error:[/bold red] {str(e)}")
+                console.print("[yellow]Falling back to interactive mode...[/yellow]")
+                await interactive_mode(history_file_path)
+        elif args.interactive:
             await interactive_mode(history_file_path)
-        except Exception as e:
-            console.print(f"[bold red]TUI Error:[/bold red] {str(e)}")
-            console.print("[yellow]Falling back to interactive mode...[/yellow]")
-            await interactive_mode(history_file_path)
-    elif args.interactive:
-        await interactive_mode(history_file_path)
-    else:
-        parser.print_help()
-
-    # Optionally, await the HTTP server task if you want the process to stay alive
-    # await http_server_task
+        else:
+            parser.print_help()
+    finally:
+        # Clean up the HTTP server task when exiting
+        if not http_server_task.done():
+            http_server_task.cancel()
+            try:
+                await http_server_task
+            except asyncio.CancelledError:
+                pass  # Expected when cancelling
+            except Exception as e:
+                # Log cleanup errors but don't crash
+                if not tui_mode:
+                    console.print(f"[dim red]HTTP server cleanup error: {e}[/dim red]")
+                else:
+                    emit_system_message(f"HTTP server cleanup error: {e}")
 
 
 # Add the file handling functionality for interactive mode
