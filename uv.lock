@@ -219,6 +219,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bs4" },
     { name = "fastapi" },
+    { name = "halo" },
     { name = "httpx" },
     { name = "httpx-limiter" },
     { name = "json-repair" },
@@ -233,6 +234,7 @@ dependencies = [
     { name = "rapidfuzz" },
     { name = "rich" },
     { name = "ruff" },
+    { name = "termcolor" },
     { name = "textual" },
     { name = "tree-sitter-language-pack" },
     { name = "tree-sitter-typescript" },
@@ -248,6 +250,7 @@ dev = [
 requires-dist = [
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "fastapi", specifier = ">=0.110.0" },
+    { name = "halo", specifier = ">=0.0.31" },
     { name = "httpx", specifier = ">=0.24.1" },
     { name = "httpx-limiter", specifier = ">=0.3.0" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -262,6 +265,7 @@ requires-dist = [
     { name = "rapidfuzz", specifier = ">=3.13.0" },
     { name = "rich", specifier = ">=13.4.2" },
     { name = "ruff", specifier = ">=0.11.11" },
+    { name = "termcolor", specifier = ">=3.1.0" },
     { name = "textual", specifier = ">=1.0.0" },
     { name = "tree-sitter-language-pack", specifier = ">=0.8.0" },
     { name = "tree-sitter-typescript", specifier = ">=0.23.2" },
@@ -586,6 +590,19 @@ wheels = [
 ]
 
 [[package]]
+name = "halo"
+version = "0.0.31"
+source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
+dependencies = [
+    { name = "colorama" },
+    { name = "log-symbols" },
+    { name = "six" },
+    { name = "spinners" },
+    { name = "termcolor" },
+]
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ee/48/d53580d30b1fabf25d0d1fcc3f5b26d08d2ac75a1890ff6d262f9f027436/halo-0.0.31.tar.gz", hash = "sha256:7b67a3521ee91d53b7152d4ee3452811e1d2a6321975137762eb3d70063cc9d6" }
+
+[[package]]
 name = "hf-xet"
 version = "1.1.2"
 source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
@@ -799,6 +816,18 @@ dependencies = [
 sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/2a/ae/bb56c6828e4797ba5a4821eec7c43b8bf40f69cda4d4f5f8c8a2810ec96a/linkify-it-py-2.0.3.tar.gz", hash = "sha256:68cda27e162e9215c17d786649d1da0021a451bdc436ef9e0fa0ba5234b9b048" }
 wheels = [
     { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/04/1e/b832de447dee8b582cac175871d2f6c3d5077cc56d5575cadba1fd1cccfa/linkify_it_py-2.0.3-py3-none-any.whl", hash = "sha256:6bcbc417b0ac14323382aef5c5192c0075bf8a9d6b41820a2b66371eac6b6d79" },
+]
+
+[[package]]
+name = "log-symbols"
+version = "0.0.14"
+source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
+dependencies = [
+    { name = "colorama" },
+]
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/45/87/e86645d758a4401c8c81914b6a88470634d1785c9ad09823fa4a1bd89250/log_symbols-0.0.14.tar.gz", hash = "sha256:cf0bbc6fe1a8e53f0d174a716bc625c4f87043cc21eb55dd8a740cfe22680556" }
+wheels = [
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/28/5d/d710c38be68b0fb54e645048fe359c3904cc3cb64b2de9d40e1712bf110c/log_symbols-0.0.14-py3-none-any.whl", hash = "sha256:4952106ff8b605ab7d5081dd2c7e6ca7374584eff7086f499c06edd1ce56dcca" },
 ]
 
 [[package]]
@@ -1646,6 +1675,15 @@ wheels = [
 ]
 
 [[package]]
+name = "spinners"
+version = "0.0.24"
+source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/d3/91/bb331f0a43e04d950a710f402a0986a54147a35818df0e1658551c8d12e1/spinners-0.0.24.tar.gz", hash = "sha256:1eb6aeb4781d72ab42ed8a01dcf20f3002bf50740d7154d12fb8c9769bf9e27f" }
+wheels = [
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/9f/8e/3310207a68118000ca27ac878b8386123628b335ecb3d4bec4743357f0d1/spinners-0.0.24-py3-none-any.whl", hash = "sha256:2fa30d0b72c9650ad12bbe031c9943b8d441e41b4f5602b0ec977a19f3290e98" },
+]
+
+[[package]]
 name = "sse-starlette"
 version = "2.3.5"
 source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
@@ -1668,6 +1706,15 @@ dependencies = [
 sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ce/20/08dfcd9c983f6a6f4a1000d934b9e6d626cff8d2eeb77a89a68eef20a2b7/starlette-0.46.2.tar.gz", hash = "sha256:7f7361f34eed179294600af672f565727419830b54b7b084efe44bb82d2fccd5" }
 wheels = [
     { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/8b/0c/9d30a4ebeb6db2b25a841afbb80f6ef9a854fc3b41be131d249a977b4959/starlette-0.46.2-py3-none-any.whl", hash = "sha256:595633ce89f8ffa71a015caed34a5b2dc1c0cdb3f0f1fbd1e69339cf2abeec35" },
+]
+
+[[package]]
+name = "termcolor"
+version = "3.1.0"
+source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ca/6c/3d75c196ac07ac8749600b60b03f4f6094d54e132c4d94ebac6ee0e0add0/termcolor-3.1.0.tar.gz", hash = "sha256:6a6dd7fbee581909eeec6a756cff1d7f7c376063b14e4a298dc4980309e55970" }
+wheels = [
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/4f/bd/de8d508070629b6d84a30d01d57e4a65c69aa7f5abe7560b8fad3b50ea59/termcolor-3.1.0-py3-none-any.whl", hash = "sha256:591dd26b5c2ce03b9e43f391264626557873ce1d379019786f99b0c2bee140aa" },
 ]
 
 [[package]]
