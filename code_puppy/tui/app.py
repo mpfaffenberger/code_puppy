@@ -30,7 +30,6 @@ from .components import (
     InputArea,
     Sidebar,
     CustomTextArea,
-    FileBrowser,
 )
 from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
 
@@ -63,7 +62,7 @@ class CodePuppyTUI(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
         Binding("ctrl+1", "show_help", "Help"),
-        Binding("ctrl+2", "toggle_sidebar", "Sidebar"),
+        Binding("ctrl+2", "toggle_sidebar", "History"),
         Binding("ctrl+3", "open_settings", "Settings"),
         Binding("ctrl+4", "focus_input", "Focus Prompt"),
         Binding("ctrl+5", "focus_chat", "Focus Response"),
@@ -134,8 +133,6 @@ class CodePuppyTUI(App):
         # Show disclaimer modal when TUI starts (delayed to allow message renderer to start)
         self.set_timer(0.1, self.show_disclaimer)
 
-        # Set up file browser event handler
-        self.setup_file_browser_handlers()
 
     def add_system_message(self, content: str) -> None:
         """Add a system message to the chat."""
@@ -230,16 +227,6 @@ class CodePuppyTUI(App):
                                     history_list.highlighted_child.history_entry
                                 )
                                 self.show_history_details(history_entry)
-                            event.prevent_default()
-                            return
-                    elif active_tab == "models-tab":
-                        models_list = self.query_one("#models-list", ListView)
-                        if event.key == "enter":
-                            if models_list.highlighted_child and hasattr(
-                                models_list.highlighted_child, "model_name"
-                            ):
-                                model_name = models_list.highlighted_child.model_name
-                                self.handle_model_selection(model_name)
                             event.prevent_default()
                             return
             except Exception:
@@ -812,57 +799,7 @@ class CodePuppyTUI(App):
                 # Log renderer stop errors but don't crash
                 self.add_system_message(f"Renderer stop error: {e}")
 
-    def setup_file_browser_handlers(self) -> None:
-        """Set up file browser event handlers."""
-        pass  # FileBrowser events are handled via on_file_browser_file_selected
 
-    def on_file_browser_file_selected(self, event: FileBrowser.FileSelected) -> None:
-        """Handle file selection from the file browser."""
-        file_path = event.file_path
-        # Add a system message showing the selected file
-        self.add_system_message(f"📁 Selected file: {file_path}")
-
-        # You could extend this to:
-        # 1. Show file contents in chat
-        # 2. Add file to context for next query
-        # 3. Open file editing capabilities
-        # For now, we'll just show a helpful message
-
-        if file_path.endswith(
-            (".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".cpp", ".c", ".h")
-        ):
-            self.add_system_message(
-                f"💡 Tip: Ask me to explain or modify this {file_path.split('.')[-1]} file!"
-            )
-
-    def handle_model_selection(self, model_name: str) -> None:
-        """Handle model selection from the models tab."""
-        try:
-            from code_puppy.config import set_model_name
-            from code_puppy.agent import get_code_generation_agent
-
-            # Update the model configuration
-            set_model_name(model_name)
-
-            # Reinitialize the agent with the new model
-            self.agent = get_code_generation_agent()
-
-            # Update the current model reactive variable
-            self.current_model = model_name
-
-            # Update status bar
-            status_bar = self.query_one(StatusBar)
-            status_bar.current_model = model_name
-
-            # Reload the models list to show the new active model
-            sidebar = self.query_one(Sidebar)
-            sidebar.load_models_list()
-
-            # Show success message
-            self.add_system_message(f"🤖 Switched to model: {model_name}")
-
-        except Exception as e:
-            self.add_error_message(f"Failed to switch model: {str(e)}")
 
     async def on_unmount(self):
         """Clean up when the app is unmounted."""
