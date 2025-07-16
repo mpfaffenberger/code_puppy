@@ -114,8 +114,8 @@ class CodePuppyTUI(App):
         status_bar.puppy_name = self.puppy_name
         status_bar.agent_status = "Ready"
 
-        # Add welcome message
-        self.add_system_message("Welcome to Code Puppy 🐶!")
+        # Add welcome message with YOLO mode notification
+        self.add_system_message("Welcome to Code Puppy 🐶!\n💨 YOLO mode is enabled in TUI: commands will execute without confirmation.")
 
         # Start the message renderer EARLY to catch startup messages
         # Using call_after_refresh to start it as soon as possible after mount
@@ -816,5 +816,9 @@ class CodePuppyTUI(App):
 
 async def run_textual_ui():
     """Run the Textual UI interface."""
+    # Always enable YOLO mode in TUI mode for a smoother experience
+    from code_puppy.config import set_config_value
+    set_config_value("yolo_mode", "true")
+    
     app = CodePuppyTUI()
     await app.run_async()

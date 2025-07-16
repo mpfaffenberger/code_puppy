@@ -48,6 +48,12 @@ class SettingsScreen(ModalScreen):
         width: 1fr;
         margin: 0 0 0 1;
     }
+    
+    /* Additional styling for static input values */
+    #yolo-static {
+        padding: 1 0 0 0;  /* Align text vertically with other inputs */
+        color: $success;   /* Use success color to emphasize it's enabled */
+    }
 
     #settings-buttons {
         layout: horizontal;
@@ -82,12 +88,7 @@ class SettingsScreen(ModalScreen):
 
                 with Container(classes="setting-row"):
                     yield Static("YOLO Mode:", classes="setting-label")
-                    yield Select(
-                        [("Enabled", "true"), ("Disabled", "false")],
-                        value="false",
-                        id="yolo-select",
-                        classes="setting-input",
-                    )
+                    yield Static("✅ Enabled (always on in TUI)", id="yolo-static", classes="setting-input")
 
                 with Container(classes="setting-row"):
                     yield Static("History Limit:", classes="setting-label")
@@ -115,7 +116,6 @@ class SettingsScreen(ModalScreen):
         puppy_name_input = self.query_one("#puppy-name-input", Input)
         owner_name_input = self.query_one("#owner-name-input", Input)
         model_select = self.query_one("#model-select", Select)
-        yolo_select = self.query_one("#yolo-select", Select)
         history_limit_input = self.query_one("#history-limit-input", Input)
 
         puppy_name_input.value = get_puppy_name() or ""
@@ -128,10 +128,8 @@ class SettingsScreen(ModalScreen):
         # Set current model selection
         current_model = get_model_name()
         model_select.value = current_model
-
-        # Set YOLO mode selection
-        current_yolo = get_yolo_mode()
-        yolo_select.value = "true" if current_yolo else "false"
+        
+        # YOLO mode is always enabled in TUI mode
 
     def load_model_options(self, model_select):
         """Load available models into the model select widget."""
@@ -168,7 +166,7 @@ class SettingsScreen(ModalScreen):
             puppy_name = self.query_one("#puppy-name-input", Input).value.strip()
             owner_name = self.query_one("#owner-name-input", Input).value.strip()
             selected_model = self.query_one("#model-select", Select).value
-            yolo_mode = self.query_one("#yolo-select", Select).value
+            yolo_mode = "true"  # Always set to true in TUI mode
             history_limit = self.query_one("#history-limit-input", Input).value.strip()
 
             # Validate and save
