@@ -39,32 +39,6 @@ def set_awaiting_user_input(awaiting=True):
         resume_all_spinners()
 
 
-def get_confirmation(
-    prompt: str = "Are you sure you want to run this command?",
-) -> bool:
-    """
-    Get confirmation from user. Uses a simple approach to avoid issues with spinners.
-    """
-    import time
-
-    # Print the prompt with an obvious prefix
-    console.print("\n" + "=" * 60)
-    console.print("👉 " + prompt + " (yes/no): ", end="")
-
-    # Sleep briefly to ensure the prompt is displayed before any spinner starts
-    time.sleep(3)
-
-    # Get user input
-    try:
-        user_input = input()
-        result = user_input.strip().lower() in {"yes", "y"}
-        console.print("=" * 60)
-        return result
-    except (KeyboardInterrupt, EOFError):
-        console.print("\nCancelled by user")
-        console.print("=" * 60)
-        return False
-
 
 def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
@@ -73,18 +47,16 @@ def run_shell_command(
         console.print("[bold red]Error:[/bold red] Command cannot be empty")
         return {"error": "Command cannot be empty"}
     console.print(
-        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] \U0001f4c2 [bold green]$ {command}[/bold green]"
+        f"[bold white on blue] SHELL COMMAND [/bold white on blue] \U0001f4c2 [bold green]$ {command}[/bold green]"
     )
     if cwd:
         console.print(f"[dim]Working directory: {cwd}[/dim]")
     console.print("[dim]" + "-" * 60 + "[/dim]")
     from code_puppy.config import get_yolo_mode
+    import time
 
     yolo_mode = get_yolo_mode()
     if not yolo_mode:
-        # Create a very visible confirmation prompt
-        console.print(f"[bold yellow]Command:[/bold yellow] [green]{command}[/green]")
-
         import sys
 
         # Import here to minimize dependencies
@@ -113,14 +85,11 @@ def run_shell_command(
         set_awaiting_user_input(True)
 
         # Allow a moment for spinners to update their text
-        import time
-
         time.sleep(0.2)
 
         # Print directly to stdout to be more visible and use a custom prompt
         # that won't be overwritten by the Rich console or spinners
-        sys.stdout.write("\n👉 Are you sure you want to run this command?\n")
-        sys.stdout.write("Enter 'yes' or 'y' to confirm, anything else to cancel: ")
+        sys.stdout.write("👉 Are you sure you want to run this command? (y(es)/n(o))\n")
         sys.stdout.flush()
 
         # Get user input
