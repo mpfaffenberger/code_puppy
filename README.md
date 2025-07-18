@@ -73,6 +73,8 @@ export MODELS_JSON_PATH=/path/to/custom/models.json
     }
 }
 ```
+Note that the `OPENAI_API_KEY` env variable must be set when using `custom_openai` endpoints.
+
 Open an issue if your environment is somehow weirder than mine.
 
 Run specific tasks or engage in interactive mode:
