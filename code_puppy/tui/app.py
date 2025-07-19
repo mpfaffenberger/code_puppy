@@ -183,6 +183,17 @@ class CodePuppyTUI(App):
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
+    def add_agent_reasoning_message(self, content: str) -> None:
+        """Add an agent reasoning message to the chat."""
+        message = ChatMessage(
+            id=f"error_{datetime.now(timezone.utc).timestamp()}",
+            type=MessageType.AGENT_REASONING,
+            content=content,
+            timestamp=datetime.now(timezone.utc),
+        )
+        chat_view = self.query_one("#chat-view", ChatView)
+        chat_view.add_message(message)
+
     def on_custom_text_area_message_sent(
         self, event: CustomTextArea.MessageSent
     ) -> None:
@@ -390,18 +401,18 @@ class CodePuppyTUI(App):
         """Toggle sidebar visibility."""
         sidebar = self.query_one(Sidebar)
         sidebar.display = not sidebar.display
-        
+
         # If sidebar is now visible, focus the history list to enable immediate keyboard navigation
         if sidebar.display:
             try:
                 # Ensure history tab is active
                 tabs = self.query_one("#sidebar-tabs")
                 tabs.active = "history-tab"
-                
+
                 # Focus the history list
                 history_list = self.query_one("#history-list", ListView)
                 history_list.focus()
-                
+
                 # If the list has items, ensure the first item is highlighted
                 if len(history_list.children) > 0:
                     history_list.index = 0
@@ -855,6 +866,6 @@ async def run_textual_ui():
     # Always enable YOLO mode in TUI mode for a smoother experience
     from code_puppy.config import set_config_value
     set_config_value("yolo_mode", "true")
-    
+
     app = CodePuppyTUI()
     await app.run_async()

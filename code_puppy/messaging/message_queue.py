@@ -59,12 +59,14 @@ class MessageQueue:
 
     def __init__(self, maxsize: int = 1000):
         self._queue = queue.Queue(maxsize=maxsize)
-        self._async_queue = asyncio.Queue(maxsize=maxsize)
+        self._async_queue = None  # Will be created when needed
+        self._async_queue_maxsize = maxsize
         self._listeners = []
         self._running = False
         self._thread = None
         self._startup_buffer = []  # Buffer messages before any renderer starts
         self._has_active_renderer = False
+        self._event_loop = None  # Store reference to the event loop
 
     def start(self):
         """Start the queue processing."""
@@ -130,6 +132,10 @@ class MessageQueue:
 
     async def get_async(self) -> UIMessage:
         """Get a message asynchronously."""
+        # Lazy initialization of async queue and store event loop reference
+        if self._async_queue is None:
+            self._async_queue = asyncio.Queue(maxsize=self._async_queue_maxsize)
+            self._event_loop = asyncio.get_running_loop()
         return await self._async_queue.get()
 
     def _process_messages(self):
@@ -137,22 +143,18 @@ class MessageQueue:
         while self._running:
             try:
                 message = self._queue.get(timeout=0.1)
-                # Try to put in async queue if there's an event loop
-                try:
-                    loop = asyncio.get_running_loop()
-
+                
+                # Try to put in async queue if we have an event loop reference
+                if self._event_loop is not None and self._async_queue is not None:
                     # Use thread-safe call to put message in async queue
-                    def put_message():
-                        try:
-                            self._async_queue.put_nowait(message)
-                        except asyncio.QueueFull:
-                            # Drop message if async queue is full
-                            pass
-
-                    loop.call_soon_threadsafe(put_message)
-                except RuntimeError:
-                    # No running loop, skip async queue
-                    pass
+                    # Create a bound method to avoid closure issues
+                    try:
+                        self._event_loop.call_soon_threadsafe(
+                            self._async_queue.put_nowait, message
+                        )
+                    except Exception:
+                        # Handle any errors with the async queue operation
+                        pass
 
                 # Notify listeners immediately for sync processing
                 for listener in self._listeners:

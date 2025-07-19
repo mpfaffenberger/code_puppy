@@ -32,6 +32,8 @@ from code_puppy.tools.common import console
 from code_puppy.urls import get_setup_url
 from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 
+from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+
 # Use the existing console from tools.common to maintain consistency with tests
 
 # from code_puppy.tools import *  # noqa: F403
@@ -94,10 +96,10 @@ async def main():
         "--interactive",
         "-i",
         action="store_true",
-        help="Run in interactive mode (legacy CLI)",
+        help="Run in interactive mode",
     )
     parser.add_argument(
-        "--tui", "-t", action="store_true", help="Run in TUI mode (modern interface)"
+        "--tui", "-t", action="store_true", help="Run in TUI mode"
     )
     parser.add_argument("command", nargs="*", help="Run a single command")
     args = parser.parse_args()
@@ -298,18 +300,18 @@ async def main():
             try:
                 while not shutdown_flag:
                     # Show thinking message, then processing message, then spinner
-                    console.print("[bold cyan]🐶 Puppy is thinking...[/bold cyan]")
-                    
+                    # console.print(SpinnerBase.THINKING_MESSAGE)
+
                     # Check if any tool is waiting for user input before showing spinner
                     try:
                         from code_puppy.tools.command_runner import is_awaiting_user_input
                         awaiting_input = is_awaiting_user_input()
                     except ImportError:
                         awaiting_input = False
-                    
+
                     # Get the agent
                     agent = get_code_generation_agent()
-                    
+
                     # Run with or without spinner based on whether we're awaiting input
                     if awaiting_input:
                         # No spinner - just run the agent
@@ -506,13 +508,11 @@ async def interactive_mode(history_file_path: str) -> None:
             try:
                 prettier_code_blocks()
 
-                console.log(f"Asking: {task}...", style="cyan")
-
                 # Store agent's full response
                 agent_response = None
 
                 # Show thinking message, then processing message, then spinner
-                console.print("[bold cyan]🐶 Puppy is thinking...[/bold cyan]")
+                # console.print(SpinnerBase.THINKING_MESSAGE)
 
                 # Check if any tool is waiting for user input before showing spinner
                 # Import here to avoid circular imports
@@ -521,10 +521,10 @@ async def interactive_mode(history_file_path: str) -> None:
                     awaiting_input = is_awaiting_user_input()
                 except ImportError:
                     awaiting_input = False
-                
+
                 # Just get the agent and run it with spinner
                 agent = get_code_generation_agent()
-                
+
                 # Use our custom spinner for better compatibility with user input
                 from code_puppy.messaging.spinner import ConsoleSpinner
                 with ConsoleSpinner(console=display_console) as spinner:

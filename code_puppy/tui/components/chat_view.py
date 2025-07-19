@@ -60,6 +60,16 @@ class ChatView(VerticalScroll):
         padding: 1;
         text-wrap: wrap;
     }
+
+    .agent_reasoning-message {
+        background: #581c87;
+        color: #f3e8ff;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #a855f7;
+        text-wrap: wrap;
+        text-style: italic;
+    }
     """
 
     def __init__(self, **kwargs):
@@ -116,14 +126,13 @@ class ChatView(VerticalScroll):
 
         # Create the message widget
         css_class = f"{message.type.value}-message"
-        timestamp_str = message.timestamp.strftime("%H:%M:%S")
 
         if message.type == MessageType.USER:
-            content = f"[{timestamp_str}] You: {message.content}"
+            content = f"[bold]You:[/bold] {message.content}"
             # Use Static instead of Label to enable text wrapping
             message_widget = Static(content, classes=css_class)
         elif message.type == MessageType.AGENT:
-            prefix = f"[{timestamp_str}] Agent: "
+            prefix = "Agent: "
             # Use Static widget with Rich renderable for agent messages to support syntax highlighting
             try:
                 # Check if the message contains code blocks
@@ -135,17 +144,20 @@ class ChatView(VerticalScroll):
                     message_widget = Static(rendered_content, classes=css_class)
                 else:
                     # Regular text message
-                    content = f"[{timestamp_str}] Agent: {message.content}"
+                    content = f"[bold]Agent:[/bold] {message.content}"
                     message_widget = Static(content, classes=css_class)
             except Exception:
                 # Fallback to Static widget if parsing fails
-                content = f"[{timestamp_str}] Agent: {message.content}"
+                content = f"[bold]Agent:[/bold] {message.content}"
                 message_widget = Static(content, classes=css_class)
         elif message.type == MessageType.SYSTEM:
-            content = f"[{timestamp_str}] System: {message.content}"
+            content = f"[bold]System:[/bold] {message.content}"
+            message_widget = Static(content, classes=css_class)
+        elif message.type == MessageType.AGENT_REASONING:
+            content = f"[bold]AGENT REASONING:[/bold] {message.content}"
             message_widget = Static(content, classes=css_class)
         else:  # ERROR
-            content = f"[{timestamp_str}] Error: {message.content}"
+            content = f"[bold]Error:[/bold] {message.content}"
             message_widget = Static(content, classes=css_class)
 
         self.mount(message_widget)

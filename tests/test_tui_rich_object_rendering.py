@@ -18,6 +18,7 @@ class MockTUIApp:
     def __init__(self):
         self.system_messages = []
         self.agent_messages = []
+        self.agent_reasoning_messages = []
         self.error_messages = []
 
     def add_system_message(self, content):
@@ -25,6 +26,9 @@ class MockTUIApp:
 
     def add_agent_message(self, content):
         self.agent_messages.append(content)
+
+    def add_agent_reasoning_message(self, content):
+        self.agent_reasoning_messages.append(content)
 
     def add_error_message(self, content):
         self.error_messages.append(content)
@@ -81,8 +85,8 @@ def test_tui_renderer_rich_syntax():
     asyncio.run(renderer.render_message(message))
 
     # Check that the message was rendered properly
-    assert len(mock_app.agent_messages) == 1
-    rendered_content = mock_app.agent_messages[0]
+    assert len(mock_app.agent_reasoning_messages) == 1
+    rendered_content = mock_app.agent_reasoning_messages[0]
 
     # Should not contain object reference
     assert "object at 0x" not in rendered_content
@@ -198,8 +202,8 @@ print("This is code")
     asyncio.run(renderer.render_message(message))
 
     # Check that it was rendered as text, not object reference
-    assert len(mock_app.agent_messages) == 1
-    rendered_content = mock_app.agent_messages[0]
+    assert len(mock_app.agent_reasoning_messages) == 1
+    rendered_content = mock_app.agent_reasoning_messages[0]
 
     # Should not contain object reference
     assert "object at 0x" not in rendered_content

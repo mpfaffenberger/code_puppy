@@ -46,12 +46,15 @@ def run_shell_command(
     if not command or not command.strip():
         console.print("[bold red]Error:[/bold red] Command cannot be empty")
         return {"error": "Command cannot be empty"}
+    console.print("[dim]" + "-" * 60 + "[/dim]")
     console.print(
-        f"[bold white on blue] SHELL COMMAND [/bold white on blue] \U0001f4c2 [bold green]$ {command}[/bold green]"
+        "[cyan]SHELL COMMAND [/cyan]"
+    )
+    console.print(
+        f"[bold green]$ {command}[/bold green]"
     )
     if cwd:
         console.print(f"[dim]Working directory: {cwd}[/dim]")
-    console.print("[dim]" + "-" * 60 + "[/dim]")
     from code_puppy.config import get_yolo_mode
     import time
 
@@ -99,9 +102,6 @@ def run_shell_command(
             # Only clear the flag after we've got the input
             confirmed = user_input.strip().lower() in {"yes", "y"}
 
-            # Show the user's input in the console so it's visible
-            if user_input:
-                console.print(f"[dim]User entered: {user_input}[/dim]")
         except (KeyboardInterrupt, EOFError):
             console.print("\nCancelled by user")
             confirmed = False
@@ -137,7 +137,7 @@ def run_shell_command(
             exit_code = process.returncode
             execution_time = time.time() - start_time
             if stdout.strip():
-                console.print("[bold white]STDOUT:[/bold white]")
+                console.print("\n[dim]STDOUT:[/dim]\n")
                 console.print(
                     Syntax(
                         stdout.strip(),
@@ -146,10 +146,9 @@ def run_shell_command(
                         background_color="default",
                     )
                 )
-            else:
-                console.print("[yellow]No STDOUT output[/yellow]")
+
             if stderr.strip():
-                console.print("[bold yellow]STDERR:[/bold yellow]")
+                console.print("\n[dim]STDERR:[/dim]\n")
                 console.print(
                     Syntax(
                         stderr.strip(),
@@ -160,17 +159,12 @@ def run_shell_command(
                 )
             if exit_code == 0:
                 console.print(
-                    f"[bold green]✓ Command completed successfully[/bold green] [dim](took {execution_time:.2f}s)[/dim]"
+                    f"\n[bold green]✓ Command completed successfully[/bold green] [dim](took {execution_time:.2f}s)[/dim]"
                 )
             else:
                 console.print(
                     f"[bold red]✗ Command failed with exit code {exit_code}[/bold red] [dim](took {execution_time:.2f}s)[/dim]"
                 )
-            if not stdout.strip() and not stderr.strip():
-                console.print(
-                    "[bold yellow]This command produced no output at all![/bold yellow]"
-                )
-            console.print("[dim]" + "-" * 60 + "[/dim]\n")
             return {
                 "success": exit_code == 0,
                 "command": command,
@@ -242,13 +236,15 @@ def run_shell_command(
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str = None
 ) -> Dict[str, Any]:
-    console.print("\n[bold white on purple] AGENT REASONING [/bold white on purple]")
-    console.print("[bold cyan]Current reasoning:[/bold cyan]")
-    console.print(Markdown(reasoning))
+    from code_puppy.messaging import emit_agent_reasoning, emit_message
+
+    emit_agent_reasoning("[dim]" + "-" * 60 + "[/dim]\n")
+    emit_agent_reasoning("\n[cyan]CURRENT REASONING:[/cyan]")
+    emit_agent_reasoning(Markdown(reasoning))
+
     if next_steps and next_steps.strip():
-        console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
-        console.print(Markdown(next_steps))
-    console.print("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_agent_reasoning("\n[cyan]PLANNED NEXT STEPS:[/cyan]")
+        emit_agent_reasoning(Markdown(next_steps))
     return {"success": True, "reasoning": reasoning, "next_steps": next_steps}
 
 

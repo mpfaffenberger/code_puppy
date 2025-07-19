@@ -85,7 +85,7 @@ class InteractiveRenderer(MessageRenderer):
         elif message.type == MessageType.TOOL_OUTPUT:
             style = "blue"
         elif message.type == MessageType.AGENT_REASONING:
-            style = "purple"
+            style = None
         elif message.type == MessageType.SYSTEM:
             style = "dim"
         else:
@@ -138,10 +138,12 @@ class TUIRenderer(MessageRenderer):
             MessageType.SUCCESS,
         ):
             self.tui_app.add_system_message(content_str)
+        elif message.type == MessageType.AGENT_REASONING:
+            # Agent reasoning messages should use the dedicated method
+            self.tui_app.add_agent_reasoning_message(content_str)
         elif message.type in (
             MessageType.TOOL_OUTPUT,
             MessageType.COMMAND_OUTPUT,
-            MessageType.AGENT_REASONING,
         ):
             # These are typically agent/tool outputs
             self.tui_app.add_agent_message(content_str)
