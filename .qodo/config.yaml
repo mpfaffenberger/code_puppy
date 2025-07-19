@@ -1,0 +1,138 @@
+# Qodo Configuration for Code Puppy
+# AI-powered code generation agent
+
+project:
+  name: "code-puppy"
+  description: "AI-powered code generation agent for Walmart Global Tech"
+  version: "0.0.96"
+  language: "python"
+  framework: "pydantic-ai"
+
+# Code quality and testing configuration
+quality:
+  # Python-specific linting and formatting
+  linting:
+    enabled: true
+    tools:
+      - ruff
+    config_files:
+      - pyproject.toml
+  
+  formatting:
+    enabled: true
+    tools:
+      - ruff
+    config_files:
+      - pyproject.toml
+  
+  testing:
+    enabled: true
+    framework: pytest
+    coverage:
+      enabled: true
+      minimum: 95
+      config: pyproject.toml
+    test_directories:
+      - tests/
+    test_patterns:
+      - "test_*.py"
+      - "*_test.py"
+
+# AI/ML specific configurations
+ai_ml:
+  models:
+    supported:
+      - openai
+      - gemini
+      - anthropic
+      - ollama
+      - azure_openai
+    config_file: "code_puppy/models.json"
+  
+  dependencies:
+    - pydantic-ai
+    - httpx
+    - logfire
+
+# Development environment
+development:
+  python_version: ">=3.10"
+  virtual_env: ".venv"
+  package_manager: "uv"
+  
+  # Key directories
+  source_directory: "code_puppy"
+  test_directory: "tests"
+  docs_directory: "docs"
+  
+  # Important files
+  entry_point: "code_puppy.main:main_entry"
+  requirements_file: "pyproject.toml"
+
+# Enterprise/Walmart specific configurations
+enterprise:
+  internal_fork: true
+  original_repo: "https://github.com/mpfaffenberger/code_puppy"
+  licensing: "dual"
+  compliance:
+    - walmart_coding_standards
+    - enterprise_security
+  
+  # Internal registry configuration
+  package_registry: "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
+
+# Build and deployment
+build:
+  system: "hatchling"
+  packages:
+    - "code_puppy"
+  
+  scripts:
+    - name: "code-puppy"
+      entry: "code_puppy.main:main_entry"
+
+# Documentation
+documentation:
+  readme: "README.md"
+  contributing: "CONTRIBUTING.md"
+  license: "LICENSE"
+  
+  additional_docs:
+    - "DEV_CONSOLE.md"
+    - "ENVIRONMENT_VARIABLES.md"
+    - "UI_architecture_design.md"
+
+# Ignore patterns for Qodo analysis
+ignore:
+  directories:
+    - ".git"
+    - ".venv"
+    - "__pycache__"
+    - ".pytest_cache"
+    - ".ruff_cache"
+    - "node_modules"
+  
+  files:
+    - "*.pyc"
+    - "*.pyo"
+    - "*.pyd"
+    - ".DS_Store"
+    - "*.log"
+    - ".coverage"
+    - "*.egg-info"
+
+# Custom rules and standards
+rules:
+  coding_standards:
+    - "Follow PEP 8 Python style guide"
+    - "Use type hints for all function parameters and return values"
+    - "Maintain test coverage above 95%"
+    - "Use async/await for I/O operations"
+    - "Follow Walmart enterprise security guidelines"
+  
+  ai_specific:
+    - "Implement proper error handling for AI model failures"
+    - "Use rate limiting for API calls"
+    - "Implement proper logging with logfire"
+    - "Handle model switching gracefully"
+    - "Validate AI responses before processing"
