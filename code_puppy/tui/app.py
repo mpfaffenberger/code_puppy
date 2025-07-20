@@ -368,9 +368,6 @@ class CodePuppyTUI(App):
                         else:
                             # Handle regular exceptions
                             self.add_error_message(f"MCP/Agent error: {str(eg)}")
-                    except Exception as mcp_error:
-                        # Handle individual MCP server exceptions
-                        self.add_error_message(f"MCP server error: {str(mcp_error)}")
                 except Exception as agent_error:
                     # Handle any other errors in agent processing
                     self.add_error_message(
