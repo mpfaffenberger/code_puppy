@@ -19,6 +19,8 @@ class TextualSpinner(Static):
         self._frame_index = 0
         self._is_spinning = False
         self._timer = None
+        self._paused = False
+        self._previous_state = ""
 
         # Register this spinner for global management
         from . import register_spinner
@@ -74,8 +76,11 @@ class TextualSpinner(Static):
 
     def pause(self):
         """Pause the spinner animation temporarily."""
-        if self._is_spinning and self._timer:
+        if self._is_spinning and self._timer and not self._paused:
+            self._paused = True
             self._timer.pause()
+            # Store current state but don't clear it completely
+            self._previous_state = self.text
             self.update("")
 
     def resume(self):
@@ -86,6 +91,7 @@ class TextualSpinner(Static):
         if is_awaiting_user_input():
             return  # Don't resume if waiting for user input
 
-        if self._is_spinning and self._timer:
+        if self._is_spinning and self._timer and self._paused:
+            self._paused = False
             self._timer.resume()
             self.update_frame_display()
