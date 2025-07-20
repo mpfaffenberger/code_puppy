@@ -109,8 +109,10 @@ async def main():
     args = parser.parse_args()
 
     # Determine if we're in TUI mode early and set it globally
-    tui_mode = args.tui
-    set_tui_mode(tui_mode)
+    if args.tui:
+        set_tui_mode(True)
+    elif args.interactive:
+        set_tui_mode(False)
 
     # Import message queue functions early for TUI mode
     from code_puppy.messaging import emit_system_message
@@ -125,7 +127,7 @@ async def main():
     available_port = find_available_port()
     if available_port is None:
         error_msg = "Error: No available ports in range 8090-9010!"
-        if not tui_mode:
+        if not is_tui_mode():
             console.print(f"[bold red]{error_msg}[/bold red]")
         else:
             emit_system_message(error_msg)
@@ -147,7 +149,7 @@ async def main():
             await server.serve()
         except Exception as e:
             # Log HTTP server errors but don't crash the main application
-            if not tui_mode:
+            if not is_tui_mode():
                 console.print(f"[dim red]HTTP server error: {e}[/dim red]")
             else:
                 emit_system_message(f"HTTP server error: {e}")
@@ -174,7 +176,7 @@ async def main():
             "Auto-update disabled via NO_VERSION_UPDATE environment variable"
         )
 
-        if not tui_mode:
+        if not is_tui_mode():
             console.print(version_msg)
             console.print(f"[dim]{update_disabled_msg}[/dim]")
         else:
@@ -185,7 +187,7 @@ async def main():
         version_msg = f"Current version: {current_version}"
         latest_msg = f"Latest version: {latest_version}"
 
-        if not tui_mode:
+        if not is_tui_mode():
             console.print(version_msg)
             console.print(latest_msg)
         else:
@@ -198,7 +200,7 @@ async def main():
             )
             updating_msg = "Auto-updating now..."
 
-            if not tui_mode:
+            if not is_tui_mode():
                 console.print(f"[bold yellow]{update_available_msg}[/bold yellow]")
                 console.print("[bold green]Auto-updating now...[/bold green]")
             else:
@@ -208,7 +210,7 @@ async def main():
             try:
                 # Run the update command
                 setup_url = get_setup_url()
-                if not tui_mode:
+                if not is_tui_mode():
                     console.print(f"[dim]{setup_url}[/dim]")
                 else:
                     emit_system_message(setup_url)
@@ -233,7 +235,7 @@ async def main():
                     if bash_result.returncode == 0:
                         success_msg = "✅ Update completed successfully!"
                         restart_msg = "Restarting code-puppy..."
-                        if not tui_mode:
+                        if not is_tui_mode():
                             console.print(f"[bold green]{success_msg}[/bold green]")
                             console.print(f"[yellow]{restart_msg}[/yellow]")
                         else:
@@ -245,7 +247,7 @@ async def main():
                             f"❌ Update failed with exit code: {bash_result.returncode}"
                         )
                         continue_msg = "Continuing with current version..."
-                        if not tui_mode:
+                        if not is_tui_mode():
                             console.print(f"[bold red]{error_msg}[/bold red]")
                             console.print(f"[yellow]{continue_msg}[/yellow]")
                         else:
@@ -254,7 +256,7 @@ async def main():
                 else:
                     error_msg = f"❌ Failed to download update script: {result.stderr}"
                     continue_msg = "Continuing with current version..."
-                    if not tui_mode:
+                    if not is_tui_mode():
                         console.print(f"[bold red]{error_msg}[/bold red]")
                         console.print(f"[yellow]{continue_msg}[/yellow]")
                     else:
@@ -264,7 +266,7 @@ async def main():
             except subprocess.TimeoutExpired:
                 timeout_msg = "❌ Update timed out"
                 continue_msg = "Continuing with current version..."
-                if not tui_mode:
+                if not is_tui_mode():
                     console.print(f"[bold red]{timeout_msg}[/bold red]")
                     console.print(f"[yellow]{continue_msg}[/yellow]")
                 else:
@@ -273,7 +275,7 @@ async def main():
             except Exception as e:
                 error_msg = f"❌ Update failed: {str(e)}"
                 continue_msg = "Continuing with current version..."
-                if not tui_mode:
+                if not is_tui_mode():
                     console.print(f"[bold red]{error_msg}[/bold red]")
                     console.print(f"[yellow]{continue_msg}[/yellow]")
                 else:
@@ -281,7 +283,7 @@ async def main():
                     emit_system_message(continue_msg)
 
     # Display the disclaimer message (only if not TUI mode)
-    if not tui_mode:
+    if not is_tui_mode():
         display_disclaimer()
 
     global shutdown_flag
@@ -291,7 +293,7 @@ async def main():
     load_dotenv()
 
     # Import the modified authenticate_puppy that accepts tui_mode
-    await authenticate_puppy(available_port, tui_mode=tui_mode)
+    await authenticate_puppy(available_port, tui_mode=is_tui_mode())
 
     token = get_puppy_token()
     os.environ["puppy_token"] = token
@@ -356,7 +358,7 @@ async def main():
                 )
             except Exception as e:
                 console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
-        elif tui_mode:
+        elif is_tui_mode():
             # Import here to avoid dependency issues if textual is not available
             try:
                 from code_puppy.tui import run_textual_ui
@@ -386,7 +388,7 @@ async def main():
                 pass  # Expected when cancelling
             except Exception as e:
                 # Log cleanup errors but don't crash
-                if not tui_mode:
+                if not is_tui_mode():
                     console.print(f"[dim red]HTTP server cleanup error: {e}[/dim red]")
                 else:
                     emit_system_message(f"HTTP server cleanup error: {e}")

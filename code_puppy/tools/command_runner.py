@@ -237,16 +237,17 @@ def run_shell_command(
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str = None
 ) -> Dict[str, Any]:
-    from code_puppy.messaging import emit_agent_reasoning
+    from code_puppy.messaging import emit_agent_reasoning, emit_planned_next_steps
 
-    if not is_tui_mode:
+    if not is_tui_mode():
         emit_agent_reasoning("[dim]" + "-" * 60 + "[/dim]\n")
-    emit_agent_reasoning("\n[cyan]CURRENT REASONING:[/cyan]")
+        emit_agent_reasoning("\n[cyan]CURRENT REASONING:[/cyan]")
     emit_agent_reasoning(Markdown(reasoning))
 
     if next_steps and next_steps.strip():
-        emit_agent_reasoning("\n[cyan]PLANNED NEXT STEPS:[/cyan]")
-        emit_agent_reasoning(Markdown(next_steps))
+        if not is_tui_mode():
+          emit_planned_next_steps("\n[cyan]PLANNED NEXT STEPS:[/cyan]")
+        emit_planned_next_steps(Markdown(next_steps))
     return {"success": True, "reasoning": reasoning, "next_steps": next_steps}
 
 

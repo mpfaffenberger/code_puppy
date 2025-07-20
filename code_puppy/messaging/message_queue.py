@@ -31,6 +31,7 @@ class MessageType(Enum):
 
     # Agent-specific types
     AGENT_REASONING = "agent_reasoning"
+    PLANNED_NEXT_STEPS = "planned_next_steps"
     AGENT_STATUS = "agent_status"
 
     # System types
@@ -143,7 +144,7 @@ class MessageQueue:
         while self._running:
             try:
                 message = self._queue.get(timeout=0.1)
-                
+
                 # Try to put in async queue if we have an event loop reference
                 if self._event_loop is not None and self._async_queue is not None:
                     # Use thread-safe call to put message in async queue
@@ -257,6 +258,10 @@ def emit_command_output(content: Any, command: str = None, **metadata):
 def emit_agent_reasoning(content: Any, **metadata):
     """Emit agent reasoning."""
     emit_message(MessageType.AGENT_REASONING, content, **metadata)
+
+def emit_planned_next_steps(content: Any, **metadata):
+    """Emit planned_next_steps"""
+    emit_message(MessageType.PLANNED_NEXT_STEPS, content, **metadata)
 
 
 def emit_system_message(content: Any, **metadata):

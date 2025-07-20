@@ -186,8 +186,19 @@ class CodePuppyTUI(App):
     def add_agent_reasoning_message(self, content: str) -> None:
         """Add an agent reasoning message to the chat."""
         message = ChatMessage(
-            id=f"error_{datetime.now(timezone.utc).timestamp()}",
+            id=f"agent_reasoning_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.AGENT_REASONING,
+            content=content,
+            timestamp=datetime.now(timezone.utc),
+        )
+        chat_view = self.query_one("#chat-view", ChatView)
+        chat_view.add_message(message)
+
+    def add_planned_next_steps_message(self, content: str) -> None:
+        """Add an planned next steps to the chat."""
+        message = ChatMessage(
+            id=f"planned_next_steps_{datetime.now(timezone.utc).timestamp()}",
+            type=MessageType.PLANNED_NEXT_STEPS,
             content=content,
             timestamp=datetime.now(timezone.utc),
         )

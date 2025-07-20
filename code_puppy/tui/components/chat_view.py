@@ -156,6 +156,9 @@ class ChatView(VerticalScroll):
         elif message.type == MessageType.AGENT_REASONING:
             content = f"[bold]AGENT REASONING:[/bold] {message.content}"
             message_widget = Static(content, classes=css_class)
+        elif message.type == MessageType.PLANNED_NEXT_STEPS:
+            content = f"[bold]PLANNED_NEXT_STEPS:[/bold] {message.content}"
+            message_widget = Static(content, classes=css_class)
         else:  # ERROR
             content = f"[bold]Error:[/bold] {message.content}"
             message_widget = Static(content, classes=css_class)

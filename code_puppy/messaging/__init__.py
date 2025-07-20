@@ -11,6 +11,7 @@ from .message_queue import (
     emit_tool_output,
     emit_command_output,
     emit_agent_reasoning,
+    emit_planned_next_steps,
     emit_system_message,
     get_buffered_startup_messages,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "emit_tool_output",
     "emit_command_output",
     "emit_agent_reasoning",
+    "emit_planned_next_steps",
     "emit_system_message",
     "get_buffered_startup_messages",
     "InteractiveRenderer",
