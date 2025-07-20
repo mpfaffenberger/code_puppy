@@ -24,17 +24,25 @@ from code_puppy.tools.common import _find_best_window, console
 
 def _print_diff(diff_text: str) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
+    from rich.text import Text
+
     console.print(
         "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]"
     )
     if diff_text and diff_text.strip():
         for line in diff_text.splitlines():
             if line.startswith("+") and not line.startswith("+++"):
-                console.print(f"[bold green]{line}[/bold green]", highlight=False)
+                # Use Text object to safely display diff lines that might contain markup
+                text = Text(line, style="bold green")
+                console.print(text, highlight=False)
             elif line.startswith("-") and not line.startswith("---"):
-                console.print(f"[bold red]{line}[/bold red]", highlight=False)
+                # Use Text object to safely display diff lines that might contain markup
+                text = Text(line, style="bold red")
+                console.print(text, highlight=False)
             elif line.startswith("@"):
-                console.print(f"[bold cyan]{line}[/bold cyan]", highlight=False)
+                # Use Text object to safely display diff lines that might contain markup
+                text = Text(line, style="bold cyan")
+                console.print(text, highlight=False)
             else:
                 console.print(line, highlight=False)
     else:

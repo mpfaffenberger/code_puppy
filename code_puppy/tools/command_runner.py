@@ -5,6 +5,7 @@ from typing import Any, Dict
 from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.syntax import Syntax
+from rich.text import Text
 
 from code_puppy.globals import is_tui_mode
 from code_puppy.tools.common import console
@@ -46,16 +47,17 @@ def run_shell_command(
     if not command or not command.strip():
         console.print("[bold red]Error:[/bold red] Command cannot be empty")
         return {"error": "Command cannot be empty"}
-    if not is_tui_mode():
-        console.print("[dim]" + "-" * 60 + "[/dim]")
-        console.print("[cyan]SHELL COMMAND [/cyan]")
-    console.print(f"[bold green]$ {command}[/bold green]")
-    if cwd:
-        console.print(f"[dim]Working directory: {cwd}[/dim]")
+
     from code_puppy.config import get_yolo_mode
 
     yolo_mode = get_yolo_mode()
     if not yolo_mode:
+        # Show command info before asking for confirmation
+        if not is_tui_mode():
+            console.print("[dim]" + "-" * 60 + "[/dim]")
+            console.print(f"[bold green]$ {command}[/bold green]")
+        if cwd:
+            console.print(f"[dim]Working directory: {cwd}[/dim]")
         import sys
 
         # Import here to minimize dependencies
@@ -118,6 +120,14 @@ def run_shell_command(
             }
 
         # Spinner will be automatically resumed when set_awaiting_user_input(False) was called
+    else:
+        # In yolo mode, show command info before executing
+        if not is_tui_mode():
+            console.print("[dim]" + "-" * 60 + "[/dim]")
+            console.print(f"[bold green]$ {command}[/bold green]")
+        if cwd:
+            console.print(f"[dim]Working directory: {cwd}[/dim]")
+
     try:
         start_time = time.time()
         process = subprocess.Popen(
@@ -133,9 +143,7 @@ def run_shell_command(
             exit_code = process.returncode
             execution_time = time.time() - start_time
             if stdout.strip():
-                if not is_tui_mode():
-                    console.print("\n[dim]STDOUT:[/dim]\n")
-
+                console.print(f"[bold green]$ {command}[/bold green]")
                 console.print(
                     Syntax(
                         stdout.strip(),
@@ -146,9 +154,7 @@ def run_shell_command(
                 )
 
             if stderr.strip():
-                if not is_tui_mode():
-                    console.print("\n[dim]STDERR:[/dim]\n")
-
+                console.print(f"[bold green]$ {command}[/bold green]")
                 console.print(
                     Syntax(
                         stderr.strip(),
@@ -157,15 +163,13 @@ def run_shell_command(
                         background_color="default",
                     )
                 )
-            if exit_code == 0:
-                if not is_tui_mode():
-                    console.print(
-                        f"\n[bold green]✓ Command completed successfully[/bold green] [dim](took {execution_time:.2f}s)[/dim]"
-                    )
-            else:
-                console.print(
-                    f"[bold red]✗ Command failed with exit code {exit_code}[/bold red] [dim](took {execution_time:.2f}s)[/dim]"
-                )
+            if exit_code != 0:
+                # Use Text object to safely combine markup and variable content
+                error_msg = Text()
+                error_msg.append("✗ Command failed with exit code ", style="bold red")
+                error_msg.append(str(exit_code))
+                error_msg.append(f" (took {execution_time:.2f}s)", style="dim")
+                console.print(error_msg)
             return {
                 "success": exit_code == 0,
                 "command": command,
@@ -180,6 +184,7 @@ def run_shell_command(
             stdout, stderr = process.communicate()
             execution_time = time.time() - start_time
             if stdout.strip():
+                console.print(f"[bold green]$ {command}[/bold green]")
                 console.print(
                     "[bold white]STDOUT (incomplete due to timeout):[/bold white]"
                 )
@@ -192,7 +197,7 @@ def run_shell_command(
                     )
                 )
             if stderr.strip():
-                console.print("[bold yellow]STDERR:[/bold yellow]")
+                console.print(f"[bold green]$ {command}[/bold green]")
                 console.print(
                     Syntax(
                         stderr.strip(),
@@ -201,9 +206,12 @@ def run_shell_command(
                         background_color="default",
                     )
                 )
-            console.print(
-                f"[bold red]⏱ Command timed out after {timeout} seconds[/bold red] [dim](ran for {execution_time:.2f}s)[/dim]"
-            )
+            # Use Text object to safely combine markup and variable content
+            timeout_msg = Text()
+            timeout_msg.append("⏱ Command timed out after ", style="bold red")
+            timeout_msg.append(f"{timeout} seconds", style="bold red")
+            timeout_msg.append(f" (ran for {execution_time:.2f}s)", style="dim")
+            console.print(timeout_msg)
             console.print("[dim]" + "-" * 60 + "[/dim]\n")
             return {
                 "success": False,

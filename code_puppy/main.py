@@ -522,15 +522,6 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Show thinking message, then processing message, then spinner
                 # console.print(SpinnerBase.THINKING_MESSAGE)
 
-                # Check if any tool is waiting for user input before showing spinner
-                # Import here to avoid circular imports
-                try:
-                    from code_puppy.tools.command_runner import is_awaiting_user_input
-
-                    awaiting_input = is_awaiting_user_input()
-                except ImportError:
-                    awaiting_input = False
-
                 # Just get the agent and run it with spinner
                 agent = get_code_generation_agent()
 
