@@ -10,13 +10,10 @@ from textual.widgets import (
 )
 from textual.app import ComposeResult
 from textual import on
-from textual.widgets import ListView
 from textual.events import Key
 
 # Import the shared message class
 from ..messages import HistoryEntrySelected
-
-
 
 
 class Sidebar(Container):
@@ -86,29 +83,32 @@ class Sidebar(Container):
         """Initialize the sidebar when mounted."""
         # Set up event handlers for keyboard interaction
         history_list = self.query_one("#history-list", ListView)
-        
+
         # Add a class to make it focusable
         history_list.can_focus = True
-        
+
     @on(ListView.Highlighted)
     def on_list_highlighted(self, event: ListView.Highlighted) -> None:
         """Handle highlighting of list items to ensure they can be selected."""
         # This ensures the item gets focus when highlighted by arrow keys
         if event.list_view.id == "history-list":
             event.list_view.focus()
-            
+
     @on(Key)
     def on_key(self, event: Key) -> None:
         """Handle key events for the sidebar."""
         # Handle Enter key on the history list
         if event.key == "enter":
             history_list = self.query_one("#history-list", ListView)
-            if history_list.has_focus and history_list.highlighted_child and hasattr(history_list.highlighted_child, "history_entry"):
+            if (
+                history_list.has_focus
+                and history_list.highlighted_child
+                and hasattr(history_list.highlighted_child, "history_entry")
+            ):
                 # Post a message to the app with the selected history entry
                 history_entry = history_list.highlighted_child.history_entry
                 self.post_message(HistoryEntrySelected(history_entry))
-                
+
                 # Stop propagation
                 event.stop()
                 event.prevent_default()
-

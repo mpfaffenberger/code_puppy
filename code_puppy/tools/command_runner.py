@@ -40,24 +40,19 @@ def set_awaiting_user_input(awaiting=True):
         resume_all_spinners()
 
 
-
 def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> Dict[str, Any]:
     if not command or not command.strip():
         console.print("[bold red]Error:[/bold red] Command cannot be empty")
         return {"error": "Command cannot be empty"}
-    console.print("[dim]" + "-" * 60 + "[/dim]")
-    console.print(
-        "[cyan]SHELL COMMAND [/cyan]"
-    )
-    console.print(
-        f"[bold green]$ {command}[/bold green]"
-    )
+    if not is_tui_mode():
+        console.print("[dim]" + "-" * 60 + "[/dim]")
+        console.print("[cyan]SHELL COMMAND [/cyan]")
+    console.print(f"[bold green]$ {command}[/bold green]")
     if cwd:
         console.print(f"[dim]Working directory: {cwd}[/dim]")
     from code_puppy.config import get_yolo_mode
-    import time
 
     yolo_mode = get_yolo_mode()
     if not yolo_mode:
@@ -138,7 +133,9 @@ def run_shell_command(
             exit_code = process.returncode
             execution_time = time.time() - start_time
             if stdout.strip():
-                console.print("\n[dim]STDOUT:[/dim]\n")
+                if not is_tui_mode():
+                    console.print("\n[dim]STDOUT:[/dim]\n")
+
                 console.print(
                     Syntax(
                         stdout.strip(),
@@ -149,7 +146,9 @@ def run_shell_command(
                 )
 
             if stderr.strip():
-                console.print("\n[dim]STDERR:[/dim]\n")
+                if not is_tui_mode():
+                    console.print("\n[dim]STDERR:[/dim]\n")
+
                 console.print(
                     Syntax(
                         stderr.strip(),
@@ -159,9 +158,10 @@ def run_shell_command(
                     )
                 )
             if exit_code == 0:
-                console.print(
-                    f"\n[bold green]✓ Command completed successfully[/bold green] [dim](took {execution_time:.2f}s)[/dim]"
-                )
+                if not is_tui_mode():
+                    console.print(
+                        f"\n[bold green]✓ Command completed successfully[/bold green] [dim](took {execution_time:.2f}s)[/dim]"
+                    )
             else:
                 console.print(
                     f"[bold red]✗ Command failed with exit code {exit_code}[/bold red] [dim](took {execution_time:.2f}s)[/dim]"
@@ -246,7 +246,7 @@ def share_your_reasoning(
 
     if next_steps and next_steps.strip():
         if not is_tui_mode():
-          emit_planned_next_steps("\n[bold purple]PLANNED NEXT STEPS:[/bold purple]")
+            emit_planned_next_steps("\n[bold purple]PLANNED NEXT STEPS:[/bold purple]")
         emit_planned_next_steps(Markdown(next_steps))
     return {"success": True, "reasoning": reasoning, "next_steps": next_steps}
 

@@ -12,7 +12,6 @@ from textual.binding import Binding
 from textual.reactive import reactive
 from textual.events import Resize
 from textual import on
-from textual.message import Message
 
 from code_puppy.agent import (
     get_code_generation_agent,
@@ -38,6 +37,7 @@ from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
 
 # Import shared message classes
 from .messages import HistoryEntrySelected
+
 
 class CodePuppyTUI(App):
     """Main Code Puppy TUI application."""
@@ -120,7 +120,9 @@ class CodePuppyTUI(App):
         status_bar.agent_status = "Ready"
 
         # Add welcome message with YOLO mode notification
-        self.add_system_message("Welcome to Code Puppy 🐶!\n💨 YOLO mode is enabled in TUI: commands will execute without confirmation.")
+        self.add_system_message(
+            "Welcome to Code Puppy 🐶!\n💨 YOLO mode is enabled in TUI: commands will execute without confirmation."
+        )
 
         # Start the message renderer EARLY to catch startup messages
         # Using call_after_refresh to start it as soon as possible after mount
@@ -137,7 +139,6 @@ class CodePuppyTUI(App):
 
         # Show disclaimer modal when TUI starts (delayed to allow message renderer to start)
         self.set_timer(0.1, self.show_disclaimer)
-
 
     def add_system_message(self, content: str) -> None:
         """Add a system message to the chat."""
@@ -349,7 +350,7 @@ class CodePuppyTUI(App):
                                 usage_limits=get_custom_usage_limits(),
                             )
 
-                        if not result or not hasattr(result, 'output'):
+                        if not result or not hasattr(result, "output"):
                             self.add_error_message("Invalid response format from agent")
                             return
 
@@ -376,7 +377,7 @@ class CodePuppyTUI(App):
                     except Exception as eg:
                         # Handle TaskGroup and other exceptions
                         # BaseExceptionGroup is only available in Python 3.11+
-                        if hasattr(eg, 'exceptions'):
+                        if hasattr(eg, "exceptions"):
                             # Handle TaskGroup exceptions specifically (Python 3.11+)
                             for e in eg.exceptions:
                                 self.add_error_message(f"MCP/Agent error: {str(e)}")
@@ -852,8 +853,6 @@ class CodePuppyTUI(App):
                 # Log renderer stop errors but don't crash
                 self.add_system_message(f"Renderer stop error: {e}")
 
-
-
     @on(HistoryEntrySelected)
     def on_history_entry_selected(self, event: HistoryEntrySelected) -> None:
         """Handle selection of a history entry from the sidebar."""
@@ -877,6 +876,7 @@ async def run_textual_ui():
     """Run the Textual UI interface."""
     # Always enable YOLO mode in TUI mode for a smoother experience
     from code_puppy.config import set_config_value
+
     set_config_value("yolo_mode", "true")
 
     app = CodePuppyTUI()

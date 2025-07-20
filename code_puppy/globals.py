@@ -11,7 +11,7 @@ _tui_mode = False
 
 def set_tui_mode(enabled: bool) -> None:
     """Set the global TUI mode state.
-    
+
     Args:
         enabled: True if running in TUI mode, False otherwise
     """
@@ -21,7 +21,7 @@ def set_tui_mode(enabled: bool) -> None:
 
 def is_tui_mode() -> bool:
     """Check if the application is running in TUI mode.
-    
+
     Returns:
         True if running in TUI mode, False otherwise
     """
@@ -30,7 +30,7 @@ def is_tui_mode() -> bool:
 
 def get_tui_mode() -> bool:
     """Get the current TUI mode state.
-    
+
     Returns:
         True if running in TUI mode, False otherwise
     """

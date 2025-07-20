@@ -48,7 +48,7 @@ class SettingsScreen(ModalScreen):
         width: 1fr;
         margin: 0 0 0 1;
     }
-    
+
     /* Additional styling for static input values */
     #yolo-static {
         padding: 1 0 0 0;  /* Align text vertically with other inputs */
@@ -88,7 +88,11 @@ class SettingsScreen(ModalScreen):
 
                 with Container(classes="setting-row"):
                     yield Static("YOLO Mode:", classes="setting-label")
-                    yield Static("✅ Enabled (always on in TUI)", id="yolo-static", classes="setting-input")
+                    yield Static(
+                        "✅ Enabled (always on in TUI)",
+                        id="yolo-static",
+                        classes="setting-input",
+                    )
 
                 with Container(classes="setting-row"):
                     yield Static("History Limit:", classes="setting-label")
@@ -105,11 +109,10 @@ class SettingsScreen(ModalScreen):
     def on_mount(self) -> None:
         """Load current settings when the screen mounts."""
         from code_puppy.config import (
+            get_puppy_name,
+            get_owner_name,
             get_message_history_limit,
             get_model_name,
-            get_owner_name,
-            get_puppy_name,
-            get_yolo_mode,
         )
 
         # Load current values
@@ -128,7 +131,7 @@ class SettingsScreen(ModalScreen):
         # Set current model selection
         current_model = get_model_name()
         model_select.value = current_model
-        
+
         # YOLO mode is always enabled in TUI mode
 
     def load_model_options(self, model_select):

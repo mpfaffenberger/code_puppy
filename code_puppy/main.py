@@ -36,7 +36,6 @@ from code_puppy.tools.common import console
 from code_puppy.urls import get_setup_url
 from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 
-from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
 # Use the existing console from tools.common to maintain consistency with tests
 
@@ -102,9 +101,7 @@ async def main():
         action="store_true",
         help="Run in interactive mode",
     )
-    parser.add_argument(
-        "--tui", "-t", action="store_true", help="Run in TUI mode"
-    )
+    parser.add_argument("--tui", "-t", action="store_true", help="Run in TUI mode")
     parser.add_argument("command", nargs="*", help="Run a single command")
     args = parser.parse_args()
 
@@ -311,7 +308,10 @@ async def main():
 
                     # Check if any tool is waiting for user input before showing spinner
                     try:
-                        from code_puppy.tools.command_runner import is_awaiting_user_input
+                        from code_puppy.tools.command_runner import (
+                            is_awaiting_user_input,
+                        )
+
                         awaiting_input = is_awaiting_user_input()
                     except ImportError:
                         awaiting_input = False
@@ -330,8 +330,9 @@ async def main():
                         # Use our custom spinner for better compatibility with user input
                         from code_puppy.messaging.spinner import ConsoleSpinner
                         from rich.console import Console as RichConsole
+
                         rich_console = RichConsole()
-                        with ConsoleSpinner(console=rich_console) as spinner:
+                        with ConsoleSpinner(console=rich_console):
                             async with agent.run_mcp_servers():
                                 response = await agent.run(
                                     command, usage_limits=get_custom_usage_limits()
@@ -525,6 +526,7 @@ async def interactive_mode(history_file_path: str) -> None:
                 # Import here to avoid circular imports
                 try:
                     from code_puppy.tools.command_runner import is_awaiting_user_input
+
                     awaiting_input = is_awaiting_user_input()
                 except ImportError:
                     awaiting_input = False
@@ -534,7 +536,8 @@ async def interactive_mode(history_file_path: str) -> None:
 
                 # Use our custom spinner for better compatibility with user input
                 from code_puppy.messaging.spinner import ConsoleSpinner
-                with ConsoleSpinner(console=display_console) as spinner:
+
+                with ConsoleSpinner(console=display_console):
                     async with agent.run_mcp_servers():
                         result = await agent.run(
                             task,
