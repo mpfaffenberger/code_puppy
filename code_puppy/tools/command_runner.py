@@ -6,6 +6,7 @@ from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 
+from code_puppy.globals import is_tui_mode
 from code_puppy.tools.common import console
 
 # Flag to indicate if we need user input - this will be checked by interactive mode
@@ -236,9 +237,10 @@ def run_shell_command(
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str = None
 ) -> Dict[str, Any]:
-    from code_puppy.messaging import emit_agent_reasoning, emit_message
+    from code_puppy.messaging import emit_agent_reasoning
 
-    emit_agent_reasoning("[dim]" + "-" * 60 + "[/dim]\n")
+    if not is_tui_mode:
+        emit_agent_reasoning("[dim]" + "-" * 60 + "[/dim]\n")
     emit_agent_reasoning("\n[cyan]CURRENT REASONING:[/cyan]")
     emit_agent_reasoning(Markdown(reasoning))
 

@@ -25,6 +25,10 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_prompt_with_active_model,
 )
 from code_puppy.config import ensure_config_exists
+from code_puppy.globals import set_tui_mode, is_tui_mode
+
+# HTTP server imports
+import uvicorn
 from code_puppy.http_server import app as http_app
 
 # Initialize rich console for pretty output
@@ -104,14 +108,15 @@ async def main():
     parser.add_argument("command", nargs="*", help="Run a single command")
     args = parser.parse_args()
 
-    # Determine if we're in TUI mode early
+    # Determine if we're in TUI mode early and set it globally
     tui_mode = args.tui
+    set_tui_mode(tui_mode)
 
     # Import message queue functions early for TUI mode
     from code_puppy.messaging import emit_system_message
 
     # Show immediate loading feedback to user (only if not TUI mode)
-    if not tui_mode:
+    if not is_tui_mode():
         console.print("[bold blue]🐶 Code Puppy is Loading...[/bold blue]")
     else:
         emit_system_message("🐶 Code Puppy is Loading...")
