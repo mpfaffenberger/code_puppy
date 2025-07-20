@@ -338,6 +338,10 @@ class CodePuppyTUI(App):
                                 usage_limits=get_custom_usage_limits(),
                             )
 
+                        if not result or not hasattr(result, 'output'):
+                            self.add_error_message("Invalid response format from agent")
+                            return
+
                         self.update_agent_progress("Processing", 75)
                         agent_response = result.output
                         self.add_agent_message(agent_response.output_message)
