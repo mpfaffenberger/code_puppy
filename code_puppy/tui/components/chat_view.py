@@ -70,6 +70,16 @@ class ChatView(VerticalScroll):
         text-wrap: wrap;
         text-style: italic;
     }
+
+    .planned_next_steps-message {
+        background: #581c87;
+        color: #f3e8ff;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #a855f7;
+        text-wrap: wrap;
+        text-style: italic;
+    }
     """
 
     def __init__(self, **kwargs):
