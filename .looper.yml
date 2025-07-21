@@ -36,8 +36,8 @@ triggers:
       ignoreAuthor:
         - jenkinspan
   - manual:
-      name: build_python
-      call: python_flow()
+      name: manual_release
+      call: manual_release()
 
 flows:
   default:
@@ -45,7 +45,7 @@ flows:
         - dockerAgent(python-agent):
             - call: python_flow()
 
-  python_flow:
+  manual_release:
     - node(docker-daemon):
         - dockerAgent(python-agent):
             - shell: pip install --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple pytest pytest-cov pytest-asyncio build bumpversion twine uv
@@ -56,6 +56,14 @@ flows:
             - call: python_releaseSteps()
             - call: commitVersion()
             - call: slackBuildMessagePython()
+
+  python_flow:
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - shell: pip install --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple pytest pytest-cov pytest-asyncio build bumpversion twine uv
+            - shell: uv --native-tls venv
+            - shell: uv --native-tls version --bump patch
+            - shell: uv pip install --native-tls -e .
 
   pr:
     - node(docker-daemon):
