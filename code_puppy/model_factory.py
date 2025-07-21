@@ -69,7 +69,6 @@ class ModelFactory:
             config_path in ModelFactory._config_cache
             and ModelFactory._cache_initialized.get(config_path, False)
         ):
-            from code_puppy.tools.common import console
 
             return ModelFactory._config_cache[config_path]
 
@@ -79,7 +78,6 @@ class ModelFactory:
         # Try to fetch the latest config from remote
         remote_config = None
         try:
-            from code_puppy.tools.common import console
 
             logger.info(f"Fetching latest model config from {remote_url}")
             with create_client() as client:
@@ -88,7 +86,6 @@ class ModelFactory:
                 remote_config = response.json()["config"]
                 logger.info("Successfully fetched remote model config")
         except httpx.HTTPError as e:
-            from code_puppy.tools.common import console
 
             logger.warning(f"Failed to fetch remote config: {e}")
 
@@ -118,7 +115,6 @@ class ModelFactory:
         elif local_config:
             # No remote config but we have local - use local
             config_to_use = local_config
-            from code_puppy.tools.common import console
 
             logger.info("Using local config as fallback")
         else:

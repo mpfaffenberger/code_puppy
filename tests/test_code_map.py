@@ -135,7 +135,6 @@ def test_make_code_map_handles_path_traversal_gracefully(tmp_path: Path, monkeyp
     os.walk encounters paths that can't be computed relative to the base directory.
     """
     from code_puppy.tools.ts_code_map import make_code_map
-    from pathlib import Path
     import os
 
     # Create a test directory structure

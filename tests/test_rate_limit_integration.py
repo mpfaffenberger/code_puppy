@@ -6,10 +6,9 @@ successfully increased and is being applied correctly.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 from pydantic_ai.usage import UsageLimits
 
-from code_puppy.agent import get_custom_usage_limits, get_code_generation_agent
+from code_puppy.agent import get_custom_usage_limits
 
 
 class TestRateLimitIntegration:
@@ -24,7 +23,7 @@ class TestRateLimitIntegration:
         custom_limits = get_custom_usage_limits()
 
         # Demonstrate the change
-        print(f"\nRate Limit Comparison:")
+        print("\nRate Limit Comparison:")
         print(
             f"Default pydantic-ai rate limit: {default_limits.request_limit} requests"
         )
@@ -159,7 +158,7 @@ class TestRateLimitIntegration:
         assert summary["increase_percentage"] == 100.0
 
         # Print summary for documentation
-        print(f"\n=== Rate Limit Change Summary ===")
+        print("\n=== Rate Limit Change Summary ===")
         print(f"Original limit: {summary['original_limit']} requests/minute")
         print(f"New limit: {summary['new_limit']} requests/minute")
         print(
