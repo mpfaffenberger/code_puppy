@@ -27,6 +27,7 @@ from code_puppy.http_server import app as http_app
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
 from code_puppy.version_checker import fetch_latest_version, versions_are_equal
+from code_puppy.urls import get_setup_url
 
 # from code_puppy.tools import *  # noqa: F403
 
@@ -139,14 +140,15 @@ async def main():
 
             try:
                 # Run the update command
+                setup_url = get_setup_url()
                 console.print(
-                    "[dim]Running: curl -skSL https://puppy.stg.walmart.com/api/releases/setup | bash[/dim]"
+                    f"[dim]Running: curl -skSL {setup_url} | bash[/dim]"
                 )
                 result = subprocess.run(
                     [
                         "curl",
                         "-skSL",
-                        "https://puppy.stg.walmart.com/api/releases/setup",
+                        setup_url,
                     ],
                     capture_output=True,
                     text=True,

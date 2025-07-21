@@ -1,5 +1,5 @@
-import requests
-import urllib3
+import httpx
+from .http_utils import create_client
 
 
 def normalize_version(version_str):
@@ -42,46 +42,34 @@ def fetch_latest_version(package_name=None):
         str: Latest version string (e.g., "v0.0.78") or None if fetch fails
     """
     try:
-        # Disable SSL warnings for internal staging environment
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        # Use properly configured httpx client with correct certificates
+        with create_client(timeout=5.0) as client:
+            response = client.get("https://puppy.stg.walmart.com/api/releases/latest")
+            response.raise_for_status()  # Raise an error for bad responses
+            data = response.json()
 
-        # Try with SSL verification first
-        try:
-            response = requests.get(
-                "https://puppy.stg.walmart.com/api/releases/latest",
-                timeout=5,
-                verify=True,
-            )
-        except requests.exceptions.SSLError:
-            # If SSL verification fails, try without verification for internal staging API
-            response = requests.get(
-                "https://puppy.stg.walmart.com/api/releases/latest",
-                timeout=5,
-                verify=False,
-            )
+            # Check if the response has the expected structure
+            if not data.get("success"):
+                print(
+                    f"API returned unsuccessful response: {data.get('message', 'Unknown error')}"
+                )
+                return None
 
-        response.raise_for_status()  # Raise an error for bad responses
-        data = response.json()
+            # Extract version from nested structure
+            version = data.get("data", {}).get("version")
+            if not version:
+                print("Error: Version not found in API response")
+                return None
 
-        # Check if the response has the expected structure
-        if not data.get("success"):
-            print(
-                f"API returned unsuccessful response: {data.get('message', 'Unknown error')}"
-            )
-            return None
+            return normalize_version(version)
 
-        # Extract version from nested structure
-        version = data.get("data", {}).get("version")
-        if not version:
-            print("Error: Version not found in API response")
-            return None
-
-        return normalize_version(version)
-
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         print("Error fetching version: Request timed out")
         return None
-    except requests.RequestException as e:
+    except httpx.HTTPStatusError as e:
+        print(f"Error fetching version: HTTP {e.response.status_code} - {e.response.reason_phrase}")
+        return None
+    except httpx.RequestError as e:
         print(f"Error fetching version: {e}")
         return None
     except (KeyError, ValueError) as e:
