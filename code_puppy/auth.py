@@ -8,6 +8,7 @@ import jwt
 from rich.console import Console
 
 from code_puppy.config import get_value
+from .urls import get_authentication_url
 
 console = Console()
 
@@ -133,7 +134,7 @@ async def authenticate_puppy(port: int) -> bool:
     initial_token = get_puppy_token()
 
     # Open browser for authentication
-    auth_url = f"https://puppy.stg.walmart.com/authenticate_puppy?port={port}"
+    auth_url = get_authentication_url(port=port)
     console.print(f"[blue]Opening browser for authentication: {auth_url}[/blue]")
 
     try:

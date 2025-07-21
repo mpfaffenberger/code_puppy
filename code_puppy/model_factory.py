@@ -5,6 +5,9 @@ import logging
 
 import httpx
 from anthropic import AsyncAnthropic
+
+from .http_utils import create_client, create_async_client
+from .urls import get_models_url
 from openai import AsyncAzureOpenAI  # For Azure OpenAI client
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
@@ -66,7 +69,7 @@ class ModelFactory:
             from code_puppy.tools.common import console
             return ModelFactory._config_cache[config_path]
         
-        remote_url = "https://puppy.stg.walmart.com/api/puppy-models/latest"
+        remote_url = get_models_url()
         logger = logging.getLogger(__name__)
 
         # Try to fetch the latest config from remote
@@ -74,12 +77,12 @@ class ModelFactory:
         try:
             from code_puppy.tools.common import console
             logger.info(f"Fetching latest model config from {remote_url}")
-            with httpx.Client(timeout=10.0, verify=False) as client:
+            with create_client(timeout=10.0) as client:
                 response = client.get(remote_url)
                 response.raise_for_status()
                 remote_config = response.json()["config"]
                 logger.info("Successfully fetched remote model config")
-        except Exception as e:
+        except httpx.HTTPError as e:
             from code_puppy.tools.common import console
             logger.warning(f"Failed to fetch remote config: {e}")
 
@@ -195,7 +198,7 @@ class ModelFactory:
 
         elif model_type == "custom_anthropic":
             url, headers, api_key = get_custom_config(model_config)
-            client = httpx.AsyncClient(headers=headers, verify=False)
+            client = create_async_client(headers=headers)
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
@@ -260,7 +263,7 @@ class ModelFactory:
 
         elif model_type == "custom_openai":
             url, headers, api_key = get_custom_config(model_config)
-            client = httpx.AsyncClient(headers=headers, verify=False)
+            client = create_async_client(headers=headers)
             provider_args = dict(
                 base_url=url,
                 http_client=client,
