@@ -14,6 +14,7 @@ console = Console(no_color=NO_COLOR)
 # Shared ignore patterns/helpers
 # -------------------
 IGNORE_PATTERNS = [
+    "**/target/**",
     "**/node_modules/**",
     "**/node_modules/**/*.js",
     "node_modules/**",
