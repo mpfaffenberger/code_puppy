@@ -76,7 +76,7 @@ def reload_code_generation_agent():
     """Force-reload the agent, usually after a model change."""
     global _code_generation_agent, _LAST_MODEL_NAME
     from code_puppy.config import get_model_name, clear_model_cache
-    
+
     # Clear both ModelFactory cache and config cache when force reloading
     clear_model_cache()
 

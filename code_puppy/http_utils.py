@@ -11,6 +11,7 @@ import pathlib
 import httpx
 import requests
 
+
 def get_cert_bundle_path() -> str:
     """
     Get the path to the certificate bundle to use.
@@ -33,8 +34,7 @@ def get_cert_bundle_path() -> str:
 
 
 def create_client(
-    verify: Union[bool, str] = None,
-    headers: Optional[Dict[str, str]] = None
+    verify: Union[bool, str] = None, headers: Optional[Dict[str, str]] = None
 ) -> httpx.Client:
     """
     Create a synchronous HTTP client with the specified configuration.
@@ -52,15 +52,11 @@ def create_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    return httpx.Client(
-        verify=verify,
-        headers=headers or {}
-    )
+    return httpx.Client(verify=verify, headers=headers or {})
 
 
 def create_async_client(
-    verify: Union[bool, str] = None,
-    headers: Optional[Dict[str, str]] = None
+    verify: Union[bool, str] = None, headers: Optional[Dict[str, str]] = None
 ) -> httpx.AsyncClient:
     """
     Create an asynchronous HTTP client with the specified configuration.
@@ -78,16 +74,13 @@ def create_async_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    return httpx.AsyncClient(
-        verify=verify,
-        headers=headers or {}
-    )
+    return httpx.AsyncClient(verify=verify, headers=headers or {})
 
 
 def create_requests_session(
     timeout: float = 5.0,
     verify: Union[bool, str] = None,
-    headers: Optional[Dict[str, str]] = None
+    headers: Optional[Dict[str, str]] = None,
 ) -> requests.Session:
     """
     Create a requests Session with the specified configuration.
@@ -116,7 +109,9 @@ def create_requests_session(
     return session
 
 
-def create_auth_headers(api_key: str, header_name: str = "Authorization") -> Dict[str, str]:
+def create_auth_headers(
+    api_key: str, header_name: str = "Authorization"
+) -> Dict[str, str]:
     """
     Create authorization headers using the provided API key.
 

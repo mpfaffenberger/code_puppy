@@ -67,7 +67,9 @@ def fetch_latest_version(package_name=None):
         print("Error fetching version: Request timed out")
         return None
     except httpx.HTTPStatusError as e:
-        print(f"Error fetching version: HTTP {e.response.status_code} - {e.response.reason_phrase}")
+        print(
+            f"Error fetching version: HTTP {e.response.status_code} - {e.response.reason_phrase}"
+        )
         return None
     except httpx.RequestError as e:
         print(f"Error fetching version: {e}")

@@ -65,8 +65,12 @@ class ModelFactory:
         Cache is keyed by config_path to support multiple different config files.
         """
         # Check cache first - avoid redundant network calls! 🐕
-        if config_path in ModelFactory._config_cache and ModelFactory._cache_initialized.get(config_path, False):
+        if (
+            config_path in ModelFactory._config_cache
+            and ModelFactory._cache_initialized.get(config_path, False)
+        ):
             from code_puppy.tools.common import console
+
             return ModelFactory._config_cache[config_path]
 
         remote_url = get_models_url()
@@ -76,6 +80,7 @@ class ModelFactory:
         remote_config = None
         try:
             from code_puppy.tools.common import console
+
             logger.info(f"Fetching latest model config from {remote_url}")
             with create_client() as client:
                 response = client.get(remote_url)
@@ -84,6 +89,7 @@ class ModelFactory:
                 logger.info("Successfully fetched remote model config")
         except httpx.HTTPError as e:
             from code_puppy.tools.common import console
+
             logger.warning(f"Failed to fetch remote config: {e}")
 
         # Try to load existing local config
@@ -113,6 +119,7 @@ class ModelFactory:
             # No remote config but we have local - use local
             config_to_use = local_config
             from code_puppy.tools.common import console
+
             logger.info("Using local config as fallback")
         else:
             # Neither remote nor local config available
@@ -158,6 +165,7 @@ class ModelFactory:
         # Also clear the config module's model validation cache
         try:
             from code_puppy.config import clear_model_cache
+
             clear_model_cache()
         except ImportError:
             # Avoid circular import issues during early initialization
