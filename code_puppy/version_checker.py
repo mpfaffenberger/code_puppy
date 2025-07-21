@@ -43,7 +43,7 @@ def fetch_latest_version(package_name=None):
     """
     try:
         # Use properly configured httpx client with correct certificates
-        with create_client(timeout=5.0) as client:
+        with create_client() as client:
             response = client.get("https://puppy.stg.walmart.com/api/releases/latest")
             response.raise_for_status()  # Raise an error for bad responses
             data = response.json()

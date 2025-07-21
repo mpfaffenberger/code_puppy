@@ -33,7 +33,6 @@ def get_cert_bundle_path() -> str:
 
 
 def create_client(
-    timeout: float = 20.0,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None
 ) -> httpx.Client:
@@ -41,7 +40,6 @@ def create_client(
     Create a synchronous HTTP client with the specified configuration.
 
     Args:
-        timeout: Request timeout in seconds
         verify: Whether to verify SSL certificates. If None, uses the Walmart certificate bundle.
                If True, uses the default CA bundle. If False, disables verification.
                Can also be a path to a specific certificate bundle.
@@ -55,14 +53,12 @@ def create_client(
         verify = get_cert_bundle_path()
 
     return httpx.Client(
-        timeout=timeout,
         verify=verify,
         headers=headers or {}
     )
 
 
 def create_async_client(
-    timeout: float = 10.0,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None
 ) -> httpx.AsyncClient:
@@ -70,7 +66,6 @@ def create_async_client(
     Create an asynchronous HTTP client with the specified configuration.
 
     Args:
-        timeout: Request timeout in seconds
         verify: Whether to verify SSL certificates. If None, uses the Walmart certificate bundle.
                If True, uses the default CA bundle. If False, disables verification.
                Can also be a path to a specific certificate bundle.
@@ -84,7 +79,6 @@ def create_async_client(
         verify = get_cert_bundle_path()
 
     return httpx.AsyncClient(
-        timeout=timeout,
         verify=verify,
         headers=headers or {}
     )
@@ -109,7 +103,6 @@ def create_requests_session(
         Configured requests.Session instance
     """
     session = requests.Session()
-    session.timeout = timeout
 
     # If verify is None, use the Walmart certificate bundle
     if verify is None:
