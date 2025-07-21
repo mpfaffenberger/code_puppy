@@ -11,6 +11,7 @@ from typing import Optional
 
 class Environment(Enum):
     """Supported environments for URL construction."""
+
     DEV = "dev"
     STAGE = "stg"
     PROD = "prod"
@@ -18,6 +19,7 @@ class Environment(Enum):
 
 class BaseURLs:
     """Base URLs for different environments."""
+
     DEV = "https://puppy.dev.walmart.com"
     STAGE = "https://puppy.stg.walmart.com"
     PROD = "https://puppy.walmart.com"
@@ -26,10 +28,10 @@ class BaseURLs:
 def get_base_url(environment: Environment = Environment.STAGE) -> str:
     """
     Get the base URL for the specified environment.
-    
+
     Args:
         environment: The target environment
-        
+
     Returns:
         The base URL for the specified environment
     """
@@ -46,10 +48,10 @@ def get_base_url(environment: Environment = Environment.STAGE) -> str:
 def get_models_url(environment: Environment = Environment.STAGE) -> str:
     """
     Get the URL for fetching model configurations.
-    
+
     Args:
         environment: The target environment
-        
+
     Returns:
         The models URL for the specified environment
     """
@@ -57,33 +59,35 @@ def get_models_url(environment: Environment = Environment.STAGE) -> str:
     return f"{base_url}/api/puppy-models/latest"
 
 
-def get_authentication_url(port: Optional[int] = None, environment: Environment = Environment.STAGE) -> str:
+def get_authentication_url(
+    port: Optional[int] = None, environment: Environment = Environment.STAGE
+) -> str:
     """
     Get the URL for puppy authentication.
-    
+
     Args:
         port: The local port for the callback server
         environment: The target environment
-        
+
     Returns:
         The authentication URL for the specified environment
     """
     base_url = get_base_url(environment)
     url = f"{base_url}/authenticate_puppy"
-    
+
     if port is not None:
         url = f"{url}?port={port}"
-        
+
     return url
 
 
 def get_latest_version_url(environment: Environment = Environment.STAGE) -> str:
     """
     Get the URL for fetching the latest version information.
-    
+
     Args:
         environment: The target environment
-        
+
     Returns:
         The latest version URL for the specified environment
     """
@@ -94,10 +98,10 @@ def get_latest_version_url(environment: Environment = Environment.STAGE) -> str:
 def get_setup_url(environment: Environment = Environment.STAGE) -> str:
     """
     Get the URL for the setup script.
-    
+
     Args:
         environment: The target environment
-        
+
     Returns:
         The setup URL for the specified environment
     """

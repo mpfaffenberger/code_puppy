@@ -123,6 +123,7 @@ def load_mcp_server_configs():
 _model_validation_cache = {}
 _default_model_cache = None
 
+
 def _default_model_from_models_json():
     """Attempt to load the first model name from models.json.
 
@@ -130,11 +131,11 @@ def _default_model_from_models_json():
     cannot be read for any reason or is empty.
     """
     global _default_model_cache
-    
+
     # Return cached default if we have one
     if _default_model_cache is not None:
         return _default_model_cache
-    
+
     try:
         # Local import to avoid potential circular dependency on module import
         from code_puppy.model_factory import ModelFactory
@@ -153,18 +154,18 @@ def _default_model_from_models_json():
 def _validate_model_exists(model_name: str) -> bool:
     """Check if a model exists in models.json with caching to avoid redundant calls."""
     global _model_validation_cache
-    
+
     # Check cache first
     if model_name in _model_validation_cache:
         return _model_validation_cache[model_name]
-    
+
     try:
         from code_puppy.model_factory import ModelFactory
-        
+
         models_config_path = os.path.join(CONFIG_DIR, "models.json")
         models_config = ModelFactory.load_config(models_config_path)
         exists = model_name in models_config
-        
+
         # Cache the result
         _model_validation_cache[model_name] = exists
         return exists
@@ -211,7 +212,7 @@ def set_model_name(model: str):
     config[DEFAULT_SECTION]["model"] = model or ""
     with open(CONFIG_FILE, "w") as f:
         config.write(f)
-    
+
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
 

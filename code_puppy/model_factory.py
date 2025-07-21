@@ -52,7 +52,7 @@ def get_custom_config(model_config):
 
 class ModelFactory:
     """A factory for creating and managing different AI models."""
-    
+
     # Class-level cache to prevent redundant fetching
     _config_cache: Dict[str, Dict[str, Any]] = {}
     _cache_initialized: Dict[str, bool] = {}
@@ -60,30 +60,33 @@ class ModelFactory:
     @staticmethod
     def load_config(config_path: str) -> Dict[str, Any]:
         """Loads model configurations, checking for updates from remote source first.
-        
+
         Uses a class-level cache to prevent redundant fetching during the same session.
         Cache is keyed by config_path to support multiple different config files.
         """
         # Check cache first - avoid redundant network calls! 🐕
-        if config_path in ModelFactory._config_cache and ModelFactory._cache_initialized.get(config_path, False):
-            from code_puppy.tools.common import console
+        if (
+            config_path in ModelFactory._config_cache
+            and ModelFactory._cache_initialized.get(config_path, False)
+        ):
+
             return ModelFactory._config_cache[config_path]
-        
+
         remote_url = get_models_url()
         logger = logging.getLogger(__name__)
 
         # Try to fetch the latest config from remote
         remote_config = None
         try:
-            from code_puppy.tools.common import console
+
             logger.info(f"Fetching latest model config from {remote_url}")
-            with create_client(timeout=10.0) as client:
+            with create_client() as client:
                 response = client.get(remote_url)
                 response.raise_for_status()
                 remote_config = response.json()["config"]
                 logger.info("Successfully fetched remote model config")
         except httpx.HTTPError as e:
-            from code_puppy.tools.common import console
+
             logger.warning(f"Failed to fetch remote config: {e}")
 
         # Try to load existing local config
@@ -112,7 +115,7 @@ class ModelFactory:
         elif local_config:
             # No remote config but we have local - use local
             config_to_use = local_config
-            from code_puppy.tools.common import console
+
             logger.info("Using local config as fallback")
         else:
             # Neither remote nor local config available
@@ -137,13 +140,13 @@ class ModelFactory:
         ModelFactory._config_cache[config_path] = config_to_use
         ModelFactory._cache_initialized[config_path] = True
         logger.info(f"Cached model config for {config_path}")
-        
+
         return config_to_use
 
     @staticmethod
     def clear_cache(config_path: str = None) -> None:
         """Clear the config cache.
-        
+
         Args:
             config_path: If provided, clears cache only for this path.
                         If None, clears entire cache.
@@ -154,10 +157,11 @@ class ModelFactory:
         else:
             ModelFactory._config_cache.pop(config_path, None)
             ModelFactory._cache_initialized.pop(config_path, None)
-        
+
         # Also clear the config module's model validation cache
         try:
             from code_puppy.config import clear_model_cache
+
             clear_model_cache()
         except ImportError:
             # Avoid circular import issues during early initialization

@@ -13,7 +13,11 @@ from textual.reactive import reactive
 from textual.events import Resize
 from textual import work
 
-from code_puppy.agent import get_code_generation_agent, session_memory, get_custom_usage_limits
+from code_puppy.agent import (
+    get_code_generation_agent,
+    session_memory,
+    get_custom_usage_limits,
+)
 from code_puppy.config import get_model_name, get_puppy_name
 from code_puppy.command_line.meta_command_handler import handle_meta_command
 
@@ -256,7 +260,7 @@ class CodePuppyTUI(App):
                     captured_output = StringIO()
                     sys.stdout = captured_output
 
-                    # Also capture Rich console output  
+                    # Also capture Rich console output
                     rich_console.file = captured_output
 
                     try:
@@ -287,7 +291,9 @@ class CodePuppyTUI(App):
                 async with self.agent.run_mcp_servers():
                     self.update_agent_progress("Processing", 50)
                     result = await self.agent.run(
-                        message, message_history=self.message_history, usage_limits=get_custom_usage_limits()
+                        message,
+                        message_history=self.message_history,
+                        usage_limits=get_custom_usage_limits(),
                     )
 
                 self.update_agent_progress("Processing", 75)
@@ -471,11 +477,11 @@ class CodePuppyTUI(App):
                             # Handle 'Z' suffix (common UTC format)
                             cleaned_timestamp = timestamp_str.replace("Z", "+00:00")
                             parsed_dt = datetime.fromisoformat(cleaned_timestamp)
-                            
+
                             # If the datetime is naive (no timezone), assume UTC
                             if parsed_dt.tzinfo is None:
                                 parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-                            
+
                             return parsed_dt.strftime(time_format)
                         except (ValueError, AttributeError, TypeError):
                             # Handle invalid timestamp formats gracefully
@@ -485,7 +491,7 @@ class CodePuppyTUI(App):
                                 else timestamp_str[:8]
                             )
                             return "??:??" if len(fallback) < 5 else fallback
-                    
+
                     time_display = parse_timestamp_safely_for_display(timestamp_str)
 
                     # Format description for display with responsive truncation
@@ -555,16 +561,16 @@ class CodePuppyTUI(App):
                     # Handle 'Z' suffix (common UTC format)
                     cleaned_timestamp = timestamp_str.replace("Z", "+00:00")
                     parsed_dt = datetime.fromisoformat(cleaned_timestamp)
-                    
+
                     # If the datetime is naive (no timezone), assume UTC
                     if parsed_dt.tzinfo is None:
                         parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-                    
+
                     return parsed_dt.strftime("%Y-%m-%d %H:%M:%S")
                 except (ValueError, AttributeError, TypeError):
                     # Handle invalid timestamp formats gracefully
                     return timestamp_str
-            
+
             formatted_time = parse_timestamp_safely_for_details(timestamp)
 
             # Create detailed view content

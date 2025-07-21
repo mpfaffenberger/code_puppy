@@ -43,7 +43,7 @@ def fetch_latest_version(package_name=None):
     """
     try:
         # Use properly configured httpx client with correct certificates
-        with create_client(timeout=5.0) as client:
+        with create_client() as client:
             response = client.get("https://puppy.stg.walmart.com/api/releases/latest")
             response.raise_for_status()  # Raise an error for bad responses
             data = response.json()
@@ -67,7 +67,9 @@ def fetch_latest_version(package_name=None):
         print("Error fetching version: Request timed out")
         return None
     except httpx.HTTPStatusError as e:
-        print(f"Error fetching version: HTTP {e.response.status_code} - {e.response.reason_phrase}")
+        print(
+            f"Error fetching version: HTTP {e.response.status_code} - {e.response.reason_phrase}"
+        )
         return None
     except httpx.RequestError as e:
         print(f"Error fetching version: {e}")
