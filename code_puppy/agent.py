@@ -65,17 +65,10 @@ def _load_mcp_servers():
     configs = load_mcp_server_configs()
     servers = []
     for name, conf in configs.items():
-        server_type = conf.get("type", "")
         url = conf.get("url")
         if url:
             console.print(f"Registering MCP Server - {url}")
             servers.append(MCPServerSSE(url))
-        elif server_type == "stdio":
-            command = conf.get("command")
-            args = conf.get("args", [])
-            if command:
-                console.print(f"Registering MCP Server (Stdio) - {command} {args}")
-                servers.append(MCPServerStdio(command, args=args))            
     return servers
 
 
