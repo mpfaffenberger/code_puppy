@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pydantic
 from pydantic_ai import Agent
-from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio
+from pydantic_ai.mcp import MCPServerSSE
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
