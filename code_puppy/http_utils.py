@@ -34,6 +34,7 @@ def get_cert_bundle_path() -> str:
 
 
 def create_client(
+    timeout: int = 20,
     verify: Union[bool, str] = None, headers: Optional[Dict[str, str]] = None
 ) -> httpx.Client:
     """
@@ -52,10 +53,11 @@ def create_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    return httpx.Client(verify=verify, headers=headers or {})
+    return httpx.Client(verify=verify, headers=headers or {}, timeout=timeout)
 
 
 def create_async_client(
+    timeout: int = 20,
     verify: Union[bool, str] = None, headers: Optional[Dict[str, str]] = None
 ) -> httpx.AsyncClient:
     """
@@ -74,7 +76,7 @@ def create_async_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    return httpx.AsyncClient(verify=verify, headers=headers or {})
+    return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
 
 
 def create_requests_session(

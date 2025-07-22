@@ -52,6 +52,7 @@ flows:
             - shell: uv --native-tls venv
             - shell: uv --native-tls version --bump patch
             - shell: uv pip install --native-tls -e .
+            - call: pre_commit
             # - shell: uv --native-tls run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - call: python_releaseSteps()
             - call: commitVersion()
@@ -64,6 +65,8 @@ flows:
             - shell: uv --native-tls venv
             - shell: uv --native-tls version --bump patch
             - shell: uv pip install --native-tls -e .
+            - call: pre_commit
+
 
   pr:
     - node(docker-daemon):
@@ -73,8 +76,14 @@ flows:
             - shell: uv pip install --native-tls -e .
             # - shell: uv --native-tls run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - shell: uv --native-tls build
+            - call: pre_commit
 
   ### Functions ###
+  pre_commit:
+    - shell: uv tool install pre-commit --with pre-commit-uv
+    - shell: uv --native-tls pre-commit install --install-hooks
+    - shell: uv --native-tls pre-commit run --all-files
+
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
