@@ -185,3 +185,11 @@ By using Code Puppy Walmart Edition, Walmart Global Tech teams can maintain ente
 
 **For Walmart Global Tech Internal Use Only**
 *Contact your development team lead for access credentials and enterprise configuration.*
+
+
+# Installing pre-commit!
+```bash
+uv tool install pre-commit --with pre-commit-uv
+uv run pre-commit install
+```
+Now whenever you commit, the hooks will run.
