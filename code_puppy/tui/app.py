@@ -819,8 +819,9 @@ class CodePuppyTUI(App):
                         if hasattr(message.content, "__rich_console__"):
                             # For Rich objects, render to plain text
                             string_io = StringIO()
+                            # Use markup=False to prevent interpretation of square brackets as markup
                             temp_console = Console(
-                                file=string_io, width=80, legacy_windows=False
+                                file=string_io, width=80, legacy_windows=False, markup=False
                             )
                             temp_console.print(message.content)
                             content_str = string_io.getvalue().rstrip("\n")

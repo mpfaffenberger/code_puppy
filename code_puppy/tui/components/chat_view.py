@@ -138,40 +138,49 @@ class ChatView(VerticalScroll):
         css_class = f"{message.type.value}-message"
 
         if message.type == MessageType.USER:
-            content = f"[bold]You:[/bold] {message.content}"
-            # Use Static instead of Label to enable text wrapping
-            message_widget = Static(content, classes=css_class)
+            prefix = "You: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT:
             prefix = "Agent: "
-            # Use Static widget with Rich renderable for agent messages to support syntax highlighting
             try:
-                # Check if the message contains code blocks
                 if "```" in message.content:
-                    # Parse and render code blocks with syntax highlighting
                     rendered_content = self._render_agent_message_with_syntax(
                         prefix, message.content
                     )
                     message_widget = Static(rendered_content, classes=css_class)
                 else:
-                    # Regular text message
-                    content = f"[bold]Agent:[/bold] {message.content}"
-                    message_widget = Static(content, classes=css_class)
+                    content = f"{prefix}{message.content}"
+                    message_widget = Static(Text(content), classes=css_class)
             except Exception:
-                # Fallback to Static widget if parsing fails
-                content = f"[bold]Agent:[/bold] {message.content}"
-                message_widget = Static(content, classes=css_class)
+                content = f"{prefix}{message.content}"
+                message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.SYSTEM:
-            content = f"[bold]System:[/bold] {message.content}"
-            message_widget = Static(content, classes=css_class)
+            prefix = "System: "
+            content = f"{prefix}{message.content}"
+            # Heuristic: if message looks like a command with markup tags, treat as markup
+            if ("[" in message.content and "]" in message.content and (
+                message.content.strip().startswith("$ ") or message.content.strip().startswith("git "))):
+                # Treat as literal text
+                message_widget = Static(Text(content), classes=css_class)
+            else:
+                # Try to render markup
+                try:
+                    message_widget = Static(Text.from_markup(content), classes=css_class)
+                except Exception:
+                    message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT_REASONING:
-            content = f"[bold]AGENT REASONING:[/bold] {message.content}"
-            message_widget = Static(content, classes=css_class)
+            prefix = "AGENT REASONING: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.PLANNED_NEXT_STEPS:
-            content = f"[bold]PLANNED_NEXT_STEPS:[/bold] {message.content}"
-            message_widget = Static(content, classes=css_class)
+            prefix = "PLANNED NEXT STEPS: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
         else:  # ERROR
-            content = f"[bold]Error:[/bold] {message.content}"
-            message_widget = Static(content, classes=css_class)
+            prefix = "Error: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
 
         self.mount(message_widget)
 

@@ -124,7 +124,8 @@ class TUIRenderer(MessageRenderer):
         if hasattr(message.content, "__rich_console__"):
             # For Rich objects, render to plain text using a Console
             string_io = StringIO()
-            temp_console = Console(file=string_io, width=80, legacy_windows=False)
+            # Use markup=False to prevent interpretation of square brackets as markup
+            temp_console = Console(file=string_io, width=80, legacy_windows=False, markup=False)
             temp_console.print(message.content)
             content_str = string_io.getvalue().rstrip("\n")
         else:
