@@ -81,7 +81,7 @@ flows:
   ### Functions ###
   pre_commit:
     - shell: uv tool install pre-commit --with pre-commit-uv
-    - shell: uv --native-tls run --native-tlspre-commit install
+    - shell: uv --native-tls run pre-commit install
     - shell: uv --native-tls run pre-commit run --all-files
 
   python_releaseSteps:
