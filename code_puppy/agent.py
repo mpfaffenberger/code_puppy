@@ -64,23 +64,26 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
     configs = load_mcp_server_configs()
     servers = []
     for name, conf in configs.items():
-        server_type = conf.get("type", "http")
+        server_type = conf.get("type", "sse")
         url = conf.get("url")
         walmart_internal = conf.get("walmart_internal", False)
         http_client = create_async_client(headers=walmart_headers) if walmart_internal else None
         if url:
-            if server_type == "sse":
-                console.print(f"Registering {'Internal ' if walmart_internal else ''} MCP Server (HTTP) - {url}")
-                servers.append(MCPServerSSE(url, http_client=http_client))
+            if server_type == "http":
+                console.print(f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url}")
+                servers.append(MCPServerStreamableHTTP(url, http_client=http_client))
             elif server_type == "stdio":
                 command = conf.get("command")
                 args = conf.get("args", [])
                 if command:
                     console.print(f"Registering MCP Server (Stdio) - {command} {args}")
                 servers.append(MCPServerStdio(command, args=args))      
-            else:
-                console.print(f"Registering {'Internal ' if walmart_internal else ''} MCP Server (HTTP) - {url}")
-                servers.append(MCPServerStreamableHTTP(url, http_client=http_client))      
+            elif server_type == "sse":
+                console.print(f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url}")
+                servers.append(MCPServerSSE(url, http_client=http_client))      
+            else: 
+                console.print("Invalid type ({server_type}) for {name}.")
+            
     return servers
 
 
