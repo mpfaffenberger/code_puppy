@@ -159,14 +159,22 @@ class ChatView(VerticalScroll):
             prefix = "System: "
             content = f"{prefix}{message.content}"
             # Heuristic: if message looks like a command with markup tags, treat as markup
-            if ("[" in message.content and "]" in message.content and (
-                message.content.strip().startswith("$ ") or message.content.strip().startswith("git "))):
+            if (
+                "[" in message.content
+                and "]" in message.content
+                and (
+                    message.content.strip().startswith("$ ")
+                    or message.content.strip().startswith("git ")
+                )
+            ):
                 # Treat as literal text
                 message_widget = Static(Text(content), classes=css_class)
             else:
                 # Try to render markup
                 try:
-                    message_widget = Static(Text.from_markup(content), classes=css_class)
+                    message_widget = Static(
+                        Text.from_markup(content), classes=css_class
+                    )
                 except Exception:
                     message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT_REASONING:

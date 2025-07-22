@@ -28,7 +28,6 @@ from code_puppy.config import ensure_config_exists
 from code_puppy.globals import set_tui_mode, is_tui_mode
 
 # HTTP server imports
-import uvicorn
 from code_puppy.http_server import app as http_app
 
 # Initialize rich console for pretty output
