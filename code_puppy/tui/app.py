@@ -3,26 +3,26 @@ Main TUI application class.
 """
 
 from datetime import datetime, timezone
-from typing import List, Dict
+from typing import Dict, List
 
-from textual.app import App, ComposeResult
-from textual.containers import Container
-from textual.widgets import Footer, ListView, ListItem, Label, ProgressBar
-from textual.binding import Binding
-from textual.reactive import reactive
-from textual.events import Resize
 from textual import work
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Container
+from textual.events import Resize
+from textual.reactive import reactive
+from textual.widgets import Footer, Label, ListItem, ListView, ProgressBar
 
 from code_puppy.agent import (
     get_code_generation_agent,
-    session_memory,
     get_custom_usage_limits,
+    session_memory,
 )
-from code_puppy.config import get_model_name, get_puppy_name
 from code_puppy.command_line.meta_command_handler import handle_meta_command
+from code_puppy.config import get_model_name, get_puppy_name
 
+from .components import ChatView, CustomTextArea, InputArea, Sidebar, StatusBar
 from .models import ChatMessage, MessageType
-from .components import StatusBar, ChatView, InputArea, Sidebar, CustomTextArea
 from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
 
 
@@ -251,9 +251,10 @@ class CodePuppyTUI(App):
 
                 # Use the existing meta command handler
                 try:
-                    from code_puppy.tools.common import console as rich_console
-                    from io import StringIO
                     import sys
+                    from io import StringIO
+
+                    from code_puppy.tools.common import console as rich_console
 
                     # Capture the output from the meta command handler
                     old_stdout = sys.stdout
@@ -390,7 +391,7 @@ class CodePuppyTUI(App):
         def handle_settings_result(result):
             if result and result.get("success"):
                 # Update reactive variables
-                from code_puppy.config import get_puppy_name, get_model_name
+                from code_puppy.config import get_model_name, get_puppy_name
 
                 self.puppy_name = get_puppy_name()
 

@@ -8,7 +8,7 @@
       "headers": {
 	      "X-Api-Key": "$puppy_token"
       }
-    } 
+    }
   },
   "o3-custom": {
     "type": "custom_openai",

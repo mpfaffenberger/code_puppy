@@ -1,10 +1,10 @@
-import os
 import json
+import os
 import tempfile
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
-import pytest
 import httpx
+import pytest
 
 from code_puppy.model_factory import ModelFactory
 

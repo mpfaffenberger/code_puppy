@@ -1,8 +1,9 @@
 import unittest
+from datetime import datetime
+
 from code_puppy.tui.components.chat_view import ChatView
 from code_puppy.tui.models.chat_message import ChatMessage
 from code_puppy.tui.models.enums import MessageType
-from datetime import datetime
 
 
 class TestChatView(unittest.TestCase):

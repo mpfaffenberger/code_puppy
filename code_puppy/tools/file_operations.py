@@ -5,12 +5,10 @@ from typing import Any, Dict, List
 
 from pydantic_ai import RunContext
 
-from code_puppy.tools.common import console
-
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
-from code_puppy.tools.common import should_ignore_path
+from code_puppy.tools.common import console, should_ignore_path
 
 
 def _list_files(

@@ -4,9 +4,9 @@ HTTP utilities module for code-puppy.
 This module provides functions for creating properly configured HTTP clients.
 """
 
-from typing import Dict, Optional, Union
 import os
 import pathlib
+from typing import Dict, Optional, Union
 
 import httpx
 import requests
@@ -34,7 +34,9 @@ def get_cert_bundle_path() -> str:
 
 
 def create_client(
-    verify: Union[bool, str] = None, headers: Optional[Dict[str, str]] = None
+    timeout: int = 20,
+    verify: Union[bool, str] = None,
+    headers: Optional[Dict[str, str]] = None,
 ) -> httpx.Client:
     """
     Create a synchronous HTTP client with the specified configuration.
@@ -52,11 +54,13 @@ def create_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    return httpx.Client(verify=verify, headers=headers or {})
+    return httpx.Client(verify=verify, headers=headers or {}, timeout=timeout)
 
 
 def create_async_client(
-    verify: Union[bool, str] = None, headers: Optional[Dict[str, str]] = None
+    timeout: int = 20,
+    verify: Union[bool, str] = None,
+    headers: Optional[Dict[str, str]] = None,
 ) -> httpx.AsyncClient:
     """
     Create an asynchronous HTTP client with the specified configuration.
@@ -74,7 +78,7 @@ def create_async_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    return httpx.AsyncClient(verify=verify, headers=headers or {})
+    return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
 
 
 def create_requests_session(

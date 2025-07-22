@@ -17,7 +17,7 @@ The `~show` meta-command displays the following puppy status variables to your c
 
 ```
 🐶 Puppy Status
- 
+
 puppy_name:     Snoopy
 owner_name:     TheMaster
 model:          gpt-4.1

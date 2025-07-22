@@ -1,6 +1,7 @@
+import os
+
 from fastapi import FastAPI, Form
 from fastapi.middleware.cors import CORSMiddleware
-import os
 
 app = FastAPI()
 

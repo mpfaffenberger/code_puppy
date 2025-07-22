@@ -1,14 +1,14 @@
 import os
 
 from rich.console import Console
-from code_puppy.command_line.motd import print_motd
 
 from code_puppy.command_line.model_picker_completion import (
     load_model_names,
     update_model_in_input,
 )
-from code_puppy.config import get_config_keys
+from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
+from code_puppy.config import get_config_keys
 
 META_COMMANDS_HELP = """
 [bold magenta]Meta Commands Help[/bold magenta]
@@ -75,10 +75,10 @@ def handle_meta_command(command: str, console: Console) -> bool:
     if command.strip().startswith("~show"):
         from code_puppy.command_line.model_picker_completion import get_active_model
         from code_puppy.config import (
+            get_message_history_limit,
             get_owner_name,
             get_puppy_name,
             get_yolo_mode,
-            get_message_history_limit,
         )
 
         puppy_name = get_puppy_name()
@@ -132,8 +132,8 @@ def handle_meta_command(command: str, console: Console) -> bool:
         # Try setting model and show confirmation
         new_input = update_model_in_input(command)
         if new_input is not None:
-            from code_puppy.command_line.model_picker_completion import get_active_model
             from code_puppy.agent import get_code_generation_agent
+            from code_puppy.command_line.model_picker_completion import get_active_model
 
             model = get_active_model()
             # Make sure this is called for the test

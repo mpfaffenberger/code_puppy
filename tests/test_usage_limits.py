@@ -5,8 +5,9 @@ This test file verifies that the custom usage limits are properly configured
 and applied throughout the application.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from pydantic_ai.usage import UsageLimits
 
 import code_puppy.agent as agent_module

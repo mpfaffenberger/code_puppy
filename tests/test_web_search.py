@@ -1,6 +1,7 @@
-from unittest.mock import patch, MagicMock
-from code_puppy.tools.web_search import register_web_search_tools
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+from code_puppy.tools.web_search import register_web_search_tools
 
 
 class DummyAgent:

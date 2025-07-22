@@ -1,7 +1,8 @@
-import pytest
-import os
 import configparser
-from unittest.mock import patch, mock_open, MagicMock
+import os
+from unittest.mock import MagicMock, mock_open, patch
+
+import pytest
 
 from code_puppy import config as cp_config
 

@@ -1,5 +1,5 @@
-from unittest.mock import Mock, patch
 import subprocess
+from unittest.mock import Mock, patch
 
 import requests
 

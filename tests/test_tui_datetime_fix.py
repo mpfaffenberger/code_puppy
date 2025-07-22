@@ -6,8 +6,8 @@ conditions under which the TUI app would encounter the datetime comparison
 error when loading history.
 """
 
-import tempfile
 import json
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch

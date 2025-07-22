@@ -4,11 +4,12 @@ Chat view component for displaying conversation history.
 
 import re
 from typing import List
+
+from rich.console import Group
+from rich.syntax import Syntax
+from rich.text import Text
 from textual.containers import VerticalScroll
 from textual.widgets import Label, Static
-from rich.console import Group
-from rich.text import Text
-from rich.syntax import Syntax
 
 from ..models import ChatMessage, MessageType
 

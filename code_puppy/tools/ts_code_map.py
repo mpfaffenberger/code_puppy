@@ -1,12 +1,13 @@
 import os
-from code_puppy.tools.common import should_ignore_path
+from functools import partial, wraps
 from pathlib import Path
+
+from rich.console import Console
 from rich.text import Text
 from rich.tree import Tree as RichTree
-from rich.console import Console
 from tree_sitter_language_pack import get_parser
 
-from functools import partial, wraps
+from code_puppy.tools.common import should_ignore_path
 
 
 def _f(fmt):  # helper to keep the table tidy

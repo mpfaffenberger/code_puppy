@@ -8,6 +8,7 @@ import jwt
 from rich.console import Console
 
 from code_puppy.config import get_value
+
 from .urls import get_authentication_url
 
 console = Console()
@@ -56,7 +57,7 @@ def is_token_expired(token: str, silent: bool = False) -> bool:
 
     # Calculate time until expiration and show it (only if not silent)
     if not silent:
-        time_until_exp = exp - current_time
+        exp - current_time
         exp_datetime = datetime.fromtimestamp(exp)
         console.print(
             f"[dim]Token expires at: {exp_datetime.strftime('%Y-%m-%d %H:%M:%S')}[/dim]"
