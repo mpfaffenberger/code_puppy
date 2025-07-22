@@ -8,6 +8,13 @@ from pydantic_ai import RunContext
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
+from code_puppy.messaging import (
+    emit_error,
+    emit_warning,
+    emit_success,
+    emit_info,
+    emit_system_message,
+)
 from code_puppy.tools.common import console, should_ignore_path
 
 
@@ -16,20 +23,20 @@ def _list_files(
 ) -> List[Dict[str, Any]]:
     results = []
     directory = os.path.abspath(directory)
-    console.print("\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]")
-    console.print(
+    emit_info("\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]")
+    emit_info(
         f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]"
     )
-    console.print("[dim]" + "-" * 60 + "[/dim]")
+    emit_info("[dim]" + "-" * 60 + "[/dim]")
     if not os.path.exists(directory):
-        console.print(
-            f"[bold red]Error:[/bold red] Directory '{directory}' does not exist"
+        emit_error(
+            f"Directory '{directory}' does not exist"
         )
-        console.print("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_info("[dim]" + "-" * 60 + "[/dim]\n")
         return [{"error": f"Directory '{directory}' does not exist"}]
     if not os.path.isdir(directory):
-        console.print(f"[bold red]Error:[/bold red] '{directory}' is not a directory")
-        console.print("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_error(f"'{directory}' is not a directory")
+        emit_info("[dim]" + "-" * 60 + "[/dim]\n")
         return [{"error": f"'{directory}' is not a directory"}]
     folder_structure = {}
     file_list = []
@@ -119,7 +126,7 @@ def _list_files(
         files = sorted(
             [f for f in results if f["type"] == "file"], key=lambda x: x["path"]
         )
-        console.print(
+        emit_info(
             f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]"
         )
     all_items = sorted(results, key=lambda x: x["path"])
@@ -139,32 +146,32 @@ def _list_files(
                 prefix += "    "
         name = os.path.basename(item["path"]) or item["path"]
         if item["type"] == "directory":
-            console.print(f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]")
+            emit_info(f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]")
         else:
             icon = get_file_icon(item["path"])
             size_str = format_size(item["size"])
-            console.print(
+            emit_info(
                 f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]"
             )
     else:
-        console.print("[yellow]Directory is empty[/yellow]")
+        emit_warning("Directory is empty")
     dir_count = sum(1 for item in results if item["type"] == "directory")
     file_count = sum(1 for item in results if item["type"] == "file")
     total_size = sum(item["size"] for item in results if item["type"] == "file")
-    console.print("\n[bold cyan]Summary:[/bold cyan]")
-    console.print(
+    emit_info("\n[bold cyan]Summary:[/bold cyan]")
+    emit_info(
         f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]"
     )
-    console.print("[dim]" + "-" * 60 + "[/dim]\n")
+    emit_info("[dim]" + "-" * 60 + "[/dim]\n")
     return results
 
 
 def _read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
-    console.print(
+    emit_info(
         f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
     )
-    console.print("[dim]" + "-" * 60 + "[/dim]")
+    emit_info("[dim]" + "-" * 60 + "[/dim]")
     if not os.path.exists(file_path):
         return {"error": f"File '{file_path}' does not exist"}
     if not os.path.isfile(file_path):
@@ -186,10 +193,10 @@ def _grep(
 ) -> List[Dict[str, Any]]:
     matches: List[Dict[str, Any]] = []
     directory = os.path.abspath(directory)
-    console.print(
+    emit_info(
         f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]"
     )
-    console.print("[dim]" + "-" * 60 + "[/dim]")
+    emit_info("[dim]" + "-" * 60 + "[/dim]")
 
     for root, dirs, files in os.walk(directory, topdown=True):
         # Filter out ignored directories
@@ -217,31 +224,31 @@ def _grep(
                             #     f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}"
                             # ) # Optional: for verbose match logging
                             if len(matches) >= 200:
-                                console.print(
-                                    "[yellow]Limit of 200 matches reached. Stopping search.[/yellow]"
+                                emit_warning(
+                                    "Limit of 200 matches reached. Stopping search."
                                 )
                                 return matches
             except FileNotFoundError:
-                console.print(
-                    f"[yellow]File not found (possibly a broken symlink): {file_path}[/yellow]"
+                emit_warning(
+                    f"File not found (possibly a broken symlink): {file_path}"
                 )
                 continue
             except UnicodeDecodeError:
-                console.print(
-                    f"[yellow]Cannot decode file (likely binary): {file_path}[/yellow]"
+                emit_warning(
+                    f"Cannot decode file (likely binary): {file_path}"
                 )
                 continue
             except Exception as e:
-                console.print(f"[red]Error processing file {file_path}: {e}[/red]")
+                emit_error(f"Error processing file {file_path}: {e}")
                 continue
 
     if not matches:
-        console.print(
-            f"[yellow]No matches found for '{search_string}' in {directory}[/yellow]"
+        emit_warning(
+            f"No matches found for '{search_string}' in {directory}"
         )
     else:
-        console.print(
-            f"[green]Found {len(matches)} match(es) for '{search_string}' in {directory}[/green]"
+        emit_success(
+            f"Found {len(matches)} match(es) for '{search_string}' in {directory}"
         )
 
     return matches
@@ -290,7 +297,7 @@ def register_file_operations_tools(agent):
         Returns:
             A string containing the code map.
         """
-        console.print("[bold white on blue] CODE MAP [/bold white on blue]")
+        emit_info("[bold white on blue] CODE MAP [/bold white on blue]")
         from code_puppy.tools.ts_code_map import make_code_map
 
         result = make_code_map(directory, ignore_tests=True)

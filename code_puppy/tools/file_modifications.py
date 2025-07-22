@@ -19,6 +19,13 @@ from typing import Any, Dict, List
 from json_repair import repair_json
 from pydantic_ai import RunContext
 
+from code_puppy.messaging import (
+    emit_error,
+    emit_info,
+    emit_warning,
+    emit_success,
+    emit_system_message,
+)
 from code_puppy.tools.common import _find_best_window, console
 
 
@@ -26,7 +33,7 @@ def _print_diff(diff_text: str) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
     from rich.text import Text
 
-    console.print(
+    emit_info(
         "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]"
     )
     if diff_text and diff_text.strip():
@@ -34,28 +41,28 @@ def _print_diff(diff_text: str) -> None:
             if line.startswith("+") and not line.startswith("+++"):
                 # Use Text object to safely display diff lines that might contain markup
                 text = Text(line, style="bold green")
-                console.print(text, highlight=False)
+                emit_info(text, highlight=False)
             elif line.startswith("-") and not line.startswith("---"):
                 # Use Text object to safely display diff lines that might contain markup
                 text = Text(line, style="bold red")
-                console.print(text, highlight=False)
+                emit_info(text, highlight=False)
             elif line.startswith("@"):
                 # Use Text object to safely display diff lines that might contain markup
                 text = Text(line, style="bold cyan")
-                console.print(text, highlight=False)
+                emit_info(text, highlight=False)
             else:
-                console.print(line, highlight=False)
+                emit_info(line, highlight=False)
     else:
-        console.print("[dim]-- no diff available --[/dim]")
-    console.print(
+        emit_info("[dim]-- no diff available --[/dim]")
+    emit_info(
         "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]"
     )
 
 
 def _log_error(msg: str, exc: Exception | None = None) -> None:
-    console.print(f"[bold red]Error:[/bold red] {msg}")
+    emit_error(f"{msg}")
     if exc is not None:
-        console.print(traceback.format_exc(), highlight=False)
+        emit_error(traceback.format_exc(), highlight=False)
 
 
 def _delete_snippet_from_file(
@@ -136,8 +143,8 @@ def _replace_in_file(
         )
 
     if modified == original:
-        console.print(
-            "[bold yellow]No changes to apply – proposed content is identical.[/bold yellow]"
+        emit_warning(
+            "No changes to apply – proposed content is identical."
         )
         return {
             "success": False,
@@ -216,7 +223,7 @@ def _write_to_file(
 def delete_snippet_from_file(
     context: RunContext, file_path: str, snippet: str
 ) -> Dict[str, Any]:
-    console.log(f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]")
+    emit_info(f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]")
     res = _delete_snippet_from_file(context, file_path, snippet)
     diff = res.get("diff", "")
     if diff:
@@ -227,7 +234,7 @@ def delete_snippet_from_file(
 def write_to_file(
     context: RunContext, path: str, content: str, overwrite: bool
 ) -> Dict[str, Any]:
-    console.log(f"✏️ Writing file [bold blue]{path}[/bold blue]")
+    emit_info(f"✏️ Writing file [bold blue]{path}[/bold blue]")
     res = _write_to_file(context, path, content, overwrite=overwrite)
     diff = res.get("diff", "")
     if diff:
@@ -238,7 +245,7 @@ def write_to_file(
 def replace_in_file(
     context: RunContext, path: str, replacements: List[Dict[str, str]]
 ) -> Dict[str, Any]:
-    console.log(f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]")
+    emit_info(f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]")
     res = _replace_in_file(context, path, replacements)
     diff = res.get("diff", "")
     if diff:
@@ -265,19 +272,19 @@ def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
                 {"delete_snippet": "text to remove"}
     The function auto-detects the payload type and routes to the appropriate internal helper.
     """
-    console.print("\n[bold white on blue] EDIT FILE [/bold white on blue]")
+    emit_info("\n[bold white on blue] EDIT FILE [/bold white on blue]")
     file_path = os.path.abspath(path)
     try:
         parsed_payload = json.loads(diff)
     except json.JSONDecodeError:
         try:
-            console.print(
-                "[bold yellow] JSON Parsing Failed! TRYING TO REPAIR! [/bold yellow]"
+            emit_warning(
+                "JSON Parsing Failed! TRYING TO REPAIR!"
             )
             parsed_payload = json.loads(repair_json(diff))
-            console.print("[bold white on blue] SUCCESS - WOOF! [/bold white on blue]")
+            emit_success("SUCCESS - WOOF!")
         except Exception as e:
-            console.print(f"[bold red] Unable to parse diff [/bold red] -- {str(e)}")
+            emit_error(f"Unable to parse diff -- {str(e)}")
             return {
                 "success": False,
                 "path": file_path,
@@ -307,10 +314,10 @@ def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
                 return write_to_file(context, file_path, content, overwrite)
         return write_to_file(context, file_path, diff, overwrite=False)
     except Exception as e:
-        console.print(
-            "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
+        emit_error(
+            "Unable to route file modification tool call to sub-tool"
         )
-        console.print(str(e))
+        emit_error(str(e))
         return {
             "success": False,
             "path": file_path,
@@ -320,7 +327,7 @@ def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
 
 
 def _delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
-    console.log(f"🗑️ Deleting file [bold red]{file_path}[/bold red]")
+    emit_info(f"🗑️ Deleting file [bold red]{file_path}[/bold red]")
     file_path = os.path.abspath(file_path)
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):

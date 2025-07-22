@@ -1,5 +1,6 @@
 import subprocess
 import time
+import traceback
 from typing import Any, Dict
 
 from pydantic_ai import RunContext
@@ -8,6 +9,15 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy.globals import is_tui_mode
+from code_puppy.messaging import (
+    emit_error,
+    emit_warning,
+    emit_success,
+    emit_info,
+    emit_system_message,
+    emit_command_output,
+    emit_tool_output
+)
 from code_puppy.tools.common import console
 
 # Flag to indicate if we need user input - this will be checked by interactive mode
@@ -45,7 +55,7 @@ def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> Dict[str, Any]:
     if not command or not command.strip():
-        console.print("[bold red]Error:[/bold red] Command cannot be empty")
+        emit_error("Command cannot be empty")
         return {"error": "Command cannot be empty"}
 
     from code_puppy.config import get_yolo_mode
@@ -54,10 +64,10 @@ def run_shell_command(
     if not yolo_mode:
         # Show command info before asking for confirmation
         if not is_tui_mode():
-            console.print("[dim]" + "-" * 60 + "[/dim]")
-            console.print(f"[bold green]$ {command}[/bold green]")
+            emit_info("[dim]" + "-" * 60 + "[/dim]")
+            emit_command_output(f"[bold green]$ {command}[/bold green]")
         if cwd:
-            console.print(f"[dim]Working directory: {cwd}[/dim]")
+            emit_info(f"[dim]Working directory: {cwd}[/dim]")
         import sys
 
         # Import here to minimize dependencies
@@ -101,7 +111,7 @@ def run_shell_command(
             confirmed = user_input.strip().lower() in {"yes", "y"}
 
         except (KeyboardInterrupt, EOFError):
-            console.print("\nCancelled by user")
+            emit_warning("\nCancelled by user")
             confirmed = False
         finally:
             # Clear the flag regardless of the outcome
@@ -109,9 +119,7 @@ def run_shell_command(
             set_awaiting_user_input(False)
 
         if not confirmed:
-            console.print(
-                "[bold yellow]Command execution canceled by user.[/bold yellow]"
-            )
+            emit_warning("Command execution canceled by user.")
             # No need to resume spinner if command was canceled
             return {
                 "success": False,
@@ -123,10 +131,10 @@ def run_shell_command(
     else:
         # In yolo mode, show command info before executing
         if not is_tui_mode():
-            console.print("[dim]" + "-" * 60 + "[/dim]")
-            console.print(f"[bold green]$ {command}[/bold green]")
+            emit_info("[dim]" + "-" * 60 + "[/dim]")
+            emit_command_output(f"[bold green]$ {command}[/bold green]")
         if cwd:
-            console.print(f"[dim]Working directory: {cwd}[/dim]")
+            emit_info(f"[dim]Working directory: {cwd}[/dim]")
 
     try:
         start_time = time.time()
@@ -143,8 +151,8 @@ def run_shell_command(
             exit_code = process.returncode
             execution_time = time.time() - start_time
             if stdout.strip():
-                console.print(f"[bold green]$ {command}[/bold green]")
-                console.print(
+                emit_command_output(f"[bold green]$ {command}[/bold green]")
+                emit_command_output(
                     Syntax(
                         stdout.strip(),
                         "bash",
@@ -154,8 +162,8 @@ def run_shell_command(
                 )
 
             if stderr.strip():
-                console.print(f"[bold green]$ {command}[/bold green]")
-                console.print(
+                emit_command_output(f"[bold green]$ {command}[/bold green]")
+                emit_command_output(
                     Syntax(
                         stderr.strip(),
                         "bash",
@@ -169,7 +177,7 @@ def run_shell_command(
                 error_msg.append("✗ Command failed with exit code ", style="bold red")
                 error_msg.append(str(exit_code))
                 error_msg.append(f" (took {execution_time:.2f}s)", style="dim")
-                console.print(error_msg)
+                emit_error(error_msg)
             return {
                 "success": exit_code == 0,
                 "command": command,
@@ -184,11 +192,11 @@ def run_shell_command(
             stdout, stderr = process.communicate()
             execution_time = time.time() - start_time
             if stdout.strip():
-                console.print(f"[bold green]$ {command}[/bold green]")
-                console.print(
+                emit_command_output(f"[bold green]$ {command}[/bold green]")
+                emit_command_output(
                     "[bold white]STDOUT (incomplete due to timeout):[/bold white]"
                 )
-                console.print(
+                emit_command_output(
                     Syntax(
                         stdout.strip(),
                         "bash",
@@ -197,8 +205,8 @@ def run_shell_command(
                     )
                 )
             if stderr.strip():
-                console.print(f"[bold green]$ {command}[/bold green]")
-                console.print(
+                emit_command_output(f"[bold green]$ {command}[/bold green]")
+                emit_command_output(
                     Syntax(
                         stderr.strip(),
                         "bash",
@@ -211,8 +219,8 @@ def run_shell_command(
             timeout_msg.append("⏱ Command timed out after ", style="bold red")
             timeout_msg.append(f"{timeout} seconds", style="bold red")
             timeout_msg.append(f" (ran for {execution_time:.2f}s)", style="dim")
-            console.print(timeout_msg)
-            console.print("[dim]" + "-" * 60 + "[/dim]\n")
+            emit_error(timeout_msg)
+            emit_info("[dim]" + "-" * 60 + "[/dim]\n")
             return {
                 "success": False,
                 "command": command,
@@ -224,8 +232,8 @@ def run_shell_command(
                 "error": f"Command timed out after {timeout} seconds",
             }
     except Exception as e:
-        console.print_exception(show_locals=True)
-        console.print("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_error(traceback.format_exc())
+        emit_info("[dim]" + "-" * 60 + "[/dim]\n")
         # Ensure stdout and stderr are always defined
         if "stdout" not in locals():
             stdout = None

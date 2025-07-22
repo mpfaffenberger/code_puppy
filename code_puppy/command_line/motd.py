@@ -5,6 +5,8 @@ Stores seen versions in ~/.puppy_cfg/motd.txt.
 
 import os
 
+from code_puppy.messaging import emit_info
+
 MOTD_VERSION = "20240621"
 MOTD_MESSAGE = """
 June 21th, 2025 - 🚀 Woof-tastic news! Code Puppy now supports **MCP (Model Context Protocol) servers** for EXTREME PUPPY POWER!!!!.
@@ -49,9 +51,19 @@ def mark_motd_seen(version: str):
         f.write(f"{version}\n")
 
 
-def print_motd(console, force: bool = False) -> bool:
+def print_motd(console=None, force: bool = False) -> bool:
+    """
+    Print the message of the day to the user.
+    
+    Args:
+        console: Optional console object (for backward compatibility)
+        force: Whether to force printing even if the MOTD has been seen
+        
+    Returns:
+        True if the MOTD was printed, False otherwise
+    """
     if force or not has_seen_motd(MOTD_VERSION):
-        console.print(MOTD_MESSAGE)
+        emit_info(MOTD_MESSAGE)
         mark_motd_seen(MOTD_VERSION)
         return True
     return False
