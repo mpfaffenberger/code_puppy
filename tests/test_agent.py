@@ -31,7 +31,8 @@ def test_reload_code_generation_agent_loads_model(monkeypatch):
     monkeypatch.setattr(agent_module, "register_all_tools", lambda agent: None)
     monkeypatch.setattr(agent_module, "get_system_prompt", lambda: "SYS_PROMPT")
     monkeypatch.setattr(agent_module, "PUPPY_RULES", None)
-    monkeypatch.setattr(agent_module, "console", MagicMock())
+    monkeypatch.setattr(agent_module, "emit_info", MagicMock())
+    monkeypatch.setattr(agent_module, "emit_system_message", MagicMock())
     monkeypatch.setattr(
         agent_module, "session_memory", lambda: MagicMock(log_task=MagicMock())
     )
@@ -54,7 +55,8 @@ def test_reload_code_generation_agent_appends_rules(monkeypatch):
     monkeypatch.setattr(agent_module, "register_all_tools", lambda agent: None)
     monkeypatch.setattr(agent_module, "get_system_prompt", lambda: "SYS_PROMPT")
     monkeypatch.setattr(agent_module, "PUPPY_RULES", "RULES")
-    monkeypatch.setattr(agent_module, "console", MagicMock())
+    monkeypatch.setattr(agent_module, "emit_info", MagicMock())
+    monkeypatch.setattr(agent_module, "emit_system_message", MagicMock())
     monkeypatch.setattr(
         agent_module, "session_memory", lambda: MagicMock(log_task=MagicMock())
     )
@@ -78,7 +80,8 @@ def test_reload_code_generation_agent_logs_exception(monkeypatch):
     monkeypatch.setattr(agent_module, "register_all_tools", lambda agent: None)
     monkeypatch.setattr(agent_module, "get_system_prompt", lambda: "SYS_PROMPT")
     monkeypatch.setattr(agent_module, "PUPPY_RULES", None)
-    monkeypatch.setattr(agent_module, "console", MagicMock())
+    monkeypatch.setattr(agent_module, "emit_info", MagicMock())
+    monkeypatch.setattr(agent_module, "emit_system_message", MagicMock())
     # session_memory().log_task will raise
     monkeypatch.setattr(
         agent_module,
