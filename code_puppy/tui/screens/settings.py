@@ -4,11 +4,12 @@ Settings modal screen.
 
 import json
 from pathlib import Path
-from textual.screen import ModalScreen
-from textual.containers import Container
-from textual.widgets import Static, Button, Input, Select
-from textual.app import ComposeResult
+
 from textual import on
+from textual.app import ComposeResult
+from textual.containers import Container
+from textual.screen import ModalScreen
+from textual.widgets import Button, Input, Select, Static
 
 
 class SettingsScreen(ModalScreen):
@@ -103,11 +104,11 @@ class SettingsScreen(ModalScreen):
     def on_mount(self) -> None:
         """Load current settings when the screen mounts."""
         from code_puppy.config import (
-            get_puppy_name,
-            get_owner_name,
-            get_yolo_mode,
             get_message_history_limit,
             get_model_name,
+            get_owner_name,
+            get_puppy_name,
+            get_yolo_mode,
         )
 
         # Load current values

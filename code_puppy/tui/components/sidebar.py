@@ -2,9 +2,9 @@
 Sidebar component for session history.
 """
 
-from textual.containers import Container
-from textual.widgets import Static, ListView
 from textual.app import ComposeResult
+from textual.containers import Container
+from textual.widgets import ListView, Static
 
 
 class Sidebar(Container):

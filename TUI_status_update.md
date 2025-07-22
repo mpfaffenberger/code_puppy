@@ -11,7 +11,7 @@ The **Code Puppy Textual UI upgrade** has successfully completed **Phase 1** and
 - **Rich/prompt_toolkit Usage Analysis**: Detailed mapping of current dependencies and usage
 - **Architecture Design**: Complete UI layout and component architecture design
 
-### Phase 2: Core Infrastructure  
+### Phase 2: Core Infrastructure
 - **Dependency Management**: Added Textual 3.7.1 to project dependencies
 - **TUI Module**: Created comprehensive `textual_ui.py` with full component architecture
 - **CLI Integration**: Updated main.py with dual-mode support (`--interactive` vs `--tui`)
@@ -29,7 +29,7 @@ The **Code Puppy Textual UI upgrade** has successfully completed **Phase 1** and
 # Legacy CLI mode (existing functionality)
 code-puppy --interactive
 
-# Modern TUI mode (new Textual interface) 
+# Modern TUI mode (new Textual interface)
 code-puppy --tui
 
 # Single command execution (unchanged)
@@ -66,7 +66,7 @@ The TUI is now ready for basic testing and user feedback. Users can:
 
 **Phase 4: Advanced Features** (Medium Priority)
 - Enhanced model selection UI
-- Session memory visualization  
+- Session memory visualization
 - Advanced meta-command handling
 - Real-time status indicators
 - File browser integration

@@ -22,10 +22,10 @@ import pytest
 from rich.console import Console
 
 # ── System-under-test --------------------------------------------------
-from code_puppy.tools.ts_code_map import (
+from code_puppy.tools.ts_code_map import (  # builds Rich tree from a file path
     LANGS,
     map_code_file,
-)  # builds Rich tree from a file path
+)
 
 # ----------------------------------------------------------------------
 # 1.  Minimal sample snippets for each **primary** extension. Aliases
@@ -134,8 +134,9 @@ def test_make_code_map_handles_path_traversal_gracefully(tmp_path: Path, monkeyp
     This test verifies the fix for the "not in subpath" error that occurs when
     os.walk encounters paths that can't be computed relative to the base directory.
     """
-    from code_puppy.tools.ts_code_map import make_code_map
     import os
+
+    from code_puppy.tools.ts_code_map import make_code_map
 
     # Create a test directory structure
     test_dir = tmp_path / "test_project"

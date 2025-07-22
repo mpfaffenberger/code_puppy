@@ -1,12 +1,12 @@
 import os
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import MagicMock, mock_open, patch
 
 from code_puppy.tools.file_operations import (
-    should_ignore_path,
+    grep,
     list_files,
     read_file,
-    grep,
     register_file_operations_tools,
+    should_ignore_path,
 )
 
 

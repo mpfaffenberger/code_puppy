@@ -16,12 +16,12 @@ Setup is easy:
 2. Fire up something like Context7, or any MCP server you want.
 3. Ask me to search docs, analyze, and more.
 
-The following example will let code_puppy use Context7! 
-Example config (+ more details in the README): 
+The following example will let code_puppy use Context7!
+Example config (+ more details in the README):
 
 {
   "mcp_servers": {
-     "context7": { 
+     "context7": {
         "url": "https://mcp.context7.com/sse"
      }
   }

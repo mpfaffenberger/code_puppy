@@ -3,10 +3,11 @@ Status bar component for the TUI.
 """
 
 import os
-from textual.widgets import Static
-from textual.reactive import reactive
-from textual.app import ComposeResult
+
 from rich.text import Text
+from textual.app import ComposeResult
+from textual.reactive import reactive
+from textual.widgets import Static
 
 
 class StatusBar(Static):

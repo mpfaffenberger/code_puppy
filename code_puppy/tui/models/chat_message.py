@@ -4,7 +4,7 @@ Chat message data model.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any, Dict
 
 from .enums import MessageType
 

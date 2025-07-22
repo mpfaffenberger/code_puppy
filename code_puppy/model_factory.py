@@ -1,13 +1,10 @@
 import json
+import logging
 import os
 from typing import Any, Dict
-import logging
 
 import httpx
 from anthropic import AsyncAnthropic
-
-from .http_utils import create_client, create_async_client
-from .urls import get_models_url
 from openai import AsyncAzureOpenAI  # For Azure OpenAI client
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
@@ -15,6 +12,9 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+
+from .http_utils import create_async_client, create_client
+from .urls import get_models_url
 
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
@@ -69,7 +69,6 @@ class ModelFactory:
             config_path in ModelFactory._config_cache
             and ModelFactory._cache_initialized.get(config_path, False)
         ):
-
             return ModelFactory._config_cache[config_path]
 
         remote_url = get_models_url()
@@ -78,7 +77,6 @@ class ModelFactory:
         # Try to fetch the latest config from remote
         remote_config = None
         try:
-
             logger.info(f"Fetching latest model config from {remote_url}")
             with create_client() as client:
                 response = client.get(remote_url)
@@ -86,7 +84,6 @@ class ModelFactory:
                 remote_config = response.json()["config"]
                 logger.info("Successfully fetched remote model config")
         except httpx.HTTPError as e:
-
             logger.warning(f"Failed to fetch remote config: {e}")
 
         # Try to load existing local config

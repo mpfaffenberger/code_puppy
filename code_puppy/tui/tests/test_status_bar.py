@@ -1,4 +1,5 @@
 import unittest
+
 from code_puppy.tui.components.status_bar import StatusBar
 
 

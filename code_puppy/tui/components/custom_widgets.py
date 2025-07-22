@@ -2,9 +2,9 @@
 Custom widget components for the TUI.
 """
 
-from textual.widgets import TextArea
 from textual.events import Key
 from textual.message import Message
+from textual.widgets import TextArea
 
 
 class CustomTextArea(TextArea):

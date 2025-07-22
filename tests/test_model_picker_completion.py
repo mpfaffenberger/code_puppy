@@ -1,5 +1,7 @@
 from unittest.mock import patch
+
 from prompt_toolkit.document import Document
+
 import code_puppy.command_line.model_picker_completion as mpc
 from code_puppy.command_line.model_picker_completion import ModelNameCompleter
 

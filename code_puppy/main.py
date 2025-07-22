@@ -5,6 +5,8 @@ import socket
 import subprocess
 import sys
 
+# HTTP server imports
+import uvicorn
 from dotenv import load_dotenv
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
@@ -14,8 +16,8 @@ from rich.text import Text
 from code_puppy import __version__
 from code_puppy.agent import (
     get_code_generation_agent,
-    session_memory,
     get_custom_usage_limits,
+    session_memory,
 )
 from code_puppy.auth import authenticate_puppy, get_puppy_token
 from code_puppy.command_line.prompt_toolkit_completion import (
@@ -23,15 +25,12 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_prompt_with_active_model,
 )
 from code_puppy.config import ensure_config_exists
-
-# HTTP server imports
-import uvicorn
 from code_puppy.http_server import app as http_app
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
-from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 from code_puppy.urls import get_setup_url
+from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 
 # from code_puppy.tools import *  # noqa: F403
 
@@ -112,7 +111,7 @@ async def main():
         server = uvicorn.Server(config)
         await server.serve()
 
-    http_server_task = asyncio.create_task(run_http_server())
+    asyncio.create_task(run_http_server())
 
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()

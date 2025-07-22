@@ -5,10 +5,11 @@ This module tests the functionality that allows users to bypass automatic
 version checking and updating by setting the NO_VERSION_UPDATE environment variable.
 """
 
-import os
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
 import asyncio
+import os
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from code_puppy.main import main
 

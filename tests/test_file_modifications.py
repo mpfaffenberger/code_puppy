@@ -1,6 +1,7 @@
 import json
-from code_puppy.tools import file_modifications
 from unittest.mock import MagicMock, mock_open, patch
+
+from code_puppy.tools import file_modifications
 
 
 def test_write_to_file_new(tmp_path):
@@ -489,8 +490,8 @@ class TestEditFileTool:
         assert result
 
     def test_edit_file_handles_unparseable_json(self):
-        from tempfile import mkdtemp
         import pathlib
+        from tempfile import mkdtemp
 
         tmp_path = pathlib.Path(mkdtemp())
         context = DummyContext()

@@ -9,7 +9,7 @@ This document outlines the Textual UI architecture design for Code Puppy, based 
 ### Top-Level Application Structure
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Header Bar (Status, Model, Settings)                       │ 
+│ Header Bar (Status, Model, Settings)                       │
 ├─────────────────┬───────────────────────────────────────────┤
 │ Sidebar         │ Main Chat Area                           │
 │ - History       │ ┌─────────────────────────────────────┐   │
@@ -33,7 +33,7 @@ This document outlines the Textual UI architecture design for Code Puppy, based 
 
 ### 1. CodePuppyApp (Main Application)
 - **Base**: `textual.app.App`
-- **Responsibilities**: 
+- **Responsibilities**:
   - Overall application state management
   - Integration with existing agent system
   - Key binding coordination
@@ -120,12 +120,12 @@ class CodePuppyApp(App):
         super().__init__()
         self.agent = get_code_generation_agent()
         self.session_memory = session_memory()
-        
+
     async def process_user_input(self, message: str):
         # Handle meta-commands
         if message.startswith('~'):
             return await self.handle_meta_command(message)
-        
+
         # Process with agent
         response = await self.agent.run(message, message_history=self.message_history)
         return response
@@ -143,7 +143,7 @@ class TextualCompleter:
         self.file_completer = FilePathCompleter()
         self.model_completer = ModelNameCompleter()
         self.config_completer = SetCompleter()
-    
+
     async def get_completions(self, text: str, cursor_pos: int):
         # Context-aware completion based on current input
         if '@' in text:

@@ -2,9 +2,9 @@
 Input area component for message input.
 """
 
-from textual.containers import Container
-from textual.widgets import Static, ProgressBar
 from textual.app import ComposeResult
+from textual.containers import Container
+from textual.widgets import ProgressBar, Static
 
 from .custom_widgets import CustomTextArea
 

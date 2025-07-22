@@ -1,6 +1,5 @@
-import os
 import fnmatch
-
+import os
 from typing import Optional, Tuple
 
 from rapidfuzz.distance import JaroWinkler

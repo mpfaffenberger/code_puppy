@@ -1,6 +1,6 @@
 import configparser
-import os
 import json
+import os
 import pathlib
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")

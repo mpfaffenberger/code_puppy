@@ -6,7 +6,7 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 
-from code_puppy.config import get_model_name, set_model_name, CONFIG_DIR
+from code_puppy.config import CONFIG_DIR, get_model_name, set_model_name
 from code_puppy.model_factory import ModelFactory
 
 

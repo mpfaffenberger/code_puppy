@@ -4,7 +4,7 @@ This document outlines the comprehensive plan for upgrading Code Puppy's termina
 
 ## Phase 1: Research & Planning (High Priority)
 - [x] Research current UI/UX patterns in code-puppy's interactive mode
-- [x] Analyze existing Rich and prompt_toolkit usage throughout codebase  
+- [x] Analyze existing Rich and prompt_toolkit usage throughout codebase
 - [x] Design Textual UI layout and component architecture
 
 ## Phase 2: Core Infrastructure (High Priority)
