@@ -7,10 +7,10 @@ from pydantic_ai.mcp import MCPServerSSE
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
+from code_puppy.messaging import emit_info, emit_system_message
 from code_puppy.model_factory import ModelFactory
 from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
-from code_puppy.tools.common import console
 
 # Puppy rules loader
 PUPPY_RULES_PATH = Path(".puppy_rules")
@@ -66,7 +66,7 @@ def _load_mcp_servers():
     for name, conf in configs.items():
         url = conf.get("url")
         if url:
-            console.print(f"Registering MCP Server - {url}")
+            emit_system_message(f"Registering MCP Server - {url}")
             servers.append(MCPServerSSE(url))
     return servers
 
@@ -80,7 +80,7 @@ def reload_code_generation_agent():
     clear_model_cache()
 
     model_name = get_model_name()
-    console.print(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
+    emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
     from code_puppy.config import CONFIG_DIR
 
     models_config_path = os.path.join(CONFIG_DIR, "models.json")
