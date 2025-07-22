@@ -1,45 +1,33 @@
 {
   "claude-4-0-sonnet": {
-    "type": "custom_anthropic",
-    "name": "claude-sonnet-4",
     "custom_endpoint": {
-      "url": "https://puppy-backend.dev.walmart.com/anthropic",
       "api_key": "$puppy_token",
-      "headers": {
-	      "X-Api-Key": "$puppy_token"
-      }
-    }
-  },
-  "o3-custom": {
-    "type": "custom_openai",
-    "name": "o3",
-    "custom_endpoint": {
-      "url": "https://puppy-backend.dev.walmart.com",
       "headers": {
         "X-Api-Key": "$puppy_token"
-      }
-    }
+      },
+      "url": "https://puppy-backend.stg.walmart.com/anthropic"
+    },
+    "name": "claude-sonnet-4",
+    "type": "custom_anthropic"
   },
   "gpt-4.1-custom": {
-    "type": "custom_openai",
+    "custom_endpoint": {
+      "headers": {
+        "X-Api-Key": "$puppy_token"
+      },
+      "url": "https://puppy-backend.stg.walmart.com"
+    },
     "name": "gpt-4.1",
-    "custom_endpoint": {
-      "url": "https://puppy-backend.dev.walmart.com",
-      "headers": {
-         "X-Api-Key": "$puppy_token"
-      }
-    }
+    "type": "custom_openai"
   },
-  "claude-3-7-sonnet": {
-    "type": "custom_anthropic",
-    "name": "claude-3-7-sonnet",
-    "api_key": "$puppy_token",
+  "o3-custom": {
     "custom_endpoint": {
-      "url": "https://puppy-backend.dev.walmart.com/anthropic",
-      "api_key": "$puppy_token",
       "headers": {
-         "X-Api-Key": "$puppy_token"
-      }
-    }
+        "X-Api-Key": "$puppy_token"
+      },
+      "url": "https://puppy-backend.stg.walmart.com"
+    },
+    "name": "o3",
+    "type": "custom_openai"
   }
 }

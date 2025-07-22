@@ -372,10 +372,13 @@ class TestSetConfigValue:
 
 class TestModelName:
     @patch("code_puppy.config.get_value")
-    def test_get_model_name_exists(self, mock_get_value):
+    @patch("code_puppy.config._validate_model_exists")
+    def test_get_model_name_exists(self, mock_validate_model_exists, mock_get_value):
         mock_get_value.return_value = "test_model_from_config"
+        mock_validate_model_exists.return_value = True
         assert cp_config.get_model_name() == "test_model_from_config"
         mock_get_value.assert_called_once_with("model")
+        mock_validate_model_exists.assert_called_once_with("test_model_from_config")
 
     @patch("code_puppy.config.get_value")
     def test_get_model_name_not_exists_uses_default(self, mock_get_value):
