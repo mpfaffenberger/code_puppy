@@ -1,7 +1,7 @@
 import subprocess
 from unittest.mock import Mock, patch
 
-import requests
+import httpx
 
 from code_puppy.version_checker import (
     fetch_latest_version,
@@ -26,29 +26,45 @@ def test_fetch_latest_version_success():
         "message": "Latest release info fetched successfully! 🐶",
         "cached": False,
     }
-    with patch("requests.get", return_value=mock_response) as mock_get:
+    with patch("code_puppy.version_checker.create_client") as mock_create_client:
+        mock_client = Mock()
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=None)
+        mock_create_client.return_value = mock_client
+
         version = fetch_latest_version("some-pkg")
         assert (
             version == "0.0.78"
         )  # fetch_latest_version normalizes by stripping 'v' prefix
-        # Verify we're calling the right endpoint with SSL verification
-        mock_get.assert_called_once_with(
-            "https://puppy.stg.walmart.com/api/releases/latest", timeout=5, verify=True
+        # Verify we're calling the right endpoint
+        mock_client.get.assert_called_once_with(
+            "https://puppy.stg.walmart.com/api/releases/latest"
         )
 
 
 def test_fetch_latest_version_request_error():
     """Test handling of network/request errors."""
-    with patch("requests.get", side_effect=requests.RequestException("Network error")):
+    with patch("code_puppy.version_checker.create_client") as mock_create_client:
+        mock_client = Mock()
+        mock_client.get.side_effect = httpx.RequestError("Network error")
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=None)
+        mock_create_client.return_value = mock_client
+
         version = fetch_latest_version("does-not-matter")
         assert version is None
 
 
 def test_fetch_latest_version_timeout():
     """Test handling of request timeout."""
-    with patch(
-        "requests.get", side_effect=requests.exceptions.Timeout("Request timed out")
-    ):
+    with patch("code_puppy.version_checker.create_client") as mock_create_client:
+        mock_client = Mock()
+        mock_client.get.side_effect = httpx.TimeoutException("Request timed out")
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=None)
+        mock_create_client.return_value = mock_client
+
         version = fetch_latest_version()
         assert version is None
 
@@ -62,7 +78,13 @@ def test_fetch_latest_version_api_failure():
         "message": "API is down for maintenance",
         "data": None,
     }
-    with patch("requests.get", return_value=mock_response):
+    with patch("code_puppy.version_checker.create_client") as mock_create_client:
+        mock_client = Mock()
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=None)
+        mock_create_client.return_value = mock_client
+
         version = fetch_latest_version()
         assert version is None
 
@@ -79,7 +101,13 @@ def test_fetch_latest_version_missing_version():
         },
         "message": "Success but no version",
     }
-    with patch("requests.get", return_value=mock_response):
+    with patch("code_puppy.version_checker.create_client") as mock_create_client:
+        mock_client = Mock()
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=None)
+        mock_create_client.return_value = mock_client
+
         version = fetch_latest_version()
         assert version is None
 
@@ -89,7 +117,13 @@ def test_fetch_latest_version_malformed_json():
     mock_response = Mock()
     mock_response.raise_for_status.return_value = None
     mock_response.json.side_effect = ValueError("Invalid JSON")
-    with patch("requests.get", return_value=mock_response):
+    with patch("code_puppy.version_checker.create_client") as mock_create_client:
+        mock_client = Mock()
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = Mock(return_value=mock_client)
+        mock_client.__exit__ = Mock(return_value=None)
+        mock_create_client.return_value = mock_client
+
         version = fetch_latest_version()
         assert version is None
 

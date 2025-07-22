@@ -483,7 +483,7 @@ class TestNoVersionUpdateIntegration:
         assert no_version_update is True
 
         # The version checker functions should still work if called directly
-        with patch("requests.get") as mock_get:
+        with patch("code_puppy.version_checker.create_client") as mock_create_client:
             mock_response = Mock()
             mock_response.raise_for_status.return_value = None
             mock_response.json.return_value = {
@@ -491,7 +491,11 @@ class TestNoVersionUpdateIntegration:
                 "data": {"version": "v0.0.91"},
                 "message": "Success",
             }
-            mock_get.return_value = mock_response
+            mock_client = Mock()
+            mock_client.get.return_value = mock_response
+            mock_client.__enter__ = Mock(return_value=mock_client)
+            mock_client.__exit__ = Mock(return_value=None)
+            mock_create_client.return_value = mock_client
 
             # These functions should still work independently
             latest_version = fetch_latest_version("code-puppy")
