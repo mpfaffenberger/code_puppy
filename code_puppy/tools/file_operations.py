@@ -13,9 +13,8 @@ from code_puppy.messaging import (
     emit_warning,
     emit_success,
     emit_info,
-    emit_system_message,
 )
-from code_puppy.tools.common import console, should_ignore_path
+from code_puppy.tools.common import should_ignore_path
 
 
 def _list_files(

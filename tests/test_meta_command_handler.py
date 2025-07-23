@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from code_puppy.command_line.meta_command_handler import handle_meta_command
 

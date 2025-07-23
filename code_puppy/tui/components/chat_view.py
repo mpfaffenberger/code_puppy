@@ -156,8 +156,7 @@ class ChatView(VerticalScroll):
                 content = f"{prefix}{message.content}"
                 message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.SYSTEM:
-            prefix = "System: "
-            content = f"{prefix}{message.content}"
+            content = f"{message.content}"
             # Heuristic: if message looks like a command with markup tags, treat as markup
             if (
                 "[" in message.content

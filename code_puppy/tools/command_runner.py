@@ -1,4 +1,5 @@
 import subprocess
+import threading
 import time
 import traceback
 from typing import Any, Dict
@@ -12,17 +13,16 @@ from code_puppy.globals import is_tui_mode
 from code_puppy.messaging import (
     emit_error,
     emit_warning,
-    emit_success,
     emit_info,
-    emit_system_message,
     emit_command_output,
-    emit_tool_output
 )
-from code_puppy.tools.common import console
 
 # Flag to indicate if we need user input - this will be checked by interactive mode
 # to determine if spinner should be shown
 _AWAITING_USER_INPUT = False
+
+# Lock to ensure only one command can request confirmation at a time
+_CONFIRMATION_LOCK = threading.Lock()
 
 
 # Function to check if user input is awaited
@@ -54,6 +54,8 @@ def set_awaiting_user_input(awaiting=True):
 def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> Dict[str, Any]:
+    # Flag to track if we've already displayed the command
+    command_displayed = False
     if not command or not command.strip():
         emit_error("Command cannot be empty")
         return {"error": "Command cannot be empty"}
@@ -61,11 +63,28 @@ def run_shell_command(
     from code_puppy.config import get_yolo_mode
 
     yolo_mode = get_yolo_mode()
+
+    # Flag to track if we acquired the lock (for thread safety)
+    confirmation_lock_acquired = False
+
     if not yolo_mode:
+        # Acquire lock to ensure only one command can request confirmation at a time
+        confirmation_lock_acquired = _CONFIRMATION_LOCK.acquire(blocking=False)
+        if not confirmation_lock_acquired:
+            # emit_warning("Another command is currently awaiting confirmation. Please respond to that first.")
+            return {
+                "success": False,
+                "command": command,
+                "error": "Another command is currently awaiting confirmation",
+            }
         # Show command info before asking for confirmation
         if not is_tui_mode():
-            emit_info("[dim]" + "-" * 60 + "[/dim]")
-            emit_command_output(f"[bold green]$ {command}[/bold green]")
+            emit_info("\n[dim]" + "-" * 60 + "[/dim]")
+            emit_info(f"[bold green]$ {command}[/bold green]")
+            emit_info("")
+
+        command_displayed = True
+
         if cwd:
             emit_info(f"[dim]Working directory: {cwd}[/dim]")
         import sys
@@ -118,21 +137,31 @@ def run_shell_command(
             # But wait until *after* we've processed the input
             set_awaiting_user_input(False)
 
+            # Release the lock only if we acquired it
+            if confirmation_lock_acquired:
+                _CONFIRMATION_LOCK.release()
+
         if not confirmed:
             emit_warning("Command execution canceled by user.")
             # No need to resume spinner if command was canceled
-            return {
+            result = {
                 "success": False,
                 "command": command,
                 "error": "User canceled command execution",
             }
+            # Lock release will happen in the finally block
+            return result
 
         # Spinner will be automatically resumed when set_awaiting_user_input(False) was called
     else:
         # In yolo mode, show command info before executing
         if not is_tui_mode():
-            emit_info("[dim]" + "-" * 60 + "[/dim]")
-            emit_command_output(f"[bold green]$ {command}[/bold green]")
+            emit_info("\n[dim]" + "-" * 60 + "[/dim]")
+            emit_info(f"[bold green]$ {command}[/bold green]")
+            emit_info("")
+
+        command_displayed = True
+
         if cwd:
             emit_info(f"[dim]Working directory: {cwd}[/dim]")
 
@@ -151,7 +180,7 @@ def run_shell_command(
             exit_code = process.returncode
             execution_time = time.time() - start_time
             if stdout.strip():
-                emit_command_output(f"[bold green]$ {command}[/bold green]")
+                emit_info(f"[bold green]$ {command}[/bold green]")
                 emit_command_output(
                     Syntax(
                         stdout.strip(),
@@ -162,7 +191,7 @@ def run_shell_command(
                 )
 
             if stderr.strip():
-                emit_command_output(f"[bold green]$ {command}[/bold green]")
+                emit_info(f"[bold green]$ {command}[/bold green]")
                 emit_command_output(
                     Syntax(
                         stderr.strip(),
@@ -192,7 +221,7 @@ def run_shell_command(
             stdout, stderr = process.communicate()
             execution_time = time.time() - start_time
             if stdout.strip():
-                emit_command_output(f"[bold green]$ {command}[/bold green]")
+                emit_info(f"[bold green]$ {command}[/bold green]")
                 emit_command_output(
                     "[bold white]STDOUT (incomplete due to timeout):[/bold white]"
                 )
@@ -205,7 +234,7 @@ def run_shell_command(
                     )
                 )
             if stderr.strip():
-                emit_command_output(f"[bold green]$ {command}[/bold green]")
+                emit_info(f"[bold green]$ {command}[/bold green]")
                 emit_command_output(
                     Syntax(
                         stderr.strip(),

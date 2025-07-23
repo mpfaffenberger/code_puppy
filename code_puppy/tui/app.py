@@ -315,7 +315,7 @@ class CodePuppyTUI(App):
 
                     try:
                         # Call the existing meta command handler
-                        result = handle_meta_command(message.strip(), rich_console)
+                        result = handle_meta_command(message.strip())
                         if result:  # Command was handled
                             output = captured_output.getvalue()
                             if output.strip():

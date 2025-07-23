@@ -12,7 +12,6 @@ from code_puppy.messaging import (
     emit_warning,
     emit_success,
     emit_info,
-    emit_system_message,
 )
 
 META_COMMANDS_HELP = """

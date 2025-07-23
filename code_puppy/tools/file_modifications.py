@@ -24,9 +24,8 @@ from code_puppy.messaging import (
     emit_info,
     emit_warning,
     emit_success,
-    emit_system_message,
 )
-from code_puppy.tools.common import _find_best_window, console
+from code_puppy.tools.common import _find_best_window
 
 
 def _print_diff(diff_text: str) -> None:

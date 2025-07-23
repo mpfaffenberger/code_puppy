@@ -44,13 +44,13 @@ from code_puppy.version_checker import fetch_latest_version, versions_are_equal
 def display_disclaimer():
     """Display a disclaimer message about data sensitivity and usage guidelines."""
     from code_puppy.messaging import emit_system_message
-    
+
     message = "\n[bold yellow]DISCLAIMER : Be a responsible Puppy Owner[/bold yellow]"
     emit_system_message(message)
-    
+
     message = "[yellow]Prompt responsibly: Only use internal data available to all HO associates. No permission based data should be included in prompts.[/yellow]"
     emit_system_message(message)
-    
+
     message = ("[yellow]All information entered will be monitored in accordance with "
         "applicable Walmart policies and used for enhancement of this tool and "
         "AI adoption at Walmart. Refer to "
@@ -382,7 +382,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
     # Now that the renderer is started, we can safely emit messages and see the output
     from code_puppy.messaging import emit_system_message, emit_info
-    
+
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
     emit_system_message("Type 'exit' or 'quit' to exit the interactive mode.")
     emit_system_message("Type 'clear' to reset the conversation history.")
@@ -474,7 +474,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
         # Handle ~ meta/config commands before anything else
         if task.strip().startswith("~"):
-            if handle_meta_command(task.strip(), console):
+            if handle_meta_command(task.strip()):
                 continue
         if task.strip():
             # Write to the secret file for permanent history
