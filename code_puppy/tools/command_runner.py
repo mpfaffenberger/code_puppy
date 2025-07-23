@@ -11,10 +11,10 @@ from rich.text import Text
 
 from code_puppy.globals import is_tui_mode
 from code_puppy.messaging import (
-    emit_error,
-    emit_warning,
-    emit_info,
     emit_command_output,
+    emit_error,
+    emit_info,
+    emit_warning,
 )
 
 # Flag to indicate if we need user input - this will be checked by interactive mode

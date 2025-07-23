@@ -25,7 +25,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_prompt_with_active_model,
 )
 from code_puppy.config import ensure_config_exists
-from code_puppy.globals import set_tui_mode, is_tui_mode
+from code_puppy.globals import is_tui_mode, set_tui_mode
 
 # HTTP server imports
 from code_puppy.http_server import app as http_app
@@ -34,7 +34,6 @@ from code_puppy.http_server import app as http_app
 from code_puppy.tools.common import console
 from code_puppy.urls import get_setup_url
 from code_puppy.version_checker import fetch_latest_version, versions_are_equal
-
 
 # Use the existing console from tools.common to maintain consistency with tests
 
@@ -116,11 +115,12 @@ async def main():
     # Set up message renderer for interactive mode
     message_renderer = None
     if args.interactive and not is_tui_mode():
-        from code_puppy.messaging import (
-            get_global_queue,
-            SynchronousInteractiveRenderer,
-        )
         from rich.console import Console
+
+        from code_puppy.messaging import (
+            SynchronousInteractiveRenderer,
+            get_global_queue,
+        )
 
         message_queue = get_global_queue()
         display_console = Console()  # Separate console for rendering messages
@@ -299,8 +299,9 @@ async def main():
                             )
                     else:
                         # Use our custom spinner for better compatibility with user input
-                        from code_puppy.messaging.spinner import ConsoleSpinner
                         from rich.console import Console as RichConsole
+
+                        from code_puppy.messaging.spinner import ConsoleSpinner
 
                         rich_console = RichConsole()
                         with ConsoleSpinner(console=rich_console):
@@ -393,7 +394,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
     display_console = message_renderer.console
 
     # Now that the renderer is started, we can safely emit messages and see the output
-    from code_puppy.messaging import emit_system_message, emit_info
+    from code_puppy.messaging import emit_info, emit_system_message
 
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
     emit_system_message("Type 'exit' or 'quit' to exit the interactive mode.")
@@ -490,7 +491,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
         # Check for clear command (supports both `clear` and `~clear`)
         if task.strip().lower() in ("clear", "~clear"):
             message_history = []
-            from code_puppy.messaging import emit_warning, emit_system_message
+            from code_puppy.messaging import emit_system_message, emit_warning
 
             emit_warning("Conversation history cleared!")
             emit_system_message("The agent will not remember previous interactions.\n")

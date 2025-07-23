@@ -5,12 +5,12 @@ analysis:
   # Code analysis settings
   code_analysis:
     enabled: true
-    
+
     # Language-specific analysis
     python:
       enabled: true
       version: "3.10+"
-      
+
       # Key patterns to look for
       patterns:
         - async_functions
@@ -19,14 +19,14 @@ analysis:
         - ai_model_usage
         - api_integrations
         - cli_commands
-      
+
       # Important modules to analyze
       focus_modules:
         - "code_puppy.main"
         - "code_puppy.models"
         - "code_puppy.cli"
         - "code_puppy.ai"
-      
+
       # Code quality metrics
       metrics:
         complexity: true
@@ -37,7 +37,7 @@ analysis:
   # AI/ML specific analysis
   ai_ml_analysis:
     enabled: true
-    
+
     # Model integration patterns
     model_patterns:
       - openai_integration
@@ -47,7 +47,7 @@ analysis:
       - rate_limiting
       - error_handling
       - async_operations
-    
+
     # API usage analysis
     api_analysis:
       - authentication_methods
@@ -55,7 +55,7 @@ analysis:
       - response_handling
       - error_recovery
       - timeout_handling
-    
+
     # Performance considerations
     performance:
       - async_usage
@@ -66,7 +66,7 @@ analysis:
   # Architecture analysis
   architecture:
     enabled: true
-    
+
     # Component relationships
     components:
       - cli_interface
@@ -75,14 +75,14 @@ analysis:
       - configuration
       - logging
       - testing
-    
+
     # Design patterns
     patterns:
       - factory_pattern
       - strategy_pattern
       - observer_pattern
       - command_pattern
-    
+
     # Dependencies
     dependency_analysis:
       - external_dependencies
@@ -93,7 +93,7 @@ analysis:
   # Security analysis
   security:
     enabled: true
-    
+
     # Security concerns
     focus_areas:
       - api_key_handling
@@ -101,7 +101,7 @@ analysis:
       - output_sanitization
       - network_security
       - data_privacy
-    
+
     # Sensitive patterns
     sensitive_patterns:
       - hardcoded_secrets
@@ -112,14 +112,14 @@ analysis:
   # Enterprise compliance
   compliance:
     enabled: true
-    
+
     # Walmart-specific requirements
     walmart_standards:
       - coding_standards
       - security_protocols
       - documentation_requirements
       - testing_standards
-    
+
     # License compliance
     licensing:
       - dual_license_tracking
@@ -134,13 +134,13 @@ rules:
     - "Async/await usage inconsistencies"
     - "Missing type hints in public APIs"
     - "Insufficient test coverage (<95%)"
-  
+
   medium_priority:
     - "Code complexity in main modules"
     - "Missing documentation for public functions"
     - "Inefficient API usage patterns"
     - "Outdated dependency versions"
-  
+
   low_priority:
     - "Code style inconsistencies"
     - "Minor performance optimizations"
@@ -154,14 +154,14 @@ ai_tool_specific:
     - context_management
     - response_parsing
     - error_handling
-  
+
   # Model management
   model_management:
     - model_switching
     - fallback_strategies
     - performance_monitoring
     - cost_optimization
-  
+
   # Code generation quality
   generation_quality:
     - output_validation
@@ -175,7 +175,7 @@ reporting:
     - markdown
     - json
     - html
-  
+
   sections:
     - executive_summary
     - security_analysis
@@ -183,7 +183,7 @@ reporting:
     - architecture_overview
     - ai_ml_insights
     - recommendations
-  
+
   # Custom metrics for AI tools
   custom_metrics:
     - ai_model_usage_efficiency
@@ -197,21 +197,21 @@ tool_integration:
   ruff:
     config_file: "pyproject.toml"
     enabled: true
-  
+
   pytest:
     config_file: "pyproject.toml"
     enabled: true
-  
+
   coverage:
     config_file: "pyproject.toml"
     minimum_threshold: 95
-  
+
   # Custom analysis tools
   custom_tools:
     - name: "AI Model Validator"
       command: "python -m code_puppy.validate_models"
       optional: true
-    
+
     - name: "Enterprise Compliance Check"
       command: "python -m code_puppy.compliance_check"
       optional: true

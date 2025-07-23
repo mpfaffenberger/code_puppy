@@ -2,15 +2,11 @@
 Sidebar component with history tab.
 """
 
-from textual.containers import Container
-from textual.widgets import (
-    ListView,
-    TabbedContent,
-    TabPane,
-)
-from textual.app import ComposeResult
 from textual import on
+from textual.app import ComposeResult
+from textual.containers import Container
 from textual.events import Key
+from textual.widgets import ListView, TabbedContent, TabPane
 
 # Import the shared message class
 from ..messages import HistoryEntrySelected
@@ -67,7 +63,7 @@ class Sidebar(Container):
     .history-error {
         color: #ef4444;
     }
-    
+
     .file-item {
         color: #d1d5db;
     }

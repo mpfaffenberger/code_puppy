@@ -19,12 +19,7 @@ from typing import Any, Dict, List
 from json_repair import repair_json
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import (
-    emit_error,
-    emit_info,
-    emit_warning,
-    emit_success,
-)
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.common import _find_best_window
 
 

@@ -4,18 +4,18 @@ Simple test script to verify the message queue system works.
 """
 
 import time
+
 from rich.console import Console
 from rich.table import Table
 
 # Test our message queue system
 from code_puppy.messaging import (
-    get_global_queue,
-    emit_info,
-    emit_error,
-    emit_success,
     SynchronousInteractiveRenderer,
+    emit_error,
+    emit_info,
+    emit_success,
+    get_global_queue,
 )
-
 from code_puppy.tools.common import console as tools_console
 
 

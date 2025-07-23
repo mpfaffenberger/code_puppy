@@ -17,14 +17,14 @@ quality:
       - ruff
     config_files:
       - pyproject.toml
-  
+
   formatting:
     enabled: true
     tools:
       - ruff
     config_files:
       - pyproject.toml
-  
+
   testing:
     enabled: true
     framework: pytest
@@ -48,7 +48,7 @@ ai_ml:
       - ollama
       - azure_openai
     config_file: "code_puppy/models.json"
-  
+
   dependencies:
     - pydantic-ai
     - httpx
@@ -59,12 +59,12 @@ development:
   python_version: ">=3.10"
   virtual_env: ".venv"
   package_manager: "uv"
-  
+
   # Key directories
   source_directory: "code_puppy"
   test_directory: "tests"
   docs_directory: "docs"
-  
+
   # Important files
   entry_point: "code_puppy.main:main_entry"
   requirements_file: "pyproject.toml"
@@ -77,7 +77,7 @@ enterprise:
   compliance:
     - walmart_coding_standards
     - enterprise_security
-  
+
   # Internal registry configuration
   package_registry: "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
 
@@ -86,7 +86,7 @@ build:
   system: "hatchling"
   packages:
     - "code_puppy"
-  
+
   scripts:
     - name: "code-puppy"
       entry: "code_puppy.main:main_entry"
@@ -96,7 +96,7 @@ documentation:
   readme: "README.md"
   contributing: "CONTRIBUTING.md"
   license: "LICENSE"
-  
+
   additional_docs:
     - "DEV_CONSOLE.md"
     - "ENVIRONMENT_VARIABLES.md"
@@ -111,7 +111,7 @@ ignore:
     - ".pytest_cache"
     - ".ruff_cache"
     - "node_modules"
-  
+
   files:
     - "*.pyc"
     - "*.pyo"
@@ -129,7 +129,7 @@ rules:
     - "Maintain test coverage above 95%"
     - "Use async/await for I/O operations"
     - "Follow Walmart enterprise security guidelines"
-  
+
   ai_specific:
     - "Implement proper error handling for AI model failures"
     - "Use rate limiting for API calls"

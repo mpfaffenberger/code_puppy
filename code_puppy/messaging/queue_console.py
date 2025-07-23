@@ -9,9 +9,9 @@ import traceback
 from typing import Any, Optional
 
 from rich.console import Console
-from rich.text import Text
-from rich.table import Table
 from rich.markdown import Markdown
+from rich.table import Table
+from rich.text import Text
 
 from .message_queue import MessageQueue, MessageType, get_global_queue
 
@@ -54,6 +54,7 @@ class QueueConsole:
                 if hasattr(v, "__rich_console__"):
                     # For Rich objects, try to extract their text content
                     from io import StringIO
+
                     from rich.console import Console
 
                     string_io = StringIO()

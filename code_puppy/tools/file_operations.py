@@ -8,12 +8,7 @@ from pydantic_ai import RunContext
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
-from code_puppy.messaging import (
-    emit_error,
-    emit_warning,
-    emit_success,
-    emit_info,
-)
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.common import should_ignore_path
 
 

@@ -8,11 +8,11 @@ import jwt
 
 from code_puppy.config import get_value
 from code_puppy.messaging import (
-    emit_info,
-    emit_warning,
     emit_error,
+    emit_info,
     emit_success,
     emit_system_message,
+    emit_warning,
 )
 
 from .urls import get_authentication_url

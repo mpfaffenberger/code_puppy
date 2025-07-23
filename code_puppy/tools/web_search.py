@@ -3,11 +3,7 @@ from typing import Dict
 import requests
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import (
-    emit_error,
-    emit_warning,
-    emit_success,
-)
+from code_puppy.messaging import emit_error, emit_success, emit_warning
 
 
 def register_web_search_tools(agent):

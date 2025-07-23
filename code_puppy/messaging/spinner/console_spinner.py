@@ -4,6 +4,7 @@ Console spinner implementation for CLI mode using Rich's Live Display.
 
 import threading
 import time
+
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text

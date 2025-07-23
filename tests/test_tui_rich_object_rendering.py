@@ -4,12 +4,14 @@ Test that TUI renderer properly converts Rich objects to text instead of showing
 """
 
 import asyncio
-from rich.table import Table
-from rich.syntax import Syntax
+
 from rich.markdown import Markdown
+from rich.syntax import Syntax
+from rich.table import Table
+
 from code_puppy.messaging import MessageType, UIMessage
-from code_puppy.messaging.renderers import TUIRenderer
 from code_puppy.messaging.message_queue import MessageQueue
+from code_puppy.messaging.renderers import TUIRenderer
 
 
 class MockTUIApp:
@@ -155,8 +157,8 @@ def test_tui_renderer_plain_string():
 
 def test_queue_console_rich_markdown():
     """Test that QueueConsole properly handles Rich Markdown objects."""
-    from code_puppy.messaging.queue_console import QueueConsole
     from code_puppy.messaging.message_queue import MessageQueue
+    from code_puppy.messaging.queue_console import QueueConsole
 
     queue = MessageQueue()
     # Mark renderer as active so messages go to main queue instead of startup buffer
@@ -219,8 +221,8 @@ print("This is code")
 
 def test_queue_console_mixed_content():
     """Test that QueueConsole properly handles mixed Rich and string content."""
-    from code_puppy.messaging.queue_console import QueueConsole
     from code_puppy.messaging.message_queue import MessageQueue
+    from code_puppy.messaging.queue_console import QueueConsole
 
     queue = MessageQueue()
     # Mark renderer as active so messages go to main queue instead of startup buffer

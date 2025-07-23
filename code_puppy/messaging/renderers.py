@@ -8,12 +8,12 @@ appropriately for their respective interfaces.
 import asyncio
 import threading
 from abc import ABC, abstractmethod
+from io import StringIO
 from typing import Optional
 
 from rich.console import Console
-from io import StringIO
 
-from .message_queue import MessageQueue, UIMessage, MessageType
+from .message_queue import MessageQueue, MessageType, UIMessage
 
 
 class MessageRenderer(ABC):

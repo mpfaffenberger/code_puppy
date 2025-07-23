@@ -6,10 +6,9 @@ from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widgets import Static
 
-from .custom_widgets import CustomTextArea
-
-
 from code_puppy.messaging.spinner import TextualSpinner
+
+from .custom_widgets import CustomTextArea
 
 # Alias SimpleSpinnerWidget to TextualSpinner for backward compatibility
 SimpleSpinnerWidget = TextualSpinner
