@@ -142,9 +142,7 @@ def _replace_in_file(
         )
 
     if modified == original:
-        emit_warning(
-            "No changes to apply – proposed content is identical."
-        )
+        emit_warning("No changes to apply – proposed content is identical.")
         return {
             "success": False,
             "path": file_path,
@@ -277,9 +275,7 @@ def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
         parsed_payload = json.loads(diff)
     except json.JSONDecodeError:
         try:
-            emit_warning(
-                "JSON Parsing Failed! TRYING TO REPAIR!"
-            )
+            emit_warning("JSON Parsing Failed! TRYING TO REPAIR!")
             parsed_payload = json.loads(repair_json(diff))
             emit_success("SUCCESS - WOOF!")
         except Exception as e:
@@ -313,9 +309,7 @@ def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
                 return write_to_file(context, file_path, content, overwrite)
         return write_to_file(context, file_path, diff, overwrite=False)
     except Exception as e:
-        emit_error(
-            "Unable to route file modification tool call to sub-tool"
-        )
+        emit_error("Unable to route file modification tool call to sub-tool")
         emit_error(str(e))
         return {
             "success": False,

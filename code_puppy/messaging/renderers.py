@@ -68,7 +68,7 @@ class MessageRenderer(ABC):
 
 class InteractiveRenderer(MessageRenderer):
     """Renderer for interactive CLI mode using Rich console.
-    
+
     Note: This async-based renderer is not currently used in the codebase.
     Interactive mode currently uses SynchronousInteractiveRenderer instead.
     A future refactoring might consolidate these renderers.
@@ -171,13 +171,13 @@ class SynchronousInteractiveRenderer:
 
     This is useful for cases where we want immediate rendering without
     the overhead of async message processing.
-    
+
     Note: As part of the messaging system refactoring, we're keeping this class for now
     as it's essential for the interactive mode to function properly. Future refactoring
     could replace this with a simpler implementation that leverages the unified message
     queue system more effectively, or potentially convert interactive mode to use
     async/await consistently and use InteractiveRenderer instead.
-    
+
     Current responsibilities:
     - Consumes messages from the queue in a background thread
     - Renders messages to the console in real-time without requiring async code

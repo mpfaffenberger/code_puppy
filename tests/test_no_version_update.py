@@ -121,7 +121,9 @@ class TestNoVersionUpdateEnvironmentVariable:
         mock_fetch_latest_version.assert_not_called()
 
         # Verify that emit_system_message was called with the expected messages
-        system_message_calls = [call.args[0] for call in mock_emit_system_message.call_args_list]
+        system_message_calls = [
+            call.args[0] for call in mock_emit_system_message.call_args_list
+        ]
 
         # Check that current version is displayed
         current_version_displayed = any(
@@ -131,7 +133,8 @@ class TestNoVersionUpdateEnvironmentVariable:
 
         # Check that auto-update disabled message is displayed
         auto_update_disabled_displayed = any(
-            "Auto-update disabled via NO_VERSION_UPDATE environment variable" in str(call)
+            "Auto-update disabled via NO_VERSION_UPDATE environment variable"
+            in str(call)
             for call in system_message_calls
         )
         assert auto_update_disabled_displayed, (
@@ -215,7 +218,9 @@ class TestNoVersionUpdateEnvironmentVariable:
         mock_fetch_latest_version.assert_called_once_with("code-puppy")
 
         # Verify that emit_system_message was called with the expected messages
-        system_message_calls = [call.args[0] for call in mock_emit_system_message.call_args_list]
+        system_message_calls = [
+            call.args[0] for call in mock_emit_system_message.call_args_list
+        ]
 
         # Check that both current and latest versions are displayed
         current_version_displayed = any(
@@ -285,7 +290,9 @@ class TestNoVersionUpdateEnvironmentVariable:
         mock_fetch_latest_version.assert_called_once_with("code-puppy")
 
         # Verify that emit_system_message was called with the expected messages
-        system_message_calls = [call.args[0] for call in mock_emit_system_message.call_args_list]
+        system_message_calls = [
+            call.args[0] for call in mock_emit_system_message.call_args_list
+        ]
 
         # Check that both current and latest versions are displayed
         current_version_displayed = any(
@@ -300,7 +307,8 @@ class TestNoVersionUpdateEnvironmentVariable:
 
         # Check that NO auto-update messages are displayed (since versions are equal)
         update_available_displayed = any(
-            "A new version of code puppy is available" in str(call) for call in system_message_calls
+            "A new version of code puppy is available" in str(call)
+            for call in system_message_calls
         )
         assert not update_available_displayed, (
             "Update available message should not be displayed when versions are equal"
@@ -377,7 +385,9 @@ class TestNoVersionUpdateEnvironmentVariable:
             "[dim]Auto-update disabled via NO_VERSION_UPDATE environment variable[/dim]",
         ]
 
-        actual_calls = [call.args[0] for call in mock_emit_system_message.call_args_list]
+        actual_calls = [
+            call.args[0] for call in mock_emit_system_message.call_args_list
+        ]
         assert actual_calls == expected_calls
 
     def test_environment_variable_precedence(self):

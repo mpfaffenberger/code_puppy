@@ -110,9 +110,7 @@ async def wait_for_token_update(
 
         # Check if token changed from initial state
         if current_token != initial_token:
-            if current_token and not is_token_expired(
-                current_token, silent=True
-            ):
+            if current_token and not is_token_expired(current_token, silent=True):
                 msg = "✓ Authentication successful!"
                 emit_success(msg)
                 return True
@@ -173,9 +171,7 @@ async def authenticate_puppy(port: int) -> bool:
     if success:
         # Double-check the final token
         final_token = get_puppy_token()
-        if final_token and not is_token_expired(
-            final_token, silent=True
-        ):
+        if final_token and not is_token_expired(final_token, silent=True):
             return True
         else:
             msg = "Final token validation failed"

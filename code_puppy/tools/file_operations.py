@@ -28,9 +28,7 @@ def _list_files(
     )
     emit_info("[dim]" + "-" * 60 + "[/dim]")
     if not os.path.exists(directory):
-        emit_error(
-            f"Directory '{directory}' does not exist"
-        )
+        emit_error(f"Directory '{directory}' does not exist")
         emit_info("[dim]" + "-" * 60 + "[/dim]\n")
         return [{"error": f"Directory '{directory}' does not exist"}]
     if not os.path.isdir(directory):
@@ -149,9 +147,7 @@ def _list_files(
         else:
             icon = get_file_icon(item["path"])
             size_str = format_size(item["size"])
-            emit_info(
-                f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]"
-            )
+            emit_info(f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]")
     else:
         emit_warning("Directory is empty")
     dir_count = sum(1 for item in results if item["type"] == "directory")
@@ -228,23 +224,17 @@ def _grep(
                                 )
                                 return matches
             except FileNotFoundError:
-                emit_warning(
-                    f"File not found (possibly a broken symlink): {file_path}"
-                )
+                emit_warning(f"File not found (possibly a broken symlink): {file_path}")
                 continue
             except UnicodeDecodeError:
-                emit_warning(
-                    f"Cannot decode file (likely binary): {file_path}"
-                )
+                emit_warning(f"Cannot decode file (likely binary): {file_path}")
                 continue
             except Exception as e:
                 emit_error(f"Error processing file {file_path}: {e}")
                 continue
 
     if not matches:
-        emit_warning(
-            f"No matches found for '{search_string}' in {directory}"
-        )
+        emit_warning(f"No matches found for '{search_string}' in {directory}")
     else:
         emit_success(
             f"Found {len(matches)} match(es) for '{search_string}' in {directory}"

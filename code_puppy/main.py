@@ -51,12 +51,14 @@ def display_disclaimer():
     message = "[yellow]Prompt responsibly: Only use internal data available to all HO associates. No permission based data should be included in prompts.[/yellow]"
     emit_system_message(message)
 
-    message = ("[yellow]All information entered will be monitored in accordance with "
+    message = (
+        "[yellow]All information entered will be monitored in accordance with "
         "applicable Walmart policies and used for enhancement of this tool and "
         "AI adoption at Walmart. Refer to "
         "[link=https://one.walmart.com/content/uswire/en_us/work1/policies/"
         "people-policies/company-issued-equipment-useage.html]usage[/link] "
-        "for best practices on secure usage.[/yellow]\n")
+        "for best practices on secure usage.[/yellow]\n"
+    )
     emit_system_message(message)
 
 
@@ -122,7 +124,9 @@ async def main():
 
         message_queue = get_global_queue()
         display_console = Console()  # Separate console for rendering messages
-        message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
+        message_renderer = SynchronousInteractiveRenderer(
+            message_queue, display_console
+        )
         message_renderer.start()
 
     # Import message queue functions early
@@ -192,8 +196,6 @@ async def main():
             update_available_msg = (
                 f"A new version of code puppy is available: {latest_version}"
             )
-            updating_msg = "Auto-updating now..."
-
             emit_system_message(f"[bold yellow]{update_available_msg}[/bold yellow]")
             emit_system_message("[bold green]Auto-updating now...[/bold green]")
 
@@ -308,6 +310,7 @@ async def main():
                                 )
                     agent_response = response.output
                     from code_puppy.messaging import emit_agent_reasoning
+
                     emit_agent_reasoning(agent_response.output_message)
                     # Log to session memory
                     session_memory().log_task(
@@ -319,18 +322,21 @@ async def main():
                     )
                     if agent_response.awaiting_user_input:
                         from code_puppy.messaging import emit_warning
+
                         emit_warning(
                             "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
                         )
                     break
             except AttributeError as e:
                 from code_puppy.messaging import emit_error, emit_warning
+
                 emit_error(f"AttributeError: {str(e)}")
                 emit_warning(
                     "\u26a0 The response might not be in the expected format, missing attributes like 'output_message'."
                 )
             except Exception as e:
                 from code_puppy.messaging import emit_error
+
                 emit_error(f"Unexpected Error: {str(e)}")
         elif is_tui_mode():
             # Import here to avoid dependency issues if textual is not available
@@ -340,14 +346,18 @@ async def main():
                 await run_textual_ui()
             except ImportError:
                 from code_puppy.messaging import emit_error, emit_warning
-                emit_error("Error: Textual UI not available. Install with: pip install textual")
+
+                emit_error(
+                    "Error: Textual UI not available. Install with: pip install textual"
+                )
                 emit_warning("Falling back to interactive mode...")
-                await interactive_mode(history_file_path)
+                await interactive_mode(history_file_path, message_renderer)
             except Exception as e:
                 from code_puppy.messaging import emit_error, emit_warning
+
                 emit_error(f"TUI Error: {str(e)}")
                 emit_warning("Falling back to interactive mode...")
-                await interactive_mode(history_file_path)
+                await interactive_mode(history_file_path, message_renderer)
         elif args.interactive:
             await interactive_mode(history_file_path, message_renderer)
         else:
@@ -366,7 +376,9 @@ async def main():
                 pass  # Expected when cancelling
             except Exception as e:
                 # Log cleanup errors but don't crash
-                emit_system_message(f"[dim red]HTTP server cleanup error: {e}[/dim red]")
+                emit_system_message(
+                    f"[dim red]HTTP server cleanup error: {e}[/dim red]"
+                )
 
 
 # Add the file handling functionality for interactive mode
@@ -401,14 +413,19 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
         print_motd(console, force=False)
     except Exception as e:
         from code_puppy.messaging import emit_warning
+
         emit_warning(f"MOTD error: {e}")
 
     # Check if prompt_toolkit is installed
     try:
         from code_puppy.messaging import emit_system_message
-        emit_system_message("[dim]Using prompt_toolkit for enhanced tab completion[/dim]")
+
+        emit_system_message(
+            "[dim]Using prompt_toolkit for enhanced tab completion[/dim]"
+        )
     except ImportError:
         from code_puppy.messaging import emit_warning
+
         emit_warning("Warning: prompt_toolkit not installed. Installing now...")
         try:
             import subprocess
@@ -417,9 +434,11 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 [sys.executable, "-m", "pip", "install", "prompt_toolkit"]
             )
             from code_puppy.messaging import emit_success
+
             emit_success("Successfully installed prompt_toolkit")
         except Exception as e:
             from code_puppy.messaging import emit_error, emit_warning
+
             emit_error(f"Error installing prompt_toolkit: {e}")
             emit_warning("Falling back to basic input without tab completion")
 
@@ -433,10 +452,12 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
             os.makedirs(history_dir, exist_ok=True)
         except Exception as e:
             from code_puppy.messaging import emit_warning
+
             emit_warning(f"Warning: Could not create history directory: {e}")
 
     while True:
         from code_puppy.messaging import emit_info
+
         emit_info("[bold blue]Enter your coding task:[/bold blue]")
 
         try:
@@ -454,12 +475,14 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
         except (KeyboardInterrupt, EOFError):
             # Handle Ctrl+C or Ctrl+D
             from code_puppy.messaging import emit_warning
+
             emit_warning("\nInput cancelled")
             continue
 
         # Check for exit commands
         if task.strip().lower() in ["exit", "quit"]:
             from code_puppy.messaging import emit_success
+
             emit_success("Goodbye!")
             # The renderer is stopped in the finally block of main().
             break
@@ -468,6 +491,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
         if task.strip().lower() in ("clear", "~clear"):
             message_history = []
             from code_puppy.messaging import emit_warning, emit_system_message
+
             emit_warning("Conversation history cleared!")
             emit_system_message("The agent will not remember previous interactions.\n")
             continue
@@ -506,6 +530,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 # Get the structured response
                 agent_response = result.output
                 from code_puppy.messaging import emit_agent_reasoning
+
                 emit_agent_reasoning(agent_response.output_message)
                 # Log to session memory
                 session_memory().log_task(
@@ -568,14 +593,19 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
                 if agent_response and agent_response.awaiting_user_input:
                     from code_puppy.messaging import emit_warning
+
                     emit_warning("\n\u26a0 Agent needs your input to continue.")
 
                 # Show context status
                 from code_puppy.messaging import emit_system_message
-                emit_system_message(f"Context: {len(message_history)} messages in history\n")
+
+                emit_system_message(
+                    f"Context: {len(message_history)} messages in history\n"
+                )
 
             except Exception:
                 from code_puppy.messaging.queue_console import get_queue_console
+
                 get_queue_console().print_exception()
 
 

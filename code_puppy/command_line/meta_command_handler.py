@@ -30,10 +30,10 @@ META_COMMANDS_HELP = """
 def handle_meta_command(command: str) -> bool:
     """
     Handle meta/config commands prefixed with '~'.
-    
+
     Args:
         command: The command string to handle
-        
+
     Returns:
         True if the command was handled, False if not
     """
@@ -123,7 +123,9 @@ def handle_meta_command(command: str) -> bool:
             key = tokens[1]
             value = ""
         else:
-            emit_warning(f"Usage: ~set KEY=VALUE or ~set KEY VALUE\nConfig keys: {', '.join(get_config_keys())}")
+            emit_warning(
+                f"Usage: ~set KEY=VALUE or ~set KEY VALUE\nConfig keys: {', '.join(get_config_keys())}"
+            )
             return True
         if key:
             set_config_value(key, value)
@@ -155,12 +157,16 @@ def handle_meta_command(command: str) -> bool:
     if command.startswith("~"):
         name = command[1:].split()[0] if len(command) > 1 else ""
         if name:
-            emit_warning(f"Unknown meta command: {command}\n[dim]Type ~help for options.[/dim]")
+            emit_warning(
+                f"Unknown meta command: {command}\n[dim]Type ~help for options.[/dim]"
+            )
         else:
             # Show current model ONLY here
             from code_puppy.command_line.model_picker_completion import get_active_model
 
             current_model = get_active_model()
-            emit_info(f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]")
+            emit_info(
+                f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]"
+            )
         return True
     return False

@@ -14,18 +14,18 @@ def setup_messaging_mocks():
         "code_puppy.command_line.meta_command_handler.emit_success",
         "code_puppy.command_line.meta_command_handler.emit_system_message",
     ]
-    
+
     for target in patch_targets:
         function_name = target.split(".")[-1]
         mocks[function_name] = patch(target)
-        
+
     return mocks
 
 
 def test_help_outputs_help():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
-    
+
     try:
         result = handle_meta_command("~help")
         assert result is True
@@ -41,10 +41,11 @@ def test_help_outputs_help():
 def test_cd_show_lists_directories():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
-    
+
     try:
         with patch("code_puppy.command_line.utils.make_directory_table") as mock_table:
             from rich.table import Table
+
             fake_table = Table()
             mock_table.return_value = fake_table
             result = handle_meta_command("~cd")
@@ -58,7 +59,7 @@ def test_cd_show_lists_directories():
 def test_cd_valid_change():
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    
+
     try:
         with (
             patch("os.path.expanduser", side_effect=lambda x: x),
@@ -77,7 +78,7 @@ def test_cd_valid_change():
 def test_cd_invalid_directory():
     mocks = setup_messaging_mocks()
     mock_emit_error = mocks["emit_error"].start()
-    
+
     try:
         with (
             patch("os.path.expanduser", side_effect=lambda x: x),
@@ -113,7 +114,7 @@ def test_codemap_prints_tree_with_dir():
 def test_codemap_error_prints():
     mocks = setup_messaging_mocks()
     mock_emit_error = mocks["emit_error"].start()
-    
+
     try:
         with patch(
             "code_puppy.tools.ts_code_map.make_code_map", side_effect=Exception("fail")
@@ -131,11 +132,18 @@ def test_codemap_error_prints():
 
 def test_m_sets_model():
     # Simplified test - just check that the command handler returns True
-    with patch("code_puppy.command_line.meta_command_handler.emit_success"), \
-         patch("code_puppy.command_line.model_picker_completion.update_model_in_input", return_value="some_model"), \
-         patch("code_puppy.command_line.model_picker_completion.get_active_model", return_value="gpt-9001"), \
-         patch("code_puppy.agent.get_code_generation_agent", return_value=None):
-         
+    with (
+        patch("code_puppy.command_line.meta_command_handler.emit_success"),
+        patch(
+            "code_puppy.command_line.model_picker_completion.update_model_in_input",
+            return_value="some_model",
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="gpt-9001",
+        ),
+        patch("code_puppy.agent.get_code_generation_agent", return_value=None),
+    ):
         result = handle_meta_command("~mgpt-9001")
         assert result is True
 
@@ -143,7 +151,7 @@ def test_m_sets_model():
 def test_m_unrecognized_model_lists_options():
     mocks = setup_messaging_mocks()
     mock_emit_warning = mocks["emit_warning"].start()
-    
+
     try:
         with (
             patch(
@@ -159,8 +167,13 @@ def test_m_unrecognized_model_lists_options():
             assert result is True
             # Check that emit_warning was called with appropriate messages
             mock_emit_warning.assert_called()
-            assert any("Usage:" in str(call) for call in mock_emit_warning.call_args_list)
-            assert any("Available models" in str(call) for call in mock_emit_warning.call_args_list)
+            assert any(
+                "Usage:" in str(call) for call in mock_emit_warning.call_args_list
+            )
+            assert any(
+                "Available models" in str(call)
+                for call in mock_emit_warning.call_args_list
+            )
     finally:
         mocks["emit_warning"].stop()
 
@@ -168,11 +181,13 @@ def test_m_unrecognized_model_lists_options():
 def test_set_config_value_equals():
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    
+
     try:
         with (
             patch("code_puppy.config.set_config_value") as mock_set_cfg,
-            patch("code_puppy.config.get_config_keys", return_value=["pony", "rainbow"]),
+            patch(
+                "code_puppy.config.get_config_keys", return_value=["pony", "rainbow"]
+            ),
         ):
             result = handle_meta_command("~set pony=rainbow")
             assert result is True
@@ -189,11 +204,13 @@ def test_set_config_value_equals():
 def test_set_config_value_space():
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    
+
     try:
         with (
             patch("code_puppy.config.set_config_value") as mock_set_cfg,
-            patch("code_puppy.config.get_config_keys", return_value=["pony", "rainbow"]),
+            patch(
+                "code_puppy.config.get_config_keys", return_value=["pony", "rainbow"]
+            ),
         ):
             result = handle_meta_command("~set pony rainbow")
             assert result is True
@@ -210,7 +227,7 @@ def test_set_config_value_space():
 def test_set_config_only_key():
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    
+
     try:
         with (
             patch("code_puppy.config.set_config_value") as mock_set_cfg,
@@ -231,7 +248,7 @@ def test_set_config_only_key():
 def test_show_status():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
-    
+
     try:
         with (
             patch(
@@ -259,7 +276,7 @@ def test_show_status():
 def test_unknown_meta_command():
     mocks = setup_messaging_mocks()
     mock_emit_warning = mocks["emit_warning"].start()
-    
+
     try:
         result = handle_meta_command("~unknowncmd")
         assert result is True
@@ -275,7 +292,7 @@ def test_unknown_meta_command():
 def test_bare_tilde_shows_current_model():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
-    
+
     try:
         with patch(
             "code_puppy.command_line.model_picker_completion.get_active_model",
@@ -295,7 +312,7 @@ def test_bare_tilde_shows_current_model():
 def test_set_no_args_prints_usage():
     mocks = setup_messaging_mocks()
     mock_emit_warning = mocks["emit_warning"].start()
-    
+
     try:
         with patch("code_puppy.config.get_config_keys", return_value=["foo", "bar"]):
             result = handle_meta_command("~set")
@@ -312,7 +329,7 @@ def test_set_no_args_prints_usage():
 def test_set_missing_key_errors():
     mocks = setup_messaging_mocks()
     mock_emit_error = mocks["emit_error"].start()
-    
+
     try:
         # This will enter the 'else' branch printing 'You must supply a key.'
         with patch("code_puppy.config.get_config_keys", return_value=["foo", "bar"]):
@@ -332,7 +349,7 @@ def test_non_meta_command_returns_false():
 def test_bare_tilde_with_spaces():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
-    
+
     try:
         with patch(
             "code_puppy.command_line.model_picker_completion.get_active_model",

@@ -54,11 +54,11 @@ def mark_motd_seen(version: str):
 def print_motd(console=None, force: bool = False) -> bool:
     """
     Print the message of the day to the user.
-    
+
     Args:
         console: Optional console object (for backward compatibility)
         force: Whether to force printing even if the MOTD has been seen
-        
+
     Returns:
         True if the MOTD was printed, False otherwise
     """

@@ -20,9 +20,7 @@ def register_web_search_tools(agent):
             response.raise_for_status()
             ct = response.headers.get("Content-Type")
             if "json" not in str(ct):
-                emit_error(
-                    f"Response from {url} is not JSON (got {ct})"
-                )
+                emit_error(f"Response from {url} is not JSON (got {ct})")
                 return {"error": f"Response from {url} is not of type application/json"}
             json_data = response.json()
             if isinstance(json_data, list) and len(json_data) > 1000:
