@@ -29,7 +29,7 @@ from .components import ChatView, CustomTextArea, InputArea, Sidebar, StatusBar
 # Import shared message classes
 from .messages import HistoryEntrySelected
 from .models import ChatMessage, MessageType
-from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
+from .screens import HelpScreen, SettingsScreen, ToolsScreen
 
 
 class CodePuppyTUI(App):
@@ -62,12 +62,9 @@ class CodePuppyTUI(App):
         Binding("ctrl+1", "show_help", "Help"),
         Binding("ctrl+2", "toggle_sidebar", "History"),
         Binding("ctrl+3", "open_settings", "Settings"),
-        Binding("ctrl+4", "focus_input", "Focus Prompt"),
-        Binding("ctrl+5", "focus_chat", "Focus Response"),
-        Binding("ctrl+up", "scroll_chat_up", "Scroll Up"),
-        Binding("ctrl+down", "scroll_chat_down", "Scroll Down"),
-        Binding("ctrl+home", "scroll_chat_top", "Scroll to Top"),
-        Binding("ctrl+end", "scroll_chat_bottom", "Scroll to Bottom"),
+        Binding("ctrl+4", "show_tools", "Tools"),
+        Binding("ctrl+5", "focus_input", "Focus Prompt"),
+        Binding("ctrl+6", "focus_chat", "Focus Response"),
     ]
 
     # Reactive variables for app state
@@ -129,9 +126,6 @@ class CodePuppyTUI(App):
 
         # Auto-focus the input field so user can start typing immediately
         self.call_after_refresh(self.focus_input_field)
-
-        # Show disclaimer modal when TUI starts (delayed to allow message renderer to start)
-        self.set_timer(0.1, self.show_disclaimer)
 
     def add_system_message(
         self, content: str, message_group: str = None, group_id: str = None
@@ -461,34 +455,14 @@ class CodePuppyTUI(App):
         except Exception:
             pass  # Silently handle if widget not ready yet
 
-    def show_disclaimer(self) -> None:
-        """Show the disclaimer modal on TUI startup."""
-        self.push_screen(DisclaimerScreen())
-
     def action_focus_chat(self) -> None:
         """Focus the chat area."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.focus()
 
-    def action_scroll_chat_up(self) -> None:
-        """Scroll chat view up."""
-        chat_view = self.query_one("#chat-view", ChatView)
-        chat_view.scroll_up(animate=True)
-
-    def action_scroll_chat_down(self) -> None:
-        """Scroll chat view down."""
-        chat_view = self.query_one("#chat-view", ChatView)
-        chat_view.scroll_down(animate=True)
-
-    def action_scroll_chat_top(self) -> None:
-        """Scroll chat view to top."""
-        chat_view = self.query_one("#chat-view", ChatView)
-        chat_view.scroll_home(animate=True)
-
-    def action_scroll_chat_bottom(self) -> None:
-        """Scroll chat view to bottom."""
-        chat_view = self.query_one("#chat-view", ChatView)
-        chat_view.scroll_end(animate=True)
+    def action_show_tools(self) -> None:
+        """Show the tools modal with TOOLS.md content."""
+        self.push_screen(ToolsScreen())
 
     def action_open_settings(self) -> None:
         """Open the settings configuration screen."""
