@@ -79,6 +79,7 @@ class TestNoVersionUpdateEnvironmentVariable:
         assert no_version_update is False
 
     @patch("code_puppy.messaging.emit_system_message")
+    @patch("code_puppy.main.interactive_mode")
     @patch("code_puppy.main.find_available_port")
     @patch("code_puppy.main.ensure_config_exists")
     @patch("code_puppy.main.display_disclaimer")
@@ -98,6 +99,7 @@ class TestNoVersionUpdateEnvironmentVariable:
         mock_display_disclaimer,
         mock_ensure_config_exists,
         mock_find_available_port,
+        mock_interactive_mode,
         mock_emit_system_message,
     ):
         """Test main() function when NO_VERSION_UPDATE is enabled."""
@@ -107,11 +109,16 @@ class TestNoVersionUpdateEnvironmentVariable:
         # Mock dependencies
         mock_find_available_port.return_value = 8090
         mock_get_puppy_token.return_value = "test_token"
-        mock_parse_args.return_value = Mock(command=None, interactive=False, tui=False)
+        mock_parse_args.return_value = Mock(
+            command=None, interactive=True, tui=False, web=False
+        )
 
         # Mock async task
         mock_task = AsyncMock()
         mock_create_task.return_value = mock_task
+
+        # Mock interactive mode to return immediately
+        mock_interactive_mode.return_value = None
 
         # Run the main function
         with patch("code_puppy.main.load_dotenv"):
@@ -150,6 +157,7 @@ class TestNoVersionUpdateEnvironmentVariable:
         )
 
     @patch("code_puppy.messaging.emit_system_message")
+    @patch("code_puppy.main.interactive_mode")
     @patch("code_puppy.main.find_available_port")
     @patch("code_puppy.main.ensure_config_exists")
     @patch("code_puppy.main.display_disclaimer")
@@ -171,6 +179,7 @@ class TestNoVersionUpdateEnvironmentVariable:
         mock_display_disclaimer,
         mock_ensure_config_exists,
         mock_find_available_port,
+        mock_interactive_mode,
         mock_emit_system_message,
     ):
         """Test main() function when NO_VERSION_UPDATE is disabled (normal behavior)."""
@@ -180,13 +189,18 @@ class TestNoVersionUpdateEnvironmentVariable:
         # Mock dependencies
         mock_find_available_port.return_value = 8090
         mock_get_puppy_token.return_value = "test_token"
-        mock_parse_args.return_value = Mock(command=None, interactive=False, tui=False)
+        mock_parse_args.return_value = Mock(
+            command=None, interactive=True, tui=False, web=False
+        )
         mock_fetch_latest_version.return_value = "0.0.91"
         mock_versions_are_equal.return_value = False  # Simulate newer version available
 
         # Mock async task
         mock_task = AsyncMock()
         mock_create_task.return_value = mock_task
+
+        # Mock interactive mode to return immediately
+        mock_interactive_mode.return_value = None
 
         # Mock subprocess for update process
         with patch("code_puppy.main.subprocess.run") as mock_subprocess:
@@ -243,6 +257,7 @@ class TestNoVersionUpdateEnvironmentVariable:
         )
 
     @patch("code_puppy.messaging.emit_system_message")
+    @patch("code_puppy.main.interactive_mode")
     @patch("code_puppy.main.find_available_port")
     @patch("code_puppy.main.ensure_config_exists")
     @patch("code_puppy.main.display_disclaimer")
@@ -264,6 +279,7 @@ class TestNoVersionUpdateEnvironmentVariable:
         mock_display_disclaimer,
         mock_ensure_config_exists,
         mock_find_available_port,
+        mock_interactive_mode,
         mock_emit_system_message,
     ):
         """Test main() function when NO_VERSION_UPDATE is disabled but versions are equal."""
@@ -274,13 +290,18 @@ class TestNoVersionUpdateEnvironmentVariable:
         # Mock dependencies
         mock_find_available_port.return_value = 8090
         mock_get_puppy_token.return_value = "test_token"
-        mock_parse_args.return_value = Mock(command=None, interactive=False, tui=False)
+        mock_parse_args.return_value = Mock(
+            command=None, interactive=True, tui=False, web=False
+        )
         mock_fetch_latest_version.return_value = "0.0.90"
         mock_versions_are_equal.return_value = True  # Same version
 
         # Mock async task
         mock_task = AsyncMock()
         mock_create_task.return_value = mock_task
+
+        # Mock interactive mode to return immediately
+        mock_interactive_mode.return_value = None
 
         # Run the main function
         with patch("code_puppy.main.load_dotenv"):
