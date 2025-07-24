@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import ANY, MagicMock, mock_open, patch
 
 from code_puppy.tools import file_modifications
 
@@ -404,7 +404,7 @@ class TestEditFileTool:
         result = edit_file_tool(context, file_path, payload)
 
         mock_internal_delete.assert_called_once_with(
-            context, file_path, "text_to_remove"
+            context, file_path, "text_to_remove", message_group=ANY
         )
         assert result["success"]
 
@@ -423,7 +423,7 @@ class TestEditFileTool:
 
         result = edit_file_tool(context, file_path, payload)
         mock_internal_replace.assert_called_once_with(
-            context, file_path, replacements_payload
+            context, file_path, replacements_payload, message_group=ANY
         )
         assert result["success"]
 

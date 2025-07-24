@@ -34,7 +34,7 @@ def get_cert_bundle_path() -> str:
 
 
 def create_client(
-    timeout: int = 20,
+    timeout: int = 180,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> httpx.Client:
@@ -58,7 +58,7 @@ def create_client(
 
 
 def create_async_client(
-    timeout: int = 20,
+    timeout: int = 180,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> httpx.AsyncClient:

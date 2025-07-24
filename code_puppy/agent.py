@@ -8,6 +8,7 @@ from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTT
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
+from code_puppy.messaging import emit_info, emit_system_message
 from code_puppy.model_factory import ModelFactory
 from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
@@ -83,7 +84,6 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
                 servers.append(MCPServerSSE(url, http_client=http_client))      
             else: 
                 console.print("Invalid type ({server_type}) for {name}.")
-            
     return servers
 
 
@@ -96,7 +96,7 @@ def reload_code_generation_agent():
     clear_model_cache()
 
     model_name = get_model_name()
-    console.print(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
+    emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
     from code_puppy.config import CONFIG_DIR
 
     models_config_path = os.path.join(CONFIG_DIR, "models.json")

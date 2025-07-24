@@ -10,6 +10,17 @@
     "name": "claude-sonnet-4",
     "type": "custom_anthropic"
   },
+  "claude-localhost": {
+    "custom_endpoint": {
+      "api_key": "$puppy_token",
+      "headers": {
+        "X-Api-Key": "$puppy_token"
+      },
+      "url": "http://localhost:8080/anthropic"
+    },
+    "name": "claude-sonnet-4",
+    "type": "custom_anthropic"
+  },
   "gpt-4.1-custom": {
     "custom_endpoint": {
       "headers": {
@@ -26,6 +37,16 @@
         "X-Api-Key": "$puppy_token"
       },
       "url": "https://puppy-backend.stg.walmart.com"
+    },
+    "name": "o3",
+    "type": "custom_openai"
+  },
+  "o3-localhost": {
+    "custom_endpoint": {
+      "headers": {
+        "X-Api-Key": "$puppy_token"
+      },
+      "url": "http://localhost:8080"
     },
     "name": "o3",
     "type": "custom_openai"

@@ -5,13 +5,13 @@ Main TUI application class.
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from textual import work
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.events import Resize
 from textual.reactive import reactive
-from textual.widgets import Footer, Label, ListItem, ListView, ProgressBar
+from textual.widgets import Footer, Label, ListItem, ListView
 
 from code_puppy.agent import (
     get_code_generation_agent,
@@ -21,9 +21,15 @@ from code_puppy.agent import (
 from code_puppy.command_line.meta_command_handler import handle_meta_command
 from code_puppy.config import get_model_name, get_puppy_name
 
+# Import our message queue system
+from code_puppy.messaging import TUIRenderer, get_global_queue
+
 from .components import ChatView, CustomTextArea, InputArea, Sidebar, StatusBar
+
+# Import shared message classes
+from .messages import HistoryEntrySelected
 from .models import ChatMessage, MessageType
-from .screens import DisclaimerScreen, HelpScreen, SettingsScreen
+from .screens import HelpScreen, SettingsScreen, ToolsScreen
 
 
 class CodePuppyTUI(App):
@@ -54,14 +60,11 @@ class CodePuppyTUI(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
         Binding("ctrl+1", "show_help", "Help"),
-        Binding("ctrl+2", "toggle_history", "History"),
+        Binding("ctrl+2", "toggle_sidebar", "History"),
         Binding("ctrl+3", "open_settings", "Settings"),
-        Binding("ctrl+4", "focus_input", "Focus Prompt"),
-        Binding("ctrl+5", "focus_chat", "Focus Response"),
-        Binding("ctrl+up", "scroll_chat_up", "Scroll Up"),
-        Binding("ctrl+down", "scroll_chat_down", "Scroll Down"),
-        Binding("ctrl+home", "scroll_chat_top", "Scroll to Top"),
-        Binding("ctrl+end", "scroll_chat_bottom", "Scroll to Bottom"),
+        Binding("ctrl+4", "show_tools", "Tools"),
+        Binding("ctrl+5", "focus_input", "Focus Prompt"),
+        Binding("ctrl+6", "focus_chat", "Focus Response"),
     ]
 
     # Reactive variables for app state
@@ -74,6 +77,11 @@ class CodePuppyTUI(App):
         super().__init__(**kwargs)
         self.agent = None
         self.session_memory = None
+
+        # Initialize message queue renderer
+        self.message_queue = get_global_queue()
+        self.message_renderer = TUIRenderer(self.message_queue, self)
+        self._renderer_started = False
 
     def compose(self) -> ComposeResult:
         """Create the UI layout."""
@@ -101,8 +109,14 @@ class CodePuppyTUI(App):
         status_bar.puppy_name = self.puppy_name
         status_bar.agent_status = "Ready"
 
-        # Add welcome message
-        self.add_system_message("Welcome to Code Puppy 🐶!")
+        # Add welcome message with YOLO mode notification
+        self.add_system_message(
+            "Welcome to Code Puppy 🐶!\n💨 YOLO mode is enabled in TUI: commands will execute without confirmation."
+        )
+
+        # Start the message renderer EARLY to catch startup messages
+        # Using call_after_refresh to start it as soon as possible after mount
+        self.call_after_refresh(self.start_message_renderer_sync)
 
         # Load session history
         self.load_history_list()
@@ -113,49 +127,82 @@ class CodePuppyTUI(App):
         # Auto-focus the input field so user can start typing immediately
         self.call_after_refresh(self.focus_input_field)
 
-        # Show disclaimer modal when TUI starts
-        self.call_after_refresh(self.show_disclaimer)
-
-    def add_system_message(self, content: str) -> None:
+    def add_system_message(
+        self, content: str, message_group: str = None, group_id: str = None
+    ) -> None:
         """Add a system message to the chat."""
+        # Support both parameter names for backward compatibility
+        final_group_id = message_group or group_id
         message = ChatMessage(
             id=f"sys_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.SYSTEM,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=final_group_id,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def add_user_message(self, content: str) -> None:
+    def add_user_message(self, content: str, message_group: str = None) -> None:
         """Add a user message to the chat."""
         message = ChatMessage(
             id=f"user_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.USER,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def add_agent_message(self, content: str) -> None:
+    def add_agent_message(self, content: str, message_group: str = None) -> None:
         """Add an agent message to the chat."""
         message = ChatMessage(
             id=f"agent_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.AGENT,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def add_error_message(self, content: str) -> None:
+    def add_error_message(self, content: str, message_group: str = None) -> None:
         """Add an error message to the chat."""
         message = ChatMessage(
             id=f"error_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.ERROR,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
+        )
+        chat_view = self.query_one("#chat-view", ChatView)
+        chat_view.add_message(message)
+
+    def add_agent_reasoning_message(
+        self, content: str, message_group: str = None
+    ) -> None:
+        """Add an agent reasoning message to the chat."""
+        message = ChatMessage(
+            id=f"agent_reasoning_{datetime.now(timezone.utc).timestamp()}",
+            type=MessageType.AGENT_REASONING,
+            content=content,
+            timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
+        )
+        chat_view = self.query_one("#chat-view", ChatView)
+        chat_view.add_message(message)
+
+    def add_planned_next_steps_message(
+        self, content: str, message_group: str = None
+    ) -> None:
+        """Add an planned next steps to the chat."""
+        message = ChatMessage(
+            id=f"planned_next_steps_{datetime.now(timezone.utc).timestamp()}",
+            type=MessageType.PLANNED_NEXT_STEPS,
+            content=content,
+            timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
@@ -178,35 +225,39 @@ class CodePuppyTUI(App):
                 event.prevent_default()
                 return
 
-        # Handle arrow keys for history list navigation when sidebar is visible
+        # Handle arrow keys for sidebar navigation when sidebar is visible
         if not input_field.has_focus:
             try:
                 sidebar = self.query_one(Sidebar)
                 if sidebar.display:
-                    history_list = self.query_one("#history-list", ListView)
-                    if event.key == "up":
-                        # Move up in the history list
-                        current_index = history_list.index
-                        if current_index > 0:
-                            history_list.index = current_index - 1
-                        event.prevent_default()
-                        return
-                    elif event.key == "down":
-                        # Move down in the history list
-                        current_index = history_list.index
-                        if current_index < len(history_list.children) - 1:
-                            history_list.index = current_index + 1
-                        event.prevent_default()
-                        return
-                    elif event.key == "enter":
-                        # Show details of current history item
-                        if history_list.highlighted_child and hasattr(
-                            history_list.highlighted_child, "history_entry"
-                        ):
-                            history_entry = history_list.highlighted_child.history_entry
-                            self.show_history_details(history_entry)
-                        event.prevent_default()
-                        return
+                    # Handle navigation for the currently active tab
+                    tabs = self.query_one("#sidebar-tabs")
+                    active_tab = tabs.active
+
+                    if active_tab == "history-tab":
+                        history_list = self.query_one("#history-list", ListView)
+                        if event.key == "up":
+                            current_index = history_list.index
+                            if current_index > 0:
+                                history_list.index = current_index - 1
+                            event.prevent_default()
+                            return
+                        elif event.key == "down":
+                            current_index = history_list.index
+                            if current_index < len(history_list.children) - 1:
+                                history_list.index = current_index + 1
+                            event.prevent_default()
+                            return
+                        elif event.key == "enter":
+                            if history_list.highlighted_child and hasattr(
+                                history_list.highlighted_child, "history_entry"
+                            ):
+                                history_entry = (
+                                    history_list.highlighted_child.history_entry
+                                )
+                                self.show_history_details(history_entry)
+                            event.prevent_default()
+                            return
             except Exception:
                 pass
 
@@ -233,10 +284,10 @@ class CodePuppyTUI(App):
             # Add user message to chat
             self.add_user_message(message)
 
-            # Process the message
-            self.process_message(message)
+            # Process the message asynchronously using Textual's worker system
+            # Using exclusive=False to avoid TaskGroup conflicts with MCP servers
+            self.run_worker(self.process_message(message), exclusive=False)
 
-    @work(exclusive=True)
     async def process_message(self, message: str) -> None:
         """Process a user message asynchronously."""
         try:
@@ -266,7 +317,7 @@ class CodePuppyTUI(App):
 
                     try:
                         # Call the existing meta command handler
-                        result = handle_meta_command(message.strip(), rich_console)
+                        result = handle_meta_command(message.strip())
                         if result:  # Command was handled
                             output = captured_output.getvalue()
                             if output.strip():
@@ -288,34 +339,57 @@ class CodePuppyTUI(App):
 
             # Process with agent
             if self.agent:
-                self.update_agent_progress("Processing", 25)
-                async with self.agent.run_mcp_servers():
-                    self.update_agent_progress("Processing", 50)
-                    result = await self.agent.run(
-                        message,
-                        message_history=self.message_history,
-                        usage_limits=get_custom_usage_limits(),
-                    )
+                try:
+                    self.update_agent_progress("Processing", 25)
 
-                self.update_agent_progress("Processing", 75)
-                agent_response = result.output
-                self.add_agent_message(agent_response.output_message)
+                    # Handle MCP servers with specific TaskGroup exception handling
+                    try:
+                        async with self.agent.run_mcp_servers():
+                            self.update_agent_progress("Processing", 50)
+                            result = await self.agent.run(
+                                message,
+                                message_history=self.message_history,
+                                usage_limits=get_custom_usage_limits(),
+                            )
 
-                # Update message history
-                new_msgs = result.new_messages()
-                self.message_history.extend(new_msgs)
+                        if not result or not hasattr(result, "output"):
+                            self.add_error_message("Invalid response format from agent")
+                            return
 
-                # Refresh history display to show new interaction
-                self.refresh_history_display()
+                        self.update_agent_progress("Processing", 75)
+                        agent_response = result.output
+                        self.add_agent_message(agent_response.output_message)
 
-                # Log to session memory
-                if self.session_memory:
-                    self.session_memory.log_task(
-                        f"TUI interaction: {message}",
-                        extras={
-                            "output": agent_response.output_message,
-                            "awaiting_user_input": agent_response.awaiting_user_input,
-                        },
+                        # Update message history
+                        new_msgs = result.new_messages()
+                        self.message_history.extend(new_msgs)
+
+                        # Refresh history display to show new interaction
+                        self.refresh_history_display()
+
+                        # Log to session memory
+                        if self.session_memory:
+                            self.session_memory.log_task(
+                                f"TUI interaction: {message}",
+                                extras={
+                                    "output": agent_response.output_message,
+                                    "awaiting_user_input": agent_response.awaiting_user_input,
+                                },
+                            )
+                    except Exception as eg:
+                        # Handle TaskGroup and other exceptions
+                        # BaseExceptionGroup is only available in Python 3.11+
+                        if hasattr(eg, "exceptions"):
+                            # Handle TaskGroup exceptions specifically (Python 3.11+)
+                            for e in eg.exceptions:
+                                self.add_error_message(f"MCP/Agent error: {str(e)}")
+                        else:
+                            # Handle regular exceptions
+                            self.add_error_message(f"MCP/Agent error: {str(eg)}")
+                except Exception as agent_error:
+                    # Handle any other errors in agent processing
+                    self.add_error_message(
+                        f"Agent processing failed: {str(agent_error)}"
                     )
             else:
                 self.add_error_message("Agent not initialized")
@@ -338,10 +412,35 @@ class CodePuppyTUI(App):
         """Show help information in a modal."""
         self.push_screen(HelpScreen())
 
-    def action_toggle_history(self) -> None:
-        """Toggle history sidebar visibility."""
+    def action_toggle_sidebar(self) -> None:
+        """Toggle sidebar visibility."""
         sidebar = self.query_one(Sidebar)
         sidebar.display = not sidebar.display
+
+        # If sidebar is now visible, focus the history list to enable immediate keyboard navigation
+        if sidebar.display:
+            try:
+                # Ensure history tab is active
+                tabs = self.query_one("#sidebar-tabs")
+                tabs.active = "history-tab"
+
+                # Focus the history list
+                history_list = self.query_one("#history-list", ListView)
+                history_list.focus()
+
+                # If the list has items, ensure the first item is highlighted
+                if len(history_list.children) > 0:
+                    history_list.index = 0
+            except Exception:
+                # Silently fail if there's an issue with focusing
+                pass
+        else:
+            # If sidebar is now hidden, focus the input field for a smooth workflow
+            try:
+                self.action_focus_input()
+            except Exception:
+                # Silently fail if there's an issue with focusing
+                pass
 
     def action_focus_input(self) -> None:
         """Focus the input field."""
@@ -356,34 +455,14 @@ class CodePuppyTUI(App):
         except Exception:
             pass  # Silently handle if widget not ready yet
 
-    def show_disclaimer(self) -> None:
-        """Show the disclaimer modal on TUI startup."""
-        self.push_screen(DisclaimerScreen())
-
     def action_focus_chat(self) -> None:
         """Focus the chat area."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.focus()
 
-    def action_scroll_chat_up(self) -> None:
-        """Scroll chat view up."""
-        chat_view = self.query_one("#chat-view", ChatView)
-        chat_view.scroll_up(animate=True)
-
-    def action_scroll_chat_down(self) -> None:
-        """Scroll chat view down."""
-        chat_view = self.query_one("#chat-view", ChatView)
-        chat_view.scroll_down(animate=True)
-
-    def action_scroll_chat_top(self) -> None:
-        """Scroll chat view to top."""
-        chat_view = self.query_one("#chat-view", ChatView)
-        chat_view.scroll_home(animate=True)
-
-    def action_scroll_chat_bottom(self) -> None:
-        """Scroll chat view to bottom."""
-        chat_view = self.query_one("#chat-view", ChatView)
-        chat_view.scroll_end(animate=True)
+    def action_show_tools(self) -> None:
+        """Show the tools modal with TOOLS.md content."""
+        self.push_screen(ToolsScreen())
 
     def action_open_settings(self) -> None:
         """Open the settings configuration screen."""
@@ -609,19 +688,18 @@ class CodePuppyTUI(App):
             status_bar = self.query_one(StatusBar)
             status_bar.agent_status = status
 
-            # Update progress bar visibility
-            progress_bar = self.query_one("#progress-bar", ProgressBar)
+            # Update spinner visibility
+            from .components.input_area import SimpleSpinnerWidget
+
+            spinner = self.query_one("#spinner", SimpleSpinnerWidget)
             if show_progress:
-                progress_bar.add_class("visible")
-                progress_bar.display = True
-                if status == "Thinking":
-                    progress_bar.progress = 0  # Start from beginning
-                elif status == "Processing":
-                    progress_bar.progress = 50  # Mid-progress
+                spinner.add_class("visible")
+                spinner.display = True
+                spinner.start_spinning()
             else:
-                progress_bar.remove_class("visible")
-                progress_bar.display = False
-                progress_bar.progress = 0  # Reset progress
+                spinner.remove_class("visible")
+                spinner.display = False
+                spinner.stop_spinning()
 
         except Exception:
             pass  # Silently fail if widgets not available
@@ -635,10 +713,7 @@ class CodePuppyTUI(App):
         try:
             status_bar = self.query_one(StatusBar)
             status_bar.agent_status = status
-
-            if progress is not None:
-                progress_bar = self.query_one("#progress-bar", ProgressBar)
-                progress_bar.progress = progress
+            # Note: LoadingIndicator doesn't use progress values, it just spins
         except Exception:
             pass
 
@@ -700,8 +775,97 @@ class CodePuppyTUI(App):
         except Exception:
             pass
 
+    def start_message_renderer_sync(self):
+        """Synchronous wrapper to start message renderer via run_worker."""
+        self.run_worker(self.start_message_renderer(), exclusive=False)
+
+    async def start_message_renderer(self):
+        """Start the message renderer to consume messages from the queue."""
+        if not self._renderer_started:
+            self._renderer_started = True
+
+            # Process any buffered startup messages first
+            from io import StringIO
+
+            from rich.console import Console
+
+            from code_puppy.messaging import get_buffered_startup_messages
+
+            buffered_messages = get_buffered_startup_messages()
+
+            if buffered_messages:
+                # Group startup messages into a single display
+                startup_content_lines = []
+
+                for message in buffered_messages:
+                    try:
+                        # Convert message content to string for grouping
+                        if hasattr(message.content, "__rich_console__"):
+                            # For Rich objects, render to plain text
+                            string_io = StringIO()
+                            # Use markup=False to prevent interpretation of square brackets as markup
+                            temp_console = Console(
+                                file=string_io,
+                                width=80,
+                                legacy_windows=False,
+                                markup=False,
+                            )
+                            temp_console.print(message.content)
+                            content_str = string_io.getvalue().rstrip("\n")
+                        else:
+                            content_str = str(message.content)
+
+                        startup_content_lines.append(content_str)
+                    except Exception as e:
+                        startup_content_lines.append(
+                            f"Error processing startup message: {e}"
+                        )
+
+                # Create a single grouped startup message
+                grouped_content = "\n".join(startup_content_lines)
+                self.add_system_message(grouped_content)
+
+                # Clear the startup buffer after processing
+                self.message_queue.clear_startup_buffer()
+
+            # Now start the regular message renderer
+            await self.message_renderer.start()
+
+    async def stop_message_renderer(self):
+        """Stop the message renderer."""
+        if self._renderer_started:
+            self._renderer_started = False
+            try:
+                await self.message_renderer.stop()
+            except Exception as e:
+                # Log renderer stop errors but don't crash
+                self.add_system_message(f"Renderer stop error: {e}")
+
+    @on(HistoryEntrySelected)
+    def on_history_entry_selected(self, event: HistoryEntrySelected) -> None:
+        """Handle selection of a history entry from the sidebar."""
+        # Display the history entry details
+        self.show_history_details(event.history_entry)
+
+    async def on_unmount(self):
+        """Clean up when the app is unmounted."""
+        try:
+            await self.stop_message_renderer()
+        except Exception as e:
+            # Log unmount errors but don't crash during cleanup
+            try:
+                self.add_system_message(f"Unmount cleanup error: {e}")
+            except Exception:
+                # If we can't even add a message, just ignore
+                pass
+
 
 async def run_textual_ui():
     """Run the Textual UI interface."""
+    # Always enable YOLO mode in TUI mode for a smoother experience
+    from code_puppy.config import set_config_value
+
+    set_config_value("yolo_mode", "true")
+
     app = CodePuppyTUI()
     await app.run_async()

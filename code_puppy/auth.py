@@ -5,13 +5,17 @@ from datetime import datetime
 from typing import Optional
 
 import jwt
-from rich.console import Console
 
 from code_puppy.config import get_value
+from code_puppy.messaging import (
+    emit_error,
+    emit_info,
+    emit_success,
+    emit_system_message,
+    emit_warning,
+)
 
 from .urls import get_authentication_url
-
-console = Console()
 
 
 def decode_jwt_without_validation(token: str) -> Optional[dict]:
@@ -24,7 +28,7 @@ def decode_jwt_without_validation(token: str) -> Optional[dict]:
         decoded = jwt.decode(token, options={"verify_signature": False})
         return decoded
     except Exception as e:
-        console.print(f"[yellow]Failed to decode JWT: {e}[/yellow]")
+        emit_warning(f"Failed to decode JWT: {e}")
         return None
 
 
@@ -45,23 +49,23 @@ def is_token_expired(token: str, silent: bool = False) -> bool:
     exp = payload.get("exp")
     if not exp:
         if not silent:
-            console.print("[yellow]JWT token has no expiration claim[/yellow]")
+            msg = "JWT token has no expiration claim"
+            emit_warning(msg)
         return True
 
     # Compare with current time (exp is typically a Unix timestamp)
     current_time = time.time()
     if current_time >= exp:
         if not silent:
-            console.print("[yellow]JWT token has expired[/yellow]")
+            msg = "JWT token has expired"
+            emit_warning(msg)
         return True
 
     # Calculate time until expiration and show it (only if not silent)
     if not silent:
-        exp - current_time
         exp_datetime = datetime.fromtimestamp(exp)
-        console.print(
-            f"[dim]Token expires at: {exp_datetime.strftime('%Y-%m-%d %H:%M:%S')}[/dim]"
-        )
+        msg = f"Token expires at: {exp_datetime.strftime('%Y-%m-%d %H:%M:%S')}"
+        emit_system_message(msg)
 
     return False
 
@@ -79,7 +83,8 @@ def is_puppy_token_valid() -> bool:
     """
     token = get_puppy_token()
     if not token:
-        console.print("[yellow]No puppy_token found in config[/yellow]")
+        msg = "No puppy_token found in config"
+        emit_warning(msg)
         return False
 
     return not is_token_expired(token)
@@ -91,8 +96,13 @@ async def wait_for_token_update(
     """
     Wait for the puppy_token to be updated (different from initial_token).
     Returns True if token was updated, False if timeout occurred.
+
+    Args:
+        initial_token: The initial token value to compare against
+        timeout: How long to wait for authentication in seconds
     """
-    console.print(f"[dim]Waiting for authentication (timeout: {timeout}s)...[/dim]")
+    msg = f"Waiting for authentication (timeout: {timeout}s)..."
+    emit_system_message(msg)
 
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -101,17 +111,18 @@ async def wait_for_token_update(
         # Check if token changed from initial state
         if current_token != initial_token:
             if current_token and not is_token_expired(current_token, silent=True):
-                console.print("[green]✓ Authentication successful![/green]")
+                msg = "✓ Authentication successful!"
+                emit_success(msg)
                 return True
             else:
-                console.print(
-                    "[yellow]Received token but it's invalid or expired[/yellow]"
-                )
+                msg = "Received token but it's invalid or expired"
+                emit_warning(msg)
 
         # Sleep a bit before checking again
         await asyncio.sleep(1)
 
-    console.print(f"[red]Authentication timeout after {timeout}s[/red]")
+    msg = f"Authentication timeout after {timeout}s"
+    emit_error(msg)
     return False
 
 
@@ -122,28 +133,37 @@ async def authenticate_puppy(port: int) -> bool:
     2. If not, open browser for auth
     3. Wait for token to be received
 
+    Args:
+        port: The port number for authentication callback
+
     Returns True if authentication succeeded, False otherwise.
     """
     # Check if we already have a valid token
     if is_puppy_token_valid():
-        console.print("[green]✓ Puppy token is valid![/green]")
+        msg = "✓ Puppy token is valid!"
+        emit_success(msg)
         return True
 
-    console.print("[yellow]Puppy needs to authenticate...[/yellow]")
+    msg = "Puppy needs to authenticate..."
+    emit_warning(msg)
 
     # Store initial token state (might be None or expired)
     initial_token = get_puppy_token()
 
     # Open browser for authentication
     auth_url = get_authentication_url(port=port)
-    console.print(f"[blue]Opening browser for authentication: {auth_url}[/blue]")
+    msg = f"Opening browser for authentication: {auth_url}"
+    emit_info(msg)
 
     try:
         webbrowser.open(auth_url)
-        console.print("[dim]Browser opened - please complete authentication[/dim]")
+        msg = "Browser opened - please complete authentication"
+        emit_system_message(msg)
     except Exception as e:
-        console.print(f"[red]Failed to open browser: {e}[/red]")
-        console.print(f"[yellow]Please manually open: {auth_url}[/yellow]")
+        msg = f"Failed to open browser: {e}"
+        emit_error(msg)
+        msg = f"Please manually open: {auth_url}"
+        emit_warning(msg)
 
     # Wait for the token to be updated
     success = await wait_for_token_update(initial_token, timeout=120)
@@ -154,7 +174,8 @@ async def authenticate_puppy(port: int) -> bool:
         if final_token and not is_token_expired(final_token, silent=True):
             return True
         else:
-            console.print("[red]Final token validation failed[/red]")
+            msg = "Final token validation failed"
+            emit_error(msg)
             return False
 
     return False

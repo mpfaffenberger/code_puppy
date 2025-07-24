@@ -1,12 +1,26 @@
 import fnmatch
+import hashlib
 import os
+import time
 from typing import Optional, Tuple
 
 from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 
-NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
-console = Console(no_color=NO_COLOR)
+# Import our queue-based console system
+try:
+    from code_puppy.messaging import get_queue_console
+
+    # Use queue console by default, but allow fallback
+    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    _rich_console = Console(no_color=NO_COLOR)
+    console = get_queue_console()
+    # Set the fallback console for compatibility
+    console.fallback_console = _rich_console
+except ImportError:
+    # Fallback to regular Rich console if messaging system not available
+    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    console = Console(no_color=NO_COLOR)
 
 
 # -------------------
@@ -87,3 +101,24 @@ def _find_best_window(
     console.log(f"Best window: {best_window}")
     console.log(f"Best score: {best_score}")
     return best_span, best_score
+
+
+def generate_group_id(tool_name: str, extra_context: str = "") -> str:
+    """Generate a unique group_id for tool output grouping.
+
+    Args:
+        tool_name: Name of the tool (e.g., 'list_files', 'edit_file')
+        extra_context: Optional extra context to make group_id more unique
+
+    Returns:
+        A string in format: tool_name_hash
+    """
+    # Create a unique identifier using timestamp and context
+    timestamp = str(int(time.time() * 1000))  # milliseconds for more uniqueness
+    context_string = f"{tool_name}_{timestamp}_{extra_context}"
+
+    # Generate a short hash
+    hash_obj = hashlib.md5(context_string.encode())
+    short_hash = hash_obj.hexdigest()[:8]
+
+    return f"{tool_name}_{short_hash}"

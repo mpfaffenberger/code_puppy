@@ -2,12 +2,12 @@
 TUI screens package.
 """
 
-from .disclaimer import DisclaimerScreen
 from .help import HelpScreen
 from .settings import SettingsScreen
+from .tools import ToolsScreen
 
 __all__ = [
-    "DisclaimerScreen",
     "HelpScreen",
     "SettingsScreen",
+    "ToolsScreen",
 ]

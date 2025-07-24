@@ -67,10 +67,11 @@ Controls:
 - Enter: Send message
 - Ctrl+Enter: New line
 - Ctrl+Q: Quit
-- Ctrl+2: Toggle history
+- Ctrl+2: Toggle History
 - Ctrl+3: Settings
-- Ctrl+4: Focus prompt
-- Ctrl+5: Focus response
+- Ctrl+4: Tools
+- Ctrl+5: Focus prompt
+- Ctrl+6: Focus response
 
 Use this help for full details.
 """
@@ -88,10 +89,11 @@ Keyboard Shortcuts:
 - Ctrl+Q/Ctrl+C: Quit application
 - Ctrl+L: Clear chat history
 - Ctrl+1: Show this help
-- Ctrl+2: Toggle history
+- Ctrl+2: Toggle History
 - Ctrl+3: Open settings
-- Ctrl+4: Focus prompt (input field)
-- Ctrl+5: Focus response (chat area)
+- Ctrl+4: Tools
+- Ctrl+5: Focus prompt (input field)
+- Ctrl+6: Focus response (chat area)
 
 Chat Navigation:
 - Ctrl+Up/Down: Scroll chat up/down
@@ -106,7 +108,7 @@ Meta Commands:
 - ~status: Show current status
 
 Use the input area at the bottom to type messages.
-Press Ctrl+2 to view session history when needed.
+Press Ctrl+2 to view History when needed.
 Agent responses support syntax highlighting for code blocks.
 Press Ctrl+3 to access all configuration settings.
 """
