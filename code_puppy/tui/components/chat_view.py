@@ -236,11 +236,10 @@ class ChatView(VerticalScroll):
         css_class = f"{message.type.value}-message"
 
         if message.type == MessageType.USER:
-            prefix = "You: "
-            content = f"{prefix}{message.content}"
+            content = f"{message.content}"
             message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT:
-            prefix = "Agent: "
+            prefix = ""
             try:
                 if "```" in message.content:
                     rendered_content = self._render_agent_message_with_syntax(
@@ -248,10 +247,10 @@ class ChatView(VerticalScroll):
                     )
                     message_widget = Static(rendered_content, classes=css_class)
                 else:
-                    content = f"{prefix}{message.content}"
+                    content = f"{message.content}"
                     message_widget = Static(Text(content), classes=css_class)
             except Exception:
-                content = f"{prefix}{message.content}"
+                content = f"{message.content}"
                 message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.SYSTEM:
             content = f"{message.content}"
