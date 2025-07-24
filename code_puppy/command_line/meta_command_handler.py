@@ -18,6 +18,7 @@ META_COMMANDS_HELP = """
 ~motd                 Show the latest message of the day (MOTD)
 ~show                 Show puppy config key-values
 ~set                  Set puppy config key-values
+~tools                Show available tools and capabilities
 ~<unknown>            Show unknown meta command warning
 """
 
@@ -127,6 +128,25 @@ def handle_meta_command(command: str) -> bool:
             emit_success(f'🌶 Set {key} = "{value}" in puppy.cfg!')
         else:
             emit_error("You must supply a key.")
+        return True
+
+    if command.startswith("~tools"):
+        # Display the TOOLS.md file content
+        try:
+            from pathlib import Path
+
+            # Get the path to TOOLS.md relative to this file
+            current_dir = Path(__file__).parent.parent
+            tools_md_path = current_dir / "tools" / "TOOLS.md"
+
+            if tools_md_path.exists():
+                with open(tools_md_path, "r", encoding="utf-8") as f:
+                    tools_content = f.read()
+                emit_info(tools_content)
+            else:
+                emit_error(f"TOOLS.md not found at: {tools_md_path}")
+        except Exception as e:
+            emit_error(f"Error reading TOOLS.md: {e}")
         return True
 
     if command.startswith("~m"):
