@@ -131,9 +131,11 @@ def handle_meta_command(command: str) -> bool:
         return True
 
     if command.startswith("~tools"):
-        # Display the TOOLS.md file content
+        # Display the TOOLS.md file content with markdown formatting
         try:
             from pathlib import Path
+
+            from rich.markdown import Markdown
 
             # Get the path to TOOLS.md relative to this file
             current_dir = Path(__file__).parent.parent
@@ -142,7 +144,9 @@ def handle_meta_command(command: str) -> bool:
             if tools_md_path.exists():
                 with open(tools_md_path, "r", encoding="utf-8") as f:
                     tools_content = f.read()
-                emit_info(tools_content)
+                # Use Rich Markdown for proper formatting
+                markdown_content = Markdown(tools_content)
+                emit_info(markdown_content)
             else:
                 emit_error(f"TOOLS.md not found at: {tools_md_path}")
         except Exception as e:

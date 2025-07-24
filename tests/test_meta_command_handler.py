@@ -376,11 +376,17 @@ def test_tools_displays_tools_md():
             patch("builtins.open", create=True) as mock_open,
         ):
             mock_open.return_value.__enter__.return_value.read.return_value = (
-                "Mock TOOLS.md content"
+                "# Mock TOOLS.md content\n\nThis is a test."
             )
             result = handle_meta_command("~tools")
             assert result is True
-            mock_emit_info.assert_called_with("Mock TOOLS.md content")
+            mock_emit_info.assert_called_once()
+            # Check that emit_info was called with a Markdown object
+            call_args = mock_emit_info.call_args[0][0]
+            # The call should be with a Rich Markdown object
+            from rich.markdown import Markdown
+
+            assert isinstance(call_args, Markdown)
     finally:
         mocks["emit_info"].stop()
 
