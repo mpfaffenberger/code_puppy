@@ -133,68 +133,82 @@ class CodePuppyTUI(App):
         # Show disclaimer modal when TUI starts (delayed to allow message renderer to start)
         self.set_timer(0.1, self.show_disclaimer)
 
-    def add_system_message(self, content: str) -> None:
+    def add_system_message(
+        self, content: str, message_group: str = None, group_id: str = None
+    ) -> None:
         """Add a system message to the chat."""
+        # Support both parameter names for backward compatibility
+        final_group_id = message_group or group_id
         message = ChatMessage(
             id=f"sys_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.SYSTEM,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=final_group_id,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def add_user_message(self, content: str) -> None:
+    def add_user_message(self, content: str, message_group: str = None) -> None:
         """Add a user message to the chat."""
         message = ChatMessage(
             id=f"user_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.USER,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def add_agent_message(self, content: str) -> None:
+    def add_agent_message(self, content: str, message_group: str = None) -> None:
         """Add an agent message to the chat."""
         message = ChatMessage(
             id=f"agent_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.AGENT,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def add_error_message(self, content: str) -> None:
+    def add_error_message(self, content: str, message_group: str = None) -> None:
         """Add an error message to the chat."""
         message = ChatMessage(
             id=f"error_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.ERROR,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def add_agent_reasoning_message(self, content: str) -> None:
+    def add_agent_reasoning_message(
+        self, content: str, message_group: str = None
+    ) -> None:
         """Add an agent reasoning message to the chat."""
         message = ChatMessage(
             id=f"agent_reasoning_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.AGENT_REASONING,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
-    def add_planned_next_steps_message(self, content: str) -> None:
+    def add_planned_next_steps_message(
+        self, content: str, message_group: str = None
+    ) -> None:
         """Add an planned next steps to the chat."""
         message = ChatMessage(
             id=f"planned_next_steps_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.PLANNED_NEXT_STEPS,
             content=content,
             timestamp=datetime.now(timezone.utc),
+            group_id=message_group,
         )
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)

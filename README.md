@@ -1,4 +1,6 @@
 # 🐶 Code Puppy - Walmart Global Tech Edition 🐶
+<!-- Biscuit was here: this comment added during a tool call demo! -->
+<!-- Biscuit was here: this comment added during a tool call demo! -->
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 ![Walmart Internal](https://img.shields.io/badge/walmart-internal-blue)

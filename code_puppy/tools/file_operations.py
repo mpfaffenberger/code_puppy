@@ -9,7 +9,7 @@ from pydantic_ai import RunContext
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
-from code_puppy.tools.common import should_ignore_path
+from code_puppy.tools.common import generate_group_id, should_ignore_path
 
 
 def _list_files(
@@ -17,18 +17,26 @@ def _list_files(
 ) -> List[Dict[str, Any]]:
     results = []
     directory = os.path.abspath(directory)
-    emit_info("\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]")
+
+    # Generate group_id for this tool execution
+    group_id = generate_group_id("list_files", directory)
+
     emit_info(
-        f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]"
+        "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]",
+        message_group=group_id,
     )
-    emit_info("[dim]" + "-" * 60 + "[/dim]")
+    emit_info(
+        f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]",
+        message_group=group_id,
+    )
+    emit_info("[dim]" + "-" * 60 + "[/dim]", message_group=group_id)
     if not os.path.exists(directory):
-        emit_error(f"Directory '{directory}' does not exist")
-        emit_info("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_error(f"Directory '{directory}' does not exist", message_group=group_id)
+        emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
         return [{"error": f"Directory '{directory}' does not exist"}]
     if not os.path.isdir(directory):
-        emit_error(f"'{directory}' is not a directory")
-        emit_info("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_error(f"'{directory}' is not a directory", message_group=group_id)
+        emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
         return [{"error": f"'{directory}' is not a directory"}]
     folder_structure = {}
     file_list = []
@@ -119,7 +127,8 @@ def _list_files(
             [f for f in results if f["type"] == "file"], key=lambda x: x["path"]
         )
         emit_info(
-            f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]"
+            f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]",
+            message_group=group_id,
         )
     all_items = sorted(results, key=lambda x: x["path"])
     parent_dirs_with_content = set()
@@ -138,30 +147,42 @@ def _list_files(
                 prefix += "    "
         name = os.path.basename(item["path"]) or item["path"]
         if item["type"] == "directory":
-            emit_info(f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]")
+            emit_info(
+                f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]",
+                message_group=group_id,
+            )
         else:
             icon = get_file_icon(item["path"])
             size_str = format_size(item["size"])
-            emit_info(f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]")
+            emit_info(
+                f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]",
+                message_group=group_id,
+            )
     else:
-        emit_warning("Directory is empty")
+        emit_warning("Directory is empty", message_group=group_id)
     dir_count = sum(1 for item in results if item["type"] == "directory")
     file_count = sum(1 for item in results if item["type"] == "file")
     total_size = sum(item["size"] for item in results if item["type"] == "file")
-    emit_info("\n[bold cyan]Summary:[/bold cyan]")
+    emit_info("\n[bold cyan]Summary:[/bold cyan]", message_group=group_id)
     emit_info(
-        f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]"
+        f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]",
+        message_group=group_id,
     )
-    emit_info("[dim]" + "-" * 60 + "[/dim]\n")
+    emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
     return results
 
 
 def _read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
+
+    # Generate group_id for this tool execution
+    group_id = generate_group_id("read_file", file_path)
+
     emit_info(
-        f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
+        f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]",
+        message_group=group_id,
     )
-    emit_info("[dim]" + "-" * 60 + "[/dim]")
+    emit_info("[dim]" + "-" * 60 + "[/dim]", message_group=group_id)
     if not os.path.exists(file_path):
         return {"error": f"File '{file_path}' does not exist"}
     if not os.path.isfile(file_path):
@@ -183,10 +204,15 @@ def _grep(
 ) -> List[Dict[str, Any]]:
     matches: List[Dict[str, Any]] = []
     directory = os.path.abspath(directory)
+
+    # Generate group_id for this tool execution
+    group_id = generate_group_id("grep", f"{directory}_{search_string}")
+
     emit_info(
-        f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]"
+        f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]",
+        message_group=group_id,
     )
-    emit_info("[dim]" + "-" * 60 + "[/dim]")
+    emit_info("[dim]" + "-" * 60 + "[/dim]", message_group=group_id)
 
     for root, dirs, files in os.walk(directory, topdown=True):
         # Filter out ignored directories
@@ -215,24 +241,37 @@ def _grep(
                             # ) # Optional: for verbose match logging
                             if len(matches) >= 200:
                                 emit_warning(
-                                    "Limit of 200 matches reached. Stopping search."
+                                    "Limit of 200 matches reached. Stopping search.",
+                                    message_group=group_id,
                                 )
                                 return matches
             except FileNotFoundError:
-                emit_warning(f"File not found (possibly a broken symlink): {file_path}")
+                emit_warning(
+                    f"File not found (possibly a broken symlink): {file_path}",
+                    message_group=group_id,
+                )
                 continue
             except UnicodeDecodeError:
-                emit_warning(f"Cannot decode file (likely binary): {file_path}")
+                emit_warning(
+                    f"Cannot decode file (likely binary): {file_path}",
+                    message_group=group_id,
+                )
                 continue
             except Exception as e:
-                emit_error(f"Error processing file {file_path}: {e}")
+                emit_error(
+                    f"Error processing file {file_path}: {e}", message_group=group_id
+                )
                 continue
 
     if not matches:
-        emit_warning(f"No matches found for '{search_string}' in {directory}")
+        emit_warning(
+            f"No matches found for '{search_string}' in {directory}",
+            message_group=group_id,
+        )
     else:
         emit_success(
-            f"Found {len(matches)} match(es) for '{search_string}' in {directory}"
+            f"Found {len(matches)} match(es) for '{search_string}' in {directory}",
+            message_group=group_id,
         )
 
     return matches
@@ -281,7 +320,13 @@ def register_file_operations_tools(agent):
         Returns:
             A string containing the code map.
         """
-        emit_info("[bold white on blue] CODE MAP [/bold white on blue]")
+        # Generate group_id for this tool execution
+        group_id = generate_group_id("code_map", directory)
+
+        emit_info(
+            "[bold white on blue] CODE MAP [/bold white on blue]",
+            message_group=group_id,
+        )
         from code_puppy.tools.ts_code_map import make_code_map
 
         result = make_code_map(directory, ignore_tests=True)

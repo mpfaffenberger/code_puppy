@@ -138,31 +138,38 @@ class TUIRenderer(MessageRenderer):
         else:
             content_str = str(message.content)
 
-        # Map message types to TUI message types
+        # Extract group_id from message metadata (fixing the key name)
+        group_id = message.metadata.get("message_group") if message.metadata else None
+
+        # Map message types to TUI message types - ALL get group_id now
         if message.type in (MessageType.ERROR,):
-            self.tui_app.add_error_message(content_str)
+            self.tui_app.add_error_message(content_str, message_group=group_id)
         elif message.type in (
             MessageType.SYSTEM,
             MessageType.INFO,
             MessageType.WARNING,
             MessageType.SUCCESS,
         ):
-            self.tui_app.add_system_message(content_str)
+            self.tui_app.add_system_message(content_str, message_group=group_id)
         elif message.type == MessageType.AGENT_REASONING:
             # Agent reasoning messages should use the dedicated method
-            self.tui_app.add_agent_reasoning_message(content_str)
+            self.tui_app.add_agent_reasoning_message(
+                content_str, message_group=group_id
+            )
         elif message.type == MessageType.PLANNED_NEXT_STEPS:
             # Agent reasoning messages should use the dedicated method
-            self.tui_app.add_planned_next_steps_message(content_str)
+            self.tui_app.add_planned_next_steps_message(
+                content_str, message_group=group_id
+            )
         elif message.type in (
             MessageType.TOOL_OUTPUT,
             MessageType.COMMAND_OUTPUT,
         ):
             # These are typically agent/tool outputs
-            self.tui_app.add_agent_message(content_str)
+            self.tui_app.add_agent_message(content_str, message_group=group_id)
         else:
             # Default to system message
-            self.tui_app.add_system_message(content_str)
+            self.tui_app.add_system_message(content_str, message_group=group_id)
 
 
 class SynchronousInteractiveRenderer:
