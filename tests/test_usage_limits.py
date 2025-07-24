@@ -121,7 +121,8 @@ class TestUsageLimits:
             patch("code_puppy.agent.register_all_tools"),
             patch("code_puppy.agent._load_mcp_servers", return_value=[]),
             patch("code_puppy.agent.session_memory") as mock_session,
-            patch("code_puppy.agent.console"),
+            patch("code_puppy.agent.emit_info"),
+            patch("code_puppy.agent.emit_system_message"),
             patch("code_puppy.agent.Agent") as mock_agent_class,
         ):
             mock_model = MagicMock()

@@ -9,7 +9,7 @@ from rich.console import Group
 from rich.syntax import Syntax
 from rich.text import Text
 from textual.containers import VerticalScroll
-from textual.widgets import Label, Static
+from textual.widgets import Static
 
 from ..models import ChatMessage, MessageType
 
@@ -31,6 +31,7 @@ class ChatView(VerticalScroll):
         color: #ffffff;
         margin: 1 0;
         padding: 1;
+        text-wrap: wrap;
     }
 
     .agent-message {
@@ -39,6 +40,7 @@ class ChatView(VerticalScroll):
         margin: 1 0;
         padding: 1;
         border-left: thick #10b981;
+        text-wrap: wrap;
     }
 
     .system-message {
@@ -48,6 +50,7 @@ class ChatView(VerticalScroll):
         padding: 1;
         text-style: italic;
         border-left: thick #6b7280;
+        text-wrap: wrap;
     }
 
     .error-message {
@@ -55,12 +58,79 @@ class ChatView(VerticalScroll):
         color: #fef2f2;
         margin: 1 0;
         padding: 1;
+        text-wrap: wrap;
+    }
+
+    .agent_reasoning-message {
+        background: #581c87;
+        color: #f3e8ff;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #a855f7;
+        text-wrap: wrap;
+        text-style: italic;
+    }
+
+    .planned_next_steps-message {
+        background: #581c87;
+        color: #f3e8ff;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #a855f7;
+        text-wrap: wrap;
+        text-style: italic;
+    }
+
+    .info-message {
+        background: #065f46;
+        color: #d1fae5;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #10b981;
+        text-wrap: wrap;
+    }
+
+    .success-message {
+        background: #064e3b;
+        color: #d1fae5;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #059669;
+        text-wrap: wrap;
+    }
+
+    .warning-message {
+        background: #92400e;
+        color: #fef3c7;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #f59e0b;
+        text-wrap: wrap;
+    }
+
+    .tool_output-message {
+        background: #1e40af;
+        color: #dbeafe;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #3b82f6;
+        text-wrap: wrap;
+    }
+
+    .command_output-message {
+        background: #7c2d12;
+        color: #fed7aa;
+        margin: 1 0;
+        padding: 1;
+        border-left: thick #ea580c;
+        text-wrap: wrap;
     }
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.messages: List[ChatMessage] = []
+        self.message_groups: dict = {}  # Track groups for visual grouping
 
     def _render_agent_message_with_syntax(self, prefix: str, content: str):
         """Render agent message with proper syntax highlighting for code blocks."""
@@ -108,40 +178,134 @@ class ChatView(VerticalScroll):
 
     def add_message(self, message: ChatMessage) -> None:
         """Add a new message to the chat view."""
+        # Handle grouping for ANY message type with same group_id
+        if (
+            message.group_id is not None
+            and self.messages
+            and self.messages[-1].group_id == message.group_id
+        ):
+            # Concatenate with the previous grouped message
+            previous_message = self.messages[-1]
+
+            # Create a separator for different message types in the same group
+            if message.type != previous_message.type:
+                separator = "\n" + "─" * 40 + "\n"
+            else:
+                separator = "\n"
+
+            previous_message.content += separator + message.content
+
+            # Update the existing widget with the concatenated content
+            static_widgets = list(self.query(Static))
+            if static_widgets:
+                last_widget = static_widgets[-1]
+                content = f"{previous_message.content}"
+
+                # Apply the same rendering logic as below
+                if (
+                    "[" in previous_message.content
+                    and "]" in previous_message.content
+                    and (
+                        previous_message.content.strip().startswith("$ ")
+                        or previous_message.content.strip().startswith("git ")
+                    )
+                ):
+                    # Treat as literal text
+                    last_widget.update(Text(content))
+                else:
+                    # Try to render markup
+                    try:
+                        last_widget.update(Text.from_markup(content))
+                    except Exception:
+                        last_widget.update(Text(content))
+
+            # Auto-scroll to bottom
+            self.scroll_end(animate=True)
+            return
+
+        # Add to messages list
         self.messages.append(message)
+
+        # Track groups for potential future use
+        if message.group_id:
+            if message.group_id not in self.message_groups:
+                self.message_groups[message.group_id] = []
+            self.message_groups[message.group_id].append(message)
 
         # Create the message widget
         css_class = f"{message.type.value}-message"
-        timestamp_str = message.timestamp.strftime("%H:%M:%S")
 
         if message.type == MessageType.USER:
-            content = f"[{timestamp_str}] You: {message.content}"
-            message_widget = Label(content, classes=css_class)
+            prefix = "You: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT:
-            prefix = f"[{timestamp_str}] Agent: "
-            # Use Static widget with Rich renderable for agent messages to support syntax highlighting
+            prefix = "Agent: "
             try:
-                # Check if the message contains code blocks
                 if "```" in message.content:
-                    # Parse and render code blocks with syntax highlighting
                     rendered_content = self._render_agent_message_with_syntax(
                         prefix, message.content
                     )
                     message_widget = Static(rendered_content, classes=css_class)
                 else:
-                    # Regular text message
-                    content = f"[{timestamp_str}] Agent: {message.content}"
-                    message_widget = Label(content, classes=css_class)
+                    content = f"{prefix}{message.content}"
+                    message_widget = Static(Text(content), classes=css_class)
             except Exception:
-                # Fallback to simple label if parsing fails
-                content = f"[{timestamp_str}] Agent: {message.content}"
-                message_widget = Label(content, classes=css_class)
+                content = f"{prefix}{message.content}"
+                message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.SYSTEM:
-            content = f"[{timestamp_str}] System: {message.content}"
-            message_widget = Label(content, classes=css_class)
-        else:  # ERROR
-            content = f"[{timestamp_str}] Error: {message.content}"
-            message_widget = Label(content, classes=css_class)
+            content = f"{message.content}"
+            # Heuristic: if message looks like a command with markup tags, treat as markup
+            if (
+                "[" in message.content
+                and "]" in message.content
+                and (
+                    message.content.strip().startswith("$ ")
+                    or message.content.strip().startswith("git ")
+                )
+            ):
+                # Treat as literal text
+                message_widget = Static(Text(content), classes=css_class)
+            else:
+                # Try to render markup
+                try:
+                    message_widget = Static(
+                        Text.from_markup(content), classes=css_class
+                    )
+                except Exception:
+                    message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.AGENT_REASONING:
+            prefix = "AGENT REASONING: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.PLANNED_NEXT_STEPS:
+            prefix = "PLANNED NEXT STEPS: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.INFO:
+            prefix = "INFO: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.SUCCESS:
+            prefix = "SUCCESS: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.WARNING:
+            prefix = "WARNING: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.TOOL_OUTPUT:
+            prefix = "TOOL OUTPUT: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.COMMAND_OUTPUT:
+            prefix = "COMMAND: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
+        else:  # ERROR and fallback
+            prefix = "Error: " if message.type == MessageType.ERROR else "Unknown: "
+            content = f"{prefix}{message.content}"
+            message_widget = Static(Text(content), classes=css_class)
 
         self.mount(message_widget)
 
@@ -151,8 +315,7 @@ class ChatView(VerticalScroll):
     def clear_messages(self) -> None:
         """Clear all messages from the chat view."""
         self.messages.clear()
-        # Remove all message widgets (both Label and Static)
-        for widget in self.query(Label):
-            widget.remove()
+        self.message_groups.clear()  # Clear groups too
+        # Remove all message widgets (now only Static widgets)
         for widget in self.query(Static):
             widget.remove()

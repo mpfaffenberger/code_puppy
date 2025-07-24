@@ -18,6 +18,7 @@ class ChatMessage:
     content: str
     timestamp: datetime
     metadata: Dict[str, Any] = None
+    group_id: str = None
 
     def __post_init__(self):
         if self.metadata is None:

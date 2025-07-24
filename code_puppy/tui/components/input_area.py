@@ -4,19 +4,37 @@ Input area component for message input.
 
 from textual.app import ComposeResult
 from textual.containers import Container
-from textual.widgets import ProgressBar, Static
+from textual.widgets import Static
+
+from code_puppy.messaging.spinner import TextualSpinner
 
 from .custom_widgets import CustomTextArea
 
+# Alias SimpleSpinnerWidget to TextualSpinner for backward compatibility
+SimpleSpinnerWidget = TextualSpinner
+
 
 class InputArea(Container):
-    """Input area with text input, progress bar, help text, and send button."""
+    """Input area with text input, spinner, help text, and send button."""
 
     DEFAULT_CSS = """
     InputArea {
         dock: bottom;
         height: 9;
         margin: 1;
+    }
+
+    #spinner {
+        height: 1;
+        width: 1fr;
+        margin: 0 3 0 1;
+        content-align: left middle;
+        text-align: left;
+        display: none;
+    }
+
+    #spinner.visible {
+        display: block;
     }
 
     #input-field {
@@ -34,21 +52,10 @@ class InputArea(Container):
         color: $text-muted;
         text-align: center;
     }
-
-    #progress-bar {
-        height: 1;
-        width: 1fr;
-        margin: 0 3 0 1;
-        display: none;
-    }
-
-    #progress-bar.visible {
-        display: block;
-    }
     """
 
     def compose(self) -> ComposeResult:
-        yield ProgressBar(id="progress-bar", show_eta=False)
+        yield SimpleSpinnerWidget(id="spinner")
         yield CustomTextArea(id="input-field", show_line_numbers=False)
         yield Static(
             "Enter to send • Ctrl+Enter for new line • Ctrl+1 for help", id="input-help"
