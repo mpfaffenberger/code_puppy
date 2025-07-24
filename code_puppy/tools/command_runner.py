@@ -280,7 +280,7 @@ def share_your_reasoning(
     from code_puppy.messaging import emit_agent_reasoning, emit_planned_next_steps
 
     if not is_tui_mode():
-        emit_agent_reasoning("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_divider()
         emit_agent_reasoning("\n[bold purple]AGENT REASONING:[/bold purple]")
     emit_agent_reasoning(Markdown(reasoning))
 
