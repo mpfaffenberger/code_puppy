@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 import sys
+import webbrowser
 
 # HTTP server imports
 import uvicorn
@@ -94,6 +95,9 @@ def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
 
 
 async def main():
+    # Import console early for help display
+    from code_puppy.tools.common import console
+
     # Parse arguments FIRST to determine if we're in TUI mode
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
@@ -103,11 +107,18 @@ async def main():
         help="Run in interactive mode",
     )
     parser.add_argument("--tui", "-t", action="store_true", help="Run in TUI mode")
+    parser.add_argument(
+        "--web",
+        "-w",
+        action="store_true",
+        help="Run in web mode (serves TUI in browser)",
+    )
     parser.add_argument("command", nargs="*", help="Run a single command")
     args = parser.parse_args()
 
     # Determine if we're in TUI mode early and set it globally
-    if args.tui:
+    # Web mode also uses TUI interface (served in browser), so treat it as TUI mode
+    if args.tui or args.web:
         set_tui_mode(True)
     elif args.interactive:
         set_tui_mode(False)
@@ -130,6 +141,127 @@ async def main():
         message_renderer.start()
 
     # Import message queue functions early
+    # Handle help case early (when no mode is specified and no command given)
+    if not args.tui and not args.interactive and not args.web and not args.command:
+        # Show help with information about all modes
+        parser.print_help()
+        print("\nAvailable modes:")
+        print("  --interactive, -i  Interactive command-line mode")
+        print("  --tui, -t         Terminal User Interface mode")
+        print("  --web, -w         Web interface mode (serves TUI in browser)")
+        print("  <command>         Execute a single command")
+        print("\nExamples:")
+        print("  code-puppy --interactive")
+        print("  code-puppy --tui")
+        print("  code-puppy --web")
+        print("  code-puppy 'create a hello world script'")
+        return
+
+    # Handle web mode first - this will launch textual serve and exit
+    # NOTE: here we are using console.print, since the messaging system is not up yet
+    # and these messages need to be displayed in the terminal before actually starting code-puppy
+    if args.web:
+        try:
+            # Find an available port for the web server
+            available_port = find_available_port()
+            if available_port is None:
+                console.print(
+                    "[bold red]Error:[/bold red] No available ports in range 8090-9010!"
+                )
+                sys.exit(1)
+
+            # Construct the command to run code-puppy in TUI mode
+            python_executable = sys.executable
+
+            # Use the entry point command that would be available after installation
+            serve_command = f"{python_executable} -m code_puppy --tui"
+
+            # Check if textual is installed
+            try:
+                import importlib.util
+
+                textual_spec = importlib.util.find_spec("textual")
+                textual_dev_installed = textual_spec is not None
+            except ImportError:
+                textual_dev_installed = False
+
+            # Install textual-dev if not present
+            if not textual_dev_installed:
+                console.print("[yellow]textual-dev not found. Installing...[/yellow]")
+                try:
+                    subprocess.check_call(
+                        [sys.executable, "-m", "pip", "install", "textual-dev"],
+                        stderr=subprocess.STDOUT,
+                    )
+                    console.print("[green]Successfully installed textual-dev![/green]")
+                except subprocess.CalledProcessError as e:
+                    console.print(
+                        f"[bold red]Error installing textual-dev:[/bold red] {str(e)}"
+                    )
+                    console.print(
+                        "[yellow]Please install manually: pip install textual-dev[/yellow]"
+                    )
+                    sys.exit(1)
+
+            # Try to use textual serve with -c flag for command mode and custom port
+            textual_serve_cmd = [
+                "textual",
+                "serve",
+                "-c",
+                serve_command,
+                "--port",
+                str(available_port),
+            ]
+
+            console.print(
+                "[bold blue]🌐 Starting Code Puppy web interface...[/bold blue]"
+            )
+            console.print(f"[dim]Running: {' '.join(textual_serve_cmd)}[/dim]")
+
+            web_url = f"http://localhost:{available_port}"
+            console.print(
+                f"[green]Web interface will be available at: {web_url}[/green]"
+            )
+            console.print("[yellow]Press Ctrl+C to stop the server.[/yellow]\n")
+
+            # Start the textual serve process
+            process = subprocess.Popen(textual_serve_cmd)
+
+            # Give the server a moment to start up
+            import time
+
+            time.sleep(2)
+
+            # Automatically open the web interface in the default browser
+            try:
+                console.print(
+                    "[cyan]🚀 Opening web interface in your default browser...[/cyan]"
+                )
+                webbrowser.open(web_url)
+                console.print("[green]✅ Browser opened successfully![/green]\n")
+            except Exception as e:
+                console.print(
+                    f"[yellow]⚠️  Could not automatically open browser: {e}[/yellow]"
+                )
+                console.print(f"[yellow]Please manually open: {web_url}[/yellow]\n")
+
+            # Wait for the process to complete
+            result = process.wait()
+            sys.exit(result)
+
+        except FileNotFoundError:
+            console.print("[bold red]Error:[/bold red] 'textual' command not found.")
+            console.print(
+                "[yellow]Please install textual-dev:[/yellow] pip install textual-dev"
+            )
+            sys.exit(1)
+        except Exception as e:
+            console.print(
+                f"[bold red]Error starting web interface:[/bold red] {str(e)}"
+            )
+            sys.exit(1)
+
+    # Import message queue functions early for TUI mode
     from code_puppy.messaging import emit_system_message
 
     # Show immediate loading feedback to user
@@ -274,9 +406,6 @@ async def main():
             command = " ".join(args.command)
             try:
                 while not shutdown_flag:
-                    # Show thinking message, then processing message, then spinner
-                    # console.print(SpinnerBase.THINKING_MESSAGE)
-
                     # Check if any tool is waiting for user input before showing spinner
                     try:
                         from code_puppy.tools.command_runner import (
@@ -362,6 +491,7 @@ async def main():
         elif args.interactive:
             await interactive_mode(history_file_path, message_renderer)
         else:
+            # This case should not be reached due to early help handling
             parser.print_help()
     finally:
         # Stop the message renderer if it was started
@@ -511,9 +641,6 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
                 # Store agent's full response
                 agent_response = None
-
-                # Show thinking message, then processing message, then spinner
-                # console.print(SpinnerBase.THINKING_MESSAGE)
 
                 # Just get the agent and run it with spinner
                 agent = get_code_generation_agent()

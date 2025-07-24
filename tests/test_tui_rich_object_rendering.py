@@ -23,19 +23,19 @@ class MockTUIApp:
         self.agent_reasoning_messages = []
         self.error_messages = []
 
-    def add_system_message(self, content, group_id=None):
+    def add_system_message(self, content, message_group=None, group_id=None):
         self.system_messages.append(content)
 
-    def add_agent_message(self, content):
+    def add_agent_message(self, content, message_group=None):
         self.agent_messages.append(content)
 
-    def add_agent_reasoning_message(self, content):
+    def add_agent_reasoning_message(self, content, message_group=None):
         self.agent_reasoning_messages.append(content)
 
-    def add_error_message(self, content):
+    def add_error_message(self, content, message_group=None):
         self.error_messages.append(content)
 
-    def add_planned_next_steps_message(self, content):
+    def add_planned_next_steps_message(self, content, message_group=None):
         self.agent_reasoning_messages.append(content)  # Can reuse for simplicity
 
 
