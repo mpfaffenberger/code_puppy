@@ -98,6 +98,16 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
    ```
    - MCP features require configuration in `~/.code_puppy/mcp_servers.json` (see documentation for examples).
 
+4. **Run code-puppy:**
+
+   Use one of these commands:
+   ```sh
+   NO_VERSION_UPDATE=1 uv run code-puppy
+   NO_VERSION_UPDATE=1 uv run code-puppy --interactive
+   NO_VERSION_UPDATE=1 uv run code-puppy --tui
+   NO_VERSION_UPDATE=1 uv run code-puppy --web
+   ```
+
 ## Development Workflow
 
 - **Create a new branch** for your work:
