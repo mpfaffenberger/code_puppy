@@ -1,4 +1,3 @@
-
 import subprocess
 import threading
 import time
@@ -59,31 +58,31 @@ def run_shell_command_streaming(
 ) -> Dict[str, Any]:
     """
     Execute a subprocess with real-time output streaming and dual timeout protection.
-    
+
     Features:
     1. Real-time output streaming as lines are produced
     2. Inactivity timeout: Kill after N seconds of no output
     3. Absolute timeout: Kill after 4m30s total (prevents TCP timeouts)
     4. Separate handling of stdout and stderr
-    
+
     Args:
         process: Already created subprocess.Popen object
         timeout: Kill after this many seconds of no output (inactivity timeout)
         command: Command string for logging purposes
-    
+
     Returns:
         Dict with success, stdout, stderr, exit_code, etc.
     """
     start_time = time.time()
     last_output_time = [start_time]  # Use list for mutable reference in threads
-    
+
     # Absolute timeout: 4 minutes 30 seconds to prevent TCP timeouts
     ABSOLUTE_TIMEOUT_SECONDS = 270
-    
+
     stdout_lines = []
     stderr_lines = []
     command_shown = [False]  # Track if we've shown the command yet
-    
+
     def emit_real_time_output(line: str, is_stderr: bool = False):
         """Emit output in real-time with Rich formatting."""
         if line.strip():
@@ -91,22 +90,19 @@ def run_shell_command_streaming(
             if not command_shown[0] and not is_tui_mode():
                 emit_info(f"[bold green]$ {command}[/bold green]")
                 command_shown[0] = True
-            
+
             # Format output with syntax highlighting
             syntax_output = Syntax(
-                line,
-                "bash",
-                theme="monokai", 
-                background_color="default"
+                line, "bash", theme="monokai", background_color="default"
             )
             emit_command_output(syntax_output)
 
     def read_stdout():
         """Thread function to read stdout line by line."""
         try:
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(process.stdout.readline, ""):
                 if line:
-                    line = line.rstrip('\n\r')
+                    line = line.rstrip("\n\r")
                     stdout_lines.append(line)
                     emit_real_time_output(line, is_stderr=False)
                     last_output_time[0] = time.time()
@@ -114,11 +110,11 @@ def run_shell_command_streaming(
             pass  # Process might be killed/closed
 
     def read_stderr():
-        """Thread function to read stderr line by line.""" 
+        """Thread function to read stderr line by line."""
         try:
-            for line in iter(process.stderr.readline, ''):
+            for line in iter(process.stderr.readline, ""):
                 if line:
-                    line = line.rstrip('\n\r')
+                    line = line.rstrip("\n\r")
                     stderr_lines.append(line)
                     emit_real_time_output(line, is_stderr=True)
                     last_output_time[0] = time.time()
@@ -129,7 +125,7 @@ def run_shell_command_streaming(
         # Start reader threads for real-time output
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
         stderr_thread = threading.Thread(target=read_stderr, daemon=True)
-        
+
         stdout_thread.start()
         stderr_thread.start()
 
@@ -141,45 +137,51 @@ def run_shell_command_streaming(
             if current_time - start_time > ABSOLUTE_TIMEOUT_SECONDS:
                 process.kill()
                 error_msg = Text()
-                error_msg.append("⏰ Process killed: absolute timeout reached ", style="bold red")
-                error_msg.append(f"({ABSOLUTE_TIMEOUT_SECONDS}s total)", style="bold red")
+                error_msg.append(
+                    "⏰ Process killed: absolute timeout reached ", style="bold red"
+                )
+                error_msg.append(
+                    f"({ABSOLUTE_TIMEOUT_SECONDS}s total)", style="bold red"
+                )
                 emit_error(error_msg)
                 # Wait briefly for thread cleanup
                 stdout_thread.join(timeout=1)
                 stderr_thread.join(timeout=1)
                 execution_time = time.time() - start_time
                 return {
-                    'success': False,
-                    'command': command,
-                    'stdout': '\n'.join(stdout_lines),
-                    'stderr': '\n'.join(stderr_lines),
-                    'exit_code': -9,
-                    'execution_time': execution_time,
-                    'timeout': True,
-                    'timeout_type': 'absolute',
-                    'error': f'Process timed out after {ABSOLUTE_TIMEOUT_SECONDS}s total execution time'
+                    "success": False,
+                    "command": command,
+                    "stdout": "\n".join(stdout_lines),
+                    "stderr": "\n".join(stderr_lines),
+                    "exit_code": -9,
+                    "execution_time": execution_time,
+                    "timeout": True,
+                    "timeout_type": "absolute",
+                    "error": f"Process timed out after {ABSOLUTE_TIMEOUT_SECONDS}s total execution time",
                 }
 
             # Inactivity timeout
             if current_time - last_output_time[0] > timeout:
                 process.kill()
                 error_msg = Text()
-                error_msg.append("⏰ Process killed: inactivity timeout reached ", style="bold red")
+                error_msg.append(
+                    "⏰ Process killed: inactivity timeout reached ", style="bold red"
+                )
                 error_msg.append(f"({timeout}s no output)", style="bold red")
                 emit_error(error_msg)
                 stdout_thread.join(timeout=1)
                 stderr_thread.join(timeout=1)
                 execution_time = time.time() - start_time
                 return {
-                    'success': False,
-                    'command': command,
-                    'stdout': '\n'.join(stdout_lines),
-                    'stderr': '\n'.join(stderr_lines),
-                    'exit_code': -9,
-                    'execution_time': execution_time,
-                    'timeout': True,
-                    'timeout_type': 'inactivity',
-                    'error': f'Process timed out after {timeout}s of no output'
+                    "success": False,
+                    "command": command,
+                    "stdout": "\n".join(stdout_lines),
+                    "stderr": "\n".join(stderr_lines),
+                    "exit_code": -9,
+                    "execution_time": execution_time,
+                    "timeout": True,
+                    "timeout_type": "inactivity",
+                    "error": f"Process timed out after {timeout}s of no output",
                 }
 
             time.sleep(0.1)  # Don't go brrr
@@ -198,33 +200,29 @@ def run_shell_command_streaming(
             error_msg.append(f" (took {execution_time:.2f}s)", style="dim")
             emit_error(error_msg)
         return {
-            'success': exit_code == 0,
-            'command': command,
-            'stdout': '\n'.join(stdout_lines),
-            'stderr': '\n'.join(stderr_lines),
-            'exit_code': exit_code,
-            'execution_time': execution_time,
-            'timeout': False,
+            "success": exit_code == 0,
+            "command": command,
+            "stdout": "\n".join(stdout_lines),
+            "stderr": "\n".join(stderr_lines),
+            "exit_code": exit_code,
+            "execution_time": execution_time,
+            "timeout": False,
         }
-
 
     except Exception as e:
         return {
             "success": False,
             "command": command,
             "error": f"Error during streaming execution: {str(e)}",
-            "stdout": '\n'.join(stdout_lines),
-            "stderr": '\n'.join(stderr_lines),
+            "stdout": "\n".join(stdout_lines),
+            "stderr": "\n".join(stderr_lines),
             "exit_code": -1,
             "timeout": False,
         }
 
 
 def run_shell_command(
-    context: RunContext, 
-    command: str, 
-    cwd: str = None, 
-    timeout: int = 60
+    context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> Dict[str, Any]:
     # Flag to track if we've already displayed the command
     command_displayed = False
@@ -347,15 +345,11 @@ def run_shell_command(
             text=True,
             cwd=cwd,
             bufsize=1,  # Line buffered for better streaming
-            universal_newlines=True
+            universal_newlines=True,
         )
-        
+
         # Always use streaming execution
-        return run_shell_command_streaming(
-            process, 
-            timeout=timeout,
-            command=command
-        )
+        return run_shell_command_streaming(process, timeout=timeout, command=command)
     except Exception as e:
         emit_error(traceback.format_exc())
         emit_info("[dim]" + "-" * 60 + "[/dim]\n")
@@ -395,10 +389,7 @@ def share_your_reasoning(
 def register_command_runner_tools(agent):
     @agent.tool
     def agent_run_shell_command(
-        context: RunContext, 
-        command: str, 
-        cwd: str = None, 
-        timeout: int = 60
+        context: RunContext, command: str, cwd: str = None, timeout: int = 60
     ) -> Dict[str, Any]:
         return run_shell_command(context, command, cwd, timeout)
 
