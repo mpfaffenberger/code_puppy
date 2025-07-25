@@ -1,3 +1,5 @@
+import os
+import signal
 import subprocess
 import threading
 import time
@@ -64,6 +66,7 @@ def run_shell_command_streaming(
     2. Inactivity timeout: Kill after N seconds of no output
     3. Absolute timeout: Kill after 4m30s total (prevents TCP timeouts)
     4. Separate handling of stdout and stderr
+    5. Proper process and thread cleanup on timeout
 
     Args:
         process: Already created subprocess.Popen object
@@ -82,6 +85,10 @@ def run_shell_command_streaming(
     stdout_lines = []
     stderr_lines = []
     command_shown = [False]  # Track if we've shown the command yet
+
+    # Track threads for proper cleanup
+    stdout_thread = None
+    stderr_thread = None
 
     def emit_real_time_output(line: str, is_stderr: bool = False):
         """Emit output in real-time with Rich formatting."""
@@ -121,8 +128,130 @@ def run_shell_command_streaming(
         except Exception:
             pass  # Process might be killed/closed
 
+    def cleanup_process_and_threads(timeout_type: str = "unknown"):
+        """Aggressively cleanup process and threads - kill with extreme prejudice."""
+        nonlocal stdout_thread, stderr_thread
+
+        def nuclear_kill(proc):
+            """Nuclear option: kill process group with escalating force."""
+            pid = proc.pid
+
+            # Step 1: Try to kill the entire process group (gets child processes too)
+            try:
+                # Get process group ID
+                pgid = os.getpgid(pid)
+                emit_warning(f"💀 Attempting to kill process group {pgid} (PID {pid})")
+
+                # Kill entire process group with SIGTERM first
+                os.killpg(pgid, signal.SIGTERM)
+                time.sleep(1.5)
+
+                # Check if main process is still alive
+                if proc.poll() is None:
+                    emit_warning("⚡ SIGTERM failed, escalating to SIGINT")
+                    os.killpg(pgid, signal.SIGINT)
+                    time.sleep(1.0)
+
+                # Still alive? Time for the nuclear option
+                if proc.poll() is None:
+                    emit_warning("💥 SIGINT failed, going nuclear with SIGKILL")
+                    os.killpg(pgid, signal.SIGKILL)
+                    time.sleep(1.0)
+
+                # Final check - if it's STILL alive, try individual process kill
+                if proc.poll() is None:
+                    emit_warning(
+                        "🔥 Process group kill failed, targeting individual process"
+                    )
+                    proc.kill()  # Direct SIGKILL to main process
+                    time.sleep(0.5)
+
+            except (OSError, ProcessLookupError):
+                # Process/group might already be dead - try individual kill as backup
+                try:
+                    if proc.poll() is None:
+                        proc.kill()
+                        time.sleep(0.5)
+                except (OSError, ProcessLookupError):
+                    pass  # Really dead now
+
+            # Platform-specific nuclear options for REALLY stubborn processes
+            if proc.poll() is None:
+                try:
+                    emit_warning(
+                        f"☢️  DEFCON 1: Process {pid} refuses to die, trying platform-specific nuclear options"
+                    )
+
+                    # On Unix systems, try sending SIGKILL multiple times
+                    for i in range(3):
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                            time.sleep(0.2)
+                            if proc.poll() is not None:
+                                break
+                        except (OSError, ProcessLookupError):
+                            break
+
+                    # If STILL alive, try the most aggressive approach
+                    if proc.poll() is None:
+                        emit_error(
+                            f"🚨 CRITICAL: Process {pid} is UNKILLABLE! This should not happen!"
+                        )
+                        # At this point we just have to give up and let the OS deal with it
+
+                except Exception as e:
+                    emit_warning(f"Nuclear kill attempt failed: {e}")
+
+        try:
+            # Step 1: Aggressive process termination
+            if process.poll() is None:  # Process still running
+                nuclear_kill(process)
+
+            # Step 2: Close pipes to unblock reader threads
+            try:
+                if process.stdout and not process.stdout.closed:
+                    process.stdout.close()
+                if process.stderr and not process.stderr.closed:
+                    process.stderr.close()
+                if process.stdin and not process.stdin.closed:
+                    process.stdin.close()
+            except (OSError, ValueError):
+                pass  # Pipes might already be closed
+
+            # Step 3: Wait for threads to finish (with longer timeout since pipes are closed)
+            if stdout_thread and stdout_thread.is_alive():
+                stdout_thread.join(timeout=3)
+                if stdout_thread.is_alive():
+                    # Thread is still alive after pipe closure and timeout - this is unusual
+                    emit_warning(
+                        f"stdout reader thread failed to terminate after {timeout_type} timeout"
+                    )
+
+            if stderr_thread and stderr_thread.is_alive():
+                stderr_thread.join(timeout=3)
+                if stderr_thread.is_alive():
+                    emit_warning(
+                        f"stderr reader thread failed to terminate after {timeout_type} timeout"
+                    )
+
+        except Exception as e:
+            emit_warning(f"Error during process cleanup: {e}")
+
+        execution_time = time.time() - start_time
+        return {
+            "success": False,
+            "command": command,
+            "stdout": "\n".join(stdout_lines),
+            "stderr": "\n".join(stderr_lines),
+            "exit_code": -9,
+            "execution_time": execution_time,
+            "timeout": True,
+            "timeout_type": timeout_type,
+            "error": f"Process timed out ({timeout_type})",
+        }
+
     try:
-        # Start reader threads for real-time output
+        # Start reader threads for real-time output (keep as daemon for safety)
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
         stderr_thread = threading.Thread(target=read_stderr, daemon=True)
 
@@ -135,7 +264,6 @@ def run_shell_command_streaming(
 
             # Absolute timeout
             if current_time - start_time > ABSOLUTE_TIMEOUT_SECONDS:
-                process.kill()
                 error_msg = Text()
                 error_msg.append(
                     "⏰ Process killed: absolute timeout reached ", style="bold red"
@@ -144,54 +272,40 @@ def run_shell_command_streaming(
                     f"({ABSOLUTE_TIMEOUT_SECONDS}s total)", style="bold red"
                 )
                 emit_error(error_msg)
-                # Wait briefly for thread cleanup
-                stdout_thread.join(timeout=1)
-                stderr_thread.join(timeout=1)
-                execution_time = time.time() - start_time
-                return {
-                    "success": False,
-                    "command": command,
-                    "stdout": "\n".join(stdout_lines),
-                    "stderr": "\n".join(stderr_lines),
-                    "exit_code": -9,
-                    "execution_time": execution_time,
-                    "timeout": True,
-                    "timeout_type": "absolute",
-                    "error": f"Process timed out after {ABSOLUTE_TIMEOUT_SECONDS}s total execution time",
-                }
+                return cleanup_process_and_threads("absolute")
 
             # Inactivity timeout
             if current_time - last_output_time[0] > timeout:
-                process.kill()
                 error_msg = Text()
                 error_msg.append(
                     "⏰ Process killed: inactivity timeout reached ", style="bold red"
                 )
                 error_msg.append(f"({timeout}s no output)", style="bold red")
                 emit_error(error_msg)
-                stdout_thread.join(timeout=1)
-                stderr_thread.join(timeout=1)
-                execution_time = time.time() - start_time
-                return {
-                    "success": False,
-                    "command": command,
-                    "stdout": "\n".join(stdout_lines),
-                    "stderr": "\n".join(stderr_lines),
-                    "exit_code": -9,
-                    "execution_time": execution_time,
-                    "timeout": True,
-                    "timeout_type": "inactivity",
-                    "error": f"Process timed out after {timeout}s of no output",
-                }
+                return cleanup_process_and_threads("inactivity")
 
             time.sleep(0.1)  # Don't go brrr
 
-        # Wait for output threads to drain
-        stdout_thread.join(timeout=1)
-        stderr_thread.join(timeout=1)
+        # Process completed normally - wait for output threads to drain
+        if stdout_thread:
+            stdout_thread.join(timeout=5)  # Increase timeout for normal completion
+        if stderr_thread:
+            stderr_thread.join(timeout=5)
 
         exit_code = process.returncode
         execution_time = time.time() - start_time
+
+        # Clean up process resources
+        try:
+            if process.stdout and not process.stdout.closed:
+                process.stdout.close()
+            if process.stderr and not process.stderr.closed:
+                process.stderr.close()
+            if process.stdin and not process.stdin.closed:
+                process.stdin.close()
+        except (OSError, ValueError):
+            pass  # Already closed
+
         # Show execution summary
         if exit_code != 0:
             error_msg = Text()
@@ -337,6 +451,9 @@ def run_shell_command(
 
     try:
         start_time = time.time()
+
+        # Create process with new process group for better kill control
+        # This ensures child processes can be killed together
         process = subprocess.Popen(
             command,
             shell=True,
@@ -346,6 +463,9 @@ def run_shell_command(
             cwd=cwd,
             bufsize=1,  # Line buffered for better streaming
             universal_newlines=True,
+            preexec_fn=os.setsid
+            if hasattr(os, "setsid")
+            else None,  # Create new process group on Unix
         )
 
         # Always use streaming execution
