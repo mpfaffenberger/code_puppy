@@ -53,7 +53,24 @@ def get_value(key: str):
 
 
 def get_puppy_name():
-    return get_value("puppy_name") or "Puppy"
+    theme_based_names = {
+        "ziggy": "Ziggy",
+        "quantum": "Ziggy",
+        "navi": "Navi",
+        "zelda": "Navi",
+        "tron": "Tron",
+        "clu": "Clu",
+        "c3po": "C3PO",
+        "r2d2": "R2D2",
+        "computer": "Computer",
+        "starfleet": "Starfleet",
+        "cyberpunk": "Cyber",
+        "cyber": "Cyber",
+        "walmart": "Sam",
+        "sam": "Sam"
+    }
+    current_theme = get_theme()
+    return theme_based_names.get(current_theme, get_value("puppy_name") or "Puppy")
 
 
 def get_owner_name():
@@ -74,12 +91,18 @@ def get_message_history_limit():
 
 
 # --- CONFIG SETTER STARTS HERE ---
+def get_theme():
+    return get_value("theme") or "default"
+
+def set_theme(value: str):
+    set_config_value("theme", value)
+
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model").
+    plus certain preset expected keys (e.g. "yolo_mode", "model", "theme").
     """
-    default_keys = ["yolo_mode", "model"]
+    default_keys = ["yolo_mode", "model", "theme"]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
