@@ -13,7 +13,7 @@ envs:
       BUILD_STATUS: ""
       COMMIT_USER: ""
       ALLOW_ARTIFACTORY: true
-      GITHUB_TOKEN: ENC[8887pCmkN1AoyjObSp1Q02LUp3zGUxF6E0c653Oti4zndVfsRxK5etfmKkdjy/am]
+      GITHUB_TOKEN: ENC[bpplxnEEn1SfTgxae3jNXDuRcRS9JDbkXYX1kjO2Ke+nGhR1Ctgl9jsqrDhPClX+]
 
   build_success:
     variables:
