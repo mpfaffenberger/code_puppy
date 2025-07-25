@@ -228,11 +228,11 @@ def _grep(
             file_path = os.path.join(root, f_name)
 
             if should_ignore_path(file_path):
-                # console.print(f"[dim]Ignoring: {file_path}[/dim]") # Optional: for debugging ignored files
+                # emit_system_message(f"[dim]Ignoring: {file_path}[/dim]") # Optional: for debugging ignored files
                 continue
 
             try:
-                # console.print(f"\U0001f4c2 [bold cyan]Searching: {file_path}[/bold cyan]") # Optional: for verbose searching log
+                # emit_system_message(f"\U0001f4c2 [bold cyan]Searching: {file_path}[/bold cyan]") # Optional: for verbose searching log
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
                     for line_number, line_content in enumerate(fh, 1):
                         if search_string in line_content:
@@ -242,7 +242,7 @@ def _grep(
                                 "line_content": line_content.strip(),
                             }
                             matches.append(match_info)
-                            # console.print(
+                            # emit_system_message(
                             #     f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}"
                             # ) # Optional: for verbose match logging
                             if len(matches) >= 200:

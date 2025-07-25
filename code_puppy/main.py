@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -165,9 +166,27 @@ def _handle_update(current_version, latest_version):
     emit_system_message(f"[yellow]{continue_msg}[/yellow]")
 
 
+def print_textual_installation_help(direct_console: Console):
+    """Print helpful instructions for installing the textual CLI."""
+
+    direct_console.print("[bold red]Error:[/bold red] 'textual' command not found.")
+    direct_console.print(
+        "\n[bold yellow]The textual CLI is required to run code-puppy in web mode.[/bold yellow]"
+    )
+    direct_console.print("\n[bold blue]Installation:[/bold blue]")
+    direct_console.print("[green]pip install textual-dev[/green]")
+    direct_console.print("\n[dim]After installation, you can run:[/dim]")
+    direct_console.print("[green]code-puppy --web[/green]")
+    direct_console.print(
+        "\n[dim]For more info, visit: https://textual.textualize.io/[/dim]"
+    )
+
+
+# ===================================
+# main
+# ===================================
 async def main():
     # Import console early for help display
-    from code_puppy.tools.common import console
 
     # Parse arguments FIRST to determine if we're in TUI mode
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
@@ -232,11 +251,22 @@ async def main():
     # NOTE: here we are using console.print, since the messaging system is not up yet
     # and these messages need to be displayed in the terminal before actually starting code-puppy
     if args.web:
+        # Use a direct Rich console to ensure messages are displayed immediately
+        # The queue-based console might not be initialized at this early stage
+        from rich.console import Console
+
+        direct_console = Console()
+
+        # Check if textual CLI is available before proceeding
+        if shutil.which("textual") is None:
+            print_textual_installation_help(direct_console)
+            sys.exit(1)
+
         try:
             # Find an available port for the web server
             available_port = find_available_port()
             if available_port is None:
-                console.print(
+                direct_console.print(
                     "[bold red]Error:[/bold red] No available ports in range 8090-9010!"
                 )
                 sys.exit(1)
@@ -246,33 +276,6 @@ async def main():
 
             # Use the entry point command that would be available after installation
             serve_command = f"{python_executable} -m code_puppy --tui"
-
-            # Check if textual is installed
-            try:
-                import importlib.util
-
-                textual_spec = importlib.util.find_spec("textual")
-                textual_dev_installed = textual_spec is not None
-            except ImportError:
-                textual_dev_installed = False
-
-            # Install textual-dev if not present
-            if not textual_dev_installed:
-                console.print("[yellow]textual-dev not found. Installing...[/yellow]")
-                try:
-                    subprocess.check_call(
-                        [sys.executable, "-m", "pip", "install", "textual-dev"],
-                        stderr=subprocess.STDOUT,
-                    )
-                    console.print("[green]Successfully installed textual-dev![/green]")
-                except subprocess.CalledProcessError as e:
-                    console.print(
-                        f"[bold red]Error installing textual-dev:[/bold red] {str(e)}"
-                    )
-                    console.print(
-                        "[yellow]Please install manually: pip install textual-dev[/yellow]"
-                    )
-                    sys.exit(1)
 
             # Try to use textual serve with -c flag for command mode and custom port
             textual_serve_cmd = [
@@ -284,16 +287,16 @@ async def main():
                 str(available_port),
             ]
 
-            console.print(
+            direct_console.print(
                 "[bold blue]🌐 Starting Code Puppy web interface...[/bold blue]"
             )
-            console.print(f"[dim]Running: {' '.join(textual_serve_cmd)}[/dim]")
+            direct_console.print(f"[dim]Running: {' '.join(textual_serve_cmd)}[/dim]")
 
             web_url = f"http://localhost:{available_port}"
-            console.print(
+            direct_console.print(
                 f"[green]Web interface will be available at: {web_url}[/green]"
             )
-            console.print("[yellow]Press Ctrl+C to stop the server.[/yellow]\n")
+            direct_console.print("[yellow]Press Ctrl+C to stop the server.[/yellow]\n")
 
             # Start the textual serve process
             process = subprocess.Popen(textual_serve_cmd)
@@ -305,29 +308,29 @@ async def main():
 
             # Automatically open the web interface in the default browser
             try:
-                console.print(
+                direct_console.print(
                     "[cyan]🚀 Opening web interface in your default browser...[/cyan]"
                 )
                 webbrowser.open(web_url)
-                console.print("[green]✅ Browser opened successfully![/green]\n")
+                direct_console.print("[green]✅ Browser opened successfully![/green]\n")
             except Exception as e:
-                console.print(
+                direct_console.print(
                     f"[yellow]⚠️  Could not automatically open browser: {e}[/yellow]"
                 )
-                console.print(f"[yellow]Please manually open: {web_url}[/yellow]\n")
+                direct_console.print(
+                    f"[yellow]Please manually open: {web_url}[/yellow]\n"
+                )
 
             # Wait for the process to complete
             result = process.wait()
             sys.exit(result)
 
         except FileNotFoundError:
-            console.print("[bold red]Error:[/bold red] 'textual' command not found.")
-            console.print(
-                "[yellow]Please install textual-dev:[/yellow] pip install textual-dev"
-            )
+            # This should not happen anymore due to our pre-check, but keeping as fallback
+            print_textual_installation_help(direct_console=direct_console)
             sys.exit(1)
         except Exception as e:
-            console.print(
+            direct_console.print(
                 f"[bold red]Error starting web interface:[/bold red] {str(e)}"
             )
             sys.exit(1)

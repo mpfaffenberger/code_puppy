@@ -8,11 +8,14 @@ from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTT
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
-from code_puppy.messaging import emit_info
+from code_puppy.messaging.message_queue import (
+    emit_error,
+    emit_info,
+    emit_system_message,
+)
 from code_puppy.model_factory import ModelFactory
 from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
-from code_puppy.tools.common import console
 
 from .http_utils import create_async_client
 
@@ -76,7 +79,7 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
         )
         if url:
             if server_type == "http":
-                console.print(
+                emit_system_message.print(
                     f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url}"
                 )
                 servers.append(MCPServerStreamableHTTP(url, http_client=http_client))
@@ -84,15 +87,17 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
                 command = conf.get("command")
                 args = conf.get("args", [])
                 if command:
-                    console.print(f"Registering MCP Server (Stdio) - {command} {args}")
+                    emit_system_message(
+                        f"Registering MCP Server (Stdio) - {command} {args}"
+                    )
                 servers.append(MCPServerStdio(command, args=args))
             elif server_type == "sse":
-                console.print(
+                emit_system_message(
                     f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url}"
                 )
                 servers.append(MCPServerSSE(url, http_client=http_client))
             else:
-                console.print("Invalid type ({server_type}) for {name}.")
+                emit_error("Invalid type ({server_type}) for {name}.")
     return servers
 
 

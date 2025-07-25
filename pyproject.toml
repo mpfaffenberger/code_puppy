@@ -30,6 +30,7 @@ dependencies = [
     "PyJWT>=2.8.0",
     "textual>=1.0.0",
     "termcolor>=3.1.0",
+    "textual-dev>=1.7.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
