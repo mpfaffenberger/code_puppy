@@ -19,6 +19,8 @@ META_COMMANDS_HELP = """
 ~motd                 Show the latest message of the day (MOTD)
 ~show                 Show puppy config key-values
 ~set                  Set puppy config key-values
+~theme <name>         Set the puppy theme (tron, c3po, r2d2, computer, cyberpunk, walmart, ziggy)
+~themes               Show available themes
 ~<unknown>            Show unknown meta command warning
 """
 
@@ -79,11 +81,13 @@ def handle_meta_command(command: str, console: Console) -> bool:
             get_puppy_name,
             get_yolo_mode,
             get_message_history_limit,
+            get_theme,
         )
 
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         model = get_active_model()
+        theme = get_theme()
         yolo_mode = get_yolo_mode()
         msg_limit = get_message_history_limit()
         console.print(f"""[bold magenta]🐶 Puppy Status[/bold magenta]
@@ -91,6 +95,7 @@ def handle_meta_command(command: str, console: Console) -> bool:
 [bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]     [cyan]{owner_name}[/cyan]
 [bold]model:[/bold]          [green]{model}[/green]
+[bold]theme:[/bold]          [magenta]{theme}[/magenta]
 [bold]YOLO_MODE:[/bold]      {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]message_history_limit:[/bold]   Keeping last [cyan]{msg_limit}[/cyan] messages in context
 """)
@@ -127,6 +132,50 @@ def handle_meta_command(command: str, console: Console) -> bool:
         else:
             console.print("[red]You must supply a key.[/red]")
         return True
+
+    # Theme commands
+    if command.startswith("~themes"):
+        from code_puppy.themes import get_available_themes
+        from code_puppy.config import get_theme
+        
+        current_theme = get_theme()
+        available_themes = get_available_themes()
+        console.print("[bold magenta]🎭 Available Themes[/bold magenta]")
+        for theme in available_themes:
+            if theme == current_theme:
+                console.print(f"[bold green]→ {theme}[/bold green] [dim](current)[/dim]")
+            else:
+                console.print(f"  {theme}")
+        console.print("\n[yellow]Usage:[/yellow] ~theme <theme-name>")
+        return True
+        
+    if command.startswith("~theme"):
+        from code_puppy.themes import get_available_themes
+        from code_puppy.config import set_theme, get_theme
+        from code_puppy.agent import get_code_generation_agent
+        
+        tokens = command.split()
+        if len(tokens) == 1:
+            # Show current theme
+            current_theme = get_theme()
+            console.print(f"[bold green]Current theme:[/bold green] [cyan]{current_theme}[/cyan]")
+            console.print("[yellow]Usage:[/yellow] ~theme <theme-name>")
+            return True
+        elif len(tokens) == 2:
+            theme_name = tokens[1].lower()
+            available_themes = get_available_themes()
+            if theme_name in available_themes:
+                set_theme(theme_name)
+                # Force reload the agent to use new theme
+                get_code_generation_agent(force_reload=True)
+                console.print(
+                    f"[bold green]🎭 Theme changed to:[/bold green] [cyan]{theme_name}[/cyan]"
+                )
+                console.print("[dim]The agent will use the new theme on the next interaction.[/dim]")
+            else:
+                console.print(f"[red]Unknown theme:[/red] {theme_name}")
+                console.print(f"[yellow]Available themes:[/yellow] {', '.join(available_themes)}")
+            return True
 
     if command.startswith("~m"):
         # Try setting model and show confirmation

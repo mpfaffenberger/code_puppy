@@ -158,7 +158,37 @@ async def interactive_mode(history_file_path: str) -> None:
             )
 
     while True:
-        console.print("[bold blue]Enter your coding task:[/bold blue]")
+        # Show theme-appropriate welcome message
+        from code_puppy.config import get_theme
+        current_theme = get_theme()
+        
+        if current_theme in ["tron", "clu"]:
+            console.print("[bold blue]Greetings User!  Welcome to The Grid 🟦. [/bold blue]")
+            console.print("[bold red]The game has changed.  The only way to win is to survive:[/bold red]")
+        elif current_theme == "c3po":
+            console.print("[bold yellow]Oh my! How wonderful to see you! 🤖 [/bold yellow]")
+            console.print("[dim]I do hope you're prepared for some civilized programming...[/dim]")
+        elif current_theme == "r2d2":
+            console.print("[bold blue]*EXCITED BEEPING* Welcome back! 🔧 *HAPPY CHIRPING*[/bold blue]")
+            console.print("[dim]*Dome rotation* Ready for repairs and optimization![/dim]")
+        elif current_theme in ["computer", "starfleet"]:
+            console.print("[bold cyan]Computer ready. Please state the nature of your programming request. 🖥️ [/bold cyan]")
+            console.print("[dim]All systems operational. Standing by.[/dim]")
+        elif current_theme in ["cyberpunk", "cyber"]:
+            console.print("[bold magenta]Jack in, samurai. The code-matrix awaits. ⚡ [/bold magenta]")
+            console.print("[dim]Neural pathways open. Ready to slice through digital nightmares.[/dim]")
+        elif current_theme in ["walmart", "sam"]:
+            console.print("[bold blue]Well howdy there, partner! Welcome to the Code Store! 🛒 [/bold blue]")
+            console.print("[dim]We've got Every Day Low Prices on technical debt and our customer service is second to none![/dim]")
+        elif current_theme in ["ziggy", "quantum"]:
+            console.print("[bold magenta]*BEEP BOOP WHIRR* Oh boy! Another quantum coding adventure! 🔮 [/bold magenta]")
+            console.print("[dim]There's a 94.7% probability this is going to be interesting! *electronic enthusiasm*[/dim]")
+        elif current_theme in ["navi", "zelda"]:
+            console.print("[bold green]Hey! Listen! Welcome to the coding realm of Hyrule! 🧚‍♀️ [/bold green]")
+            console.print("[dim]*fairy sparkles* Ready to help you on your epic coding quest![/dim]")
+        else:
+            console.print("[bold blue]Greetings User!  Welcome to The Grid 🟦. [/bold blue]")
+            console.print("[bold red]The game has changed.  The only way to win is to survive:[/bold red]")
 
         try:
             # Use prompt_toolkit for enhanced input with path completion
@@ -179,7 +209,24 @@ async def interactive_mode(history_file_path: str) -> None:
 
         # Check for exit commands
         if task.strip().lower() in ["exit", "quit"]:
-            console.print("[bold green]Goodbye![/bold green]")
+            if current_theme in ["tron", "clu"]:
+                console.print("[bold green]User signal lost... Identity disc archived. 💿[/bold green]")
+            elif current_theme == "c3po":
+                console.print("[bold yellow]Oh my! Farewell! It has been most pleasant serving you. 🤖[/bold yellow]")
+            elif current_theme == "r2d2":
+                console.print("[bold blue]*Sad beeping* Goodbye! *Dome rotation* Until next time! 🔧 *Happy whistle*[/bold blue]")
+            elif current_theme in ["computer", "starfleet"]:
+                console.print("[bold cyan]Session terminated. Computer signing off. Live long and prosper. 🖥️[/bold cyan]")
+            elif current_theme in ["cyberpunk", "cyber"]:
+                console.print("[bold magenta]Jack out complete. See you in the matrix, samurai. ⚡[/bold magenta]")
+            elif current_theme in ["walmart", "sam"]:
+                console.print("[bold blue]Thank you for shopping with Code Puppy! Y'all come back now, ya hear? 🛒[/bold blue]")
+            elif current_theme in ["ziggy", "quantum"]:
+                console.print("[bold magenta]*Computing farewell probability* Goodbye! There's a 99.2% chance we'll code together again! 🔮[/bold magenta]")
+            elif current_theme in ["navi", "zelda"]:
+                console.print("[bold green]Hey! Listen! Your coding quest was legendary! See you in Hyrule! 🧚‍♀️✨[/bold green]")
+            else:
+                console.print("[bold green]User signal lost... Identity disc archived. 💿[/bold green]")
             break
 
         # Check for clear command (supports both `clear` and `~clear`)

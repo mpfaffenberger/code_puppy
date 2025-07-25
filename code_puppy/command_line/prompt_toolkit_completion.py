@@ -142,7 +142,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = cwd
     return FormattedText(
         [
-            ("bold", "🐶 "),
+            ("bold", "🤖 "),
             ("class:puppy", f"{puppy}"),
             ("", " "),
             ("class:model", "[" + str(model) + "] "),
