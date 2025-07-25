@@ -24,6 +24,7 @@ class MessageType(Enum):
     SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
+    DIVIDER = "divider"
 
     # Tool-specific types
     TOOL_OUTPUT = "tool_output"
@@ -269,3 +270,13 @@ def emit_planned_next_steps(content: Any, **metadata):
 def emit_system_message(content: Any, **metadata):
     """Emit a system message."""
     emit_message(MessageType.SYSTEM, content, **metadata)
+
+
+def emit_divider(content: str = "[dim]" + "─" * 100 + "\n" + "[/dim]", **metadata):
+    """Emit a divider line"""
+    from code_puppy.globals import is_tui_mode
+
+    if not is_tui_mode():
+        emit_message(MessageType.DIVIDER, content, **metadata)
+    else:
+        pass
