@@ -94,6 +94,77 @@ def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
     return None
 
 
+def _handle_update(current_version, latest_version):
+    """Handle the auto-update process if a new version is available."""
+    from code_puppy.messaging import emit_system_message
+
+    update_available_msg = f"A new version of code puppy is available: {latest_version}"
+    emit_system_message(f"[bold yellow]{update_available_msg}[/bold yellow]")
+    emit_system_message("[bold green]Auto-updating now...[/bold green]")
+
+    try:
+        if sys.platform == "win32":
+            # Windows update command
+            update_command = "iwr -useb https://puppy.stg.walmart.com/api/releases/setup_windows | iex"
+            emit_system_message(f"[dim]Running: {update_command}[/dim]")
+            result = subprocess.run(
+                update_command,
+                shell=True,
+                timeout=120,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                success_msg = "✅ Update completed successfully!"
+                restart_msg = "Restarting code-puppy..."
+                emit_system_message(f"[bold green]{success_msg}[/bold green]")
+                emit_system_message(f"[yellow]{restart_msg}[/yellow]")
+                sys.exit(0)
+            else:
+                error_msg = f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
+                emit_system_message(f"[bold red]{error_msg}[/bold red]")
+
+        else:
+            # macOS and Linux update
+            setup_url = get_setup_url()
+            emit_system_message(f"[dim]{setup_url}[/dim]")
+
+            result = subprocess.run(
+                ["curl", "-skSL", setup_url],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            if result.returncode == 0:
+                bash_result = subprocess.run(
+                    ["bash"], input=result.stdout, text=True, timeout=120
+                )
+
+                if bash_result.returncode == 0:
+                    success_msg = "✅ Update completed successfully!"
+                    restart_msg = "Restarting code-puppy..."
+                    emit_system_message(f"[bold green]{success_msg}[/bold green]")
+                    emit_system_message(f"[yellow]{restart_msg}[/yellow]")
+                    sys.exit(0)
+                else:
+                    error_msg = f"❌ Update script failed with exit code: {bash_result.returncode}"
+                    emit_system_message(f"[bold red]{error_msg}[/bold red]")
+            else:
+                error_msg = f"❌ Failed to download update script: {result.stderr}"
+                emit_system_message(f"[bold red]{error_msg}[/bold red]")
+
+    except subprocess.TimeoutExpired:
+        timeout_msg = "❌ Update timed out"
+        emit_system_message(f"[bold red]{timeout_msg}[/bold red]")
+    except Exception as e:
+        error_msg = f"❌ An unexpected error occurred during update: {str(e)}"
+        emit_system_message(f"[bold red]{error_msg}[/bold red]")
+
+    continue_msg = "Continuing with current version..."
+    emit_system_message(f"[yellow]{continue_msg}[/yellow]")
+
+
 async def main():
     # Import console early for help display
     from code_puppy.tools.common import console
@@ -325,63 +396,7 @@ async def main():
         emit_system_message(latest_msg)
 
         if latest_version and not versions_are_equal(current_version, latest_version):
-            update_available_msg = (
-                f"A new version of code puppy is available: {latest_version}"
-            )
-            emit_system_message(f"[bold yellow]{update_available_msg}[/bold yellow]")
-            emit_system_message("[bold green]Auto-updating now...[/bold green]")
-
-            try:
-                # Run the update command
-                setup_url = get_setup_url()
-                emit_system_message(f"[dim]{setup_url}[/dim]")
-
-                result = subprocess.run(
-                    [
-                        "curl",
-                        "-skSL",
-                        setup_url,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-
-                if result.returncode == 0:
-                    # Pipe the output to bash
-                    bash_result = subprocess.run(
-                        ["bash"], input=result.stdout, text=True, timeout=120
-                    )
-
-                    if bash_result.returncode == 0:
-                        success_msg = "✅ Update completed successfully!"
-                        restart_msg = "Restarting code-puppy..."
-                        emit_system_message(f"[bold green]{success_msg}[/bold green]")
-                        emit_system_message(f"[yellow]{restart_msg}[/yellow]")
-                        sys.exit(0)
-                    else:
-                        error_msg = (
-                            f"❌ Update failed with exit code: {bash_result.returncode}"
-                        )
-                        continue_msg = "Continuing with current version..."
-                        emit_system_message(f"[bold red]{error_msg}[/bold red]")
-                        emit_system_message(f"[yellow]{continue_msg}[/yellow]")
-                else:
-                    error_msg = f"❌ Failed to download update script: {result.stderr}"
-                    continue_msg = "Continuing with current version..."
-                    emit_system_message(f"[bold red]{error_msg}[/bold red]")
-                    emit_system_message(f"[yellow]{continue_msg}[/yellow]")
-
-            except subprocess.TimeoutExpired:
-                timeout_msg = "❌ Update timed out"
-                continue_msg = "Continuing with current version..."
-                emit_system_message(f"[bold red]{timeout_msg}[/bold red]")
-                emit_system_message(f"[yellow]{continue_msg}[/yellow]")
-            except Exception as e:
-                error_msg = f"❌ Update failed: {str(e)}"
-                continue_msg = "Continuing with current version..."
-                emit_system_message(f"[bold red]{error_msg}[/bold red]")
-                emit_system_message(f"[yellow]{continue_msg}[/yellow]")
+            _handle_update(current_version, latest_version)
 
     # Display the disclaimer message
     display_disclaimer()
