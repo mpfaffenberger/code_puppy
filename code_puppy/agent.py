@@ -63,7 +63,12 @@ def session_memory():
 
 
 def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
-    from code_puppy.config import load_mcp_server_configs
+    from code_puppy.config import load_mcp_server_configs, get_mcp_disabled
+    
+    # Check if MCP is disabled via config
+    if get_mcp_disabled():
+        console.print("[yellow]MCP servers disabled via configuration[/yellow]")
+        return []
 
     configs = load_mcp_server_configs()
     servers = []
