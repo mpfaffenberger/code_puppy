@@ -275,5 +275,26 @@ class ModelFactory:
             setattr(model, "provider", provider)
             return model
 
+        elif model_type == "custom_gemini":
+            url, headers, api_key = get_custom_config(model_config)
+            os.environ["GEMINI_API_KEY"] = api_key
+
+            class CustomGoogleGLAProvider(GoogleGLAProvider):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+
+                @property
+                def base_url(self):
+                    return url
+
+                @property
+                def client(self) -> httpx.AsyncClient:
+                    _client = create_async_client(headers=headers)
+                    _client.base_url = self.base_url
+                    return _client
+
+            google_gla = CustomGoogleGLAProvider(api_key=api_key)
+            model = GeminiModel(model_name=model_config["name"], provider=google_gla)
+            return model
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
