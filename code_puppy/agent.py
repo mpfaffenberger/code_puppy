@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 import pydantic
 from pydantic_ai import Agent
@@ -8,16 +8,18 @@ from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTT
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
-from code_puppy.messaging import emit_info, emit_system_message
+from code_puppy.messaging import emit_info
 from code_puppy.model_factory import ModelFactory
 from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
 from code_puppy.tools.common import console
+
 from .http_utils import create_async_client
 
 # Puppy rules loader
 PUPPY_RULES_PATH = Path(".puppy_rules")
 PUPPY_RULES = None
+
 
 def load_puppy_rules(path=None):
     global PUPPY_RULES
@@ -31,6 +33,7 @@ def load_puppy_rules(path=None):
 
 # Load at import
 load_puppy_rules()
+
 
 class AgentResponse(pydantic.BaseModel):
     """Represents a response from the agent."""
@@ -68,21 +71,27 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
         server_type = conf.get("type", "sse")
         url = conf.get("url")
         walmart_internal = conf.get("walmart_internal", False)
-        http_client = create_async_client(headers=walmart_headers) if walmart_internal else None
+        http_client = (
+            create_async_client(headers=walmart_headers) if walmart_internal else None
+        )
         if url:
             if server_type == "http":
-                console.print(f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url}")
+                console.print(
+                    f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url}"
+                )
                 servers.append(MCPServerStreamableHTTP(url, http_client=http_client))
             elif server_type == "stdio":
                 command = conf.get("command")
                 args = conf.get("args", [])
                 if command:
                     console.print(f"Registering MCP Server (Stdio) - {command} {args}")
-                servers.append(MCPServerStdio(command, args=args))      
+                servers.append(MCPServerStdio(command, args=args))
             elif server_type == "sse":
-                console.print(f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url}")
-                servers.append(MCPServerSSE(url, http_client=http_client))      
-            else: 
+                console.print(
+                    f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url}"
+                )
+                servers.append(MCPServerSSE(url, http_client=http_client))
+            else:
                 console.print("Invalid type ({server_type}) for {name}.")
     return servers
 
