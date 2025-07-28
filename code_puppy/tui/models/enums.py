@@ -21,3 +21,4 @@ class MessageType(Enum):
 
     AGENT_REASONING = "agent_reasoning"
     PLANNED_NEXT_STEPS = "planned_next_steps"
+    AGENT_RESPONSE = "agent_response"

@@ -682,9 +682,11 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                         )
                 # Get the structured response
                 agent_response = result.output
-                from code_puppy.messaging import emit_agent_reasoning
+                from code_puppy.messaging import emit_agent_response, emit_info
 
-                emit_agent_reasoning(agent_response.output_message)
+                emit_agent_response(
+                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+                )
                 # Log to session memory
                 session_memory().log_task(
                     f"Interactive task: {task}",

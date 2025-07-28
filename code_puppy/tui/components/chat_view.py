@@ -6,6 +6,7 @@ import re
 from typing import List
 
 from rich.console import Group
+from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 from textual.containers import VerticalScroll
@@ -64,7 +65,7 @@ class ChatView(VerticalScroll):
     }
 
     .agent_reasoning-message {
-        background: #581c87;
+        background: #1f2937;
         color: #f3e8ff;
         margin: 1 0;
         padding: 1;
@@ -74,12 +75,21 @@ class ChatView(VerticalScroll):
     }
 
     .planned_next_steps-message {
-        background: #581c87;
+        background: #1f2937;
         color: #f3e8ff;
         margin: 1 0;
         padding: 1;
         text-wrap: wrap;
         text-style: italic;
+        border: round $primary;
+    }
+
+    .agent_response-message {
+        background: #1f2937;
+        color: #f3e8ff;
+        margin: 1 0;
+        padding: 1;
+        text-wrap: wrap;
         border: round $primary;
     }
 
@@ -241,48 +251,80 @@ class ChatView(VerticalScroll):
             content = f"{message.content}"
             message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT:
-            prefix = ""
+            prefix = "AGENT: "
+            content = f"{message.content}"
+            message_widget = Static(
+                Text.from_markup(message.content), classes=css_class
+            )
+            # Try to render markup
             try:
-                if "```" in message.content:
-                    rendered_content = self._render_agent_message_with_syntax(
-                        prefix, message.content
-                    )
-                    message_widget = Static(rendered_content, classes=css_class)
-                else:
-                    content = f"{message.content}"
-                    message_widget = Static(Text(content), classes=css_class)
+                message_widget = Static(Text.from_markup(content), classes=css_class)
             except Exception:
-                content = f"{message.content}"
                 message_widget = Static(Text(content), classes=css_class)
+
+            # prefix = ""
+            # try:
+            #     if "```" in message.content:
+            #         rendered_content = self._render_agent_message_with_syntax(
+            #             prefix, message.content
+            #         )
+            #         message_widget = Static(rendered_content, classes=css_class)
+            #     else:
+            #         content = f"{message.content}"
+            #         message_widget = Static(Text(content), classes=css_class)
+            # except Exception:
+            #     content = f"{message.content}"
+            #     message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.SYSTEM:
             content = f"{message.content}"
-            # Heuristic: if message looks like a command with markup tags, treat as markup
-            if (
-                "[" in message.content
-                and "]" in message.content
-                and (
-                    message.content.strip().startswith("$ ")
-                    or message.content.strip().startswith("git ")
-                )
-            ):
-                # Treat as literal text
+            # Try to render markup
+            try:
+                message_widget = Static(Text.from_markup(content), classes=css_class)
+            except Exception:
                 message_widget = Static(Text(content), classes=css_class)
-            else:
-                # Try to render markup
-                try:
-                    message_widget = Static(
-                        Text.from_markup(content), classes=css_class
-                    )
-                except Exception:
-                    message_widget = Static(Text(content), classes=css_class)
+
+            # Heuristic: if message looks like a command with markup tags, treat as markup
+            # if (
+            #     "[" in message.content
+            #     and "]" in message.content
+            #     and (
+            #         message.content.strip().startswith("$ ")
+            #         or message.content.strip().startswith("git ")
+            #     )
+            # ):
+            #     # Treat as literal text
+            #     message_widget = Static(Text(content), classes=css_class)
+            # else:
+            #     # Try to render markup
+            #     try:
+            #         message_widget = Static(
+            #             Text.from_markup(content), classes=css_class
+            #         )
+            #     except Exception:
+            # message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT_REASONING:
-            prefix = "AGENT REASONING: "
+            prefix = "AGENT REASONING:\n"
             content = f"{prefix}{message.content}"
             message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.PLANNED_NEXT_STEPS:
-            prefix = "PLANNED NEXT STEPS: "
+            prefix = "PLANNED NEXT STEPS:\n"
             content = f"{prefix}{message.content}"
             message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.AGENT_RESPONSE:
+            prefix = "AGENT RESPONSE:\n"
+            content = message.content
+
+            try:
+                # First try to render as markdown with proper syntax highlighting
+                md = Markdown(content)
+                # Create a group with the header and markdown content
+                header = Text(prefix, style="bold")
+                group_content = Group(header, md)
+                message_widget = Static(group_content, classes=css_class)
+            except Exception:
+                # If markdown parsing fails, fall back to simple text display
+                full_content = f"{prefix}{content}"
+                message_widget = Static(Text(full_content), classes=css_class)
         elif message.type == MessageType.INFO:
             prefix = "INFO: "
             content = f"{prefix}{message.content}"
