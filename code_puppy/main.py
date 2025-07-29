@@ -555,7 +555,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
     emit_system_message("Type 'exit' or 'quit' to exit the interactive mode.")
     emit_system_message("Type 'clear' to reset the conversation history.")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model."
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
     )
 
     # Show meta commands right at startup - DRY!

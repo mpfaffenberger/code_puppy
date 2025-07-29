@@ -58,5 +58,6 @@ class InputArea(Container):
         yield SimpleSpinnerWidget(id="spinner")
         yield CustomTextArea(id="input-field", show_line_numbers=False)
         yield Static(
-            "Enter to send • Ctrl+Enter for new line • Ctrl+1 for help", id="input-help"
+            "Enter to send • Alt+Enter for new line • Ctrl+1 for help",
+            id="input-help",
         )
