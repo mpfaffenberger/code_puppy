@@ -4,7 +4,7 @@ Test script for ReopenableAsyncClient that doesn't require network access.
 
 import asyncio
 
-from reopenable_async_client import ReopenableAsyncClient
+from code_puppy.reopenable_async_client import ReopenableAsyncClient
 
 
 async def test_client_state_management():
