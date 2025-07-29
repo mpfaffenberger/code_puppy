@@ -2,6 +2,8 @@
 Tools modal screen.
 """
 
+from pathlib import Path
+
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
@@ -64,14 +66,18 @@ class ToolsScreen(ModalScreen):
     def get_tools_content(self) -> str:
         """Get the tools content from TOOLS.md."""
         try:
-            # Try to read TOOLS.md from the tools directory
-            tools_file_path = "code_puppy/tools/TOOLS.md"
+            # Get the absolute path to TOOLS.md using proper path resolution
+            # Get the directory where this script is located
+            current_dir = Path(__file__).parent
+            # Navigate to the tools directory relative to the TUI screens directory
+            tools_file_path = current_dir.parent.parent / "tools" / "TOOLS.md"
+
             with open(tools_file_path, "r", encoding="utf-8") as f:
                 content = f.read()
             return content
-        except FileNotFoundError:
-            return """
-# 🐶 Woof! TOOLS.md not found, but here's what I can do:
+        except (FileNotFoundError, IOError, OSError) as e:
+            return f"""
+# 🐶 Woof! Had trouble loading TOOLS.md ({str(e)}), but here's what I can do:
 
 ## 🛠️ Available Tools
 
