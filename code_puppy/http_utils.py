@@ -14,11 +14,7 @@ import requests
 try:
     from .reopenable_async_client import ReopenableAsyncClient
 except ImportError:
-    # Fall back to relative import if absolute doesn't work
-    try:
-        from reopenable_async_client import ReopenableAsyncClient
-    except ImportError:
-        ReopenableAsyncClient = None
+    ReopenableAsyncClient = None
 
 
 def get_cert_bundle_path() -> str:
