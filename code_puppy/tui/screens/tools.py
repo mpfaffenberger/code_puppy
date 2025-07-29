@@ -2,6 +2,8 @@
 Tools modal screen.
 """
 
+from pathlib import Path
+
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
@@ -65,8 +67,6 @@ class ToolsScreen(ModalScreen):
         """Get the tools content from TOOLS.md."""
         try:
             # Get the absolute path to TOOLS.md using proper path resolution
-            from pathlib import Path
-
             # Get the directory where this script is located
             current_dir = Path(__file__).parent
             # Navigate to the tools directory relative to the TUI screens directory
