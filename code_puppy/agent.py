@@ -17,7 +17,7 @@ from code_puppy.model_factory import ModelFactory
 from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
 
-from .http_utils import create_async_client
+from .http_utils import create_reopenable_async_client
 
 # Puppy rules loader
 PUPPY_RULES_PATH = Path(".puppy_rules")
@@ -75,7 +75,9 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
         url = conf.get("url")
         walmart_internal = conf.get("walmart_internal", False)
         http_client = (
-            create_async_client(headers=walmart_headers) if walmart_internal else None
+            create_reopenable_async_client(headers=walmart_headers)
+            if walmart_internal
+            else None
         )
         if url:
             if server_type == "http":
