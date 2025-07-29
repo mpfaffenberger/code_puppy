@@ -4,28 +4,31 @@ Base spinner implementation to be extended for different UI modes.
 
 from abc import ABC, abstractmethod
 
+from code_puppy.config import get_puppy_name
+
 
 class SpinnerBase(ABC):
     """Abstract base class for spinner implementations."""
 
     # Shared spinner frames across implementations
     FRAMES = [
-        "(●    ) ",
-        "( ●   ) ",
-        "(  ●  ) ",
-        "(   ● ) ",
-        "(    ●) ",
-        "(   ● ) ",
-        "(  ●  ) ",
-        "( ●   ) ",
-        "(●    ) ",
+        "(🐶    ) ",
+        "( 🐶   ) ",
+        "(  🐶  ) ",
+        "(   🐶 ) ",
+        "(    🐶) ",
+        "(   🐶 ) ",
+        "(  🐶  ) ",
+        "( 🐶   ) ",
+        "(🐶    ) ",
     ]
+    puppy_name = get_puppy_name().capitalize()
 
     # Default message when processing
-    THINKING_MESSAGE = "🐶 Puppy is thinking... "
+    THINKING_MESSAGE = f"{puppy_name} is thinking... "
 
     # Message when waiting for user input
-    WAITING_MESSAGE = "🐶 Puppy is waiting... "
+    WAITING_MESSAGE = f"{puppy_name} is waiting... "
 
     # Current message - starts with thinking by default
     MESSAGE = THINKING_MESSAGE
