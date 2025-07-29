@@ -262,19 +262,6 @@ class ChatView(VerticalScroll):
             except Exception:
                 message_widget = Static(Text(content), classes=css_class)
 
-            # prefix = ""
-            # try:
-            #     if "```" in message.content:
-            #         rendered_content = self._render_agent_message_with_syntax(
-            #             prefix, message.content
-            #         )
-            #         message_widget = Static(rendered_content, classes=css_class)
-            #     else:
-            #         content = f"{message.content}"
-            #         message_widget = Static(Text(content), classes=css_class)
-            # except Exception:
-            #     content = f"{message.content}"
-            #     message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.SYSTEM:
             content = f"{message.content}"
             # Try to render markup
@@ -283,25 +270,6 @@ class ChatView(VerticalScroll):
             except Exception:
                 message_widget = Static(Text(content), classes=css_class)
 
-            # Heuristic: if message looks like a command with markup tags, treat as markup
-            # if (
-            #     "[" in message.content
-            #     and "]" in message.content
-            #     and (
-            #         message.content.strip().startswith("$ ")
-            #         or message.content.strip().startswith("git ")
-            #     )
-            # ):
-            #     # Treat as literal text
-            #     message_widget = Static(Text(content), classes=css_class)
-            # else:
-            #     # Try to render markup
-            #     try:
-            #         message_widget = Static(
-            #             Text.from_markup(content), classes=css_class
-            #         )
-            #     except Exception:
-            # message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT_REASONING:
             prefix = "AGENT REASONING:\n"
             content = f"{prefix}{message.content}"
