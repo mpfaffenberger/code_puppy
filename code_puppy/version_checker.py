@@ -1,6 +1,7 @@
 import httpx
 
 from .http_utils import create_client
+from .urls import get_latest_version_url
 
 
 def normalize_version(version_str):
@@ -43,9 +44,9 @@ def fetch_latest_version(package_name=None):
         str: Latest version string (e.g., "v0.0.78") or None if fetch fails
     """
     try:
-        # Use properly configured httpx client with correct certificates
-        with create_client() as client:
-            response = client.get("https://puppy.stg.walmart.com/api/releases/latest")
+        # Use properly configured httpx client with correct certificates and 10 second timeout
+        with create_client(timeout=10) as client:
+            response = client.get(get_latest_version_url())
             response.raise_for_status()  # Raise an error for bad responses
             data = response.json()
 

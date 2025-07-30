@@ -78,7 +78,7 @@ class ModelFactory:
         try:
             logger.info(f"Fetching latest model config from {remote_url}")
             with create_client() as client:
-                response = client.get(remote_url)
+                response = client.get(remote_url, timeout=10)
                 response.raise_for_status()
                 remote_config = response.json()["config"]
                 logger.info("Successfully fetched remote model config")
