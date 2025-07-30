@@ -34,6 +34,7 @@ class MessageType(Enum):
     # Agent-specific types
     AGENT_REASONING = "agent_reasoning"
     PLANNED_NEXT_STEPS = "planned_next_steps"
+    AGENT_RESPONSE = "agent_response"
     AGENT_STATUS = "agent_status"
 
     # System types
@@ -265,6 +266,11 @@ def emit_agent_reasoning(content: Any, **metadata):
 def emit_planned_next_steps(content: Any, **metadata):
     """Emit planned_next_steps"""
     emit_message(MessageType.PLANNED_NEXT_STEPS, content, **metadata)
+
+
+def emit_agent_response(content: Any, **metadata):
+    """Emit agent_response"""
+    emit_message(MessageType.AGENT_RESPONSE, content, **metadata)
 
 
 def emit_system_message(content: Any, **metadata):

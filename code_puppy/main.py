@@ -555,7 +555,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
     emit_system_message("Type 'exit' or 'quit' to exit the interactive mode.")
     emit_system_message("Type 'clear' to reset the conversation history.")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model."
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
     )
 
     # Show meta commands right at startup - DRY!
@@ -682,9 +682,11 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                         )
                 # Get the structured response
                 agent_response = result.output
-                from code_puppy.messaging import emit_agent_reasoning
+                from code_puppy.messaging import emit_agent_response, emit_info
 
-                emit_agent_reasoning(agent_response.output_message)
+                emit_agent_response(
+                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+                )
                 # Log to session memory
                 session_memory().log_task(
                     f"Interactive task: {task}",

@@ -7,32 +7,25 @@ import os
 
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "20240621"
+MOTD_VERSION = "20250730"
 MOTD_MESSAGE = """
-June 21th, 2025 - 🚀 Woof-tastic news! Code Puppy now supports **MCP (Model Context Protocol) servers** for EXTREME PUPPY POWER!!!!.
+July 30th, 2025 - 🚀🐶🐶🐶🐶🐶🚀
 
-You can now connect plugins like doc search, Context7 integration, and more by simply dropping their info in your `~/.code_puppy/mcp_servers.json`. I’ll bark at remote docs or wrangle code tools for you—no extra fetches needed.
+Thanks to major contributions from Luc Masalar, we now have the ability to use multiline input in both the TUI
+and also --interactive mode!! Use either alt+enter or esc+enter to make a new line without submitting your prompt!
 
-Setup is easy:
-1. Add your MCP config to `~/.code_puppy/mcp_servers.json`.
-2. Fire up something like Context7, or any MCP server you want.
-3. Ask me to search docs, analyze, and more.
+🐶🐶🐶🐶🐶🐶🐶🐶🐶🐶🐶 EXTREME PUPPY POWER!!!!.
 
-The following example will let code_puppy use Context7!
-Example config (+ more details in the README):
+KEEP COOKIN!
 
-{
-  "mcp_servers": {
-     "context7": {
-        "url": "https://mcp.context7.com/sse"
-     }
-  }
-}
-
-I fetch docs and power-ups via those servers. If you break stuff, please file an issue—bonus treat for reproducible bugs! 🦴
+  1 ██╗    ██╗ █████╗ ██╗     ███╗   ███╗ █████╗ ██████╗ ████████╗
+  2 ██║    ██║██╔══██╗██║     ████╗ ████║██╔══██╗██╔══██╗╚══██╔══╝
+  3 ██║ █╗ ██║███████║██║     ██╔████╔██║███████║██████╔╝   ██║
+  4 ██║███╗██║██╔══██║██║     ██║╚██╔╝██║██╔══██║██╔══██╗   ██║
+  5 ╚███╔███╔╝██║  ██║███████╗██║ ╚═╝ ██║██║  ██║██║  ██║   ██║
+  6  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
 
 This message-of-the-day won’t bug you again unless you run ~motd. Stay fluffy!
-
 """
 MOTD_TRACK_FILE = os.path.expanduser("~/.puppy_cfg/motd.txt")
 
