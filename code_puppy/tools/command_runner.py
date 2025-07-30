@@ -281,7 +281,9 @@ def share_your_reasoning(
 
     if not is_tui_mode():
         emit_divider()
-        emit_agent_reasoning("\n[bold purple]AGENT REASONING:[/bold purple]")
+        emit_agent_reasoning(
+            "\n[bold white on purple] AGENT REASONING [/bold white on purple]"
+        )
     emit_agent_reasoning(Markdown(reasoning))
 
     if next_steps and next_steps.strip():
