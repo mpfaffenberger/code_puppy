@@ -191,6 +191,13 @@ async def main():
     # Parse arguments FIRST to determine if we're in TUI mode
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version=f"{__version__}",
+        help="Show version and exit",
+    )
+    parser.add_argument(
         "--interactive",
         "-i",
         action="store_true",

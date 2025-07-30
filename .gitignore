@@ -25,3 +25,4 @@ coverage-reports/
 pytest-reports/
 
 .DS_Store
+/qodo.md
