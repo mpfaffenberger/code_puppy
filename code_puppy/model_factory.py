@@ -38,13 +38,26 @@ def get_custom_config(model_config):
     headers = {}
     for key, value in custom_config.get("headers", {}).items():
         if value.startswith("$"):
-            value = os.environ.get(value[1:])
+            env_var_name = value[1:]
+            resolved_value = os.environ.get(env_var_name)
+            if resolved_value is None:
+                raise ValueError(
+                    f"Environment variable '{env_var_name}' is required for custom endpoint headers but is not set. "
+                    f"Please set the environment variable: export {env_var_name}=your_value"
+                )
+            value = resolved_value
         headers[key] = value
 
     api_key = None
     if "api_key" in custom_config:
         if custom_config["api_key"].startswith("$"):
-            api_key = os.environ.get(custom_config["api_key"][1:])
+            env_var_name = custom_config["api_key"][1:]
+            api_key = os.environ.get(env_var_name)
+            if api_key is None:
+                raise ValueError(
+                    f"Environment variable '{env_var_name}' is required for custom endpoint API key but is not set. "
+                    f"Please set the environment variable: export {env_var_name}=your_value"
+                )
         else:
             api_key = custom_config["api_key"]
     return url, headers, api_key

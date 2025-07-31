@@ -2,6 +2,8 @@
 Sidebar component with history tab.
 """
 
+import time
+
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -14,6 +16,13 @@ from ..messages import HistoryEntrySelected
 
 class Sidebar(Container):
     """Sidebar with session history."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Double-click detection variables
+        self._last_click_time = 0
+        self._last_clicked_item = None
+        self._double_click_threshold = 0.5  # 500ms for double-click
 
     DEFAULT_CSS = """
     Sidebar {
@@ -89,6 +98,35 @@ class Sidebar(Container):
         # This ensures the item gets focus when highlighted by arrow keys
         if event.list_view.id == "history-list":
             event.list_view.focus()
+
+    @on(ListView.Selected)
+    def on_list_selected(self, event: ListView.Selected) -> None:
+        """Handle selection of list items (including mouse clicks).
+
+        Implements double-click detection to allow users to retrieve history items
+        by either pressing ENTER or double-clicking with the mouse.
+        """
+        if event.list_view.id == "history-list":
+            current_time = time.time()
+            selected_item = event.item
+
+            # Check if this is a double-click
+            if (
+                selected_item == self._last_clicked_item
+                and current_time - self._last_click_time <= self._double_click_threshold
+                and hasattr(selected_item, "history_entry")
+            ):
+                # Double-click detected! Trigger history entry selection
+                history_entry = selected_item.history_entry
+                self.post_message(HistoryEntrySelected(history_entry))
+
+                # Reset click tracking to prevent triple-click issues
+                self._last_click_time = 0
+                self._last_clicked_item = None
+            else:
+                # Single click - just update tracking
+                self._last_click_time = current_time
+                self._last_clicked_item = selected_item
 
     @on(Key)
     def on_key(self, event: Key) -> None:
