@@ -447,7 +447,17 @@ async def main():
                     # Run with or without spinner based on whether we're awaiting input
                     if awaiting_input:
                         # No spinner - just run the agent
-                        async with agent.run_mcp_servers():
+                        try:
+                            async with agent.run_mcp_servers():
+                                response = await agent.run(
+                                    command, usage_limits=get_custom_usage_limits()
+                                )
+                        except Exception as mcp_error:
+                            from code_puppy.messaging import emit_warning
+
+                            emit_warning(f"MCP server error: {str(mcp_error)}")
+                            emit_warning("Running without MCP servers...")
+                            # Run without MCP servers as fallback
                             response = await agent.run(
                                 command, usage_limits=get_custom_usage_limits()
                             )
@@ -459,7 +469,17 @@ async def main():
 
                         rich_console = RichConsole()
                         with ConsoleSpinner(console=rich_console):
-                            async with agent.run_mcp_servers():
+                            try:
+                                async with agent.run_mcp_servers():
+                                    response = await agent.run(
+                                        command, usage_limits=get_custom_usage_limits()
+                                    )
+                            except Exception as mcp_error:
+                                from code_puppy.messaging import emit_warning
+
+                                emit_warning(f"MCP server error: {str(mcp_error)}")
+                                emit_warning("Running without MCP servers...")
+                                # Run without MCP servers as fallback
                                 response = await agent.run(
                                     command, usage_limits=get_custom_usage_limits()
                                 )
@@ -674,7 +694,19 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 from code_puppy.messaging.spinner import ConsoleSpinner
 
                 with ConsoleSpinner(console=display_console):
-                    async with agent.run_mcp_servers():
+                    try:
+                        async with agent.run_mcp_servers():
+                            result = await agent.run(
+                                task,
+                                message_history=message_history,
+                                usage_limits=get_custom_usage_limits(),
+                            )
+                    except Exception as mcp_error:
+                        from code_puppy.messaging import emit_warning
+
+                        emit_warning(f"MCP server error: {str(mcp_error)}")
+                        emit_warning("Running without MCP servers...")
+                        # Run without MCP servers as fallback
                         result = await agent.run(
                             task,
                             message_history=message_history,
