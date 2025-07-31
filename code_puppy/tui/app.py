@@ -159,7 +159,7 @@ class CodePuppyTUI(App):
         """Add an agent message to the chat."""
         message = ChatMessage(
             id=f"agent_{datetime.now(timezone.utc).timestamp()}",
-            type=MessageType.AGENT,
+            type=MessageType.AGENT_RESPONSE,
             content=content,
             timestamp=datetime.now(timezone.utc),
             group_id=message_group,

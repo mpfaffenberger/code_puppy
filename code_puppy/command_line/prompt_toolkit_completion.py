@@ -164,12 +164,27 @@ async def get_input_with_combined_completion(
             SetCompleter(trigger="~set"),
         ]
     )
-    # Add custom key bindings for Alt+M to insert a new line without submitting
+    # Add custom key bindings for multiline input
     bindings = KeyBindings()
 
-    @bindings.add(Keys.Escape, "m")  # Alt+M
+    @bindings.add(Keys.Escape, "m")  # Alt+M (legacy support)
     def _(event):
         event.app.current_buffer.insert_text("\n")
+
+    # Create a special binding for shift+enter
+    @bindings.add("escape", "enter")
+    def _(event):
+        """Pressing alt+enter (meta+enter) inserts a newline."""
+        event.app.current_buffer.insert_text("\n")
+
+    # Override the default enter behavior to check for shift
+    @bindings.add("enter")
+    def _(event):
+        """Accept input or insert newline depending on shift key."""
+        # Check if shift is pressed - this comes from key press event data
+        # Using a key sequence like Alt+Enter is more reliable than detecting shift
+        # So we'll use the default behavior for Enter
+        event.current_buffer.validate_and_handle()
 
     @bindings.add(Keys.Escape)
     def _(event):

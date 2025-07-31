@@ -82,7 +82,7 @@ Code Puppy TUI Help:
 
 Input Controls:
 - Enter: Send message
-- Ctrl+Enter: New line (multi-line input)
+- ALT+Enter: New line (multi-line input)
 - Standard text editing shortcuts supported
 
 Keyboard Shortcuts:
