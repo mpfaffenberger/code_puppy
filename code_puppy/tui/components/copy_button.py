@@ -134,11 +134,6 @@ class CopyButton(Button):
         # Send message about copy operation
         self.post_message(self.CopyCompleted(success, error))
 
-    # def _reset_button_appearance(self) -> None:
-    #     """Reset button to original appearance."""
-    #     self.label = self._original_label
-    #     self.remove_class("-pressed")
-
     def update_text_to_copy(self, new_text: str) -> None:
         """Update the text that will be copied when button is pressed."""
         self.text_to_copy = new_text
