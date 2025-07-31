@@ -7,25 +7,32 @@ import os
 
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "20250730"
+MOTD_VERSION = "20250731"
 MOTD_MESSAGE = """
-July 30th, 2025 - 🚀🐶🐶🐶🐶🐶🚀
+🐕‍🦺 WOOF WOOF! August Update - Code Puppy's Been BUSY! 🐕‍🦺
 
-Thanks to major contributions from Luc Masalar, we now have the ability to use multiline input in both the TUI
-and also --interactive mode!! Use either alt+enter or esc+enter to make a new line without submitting your prompt!
+🎉 NEW TRICKS YOUR PUPPY LEARNED: 🎉
 
-🐶🐶🐶🐶🐶🐶🐶🐶🐶🐶🐶 EXTREME PUPPY POWER!!!!.
+🖱️  **Double-Click Magic**: Double-click history items in the sidebar! No more single-click peasantry!
+📋  **Copy-Paste Mastery**: Hit that shiny new "Copy" button in TUI responses! 📋✨
+🌈  **Prettier Code**: Syntax highlighting makes your code sparkle like a freshly groomed Golden Retriever! 🌈
+⚡  **Smarter Timeouts**: No more hanging around like a patient pup waiting for treats!
+🔧  **MCP Server Resilience**: Error handling so robust, even a Chihuahua couldn't break it! 🔧
+🎨  **Dev Console Support**: For the fancy developers who like their debugging tools! 🎨
+📝  **Multiline Magic**: ESC+ENTER (CLI) and ALT+ENTER (TUI) for multi-line prompts! 📝
+🏷️  **Version Checking**: `--version` flag because knowing your puppy's age is important! 🏷️
 
-KEEP COOKIN!
+   🐾 EVERY COMMIT MAKES ME A BETTER BOY! 🐾
 
-  1 ██╗    ██╗ █████╗ ██╗     ███╗   ███╗ █████╗ ██████╗ ████████╗
-  2 ██║    ██║██╔══██╗██║     ████╗ ████║██╔══██╗██╔══██╗╚══██╔══╝
-  3 ██║ █╗ ██║███████║██║     ██╔████╔██║███████║██████╔╝   ██║
-  4 ██║███╗██║██╔══██║██║     ██║╚██╔╝██║██╔══██║██╔══██╗   ██║
-  5 ╚███╔███╔╝██║  ██║███████╗██║ ╚═╝ ██║██║  ██║██║  ██║   ██║
-  6  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+   ██████╗  ██████╗  ██████╗ ███████╗    ██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗
+   ██╔════╝ ██╔═══██╗██╔═══██╗██╔════╝    ██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
+   ██║  ███╗██║   ██║██║   ██║█████╗      ██████╔╝██║   ██║██████╔╝██████╔╝ ╚████╔╝
+   ██║   ██║██║   ██║██║   ██║██╔══╝      ██╔═══╝ ██║   ██║██╔═══╝ ██╔═══╝   ╚██╔╝
+   ╚██████╔╝╚██████╔╝╚██████╔╝███████╗    ██║     ╚██████╔╝██║     ██║        ██║
+    ╚═════╝  ╚═════╝  ╚═════╝ ╚══════╝    ╚═╝      ╚═════╝ ╚═╝     ╚═╝        ╚═╝
 
-This message-of-the-day won’t bug you again unless you run ~motd. Stay fluffy!
+🦴 Fetch all these features with your favorite code companion! 🦴
+This MOTD won't bark at you again unless you run `~motd`. Stay pawsome! 🐕💖
 """
 MOTD_TRACK_FILE = os.path.expanduser("~/.puppy_cfg/motd.txt")
 
