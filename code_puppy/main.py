@@ -758,6 +758,15 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                     f"Context: {len(message_history)} messages in history\n"
                 )
 
+                # Ensure console output is flushed before next prompt
+                # This fixes the issue where prompt doesn't appear after agent response
+                display_console.file.flush() if hasattr(
+                    display_console.file, "flush"
+                ) else None
+                import time
+
+                time.sleep(0.1)  # Brief pause to ensure all messages are rendered
+
             except Exception:
                 from code_puppy.messaging.queue_console import get_queue_console
 

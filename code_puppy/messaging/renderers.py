@@ -120,6 +120,11 @@ class InteractiveRenderer(MessageRenderer):
             # For complex Rich objects (Tables, Markdown, Text, etc.)
             self.console.print(message.content)
 
+        # Ensure output is immediately flushed to the terminal
+        # This fixes the issue where messages don't appear until user input
+        if hasattr(self.console.file, "flush"):
+            self.console.file.flush()
+
 
 class TUIRenderer(MessageRenderer):
     """Renderer for TUI mode that adds messages to the chat view."""
@@ -283,3 +288,8 @@ class SynchronousInteractiveRenderer:
         else:
             # For complex Rich objects (Tables, Markdown, Text, etc.)
             self.console.print(message.content)
+
+        # Ensure output is immediately flushed to the terminal
+        # This fixes the issue where messages don't appear until user input
+        if hasattr(self.console.file, "flush"):
+            self.console.file.flush()
