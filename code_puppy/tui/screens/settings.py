@@ -2,9 +2,6 @@
 Settings modal screen.
 """
 
-import json
-from pathlib import Path
-
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -137,13 +134,15 @@ class SettingsScreen(ModalScreen):
     def load_model_options(self, model_select):
         """Load available models into the model select widget."""
         try:
-            # Use the same models file that the config system uses
-            models_path = Path.home() / ".codepuppy_models.json"
-            if not models_path.exists():
-                models_path = Path(__file__).parent.parent.parent / "models.json"
+            # Use the same method that interactive mode uses to load models
+            import os
 
-            with open(models_path, "r") as f:
-                models_data = json.load(f)
+            from code_puppy.config import CONFIG_DIR
+            from code_puppy.model_factory import ModelFactory
+
+            # Load models using the same path and method as interactive mode
+            models_config_path = os.path.join(CONFIG_DIR, "models.json")
+            models_data = ModelFactory.load_config(models_config_path)
 
             # Create options as (display_name, model_name) tuples
             model_options = []
