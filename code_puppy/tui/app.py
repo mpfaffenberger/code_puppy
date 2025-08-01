@@ -143,6 +143,22 @@ class CodePuppyTUI(App):
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.add_message(message)
 
+    def add_system_message_rich(
+        self, rich_content, message_group: str = None, group_id: str = None
+    ) -> None:
+        """Add a system message with Rich content (like Markdown) to the chat."""
+        # Support both parameter names for backward compatibility
+        final_group_id = message_group or group_id
+        message = ChatMessage(
+            id=f"sys_rich_{datetime.now(timezone.utc).timestamp()}",
+            type=MessageType.SYSTEM,
+            content=rich_content,  # Store the Rich object directly
+            timestamp=datetime.now(timezone.utc),
+            group_id=final_group_id,
+        )
+        chat_view = self.query_one("#chat-view", ChatView)
+        chat_view.add_message(message)
+
     def add_user_message(self, content: str, message_group: str = None) -> None:
         """Add a user message to the chat."""
         message = ChatMessage(

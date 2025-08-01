@@ -304,12 +304,19 @@ class ChatView(VerticalScroll):
                 message_widget = Static(Text(content), classes=css_class)
 
         elif message.type == MessageType.SYSTEM:
-            content = f"{message.content}"
-            # Try to render markup
-            try:
-                message_widget = Static(Text.from_markup(content), classes=css_class)
-            except Exception:
-                message_widget = Static(Text(content), classes=css_class)
+            # Check if content is a Rich object (like Markdown)
+            if hasattr(message.content, "__rich_console__"):
+                # Render Rich objects directly (like Markdown)
+                message_widget = Static(message.content, classes=css_class)
+            else:
+                content = f"{message.content}"
+                # Try to render markup
+                try:
+                    message_widget = Static(
+                        Text.from_markup(content), classes=css_class
+                    )
+                except Exception:
+                    message_widget = Static(Text(content), classes=css_class)
 
         elif message.type == MessageType.AGENT_REASONING:
             prefix = "AGENT REASONING:\n"

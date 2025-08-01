@@ -142,7 +142,20 @@ class TUIRenderer(MessageRenderer):
         if not self.tui_app:
             return
 
-        # Convert content to string for TUI display
+        # Extract group_id from message metadata (fixing the key name)
+        group_id = message.metadata.get("message_group") if message.metadata else None
+
+        # For INFO messages with Rich objects (like Markdown), preserve them for proper rendering
+        if message.type == MessageType.INFO and hasattr(
+            message.content, "__rich_console__"
+        ):
+            # Pass the Rich object directly to maintain markdown formatting
+            self.tui_app.add_system_message_rich(
+                message.content, message_group=group_id
+            )
+            return
+
+        # Convert content to string for TUI display (for all other cases)
         if hasattr(message.content, "__rich_console__"):
             # For Rich objects, render to plain text using a Console
             string_io = StringIO()
@@ -154,9 +167,6 @@ class TUIRenderer(MessageRenderer):
             content_str = string_io.getvalue().rstrip("\n")
         else:
             content_str = str(message.content)
-
-        # Extract group_id from message metadata (fixing the key name)
-        group_id = message.metadata.get("message_group") if message.metadata else None
 
         # Map message types to TUI message types - ALL get group_id now
         if message.type in (MessageType.ERROR,):
