@@ -10,16 +10,16 @@
     "name": "claude-sonnet-4",
     "type": "custom_anthropic"
   },
-  "gemini-2.5-pro": {
+  "claude-localhost": {
     "custom_endpoint": {
       "api_key": "$puppy_token",
       "headers": {
-        "X-Goog-Api-Key": "$puppy_token"
+        "X-Api-Key": "$puppy_token"
       },
-      "url": "https://puppy-backend.stg.walmart.com/gemini"
+      "url": "http://localhost:8080/anthropic"
     },
-    "name": "gemini-2.5-pro",
-    "type": "custom_gemini"
+    "name": "claude-sonnet-4",
+    "type": "custom_anthropic"
   },
   "gpt-4.1-custom": {
     "custom_endpoint": {
