@@ -4,6 +4,7 @@ import subprocess
 import threading
 import time
 import traceback
+import uuid
 from typing import Any, Dict
 
 from pydantic_ai import RunContext
@@ -13,10 +14,10 @@ from rich.text import Text
 
 from code_puppy.globals import is_tui_mode
 from code_puppy.messaging import (
-    emit_command_output,
     emit_divider,
     emit_error,
     emit_info,
+    emit_system_message,
     emit_warning,
 )
 
@@ -87,6 +88,9 @@ def run_shell_command_streaming(
     stderr_lines = []
     command_shown = [False]  # Track if we've shown the command yet
 
+    # Generate a unique group ID for all streaming output to group messages in TUI mode
+    group_id = uuid.uuid4().hex
+
     # Track threads for proper cleanup
     stdout_thread = None
     stderr_thread = None
@@ -96,21 +100,26 @@ def run_shell_command_streaming(
         if line.strip():
             # Show command header only on first output
             if not command_shown[0] and not is_tui_mode():
-                emit_info(f"[bold green]$ {command}[/bold green]")
+                emit_info(
+                    f"[bold green]$ {command}[/bold green]", message_group=group_id
+                )
                 command_shown[0] = True
 
             # Format output with syntax highlighting
             syntax_output = Syntax(
                 line, "bash", theme="monokai", background_color="default"
             )
-            emit_command_output(syntax_output)
+            emit_system_message(syntax_output, command=command, message_group=group_id)
 
     def read_stdout():
         """Thread function to read stdout line by line."""
+        from code_puppy.globals import is_tui_mode
+
         try:
             for line in iter(process.stdout.readline, ""):
                 if line:
-                    line = line.rstrip("\n\r")
+                    if not is_tui_mode():
+                        line = line.rstrip("\n\r")
                     stdout_lines.append(line)
                     emit_real_time_output(line, is_stderr=False)
                     last_output_time[0] = time.time()
@@ -242,8 +251,8 @@ def run_shell_command_streaming(
         return {
             "success": False,
             "command": command,
-            "stdout": "\n".join(stdout_lines),
-            "stderr": "\n".join(stderr_lines),
+            "stdout": "\n".join(stdout_lines[-1000:]),
+            "stderr": "\n".join(stderr_lines[-1000:]),
             "exit_code": -9,
             "execution_time": execution_time,
             "timeout": True,
@@ -272,7 +281,7 @@ def run_shell_command_streaming(
                 error_msg.append(
                     f"({ABSOLUTE_TIMEOUT_SECONDS}s total)", style="bold red"
                 )
-                emit_error(error_msg)
+                emit_error(error_msg, message_group=group_id)
                 return cleanup_process_and_threads("absolute")
 
             # Inactivity timeout
@@ -282,7 +291,7 @@ def run_shell_command_streaming(
                     "⏰ Process killed: inactivity timeout reached ", style="bold red"
                 )
                 error_msg.append(f"({timeout}s no output)", style="bold red")
-                emit_error(error_msg)
+                emit_error(error_msg, message_group=group_id)
                 return cleanup_process_and_threads("inactivity")
 
             time.sleep(0.1)  # Don't go brrr
@@ -313,12 +322,12 @@ def run_shell_command_streaming(
             error_msg.append("✗ Command failed with exit code ", style="bold red")
             error_msg.append(str(exit_code))
             error_msg.append(f" (took {execution_time:.2f}s)", style="dim")
-            emit_error(error_msg)
+            emit_error(error_msg, message_group=group_id)
         return {
             "success": exit_code == 0,
             "command": command,
-            "stdout": "\n".join(stdout_lines),
-            "stderr": "\n".join(stderr_lines),
+            "stdout": "\n".join(stdout_lines[-1000:]),
+            "stderr": "\n".join(stderr_lines[-1000:]),
             "exit_code": exit_code,
             "execution_time": execution_time,
             "timeout": False,
@@ -329,8 +338,8 @@ def run_shell_command_streaming(
             "success": False,
             "command": command,
             "error": f"Error during streaming execution: {str(e)}",
-            "stdout": "\n".join(stdout_lines),
-            "stderr": "\n".join(stderr_lines),
+            "stdout": "\n".join(stdout_lines[-1000:]),
+            "stderr": "\n".join(stderr_lines[-1000:]),
             "exit_code": -1,
             "timeout": False,
         }
@@ -466,25 +475,6 @@ def run_shell_command(
             if hasattr(os, "setsid")
             else None,  # Create new process group on Unix
         )
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-            exit_code = process.returncode
-            execution_time = time.time() - start_time
-            if stdout.strip():
-                emit_info(f"[bold green]$ {command}[/bold green]")
-                emit_command_output(
-                    Syntax(
-                        stdout.strip(),
-                        "bash",
-                        theme="monokai",
-                        background_color="default",
-                    )
-                )
-        except Exception:
-            emit_error(traceback.format_exc())
-            emit_divider()
-
-        # Always use streaming execution
         return run_shell_command_streaming(process, timeout=timeout, command=command)
     except Exception as e:
         emit_error(traceback.format_exc())
