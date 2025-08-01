@@ -7,32 +7,32 @@ import os
 
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "20240621"
+MOTD_VERSION = "20250731"
 MOTD_MESSAGE = """
-June 21th, 2025 - 🚀 Woof-tastic news! Code Puppy now supports **MCP (Model Context Protocol) servers** for EXTREME PUPPY POWER!!!!.
+🐕‍🦺 WOOF WOOF! August Update - Code Puppy's Been BUSY! 🐕‍🦺
 
-You can now connect plugins like doc search, Context7 integration, and more by simply dropping their info in your `~/.code_puppy/mcp_servers.json`. I’ll bark at remote docs or wrangle code tools for you—no extra fetches needed.
+🎉 NEW TRICKS YOUR PUPPY LEARNED: 🎉
 
-Setup is easy:
-1. Add your MCP config to `~/.code_puppy/mcp_servers.json`.
-2. Fire up something like Context7, or any MCP server you want.
-3. Ask me to search docs, analyze, and more.
+🖱️  **Double-Click Magic**: Double-click history items in the sidebar! No more single-click peasantry!
+📋  **Copy-Paste Mastery**: Hit that shiny new "Copy" button in TUI responses! 📋✨
+🌈  **Prettier Code**: Syntax highlighting makes your code sparkle like a freshly groomed Golden Retriever! 🌈
+⚡  **Smarter Timeouts**: No more hanging around like a patient pup waiting for treats!
+🔧  **MCP Server Resilience**: Error handling so robust, even a Chihuahua couldn't break it! 🔧
+🎨  **Dev Console Support**: For the fancy developers who like their debugging tools! 🎨
+📝  **Multiline Magic**: ESC+ENTER (CLI) and ALT+ENTER (TUI) for multi-line prompts! 📝
+🏷️  **Version Checking**: `--version` flag because knowing your puppy's age is important! 🏷️
 
-The following example will let code_puppy use Context7!
-Example config (+ more details in the README):
+   🐾 EVERY COMMIT MAKES ME A BETTER BOY! 🐾
 
-{
-  "mcp_servers": {
-     "context7": {
-        "url": "https://mcp.context7.com/sse"
-     }
-  }
-}
+   ██████╗  ██████╗  ██████╗ ███████╗    ██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗
+   ██╔════╝ ██╔═══██╗██╔═══██╗██╔════╝    ██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
+   ██║  ███╗██║   ██║██║   ██║█████╗      ██████╔╝██║   ██║██████╔╝██████╔╝ ╚████╔╝
+   ██║   ██║██║   ██║██║   ██║██╔══╝      ██╔═══╝ ██║   ██║██╔═══╝ ██╔═══╝   ╚██╔╝
+   ╚██████╔╝╚██████╔╝╚██████╔╝███████╗    ██║     ╚██████╔╝██║     ██║        ██║
+    ╚═════╝  ╚═════╝  ╚═════╝ ╚══════╝    ╚═╝      ╚═════╝ ╚═╝     ╚═╝        ╚═╝
 
-I fetch docs and power-ups via those servers. If you break stuff, please file an issue—bonus treat for reproducible bugs! 🦴
-
-This message-of-the-day won’t bug you again unless you run ~motd. Stay fluffy!
-
+🦴 Fetch all these features with your favorite code companion! 🦴
+This MOTD won't bark at you again unless you run `~motd`. Stay pawsome! 🐕💖
 """
 MOTD_TRACK_FILE = os.path.expanduser("~/.puppy_cfg/motd.txt")
 

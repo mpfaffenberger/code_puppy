@@ -82,7 +82,7 @@ Code Puppy TUI Help:
 
 Input Controls:
 - Enter: Send message
-- Ctrl+Enter: New line (multi-line input)
+- ALT+Enter: New line (multi-line input)
 - Standard text editing shortcuts supported
 
 Keyboard Shortcuts:
@@ -111,6 +111,12 @@ Use the input area at the bottom to type messages.
 Press Ctrl+2 to view History when needed.
 Agent responses support syntax highlighting for code blocks.
 Press Ctrl+3 to access all configuration settings.
+
+Copy Feature:
+- 📋 Copy buttons appear after agent responses
+- Click or press Enter/Space on copy button to copy content
+- Raw markdown content is copied to clipboard
+- Visual feedback shows copy success/failure
 """
 
     @on(Button.Pressed, "#dismiss-button")

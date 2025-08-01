@@ -8,7 +8,13 @@ from pydantic_ai import RunContext
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
-from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.messaging import (
+    emit_divider,
+    emit_error,
+    emit_info,
+    emit_success,
+    emit_warning,
+)
 from code_puppy.tools.common import generate_group_id, should_ignore_path
 
 
@@ -26,17 +32,17 @@ def _list_files(
         message_group=group_id,
     )
     emit_info(
-        f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]",
+        f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]\n",
         message_group=group_id,
     )
-    emit_info("[dim]" + "-" * 60 + "[/dim]", message_group=group_id)
+    emit_divider(message_group=group_id)
     if not os.path.exists(directory):
         emit_error(f"Directory '{directory}' does not exist", message_group=group_id)
-        emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
+        emit_divider(message_group=group_id)
         return [{"error": f"Directory '{directory}' does not exist"}]
     if not os.path.isdir(directory):
         emit_error(f"'{directory}' is not a directory", message_group=group_id)
-        emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
+        emit_divider(message_group=group_id)
         return [{"error": f"'{directory}' is not a directory"}]
     folder_structure = {}
     file_list = []
@@ -168,7 +174,7 @@ def _list_files(
         f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]",
         message_group=group_id,
     )
-    emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
+    emit_divider(message_group=group_id)
     return results
 
 
@@ -182,7 +188,7 @@ def _read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
         f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]",
         message_group=group_id,
     )
-    emit_info("[dim]" + "-" * 60 + "[/dim]", message_group=group_id)
+    emit_divider(message_group=group_id)
     if not os.path.exists(file_path):
         return {"error": f"File '{file_path}' does not exist"}
     if not os.path.isfile(file_path):
@@ -212,7 +218,7 @@ def _grep(
         f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]",
         message_group=group_id,
     )
-    emit_info("[dim]" + "-" * 60 + "[/dim]", message_group=group_id)
+    emit_divider(message_group=group_id)
 
     for root, dirs, files in os.walk(directory, topdown=True):
         # Filter out ignored directories
@@ -222,11 +228,11 @@ def _grep(
             file_path = os.path.join(root, f_name)
 
             if should_ignore_path(file_path):
-                # console.print(f"[dim]Ignoring: {file_path}[/dim]") # Optional: for debugging ignored files
+                # emit_system_message(f"[dim]Ignoring: {file_path}[/dim]") # Optional: for debugging ignored files
                 continue
 
             try:
-                # console.print(f"\U0001f4c2 [bold cyan]Searching: {file_path}[/bold cyan]") # Optional: for verbose searching log
+                # emit_system_message(f"\U0001f4c2 [bold cyan]Searching: {file_path}[/bold cyan]") # Optional: for verbose searching log
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
                     for line_number, line_content in enumerate(fh, 1):
                         if search_string in line_content:
@@ -236,7 +242,7 @@ def _grep(
                                 "line_content": line_content.strip(),
                             }
                             matches.append(match_info)
-                            # console.print(
+                            # emit_system_message(
                             #     f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}"
                             # ) # Optional: for verbose match logging
                             if len(matches) >= 200:

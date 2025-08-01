@@ -6,12 +6,15 @@ import re
 from typing import List
 
 from rich.console import Group
+from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
-from textual.containers import VerticalScroll
+from textual import on
+from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Static
 
 from ..models import ChatMessage, MessageType
+from .copy_button import CopyButton
 
 
 class ChatView(VerticalScroll):
@@ -32,6 +35,7 @@ class ChatView(VerticalScroll):
         margin: 1 0;
         padding: 1;
         text-wrap: wrap;
+        border: round $primary;
     }
 
     .agent-message {
@@ -39,8 +43,8 @@ class ChatView(VerticalScroll):
         color: #f3f4f6;
         margin: 1 0;
         padding: 1;
-        border-left: thick #10b981;
         text-wrap: wrap;
+        border: round $primary;
     }
 
     .system-message {
@@ -49,8 +53,8 @@ class ChatView(VerticalScroll):
         margin: 1 0;
         padding: 1;
         text-style: italic;
-        border-left: thick #6b7280;
         text-wrap: wrap;
+        border: round $primary;
     }
 
     .error-message {
@@ -59,26 +63,36 @@ class ChatView(VerticalScroll):
         margin: 1 0;
         padding: 1;
         text-wrap: wrap;
+        border: round $primary;
     }
 
     .agent_reasoning-message {
-        background: #581c87;
+        background: #1f2937;
         color: #f3e8ff;
         margin: 1 0;
         padding: 1;
-        border-left: thick #a855f7;
         text-wrap: wrap;
         text-style: italic;
+        border: round $primary;
     }
 
     .planned_next_steps-message {
-        background: #581c87;
+        background: #1f2937;
         color: #f3e8ff;
         margin: 1 0;
         padding: 1;
-        border-left: thick #a855f7;
         text-wrap: wrap;
         text-style: italic;
+        border: round $primary;
+    }
+
+    .agent_response-message {
+        background: #1f2937;
+        color: #f3e8ff;
+        margin: 1 0;
+        padding: 1;
+        text-wrap: wrap;
+        border: round $primary;
     }
 
     .info-message {
@@ -86,8 +100,8 @@ class ChatView(VerticalScroll):
         color: #d1fae5;
         margin: 1 0;
         padding: 1;
-        border-left: thick #10b981;
         text-wrap: wrap;
+        border: round $primary;
     }
 
     .success-message {
@@ -95,8 +109,8 @@ class ChatView(VerticalScroll):
         color: #d1fae5;
         margin: 1 0;
         padding: 1;
-        border-left: thick #059669;
         text-wrap: wrap;
+        border: round $primary;
     }
 
     .warning-message {
@@ -104,8 +118,8 @@ class ChatView(VerticalScroll):
         color: #fef3c7;
         margin: 1 0;
         padding: 1;
-        border-left: thick #f59e0b;
         text-wrap: wrap;
+        border: round $primary;
     }
 
     .tool_output-message {
@@ -113,8 +127,8 @@ class ChatView(VerticalScroll):
         color: #dbeafe;
         margin: 1 0;
         padding: 1;
-        border-left: thick #3b82f6;
         text-wrap: wrap;
+        border: round $primary;
     }
 
     .command_output-message {
@@ -122,8 +136,22 @@ class ChatView(VerticalScroll):
         color: #fed7aa;
         margin: 1 0;
         padding: 1;
-        border-left: thick #ea580c;
         text-wrap: wrap;
+        border: round $primary;
+    }
+
+    .message-container {
+        margin: 0;
+        padding: 0;
+        width: 1fr;
+    }
+
+    .copy-button-container {
+        margin: 0 0 1 0;
+        padding: 0 1;
+        width: 1fr;
+        height: auto;
+        align: left top;
     }
     """
 
@@ -196,28 +224,53 @@ class ChatView(VerticalScroll):
             previous_message.content += separator + message.content
 
             # Update the existing widget with the concatenated content
-            static_widgets = list(self.query(Static))
-            if static_widgets:
-                last_widget = static_widgets[-1]
-                content = f"{previous_message.content}"
+            # For agent responses with copy buttons, we need to update both the message and the copy button
+            if previous_message.type == MessageType.AGENT_RESPONSE:
+                # Find the last static widget (the message) and copy button
+                static_widgets = list(self.query(Static))
+                copy_buttons = list(self.query(CopyButton))
 
-                # Apply the same rendering logic as below
-                if (
-                    "[" in previous_message.content
-                    and "]" in previous_message.content
-                    and (
-                        previous_message.content.strip().startswith("$ ")
-                        or previous_message.content.strip().startswith("git ")
-                    )
-                ):
-                    # Treat as literal text
-                    last_widget.update(Text(content))
-                else:
-                    # Try to render markup
+                if static_widgets:
+                    # Update the last static widget (should be the agent response message)
+                    last_widget = static_widgets[-1]
+                    # Re-render the agent response with updated content
+                    prefix = "AGENT RESPONSE:\n"
                     try:
-                        last_widget.update(Text.from_markup(content))
+                        md = Markdown(previous_message.content)
+                        header = Text(prefix, style="bold")
+                        group_content = Group(header, md)
+                        last_widget.update(group_content)
                     except Exception:
+                        full_content = f"{prefix}{previous_message.content}"
+                        last_widget.update(Text(full_content))
+
+                # Update the copy button with the new content
+                if copy_buttons:
+                    copy_buttons[-1].update_text_to_copy(previous_message.content)
+            else:
+                # Handle non-agent-response messages as before
+                static_widgets = list(self.query(Static))
+                if static_widgets:
+                    last_widget = static_widgets[-1]
+                    content = f"{previous_message.content}"
+
+                    # Apply the same rendering logic as below
+                    if (
+                        "[" in previous_message.content
+                        and "]" in previous_message.content
+                        and (
+                            previous_message.content.strip().startswith("$ ")
+                            or previous_message.content.strip().startswith("git ")
+                        )
+                    ):
+                        # Treat as literal text
                         last_widget.update(Text(content))
+                    else:
+                        # Try to render markup
+                        try:
+                            last_widget.update(Text.from_markup(content))
+                        except Exception:
+                            last_widget.update(Text(content))
 
             # Auto-scroll to bottom
             self.scroll_end(animate=True)
@@ -236,52 +289,74 @@ class ChatView(VerticalScroll):
         css_class = f"{message.type.value}-message"
 
         if message.type == MessageType.USER:
-            prefix = "You: "
-            content = f"{prefix}{message.content}"
+            content = f"{message.content}"
             message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.AGENT:
-            prefix = "Agent: "
+            prefix = "AGENT: "
+            content = f"{message.content}"
+            message_widget = Static(
+                Text.from_markup(message.content), classes=css_class
+            )
+            # Try to render markup
             try:
-                if "```" in message.content:
-                    rendered_content = self._render_agent_message_with_syntax(
-                        prefix, message.content
-                    )
-                    message_widget = Static(rendered_content, classes=css_class)
-                else:
-                    content = f"{prefix}{message.content}"
-                    message_widget = Static(Text(content), classes=css_class)
+                message_widget = Static(Text.from_markup(content), classes=css_class)
             except Exception:
-                content = f"{prefix}{message.content}"
                 message_widget = Static(Text(content), classes=css_class)
+
         elif message.type == MessageType.SYSTEM:
             content = f"{message.content}"
-            # Heuristic: if message looks like a command with markup tags, treat as markup
-            if (
-                "[" in message.content
-                and "]" in message.content
-                and (
-                    message.content.strip().startswith("$ ")
-                    or message.content.strip().startswith("git ")
-                )
-            ):
-                # Treat as literal text
+            # Try to render markup
+            try:
+                message_widget = Static(Text.from_markup(content), classes=css_class)
+            except Exception:
                 message_widget = Static(Text(content), classes=css_class)
-            else:
-                # Try to render markup
-                try:
-                    message_widget = Static(
-                        Text.from_markup(content), classes=css_class
-                    )
-                except Exception:
-                    message_widget = Static(Text(content), classes=css_class)
+
         elif message.type == MessageType.AGENT_REASONING:
-            prefix = "AGENT REASONING: "
+            prefix = "AGENT REASONING:\n"
             content = f"{prefix}{message.content}"
             message_widget = Static(Text(content), classes=css_class)
         elif message.type == MessageType.PLANNED_NEXT_STEPS:
-            prefix = "PLANNED NEXT STEPS: "
+            prefix = "PLANNED NEXT STEPS:\n"
             content = f"{prefix}{message.content}"
             message_widget = Static(Text(content), classes=css_class)
+        elif message.type == MessageType.AGENT_RESPONSE:
+            prefix = "AGENT RESPONSE:\n"
+            content = message.content
+
+            try:
+                # First try to render as markdown with proper syntax highlighting
+                md = Markdown(content)
+                # Create a group with the header and markdown content
+                header = Text(prefix, style="bold")
+                group_content = Group(header, md)
+                message_widget = Static(group_content, classes=css_class)
+            except Exception:
+                # If markdown parsing fails, fall back to simple text display
+                full_content = f"{prefix}{content}"
+                message_widget = Static(Text(full_content), classes=css_class)
+
+            # Try to create copy button - use simpler approach
+            try:
+                # Create copy button for agent responses
+                copy_button = CopyButton(content)  # Copy the raw content without prefix
+
+                # Mount the message first
+                self.mount(message_widget)
+
+                # Then mount the copy button directly
+                self.mount(copy_button)
+
+                # Auto-scroll to bottom
+                self.scroll_end(animate=True)
+                return  # Early return only if copy button creation succeeded
+
+            except Exception as e:
+                # If copy button creation fails, fall back to normal message display
+                # Log the error but don't let it prevent the message from showing
+                import sys
+
+                print(f"Warning: Copy button creation failed: {e}", file=sys.stderr)
+                # Continue to normal message mounting below
         elif message.type == MessageType.INFO:
             prefix = "INFO: "
             content = f"{prefix}{message.content}"
@@ -316,6 +391,29 @@ class ChatView(VerticalScroll):
         """Clear all messages from the chat view."""
         self.messages.clear()
         self.message_groups.clear()  # Clear groups too
-        # Remove all message widgets (now only Static widgets)
+        # Remove all message widgets (Static widgets, CopyButtons, and any Vertical containers)
         for widget in self.query(Static):
             widget.remove()
+        for widget in self.query(CopyButton):
+            widget.remove()
+        for widget in self.query(Vertical):
+            widget.remove()
+
+    @on(CopyButton.CopyCompleted)
+    def on_copy_completed(self, event: CopyButton.CopyCompleted) -> None:
+        """Handle copy button completion events."""
+        if event.success:
+            # Could add a temporary success message or visual feedback
+            # For now, the button itself provides visual feedback
+            pass
+        else:
+            # Show error message in chat if copy failed
+            from datetime import datetime, timezone
+
+            error_message = ChatMessage(
+                id=f"copy_error_{datetime.now(timezone.utc).timestamp()}",
+                type=MessageType.ERROR,
+                content=f"Failed to copy to clipboard: {event.error}",
+                timestamp=datetime.now(timezone.utc),
+            )
+            self.add_message(error_message)

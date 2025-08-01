@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -94,12 +95,108 @@ def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
     return None
 
 
+def _handle_update(current_version, latest_version):
+    """Handle the auto-update process if a new version is available."""
+    from code_puppy.messaging import emit_system_message
+
+    update_available_msg = f"A new version of code puppy is available: {latest_version}"
+    emit_system_message(f"[bold yellow]{update_available_msg}[/bold yellow]")
+    emit_system_message("[bold green]Auto-updating now...[/bold green]")
+
+    try:
+        if sys.platform == "win32":
+            # Windows update command
+            update_command = "iwr -useb https://puppy.stg.walmart.com/api/releases/setup_windows | iex"
+            emit_system_message(f"[dim]Running: {update_command}[/dim]")
+            result = subprocess.run(
+                update_command,
+                shell=True,
+                timeout=120,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                success_msg = "✅ Update completed successfully!"
+                restart_msg = "Restarting code-puppy..."
+                emit_system_message(f"[bold green]{success_msg}[/bold green]")
+                emit_system_message(f"[yellow]{restart_msg}[/yellow]")
+                sys.exit(0)
+            else:
+                error_msg = f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
+                emit_system_message(f"[bold red]{error_msg}[/bold red]")
+
+        else:
+            # macOS and Linux update
+            setup_url = get_setup_url()
+            emit_system_message(f"[dim]{setup_url}[/dim]")
+
+            result = subprocess.run(
+                ["curl", "-skSL", setup_url],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            if result.returncode == 0:
+                bash_result = subprocess.run(
+                    ["bash"], input=result.stdout, text=True, timeout=120
+                )
+
+                if bash_result.returncode == 0:
+                    success_msg = "✅ Update completed successfully!"
+                    restart_msg = "Restarting code-puppy..."
+                    emit_system_message(f"[bold green]{success_msg}[/bold green]")
+                    emit_system_message(f"[yellow]{restart_msg}[/yellow]")
+                    sys.exit(0)
+                else:
+                    error_msg = f"❌ Update script failed with exit code: {bash_result.returncode}"
+                    emit_system_message(f"[bold red]{error_msg}[/bold red]")
+            else:
+                error_msg = f"❌ Failed to download update script: {result.stderr}"
+                emit_system_message(f"[bold red]{error_msg}[/bold red]")
+
+    except subprocess.TimeoutExpired:
+        timeout_msg = "❌ Update timed out"
+        emit_system_message(f"[bold red]{timeout_msg}[/bold red]")
+    except Exception as e:
+        error_msg = f"❌ An unexpected error occurred during update: {str(e)}"
+        emit_system_message(f"[bold red]{error_msg}[/bold red]")
+
+    continue_msg = "Continuing with current version..."
+    emit_system_message(f"[yellow]{continue_msg}[/yellow]")
+
+
+def print_textual_installation_help(direct_console: Console):
+    """Print helpful instructions for installing the textual CLI."""
+
+    direct_console.print("[bold red]Error:[/bold red] 'textual' command not found.")
+    direct_console.print(
+        "\n[bold yellow]The textual CLI is required to run code-puppy in web mode.[/bold yellow]"
+    )
+    direct_console.print("\n[bold blue]Installation:[/bold blue]")
+    direct_console.print("[green]pip install textual-dev[/green]")
+    direct_console.print("\n[dim]After installation, you can run:[/dim]")
+    direct_console.print("[green]code-puppy --web[/green]")
+    direct_console.print(
+        "\n[dim]For more info, visit: https://textual.textualize.io/[/dim]"
+    )
+
+
+# ===================================
+# main
+# ===================================
 async def main():
     # Import console early for help display
-    from code_puppy.tools.common import console
 
     # Parse arguments FIRST to determine if we're in TUI mode
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version=f"{__version__}",
+        help="Show version and exit",
+    )
     parser.add_argument(
         "--interactive",
         "-i",
@@ -161,11 +258,22 @@ async def main():
     # NOTE: here we are using console.print, since the messaging system is not up yet
     # and these messages need to be displayed in the terminal before actually starting code-puppy
     if args.web:
+        # Use a direct Rich console to ensure messages are displayed immediately
+        # The queue-based console might not be initialized at this early stage
+        from rich.console import Console
+
+        direct_console = Console()
+
+        # Check if textual CLI is available before proceeding
+        if shutil.which("textual") is None:
+            print_textual_installation_help(direct_console)
+            sys.exit(1)
+
         try:
             # Find an available port for the web server
             available_port = find_available_port()
             if available_port is None:
-                console.print(
+                direct_console.print(
                     "[bold red]Error:[/bold red] No available ports in range 8090-9010!"
                 )
                 sys.exit(1)
@@ -175,33 +283,6 @@ async def main():
 
             # Use the entry point command that would be available after installation
             serve_command = f"{python_executable} -m code_puppy --tui"
-
-            # Check if textual is installed
-            try:
-                import importlib.util
-
-                textual_spec = importlib.util.find_spec("textual")
-                textual_dev_installed = textual_spec is not None
-            except ImportError:
-                textual_dev_installed = False
-
-            # Install textual-dev if not present
-            if not textual_dev_installed:
-                console.print("[yellow]textual-dev not found. Installing...[/yellow]")
-                try:
-                    subprocess.check_call(
-                        [sys.executable, "-m", "pip", "install", "textual-dev"],
-                        stderr=subprocess.STDOUT,
-                    )
-                    console.print("[green]Successfully installed textual-dev![/green]")
-                except subprocess.CalledProcessError as e:
-                    console.print(
-                        f"[bold red]Error installing textual-dev:[/bold red] {str(e)}"
-                    )
-                    console.print(
-                        "[yellow]Please install manually: pip install textual-dev[/yellow]"
-                    )
-                    sys.exit(1)
 
             # Try to use textual serve with -c flag for command mode and custom port
             textual_serve_cmd = [
@@ -213,16 +294,16 @@ async def main():
                 str(available_port),
             ]
 
-            console.print(
+            direct_console.print(
                 "[bold blue]🌐 Starting Code Puppy web interface...[/bold blue]"
             )
-            console.print(f"[dim]Running: {' '.join(textual_serve_cmd)}[/dim]")
+            direct_console.print(f"[dim]Running: {' '.join(textual_serve_cmd)}[/dim]")
 
             web_url = f"http://localhost:{available_port}"
-            console.print(
+            direct_console.print(
                 f"[green]Web interface will be available at: {web_url}[/green]"
             )
-            console.print("[yellow]Press Ctrl+C to stop the server.[/yellow]\n")
+            direct_console.print("[yellow]Press Ctrl+C to stop the server.[/yellow]\n")
 
             # Start the textual serve process
             process = subprocess.Popen(textual_serve_cmd)
@@ -234,29 +315,29 @@ async def main():
 
             # Automatically open the web interface in the default browser
             try:
-                console.print(
+                direct_console.print(
                     "[cyan]🚀 Opening web interface in your default browser...[/cyan]"
                 )
                 webbrowser.open(web_url)
-                console.print("[green]✅ Browser opened successfully![/green]\n")
+                direct_console.print("[green]✅ Browser opened successfully![/green]\n")
             except Exception as e:
-                console.print(
+                direct_console.print(
                     f"[yellow]⚠️  Could not automatically open browser: {e}[/yellow]"
                 )
-                console.print(f"[yellow]Please manually open: {web_url}[/yellow]\n")
+                direct_console.print(
+                    f"[yellow]Please manually open: {web_url}[/yellow]\n"
+                )
 
             # Wait for the process to complete
             result = process.wait()
             sys.exit(result)
 
         except FileNotFoundError:
-            console.print("[bold red]Error:[/bold red] 'textual' command not found.")
-            console.print(
-                "[yellow]Please install textual-dev:[/yellow] pip install textual-dev"
-            )
+            # This should not happen anymore due to our pre-check, but keeping as fallback
+            print_textual_installation_help(direct_console=direct_console)
             sys.exit(1)
         except Exception as e:
-            console.print(
+            direct_console.print(
                 f"[bold red]Error starting web interface:[/bold red] {str(e)}"
             )
             sys.exit(1)
@@ -325,63 +406,7 @@ async def main():
         emit_system_message(latest_msg)
 
         if latest_version and not versions_are_equal(current_version, latest_version):
-            update_available_msg = (
-                f"A new version of code puppy is available: {latest_version}"
-            )
-            emit_system_message(f"[bold yellow]{update_available_msg}[/bold yellow]")
-            emit_system_message("[bold green]Auto-updating now...[/bold green]")
-
-            try:
-                # Run the update command
-                setup_url = get_setup_url()
-                emit_system_message(f"[dim]{setup_url}[/dim]")
-
-                result = subprocess.run(
-                    [
-                        "curl",
-                        "-skSL",
-                        setup_url,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-
-                if result.returncode == 0:
-                    # Pipe the output to bash
-                    bash_result = subprocess.run(
-                        ["bash"], input=result.stdout, text=True, timeout=120
-                    )
-
-                    if bash_result.returncode == 0:
-                        success_msg = "✅ Update completed successfully!"
-                        restart_msg = "Restarting code-puppy..."
-                        emit_system_message(f"[bold green]{success_msg}[/bold green]")
-                        emit_system_message(f"[yellow]{restart_msg}[/yellow]")
-                        sys.exit(0)
-                    else:
-                        error_msg = (
-                            f"❌ Update failed with exit code: {bash_result.returncode}"
-                        )
-                        continue_msg = "Continuing with current version..."
-                        emit_system_message(f"[bold red]{error_msg}[/bold red]")
-                        emit_system_message(f"[yellow]{continue_msg}[/yellow]")
-                else:
-                    error_msg = f"❌ Failed to download update script: {result.stderr}"
-                    continue_msg = "Continuing with current version..."
-                    emit_system_message(f"[bold red]{error_msg}[/bold red]")
-                    emit_system_message(f"[yellow]{continue_msg}[/yellow]")
-
-            except subprocess.TimeoutExpired:
-                timeout_msg = "❌ Update timed out"
-                continue_msg = "Continuing with current version..."
-                emit_system_message(f"[bold red]{timeout_msg}[/bold red]")
-                emit_system_message(f"[yellow]{continue_msg}[/yellow]")
-            except Exception as e:
-                error_msg = f"❌ Update failed: {str(e)}"
-                continue_msg = "Continuing with current version..."
-                emit_system_message(f"[bold red]{error_msg}[/bold red]")
-                emit_system_message(f"[yellow]{continue_msg}[/yellow]")
+            _handle_update(current_version, latest_version)
 
     # Display the disclaimer message
     display_disclaimer()
@@ -422,7 +447,17 @@ async def main():
                     # Run with or without spinner based on whether we're awaiting input
                     if awaiting_input:
                         # No spinner - just run the agent
-                        async with agent.run_mcp_servers():
+                        try:
+                            async with agent.run_mcp_servers():
+                                response = await agent.run(
+                                    command, usage_limits=get_custom_usage_limits()
+                                )
+                        except Exception as mcp_error:
+                            from code_puppy.messaging import emit_warning
+
+                            emit_warning(f"MCP server error: {str(mcp_error)}")
+                            emit_warning("Running without MCP servers...")
+                            # Run without MCP servers as fallback
                             response = await agent.run(
                                 command, usage_limits=get_custom_usage_limits()
                             )
@@ -434,7 +469,17 @@ async def main():
 
                         rich_console = RichConsole()
                         with ConsoleSpinner(console=rich_console):
-                            async with agent.run_mcp_servers():
+                            try:
+                                async with agent.run_mcp_servers():
+                                    response = await agent.run(
+                                        command, usage_limits=get_custom_usage_limits()
+                                    )
+                            except Exception as mcp_error:
+                                from code_puppy.messaging import emit_warning
+
+                                emit_warning(f"MCP server error: {str(mcp_error)}")
+                                emit_warning("Running without MCP servers...")
+                                # Run without MCP servers as fallback
                                 response = await agent.run(
                                     command, usage_limits=get_custom_usage_limits()
                                 )
@@ -530,7 +575,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
     emit_system_message("Type 'exit' or 'quit' to exit the interactive mode.")
     emit_system_message("Type 'clear' to reset the conversation history.")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model."
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
     )
 
     # Show meta commands right at startup - DRY!
@@ -649,7 +694,19 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 from code_puppy.messaging.spinner import ConsoleSpinner
 
                 with ConsoleSpinner(console=display_console):
-                    async with agent.run_mcp_servers():
+                    try:
+                        async with agent.run_mcp_servers():
+                            result = await agent.run(
+                                task,
+                                message_history=message_history,
+                                usage_limits=get_custom_usage_limits(),
+                            )
+                    except Exception as mcp_error:
+                        from code_puppy.messaging import emit_warning
+
+                        emit_warning(f"MCP server error: {str(mcp_error)}")
+                        emit_warning("Running without MCP servers...")
+                        # Run without MCP servers as fallback
                         result = await agent.run(
                             task,
                             message_history=message_history,
@@ -657,9 +714,11 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                         )
                 # Get the structured response
                 agent_response = result.output
-                from code_puppy.messaging import emit_agent_reasoning
+                from code_puppy.messaging import emit_agent_response, emit_info
 
-                emit_agent_reasoning(agent_response.output_message)
+                emit_agent_response(
+                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+                )
                 # Log to session memory
                 session_memory().log_task(
                     f"Interactive task: {task}",
@@ -730,6 +789,15 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 emit_system_message(
                     f"Context: {len(message_history)} messages in history\n"
                 )
+
+                # Ensure console output is flushed before next prompt
+                # This fixes the issue where prompt doesn't appear after agent response
+                display_console.file.flush() if hasattr(
+                    display_console.file, "flush"
+                ) else None
+                import time
+
+                time.sleep(0.1)  # Brief pause to ensure all messages are rendered
 
             except Exception:
                 from code_puppy.messaging.queue_console import get_queue_console

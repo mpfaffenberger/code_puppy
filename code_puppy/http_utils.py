@@ -11,6 +11,11 @@ from typing import Dict, Optional, Union
 import httpx
 import requests
 
+try:
+    from .reopenable_async_client import ReopenableAsyncClient
+except ImportError:
+    ReopenableAsyncClient = None
+
 
 def get_cert_bundle_path() -> str:
     """
@@ -157,6 +162,40 @@ def resolve_env_var_in_header(headers: Dict[str, str]) -> Dict[str, str]:
             resolved_headers[key] = value
 
     return resolved_headers
+
+
+def create_reopenable_async_client(
+    timeout: int = 180,
+    verify: Union[bool, str] = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> Union["ReopenableAsyncClient", httpx.AsyncClient]:
+    """
+    Create a reopenable asynchronous HTTP client with the specified configuration.
+
+    This client can be closed and reopened multiple times, unlike the standard
+    httpx.AsyncClient which becomes unusable after calling aclose().
+
+    Args:
+        timeout: Request timeout in seconds
+        verify: Whether to verify SSL certificates. If None, uses the Walmart certificate bundle.
+               If True, uses the default CA bundle. If False, disables verification.
+               Can also be a path to a specific certificate bundle.
+        headers: Optional headers to include with requests
+
+    Returns:
+        ReopenableAsyncClient instance if available, otherwise falls back to httpx.AsyncClient
+    """
+    # If verify is None, use the Walmart certificate bundle
+    if verify is None:
+        verify = get_cert_bundle_path()
+
+    if ReopenableAsyncClient is not None:
+        return ReopenableAsyncClient(
+            verify=verify, headers=headers or {}, timeout=timeout
+        )
+    else:
+        # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
+        return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
 
 
 def is_cert_bundle_available() -> bool:

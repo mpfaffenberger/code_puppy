@@ -159,7 +159,7 @@ class CodePuppyTUI(App):
         """Add an agent message to the chat."""
         message = ChatMessage(
             id=f"agent_{datetime.now(timezone.utc).timestamp()}",
-            type=MessageType.AGENT,
+            type=MessageType.AGENT_RESPONSE,
             content=content,
             timestamp=datetime.now(timezone.utc),
             group_id=message_group,
@@ -344,8 +344,20 @@ class CodePuppyTUI(App):
 
                     # Handle MCP servers with specific TaskGroup exception handling
                     try:
-                        async with self.agent.run_mcp_servers():
-                            self.update_agent_progress("Processing", 50)
+                        try:
+                            async with self.agent.run_mcp_servers():
+                                self.update_agent_progress("Processing", 50)
+                                result = await self.agent.run(
+                                    message,
+                                    message_history=self.message_history,
+                                    usage_limits=get_custom_usage_limits(),
+                                )
+                        except Exception as mcp_error:
+                            # Log MCP error and fall back to running without MCP servers
+                            self.log(f"MCP server error: {str(mcp_error)}")
+                            self.add_system_message(
+                                "⚠️ MCP server error, running without MCP servers"
+                            )
                             result = await self.agent.run(
                                 message,
                                 message_history=self.message_history,

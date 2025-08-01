@@ -24,6 +24,7 @@ class MessageType(Enum):
     SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
+    DIVIDER = "divider"
 
     # Tool-specific types
     TOOL_OUTPUT = "tool_output"
@@ -33,6 +34,7 @@ class MessageType(Enum):
     # Agent-specific types
     AGENT_REASONING = "agent_reasoning"
     PLANNED_NEXT_STEPS = "planned_next_steps"
+    AGENT_RESPONSE = "agent_response"
     AGENT_STATUS = "agent_status"
 
     # System types
@@ -266,6 +268,21 @@ def emit_planned_next_steps(content: Any, **metadata):
     emit_message(MessageType.PLANNED_NEXT_STEPS, content, **metadata)
 
 
+def emit_agent_response(content: Any, **metadata):
+    """Emit agent_response"""
+    emit_message(MessageType.AGENT_RESPONSE, content, **metadata)
+
+
 def emit_system_message(content: Any, **metadata):
     """Emit a system message."""
     emit_message(MessageType.SYSTEM, content, **metadata)
+
+
+def emit_divider(content: str = "[dim]" + "─" * 100 + "\n" + "[/dim]", **metadata):
+    """Emit a divider line"""
+    from code_puppy.globals import is_tui_mode
+
+    if not is_tui_mode():
+        emit_message(MessageType.DIVIDER, content, **metadata)
+    else:
+        pass

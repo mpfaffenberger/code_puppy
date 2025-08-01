@@ -14,6 +14,7 @@ from rich.text import Text
 from code_puppy.globals import is_tui_mode
 from code_puppy.messaging import (
     emit_command_output,
+    emit_divider,
     emit_error,
     emit_info,
     emit_warning,
@@ -362,10 +363,10 @@ def run_shell_command(
                 "error": "Another command is currently awaiting confirmation",
             }
         # Show command info before asking for confirmation
-        if not is_tui_mode():
-            emit_info("\n[dim]" + "-" * 60 + "[/dim]")
-            emit_info(f"[bold green]$ {command}[/bold green]")
-            emit_info("")
+        emit_divider()
+        emit_info(
+            f"[bold white on blue]SHELL[/bold white on blue] [bold cyan]$ {command}[/bold cyan]"
+        )
 
         command_displayed = True
 
@@ -436,13 +437,11 @@ def run_shell_command(
             # Lock release will happen in the finally block
             return result
 
-        # Spinner will be automatically resumed when set_awaiting_user_input(False) was called
     else:
-        # In yolo mode, show command info before executing
-        if not is_tui_mode():
-            emit_info("\n[dim]" + "-" * 60 + "[/dim]")
-            emit_info(f"[bold green]$ {command}[/bold green]")
-            emit_info("")
+        emit_divider()
+        emit_info(
+            f"[bold white on blue]SHELL[/bold white on blue] [bold cyan]$ {command}[/bold cyan]"
+        )
 
         command_displayed = True
 
@@ -467,12 +466,29 @@ def run_shell_command(
             if hasattr(os, "setsid")
             else None,  # Create new process group on Unix
         )
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            exit_code = process.returncode
+            execution_time = time.time() - start_time
+            if stdout.strip():
+                emit_info(f"[bold green]$ {command}[/bold green]")
+                emit_command_output(
+                    Syntax(
+                        stdout.strip(),
+                        "bash",
+                        theme="monokai",
+                        background_color="default",
+                    )
+                )
+        except Exception:
+            emit_error(traceback.format_exc())
+            emit_divider()
 
         # Always use streaming execution
         return run_shell_command_streaming(process, timeout=timeout, command=command)
     except Exception as e:
         emit_error(traceback.format_exc())
-        emit_info("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_divider()
         # Ensure stdout and stderr are always defined
         if "stdout" not in locals():
             stdout = None
@@ -495,8 +511,10 @@ def share_your_reasoning(
     from code_puppy.messaging import emit_agent_reasoning, emit_planned_next_steps
 
     if not is_tui_mode():
-        emit_agent_reasoning("[dim]" + "-" * 60 + "[/dim]\n")
-        emit_agent_reasoning("\n[bold purple]AGENT REASONING:[/bold purple]")
+        emit_divider()
+        emit_agent_reasoning(
+            "\n[bold white on purple] AGENT REASONING [/bold white on purple]"
+        )
     emit_agent_reasoning(Markdown(reasoning))
 
     if next_steps and next_steps.strip():

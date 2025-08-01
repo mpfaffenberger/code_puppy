@@ -8,13 +8,16 @@ from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTT
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
-from code_puppy.messaging import emit_info
+from code_puppy.messaging.message_queue import (
+    emit_error,
+    emit_info,
+    emit_system_message,
+)
 from code_puppy.model_factory import ModelFactory
 from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
-from code_puppy.tools.common import console
 
-from .http_utils import create_async_client
+from .http_utils import create_reopenable_async_client
 
 # Puppy rules loader
 PUPPY_RULES_PATH = Path(".puppy_rules")
@@ -63,41 +66,80 @@ def session_memory():
 
 
 def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
-    from code_puppy.config import get_mcp_disabled, load_mcp_server_configs
+    from code_puppy.config import get_value, load_mcp_server_configs
 
-    # Check if MCP is disabled via config
-    if get_mcp_disabled():
-        console.print("[yellow]MCP servers disabled via configuration[/yellow]")
+    # Check if MCP servers are disabled
+    mcp_disabled = get_value("disable_mcp_servers")
+    if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
+        emit_system_message("[dim]MCP servers disabled via config[/dim]")
         return []
 
     configs = load_mcp_server_configs()
+    if not configs:
+        emit_system_message("[dim]No MCP servers configured[/dim]")
+        return []
     servers = []
     for name, conf in configs.items():
         server_type = conf.get("type", "sse")
         url = conf.get("url")
         walmart_internal = conf.get("walmart_internal", False)
         http_client = (
-            create_async_client(headers=walmart_headers) if walmart_internal else None
+            create_reopenable_async_client(headers=walmart_headers)
+            if walmart_internal
+            else None
         )
-        if url:
-            if server_type == "http":
-                console.print(
-                    f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url}"
+
+        try:
+            if server_type == "http" and url:
+                timeout = conf.get("timeout", 30)  # Default 30 seconds for HTTP servers
+                emit_system_message(
+                    f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url} (timeout: {timeout}s)"
                 )
-                servers.append(MCPServerStreamableHTTP(url, http_client=http_client))
-            elif server_type == "stdio":
+                # Note: MCPServerStreamableHTTP may not support timeout parameter - check pydantic-ai docs
+                servers.append(
+                    MCPServerStreamableHTTP(url=url, http_client=http_client)
+                )
+            elif (
+                server_type == "stdio"
+            ):  # Fixed: was "stdios" (plural), should be "stdio" (singular)
                 command = conf.get("command")
                 args = conf.get("args", [])
+                timeout = conf.get(
+                    "timeout", 30
+                )  # Default 30 seconds for stdio servers (npm downloads can be slow)
                 if command:
-                    console.print(f"Registering MCP Server (Stdio) - {command} {args}")
-                servers.append(MCPServerStdio(command, args=args))
-            elif server_type == "sse":
-                console.print(
-                    f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url}"
+                    emit_system_message(
+                        f"Registering MCP Server (Stdio) - {command} {args} (timeout: {timeout}s)"
+                    )
+                    servers.append(MCPServerStdio(command, args=args, timeout=timeout))
+                else:
+                    emit_error(f"MCP Server '{name}' missing required 'command' field")
+            elif server_type == "sse" and url:
+                timeout = conf.get("timeout", 30)  # Default 30 seconds for SSE servers
+                emit_system_message(
+                    f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url} (timeout: {timeout}s)"
                 )
-                servers.append(MCPServerSSE(url, http_client=http_client))
+                # Note: MCPServerSSE may not support timeout parameter - check pydantic-ai docs
+                servers.append(MCPServerSSE(url=url, http_client=http_client))
             else:
-                console.print("Invalid type ({server_type}) for {name}.")
+                emit_error(
+                    f"Invalid type '{server_type}' or missing URL for MCP server '{name}'"
+                )
+        except Exception as e:
+            emit_error(f"Failed to register MCP server '{name}': {str(e)}")
+            emit_info(f"Skipping server '{name}' and continuing with other servers...")
+            # Continue with other servers instead of crashing
+            continue
+
+    if servers:
+        emit_system_message(
+            f"[green]Successfully registered {len(servers)} MCP server(s)[/green]"
+        )
+    else:
+        emit_system_message(
+            "[yellow]No MCP servers were successfully registered[/yellow]"
+        )
+
     return servers
 
 

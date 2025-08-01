@@ -12,6 +12,7 @@ from io import StringIO
 from typing import Optional
 
 from rich.console import Console
+from rich.markdown import Markdown
 
 from .message_queue import MessageQueue, MessageType, UIMessage
 
@@ -93,20 +94,36 @@ class InteractiveRenderer(MessageRenderer):
             style = None
         elif message.type == MessageType.PLANNED_NEXT_STEPS:
             style = None
+        elif message.type == MessageType.AGENT_RESPONSE:
+            # Special handling for agent responses - they'll be rendered as markdown
+            style = None
         elif message.type == MessageType.SYSTEM:
-            style = "dim"
+            style = None
         else:
             style = None
 
         # Render the content
         if isinstance(message.content, str):
-            if style:
+            if message.type == MessageType.AGENT_RESPONSE:
+                # Render agent responses as markdown
+                try:
+                    markdown = Markdown(message.content)
+                    self.console.print(markdown)
+                except Exception:
+                    # Fallback to plain text if markdown parsing fails
+                    self.console.print(message.content)
+            elif style:
                 self.console.print(message.content, style=style)
             else:
                 self.console.print(message.content)
         else:
             # For complex Rich objects (Tables, Markdown, Text, etc.)
             self.console.print(message.content)
+
+        # Ensure output is immediately flushed to the terminal
+        # This fixes the issue where messages don't appear until user input
+        if hasattr(self.console.file, "flush"):
+            self.console.file.flush()
 
 
 class TUIRenderer(MessageRenderer):
@@ -164,6 +181,7 @@ class TUIRenderer(MessageRenderer):
         elif message.type in (
             MessageType.TOOL_OUTPUT,
             MessageType.COMMAND_OUTPUT,
+            MessageType.AGENT_RESPONSE,
         ):
             # These are typically agent/tool outputs
             self.tui_app.add_agent_message(content_str, message_group=group_id)
@@ -244,18 +262,34 @@ class SynchronousInteractiveRenderer:
         elif message.type == MessageType.TOOL_OUTPUT:
             style = "blue"
         elif message.type == MessageType.AGENT_REASONING:
-            style = "purple"
+            style = None
+        elif message.type == MessageType.AGENT_RESPONSE:
+            # Special handling for agent responses - they'll be rendered as markdown
+            style = None
         elif message.type == MessageType.SYSTEM:
-            style = "dim"
+            style = None
         else:
             style = None
 
         # Render the content
         if isinstance(message.content, str):
-            if style:
+            if message.type == MessageType.AGENT_RESPONSE:
+                # Render agent responses as markdown
+                try:
+                    markdown = Markdown(message.content)
+                    self.console.print(markdown)
+                except Exception:
+                    # Fallback to plain text if markdown parsing fails
+                    self.console.print(message.content)
+            elif style:
                 self.console.print(message.content, style=style)
             else:
                 self.console.print(message.content)
         else:
             # For complex Rich objects (Tables, Markdown, Text, etc.)
             self.console.print(message.content)
+
+        # Ensure output is immediately flushed to the terminal
+        # This fixes the issue where messages don't appear until user input
+        if hasattr(self.console.file, "flush"):
+            self.console.file.flush()

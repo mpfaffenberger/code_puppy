@@ -38,13 +38,26 @@ def get_custom_config(model_config):
     headers = {}
     for key, value in custom_config.get("headers", {}).items():
         if value.startswith("$"):
-            value = os.environ.get(value[1:])
+            env_var_name = value[1:]
+            resolved_value = os.environ.get(env_var_name)
+            if resolved_value is None:
+                raise ValueError(
+                    f"Environment variable '{env_var_name}' is required for custom endpoint headers but is not set. "
+                    f"Please set the environment variable: export {env_var_name}=your_value"
+                )
+            value = resolved_value
         headers[key] = value
 
     api_key = None
     if "api_key" in custom_config:
         if custom_config["api_key"].startswith("$"):
-            api_key = os.environ.get(custom_config["api_key"][1:])
+            env_var_name = custom_config["api_key"][1:]
+            api_key = os.environ.get(env_var_name)
+            if api_key is None:
+                raise ValueError(
+                    f"Environment variable '{env_var_name}' is required for custom endpoint API key but is not set. "
+                    f"Please set the environment variable: export {env_var_name}=your_value"
+                )
         else:
             api_key = custom_config["api_key"]
     return url, headers, api_key
@@ -78,7 +91,7 @@ class ModelFactory:
         try:
             logger.info(f"Fetching latest model config from {remote_url}")
             with create_client() as client:
-                response = client.get(remote_url)
+                response = client.get(remote_url, timeout=10)
                 response.raise_for_status()
                 remote_config = response.json()["config"]
                 logger.info("Successfully fetched remote model config")
@@ -275,5 +288,26 @@ class ModelFactory:
             setattr(model, "provider", provider)
             return model
 
+        elif model_type == "custom_gemini":
+            url, headers, api_key = get_custom_config(model_config)
+            os.environ["GEMINI_API_KEY"] = api_key
+
+            class CustomGoogleGLAProvider(GoogleGLAProvider):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+
+                @property
+                def base_url(self):
+                    return url
+
+                @property
+                def client(self) -> httpx.AsyncClient:
+                    _client = create_async_client(headers=headers)
+                    _client.base_url = self.base_url
+                    return _client
+
+            google_gla = CustomGoogleGLAProvider(api_key=api_key)
+            model = GeminiModel(model_name=model_config["name"], provider=google_gla)
+            return model
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
