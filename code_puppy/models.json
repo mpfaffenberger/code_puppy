@@ -40,5 +40,15 @@
     },
     "name": "o3",
     "type": "custom_openai"
+  },
+  "o3-localhost": {
+    "custom_endpoint": {
+      "headers": {
+        "X-Api-Key": "$puppy_token"
+      },
+      "url": "http://localhost:8080"
+    },
+    "name": "o3",
+    "type": "custom_openai"
   }
 }
