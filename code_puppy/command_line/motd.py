@@ -14,22 +14,32 @@ MOTD_MESSAGE = """
 🎉 NEW TRICKS YOUR PUPPY LEARNED: 🎉
 
 🖱️  **Double-Click Magic**: Double-click history items in the sidebar! No more single-click peasantry!
+
 📋  **Copy-Paste Mastery**: Hit that shiny new "Copy" button in TUI responses! 📋✨
+
 🌈  **Prettier Code**: Syntax highlighting makes your code sparkle like a freshly groomed Golden Retriever! 🌈
+
 ⚡  **Smarter Timeouts**: No more hanging around like a patient pup waiting for treats!
+
 🔧  **MCP Server Resilience**: Error handling so robust, even a Chihuahua couldn't break it! 🔧
+
 🎨  **Dev Console Support**: For the fancy developers who like their debugging tools! 🎨
+
 📝  **Multiline Magic**: ESC+ENTER (CLI) and ALT+ENTER (TUI) for multi-line prompts! 📝
+
 🏷️  **Version Checking**: `--version` flag because knowing your puppy's age is important! 🏷️
 
-   🐾 EVERY COMMIT MAKES ME A BETTER BOY! 🐾
+🐾 EVERY COMMIT MAKES ME A BETTER BOY! 🐾
 
-   ██████╗  ██████╗  ██████╗ ███████╗    ██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗
-   ██╔════╝ ██╔═══██╗██╔═══██╗██╔════╝    ██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
-   ██║  ███╗██║   ██║██║   ██║█████╗      ██████╔╝██║   ██║██████╔╝██████╔╝ ╚████╔╝
-   ██║   ██║██║   ██║██║   ██║██╔══╝      ██╔═══╝ ██║   ██║██╔═══╝ ██╔═══╝   ╚██╔╝
-   ╚██████╔╝╚██████╔╝╚██████╔╝███████╗    ██║     ╚██████╔╝██║     ██║        ██║
-    ╚═════╝  ╚═════╝  ╚═════╝ ╚══════╝    ╚═╝      ╚═════╝ ╚═╝     ╚═╝        ╚═╝
+```
+ _______  _______  ______   _______    _______  __   __  _______  _______  __   __
+|       ||       ||      | |       |  |       ||  | |  ||       ||       ||  | |  |
+|       ||   _   ||  _    ||    ___|  |    _  ||  | |  ||    _  ||    _  ||  |_|  |
+|       ||  | |  || | |   ||   |___   |   |_| ||  |_|  ||   |_| ||   |_| ||       |
+|      _||  |_|  || |_|   ||    ___|  |    ___||       ||    ___||    ___||_     _|
+|     |_ |       ||       ||   |___   |   |    |       ||   |    |   |      |   |
+|_______||_______||______| |_______|  |___|    |_______||___|    |___|      |___|
+```
 
 🦴 Fetch all these features with your favorite code companion! 🦴
 This MOTD won't bark at you again unless you run `~motd`. Stay pawsome! 🐕💖
@@ -63,7 +73,11 @@ def print_motd(console=None, force: bool = False) -> bool:
         True if the MOTD was printed, False otherwise
     """
     if force or not has_seen_motd(MOTD_VERSION):
-        emit_info(MOTD_MESSAGE)
+        # Create a Rich Markdown object for proper rendering
+        from rich.markdown import Markdown
+
+        markdown_content = Markdown(MOTD_MESSAGE)
+        emit_info(markdown_content)
         mark_motd_seen(MOTD_VERSION)
         return True
     return False
