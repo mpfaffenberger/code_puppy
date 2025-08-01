@@ -242,3 +242,19 @@ def get_yolo_mode():
             return True
         return False
     return False
+
+
+def get_mcp_disabled():
+    """
+    Checks puppy.cfg for 'disable_mcp' (case-insensitive in value only).
+    Defaults to False if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+    When enabled, Code Puppy will skip loading MCP servers entirely.
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("disable_mcp")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return False

@@ -1,7 +1,10 @@
+import os
+import signal
 import subprocess
 import threading
 import time
 import traceback
+import uuid
 from typing import Any, Dict
 
 from pydantic_ai import RunContext
@@ -11,10 +14,10 @@ from rich.text import Text
 
 from code_puppy.globals import is_tui_mode
 from code_puppy.messaging import (
-    emit_command_output,
     emit_divider,
     emit_error,
     emit_info,
+    emit_system_message,
     emit_warning,
 )
 
@@ -50,6 +53,296 @@ def set_awaiting_user_input(awaiting=True):
         from code_puppy.messaging.spinner import resume_all_spinners
 
         resume_all_spinners()
+
+
+def run_shell_command_streaming(
+    process: subprocess.Popen,
+    timeout: int = 60,
+    command: str = "",
+) -> Dict[str, Any]:
+    """
+    Execute a subprocess with real-time output streaming and dual timeout protection.
+
+    Features:
+    1. Real-time output streaming as lines are produced
+    2. Inactivity timeout: Kill after N seconds of no output
+    3. Absolute timeout: Kill after 4m30s total (prevents TCP timeouts)
+    4. Separate handling of stdout and stderr
+    5. Proper process and thread cleanup on timeout
+
+    Args:
+        process: Already created subprocess.Popen object
+        timeout: Kill after this many seconds of no output (inactivity timeout)
+        command: Command string for logging purposes
+
+    Returns:
+        Dict with success, stdout, stderr, exit_code, etc.
+    """
+    start_time = time.time()
+    last_output_time = [start_time]  # Use list for mutable reference in threads
+
+    # Absolute timeout: 4 minutes 30 seconds to prevent TCP timeouts
+    ABSOLUTE_TIMEOUT_SECONDS = 270
+
+    stdout_lines = []
+    stderr_lines = []
+    command_shown = [False]  # Track if we've shown the command yet
+
+    # Generate a unique group ID for all streaming output to group messages in TUI mode
+    group_id = uuid.uuid4().hex
+
+    # Track threads for proper cleanup
+    stdout_thread = None
+    stderr_thread = None
+
+    def emit_real_time_output(line: str, is_stderr: bool = False):
+        """Emit output in real-time with Rich formatting."""
+        if line.strip():
+            # Show command header only on first output
+            if not command_shown[0] and not is_tui_mode():
+                emit_info(
+                    f"[bold green]$ {command}[/bold green]", message_group=group_id
+                )
+                command_shown[0] = True
+
+            # Format output with syntax highlighting
+            syntax_output = Syntax(
+                line, "bash", theme="monokai", background_color="default"
+            )
+            emit_system_message(syntax_output, command=command, message_group=group_id)
+
+    def read_stdout():
+        """Thread function to read stdout line by line."""
+        from code_puppy.globals import is_tui_mode
+
+        try:
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    if not is_tui_mode():
+                        line = line.rstrip("\n\r")
+                    stdout_lines.append(line)
+                    emit_real_time_output(line, is_stderr=False)
+                    last_output_time[0] = time.time()
+        except Exception:
+            pass  # Process might be killed/closed
+
+    def read_stderr():
+        """Thread function to read stderr line by line."""
+        try:
+            for line in iter(process.stderr.readline, ""):
+                if line:
+                    line = line.rstrip("\n\r")
+                    stderr_lines.append(line)
+                    emit_real_time_output(line, is_stderr=True)
+                    last_output_time[0] = time.time()
+        except Exception:
+            pass  # Process might be killed/closed
+
+    def cleanup_process_and_threads(timeout_type: str = "unknown"):
+        """Aggressively cleanup process and threads - kill with extreme prejudice."""
+        nonlocal stdout_thread, stderr_thread
+
+        def nuclear_kill(proc):
+            """Nuclear option: kill process group with escalating force."""
+            pid = proc.pid
+
+            # Step 1: Try to kill the entire process group (gets child processes too)
+            try:
+                # Get process group ID
+                pgid = os.getpgid(pid)
+                emit_warning(f"💀 Attempting to kill process group {pgid} (PID {pid})")
+
+                # Kill entire process group with SIGTERM first
+                os.killpg(pgid, signal.SIGTERM)
+                time.sleep(1.5)
+
+                # Check if main process is still alive
+                if proc.poll() is None:
+                    emit_warning("⚡ SIGTERM failed, escalating to SIGINT")
+                    os.killpg(pgid, signal.SIGINT)
+                    time.sleep(1.0)
+
+                # Still alive? Time for the nuclear option
+                if proc.poll() is None:
+                    emit_warning("💥 SIGINT failed, going nuclear with SIGKILL")
+                    os.killpg(pgid, signal.SIGKILL)
+                    time.sleep(1.0)
+
+                # Final check - if it's STILL alive, try individual process kill
+                if proc.poll() is None:
+                    emit_warning(
+                        "🔥 Process group kill failed, targeting individual process"
+                    )
+                    proc.kill()  # Direct SIGKILL to main process
+                    time.sleep(0.5)
+
+            except (OSError, ProcessLookupError):
+                # Process/group might already be dead - try individual kill as backup
+                try:
+                    if proc.poll() is None:
+                        proc.kill()
+                        time.sleep(0.5)
+                except (OSError, ProcessLookupError):
+                    pass  # Really dead now
+
+            # Platform-specific nuclear options for REALLY stubborn processes
+            if proc.poll() is None:
+                try:
+                    emit_warning(
+                        f"☢️  DEFCON 1: Process {pid} refuses to die, trying platform-specific nuclear options"
+                    )
+
+                    # On Unix systems, try sending SIGKILL multiple times
+                    for i in range(3):
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                            time.sleep(0.2)
+                            if proc.poll() is not None:
+                                break
+                        except (OSError, ProcessLookupError):
+                            break
+
+                    # If STILL alive, try the most aggressive approach
+                    if proc.poll() is None:
+                        emit_error(
+                            f"🚨 CRITICAL: Process {pid} is UNKILLABLE! This should not happen!"
+                        )
+                        # At this point we just have to give up and let the OS deal with it
+
+                except Exception as e:
+                    emit_warning(f"Nuclear kill attempt failed: {e}")
+
+        try:
+            # Step 1: Aggressive process termination
+            if process.poll() is None:  # Process still running
+                nuclear_kill(process)
+
+            # Step 2: Close pipes to unblock reader threads
+            try:
+                if process.stdout and not process.stdout.closed:
+                    process.stdout.close()
+                if process.stderr and not process.stderr.closed:
+                    process.stderr.close()
+                if process.stdin and not process.stdin.closed:
+                    process.stdin.close()
+            except (OSError, ValueError):
+                pass  # Pipes might already be closed
+
+            # Step 3: Wait for threads to finish (with longer timeout since pipes are closed)
+            if stdout_thread and stdout_thread.is_alive():
+                stdout_thread.join(timeout=3)
+                if stdout_thread.is_alive():
+                    # Thread is still alive after pipe closure and timeout - this is unusual
+                    emit_warning(
+                        f"stdout reader thread failed to terminate after {timeout_type} timeout"
+                    )
+
+            if stderr_thread and stderr_thread.is_alive():
+                stderr_thread.join(timeout=3)
+                if stderr_thread.is_alive():
+                    emit_warning(
+                        f"stderr reader thread failed to terminate after {timeout_type} timeout"
+                    )
+
+        except Exception as e:
+            emit_warning(f"Error during process cleanup: {e}")
+
+        execution_time = time.time() - start_time
+        return {
+            "success": False,
+            "command": command,
+            "stdout": "\n".join(stdout_lines[-1000:]),
+            "stderr": "\n".join(stderr_lines[-1000:]),
+            "exit_code": -9,
+            "execution_time": execution_time,
+            "timeout": True,
+            "timeout_type": timeout_type,
+            "error": f"Process timed out ({timeout_type})",
+        }
+
+    try:
+        # Start reader threads for real-time output (keep as daemon for safety)
+        stdout_thread = threading.Thread(target=read_stdout, daemon=True)
+        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+
+        stdout_thread.start()
+        stderr_thread.start()
+
+        # Monitor process: check for inactivity and absolute (wall) timeout
+        while process.poll() is None:
+            current_time = time.time()
+
+            # Absolute timeout
+            if current_time - start_time > ABSOLUTE_TIMEOUT_SECONDS:
+                error_msg = Text()
+                error_msg.append(
+                    "⏰ Process killed: absolute timeout reached ", style="bold red"
+                )
+                error_msg.append(
+                    f"({ABSOLUTE_TIMEOUT_SECONDS}s total)", style="bold red"
+                )
+                emit_error(error_msg, message_group=group_id)
+                return cleanup_process_and_threads("absolute")
+
+            # Inactivity timeout
+            if current_time - last_output_time[0] > timeout:
+                error_msg = Text()
+                error_msg.append(
+                    "⏰ Process killed: inactivity timeout reached ", style="bold red"
+                )
+                error_msg.append(f"({timeout}s no output)", style="bold red")
+                emit_error(error_msg, message_group=group_id)
+                return cleanup_process_and_threads("inactivity")
+
+            time.sleep(0.1)  # Don't go brrr
+
+        # Process completed normally - wait for output threads to drain
+        if stdout_thread:
+            stdout_thread.join(timeout=5)  # Increase timeout for normal completion
+        if stderr_thread:
+            stderr_thread.join(timeout=5)
+
+        exit_code = process.returncode
+        execution_time = time.time() - start_time
+
+        # Clean up process resources
+        try:
+            if process.stdout and not process.stdout.closed:
+                process.stdout.close()
+            if process.stderr and not process.stderr.closed:
+                process.stderr.close()
+            if process.stdin and not process.stdin.closed:
+                process.stdin.close()
+        except (OSError, ValueError):
+            pass  # Already closed
+
+        # Show execution summary
+        if exit_code != 0:
+            error_msg = Text()
+            error_msg.append("✗ Command failed with exit code ", style="bold red")
+            error_msg.append(str(exit_code))
+            error_msg.append(f" (took {execution_time:.2f}s)", style="dim")
+            emit_error(error_msg, message_group=group_id)
+        return {
+            "success": exit_code == 0,
+            "command": command,
+            "stdout": "\n".join(stdout_lines[-1000:]),
+            "stderr": "\n".join(stderr_lines[-1000:]),
+            "exit_code": exit_code,
+            "execution_time": execution_time,
+            "timeout": False,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "command": command,
+            "error": f"Error during streaming execution: {str(e)}",
+            "stdout": "\n".join(stdout_lines[-1000:]),
+            "stderr": "\n".join(stderr_lines[-1000:]),
+            "exit_code": -1,
+            "timeout": False,
+        }
 
 
 def run_shell_command(
@@ -166,6 +459,9 @@ def run_shell_command(
 
     try:
         start_time = time.time()
+
+        # Create process with new process group for better kill control
+        # This ensures child processes can be killed together
         process = subprocess.Popen(
             command,
             shell=True,
@@ -173,88 +469,13 @@ def run_shell_command(
             stderr=subprocess.PIPE,
             text=True,
             cwd=cwd,
+            bufsize=1,  # Line buffered for better streaming
+            universal_newlines=True,
+            preexec_fn=os.setsid
+            if hasattr(os, "setsid")
+            else None,  # Create new process group on Unix
         )
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-            exit_code = process.returncode
-            execution_time = time.time() - start_time
-            if stdout.strip():
-                emit_command_output(
-                    Syntax(
-                        stdout.strip(),
-                        "bash",
-                        theme="monokai",
-                        background_color="default",
-                    )
-                )
-
-            if stderr.strip():
-                emit_command_output(
-                    Syntax(
-                        stderr.strip(),
-                        "bash",
-                        theme="monokai",
-                        background_color="default",
-                    )
-                )
-            if exit_code != 0:
-                # Use Text object to safely combine markup and variable content
-                error_msg = Text()
-                error_msg.append("✗ Command failed with exit code ", style="bold red")
-                error_msg.append(str(exit_code))
-                error_msg.append(f" (took {execution_time:.2f}s)", style="dim")
-                emit_error(error_msg)
-            return {
-                "success": exit_code == 0,
-                "command": command,
-                "stdout": stdout,
-                "stderr": stderr,
-                "exit_code": exit_code,
-                "execution_time": execution_time,
-                "timeout": False,
-            }
-        except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate()
-            execution_time = time.time() - start_time
-            if stdout.strip():
-                emit_command_output(
-                    "[bold white]STDOUT (incomplete due to timeout):[/bold white]"
-                )
-                emit_command_output(
-                    Syntax(
-                        stdout.strip(),
-                        "bash",
-                        theme="monokai",
-                        background_color="default",
-                    )
-                )
-            if stderr.strip():
-                emit_command_output(
-                    Syntax(
-                        stderr.strip(),
-                        "bash",
-                        theme="monokai",
-                        background_color="default",
-                    )
-                )
-            # Use Text object to safely combine markup and variable content
-            timeout_msg = Text()
-            timeout_msg.append("⏱ Command timed out after ", style="bold red")
-            timeout_msg.append(f"{timeout} seconds", style="bold red")
-            timeout_msg.append(f" (ran for {execution_time:.2f}s)", style="dim")
-            emit_error(timeout_msg)
-            emit_divider()
-            return {
-                "success": False,
-                "command": command,
-                "stdout": stdout[-1000:],
-                "stderr": stderr[-1000:],
-                "exit_code": None,
-                "execution_time": execution_time,
-                "timeout": True,
-                "error": f"Command timed out after {timeout} seconds",
-            }
+        return run_shell_command_streaming(process, timeout=timeout, command=command)
     except Exception as e:
         emit_error(traceback.format_exc())
         emit_divider()
