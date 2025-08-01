@@ -592,6 +592,15 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
         emit_warning(f"MOTD error: {e}")
 
+    # Load the agent early to capture MCP server registration messages (like TUI mode does)
+    # This ensures the "Registering Internal MCP Server..." messages are displayed
+    from code_puppy.messaging import emit_info
+
+    emit_info("[bold cyan]Initializing agent...[/bold cyan]")
+
+    # Load agent early (similar to TUI mode) to ensure MCP registration messages are captured
+    get_code_generation_agent()
+
     # Check if prompt_toolkit is installed
     try:
         from code_puppy.messaging import emit_system_message
@@ -687,7 +696,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 # Store agent's full response
                 agent_response = None
 
-                # Just get the agent and run it with spinner
+                # Get the agent (uses cached version from early initialization)
                 agent = get_code_generation_agent()
 
                 # Use our custom spinner for better compatibility with user input
