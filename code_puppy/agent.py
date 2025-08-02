@@ -8,7 +8,6 @@ from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTT
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
-from code_puppy.message_history_processor import message_history_processor
 from code_puppy.messaging.message_queue import (
     emit_error,
     emit_info,
@@ -170,7 +169,6 @@ def reload_code_generation_agent():
         output_type=AgentResponse,
         retries=3,
         mcp_servers=mcp_servers,
-        history_processors=[message_history_processor],
     )
     register_all_tools(agent)
     _code_generation_agent = agent

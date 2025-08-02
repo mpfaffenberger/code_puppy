@@ -20,12 +20,17 @@ from code_puppy.agent import (
 )
 from code_puppy.command_line.meta_command_handler import handle_meta_command
 from code_puppy.config import get_model_name, get_puppy_name
+from code_puppy.message_history_processor import message_history_processor
 
 # Import our message queue system
 from code_puppy.messaging import TUIRenderer, get_global_queue
-
-from ..message_history_processor import message_history_processor
-from .components import ChatView, CustomTextArea, InputArea, Sidebar, StatusBar
+from code_puppy.tui.components import (
+    ChatView,
+    CustomTextArea,
+    InputArea,
+    Sidebar,
+    StatusBar,
+)
 
 # Import shared message classes
 from .messages import HistoryEntrySelected
