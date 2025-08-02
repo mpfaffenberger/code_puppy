@@ -69,19 +69,7 @@ async def main():
                 async with agent.run_mcp_servers():
                     response = await agent.run(command)
                 agent_response = response.output
-                console.print(agent_response.output_message)
-                # Log to session memory
-                session_memory().log_task(
-                    f"Command executed: {command}",
-                    extras={
-                        "output": agent_response.output_message,
-                        "awaiting_user_input": agent_response.awaiting_user_input,
-                    },
-                )
-                if agent_response.awaiting_user_input:
-                    console.print(
-                        "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
-                    )
+                console.print(agent_response)
                 break
         except AttributeError as e:
             console.print(f"[bold red]AttributeError:[/bold red] {str(e)}")
@@ -215,15 +203,8 @@ async def interactive_mode(history_file_path: str) -> None:
                     result = await agent.run(task, message_history=message_history)
                 # Get the structured response
                 agent_response = result.output
-                console.print(agent_response.output_message)
+                console.print(agent_response)
                 # Log to session memory
-                session_memory().log_task(
-                    f"Interactive task: {task}",
-                    extras={
-                        "output": agent_response.output_message,
-                        "awaiting_user_input": agent_response.awaiting_user_input,
-                    },
-                )
 
                 # Update message history but apply filters & limits
                 new_msgs = result.new_messages()
@@ -272,11 +253,6 @@ async def interactive_mode(history_file_path: str) -> None:
                         count += len(group)
                     message_history = truncated
                 # --- END GROUP-AWARE TRUNCATION LOGIC ---
-
-                if agent_response and agent_response.awaiting_user_input:
-                    console.print(
-                        "\n[bold yellow]\u26a0 Agent needs your input to continue.[/bold yellow]"
-                    )
 
                 # Show context status
                 console.print(
