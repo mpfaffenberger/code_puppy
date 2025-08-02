@@ -347,7 +347,7 @@ def _delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
 
 class EditFileOutput(BaseModel):
     success: bool | None
-    file_path: str | None
+    path: str | None
     message: str | None
     changed: bool | None
     diff: str | None

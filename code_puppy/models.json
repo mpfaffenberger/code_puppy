@@ -79,5 +79,21 @@
       "url": "https://api.cerebras.ai/v1",
       "api_key": "$CEREBRAS_API_KEY"
     }
+  },
+  "Cerebras-Qwen3-235b-a22b-instruct-2507": {
+    "type": "custom_openai",
+    "name": "qwen-3-235b-a22b-instruct-2507",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY"
+    }
+  },
+  "Cerebras-Qwen-3-32b": {
+    "type": "custom_openai",
+    "name": "qwen-3-32b",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY"
+    }
   }
 }
