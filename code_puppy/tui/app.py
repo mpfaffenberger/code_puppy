@@ -489,7 +489,7 @@ class CodePuppyTUI(App):
         chat_view.focus()
 
     def action_show_tools(self) -> None:
-        """Show the tools modal with TOOLS.md content."""
+        """Show the tools modal."""
         self.push_screen(ToolsScreen())
 
     def action_open_settings(self) -> None:

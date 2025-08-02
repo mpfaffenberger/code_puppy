@@ -1,3 +1,4 @@
+tools_content = """
 Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more fun:
 
 ### 📁 **File Operations**
@@ -50,3 +51,4 @@ With these tools, I can:
 - 🧹 Refactor code following best practices
 
 Ready to fetch some code sticks and build amazing software together? 🔧✨
+"""

@@ -8,6 +8,7 @@ from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import get_config_keys
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.tools.tools_content import tools_content
 
 META_COMMANDS_HELP = """
 [bold magenta]Meta Commands Help[/bold magenta]
@@ -131,26 +132,11 @@ def handle_meta_command(command: str) -> bool:
         return True
 
     if command.startswith("~tools"):
-        # Display the TOOLS.md file content with markdown formatting
-        try:
-            from pathlib import Path
+        # Display the tools_content.py file content with markdown formatting
+        from rich.markdown import Markdown
 
-            from rich.markdown import Markdown
-
-            # Get the path to TOOLS.md relative to this file
-            current_dir = Path(__file__).parent.parent
-            tools_md_path = current_dir / "tools" / "TOOLS.md"
-
-            if tools_md_path.exists():
-                with open(tools_md_path, "r", encoding="utf-8") as f:
-                    tools_content = f.read()
-                # Use Rich Markdown for proper formatting
-                markdown_content = Markdown(tools_content)
-                emit_info(markdown_content)
-            else:
-                emit_error(f"TOOLS.md not found at: {tools_md_path}")
-        except Exception as e:
-            emit_error(f"Error reading TOOLS.md: {e}")
+        markdown_content = Markdown(tools_content)
+        emit_info(markdown_content)
         return True
 
     if command.startswith("~m"):

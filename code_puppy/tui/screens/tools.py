@@ -2,17 +2,17 @@
 Tools modal screen.
 """
 
-from pathlib import Path
-
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Markdown, Static
 
+from code_puppy.tools.tools_content import tools_content
+
 
 class ToolsScreen(ModalScreen):
-    """Tools modal screen displaying TOOLS.md content."""
+    """Tools modal screen"""
 
     DEFAULT_CSS = """
     ToolsScreen {
@@ -59,51 +59,9 @@ class ToolsScreen(ModalScreen):
         with Container(id="tools-dialog"):
             yield Static("🛠️  Cooper's Toolkit\n", id="tools-title")
             with VerticalScroll(id="tools-content"):
-                yield Markdown(self.get_tools_content(), id="tools-markdown")
+                yield Markdown(tools_content, id="tools-markdown")
             with Container(id="tools-buttons"):
                 yield Button("Dismiss", id="dismiss-button", variant="primary")
-
-    def get_tools_content(self) -> str:
-        """Get the tools content from TOOLS.md."""
-        try:
-            # Get the absolute path to TOOLS.md using proper path resolution
-            # Get the directory where this script is located
-            current_dir = Path(__file__).parent
-            # Navigate to the tools directory relative to the TUI screens directory
-            tools_file_path = current_dir.parent.parent / "tools" / "TOOLS.md"
-
-            with open(tools_file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            return content
-        except (FileNotFoundError, IOError, OSError) as e:
-            return f"""
-# 🐶 Woof! Had trouble loading TOOLS.md ({str(e)}), but here's what I can do:
-
-## 🛠️ Available Tools
-
-### 📁 **File Operations**
-- **`list_files`** - Browse directories like a good sniffing dog!
-- **`read_file`** - Read any file content
-- **`edit_file`** - The ultimate file editor!
-- **`delete_file`** - Remove files when needed
-
-### 🔍 **Search & Analysis**
-- **`grep`** - Search for text across files recursively
-- **`code_map`** - Generate beautiful code structure maps
-
-### 💻 **System Operations**
-- **`agent_run_shell_command`** - Execute shell commands
-
-### 🌐 **Network Operations**
-- **`grab_json_from_url`** - Fetch JSON data from URLs
-
-### 🧠 **Agent Communication**
-- **`agent_share_your_reasoning`** - Peek into my thought process
-- **`final_result`** - Deliver final responses
-
-I follow **DRY**, **YAGNI**, and **SOLID** principles religiously!
-Ready to fetch some code sticks? 🔧✨
-"""
 
     @on(Button.Pressed, "#dismiss-button")
     def dismiss_tools(self) -> None:
