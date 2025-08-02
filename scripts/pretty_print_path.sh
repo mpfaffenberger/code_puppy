@@ -1,5 +1,29 @@
 #!/usr/bin/env bash
-# pretty_path.sh - Display PATH environment variable in a readable format
+#==========================================================================
+# pretty_print_path.sh
+#==========================================================================
+# DESCRIPTION:
+#   This script displays the PATH environment variable in a readable format,
+#   making it easier to debug PATH-related issues. It shows all directories
+#   in PATH with their position, highlights duplicates, validates directory
+#   existence, and locates common executables.
+#
+# USAGE:
+#   ./scripts/pretty_print_path.sh
+#
+# OUTPUT:
+#   - A numbered list of all PATH entries
+#   - Duplicate entries with their first occurrence position
+#   - Summary statistics (total, unique, duplicates)
+#   - Warnings for non-existent directories
+#   - Locations of common executables (python, pip, node, npm, git, uv)
+#
+# USE CASES:
+#   - When troubleshooting environment setup issues
+#   - When suspecting PATH conflicts or incorrect ordering
+#   - To verify which versions of tools are being used
+#   - During development environment configuration
+#==========================================================================
 
 # Print header
 echo "=== PATH Environment Variable ==="
@@ -42,7 +66,7 @@ done
 
 # Executable check - find the first directory containing common executables
 echo -e "\n=== Common Executables Location ==="
-common_exes=("python" "pip" "node" "npm" "git" "uv")
+common_exes=("python" "pip" "node" "npm" "pnpm" "bun" "git" "uv" "poetry")
 for exe in "${common_exes[@]}"; do
   path_to_exe=$(which "$exe" 2>/dev/null)
   if [[ -n "$path_to_exe" ]]; then

@@ -6,7 +6,7 @@ set -e
 SELF=$(basename "$0")
 HEADER=$(cat<<'EOH'
 #=====================================================================
-# build.sh
+# build_install_local_whl.sh
 #=====================================================================
 # DESCRIPTION
 #     This is useful if you want to test how current code-puppy changes would
