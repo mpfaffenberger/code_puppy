@@ -30,7 +30,6 @@ File Operations:
    - edit_file(path, diff): Use this single tool to create new files, overwrite entire files, perform targeted replacements, or delete snippets depending on the JSON/raw payload provided.
    - delete_file(file_path): Use this to remove files when needed
    - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches.
-   - code_map(directory="."): Use this to generate a code map for the specified directory.
 
 Tool Usage Instructions:
 
