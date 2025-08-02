@@ -2,8 +2,9 @@
 Tests for ToolsScreen TUI component.
 """
 
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
+from code_puppy.tools.tools_content import tools_content
 from code_puppy.tui.screens.tools import ToolsScreen
 
 
@@ -16,93 +17,13 @@ class TestToolsScreen:
         assert screen is not None
         assert isinstance(screen, ToolsScreen)
 
-    def test_get_tools_content_success(self):
-        """Test successful loading of TOOLS.md content."""
-        mock_content = "# 🛠️ Available Tools\n\nThis is test content."
-
-        with patch("builtins.open", mock_open(read_data=mock_content)):
-            screen = ToolsScreen()
-            content = screen.get_tools_content()
-
-        assert content == mock_content
-
-    def test_get_tools_content_file_not_found(self):
-        """Test handling when TOOLS.md file is not found."""
-        with patch("builtins.open", side_effect=FileNotFoundError("No such file")):
-            screen = ToolsScreen()
-            content = screen.get_tools_content()
-
-        # Should return fallback content with error message
-        assert "Had trouble loading TOOLS.md (No such file)" in content
-        assert "Available Tools" in content
-        assert "File Operations" in content
-
-    def test_get_tools_content_io_error(self):
-        """Test handling of IOError when reading TOOLS.md."""
-        with patch("builtins.open", side_effect=IOError("Permission denied")):
-            screen = ToolsScreen()
-            content = screen.get_tools_content()
-
-        assert "Had trouble loading TOOLS.md (Permission denied)" in content
-        assert "Available Tools" in content
-
-    def test_get_tools_content_os_error(self):
-        """Test handling of OSError when reading TOOLS.md."""
-        with patch("builtins.open", side_effect=OSError("File system error")):
-            screen = ToolsScreen()
-            content = screen.get_tools_content()
-
-        assert "Had trouble loading TOOLS.md (File system error)" in content
-        assert "Available Tools" in content
-
-    def test_pathlib_path_resolution(self):
-        """Test that pathlib is used for proper path resolution."""
-        mock_content = "# Test content"
-
-        with patch("builtins.open", mock_open(read_data=mock_content)) as mock_file:
-            screen = ToolsScreen()
-            screen.get_tools_content()
-
-        # Verify that open was called with a Path object (converted to string)
-        mock_file.assert_called_once()
-        called_path = str(mock_file.call_args[0][0])
-
-        # Should end with the correct relative path
-        assert called_path.endswith("tools/TOOLS.md")
-        # Should not be the old hardcoded path
-        assert called_path != "code_puppy/tools/TOOLS.md"
-
-    @patch("pathlib.Path")
-    def test_path_construction_logic(self, mock_path_class):
-        """Test the specific pathlib path construction logic."""
-        # Mock the Path class and its methods
-        mock_current_dir = mock_path_class.return_value.parent
-        # We don't need to use this variable, just verify Path is called
-        _ = mock_current_dir.parent.parent / "tools" / "TOOLS.md"
-
-        # Mock the file reading
-        with patch("builtins.open", mock_open(read_data="test")):
-            screen = ToolsScreen()
-            screen.get_tools_content()
-
-        # Verify Path(__file__) was called
-        mock_path_class.assert_called()
-
-    def test_fallback_content_structure(self):
-        """Test that fallback content has expected structure."""
-        with patch("builtins.open", side_effect=FileNotFoundError("test")):
-            screen = ToolsScreen()
-            content = screen.get_tools_content()
-
-        # Check for key sections in fallback content
-        assert "🐶 Woof!" in content
-        assert "File Operations" in content
-        assert "list_files" in content
-        assert "edit_file" in content
-        assert "Search & Analysis" in content
-        assert "System Operations" in content
-        assert "DRY" in content
-        assert "SOLID" in content
+    def test_tools_content_import(self):
+        """Test that tools_content is imported correctly."""
+        # Verify that tools_content is a non-empty string
+        assert isinstance(tools_content, str)
+        assert len(tools_content) > 0
+        assert "File Operations" in tools_content
+        assert "Search & Analysis" in tools_content
 
     def test_screen_composition(self):
         """Test that screen has compose method and can be called."""
@@ -112,10 +33,18 @@ class TestToolsScreen:
         assert hasattr(screen, "compose")
         assert callable(screen.compose)
 
-        # Test that get_tools_content works independently
-        with patch.object(screen, "get_tools_content", return_value="# Test"):
-            content = screen.get_tools_content()
-            assert content == "# Test"
+    def test_markdown_widget_receives_tools_content(self):
+        """Test that Markdown widget receives tools_content."""
+        # Instead of actually executing compose, verify the tools.py implementation
+        # directly by examining the source code
+        import inspect
+
+        source = inspect.getsource(ToolsScreen.compose)
+
+        # Check that the compose method references tools_content
+        assert "tools_content" in source
+        # Check that Markdown is created with tools_content
+        assert "yield Markdown(tools_content" in source
 
     def test_dismiss_functionality(self):
         """Test that dismiss button works correctly."""

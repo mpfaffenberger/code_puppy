@@ -393,36 +393,44 @@ def test_tools_displays_tools_md():
 
 def test_tools_file_not_found():
     mocks = setup_messaging_mocks()
-    mock_emit_error = mocks["emit_error"].start()
+    mock_emit_info = mocks["emit_info"].start()
 
     try:
-        with patch("pathlib.Path.exists", return_value=False):
+        # Since we now use tools_content.py, we just verify that tools are displayed
+        # without needing to read from a file
+        with patch("code_puppy.tools.tools_content.tools_content", "# Mock content"):
             result = handle_meta_command("~tools")
             assert result is True
-            mock_emit_error.assert_called()
-            assert any(
-                "TOOLS.md not found" in str(call)
-                for call in mock_emit_error.call_args_list
-            )
+            mock_emit_info.assert_called_once()
+            # Check that emit_info was called with a Markdown object
+            call_args = mock_emit_info.call_args[0][0]
+            # The call should be with a Rich Markdown object
+            from rich.markdown import Markdown
+
+            assert isinstance(call_args, Markdown)
     finally:
-        mocks["emit_error"].stop()
+        mocks["emit_info"].stop()
 
 
 def test_tools_read_error():
     mocks = setup_messaging_mocks()
-    mock_emit_error = mocks["emit_error"].start()
+    mock_emit_info = mocks["emit_info"].start()
 
     try:
-        with (
-            patch("pathlib.Path.exists", return_value=True),
-            patch("builtins.open", side_effect=Exception("File read error")),
+        # Test handling when there's an issue with tools_content - it should still work
+        # by falling back to an empty or default string if the imported content fails
+        with patch(
+            "code_puppy.command_line.meta_command_handler.tools_content",
+            "# Fallback content",
         ):
             result = handle_meta_command("~tools")
             assert result is True
-            mock_emit_error.assert_called()
-            assert any(
-                "Error reading TOOLS.md" in str(call)
-                for call in mock_emit_error.call_args_list
-            )
+            mock_emit_info.assert_called_once()
+            # Check that emit_info was called with a Markdown object
+            call_args = mock_emit_info.call_args[0][0]
+            # The call should be with a Rich Markdown object
+            from rich.markdown import Markdown
+
+            assert isinstance(call_args, Markdown)
     finally:
-        mocks["emit_error"].stop()
+        mocks["emit_info"].stop()
