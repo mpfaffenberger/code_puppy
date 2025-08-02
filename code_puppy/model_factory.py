@@ -11,6 +11,7 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
@@ -173,6 +174,16 @@ class ModelFactory:
             model = OpenAIModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
-
+        elif model_type == "openrouter":
+            api_key = None
+            if "api_key" in model_config:
+                if model_config["api_key"].startswith("$"):
+                    api_key = os.environ.get(model_config["api_key"][1:])
+                else:
+                    api_key = model_config["api_key"]
+            provider = OpenRouterProvider(api_key=api_key)
+            model_name = model_config.get("name")
+            model = OpenAIModel(model_name, provider=provider)
+            return model
         else:
             raise ValueError(f"Unsupported model type: {model_type}")

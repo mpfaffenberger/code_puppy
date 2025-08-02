@@ -74,7 +74,7 @@ def _load_mcp_servers():
         url = conf.get("url")
         if url:
             console.print(f"Registering MCP Server - {url}")
-            servers.append(MCPServerSSE(url))
+            servers.append(MCPServerSSE(url=url))
     return servers
 
 
@@ -100,13 +100,11 @@ def reload_code_generation_agent():
     if PUPPY_RULES:
         instructions += f"\n{PUPPY_RULES}"
 
-    mcp_servers = _load_mcp_servers()
     agent = Agent(
         model=model,
         instructions=instructions,
-        output_type=AgentResponse,
+        output_type=str,
         retries=3,
-        mcp_servers=mcp_servers,
     )
     register_all_tools(agent)
     _code_generation_agent = agent

@@ -17,6 +17,7 @@ import traceback
 from typing import Any, Dict, List
 
 from json_repair import repair_json
+from pydantic import BaseModel
 from pydantic_ai import RunContext
 
 from code_puppy.tools.common import _find_best_window, console
@@ -311,7 +312,7 @@ def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
         }
 
 
-def _delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+def _delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
     console.log(f"🗑️ Deleting file [bold red]{file_path}[/bold red]")
     file_path = os.path.abspath(file_path)
     try:
@@ -344,13 +345,21 @@ def _delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
     return res
 
 
+class EditFileOutput(BaseModel):
+    success: bool | None
+    file_path: str | None
+    message: str | None
+    changed: bool | None
+    diff: str | None
+
+
 def register_file_modifications_tools(agent):
     """Attach file-editing tools to *agent* with mandatory diff rendering."""
 
     @agent.tool(retries=5)
-    def edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
-        return _edit_file(context, path, diff)
+    def edit_file(context: RunContext, path: str = "", diff: str = "") -> EditFileOutput:
+        return EditFileOutput(**_edit_file(context, path, diff))
 
     @agent.tool(retries=5)
-    def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
-        return _delete_file(context, file_path)
+    def delete_file(context: RunContext, file_path: str = "") -> EditFileOutput:
+        return EditFileOutput(**_delete_file(context, file_path))

@@ -37,9 +37,9 @@
       "url": "http://localhost:11434/v1"
     }
   },
-  "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
+  "Qwen/Qwen3-235B-A22B-fp8-tput": {
     "type": "custom_openai",
-    "name": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "name": "Qwen/Qwen3-235B-A22B-fp8-tput",
     "custom_endpoint": {
       "url": "https://api.together.xyz/v1",
       "api_key": "$TOGETHER_API_KEY"
@@ -52,6 +52,11 @@
       "url": "https://api.x.ai/v1",
       "api_key": "$XAI_API_KEY"
     }
+  },
+  "openrouter": {
+    "type": "openrouter",
+    "name": "meta-llama/llama-4-maverick:free",
+    "api_key": "$OPENROUTER_API_KEY"
   },
   "azure-gpt-4.1": {
     "type": "azure_openai",
@@ -66,5 +71,13 @@
     "api_version": "2024-12-01-preview",
     "api_key": "$AZURE_OPENAI_API_KEY",
     "azure_endpoint": "$AZURE_OPENAI_ENDPOINT"
+  },
+  "Cerebras-Qwen3-Coder-480b": {
+    "type": "custom_openai",
+    "name": "qwen-3-coder-480b",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY"
+    }
   }
 }

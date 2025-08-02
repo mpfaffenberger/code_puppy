@@ -3,6 +3,7 @@
 import os
 from typing import Any, Dict, List
 
+from pydantic import BaseModel, StrictStr, StrictInt
 from pydantic_ai import RunContext
 
 from code_puppy.tools.common import console
@@ -13,9 +14,21 @@ from code_puppy.tools.common import console
 from code_puppy.tools.common import should_ignore_path
 
 
+class ListedFile(BaseModel):
+    path: str | None
+    type: str | None
+    size: int = 0
+    full_path: str | None
+    depth: int | None
+
+
+class ListFileOutput(BaseModel):
+    files: List[ListedFile]
+
+
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
-) -> List[Dict[str, Any]]:
+) -> ListFileOutput:
     results = []
     directory = os.path.abspath(directory)
     console.print("\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]")
@@ -28,11 +41,11 @@ def _list_files(
             f"[bold red]Error:[/bold red] Directory '{directory}' does not exist"
         )
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
-        return [{"error": f"Directory '{directory}' does not exist"}]
+        return ListFileOutput(files=[ListedFile(**{"error": f"Directory '{directory}' does not exist"})])
     if not os.path.isdir(directory):
         console.print(f"[bold red]Error:[/bold red] '{directory}' is not a directory")
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
-        return [{"error": f"'{directory}' is not a directory"}]
+        return ListFileOutput(files=[ListedFile(**{"error": f"'{directory}' is not a directory"})])
     folder_structure = {}
     file_list = []
     for root, dirs, files in os.walk(directory):
@@ -44,13 +57,13 @@ def _list_files(
         if rel_path:
             dir_path = os.path.join(directory, rel_path)
             results.append(
-                {
+                ListedFile(**{
                     "path": rel_path,
                     "type": "directory",
                     "size": 0,
                     "full_path": dir_path,
                     "depth": depth,
-                }
+                })
             )
             folder_structure[rel_path] = {
                 "path": rel_path,
@@ -71,7 +84,7 @@ def _list_files(
                     "full_path": file_path,
                     "depth": depth,
                 }
-                results.append(file_info)
+                results.append(ListedFile(**file_info))
                 file_list.append(file_info)
             except (FileNotFoundError, PermissionError):
                 continue
@@ -119,74 +132,81 @@ def _list_files(
 
     if results:
         files = sorted(
-            [f for f in results if f["type"] == "file"], key=lambda x: x["path"]
+            [f for f in results if f.type == "file"], key=lambda x: x.path
         )
         console.print(
             f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]"
         )
-    all_items = sorted(results, key=lambda x: x["path"])
+    all_items = sorted(results, key=lambda x: x.path)
     parent_dirs_with_content = set()
     for i, item in enumerate(all_items):
-        if item["type"] == "directory" and not item["path"]:
+        if item.type == "directory" and not item.path:
             continue
-        if os.sep in item["path"]:
-            parent_path = os.path.dirname(item["path"])
+        if os.sep in item.path:
+            parent_path = os.path.dirname(item.path)
             parent_dirs_with_content.add(parent_path)
-        depth = item["path"].count(os.sep) + 1 if item["path"] else 0
+        depth = item.path.count(os.sep) + 1 if item.path else 0
         prefix = ""
         for d in range(depth):
             if d == depth - 1:
                 prefix += "\u2514\u2500\u2500 "
             else:
                 prefix += "    "
-        name = os.path.basename(item["path"]) or item["path"]
-        if item["type"] == "directory":
+        name = os.path.basename(item.path) or item.path
+        if item.type == "directory":
             console.print(f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]")
         else:
-            icon = get_file_icon(item["path"])
-            size_str = format_size(item["size"])
+            icon = get_file_icon(item.path)
+            size_str = format_size(item.size)
             console.print(
                 f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]"
             )
     else:
         console.print("[yellow]Directory is empty[/yellow]")
-    dir_count = sum(1 for item in results if item["type"] == "directory")
-    file_count = sum(1 for item in results if item["type"] == "file")
-    total_size = sum(item["size"] for item in results if item["type"] == "file")
+    dir_count = sum(1 for item in results if item.type == "directory")
+    file_count = sum(1 for item in results if item.type == "file")
+    total_size = sum(item.size for item in results if item.type == "file")
     console.print("\n[bold cyan]Summary:[/bold cyan]")
     console.print(
         f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]"
     )
     console.print("[dim]" + "-" * 60 + "[/dim]\n")
-    return results
+    return ListFileOutput(files=results)
 
 
-def _read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+class ReadFileOutput(BaseModel):
+    content: str | None
+
+def _read_file(context: RunContext, file_path: str) -> ReadFileOutput:
     file_path = os.path.abspath(file_path)
     console.print(
         f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
     )
     console.print("[dim]" + "-" * 60 + "[/dim]")
     if not os.path.exists(file_path):
-        return {"error": f"File '{file_path}' does not exist"}
+        return ReadFileOutput(content=f"File '{file_path}' does not exist")
     if not os.path.isfile(file_path):
-        return {"error": f"'{file_path}' is not a file"}
+        return ReadFileOutput(content=f"'{file_path}' is not a file")
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
-        return {
-            "content": content,
-            "path": file_path,
-            "total_lines": len(content.splitlines()),
-        }
+        return ReadFileOutput(content=content)
     except Exception as exc:
-        return {"error": str(exc)}
+        return ReadFileOutput(content="FILE NOT FOUND")
 
+
+class MatchInfo(BaseModel):
+    file_path: str | None
+    line_number: int | None
+    line_content: str | None
+
+class GrepOutput(BaseModel):
+    matches: List[MatchInfo]
 
 def _grep(
     context: RunContext, search_string: str, directory: str = "."
-) -> List[Dict[str, Any]]:
-    matches: List[Dict[str, Any]] = []
+) -> GrepOutput:
+    matches: List[MatchInfo] = []
     directory = os.path.abspath(directory)
     console.print(
         f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]"
@@ -209,11 +229,11 @@ def _grep(
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
                     for line_number, line_content in enumerate(fh, 1):
                         if search_string in line_content:
-                            match_info = {
+                            match_info = MatchInfo(**{
                                 "file_path": file_path,
                                 "line_number": line_number,
                                 "line_content": line_content.strip(),
-                            }
+                            })
                             matches.append(match_info)
                             # console.print(
                             #     f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}"
@@ -222,7 +242,7 @@ def _grep(
                                 console.print(
                                     "[yellow]Limit of 200 matches reached. Stopping search.[/yellow]"
                                 )
-                                return matches
+                                return GrepOutput(matches=matches)
             except FileNotFoundError:
                 console.print(
                     f"[yellow]File not found (possibly a broken symlink): {file_path}[/yellow]"
@@ -246,54 +266,22 @@ def _grep(
             f"[green]Found {len(matches)} match(es) for '{search_string}' in {directory}[/green]"
         )
 
-    return matches
-
-
-# Exported top-level functions for direct import by tests and other code
-
-
-def list_files(context, directory=".", recursive=True):
-    return _list_files(context, directory, recursive)
-
-
-def read_file(context, file_path):
-    return _read_file(context, file_path)
-
-
-def grep(context, search_string, directory="."):
-    return _grep(context, search_string, directory)
+    return GrepOutput(matches=[])
 
 
 def register_file_operations_tools(agent):
     @agent.tool
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
-    ) -> List[Dict[str, Any]]:
+    ) -> ListFileOutput:
         return _list_files(context, directory, recursive)
 
     @agent.tool
-    def read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+    def read_file(context: RunContext, file_path: str = "") -> ReadFileOutput:
         return _read_file(context, file_path)
 
     @agent.tool
     def grep(
-        context: RunContext, search_string: str, directory: str = "."
-    ) -> List[Dict[str, Any]]:
+        context: RunContext, search_string: str = "", directory: str = "."
+    ) -> GrepOutput:
         return _grep(context, search_string, directory)
-
-    @agent.tool
-    def code_map(context: RunContext, directory: str = ".") -> str:
-        """Generate a code map for the specified directory.
-           This will have a list of all function / class names and nested structure
-        Args:
-            context: The context object.
-            directory: The directory to generate the code map for.
-
-        Returns:
-            A string containing the code map.
-        """
-        console.print("[bold white on blue] CODE MAP [/bold white on blue]")
-        from code_puppy.tools.ts_code_map import make_code_map
-
-        result = make_code_map(directory, ignore_tests=True)
-        return result

@@ -2,6 +2,7 @@ import subprocess
 import time
 from typing import Any, Dict
 
+from pydantic import BaseModel
 from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -9,12 +10,22 @@ from rich.syntax import Syntax
 from code_puppy.tools.common import console
 
 
+class ShellCommandOutput(BaseModel):
+    success: bool
+    command: str | None
+    error: str | None = ""
+    stdout: str | None
+    stderr: str | None
+    exit_code: int | None
+    execution_time: float | None
+    timeout: bool | None = False
+
 def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
-) -> Dict[str, Any]:
+) -> ShellCommandOutput:
     if not command or not command.strip():
         console.print("[bold red]Error:[/bold red] Command cannot be empty")
-        return {"error": "Command cannot be empty"}
+        return ShellCommandOutput(**{"success": False, "error": "Command cannot be empty"})
     console.print(
         f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] \U0001f4c2 [bold green]$ {command}[/bold green]"
     )
@@ -30,11 +41,11 @@ def run_shell_command(
             console.print(
                 "[bold yellow]Command execution canceled by user.[/bold yellow]"
             )
-            return {
+            return ShellCommandOutput(**{
                 "success": False,
                 "command": command,
                 "error": "User canceled command execution",
-            }
+            })
     try:
         start_time = time.time()
         process = subprocess.Popen(
@@ -84,7 +95,7 @@ def run_shell_command(
                     "[bold yellow]This command produced no output at all![/bold yellow]"
                 )
             console.print("[dim]" + "-" * 60 + "[/dim]\n")
-            return {
+            return ShellCommandOutput(**{
                 "success": exit_code == 0,
                 "command": command,
                 "stdout": stdout,
@@ -92,7 +103,7 @@ def run_shell_command(
                 "exit_code": exit_code,
                 "execution_time": execution_time,
                 "timeout": False,
-            }
+            })
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
@@ -123,7 +134,7 @@ def run_shell_command(
                 f"[bold red]⏱ Command timed out after {timeout} seconds[/bold red] [dim](ran for {execution_time:.2f}s)[/dim]"
             )
             console.print("[dim]" + "-" * 60 + "[/dim]\n")
-            return {
+            return ShellCommandOutput(**{
                 "success": False,
                 "command": command,
                 "stdout": stdout[-1000:],
@@ -132,7 +143,7 @@ def run_shell_command(
                 "execution_time": execution_time,
                 "timeout": True,
                 "error": f"Command timed out after {timeout} seconds",
-            }
+            })
     except Exception as e:
         console.print_exception(show_locals=True)
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
@@ -141,7 +152,7 @@ def run_shell_command(
             stdout = None
         if "stderr" not in locals():
             stderr = None
-        return {
+        return ShellCommandOutput(**{
             "success": False,
             "command": command,
             "error": f"Error executing command: {str(e)}",
@@ -149,12 +160,17 @@ def run_shell_command(
             "stderr": stderr[-1000:] if stderr else None,
             "exit_code": -1,
             "timeout": False,
-        }
+        })
+
+class ReasoningOutput(BaseModel):
+    success: bool = True
+    reasoning: str = ""
+    next_steps: str = ""
 
 
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str = None
-) -> Dict[str, Any]:
+) -> ReasoningOutput:
     console.print("\n[bold white on purple] AGENT REASONING [/bold white on purple]")
     console.print("[bold cyan]Current reasoning:[/bold cyan]")
     console.print(Markdown(reasoning))
@@ -162,18 +178,18 @@ def share_your_reasoning(
         console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
         console.print(Markdown(next_steps))
     console.print("[dim]" + "-" * 60 + "[/dim]\n")
-    return {"success": True, "reasoning": reasoning, "next_steps": next_steps}
+    return ReasoningOutput(**{"success": True, "reasoning": reasoning, "next_steps": next_steps})
 
 
 def register_command_runner_tools(agent):
     @agent.tool
     def agent_run_shell_command(
         context: RunContext, command: str, cwd: str = None, timeout: int = 60
-    ) -> Dict[str, Any]:
+    ) -> ShellCommandOutput:
         return run_shell_command(context, command, cwd, timeout)
 
     @agent.tool
     def agent_share_your_reasoning(
         context: RunContext, reasoning: str, next_steps: str = None
-    ) -> Dict[str, Any]:
+    ) -> ReasoningOutput:
         return share_your_reasoning(context, reasoning, next_steps)
