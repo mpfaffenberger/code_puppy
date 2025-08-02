@@ -24,6 +24,7 @@ from code_puppy.config import get_model_name, get_puppy_name
 # Import our message queue system
 from code_puppy.messaging import TUIRenderer, get_global_queue
 
+from ..message_history_processor import message_history_processor
 from .components import ChatView, CustomTextArea, InputArea, Sidebar, StatusBar
 
 # Import shared message classes
@@ -389,8 +390,8 @@ class CodePuppyTUI(App):
                         self.add_agent_message(agent_response.output_message)
 
                         # Update message history
-                        new_msgs = result.new_messages()
-                        self.message_history.extend(new_msgs)
+                        new_msgs = result.all_messages()
+                        self.message_history = await message_history_processor(new_msgs)
 
                         # Refresh history display to show new interaction
                         self.refresh_history_display()
