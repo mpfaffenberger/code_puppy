@@ -1,10 +1,11 @@
 """
 MOTD (Message of the Day) feature for code-puppy.
-Stores seen versions in ~/.puppy_cfg/motd.txt.
+Stores seen versions in ~/.code_puppy/motd.txt.
 """
 
 import os
 
+from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
 MOTD_VERSION = "20250731"
@@ -44,7 +45,7 @@ MOTD_MESSAGE = """
 🦴 Fetch all these features with your favorite code companion! 🦴
 This MOTD won't bark at you again unless you run `~motd`. Stay pawsome! 🐕💖
 """
-MOTD_TRACK_FILE = os.path.expanduser("~/.puppy_cfg/motd.txt")
+MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 
 
 def has_seen_motd(version: str) -> bool:
@@ -56,9 +57,19 @@ def has_seen_motd(version: str) -> bool:
 
 
 def mark_motd_seen(version: str):
+    # Create directory if it doesn't exist
     os.makedirs(os.path.dirname(MOTD_TRACK_FILE), exist_ok=True)
-    with open(MOTD_TRACK_FILE, "a") as f:
-        f.write(f"{version}\n")
+
+    # Check if the version is already in the file
+    seen_versions = set()
+    if os.path.exists(MOTD_TRACK_FILE):
+        with open(MOTD_TRACK_FILE, "r") as f:
+            seen_versions = {line.strip() for line in f if line.strip()}
+
+    # Only add the version if it's not already there
+    if version not in seen_versions:
+        with open(MOTD_TRACK_FILE, "a") as f:
+            f.write(f"{version}\n")
 
 
 def print_motd(console=None, force: bool = False) -> bool:
