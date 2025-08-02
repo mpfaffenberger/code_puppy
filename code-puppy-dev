@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2048
+# shellcheck disable=SC2086
+args=$*
+
+uv pip install --no-deps --reinstall -e . > /dev/null 2>&1
+
+NO_VERSION_UPDATE=1 uv run code-puppy $args
