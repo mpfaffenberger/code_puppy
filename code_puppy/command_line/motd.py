@@ -5,32 +5,24 @@ Stores seen versions in ~/.puppy_cfg/motd.txt.
 
 import os
 
-MOTD_VERSION = "20240621"
+MOTD_VERSION = "20250802"
 MOTD_MESSAGE = """
-June 21th, 2025 - 🚀 Woof-tastic news! Code Puppy now supports **MCP (Model Context Protocol) servers** for EXTREME PUPPY POWER!!!!.
-
-You can now connect plugins like doc search, Context7 integration, and more by simply dropping their info in your `~/.code_puppy/mcp_servers.json`. I’ll bark at remote docs or wrangle code tools for you—no extra fetches needed.
-
-Setup is easy:
-1. Add your MCP config to `~/.code_puppy/mcp_servers.json`.
-2. Fire up something like Context7, or any MCP server you want.
-3. Ask me to search docs, analyze, and more.
-
-The following example will let code_puppy use Context7! 
-Example config (+ more details in the README): 
-
-{
-  "mcp_servers": {
-     "context7": { 
-        "url": "https://mcp.context7.com/sse"
-     }
-  }
-}
-
-I fetch docs and power-ups via those servers. If you break stuff, please file an issue—bonus treat for reproducible bugs! 🦴
-
-This message-of-the-day won’t bug you again unless you run ~motd. Stay fluffy!
-
+/¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯\\
+|   🐾  Happy Sat-urday, Aug 2, 2025!                       |
+|                                                           |
+|   Biscuit the code puppy is on full zoomie mode!          |
+|   Major paws-up: We now integrate Cerebras Qwen3 Coder    |
+|   480b! YES, that’s 480 billion parameters of tail-wagging|
+|   code speed. It’s so fast, even my fetch can’t keep up!  |
+|                                                           |
+|   • Take stretch breaks – you’ll need ‘em!                |
+|   • DRY your code, but keep your pup hydrated.            |
+|   • If you hit a bug, treat yourself for finding it!      |
+|                                                           |
+|   Today: sniff, code, roll over, and let Cerebras Qwen3   |
+|   Coder 480b do the heavy lifting. Fire up a ~motd anytime|
+|   you need some puppy hype!                               |
+\___________________________________________________________/
 """
 MOTD_TRACK_FILE = os.path.expanduser("~/.puppy_cfg/motd.txt")
 
