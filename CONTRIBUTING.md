@@ -231,6 +231,37 @@ The output includes:
 - Validation warnings for non-existent directories
 - Locations of common executables
 
+#### run_pre_commit.sh
+
+This script runs pre-commit hooks in a loop until they all pass, handling cases where pre-commit fixes issues that reveal new issues.
+
+**Purpose:**
+- Runs `uv --native-tls run pre-commit run --all-files` repeatedly until successful
+- Automatically handles iterative fixes (e.g., formatter fixes code that then fails linting)
+- Provides progress feedback and attempt tracking
+- Eliminates the need to manually re-run pre-commit multiple times
+
+**When to use:**
+- Before committing changes to ensure all pre-commit hooks pass
+- After making large code changes that might trigger multiple formatting/linting fixes
+- When setting up pre-commit hooks for the first time on existing code
+- As part of your development workflow to maintain code quality
+
+**How to use:**
+```sh
+./scripts/run_pre_commit.sh
+```
+
+**What it does:**
+1. Runs pre-commit hooks on all files
+2. If hooks fail (non-zero exit code), waits 1 second and tries again
+3. Continues looping until all hooks pass (exit code 0)
+4. Shows attempt numbers and helpful status messages
+5. Celebrates when everything is clean! 🎉
+
+**Why this is useful:**
+Pre-commit hooks often fix issues automatically (like code formatting), but these fixes can sometimes reveal new issues (like newly formatted code that now fails linting rules). This script handles those cascading fixes automatically.
+
 ## Adding a New Feature
 
 - Open an issue (optional but recommended) to discuss your idea with maintainers.
