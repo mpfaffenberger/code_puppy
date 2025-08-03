@@ -36,7 +36,7 @@ EOH
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="$PROJECT_DIR/scripts"
 VENV_DIR="$HOME/.code-puppy-venv"
-INDEX_URL="https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
+UV_INDEX_URL="https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
 
 # shellcheck source=/dev/null
 source "$SCRIPTS_DIR/common.sh"
@@ -67,7 +67,7 @@ error_handler $? "step: $step failed"
 
 step=">>> 🔧 Creating a fresh venv with uv..."
 echo "$step"
-uv venv --default-index "$INDEX_URL" "$VENV_DIR"
+uv venv --default-index "$UV_INDEX_URL" "$VENV_DIR"
 error_handler $? "step: $step failed"
 
 step=">>> 🔧 Activating the new venv..."
@@ -89,12 +89,12 @@ echo ">>> 🛞 New wheel file: $WHEEL_FILE"
 step=">>> 🔧 Installing from new wheel file: $WHEEL_FILE"
 echo "$step"
 cd "$HOME" || exit
-uv pip install --native-tls --index-url "$INDEX_URL" "$PROJECT_DIR/$WHEEL_FILE" --force-reinstall
+uv pip install --native-tls --index-url "$UV_INDEX_URL" "$PROJECT_DIR/$WHEEL_FILE" --force-reinstall
 error_handler $? "step: $step failed"
 
 step="🔧  Installing textual cli into venv…"
 echo "$step"
-uv pip install --native-tls --index-url "$INDEX_URL" textual-dev
+uv pip install --native-tls --index-url "$UV_INDEX_URL" textual-dev
 error_handler $? "step: $step failed"
 
 step=">>> 🧹 Deactivating venv"

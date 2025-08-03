@@ -10,7 +10,7 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
     - [Useful Development Scripts](#useful-development-scripts)
       - [code-puppy-dev](#code-puppy-dev)
       - [build\_install\_local\_whl.sh](#build_install_local_whlsh)
-      - [pretty\_path.sh](#pretty_pathsh)
+      - [pretty\_print\_path.sh](#pretty_print_pathsh)
   - [Adding a New Feature](#adding-a-new-feature)
   - [Fixing a Bug](#fixing-a-bug)
   - [Testing](#testing)
@@ -102,7 +102,15 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
    ```
    - MCP features require configuration in `~/.code_puppy/mcp_servers.json` (see documentation for examples).
 
-4. **Run code-puppy:**
+4. **Setup UV_INDEX_URL**
+   - add this to your ~/.zshrc, or the equivalent for your shell
+   ```
+   export UV_INDEX_URL=https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple
+
+   source ~/.zshrc
+   ```
+
+5. **Run code-puppy:**
 
    Use one of these commands:
    ```sh
@@ -111,6 +119,7 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
    NO_VERSION_UPDATE=1 uv run code-puppy --tui
    NO_VERSION_UPDATE=1 uv run code-puppy --web
    ```
+   Note: also, see `code-puppy-dev` below.
 
 ## Development Workflow
 
