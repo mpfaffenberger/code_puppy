@@ -11,9 +11,11 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
       - [code-puppy-dev](#code-puppy-dev)
       - [build\_install\_local\_whl.sh](#build_install_local_whlsh)
       - [pretty\_print\_path.sh](#pretty_print_pathsh)
+      - [run\_pre\_commit.sh](#run_pre_commitsh)
   - [Adding a New Feature](#adding-a-new-feature)
   - [Fixing a Bug](#fixing-a-bug)
   - [Testing](#testing)
+  - [Pre-commit](#pre-commit)
   - [Code Style](#code-style)
   - [Submitting Your Changes](#submitting-your-changes)
   - [Code of Conduct](#code-of-conduct)
@@ -82,7 +84,6 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
       /Users/l0m0eby/workspace/github-wm/code-puppy/.venv/bin/python
       > cd
       direnv: unloading
-      ~
       > which python
       /Users/l0m0eby/.pyenv/shims/python
     ```
@@ -293,6 +294,12 @@ Pre-commit hooks often fix issues automatically (like code formatting), but thes
 - Lint your code:
   ```sh
   ruff check .
+  ```
+
+## Pre-commit
+- before adding a commit, run the pre-commit checks:
+  ```sh
+  uv --native-tls run pre-commit run --all-files
   ```
 
 ## Code Style

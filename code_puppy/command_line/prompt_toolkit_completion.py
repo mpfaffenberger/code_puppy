@@ -29,7 +29,7 @@ from code_puppy.config import get_config_keys, get_puppy_name, get_value
 
 
 class SetCompleter(Completer):
-    def __init__(self, trigger: str = "~set"):
+    def __init__(self, trigger: str = "/set"):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
@@ -40,15 +40,15 @@ class SetCompleter(Completer):
             return
 
         # Determine the part of the text that is relevant for this completer
-        # This handles cases like "  ~set foo" where the trigger isn't at the start of the string
+        # This handles cases like "  /set foo" where the trigger isn't at the start of the string
         actual_trigger_pos = text_before_cursor.find(self.trigger)
         effective_input = text_before_cursor[
             actual_trigger_pos:
-        ]  # e.g., "~set keypart" or "~set " or "~set"
+        ]  # e.g., "/set keypart" or "/set "
 
         tokens = effective_input.split()
 
-        # Case 1: Input is exactly the trigger (e.g., "~set") and nothing more (not even a trailing space on effective_input).
+        # Case 1: Input is exactly the trigger (e.g., "/set") and nothing more (not even a trailing space on effective_input).
         # Suggest adding a space.
         if (
             len(tokens) == 1
@@ -63,11 +63,11 @@ class SetCompleter(Completer):
             )
             return
 
-        # Case 2: Input is trigger + space (e.g., "~set ") or trigger + partial key (e.g., "~set partial")
+        # Case 2: Input is trigger + space (e.g., "/set ") or trigger + partial key (e.g., "/set partial")
         base_to_complete = ""
-        if len(tokens) > 1:  # e.g., ["~set", "partialkey"]
+        if len(tokens) > 1:  # e.g., ["/set", "partialkey"]
             base_to_complete = tokens[1]
-        # If len(tokens) == 1, it implies effective_input was like "~set ", so base_to_complete remains ""
+        # If len(tokens) == 1, it implies effective_input was like "/set ", so base_to_complete remains ""
         # This means we list all keys.
 
         # --- SPECIAL HANDLING FOR 'model' KEY ---
@@ -75,8 +75,8 @@ class SetCompleter(Completer):
             # Don't return any completions -- let ModelNameCompleter handle it
             return
         for key in get_config_keys():
-            if key == "model":
-                continue  # exclude 'model' from regular ~set completions
+            if key == "model" or key == "puppy_token":
+                continue  # exclude 'model' and 'puppy_token' from regular /set completions
             if key.startswith(base_to_complete):
                 prev_value = get_value(key)
                 value_part = f" = {prev_value}" if prev_value is not None else " = "
@@ -87,14 +87,12 @@ class SetCompleter(Completer):
                     start_position=-len(
                         base_to_complete
                     ),  # Correctly replace only the typed part of the key
-                    display_meta=f"puppy.cfg key (was: {prev_value})"
-                    if prev_value is not None
-                    else "puppy.cfg key",
+                    display_meta="",
                 )
 
 
 class CDCompleter(Completer):
-    def __init__(self, trigger: str = "~cd"):
+    def __init__(self, trigger: str = "/cd"):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
@@ -159,9 +157,9 @@ async def get_input_with_combined_completion(
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),
-            ModelNameCompleter(trigger="~m"),
-            CDCompleter(trigger="~cd"),
-            SetCompleter(trigger="~set"),
+            ModelNameCompleter(trigger="/m"),
+            CDCompleter(trigger="/cd"),
+            SetCompleter(trigger="/set"),
         ]
     )
     # Add custom key bindings for multiline input
@@ -221,7 +219,7 @@ async def get_input_with_combined_completion(
 
 
 if __name__ == "__main__":
-    print("Type '@' for path-completion or '~m' to pick a model. Ctrl+D to exit.")
+    print("Type '@' for path-completion or '/m' to pick a model. Ctrl+D to exit.")
 
     async def main():
         while True:

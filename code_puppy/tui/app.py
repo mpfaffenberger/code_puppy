@@ -18,7 +18,7 @@ from code_puppy.agent import (
     get_custom_usage_limits,
     session_memory,
 )
-from code_puppy.command_line.meta_command_handler import handle_meta_command
+from code_puppy.command_line.command_handler import handle_command
 from code_puppy.config import get_model_name, get_puppy_name
 from code_puppy.message_history_processor import message_history_processor
 
@@ -316,20 +316,28 @@ class CodePuppyTUI(App):
             self.agent_busy = True
             self.start_agent_progress("Thinking")
 
-            # Handle meta commands
-            if message.strip().startswith("~"):
-                if message.strip().lower() in ("clear", "~clear"):
+            # Handle commands
+            if message.strip().startswith("/"):
+                # Handle special commands directly
+                if message.strip().lower() in ("clear", "/clear"):
                     self.action_clear_chat()
                     return
 
-                # Use the existing meta command handler
+                # Handle exit commands
+                if message.strip().lower() in ("/exit", "/quit"):
+                    self.add_system_message("Goodbye!")
+                    # Exit the application
+                    self.app.exit()
+                    return
+
+                # Use the existing command handler
                 try:
                     import sys
                     from io import StringIO
 
                     from code_puppy.tools.common import console as rich_console
 
-                    # Capture the output from the meta command handler
+                    # Capture the output from the command handler
                     old_stdout = sys.stdout
                     captured_output = StringIO()
                     sys.stdout = captured_output
@@ -338,25 +346,23 @@ class CodePuppyTUI(App):
                     rich_console.file = captured_output
 
                     try:
-                        # Call the existing meta command handler
-                        result = handle_meta_command(message.strip())
+                        # Call the existing command handler
+                        result = handle_command(message.strip())
                         if result:  # Command was handled
                             output = captured_output.getvalue()
                             if output.strip():
                                 self.add_system_message(output.strip())
                             else:
-                                self.add_system_message(
-                                    f"Meta command '{message}' executed"
-                                )
+                                self.add_system_message(f"Command '{message}' executed")
                         else:
-                            self.add_system_message(f"Unknown meta command: {message}")
+                            self.add_system_message(f"Unknown command: {message}")
                     finally:
                         # Restore stdout and console
                         sys.stdout = old_stdout
                         rich_console.file = sys.__stdout__
 
                 except Exception as e:
-                    self.add_error_message(f"Error executing meta command: {str(e)}")
+                    self.add_error_message(f"Error executing command: {str(e)}")
                 return
 
             # Process with agent

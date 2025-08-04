@@ -1,58 +1,58 @@
 # Code Puppy Developer Console Commands
 
-Woof! Here’s the scoop on built-in dev-console `~` meta-commands and exactly how you can add your own. This is for the secret society of code hackers (that’s you now).
+Woof! Here's the scoop on built-in dev-console `/` commands and exactly how you can add your own. This is for the secret society of code hackers (that's you now).
 
 ## Available Console Commands
 
 | Command             | Description                                              |
 |---------------------|----------------------------------------------------------|
-| `~cd [dir]`         | Show directory listing or change working directory       |
-| `~show`             | Show puppy/owner/model status and metadata              |
-| `~m <model>`        | Switch the active code model for the agent              |
-| `~codemap [dir]`    | Visualize the project’s code structure/tree             |
-| `~set KEY=VALUE`      | Set a puppy.cfg setting!                                 |
-| `~help` or `~h`     | Show available meta-commands                            |
-| any unknown `~...`  | Warn user about unknown command and (for plain `~`)     |
+| `/cd [dir]`         | Show directory listing or change working directory       |
+| `/show`             | Show puppy/owner/model status and metadata              |
+| `/m <model>`        | Switch the active code model for the agent              |
+| `/codemap [dir]`    | Visualize the project's code structure/tree             |
+| `/set KEY=VALUE`    | Set a puppy.cfg setting!                                |
+| `/help` or `/h`     | Show available commands                                  |
+| any unknown `/...`  | Warn user about unknown command and (for plain `/`)     |
 |                     | shows current model                                     |
 
-## How to Add a New Meta-Command
+## How to Add a New Command
 
-All `~meta` commands are handled in **`code_puppy/command_line/meta_command_handler.py`** inside the `handle_meta_command` function. Follow these steps:
+All `/` commands are handled in **`code_puppy/command_line/command_handler.py`** inside the `handle_command` function. Follow these steps:
 
 ### 1. Edit the Command Handler
-- Open `code_puppy/command_line/meta_command_handler.py`.
-- Locate the `handle_meta_command(command: str, console: Console) -> bool` function.
-- Add a new `if command.startswith("~yourcmd"):` block (do this _above_ the "unknown command" fallback).
-    - Use .startswith for prefix commands (e.g., `~foo bar`), or full equality if you want only the bare command to match.
-    - Implement your logic. Use rich’s Console to print stuff back to the terminal.
+- Open `code_puppy/command_line/command_handler.py`.
+- Locate the `handle_command(command: str) -> bool` function.
+- Add a new `if command.startswith("/yourcmd"):` block (do this _above_ the "unknown command" fallback).
+    - Use .startswith for prefix commands (e.g., `/foo bar`), or full equality if you want only the bare command to match.
+    - Implement your logic. Use rich's Console to print stuff back to the terminal.
     - Return `True` if you handle the command.
 
 ### 2. (Optional) Add Autocomplete
 
-### ~set: Update your code puppy’s settings
+### /set: Update your code puppy's settings
 
-`~set` lets you instantly update values in your puppy.cfg, like renaming your puppy or changing settings on the fly!
+`/set` lets you instantly update values in your puppy.cfg, like renaming your puppy or changing settings on the fly!
 
 - Usage:
-  - `~set yolo_mode=true`
-  - `~set puppy_name Snoopy`
-  - `~set owner_name="Best Owner"`
+  - `/set yolo_mode=true`
+  - `/set puppy_name Snoopy`
+  - `/set owner_name="Best Owner"`
 
-As you type `~set`, tab completion pops up with available config keys so you don’t have to remember them like a boring human.
+As you type `/set`, tab completion pops up with available config keys so you don't have to remember them like a boring human.
 
 If your new command needs tab completion/prompt support, check these files:
 - `code_puppy/command_line/prompt_toolkit_completion.py` (has completer logic)
 - `code_puppy/command_line/model_picker_completion.py`, `file_path_completion.py` (for model/filename completions)
 
-Update them if your command would benefit from better input support. Usually you just need meta_command_handler.py, though!
+Update them if your command would benefit from better input support. Usually you just need command_handler.py, though!
 
 ### 3. (Optional) Update Help
-- Update the help text inside the `~help` handler to list your new command and a short description.
+- Update the help text inside the `/help` handler to list your new command and a short description.
 
 ### 4. (Optional) Add Utilities
-Place any helper logic for your command in an appropriate utils or tools module if it grows big. Don’t go dumping everything in meta_command_handler.py, or the puppy will fetch your slippers in protest!
+Place any helper logic for your command in an appropriate utils or tools module if it grows big. Don't go dumping everything in command_handler.py, or the puppy will fetch your slippers in protest!
 
 
 ---
 
-Be concise, be fun, don’t make your files long, and remember: if you find yourself writing more than a quick conditional in meta_command_handler.py, break that logic out into another module! Woof woof!
+Be concise, be fun, don't make your files long, and remember: if you find yourself writing more than a quick conditional in command_handler.py, break that logic out into another module! Woof woof!

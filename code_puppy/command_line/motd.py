@@ -43,7 +43,7 @@ MOTD_MESSAGE = """
 ```
 
 🦴 Fetch all these features with your favorite code companion! 🦴
-This MOTD won't bark at you again unless you run `~motd`. Stay pawsome! 🐕💖
+This MOTD won't bark at you again unless you run `/motd`. Stay pawsome! 🐕💖
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 

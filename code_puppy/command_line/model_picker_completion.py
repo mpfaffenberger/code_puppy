@@ -41,11 +41,11 @@ def set_active_model(model_name: str):
 
 class ModelNameCompleter(Completer):
     """
-    A completer that triggers on '~m' to show available models from models.json.
-    Only '~m' (not just '~') will trigger the dropdown.
+    A completer that triggers on '/m' to show available models from models.json.
+    Only '/m' (not just '/') will trigger the dropdown.
     """
 
-    def __init__(self, trigger: str = "~m"):
+    def __init__(self, trigger: str = "/m"):
         self.trigger = trigger
         self.model_names = load_model_names()
 
@@ -71,23 +71,23 @@ class ModelNameCompleter(Completer):
 
 
 def update_model_in_input(text: str) -> Optional[str]:
-    # If input starts with ~m and a model name, set model and strip it out
+    # If input starts with /m and a model name, set model and strip it out
     content = text.strip()
-    if content.startswith("~m"):
+    if content.startswith("/m"):
         rest = content[2:].strip()
         for model in load_model_names():
             if rest == model:
                 set_active_model(model)
-                # Remove ~mmodel from the input
-                idx = text.find("~m" + model)
+                # Remove /mmodel from the input
+                idx = text.find("/m" + model)
                 if idx != -1:
-                    new_text = (text[:idx] + text[idx + len("~m" + model) :]).strip()
+                    new_text = (text[:idx] + text[idx + len("/m" + model) :]).strip()
                     return new_text
     return None
 
 
 async def get_input_with_model_completion(
-    prompt_str: str = ">>> ", trigger: str = "~m", history_file: Optional[str] = None
+    prompt_str: str = ">>> ", trigger: str = "/m", history_file: Optional[str] = None
 ) -> str:
     history = FileHistory(os.path.expanduser(history_file)) if history_file else None
     session = PromptSession(

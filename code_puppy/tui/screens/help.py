@@ -100,12 +100,12 @@ Chat Navigation:
 - Ctrl+Home: Scroll to top
 - Ctrl+End: Scroll to bottom
 
-Meta Commands:
-- ~clear: Clear chat history
-- ~m <model>: Switch model
-- ~cd <dir>: Change directory
-- ~help: Show help
-- ~status: Show current status
+Commands:
+- /clear: Clear chat history
+- /m <model>: Switch model
+- /cd <dir>: Change directory
+- /help: Show help
+- /status: Show current status
 
 Use the input area at the bottom to type messages.
 Press Ctrl+2 to view History when needed.
