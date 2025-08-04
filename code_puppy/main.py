@@ -31,6 +31,7 @@ from code_puppy.globals import is_tui_mode, set_tui_mode
 
 # HTTP server imports
 from code_puppy.http_server import app as http_app
+from code_puppy.message_history_processor import message_history_processor
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
@@ -723,9 +724,9 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                         )
                 # Get the structured response
                 agent_response = result.output
-                from code_puppy.messaging import emit_agent_response, emit_info
+                from code_puppy.messaging import emit_info
 
-                emit_agent_response(
+                emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
                 )
                 # Log to session memory
@@ -737,55 +738,10 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                     },
                 )
 
-                # Update message history but apply filters & limits
-                new_msgs = result.new_messages()
-                # 1. Drop any system/config messages (e.g., "agent loaded with model")
-                filtered = [
-                    m
-                    for m in new_msgs
-                    if not (isinstance(m, dict) and m.get("role") == "system")
-                ]
-                # 2. Append to existing history and keep only the most recent set by config
-                from code_puppy.config import get_message_history_limit
-
-                message_history.extend(filtered)
-
-                # --- BEGIN GROUP-AWARE TRUNCATION LOGIC ---
-                limit = get_message_history_limit()
-                if len(message_history) > limit:
-
-                    def group_by_tool_call_id(msgs):
-                        grouped = {}
-                        no_group = []
-                        for m in msgs:
-                            # Find all tool_call_id in message parts
-                            tool_call_ids = set()
-                            for part in getattr(m, "parts", []):
-                                if hasattr(part, "tool_call_id") and part.tool_call_id:
-                                    tool_call_ids.add(part.tool_call_id)
-                            if tool_call_ids:
-                                for tcid in tool_call_ids:
-                                    grouped.setdefault(tcid, []).append(m)
-                            else:
-                                no_group.append(m)
-                        return grouped, no_group
-
-                    grouped, no_group = group_by_tool_call_id(message_history)
-                    # Flatten into groups or singletons
-                    grouped_msgs = list(grouped.values()) + [[m] for m in no_group]
-                    # Keep complete tool_call_id groups together while preserving chronological order
-                    groups_to_keep = []
-                    count = 0
-                    for group in reversed(grouped_msgs):
-                        if count + len(group) > limit:
-                            break
-                        groups_to_keep.append(group)
-                        count += len(group)
-                    # Reverse to restore chronological order, then flatten
-                    message_history = [
-                        msg for group in reversed(groups_to_keep) for msg in group
-                    ]
-                # --- END GROUP-AWARE TRUNCATION LOGIC ---
+                # Update message history - the agent's history processor will handle truncation
+                new_msgs = result.all_messages()
+                filtered = await message_history_processor(new_msgs)
+                message_history = filtered
 
                 if agent_response and agent_response.awaiting_user_input:
                     from code_puppy.messaging import emit_warning
