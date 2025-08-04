@@ -56,7 +56,7 @@ export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemin
 export AZURE_OPENAI_API_KEY=...
 export AZURE_OPENAI_ENDPOINT=...
 
-code-puppy --in/eractive
+code-puppy --interactive
 ```
 Running in a super weird corporate environment?
 
