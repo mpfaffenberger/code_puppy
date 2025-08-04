@@ -560,7 +560,7 @@ async def main():
 
 # Add the file handling functionality for interactive mode
 async def interactive_mode(history_file_path: str, message_renderer) -> None:
-    from code_puppy.command_line.meta_command_handler import handle_meta_command
+    from code_puppy.command_line.command_handler import handle_command
 
     """Run the agent in interactive mode."""
     message_history = []
@@ -573,16 +573,16 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
     from code_puppy.messaging import emit_info, emit_system_message
 
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
-    emit_system_message("Type 'exit' or 'quit' to exit the interactive mode.")
+    emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
     emit_system_message("Type 'clear' to reset the conversation history.")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
     )
 
-    # Show meta commands right at startup - DRY!
-    from code_puppy.command_line.meta_command_handler import META_COMMANDS_HELP
+    # Show commands right at startup - DRY!
+    from code_puppy.command_line.command_handler import COMMANDS_HELP
 
-    emit_system_message(META_COMMANDS_HELP)
+    emit_system_message(COMMANDS_HELP)
     # Show MOTD if user hasn't seen it after an update
     try:
         from code_puppy.command_line.motd import print_motd
@@ -665,16 +665,19 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
             emit_warning("\nInput cancelled")
             continue
 
-        # Check for exit commands
-        if task.strip().lower() in ["exit", "quit"]:
+        # Check for exit commands (plain text or command form)
+        if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
+            "/exit",
+            "/quit",
+        ]:
             from code_puppy.messaging import emit_success
 
             emit_success("Goodbye!")
             # The renderer is stopped in the finally block of main().
             break
 
-        # Check for clear command (supports both `clear` and `~clear`)
-        if task.strip().lower() in ("clear", "~clear"):
+        # Check for clear command (supports both `clear` and `/clear`)
+        if task.strip().lower() in ("clear", "/clear"):
             message_history = []
             from code_puppy.messaging import emit_system_message, emit_warning
 
@@ -682,9 +685,9 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
             emit_system_message("The agent will not remember previous interactions.\n")
             continue
 
-        # Handle ~ meta/config commands before anything else
-        if task.strip().startswith("~"):
-            if handle_meta_command(task.strip()):
+        # Handle / commands before anything else
+        if task.strip().startswith("/"):
+            if handle_command(task.strip()):
                 continue
         if task.strip():
             # Write to the secret file for permanent history

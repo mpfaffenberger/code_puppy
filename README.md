@@ -62,7 +62,7 @@ Running in a super weird corporate environment?
 
 Try this:
 ```bash
-# Use the ~m command in interactive mode to switch models
+# Use the /m command in interactive mode to switch models
 # Models are now automatically fetched from the endpoint and cached locally
 ```
 

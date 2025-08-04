@@ -10,16 +10,16 @@
     "name": "claude-sonnet-4",
     "type": "custom_anthropic"
   },
-  "claude-localhost": {
+  "gemini-2.5-pro": {
     "custom_endpoint": {
       "api_key": "$puppy_token",
       "headers": {
-        "X-Api-Key": "$puppy_token"
+        "X-Goog-Api-Key": "$puppy_token"
       },
-      "url": "http://localhost:8080/anthropic"
+      "url": "https://puppy-backend.stg.walmart.com/gemini"
     },
-    "name": "claude-sonnet-4",
-    "type": "custom_anthropic"
+    "name": "gemini-2.5-pro",
+    "type": "custom_gemini"
   },
   "gpt-4.1-custom": {
     "custom_endpoint": {
@@ -37,16 +37,6 @@
         "X-Api-Key": "$puppy_token"
       },
       "url": "https://puppy-backend.stg.walmart.com"
-    },
-    "name": "o3",
-    "type": "custom_openai"
-  },
-  "o3-localhost": {
-    "custom_endpoint": {
-      "headers": {
-        "X-Api-Key": "$puppy_token"
-      },
-      "url": "http://localhost:8080"
     },
     "name": "o3",
     "type": "custom_openai"

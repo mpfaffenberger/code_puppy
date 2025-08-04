@@ -52,10 +52,10 @@ In this example, `$OPENAI_API_KEY` will be replaced with the value from the envi
 Model selection is now handled through the config file and interactive commands:
 
 ```bash
-# In interactive mode, use ~m to switch models
+# In interactive mode, use /m to switch models
 code-puppy --interactive
-# Then type: ~mgpt-4.1
-# Or use the dev console: ~set model=gpt-4.1
+# Then type: /mgpt-4.1
+# Or use the dev console: /set model=gpt-4.1
 ```
 
 ### Model Configuration
