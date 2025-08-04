@@ -578,6 +578,9 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
     emit_system_message(
         "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
     )
+    emit_system_message(
+        "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
+    )
 
     # Show commands right at startup - DRY!
     from code_puppy.command_line.command_handler import COMMANDS_HELP
@@ -704,27 +707,70 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 agent = get_code_generation_agent()
 
                 # Use our custom spinner for better compatibility with user input
+                from code_puppy.messaging import emit_warning
                 from code_puppy.messaging.spinner import ConsoleSpinner
 
+                # Create a simple flag to track cancellation locally
+                local_cancelled = False
+
+                # Run with spinner
                 with ConsoleSpinner(console=display_console):
-                    try:
-                        async with agent.run_mcp_servers():
-                            result = await agent.run(
+                    # Use a separate asyncio task that we can cancel
+                    async def run_agent_task():
+                        try:
+                            async with agent.run_mcp_servers():
+                                return await agent.run(
+                                    task,
+                                    message_history=message_history,
+                                    usage_limits=get_custom_usage_limits(),
+                                )
+                        except Exception as mcp_error:
+                            # Handle MCP server errors
+                            emit_warning(f"MCP server error: {str(mcp_error)}")
+                            emit_warning("Running without MCP servers...")
+                            # Run without MCP servers as fallback
+                            return await agent.run(
                                 task,
                                 message_history=message_history,
                                 usage_limits=get_custom_usage_limits(),
                             )
-                    except Exception as mcp_error:
-                        from code_puppy.messaging import emit_warning
 
-                        emit_warning(f"MCP server error: {str(mcp_error)}")
-                        emit_warning("Running without MCP servers...")
-                        # Run without MCP servers as fallback
-                        result = await agent.run(
-                            task,
-                            message_history=message_history,
-                            usage_limits=get_custom_usage_limits(),
-                        )
+                    # Create the task
+                    agent_task = asyncio.create_task(run_agent_task())
+
+                    # Set up signal handling for Ctrl+C
+                    import signal
+
+                    original_handler = None
+
+                    def keyboard_interrupt_handler(sig, frame):
+                        nonlocal local_cancelled
+                        if not agent_task.done():
+                            agent_task.cancel()
+                            local_cancelled = True
+                        # Don't call the original handler
+                        # This prevents the application from exiting
+
+                    try:
+                        # Save original handler and set our custom one
+                        original_handler = signal.getsignal(signal.SIGINT)
+                        signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+
+                        # Wait for the task to complete or be cancelled
+                        result = await agent_task
+                    except asyncio.CancelledError:
+                        # Task was cancelled by our handler
+                        pass
+                    finally:
+                        # Restore original signal handler
+                        if original_handler:
+                            signal.signal(signal.SIGINT, original_handler)
+
+                # Check if the task was cancelled
+                if local_cancelled:
+                    emit_warning("\n⚠️ Processing cancelled by user (Ctrl+C)")
+                    # Skip the rest of this loop iteration
+                    continue
                 # Get the structured response
                 agent_response = result.output
                 from code_puppy.messaging import emit_info
@@ -795,7 +841,11 @@ def prettier_code_blocks():
 
 def main_entry():
     """Entry point for the installed CLI tool."""
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # Just exit gracefully with no error message
+        return 0
 
 
 if __name__ == "__main__":
