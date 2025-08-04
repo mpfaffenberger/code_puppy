@@ -79,10 +79,16 @@ class CodePuppyTUI(App):
     message_history: List[Dict] = []
     agent_busy = reactive(False)
 
+    def watch_agent_busy(self) -> None:
+        """Watch for changes to agent_busy state."""
+        # Update the submit/cancel button state when agent_busy changes
+        self._update_submit_cancel_button(self.agent_busy)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.agent = None
         self.session_memory = None
+        self._current_worker = None
 
         # Initialize message queue renderer
         self.message_queue = get_global_queue()
@@ -235,6 +241,14 @@ class CodePuppyTUI(App):
         """Handle message sent from custom text area."""
         self.action_send_message()
 
+    def on_input_area_submit_requested(self, event) -> None:
+        """Handle submit button clicked."""
+        self.action_send_message()
+
+    def on_input_area_cancel_requested(self, event) -> None:
+        """Handle cancel button clicked."""
+        self.action_cancel_processing()
+
     async def on_key(self, event) -> None:
         """Handle app-level key events."""
         input_field = self.query_one("#input-field", CustomTextArea)
@@ -306,14 +320,43 @@ class CodePuppyTUI(App):
             # Add user message to chat
             self.add_user_message(message)
 
+            # Update button state
+            self._update_submit_cancel_button(True)
+
             # Process the message asynchronously using Textual's worker system
             # Using exclusive=False to avoid TaskGroup conflicts with MCP servers
-            self.run_worker(self.process_message(message), exclusive=False)
+            self._current_worker = self.run_worker(
+                self.process_message(message), exclusive=False
+            )
+
+    def _update_submit_cancel_button(self, is_cancel_mode: bool) -> None:
+        """Update the submit/cancel button state."""
+        try:
+            from .components.input_area import SubmitCancelButton
+
+            button = self.query_one(SubmitCancelButton)
+            button.is_cancel_mode = is_cancel_mode
+        except Exception:
+            pass  # Silently fail if button not found
+
+    def action_cancel_processing(self) -> None:
+        """Cancel the current message processing."""
+        if hasattr(self, "_current_worker") and self._current_worker is not None:
+            try:
+                self._current_worker.cancel()
+                self.add_system_message("⚠️  Processing cancelled by user")
+            except Exception as e:
+                self.add_error_message(f"Failed to cancel processing: {str(e)}")
+            finally:
+                self._current_worker = None
+                self.agent_busy = False
+                self.stop_agent_progress()
 
     async def process_message(self, message: str) -> None:
         """Process a user message asynchronously."""
         try:
             self.agent_busy = True
+            self._update_submit_cancel_button(True)
             self.start_agent_progress("Thinking")
 
             # Handle commands
@@ -438,6 +481,7 @@ class CodePuppyTUI(App):
             self.add_error_message(f"Error processing message: {str(e)}")
         finally:
             self.agent_busy = False
+            self._update_submit_cancel_button(False)
             self.stop_agent_progress()
 
     # Action methods
