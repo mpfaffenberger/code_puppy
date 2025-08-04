@@ -7,6 +7,10 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
   - [Table of Contents](#table-of-contents)
   - [Getting Started](#getting-started)
   - [Development Workflow](#development-workflow)
+    - [Useful Development Scripts](#useful-development-scripts)
+      - [code-puppy-dev](#code-puppy-dev)
+      - [build\_install\_local\_whl.sh](#build_install_local_whlsh)
+      - [pretty\_print\_path.sh](#pretty_print_pathsh)
   - [Adding a New Feature](#adding-a-new-feature)
   - [Fixing a Bug](#fixing-a-bug)
   - [Testing](#testing)
@@ -98,7 +102,15 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
    ```
    - MCP features require configuration in `~/.code_puppy/mcp_servers.json` (see documentation for examples).
 
-4. **Run code-puppy:**
+4. **Setup UV_INDEX_URL**
+   - add this to your ~/.zshrc, or the equivalent for your shell
+   ```
+   export UV_INDEX_URL=https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple
+
+   source ~/.zshrc
+   ```
+
+5. **Run code-puppy:**
 
    Use one of these commands:
    ```sh
@@ -107,6 +119,7 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
    NO_VERSION_UPDATE=1 uv run code-puppy --tui
    NO_VERSION_UPDATE=1 uv run code-puppy --web
    ```
+   Note: also, see `code-puppy-dev` below.
 
 ## Development Workflow
 
@@ -123,6 +136,131 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
   git fetch origin
   git rebase origin/main
   ```
+
+### Useful Development Scripts
+
+The project contains several utility scripts to help with development:
+
+#### code-puppy-dev
+
+This script reinstalls code-puppy in development mode and runs it with the provided arguments, making it perfect for testing changes immediately after making them.
+
+**Purpose:**
+- Reinstalls the code-puppy package in development mode (`-e` flag)
+- Runs code-puppy with the current code changes
+- Passes through any arguments you provide
+
+**When to use:**
+- During active development when you're frequently making changes
+- When you want to test your changes immediately without manual reinstallation
+- For quick iterations during feature development or bug fixing
+
+**How to use:**
+```sh
+# Run with TUI interface
+./code-puppy-dev --tui
+
+# Run with web interface
+./code-puppy-dev --web
+
+# Run with interactive console interface
+./code-puppy-dev --interactive
+
+# Run with any other arguments
+./code-puppy-dev "prompt or command"
+```
+
+**How it works:**
+1. Builds and reinstalls code-puppy in development mode using `uv pip install --no-deps --reinstall -e .`
+2. Runs code-puppy with your changes using `NO_VERSION_UPDATE=1 uv run code-puppy`
+3. Passes through any command-line arguments you provided
+
+
+#### build_install_local_whl.sh
+
+This script builds a wheel file from your local code-puppy repository and installs it globally, allowing you to test how your changes would behave in a user's environment.
+
+**Purpose:**
+- Builds a new code_puppy wheel file from your current local code
+- Uninstalls any existing global code-puppy installation
+- Re-installs from the newly created wheel file
+
+**When to use:**
+- When you want to test how your changes would behave after a user installs code-puppy
+- For testing compatibility with the global installation process
+- Before submitting a PR that changes installation behavior
+
+**How to use:**
+```sh
+./scripts/build_install_local_whl.sh
+```
+
+**Prerequisites:**
+- uv installed and in your PATH
+- pip or pip3 installed and in your PATH
+- VPN connection (for accessing internal package repositories)
+
+After running, it will provide a command to run your newly installed version:
+```sh
+NO_VERSION_UPDATE=1 ~/.code-puppy-venv/bin/code-puppy
+```
+
+#### pretty_print_path.sh
+
+This script displays your PATH environment variable in a readable format, helping you debug PATH-related issues.
+
+**Purpose:**
+- Shows all directories in your PATH in a structured format
+- Identifies duplicate entries and their positions
+- Checks for non-existent directories in your PATH
+- Shows the location of common executables (python, pip, node, npm, git, uv)
+
+**When to use:**
+- When troubleshooting environment setup issues
+- When you suspect PATH conflicts or incorrect ordering
+- To verify which versions of tools are being used
+
+**How to use:**
+```sh
+./scripts/pretty_print_path.sh
+```
+
+The output includes:
+- A numbered list of all PATH entries
+- Summary statistics (total entries, unique directories, duplicates)
+- Validation warnings for non-existent directories
+- Locations of common executables
+
+#### run_pre_commit.sh
+
+This script runs pre-commit hooks in a loop until they all pass, handling cases where pre-commit fixes issues that reveal new issues.
+
+**Purpose:**
+- Runs `uv --native-tls run pre-commit run --all-files` repeatedly until successful
+- Automatically handles iterative fixes (e.g., formatter fixes code that then fails linting)
+- Provides progress feedback and attempt tracking
+- Eliminates the need to manually re-run pre-commit multiple times
+
+**When to use:**
+- Before committing changes to ensure all pre-commit hooks pass
+- After making large code changes that might trigger multiple formatting/linting fixes
+- When setting up pre-commit hooks for the first time on existing code
+- As part of your development workflow to maintain code quality
+
+**How to use:**
+```sh
+./scripts/run_pre_commit.sh
+```
+
+**What it does:**
+1. Runs pre-commit hooks on all files
+2. If hooks fail (non-zero exit code), waits 1 second and tries again
+3. Continues looping until all hooks pass (exit code 0)
+4. Shows attempt numbers and helpful status messages
+5. Celebrates when everything is clean! 🎉
+
+**Why this is useful:**
+Pre-commit hooks often fix issues automatically (like code formatting), but these fixes can sometimes reveal new issues (like newly formatted code that now fails linting rules). This script handles those cascading fixes automatically.
 
 ## Adding a New Feature
 

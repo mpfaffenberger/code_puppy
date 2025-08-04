@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2048
+# shellcheck disable=SC2086
+# shellcheck disable=SC2002
+
+set -e
+
+#==========================================================================
+# code-puppy-dev
+#==========================================================================
+# DESCRIPTION:
+#   This script provides a convenient way to test code-puppy changes during development.
+#   It reinstalls the package in development mode and runs it with the provided arguments.
+#
+# USAGE:
+#   ./code-puppy-dev [arguments]
+#
+# EXAMPLES:
+#   ./code-puppy-dev --tui           # Run with TUI interface
+#   ./code-puppy-dev --web           # Run with web interface
+#   ./code-puppy-dev --interactive   # Run with interactive console interface
+#
+# HOW IT WORKS:
+#   1. Reinstalls code-puppy in development mode (--no-deps --reinstall -e .)
+#   2. Runs code-puppy with any arguments you provided
+#   3. Suppresses installation output to keep the console clean
+#==========================================================================
+
+args=$*
+
+# Build and reinstall in development mode
+uv pip install --no-deps --reinstall -e . > /dev/null 2>&1
+
+# Run code-puppy with all provided arguments
+# NO_VERSION_UPDATE=1 prevents version autoupdate during development
+NO_VERSION_UPDATE=1 uv run code-puppy $args
