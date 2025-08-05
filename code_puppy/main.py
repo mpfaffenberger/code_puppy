@@ -15,7 +15,7 @@ from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from code_puppy import __version__
+from code_puppy import __version__, state_management
 from code_puppy.agent import (
     get_code_generation_agent,
     get_custom_usage_limits,
@@ -27,11 +27,11 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_prompt_with_active_model,
 )
 from code_puppy.config import ensure_config_exists
-from code_puppy.globals import is_tui_mode, set_tui_mode
 
 # HTTP server imports
 from code_puppy.http_server import app as http_app
 from code_puppy.message_history_processor import message_history_processor
+from code_puppy.state_management import is_tui_mode, set_tui_mode
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
@@ -563,7 +563,14 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
     from code_puppy.command_line.command_handler import handle_command
 
     """Run the agent in interactive mode."""
-    message_history = []
+    from code_puppy.state_management import (
+        clear_message_history,
+        get_message_history,
+        set_message_history,
+    )
+
+    # Clear message history at the start of interactive mode
+    clear_message_history()
 
     # The message_renderer is now started in main() and passed in.
     # We just need to make sure we stop it when we exit.
@@ -681,7 +688,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
         # Check for clear command (supports both `clear` and `/clear`)
         if task.strip().lower() in ("clear", "/clear"):
-            message_history = []
+            clear_message_history()
             from code_puppy.messaging import emit_system_message, emit_warning
 
             emit_warning("Conversation history cleared!")
@@ -721,7 +728,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                             async with agent.run_mcp_servers():
                                 return await agent.run(
                                     task,
-                                    message_history=message_history,
+                                    message_history=get_message_history(),
                                     usage_limits=get_custom_usage_limits(),
                                 )
                         except Exception as mcp_error:
@@ -731,7 +738,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                             # Run without MCP servers as fallback
                             return await agent.run(
                                 task,
-                                message_history=message_history,
+                                message_history=get_message_history(),
                                 usage_limits=get_custom_usage_limits(),
                             )
 
@@ -746,6 +753,11 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                     def keyboard_interrupt_handler(sig, frame):
                         nonlocal local_cancelled
                         if not agent_task.done():
+                            state_management._message_history = (
+                                message_history_processor(
+                                    state_management._message_history
+                                )
+                            )
                             agent_task.cancel()
                             local_cancelled = True
                         # Don't call the original handler
@@ -789,8 +801,8 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
                 # Update message history - the agent's history processor will handle truncation
                 new_msgs = result.all_messages()
-                filtered = await message_history_processor(new_msgs)
-                message_history = filtered
+                filtered = message_history_processor(new_msgs)
+                set_message_history(filtered)
 
                 if agent_response and agent_response.awaiting_user_input:
                     from code_puppy.messaging import emit_warning
@@ -801,7 +813,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 from code_puppy.messaging import emit_system_message
 
                 emit_system_message(
-                    f"Context: {len(message_history)} messages in history\n"
+                    f"Context: {len(get_message_history())} messages in history\n"
                 )
 
                 # Ensure console output is flushed before next prompt

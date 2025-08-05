@@ -14,7 +14,7 @@ from code_puppy.config import get_message_history_limit
 from code_puppy.messaging import emit_system_message
 
 
-async def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
+def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
     """
     Truncate message history to manage token usage while preserving context.
 
@@ -69,6 +69,7 @@ async def message_history_processor(messages: List[ModelMessage]) -> List[ModelM
     missmatched_tool_call_ids = (tool_call_parts.union(tool_return_parts)) - (
         tool_call_parts.intersection(tool_return_parts)
     )
+    # trust...
     final_result = result
     if missmatched_tool_call_ids:
         final_result = []

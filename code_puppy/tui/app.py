@@ -3,7 +3,6 @@ Main TUI application class.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, List
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -24,6 +23,11 @@ from code_puppy.message_history_processor import message_history_processor
 
 # Import our message queue system
 from code_puppy.messaging import TUIRenderer, get_global_queue
+from code_puppy.state_management import (
+    clear_message_history,
+    get_message_history,
+    set_message_history,
+)
 from code_puppy.tui.components import (
     ChatView,
     CustomTextArea,
@@ -31,6 +35,8 @@ from code_puppy.tui.components import (
     Sidebar,
     StatusBar,
 )
+
+from .. import state_management
 
 # Import shared message classes
 from .messages import HistoryEntrySelected
@@ -76,7 +82,6 @@ class CodePuppyTUI(App):
     # Reactive variables for app state
     current_model = reactive("")
     puppy_name = reactive("")
-    message_history: List[Dict] = []
     agent_busy = reactive(False)
 
     def watch_agent_busy(self) -> None:
@@ -344,6 +349,9 @@ class CodePuppyTUI(App):
         if hasattr(self, "_current_worker") and self._current_worker is not None:
             try:
                 self._current_worker.cancel()
+                state_management._message_history = message_history_processor(
+                    state_management._message_history
+                )
                 self.add_system_message("⚠️  Processing cancelled by user")
             except Exception as e:
                 self.add_error_message(f"Failed to cancel processing: {str(e)}")
@@ -420,7 +428,7 @@ class CodePuppyTUI(App):
                                 self.update_agent_progress("Processing", 50)
                                 result = await self.agent.run(
                                     message,
-                                    message_history=self.message_history,
+                                    message_history=get_message_history(),
                                     usage_limits=get_custom_usage_limits(),
                                 )
                         except Exception as mcp_error:
@@ -431,7 +439,7 @@ class CodePuppyTUI(App):
                             )
                             result = await self.agent.run(
                                 message,
-                                message_history=self.message_history,
+                                message_history=get_message_history(),
                                 usage_limits=get_custom_usage_limits(),
                             )
 
@@ -445,7 +453,7 @@ class CodePuppyTUI(App):
 
                         # Update message history
                         new_msgs = result.all_messages()
-                        self.message_history = await message_history_processor(new_msgs)
+                        set_message_history(message_history_processor(new_msgs))
 
                         # Refresh history display to show new interaction
                         self.refresh_history_display()
@@ -489,7 +497,7 @@ class CodePuppyTUI(App):
         """Clear the chat history."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.clear_messages()
-        self.message_history.clear()
+        clear_message_history()
         self.add_system_message("Chat history cleared")
 
     def action_show_help(self) -> None:

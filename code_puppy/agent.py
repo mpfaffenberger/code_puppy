@@ -18,6 +18,7 @@ from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
 
 from .http_utils import create_reopenable_async_client
+from .state_management import message_history_accumulator
 
 # Puppy rules loader
 PUPPY_RULES_PATH = Path(".puppy_rules")
@@ -169,6 +170,7 @@ def reload_code_generation_agent():
         output_type=AgentResponse,
         retries=3,
         mcp_servers=mcp_servers,
+        history_processors=[message_history_accumulator],
     )
     register_all_tools(agent)
     _code_generation_agent = agent

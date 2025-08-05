@@ -12,7 +12,6 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from code_puppy.globals import is_tui_mode
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
@@ -20,6 +19,7 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
+from code_puppy.state_management import is_tui_mode
 
 # Flag to indicate if we need user input - this will be checked by interactive mode
 # to determine if spinner should be shown
@@ -113,7 +113,7 @@ def run_shell_command_streaming(
 
     def read_stdout():
         """Thread function to read stdout line by line."""
-        from code_puppy.globals import is_tui_mode
+        from code_puppy.state_management import is_tui_mode
 
         try:
             for line in iter(process.stdout.readline, ""):
