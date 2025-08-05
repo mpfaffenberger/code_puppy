@@ -15,7 +15,7 @@ from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from code_puppy import __version__
+from code_puppy import __version__, state_management
 from code_puppy.agent import (
     get_code_generation_agent,
     get_custom_usage_limits,
@@ -755,6 +755,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                         if not agent_task.done():
                             agent_task.cancel()
                             local_cancelled = True
+                            message_history_processor(state_management._message_history)
                         # Don't call the original handler
                         # This prevents the application from exiting
 
