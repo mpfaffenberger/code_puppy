@@ -84,3 +84,8 @@ def extend_message_history(messages: List[Any]) -> None:
         messages: List of messages to add to the history
     """
     _message_history.extend(messages)
+
+
+def message_history_accumulator(messages: List[Any]):
+    _message_history.append(messages[-1])
+    return messages
