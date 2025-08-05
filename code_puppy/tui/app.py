@@ -44,7 +44,7 @@ from code_puppy.tui.components import (
 from .. import state_management
 
 # Import shared message classes
-from .messages import HistoryEntrySelected
+from .messages import CommandSelected, HistoryEntrySelected
 from .models import ChatMessage, MessageType
 from .screens import HelpScreen, SettingsScreen, ToolsScreen
 
@@ -949,6 +949,16 @@ class CodePuppyTUI(App):
         """Handle selection of a history entry from the sidebar."""
         # Display the history entry details
         self.show_history_details(event.history_entry)
+
+    @on(CommandSelected)
+    def on_command_selected(self, event: CommandSelected) -> None:
+        """Handle selection of a command from the history modal."""
+        # Set the command in the input field
+        input_field = self.query_one("#input-field", CustomTextArea)
+        input_field.text = event.command
+
+        # Focus the input field for immediate editing
+        input_field.focus()
 
     async def on_unmount(self):
         """Clean up when the app is unmounted."""

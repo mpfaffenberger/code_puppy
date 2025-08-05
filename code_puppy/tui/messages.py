@@ -12,3 +12,16 @@ class HistoryEntrySelected(Message):
         """Initialize with the history entry data."""
         self.history_entry = history_entry
         super().__init__()
+
+
+class CommandSelected(Message):
+    """Message sent when a command is selected from the history modal."""
+
+    def __init__(self, command: str) -> None:
+        """Initialize with the command text.
+
+        Args:
+            command: The command text that was selected
+        """
+        self.command = command
+        super().__init__()

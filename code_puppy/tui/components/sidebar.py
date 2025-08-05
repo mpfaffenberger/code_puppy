@@ -8,10 +8,12 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.events import Key
-from textual.widgets import ListView, TabbedContent, TabPane
+from textual.widgets import Label, ListItem, ListView, TabbedContent, TabPane
 
-# Import the shared message class
-from ..messages import HistoryEntrySelected
+from ..components.command_history_modal import CommandHistoryModal
+
+# Import the shared message class and history reader
+from ..models.command_history import HistoryFileReader
 
 
 class Sidebar(Container):
@@ -23,6 +25,9 @@ class Sidebar(Container):
         self._last_click_time = 0
         self._last_clicked_item = None
         self._double_click_threshold = 0.5  # 500ms for double-click
+
+        # Initialize history reader
+        self.history_reader = HistoryFileReader()
 
     DEFAULT_CSS = """
     Sidebar {
@@ -92,6 +97,9 @@ class Sidebar(Container):
         # Add a class to make it focusable
         history_list.can_focus = True
 
+        # Load command history
+        self.load_command_history()
+
     @on(ListView.Highlighted)
     def on_list_highlighted(self, event: ListView.Highlighted) -> None:
         """Handle highlighting of list items to ensure they can be selected."""
@@ -114,11 +122,16 @@ class Sidebar(Container):
             if (
                 selected_item == self._last_clicked_item
                 and current_time - self._last_click_time <= self._double_click_threshold
-                and hasattr(selected_item, "history_entry")
+                and hasattr(selected_item, "command_entry")
             ):
-                # Double-click detected! Trigger history entry selection
-                history_entry = selected_item.history_entry
-                self.post_message(HistoryEntrySelected(history_entry))
+                # Double-click detected! Show command in modal
+                command_entry = selected_item.command_entry
+                self.app.push_screen(
+                    CommandHistoryModal(
+                        command=command_entry["command"],
+                        timestamp=command_entry["timestamp"],
+                    )
+                )
 
                 # Reset click tracking to prevent triple-click issues
                 self._last_click_time = 0
@@ -137,12 +150,69 @@ class Sidebar(Container):
             if (
                 history_list.has_focus
                 and history_list.highlighted_child
-                and hasattr(history_list.highlighted_child, "history_entry")
+                and hasattr(history_list.highlighted_child, "command_entry")
             ):
-                # Post a message to the app with the selected history entry
-                history_entry = history_list.highlighted_child.history_entry
-                self.post_message(HistoryEntrySelected(history_entry))
+                # Show command details in modal
+                command_entry = history_list.highlighted_child.command_entry
+                self.app.push_screen(
+                    CommandHistoryModal(
+                        command=command_entry["command"],
+                        timestamp=command_entry["timestamp"],
+                    )
+                )
 
                 # Stop propagation
                 event.stop()
                 event.prevent_default()
+
+    def load_command_history(self) -> None:
+        """Load command history from file into the history list."""
+        try:
+            # Clear existing items
+            history_list = self.query_one("#history-list", ListView)
+            history_list.clear()
+
+            # Get command history entries (limit to last 50)
+            entries = self.history_reader.read_history(max_entries=50)
+
+            if not entries:
+                # No history available
+                history_list.append(
+                    ListItem(Label("No command history", classes="history-empty"))
+                )
+                return
+
+            # Add entries to the list (most recent first)
+            for entry in entries:
+                timestamp = entry["timestamp"]
+                command = entry["command"]
+
+                # Format timestamp for display
+                time_display = self.history_reader.format_timestamp(timestamp)
+
+                # Truncate command for display if needed
+                display_text = command
+                if len(display_text) > 60:
+                    display_text = display_text[:57] + "..."
+
+                # Create list item
+                label = Label(
+                    f"[{time_display}] {display_text}", classes="history-command"
+                )
+                list_item = ListItem(label)
+                list_item.command_entry = entry
+                history_list.append(list_item)
+
+            # Focus on the most recent command (first in the list)
+            if len(history_list.children) > 0:
+                history_list.index = 0
+
+        except Exception as e:
+            # Add error item
+            history_list = self.query_one("#history-list", ListView)
+            history_list.clear()
+            history_list.append(
+                ListItem(
+                    Label(f"Error loading history: {str(e)}", classes="history-error")
+                )
+            )
