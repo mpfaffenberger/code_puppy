@@ -18,7 +18,12 @@ from code_puppy.agent import (
     session_memory,
 )
 from code_puppy.command_line.command_handler import handle_command
-from code_puppy.config import get_model_name, get_puppy_name
+from code_puppy.config import (
+    get_model_name,
+    get_puppy_name,
+    initialize_command_history_file,
+    save_command_to_history,
+)
 from code_puppy.message_history_processor import message_history_processor
 
 # Import our message queue system
@@ -324,6 +329,12 @@ class CodePuppyTUI(App):
 
             # Add user message to chat
             self.add_user_message(message)
+
+            # Save command to history file with timestamp
+            try:
+                save_command_to_history(message)
+            except Exception as e:
+                self.add_error_message(f"Failed to save command history: {str(e)}")
 
             # Update button state
             self._update_submit_cancel_button(True)
@@ -956,6 +967,9 @@ async def run_textual_ui():
     """Run the Textual UI interface."""
     # Always enable YOLO mode in TUI mode for a smoother experience
     from code_puppy.config import set_config_value
+
+    # Initialize the command history file
+    initialize_command_history_file()
 
     set_config_value("yolo_mode", "true")
 

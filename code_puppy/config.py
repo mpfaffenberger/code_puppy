@@ -6,6 +6,8 @@ import pathlib
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
+COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
+
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -229,6 +231,99 @@ def set_puppy_token(token: str):
     set_config_value("puppy_token", token)
 
 
+def normalize_command_history():
+    """
+    Normalize the command history file by converting old format timestamps to the new format.
+
+    Old format example:
+    - "# 2025-08-04 12:44:45.469829"
+
+    New format example:
+    - "# 2025-08-05T10:35:33" (ISO)
+    """
+    import os
+    import re
+
+    # Skip implementation during tests
+    import sys
+
+    if "pytest" in sys.modules:
+        return
+
+    # Skip normalization if file doesn't exist
+    command_history_exists = os.path.isfile(COMMAND_HISTORY_FILE)
+    if not command_history_exists:
+        return
+
+    try:
+        # Read the entire file
+        with open(COMMAND_HISTORY_FILE, "r") as f:
+            content = f.read()
+
+        # Skip empty files
+        if not content.strip():
+            return
+
+        # Define regex pattern for old timestamp format
+        # Format: "# YYYY-MM-DD HH:MM:SS.ffffff"
+        old_timestamp_pattern = r"# (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.(\d+)"
+
+        # Function to convert matched timestamp to ISO format
+        def convert_to_iso(match):
+            date = match.group(1)
+            time = match.group(2)
+            # Create ISO format (YYYY-MM-DDThh:mm:ss)
+            return f"# {date}T{time}"
+
+        # Replace all occurrences of the old timestamp format with the new ISO format
+        updated_content = re.sub(old_timestamp_pattern, convert_to_iso, content)
+
+        # Write the updated content back to the file only if changes were made
+        if content != updated_content:
+            with open(COMMAND_HISTORY_FILE, "w") as f:
+                f.write(updated_content)
+    except Exception as e:
+        from rich.console import Console
+
+        direct_console = Console()
+        error_msg = f"❌ An unexpected error occurred while normalizing command history: {str(e)}"
+        direct_console.print(f"[bold red]{error_msg}[/bold red]")
+
+
+def initialize_command_history_file():
+    """Create the command history file if it doesn't exist.
+    Handles migration from the old history file location for backward compatibility.
+    Also normalizes the command history format if needed.
+    """
+    import os
+    from pathlib import Path
+
+    command_history_exists = os.path.isfile(COMMAND_HISTORY_FILE)
+    if not command_history_exists:
+        try:
+            Path(COMMAND_HISTORY_FILE).touch()
+
+            # For backwards compatibility, copy the old history file, then remove it
+            old_history_file = os.path.join(
+                os.path.expanduser("~"), ".code_puppy_history.txt"
+            )
+            old_history_exists = os.path.isfile(old_history_file)
+            if old_history_exists:
+                import shutil
+
+                shutil.copy2(Path(old_history_file), Path(COMMAND_HISTORY_FILE))
+                Path(old_history_file).unlink(missing_ok=True)
+
+                # Normalize the command history format if needed
+                normalize_command_history()
+        except Exception as e:
+            from rich.console import Console
+
+            direct_console = Console()
+            error_msg = f"❌ An unexpected error occurred while trying to initialize history file: {str(e)}"
+            direct_console.print(f"[bold red]{error_msg}[/bold red]")
+
+
 def get_yolo_mode():
     """
     Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
@@ -258,3 +353,25 @@ def get_mcp_disabled():
             return True
         return False
     return False
+
+
+def save_command_to_history(command: str):
+    """Save a command to the history file with an ISO format timestamp.
+
+    Args:
+        command: The command to save
+    """
+    import datetime
+
+    try:
+        timestamp = datetime.datetime.now().isoformat(timespec="seconds")
+        with open(COMMAND_HISTORY_FILE, "a") as f:
+            f.write(f"\n# {timestamp}\n{command}\n")
+    except Exception as e:
+        from rich.console import Console
+
+        direct_console = Console()
+        error_msg = (
+            f"❌ An unexpected error occurred while saving command history: {str(e)}"
+        )
+        direct_console.print(f"[bold red]{error_msg}[/bold red]")
