@@ -697,8 +697,16 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
         # Handle / commands before anything else
         if task.strip().startswith("/"):
-            if handle_command(task.strip()):
+            command_result = handle_command(task.strip())
+            if command_result is True:
                 continue
+            elif isinstance(command_result, str):
+                # Command returned a prompt to execute
+                task = command_result
+            elif command_result is False:
+                # Command not recognized, continue with normal processing
+                pass
+
         if task.strip():
             # Write to the secret file for permanent history
             with open(history_file_path, "a") as f:

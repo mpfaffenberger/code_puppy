@@ -16,6 +16,7 @@ COMMANDS_HELP = """
 /cd <dir>             Change directory or show directories
 /codemap <dir>        Show code structure for <dir>
 /exit, /quit          Exit interactive mode
+/generate-pr-description [@dir]  Generate comprehensive PR description
 /m <model>            Set active model
 /motd                 Show the latest message of the day (MOTD)
 /show                 Show puppy config key-values
@@ -25,7 +26,7 @@ COMMANDS_HELP = """
 """
 
 
-def handle_command(command: str) -> bool:
+def handle_command(command: str):
     """
     Handle commands prefixed with '/'.
 
@@ -33,7 +34,7 @@ def handle_command(command: str) -> bool:
         command: The command string to handle
 
     Returns:
-        True if the command was handled, False if not
+        True if the command was handled, False if not, or a string to be processed as user input
     """
     command = command.strip()
 
@@ -161,6 +162,41 @@ def handle_command(command: str) -> bool:
         emit_info(COMMANDS_HELP)
         return True
 
+    if command.startswith("/generate-pr-description"):
+        # Parse directory argument (e.g., /generate-pr-description @some/dir)
+        tokens = command.split()
+        directory_context = ""
+        for t in tokens:
+            if t.startswith("@"):
+                directory_context = f" Please work in the directory: {t[1:]}"
+                break
+
+        # Hard-coded prompt from user requirements
+        pr_prompt = f"""Generate a comprehensive PR description for my current branch changes. Follow these steps:
+
+ 1 Discover the changes: Use git CLI to find the base branch (usually main/master/develop) and get the list of changed files, commits, and diffs.
+ 2 Analyze the code: Read and analyze all modified files to understand:
+    • What functionality was added/changed/removed
+    • The technical approach and implementation details
+    • Any architectural or design pattern changes
+    • Dependencies added/removed/updated
+ 3 Generate a structured PR description with these sections:
+    • Title: Concise, descriptive title (50 chars max)
+    • Summary: Brief overview of what this PR accomplishes
+    • Changes Made: Detailed bullet points of specific changes
+    • Technical Details: Implementation approach, design decisions, patterns used
+    • Files Modified: List of key files with brief description of changes
+    • Testing: What was tested and how (if applicable)
+    • Breaking Changes: Any breaking changes (if applicable)
+    • Additional Notes: Any other relevant information
+ 4 Create a markdown file: Generate a PR_DESCRIPTION.md file with proper GitHub markdown formatting that I can directly copy-paste into GitHub's PR
+   description field. Use proper markdown syntax with headers, bullet points, code blocks, and formatting.
+ 5 Make it review-ready: Ensure the description helps reviewers understand the context, approach, and impact of the changes.
+6. If you have Github MCP, or gh cli is installed and authenticated to gecgithub01.walmart.com then find the PR for the branch we analyzed and update the PR description there and then delete the PR_DESCRIPTION.md file. (If you have a better name (title) for the PR, go ahead and update the title too.{directory_context}"""
+
+        # Return the prompt to be processed by the main chat system
+        return pr_prompt
+
     if command in ("/exit", "/quit"):
         emit_success("Goodbye!")
         # Signal to the main app that we want to exit
@@ -181,4 +217,5 @@ def handle_command(command: str) -> bool:
                 f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]"
             )
         return True
+
     return False
