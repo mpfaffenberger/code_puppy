@@ -468,3 +468,105 @@ class TestGetYoloMode:
 
         assert cp_config.get_yolo_mode() is False
         mock_get_value.assert_called_once_with("yolo_mode")
+
+
+class TestCommandHistory:
+    @patch("os.path.isfile")
+    @patch("pathlib.Path.touch")
+    @patch("os.path.expanduser")
+    def test_initialize_command_history_file_creates_new_file(
+        self, mock_expanduser, mock_touch, mock_isfile, mock_config_paths
+    ):
+        # Setup
+        mock_cfg_dir, _ = mock_config_paths
+        # First call is for COMMAND_HISTORY_FILE, second is for old history file
+        mock_isfile.side_effect = [False, False]  # Both files don't exist
+        mock_expanduser.return_value = "/mock_home"
+
+        # Call the function
+        cp_config.initialize_command_history_file()
+
+        # Assert
+        assert mock_isfile.call_count == 2
+        assert mock_isfile.call_args_list[0][0][0] == cp_config.COMMAND_HISTORY_FILE
+        mock_touch.assert_called_once()
+
+    @patch("os.path.isfile")
+    @patch("pathlib.Path.touch")
+    @patch("os.path.expanduser")
+    @patch("shutil.copy2")
+    @patch("pathlib.Path.unlink")
+    def test_initialize_command_history_file_migrates_old_file(
+        self,
+        mock_unlink,
+        mock_copy2,
+        mock_expanduser,
+        mock_touch,
+        mock_isfile,
+        mock_config_paths,
+    ):
+        # Setup
+        mock_cfg_dir, _ = mock_config_paths
+        # First call checks if COMMAND_HISTORY_FILE exists, second call checks if old history file exists
+        mock_isfile.side_effect = [False, True]
+        mock_expanduser.return_value = "/mock_home"
+
+        # Call the function
+        cp_config.initialize_command_history_file()
+
+        # Assert
+        assert mock_isfile.call_count == 2
+        mock_touch.assert_called_once()
+        mock_copy2.assert_called_once()
+        mock_unlink.assert_called_once()
+
+    @patch("os.path.isfile")
+    def test_initialize_command_history_file_file_exists(
+        self, mock_isfile, mock_config_paths
+    ):
+        # Setup
+        mock_isfile.return_value = True  # File already exists
+
+        # Call the function
+        cp_config.initialize_command_history_file()
+
+        # Assert
+        mock_isfile.assert_called_once_with(cp_config.COMMAND_HISTORY_FILE)
+        # No other function should be called since file exists
+
+    @patch("builtins.open", new_callable=mock_open)
+    @patch("datetime.datetime")
+    def test_save_command_to_history_with_timestamp(
+        self, mock_datetime, mock_file, mock_config_paths
+    ):
+        # Setup
+        mock_cfg_dir, mock_cfg_file = mock_config_paths
+        mock_now = MagicMock()
+        mock_now.isoformat.return_value = "2023-01-01T12:34:56"
+        mock_datetime.now.return_value = mock_now
+
+        # Call the function
+        cp_config.save_command_to_history("test command")
+
+        # Assert
+        mock_file.assert_called_once_with(cp_config.COMMAND_HISTORY_FILE, "a")
+        mock_file().write.assert_called_once_with(
+            "\n# 2023-01-01T12:34:56\ntest command\n"
+        )
+        mock_now.isoformat.assert_called_once_with(timespec="seconds")
+
+    @patch("builtins.open")
+    @patch("rich.console.Console")
+    def test_save_command_to_history_handles_error(
+        self, mock_console_class, mock_file, mock_config_paths
+    ):
+        # Setup
+        mock_file.side_effect = Exception("Test error")
+        mock_console_instance = MagicMock()
+        mock_console_class.return_value = mock_console_instance
+
+        # Call the function
+        cp_config.save_command_to_history("test command")
+
+        # Assert
+        mock_console_instance.print.assert_called_once()

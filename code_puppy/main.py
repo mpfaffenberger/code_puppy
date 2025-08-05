@@ -26,7 +26,11 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
 )
-from code_puppy.config import ensure_config_exists
+from code_puppy.config import (
+    ensure_config_exists,
+    initialize_command_history_file,
+    save_command_to_history,
+)
 
 # HTTP server imports
 from code_puppy.http_server import app as http_app
@@ -37,8 +41,6 @@ from code_puppy.state_management import is_tui_mode, set_tui_mode
 from code_puppy.tools.common import console
 from code_puppy.urls import get_setup_url
 from code_puppy.version_checker import fetch_latest_version, versions_are_equal
-
-# Use the existing console from tools.common to maintain consistency with tests
 
 # from code_puppy.tools import *  # noqa: F403
 
@@ -62,14 +64,6 @@ def display_disclaimer():
         "for best practices on secure usage.[/yellow]\n"
     )
     emit_system_message(message)
-
-
-# Define a function to get the secret file path
-def get_secret_file_path():
-    hidden_directory = os.path.join(os.path.expanduser("~"), ".agent_secret")
-    if not os.path.exists(hidden_directory):
-        os.makedirs(hidden_directory)
-    return os.path.join(hidden_directory, "history.txt")
 
 
 def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
@@ -255,6 +249,9 @@ async def main():
         print("  code-puppy 'create a hello world script'")
         return
 
+    # Initialize command history file
+    initialize_command_history_file()
+
     # Handle web mode first - this will launch textual serve and exit
     # NOTE: here we are using console.print, since the messaging system is not up yet
     # and these messages need to be displayed in the terminal before actually starting code-puppy
@@ -424,8 +421,6 @@ async def main():
     token = get_puppy_token()
     os.environ["puppy_token"] = token
 
-    history_file_path = get_secret_file_path()
-
     try:
         if args.command:
             # Join the list of command arguments into a single string command
@@ -527,15 +522,15 @@ async def main():
                     "Error: Textual UI not available. Install with: pip install textual"
                 )
                 emit_warning("Falling back to interactive mode...")
-                await interactive_mode(history_file_path, message_renderer)
+                await interactive_mode(message_renderer)
             except Exception as e:
                 from code_puppy.messaging import emit_error, emit_warning
 
                 emit_error(f"TUI Error: {str(e)}")
                 emit_warning("Falling back to interactive mode...")
-                await interactive_mode(history_file_path, message_renderer)
+                await interactive_mode(message_renderer)
         elif args.interactive:
-            await interactive_mode(history_file_path, message_renderer)
+            await interactive_mode(message_renderer)
         else:
             # This case should not be reached due to early help handling
             parser.print_help()
@@ -559,7 +554,7 @@ async def main():
 
 
 # Add the file handling functionality for interactive mode
-async def interactive_mode(history_file_path: str, message_renderer) -> None:
+async def interactive_mode(message_renderer) -> None:
     from code_puppy.command_line.command_handler import handle_command
 
     """Run the agent in interactive mode."""
@@ -638,19 +633,6 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
             emit_error(f"Error installing prompt_toolkit: {e}")
             emit_warning("Falling back to basic input without tab completion")
 
-    # Set up history file in home directory
-    history_file_path_prompt = os.path.expanduser("~/.code_puppy_history.txt")
-    history_dir = os.path.dirname(history_file_path_prompt)
-
-    # Ensure history directory exists
-    if history_dir and not os.path.exists(history_dir):
-        try:
-            os.makedirs(history_dir, exist_ok=True)
-        except Exception as e:
-            from code_puppy.messaging import emit_warning
-
-            emit_warning(f"Warning: Could not create history directory: {e}")
-
     while True:
         from code_puppy.messaging import emit_info
 
@@ -661,8 +643,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
             try:
                 # Use the async version of get_input_with_combined_completion
                 task = await get_input_with_combined_completion(
-                    get_prompt_with_active_model(),
-                    history_file=history_file_path_prompt,
+                    get_prompt_with_active_model()
                 )
             except ImportError:
                 # Fall back to basic input if prompt_toolkit is not available
@@ -708,9 +689,8 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                 pass
 
         if task.strip():
-            # Write to the secret file for permanent history
-            with open(history_file_path, "a") as f:
-                f.write(f"{task}\n")
+            # Write to the secret file for permanent history with timestamp
+            save_command_to_history(task)
 
             try:
                 prettier_code_blocks()

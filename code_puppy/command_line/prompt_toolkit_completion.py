@@ -25,7 +25,12 @@ from code_puppy.command_line.model_picker_completion import (
     update_model_in_input,
 )
 from code_puppy.command_line.utils import list_directory
-from code_puppy.config import get_config_keys, get_puppy_name, get_value
+from code_puppy.config import (
+    COMMAND_HISTORY_FILE,
+    get_config_keys,
+    get_puppy_name,
+    get_value,
+)
 
 
 class SetCompleter(Completer):
@@ -225,8 +230,7 @@ if __name__ == "__main__":
         while True:
             try:
                 inp = await get_input_with_combined_completion(
-                    get_prompt_with_active_model(),
-                    history_file="~/.path_completion_history.txt",
+                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
                 )
                 print(f"You entered: {inp}")
             except KeyboardInterrupt:
