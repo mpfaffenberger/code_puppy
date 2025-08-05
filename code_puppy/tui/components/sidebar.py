@@ -29,6 +29,10 @@ class Sidebar(Container):
         # Initialize history reader
         self.history_reader = HistoryFileReader()
 
+        # Current index for history navigation - centralized reference
+        self.current_history_index = 0
+        self.history_entries = []
+
     DEFAULT_CSS = """
     Sidebar {
         dock: left;
@@ -106,6 +110,8 @@ class Sidebar(Container):
         # This ensures the item gets focus when highlighted by arrow keys
         if event.list_view.id == "history-list":
             event.list_view.focus()
+            # Sync the current_history_index with the ListView index to fix modal sync issue
+            self.current_history_index = event.list_view.index
 
     @on(ListView.Selected)
     def on_list_selected(self, event: ListView.Selected) -> None:
@@ -125,13 +131,12 @@ class Sidebar(Container):
                 and hasattr(selected_item, "command_entry")
             ):
                 # Double-click detected! Show command in modal
-                command_entry = selected_item.command_entry
-                self.app.push_screen(
-                    CommandHistoryModal(
-                        command=command_entry["command"],
-                        timestamp=command_entry["timestamp"],
-                    )
-                )
+                # Find the index of this item
+                history_list = self.query_one("#history-list", ListView)
+                self.current_history_index = history_list.index
+
+                # Push the modal screen - it will get data from the sidebar
+                self.app.push_screen(CommandHistoryModal())
 
                 # Reset click tracking to prevent triple-click issues
                 self._last_click_time = 0
@@ -153,13 +158,11 @@ class Sidebar(Container):
                 and hasattr(history_list.highlighted_child, "command_entry")
             ):
                 # Show command details in modal
-                command_entry = history_list.highlighted_child.command_entry
-                self.app.push_screen(
-                    CommandHistoryModal(
-                        command=command_entry["command"],
-                        timestamp=command_entry["timestamp"],
-                    )
-                )
+                # Update the current history index to match this item
+                self.current_history_index = history_list.index
+
+                # Push the modal screen - it will get data from the sidebar
+                self.app.push_screen(CommandHistoryModal())
 
                 # Stop propagation
                 event.stop()
@@ -174,6 +177,12 @@ class Sidebar(Container):
 
             # Get command history entries (limit to last 50)
             entries = self.history_reader.read_history(max_entries=50)
+
+            # Store entries centrally
+            self.history_entries = entries
+
+            # Reset history index
+            self.current_history_index = 0
 
             if not entries:
                 # No history available
@@ -206,6 +215,12 @@ class Sidebar(Container):
             # Focus on the most recent command (first in the list)
             if len(history_list.children) > 0:
                 history_list.index = 0
+                # Sync the current_history_index to match the ListView index
+                self.current_history_index = 0
+
+                # Note: We don't automatically show the modal here when just loading the history
+                # That will be handled by the app's action_toggle_sidebar method
+                # This ensures the modal only appears when explicitly opening the sidebar, not during refresh
 
         except Exception as e:
             # Add error item
@@ -216,3 +231,62 @@ class Sidebar(Container):
                     Label(f"Error loading history: {str(e)}", classes="history-error")
                 )
             )
+
+    def navigate_to_next_command(self) -> bool:
+        """Navigate to the next command in history.
+
+        Returns:
+            bool: True if navigation succeeded, False otherwise
+        """
+        if (
+            not self.history_entries
+            or self.current_history_index >= len(self.history_entries) - 1
+        ):
+            return False
+
+        # Increment the index
+        self.current_history_index += 1
+
+        # Update the listview selection
+        try:
+            history_list = self.query_one("#history-list", ListView)
+            if history_list and self.current_history_index < len(history_list.children):
+                history_list.index = self.current_history_index
+        except Exception:
+            pass
+
+        return True
+
+    def navigate_to_previous_command(self) -> bool:
+        """Navigate to the previous command in history.
+
+        Returns:
+            bool: True if navigation succeeded, False otherwise
+        """
+        if not self.history_entries or self.current_history_index <= 0:
+            return False
+
+        # Decrement the index
+        self.current_history_index -= 1
+
+        # Update the listview selection
+        try:
+            history_list = self.query_one("#history-list", ListView)
+            if history_list and self.current_history_index >= 0:
+                history_list.index = self.current_history_index
+        except Exception:
+            pass
+
+        return True
+
+    def get_current_command_entry(self) -> dict:
+        """Get the current command entry based on the current index.
+
+        Returns:
+            dict: The current command entry or empty dict if not available
+        """
+        if self.history_entries and 0 <= self.current_history_index < len(
+            self.history_entries
+        ):
+            return self.history_entries[self.current_history_index]
+        return {"command": "", "timestamp": ""}
