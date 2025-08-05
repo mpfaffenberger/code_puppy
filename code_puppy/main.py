@@ -52,17 +52,27 @@ async def main():
 
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
+    subparsers = parser.add_subparsers(dest="command")
+    
+    # Add 'init' subcommand
+    subparsers.add_parser("init", help="Create a .code_puppy_rules.yml file interactively")
+
     parser.add_argument(
         "--interactive", "-i", action="store_true", help="Run in interactive mode"
     )
-    parser.add_argument("command", nargs="*", help="Run a single command")
+    parser.add_argument("cmd_args", nargs=argparse.REMAINDER, help="Run a single command")
     args = parser.parse_args()
 
     history_file_path = get_secret_file_path()
 
-    if args.command:
-        # Join the list of command arguments into a single string command
-        command = " ".join(args.command)
+   if args.command == "init":
+        from code_puppy.init import run_init
+        run_init()
+        sys.exit(0)
+    elif args.interactive:
+        await interactive_mode(history_file_path)
+    elif args.cmd_args:
+        command = " ".join(args.cmd_args)
         try:
             while not shutdown_flag:
                 agent = get_code_generation_agent()
@@ -78,11 +88,8 @@ async def main():
             )
         except Exception as e:
             console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
-    elif args.interactive:
-        await interactive_mode(history_file_path)
     else:
         parser.print_help()
-
 
 # Add the file handling functionality for interactive mode
 async def interactive_mode(history_file_path: str) -> None:
