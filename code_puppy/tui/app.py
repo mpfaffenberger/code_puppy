@@ -349,7 +349,9 @@ class CodePuppyTUI(App):
         if hasattr(self, "_current_worker") and self._current_worker is not None:
             try:
                 self._current_worker.cancel()
-                message_history_processor(state_management._message_history)
+                state_management._message_history = message_history_processor(
+                    state_management._message_history
+                )
                 self.add_system_message("⚠️  Processing cancelled by user")
             except Exception as e:
                 self.add_error_message(f"Failed to cancel processing: {str(e)}")
@@ -451,7 +453,7 @@ class CodePuppyTUI(App):
 
                         # Update message history
                         new_msgs = result.all_messages()
-                        set_message_history(await message_history_processor(new_msgs))
+                        set_message_history(message_history_processor(new_msgs))
 
                         # Refresh history display to show new interaction
                         self.refresh_history_display()

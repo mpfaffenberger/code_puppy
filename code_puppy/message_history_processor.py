@@ -14,7 +14,7 @@ from code_puppy.config import get_message_history_limit
 from code_puppy.messaging import emit_system_message
 
 
-async def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
+def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
     """
     Truncate message history to manage token usage while preserving context.
 

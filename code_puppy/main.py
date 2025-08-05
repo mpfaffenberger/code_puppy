@@ -753,9 +753,13 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
                     def keyboard_interrupt_handler(sig, frame):
                         nonlocal local_cancelled
                         if not agent_task.done():
+                            state_management._message_history = (
+                                message_history_processor(
+                                    state_management._message_history
+                                )
+                            )
                             agent_task.cancel()
                             local_cancelled = True
-                            message_history_processor(state_management._message_history)
                         # Don't call the original handler
                         # This prevents the application from exiting
 
@@ -797,7 +801,7 @@ async def interactive_mode(history_file_path: str, message_renderer) -> None:
 
                 # Update message history - the agent's history processor will handle truncation
                 new_msgs = result.all_messages()
-                filtered = await message_history_processor(new_msgs)
+                filtered = message_history_processor(new_msgs)
                 set_message_history(filtered)
 
                 if agent_response and agent_response.awaiting_user_input:

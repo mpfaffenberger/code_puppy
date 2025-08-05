@@ -86,6 +86,19 @@ def extend_message_history(messages: List[Any]) -> None:
     _message_history.extend(messages)
 
 
+def hash_message(message):
+    hashable_entites = []
+    for part in message.parts:
+        if hasattr(part, "timestamp"):
+            hashable_entites.append(part.timestamp.isoformat())
+        else:
+            hashable_entites.append(part.tool_call_id)
+    return hash(",".join(hashable_entites))
+
+
 def message_history_accumulator(messages: List[Any]):
-    _message_history.append(messages[-1])
+    message_history_hashes = set([hash_message(m) for m in _message_history])
+    for msg in messages:
+        if hash_message(msg) not in message_history_hashes:
+            _message_history.append(msg)
     return messages
