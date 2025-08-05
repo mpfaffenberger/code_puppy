@@ -280,7 +280,7 @@ def emit_system_message(content: Any, **metadata):
 
 def emit_divider(content: str = "[dim]" + "─" * 100 + "\n" + "[/dim]", **metadata):
     """Emit a divider line"""
-    from code_puppy.globals import is_tui_mode
+    from code_puppy.state_management import is_tui_mode
 
     if not is_tui_mode():
         emit_message(MessageType.DIVIDER, content, **metadata)
