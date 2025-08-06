@@ -27,6 +27,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_prompt_with_active_model,
 )
 from code_puppy.config import (
+    COMMAND_HISTORY_FILE,
     ensure_config_exists,
     initialize_command_history_file,
     save_command_to_history,
@@ -643,7 +644,7 @@ async def interactive_mode(message_renderer) -> None:
             try:
                 # Use the async version of get_input_with_combined_completion
                 task = await get_input_with_combined_completion(
-                    get_prompt_with_active_model()
+                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
                 )
             except ImportError:
                 # Fall back to basic input if prompt_toolkit is not available
