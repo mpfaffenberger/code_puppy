@@ -65,6 +65,59 @@ class TestSidebarHistory(unittest.TestCase):
         # Just verify append was called, don't try to access complex children structure
         self.assertTrue(self.mock_history_list.append.called)
 
+    @patch.object(HistoryFileReader, "read_history")
+    def test_load_command_history_filters_cli_commands(self, mock_read_history):
+        # Mock history with CLI commands mixed with regular commands
+        mock_read_history.return_value = [
+            {
+                "timestamp": "2024-01-01T10:00:00Z",
+                "command": "How do I create a function?",
+            },
+            {"timestamp": "2024-01-01T10:01:00Z", "command": "/help"},
+            {"timestamp": "2024-01-01T10:02:00Z", "command": "Write a Python script"},
+            {"timestamp": "2024-01-01T10:03:00Z", "command": "/codemap src/"},
+            {"timestamp": "2024-01-01T10:04:00Z", "command": "/exit"},
+            {"timestamp": "2024-01-01T10:05:00Z", "command": "Debug this error"},
+            {"timestamp": "2024-01-01T10:06:00Z", "command": "/m gpt-4"},
+            {"timestamp": "2024-01-01T10:07:00Z", "command": "Explain this code"},
+        ]
+
+        # Call the method
+        self.sidebar.load_command_history()
+
+        # Verify that CLI commands were filtered out
+        # Should have 4 non-CLI commands: "How do I create a function?", "Write a Python script", "Debug this error", "Explain this code"
+        self.assertEqual(len(self.sidebar.history_entries), 4)
+
+        # Verify the filtered commands are the correct ones
+        commands = [entry["command"] for entry in self.sidebar.history_entries]
+        expected_commands = [
+            "How do I create a function?",
+            "Write a Python script",
+            "Debug this error",
+            "Explain this code",
+        ]
+        self.assertEqual(commands, expected_commands)
+
+        # Verify CLI commands are not in the filtered list
+        for entry in self.sidebar.history_entries:
+            command = entry["command"]
+            self.assertFalse(
+                any(
+                    command.startswith(cli_cmd)
+                    for cli_cmd in {
+                        "/help",
+                        "/codemap",
+                        "/exit",
+                        "/m",
+                        "/motd",
+                        "/show",
+                        "/set",
+                        "/tools",
+                    }
+                )
+            )
+
     @patch(
         "code_puppy.tui.components.sidebar.Sidebar.app",
         new_callable=lambda: MagicMock(),

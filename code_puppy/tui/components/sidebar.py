@@ -66,7 +66,7 @@ class Sidebar(Container):
     }
 
     .history-command {
-        color: #f87171;
+        /* Use default text color from theme */
     }
 
     .history-generic {
@@ -178,21 +178,39 @@ class Sidebar(Container):
             # Get command history entries (limit to last 50)
             entries = self.history_reader.read_history(max_entries=50)
 
-            # Store entries centrally
-            self.history_entries = entries
+            # Filter out CLI-specific commands that aren't relevant for TUI
+            cli_commands = {
+                "/help",
+                "/codemap",
+                "/exit",
+                "/m",
+                "/motd",
+                "/show",
+                "/set",
+                "/tools",
+            }
+            filtered_entries = []
+            for entry in entries:
+                command = entry.get("command", "").strip()
+                # Skip CLI commands but keep everything else
+                if not any(command.startswith(cli_cmd) for cli_cmd in cli_commands):
+                    filtered_entries.append(entry)
+
+            # Store filtered entries centrally
+            self.history_entries = filtered_entries
 
             # Reset history index
             self.current_history_index = 0
 
-            if not entries:
-                # No history available
+            if not filtered_entries:
+                # No history available (after filtering)
                 history_list.append(
                     ListItem(Label("No command history", classes="history-empty"))
                 )
                 return
 
-            # Add entries to the list (most recent first)
-            for entry in entries:
+            # Add filtered entries to the list (most recent first)
+            for entry in filtered_entries:
                 timestamp = entry["timestamp"]
                 command = entry["command"]
 
