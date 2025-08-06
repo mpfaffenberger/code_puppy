@@ -10,18 +10,37 @@ from code_puppy.messaging import emit_info
 
 MOTD_VERSION = "2025-08-05"
 MOTD_MESSAGE = """
+```
 🐶🎉 WOOF WOOF! 0.0.103 Pawsome Updates! 🎉🐶
 
 🚀 YOUR FAVORITE PUPPY GOT SOME SERIOUS UPGRADES! 🚀
 
 🔥 **NEW SUPER POWERS** 🔥:
-🎯 **Auto PR Descriptions** (`/generate-pr-description`): Let your puppy write your PR descriptions! No more "fix stuff" commits! 🐕‍💼📝
-⚡ **CTRL-C Cancel Power**: Interrupt your puppy mid-task with CTRL-C in interactive mode! Finally, some discipline! 🐕‍🦺🛑
-🧹 **Command History Cleanup**: Your puppy's memory got Marie Kondo'd - cleaner, faster, better! 🧠✨
-💾 **Message Integrity**: Conversations now survive like a loyal golden retriever - through thick and thin! 🦮💪
-🎨 **Major Refactoring**: From `meta_command_handler` to `command_handler` supremacy! Your code puppy got a glow-up! 💅🐕
-🛠️ **Tool Improvements**: TUI tools screen got fixed, no more crashes when showing off! 🔧🎪
-📚 **Better Documentation**: More scripts, better guides, cleaner code - because good boys deserve good docs! 📖🐕‍🦺
+🎯 **Auto PR Descriptions** (`/generate-pr-description`):
+   Let your puppy write your PR descriptions!
+   No more "fix stuff" commits! 🐕‍💼📝
+
+⚡ **CTRL-C Cancel Power**:
+   Interrupt your puppy mid-task with CTRL-C in interactive mode!
+   Finally, some discipline! 🐕‍🦺🛑
+
+🧹 **Command History Cleanup**:
+   Your puppy's memory got Marie Kondo'd - cleaner, faster, better! 🧠✨
+
+💾 **Message Integrity**:
+   Conversations now survive like a loyal golden retriever!
+   Through thick and thin! 🦮💪
+
+🎨 **Major Refactoring**:
+   From `meta_command_handler` to `command_handler` supremacy!
+   Your code puppy got a glow-up! 💅🐕
+
+🛠️ **Tool Improvements**:
+   TUI tools screen got fixed, no more crashes when showing off! 🔧🎪
+
+📚 **Better Documentation**:
+   More scripts, better guides, cleaner code.
+   Because good boys deserve good docs! 📖🐕‍🦺
 
 🐾 **Bug Squashing Spree**:
    • Fixed MOTD messages for both `-t` and `-i` modes 🐛➡️💀
@@ -38,19 +57,29 @@ MOTD_MESSAGE = """
    • UV index URLs and environment improvements 🌍⬆️
    • Better state management that won't lose your treats! 🍖💾
 
-🐕‍🦺 **The Big Picture**: Over 40+ commits of pure puppy excellence since v0.0.102! Every single one making your coding companion more reliable, more powerful, and more adorable! 🐶💖
-```
- ▗▄▄▖ ▗▄▖ ▗▄▄▄  ▗▄▄▄▖     ▗▄▄▖ ▗▖ ▗▖▗▄▄▖ ▗▄▄▖ ▗▖  ▗▖
-▐▌   ▐▌ ▐▌▐▌  █ ▐▌        ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌ ▝▚▞▘
-▐▌   ▐▌ ▐▌▐▌  █ ▐▛▀▀▘     ▐▛▀▘ ▐▌ ▐▌▐▛▀▘ ▐▛▀▘   ▐▌
-▝▚▄▄▖▝▚▄▞▘▐▙▄▄▀ ▐▙▄▄▖     ▐▌   ▝▚▄▞▘▐▌   ▐▌     ▐▌
+🐕‍🦺 **The Big Picture**:
+   Over 40+ commits of pure puppy excellence since v0.0.102!
+   Every single one making your coding companion more reliable,
+   more powerful, and more adorable! 🐶💖
+
+  ____  ___  ____  _____     ____  _   _ ____  ____  _   _
+ / ___|/ _ \|  _ \| ____|   |  _ \| | | |  _ \|  _ \| \ | |
+| |   | | | | | | |  _|     | |_) | | | | |_) | |_) |   \|
+| |___| |_| | |_| | |___    |  __/| |_| |  __/|  __/ \_  |
+ \____|\___/|____/|_____|   |_|    \___/|_|   |_|    _| |
+
 🐕 EVERY COMMIT = BETTER GOOD BOY! 🐕
+
+
+🦴 Go fetch these amazing features and see what your loyal
+   code companion can do! 🦴
+
+🎾 This MOTD won't bother you again unless you run `/motd`
+   - just like a well-trained pup! 🎾
+
+🐾 Stay pawsome, keep coding, and remember:
+   every bug fixed is a treat earned! 🐾🍖
 ```
-
-🦴 Go fetch these amazing features and see what your loyal code companion can do! 🦴
-🎾 This MOTD won't bother you again unless you run `/motd` - just like a well-trained pup! 🎾
-
-🐾 Stay pawsome, keep coding, and remember: every bug fixed is a treat earned! 🐾🍖
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 
