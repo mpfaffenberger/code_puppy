@@ -988,6 +988,10 @@ class CodePuppyTUI(App):
         # Focus the input field for immediate editing
         input_field.focus()
 
+        # Close the sidebar automatically for a smoother workflow
+        sidebar = self.query_one(Sidebar)
+        sidebar.display = False
+
     async def on_unmount(self):
         """Clean up when the app is unmounted."""
         try:
