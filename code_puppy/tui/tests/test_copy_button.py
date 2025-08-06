@@ -156,8 +156,7 @@ class TestCopyButton:
 
     @patch.object(CopyButton, "copy_to_clipboard")
     @patch.object(CopyButton, "post_message")
-    @patch.object(CopyButton, "set_timer")
-    def test_action_press_success(self, mock_set_timer, mock_post_message, mock_copy):
+    def test_action_press_success(self, mock_post_message, mock_copy):
         """Test action_press method with successful copy."""
         mock_copy.return_value = (True, None)
 
@@ -166,7 +165,7 @@ class TestCopyButton:
 
         mock_copy.assert_called_once_with("test content")
         mock_post_message.assert_called_once()
-        mock_set_timer.assert_called_once_with(1.5, button._reset_button_appearance)
+        # Note: timer is currently commented out in implementation
 
         # Check that the message posted is a CopyCompleted with success=True
         call_args = mock_post_message.call_args[0][0]

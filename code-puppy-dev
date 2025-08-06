@@ -32,7 +32,7 @@ args=$*
 export UV_INDEX_URL=https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple
 
 # Build and reinstall in development mode
-uv pip install --no-deps --reinstall -e . > /dev/null 2>&1
+uv pip install --no-deps --force-reinstall -e . > /dev/null 2>&1
 
 # Run code-puppy with all provided arguments
 # NO_VERSION_UPDATE=1 prevents version autoupdate during development

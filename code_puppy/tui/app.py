@@ -44,7 +44,7 @@ from code_puppy.tui.components import (
 from .. import state_management
 
 # Import shared message classes
-from .messages import HistoryEntrySelected
+from .messages import CommandSelected, HistoryEntrySelected
 from .models import ChatMessage, MessageType
 from .screens import HelpScreen, SettingsScreen, ToolsScreen
 
@@ -139,9 +139,6 @@ class CodePuppyTUI(App):
         # Start the message renderer EARLY to catch startup messages
         # Using call_after_refresh to start it as soon as possible after mount
         self.call_after_refresh(self.start_message_renderer_sync)
-
-        # Load session history
-        self.load_history_list()
 
         # Apply responsive design adjustments
         self.apply_responsive_layout()
@@ -271,6 +268,11 @@ class CodePuppyTUI(App):
                 event.prevent_default()
                 return
 
+        # Check if a modal is currently active - if so, let the modal handle keys
+        if hasattr(self, "_active_screen") and self._active_screen:
+            # Don't handle keys at the app level when a modal is active
+            return
+
         # Handle arrow keys for sidebar navigation when sidebar is visible
         if not input_field.has_focus:
             try:
@@ -282,39 +284,31 @@ class CodePuppyTUI(App):
 
                     if active_tab == "history-tab":
                         history_list = self.query_one("#history-list", ListView)
-                        if event.key == "up":
-                            current_index = history_list.index
-                            if current_index > 0:
-                                history_list.index = current_index - 1
-                            event.prevent_default()
-                            return
-                        elif event.key == "down":
-                            current_index = history_list.index
-                            if current_index < len(history_list.children) - 1:
-                                history_list.index = current_index + 1
-                            event.prevent_default()
-                            return
-                        elif event.key == "enter":
+                        if event.key == "enter":
                             if history_list.highlighted_child and hasattr(
-                                history_list.highlighted_child, "history_entry"
+                                history_list.highlighted_child, "command_entry"
                             ):
-                                history_entry = (
-                                    history_list.highlighted_child.history_entry
+                                # Show command history modal
+                                from .components.command_history_modal import (
+                                    CommandHistoryModal,
                                 )
-                                self.show_history_details(history_entry)
+
+                                # Make sure sidebar's current_history_index is synced with the ListView
+                                sidebar.current_history_index = history_list.index
+
+                                # Push the modal screen
+                                # The modal will get the command entries from the sidebar
+                                self.push_screen(CommandHistoryModal())
                             event.prevent_default()
                             return
             except Exception:
                 pass
 
     def refresh_history_display(self) -> None:
-        """Refresh the history display with current session memory."""
+        """Refresh the history display with the command history file."""
         try:
-            history_list = self.query_one("#history-list", ListView)
-            # Remove all children manually to ensure proper clearing
-            for child in list(history_list.children):
-                child.remove()
-            self.load_history_list()
+            sidebar = self.query_one(Sidebar)
+            sidebar.load_command_history()
         except Exception:
             pass  # Silently fail if history list not available
 
@@ -527,15 +521,49 @@ class CodePuppyTUI(App):
                 tabs = self.query_one("#sidebar-tabs")
                 tabs.active = "history-tab"
 
+                # Refresh the command history
+                sidebar.load_command_history()
+
                 # Focus the history list
                 history_list = self.query_one("#history-list", ListView)
                 history_list.focus()
 
-                # If the list has items, ensure the first item is highlighted
+                # If the list has items, get the first item for the modal
                 if len(history_list.children) > 0:
+                    # Reset sidebar's internal index tracker to 0
+                    sidebar.current_history_index = 0
+
+                    # Set ListView index to match
                     history_list.index = 0
-            except Exception:
-                # Silently fail if there's an issue with focusing
+
+                    # Get the first item and show the command history modal
+                    first_item = history_list.children[0]
+                    if hasattr(first_item, "command_entry"):
+                        # command_entry = first_item.command_entry
+
+                        # Use call_after_refresh to allow UI to update first
+                        def show_modal():
+                            from .components.command_history_modal import (
+                                CommandHistoryModal,
+                            )
+
+                            # Get all command entries from the history list
+                            command_entries = []
+                            for i, child in enumerate(history_list.children):
+                                if hasattr(child, "command_entry"):
+                                    command_entries.append(child.command_entry)
+
+                            # Push the modal screen
+                            # The modal will get the command entries from the sidebar
+                            self.push_screen(CommandHistoryModal())
+
+                        # Schedule modal to appear after UI refresh
+                        self.call_after_refresh(show_modal)
+            except Exception as e:
+                # Log the exception in debug mode but silently fail for end users
+                import logging
+
+                logging.debug(f"Error focusing history item: {str(e)}")
                 pass
         else:
             # If sidebar is now hidden, focus the input field for a smooth workflow
@@ -949,6 +977,20 @@ class CodePuppyTUI(App):
         """Handle selection of a history entry from the sidebar."""
         # Display the history entry details
         self.show_history_details(event.history_entry)
+
+    @on(CommandSelected)
+    def on_command_selected(self, event: CommandSelected) -> None:
+        """Handle selection of a command from the history modal."""
+        # Set the command in the input field
+        input_field = self.query_one("#input-field", CustomTextArea)
+        input_field.text = event.command
+
+        # Focus the input field for immediate editing
+        input_field.focus()
+
+        # Close the sidebar automatically for a smoother workflow
+        sidebar = self.query_one(Sidebar)
+        sidebar.display = False
 
     async def on_unmount(self):
         """Clean up when the app is unmounted."""
