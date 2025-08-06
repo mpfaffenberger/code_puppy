@@ -1,3 +1,4 @@
+import re
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +29,17 @@ class TestCommandHistory(unittest.TestCase):
 
         # Assertions
         mock_open.assert_called_once_with(COMMAND_HISTORY_FILE, "a")
-        mock_open().write.assert_called_once_with("test command\n")
+        # Check that write was called with timestamped format
+        write_calls = mock_open().write.call_args_list
+        self.assertEqual(len(write_calls), 1)
+        written_content = write_calls[0][0][0]
+        # Should match pattern: \n# YYYY-MM-DDTHH:MM:SS\ntest command\n
+        self.assertTrue(
+            re.match(
+                r"^\n# \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\ntest command\n$",
+                written_content,
+            )
+        )
         self.app.add_user_message.assert_called_once_with("test command")
 
     @patch("builtins.open", new_callable=unittest.mock.mock_open)
@@ -69,8 +80,7 @@ class TestCommandHistory(unittest.TestCase):
         # Execute
         self.app.action_send_message()
 
-        # Assertions
-        self.app.add_error_message.assert_called_once()
+        # Assertions - error is printed to stdout, not added to UI
         # Message should still be processed despite error saving to history
         self.app.add_user_message.assert_called_once_with("test command")
 
