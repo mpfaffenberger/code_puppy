@@ -25,7 +25,7 @@ class BaseURLs:
     PROD = "https://puppy.walmart.com"
 
 
-def get_base_url(environment: Environment = Environment.STAGE) -> str:
+def get_base_url(environment: Environment = Environment.PROD) -> str:
     """
     Get the base URL for the specified environment.
 
@@ -45,7 +45,7 @@ def get_base_url(environment: Environment = Environment.STAGE) -> str:
         raise ValueError(f"Unsupported environment: {environment}")
 
 
-def get_models_url(environment: Environment = Environment.STAGE) -> str:
+def get_models_url(environment: Environment = Environment.PROD) -> str:
     """
     Get the URL for fetching model configurations.
 
@@ -60,7 +60,7 @@ def get_models_url(environment: Environment = Environment.STAGE) -> str:
 
 
 def get_authentication_url(
-    port: Optional[int] = None, environment: Environment = Environment.STAGE
+    port: Optional[int] = None, environment: Environment = Environment.PROD
 ) -> str:
     """
     Get the URL for puppy authentication.
