@@ -2,6 +2,8 @@
 
 Thank you for your interest in contributing to Code Puppy! This project thrives on community involvement. Whether you want to add a new feature, fix a bug, or improve documentation, your help is welcome.
 
+**📚 New to Code Puppy?** Check out our [ONBOARDING.md](ONBOARDING.md) for a comprehensive overview of the codebase architecture, key components, and development patterns.
+
 ## Table of Contents
 - [Contributing to Code Puppy - Walmart Edition](#contributing-to-code-puppy---walmart-edition)
   - [Table of Contents](#table-of-contents)
