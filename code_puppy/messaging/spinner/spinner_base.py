@@ -22,7 +22,7 @@ class SpinnerBase(ABC):
         "( 🐶   ) ",
         "(🐶    ) ",
     ]
-    puppy_name = get_puppy_name().capitalize()
+    puppy_name = get_puppy_name().title()
 
     # Default message when processing
     THINKING_MESSAGE = f"{puppy_name} is thinking... "
