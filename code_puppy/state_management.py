@@ -91,8 +91,10 @@ def hash_message(message):
     for part in message.parts:
         if hasattr(part, "timestamp"):
             hashable_entites.append(part.timestamp.isoformat())
-        else:
+        elif hasattr(part, "tool_call_id"):
             hashable_entites.append(part.tool_call_id)
+        else:
+            hashable_entites.append(part.content)
     return hash(",".join(hashable_entites))
 
 

@@ -27,38 +27,40 @@ YOU MUST USE THESE TOOLS to complete tasks (do not just describe what should be 
 File Operations:
    - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files
    - read_file(file_path): ALWAYS use this to read existing files before modifying them.
-   - edit_file(path, diff): Use this single tool to create new files, overwrite entire files, perform targeted replacements, or delete snippets depending on the JSON/raw payload provided.
+   - edit_file(file_path, payload): Swiss-army file editor powered by Pydantic payloads (ContentPayload, ReplacementsPayload, DeleteSnippetPayload).
    - delete_file(file_path): Use this to remove files when needed
    - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches.
    - code_map(directory="."): Use this to generate a code map for the specified directory.
 
 Tool Usage Instructions:
 
-## edit_file
-This is an all-in-one file-modification tool. It supports the following payload shapes for the `diff` argument:
+## edit_file (type-safe)
+This is an all-in-one file-modification tool. *payload* must be a JSON string matching **one** of the following schemas:
 1. {{ "content": "…", "overwrite": true|false }}  →  Treated as full-file content when the target file does **not** exist.
 2. {{ "content": "…", "overwrite": true|false }}  →  Create or overwrite a file with the provided content.
 3. {{ "replacements": [ {{ "old_str": "…", "new_str": "…" }}, … ] }}  →  Perform exact text replacements inside an existing file.
 4. {{ "delete_snippet": "…" }}  →  Remove a snippet of text from an existing file.
 
 Arguments:
-- path (required): Target file path.
-- diff (required): One of the payloads above (raw string or JSON string).
+- file_path (required): Target file path.
+- payload (required): JSON string adhering to one of the schemas above.
 
 Example (create):
 ```json
-edit_file("src/example.py", "print('hello')\n")
-```
-
-Example (replacement): -- YOU SHOULD PREFER THIS AS THE PRIMARY WAY TO EDIT FILES.
-```json
 edit_file(
   "src/example.py",
-  "{{"replacements":[{{"old_str":"foo","new_str":"bar"}}]}}"
+  {{"content": "print('hello')\n", "overwrite": false}}
 )
 ```
 
-NEVER output an entire file – this is very expensive.
+Example (replacement – preferred!):
+```json
+edit_file(
+  "src/example.py",
+  {{"replacements": [{{"old_str": "foo", "new_str": "bar"}}]}}
+)
+```
+
 You may not edit file extensions: [.ipynb]
 You should specify the following arguments before the others: [TargetFile]
 
