@@ -13,7 +13,7 @@ from __future__ import annotations
 import difflib
 import os
 import traceback
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 
 from pydantic import BaseModel
 from pydantic_ai import RunContext
@@ -40,7 +40,7 @@ class ContentPayload(BaseModel):
     overwrite: bool = False
 
 
-EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
+EditFilePayload = DeleteSnippetPayload | ReplacementsPayload | ContentPayload
 
 
 def _print_diff(diff_text: str, message_group: str = None) -> None:
