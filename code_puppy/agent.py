@@ -5,6 +5,7 @@ from typing import Dict, Optional
 import pydantic
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
@@ -164,6 +165,11 @@ def reload_code_generation_agent():
         instructions += f"\n{PUPPY_RULES}"
 
     mcp_servers = _load_mcp_servers()
+    model_settings = ModelSettings(seed=42)
+    if model.model_name == "gpt-5":
+        model_settings = ModelSettings(
+            seed=42, reasoning={"effort": "low"}, text={"verbosity": "low"}
+        )
     agent = Agent(
         model=model,
         instructions=instructions,
@@ -171,6 +177,7 @@ def reload_code_generation_agent():
         retries=3,
         mcp_servers=mcp_servers,
         history_processors=[message_history_accumulator],
+        model_settings=model_settings,
     )
     register_all_tools(agent)
     _code_generation_agent = agent
