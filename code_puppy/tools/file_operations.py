@@ -18,6 +18,42 @@ from code_puppy.messaging import (
 from code_puppy.tools.common import generate_group_id, should_ignore_path
 
 
+def is_likely_home_directory(directory):
+    """Detect if directory is likely a user's home directory or common home subdirectory"""
+    abs_dir = os.path.abspath(directory)
+    home_dir = os.path.expanduser("~")
+    
+    # Exact home directory match
+    if abs_dir == home_dir:
+        return True
+    
+    # Check for common home directory subdirectories
+    common_home_subdirs = {
+        "Documents", "Desktop", "Downloads", "Pictures", "Music", "Videos", 
+        "Movies", "Public", "Library", "Applications"  # Cover macOS/Linux
+    }
+    if (os.path.basename(abs_dir) in common_home_subdirs and 
+        os.path.dirname(abs_dir) == home_dir):
+        return True
+        
+    return False
+
+
+def is_project_directory(directory):
+    """Quick heuristic to detect if this looks like a project directory"""
+    project_indicators = {
+        "package.json", "pyproject.toml", "Cargo.toml", "pom.xml", 
+        "build.gradle", "CMakeLists.txt", ".git", "requirements.txt",
+        "composer.json", "Gemfile", "go.mod", "Makefile", "setup.py"
+    }
+    
+    try:
+        contents = os.listdir(directory)
+        return any(indicator in contents for indicator in project_indicators)
+    except (OSError, PermissionError):
+        return False
+
+
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> List[Dict[str, Any]]:
@@ -44,6 +80,20 @@ def _list_files(
         emit_error(f"'{directory}' is not a directory", message_group=group_id)
         emit_divider(message_group=group_id)
         return [{"error": f"'{directory}' is not a directory"}]
+    
+    # Smart home directory detection - auto-limit recursion for performance
+    original_recursive = recursive
+    if is_likely_home_directory(directory) and recursive:
+        if not is_project_directory(directory):
+            emit_warning(
+                f"🏠 Detected home directory - limiting to non-recursive listing for performance", 
+                message_group=group_id
+            )
+            emit_info(
+                f"💡 To force recursive listing in home directory, use list_files('{directory}', recursive=True) explicitly",
+                message_group=group_id
+            )
+            recursive = False
     folder_structure = {}
     file_list = []
     for root, dirs, files in os.walk(directory):

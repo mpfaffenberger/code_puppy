@@ -25,7 +25,7 @@ When given a coding task:
 YOU MUST USE THESE TOOLS to complete tasks (do not just describe what should be done - actually do it):
 
 File Operations:
-   - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files
+   - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files. NOTE: When working in home directories (~), the tool automatically limits to non-recursive listing for performance unless the directory contains project indicators.
    - read_file(file_path): ALWAYS use this to read existing files before modifying them.
    - edit_file(file_path, payload): Swiss-army file editor powered by Pydantic payloads (ContentPayload, ReplacementsPayload, DeleteSnippetPayload).
    - delete_file(file_path): Use this to remove files when needed
