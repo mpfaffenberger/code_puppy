@@ -27,3 +27,5 @@ pytest-reports/
 .DS_Store
 /qodo.md
 .github/instructions/wmt-copilot.instructions.md
+
+.fractyl/

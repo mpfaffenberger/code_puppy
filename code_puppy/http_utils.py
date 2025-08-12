@@ -138,8 +138,8 @@ def resolve_env_var_in_header(headers: Dict[str, str]) -> Dict[str, str]:
     """
     Resolve environment variables in header values.
 
-    Header values that start with $ will be replaced with the corresponding
-    environment variable value.
+    Supports $VAR and ${VAR} anywhere in the string, not just at the start,
+    using os.path.expandvars semantics.
 
     Args:
         headers: Dictionary of headers that may contain environment variable references
@@ -150,13 +150,12 @@ def resolve_env_var_in_header(headers: Dict[str, str]) -> Dict[str, str]:
     resolved_headers = {}
 
     for key, value in headers.items():
-        if isinstance(value, str) and value.startswith("$"):
-            env_var_name = value[1:]  # Remove the $ prefix
-            env_var_value = os.environ.get(env_var_name)
-            if env_var_value is not None:
-                resolved_headers[key] = env_var_value
-            else:
-                # Keep the original value if environment variable is not found
+        if isinstance(value, str):
+            try:
+                # Expand $VAR or ${VAR} anywhere in the string
+                expanded = os.path.expandvars(value)
+                resolved_headers[key] = expanded
+            except Exception:
                 resolved_headers[key] = value
         else:
             resolved_headers[key] = value
