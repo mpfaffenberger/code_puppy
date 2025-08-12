@@ -166,10 +166,6 @@ def reload_code_generation_agent():
 
     mcp_servers = _load_mcp_servers()
     model_settings = ModelSettings(seed=42)
-    if model.model_name == "gpt-5":
-        model_settings = ModelSettings(
-            seed=42, reasoning={"effort": "low"}, text={"verbosity": "low"}
-        )
     agent = Agent(
         model=model,
         instructions=instructions,

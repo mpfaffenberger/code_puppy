@@ -8,59 +8,15 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-08-05"
+MOTD_VERSION = "2025-08-12"
 MOTD_MESSAGE = """
 ```
-🐶🎉 WOOF WOOF! 0.0.103 Pawsome Updates! 🎉🐶
+🐶🎉 WOOF WOOF! 0.0.105! 🎉🐶
 
-🚀 YOUR FAVORITE PUPPY GOT SOME SERIOUS UPGRADES! 🚀
+🚀 BUGS FIXED! 🚀
 
-🔥 **NEW SUPER POWERS** 🔥:
-🎯 **Auto PR Descriptions** (`/generate-pr-description`):
-   Let your puppy write your PR descriptions!
-   No more "fix stuff" commits! 🐕‍💼📝
-
-⚡ **CTRL-C Cancel Power**:
-   Interrupt your puppy mid-task with CTRL-C in interactive mode!
-   Finally, some discipline! 🐕‍🦺🛑
-
-🧹 **Command History Cleanup**:
-   Your puppy's memory got Marie Kondo'd - cleaner, faster, better! 🧠✨
-
-💾 **Message Integrity**:
-   Conversations now survive like a loyal golden retriever!
-   Through thick and thin! 🦮💪
-
-🎨 **Major Refactoring**:
-   From `meta_command_handler` to `command_handler` supremacy!
-   Your code puppy got a glow-up! 💅🐕
-
-🛠️ **Tool Improvements**:
-   TUI tools screen got fixed, no more crashes when showing off! 🔧🎪
-
-📚 **Better Documentation**:
-   More scripts, better guides, cleaner code.
-   Because good boys deserve good docs! 📖🐕‍🦺
-
-🐾 **Bug Squashing Spree**:
-   • Fixed MOTD messages for both `-t` and `-i` modes 🐛➡️💀
-   • Models list now picks from the right file in TUI 📋✅
-   • No more emoji crashes in newer Textual versions 😅➡️😊
-   • MCP server registration messages now show properly 📡🔊
-
-🏗️ **Developer Experience**:
-   • New build scripts for local wheel installation 🛠️⚙️
-   • Pre-commit hooks that actually work 🪝✅
-   • Pretty path printing because aesthetics matter! 🌈📁
-
-🎪 **Infrastructure Wizardry**:
-   • UV index URLs and environment improvements 🌍⬆️
-   • Better state management that won't lose your treats! 🍖💾
-
-🐕‍🦺 **The Big Picture**:
-   Over 40+ commits of pure puppy excellence since v0.0.102!
-   Every single one making your coding companion more reliable,
-   more powerful, and more adorable! 🐶💖
+* GPT-5 no longer causes the `typing.Union` bug
+* GPT-5 cooks nicely
 
  _______  _______  ______   _______    _______  __   __  _______  _______  __   __
 |       ||       ||      | |       |  |       ||  | |  ||       ||       ||  | |  |
@@ -71,7 +27,6 @@ MOTD_MESSAGE = """
 |_______||_______||______| |_______|  |___|    |_______||___|    |___|      |___|
 
 🐕 EVERY COMMIT = BETTER GOOD BOY! 🐕
-
 
 🦴 Go fetch these amazing features and see what your loyal
    code companion can do! 🦴

@@ -31,6 +31,7 @@ dependencies = [
     "textual>=5.0.0",
     "termcolor>=3.1.0",
     "textual-dev>=1.7.0",
+    "openai==1.99.1"
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
