@@ -165,7 +165,17 @@ def reload_code_generation_agent():
         instructions += f"\n{PUPPY_RULES}"
 
     mcp_servers = _load_mcp_servers()
-    model_settings = ModelSettings(seed=42)
+
+    # Configure model settings with max_tokens if set
+    from code_puppy.config import get_max_tokens
+
+    model_settings_dict = {"seed": 42}
+    max_tokens = get_max_tokens()
+    if max_tokens is not None:
+        model_settings_dict["max_tokens"] = max_tokens
+        emit_info(f"[cyan]Using max_tokens: {max_tokens}[/cyan]")
+
+    model_settings = ModelSettings(**model_settings_dict)
     agent = Agent(
         model=model,
         instructions=instructions,

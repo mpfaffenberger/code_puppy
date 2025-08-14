@@ -8,16 +8,17 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-08-12"
+MOTD_VERSION = "2025-08-14"
 MOTD_MESSAGE = """
 ```
-🐶🎉 WOOF WOOF! 0.0.105! 🎉🐶
+🐶🎉 WOOF WOOF! 0.0.107! 🎉🐶
 
 🚀 BUGS FIXED! 🚀
 
-* GPT-5 no longer causes the `typing.Union` bug
-* GPT-5 cooks nicely
+* The `edit_file` failing after max of 5 retries bug has been identified and fixed by Andrew Budd.
+    * Praise be to Andrew! 🙌
 
+- What happened to 0.0.106? I accidentally released without updating the MOTD... So 106 is dead. Long live 107.
  _______  _______  ______   _______    _______  __   __  _______  _______  __   __
 |       ||       ||      | |       |  |       ||  | |  ||       ||       ||  | |  |
 |       ||   _   ||  _    ||    ___|  |    _  ||  | |  ||    _  ||    _  ||  |_|  |
@@ -26,16 +27,6 @@ MOTD_MESSAGE = """
 |     |_ |       ||       ||   |___   |   |    |       ||   |    |   |      |   |
 |_______||_______||______| |_______|  |___|    |_______||___|    |___|      |___|
 
-🐕 EVERY COMMIT = BETTER GOOD BOY! 🐕
-
-🦴 Go fetch these amazing features and see what your loyal
-   code companion can do! 🦴
-
-🎾 This MOTD won't bother you again unless you run `/motd`
-   - just like a well-trained pup! 🎾
-
-🐾 Stay pawsome, keep coding, and remember:
-   every bug fixed is a treat earned! 🐾🍖
 ```
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
