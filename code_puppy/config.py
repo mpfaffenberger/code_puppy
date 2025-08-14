@@ -79,9 +79,9 @@ def get_message_history_limit():
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model").
+    plus certain preset expected keys (e.g. "yolo_mode", "model", "max_tokens").
     """
-    default_keys = ["yolo_mode", "model"]
+    default_keys = ["yolo_mode", "model", "max_tokens"]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -353,6 +353,40 @@ def get_mcp_disabled():
             return True
         return False
     return False
+
+
+def get_max_tokens():
+    """
+    Returns the user-configured max_tokens limit for model responses.
+    Defaults to 32768 if not set, which is a generous default for code generation.
+    Can be overridden by setting 'max_tokens' in puppy.cfg.
+    """
+    val = get_value("max_tokens")
+    if val is None:
+        return 32768  # Default for code assistant - generous for large code tasks
+    try:
+        tokens = int(val)
+        # Ensure it's a positive number
+        return max(1, tokens) if tokens > 0 else 32768
+    except (ValueError, TypeError):
+        return 32768
+
+
+def set_max_tokens(max_tokens: int):
+    """
+    Sets the max_tokens limit in the persistent config file.
+    Pass None or 0 to remove the limit and use model defaults.
+    """
+    if max_tokens is None or max_tokens <= 0:
+        # Remove the setting to use model defaults
+        config = configparser.ConfigParser()
+        config.read(CONFIG_FILE)
+        if DEFAULT_SECTION in config and "max_tokens" in config[DEFAULT_SECTION]:
+            del config[DEFAULT_SECTION]["max_tokens"]
+            with open(CONFIG_FILE, "w") as f:
+                config.write(f)
+    else:
+        set_config_value("max_tokens", str(max_tokens))
 
 
 def save_command_to_history(command: str):

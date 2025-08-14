@@ -20,7 +20,7 @@ COMMANDS_HELP = """
 /m <model>            Set active model
 /motd                 Show the latest message of the day (MOTD)
 /show                 Show puppy config key-values
-/set                  Set puppy config key-values
+/set                  Set puppy config key-values (e.g., /set max_tokens 4000, /set max_tokens 0 for model default)
 /tools                Show available tools and capabilities
 /<unknown>            Show unknown command warning
 """
@@ -81,6 +81,7 @@ def handle_command(command: str):
     if command.strip().startswith("/show"):
         from code_puppy.command_line.model_picker_completion import get_active_model
         from code_puppy.config import (
+            get_max_tokens,
             get_message_history_limit,
             get_owner_name,
             get_puppy_name,
@@ -92,6 +93,9 @@ def handle_command(command: str):
         model = get_active_model()
         yolo_mode = get_yolo_mode()
         msg_limit = get_message_history_limit()
+        max_tokens = get_max_tokens()
+        # Show configured value, or indicate it's using the default
+        max_tokens_display = f"[cyan]{max_tokens}[/cyan] [dim](default: 32768)[/dim]"
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
 [bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
@@ -99,6 +103,7 @@ def handle_command(command: str):
 [bold]model:[/bold]          [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]      {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]message_history_limit:[/bold]   Keeping last [cyan]{msg_limit}[/cyan] messages in context
+[bold]max_tokens:[/bold]     {max_tokens_display}
 """
         emit_info(status_msg)
         return True
