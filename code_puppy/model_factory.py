@@ -14,6 +14,8 @@ from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
+from code_puppy.tools.common import console
+
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
 # - OPENAI_API_KEY: API key for OpenAI models. Required when using OpenAI models or custom_openai endpoints.
@@ -46,6 +48,9 @@ def build_httpx_proxy(proxy):
     proxy_url = f"http://{ip}:{port}"
     proxy_auth = (username, password)
     
+    # Log the proxy being used
+    console.log(f"Using proxy: {proxy_url} with username: {username}")
+    
     return httpx.Proxy(url=proxy_url, auth=proxy_auth)
 
 
@@ -61,7 +66,11 @@ def get_random_proxy_from_file(file_path):
         raise ValueError(f"Proxy file '{file_path}' is empty or contains only whitespace.")
     
     selected_proxy = random.choice(proxies)
-    return build_httpx_proxy(selected_proxy)
+    try:
+        return build_httpx_proxy(selected_proxy)
+    except ValueError as e:
+        console.log(f"Warning: Malformed proxy '{selected_proxy}' found in file '{file_path}', ignoring and continuing without proxy.")
+        return None
 
 
 def get_custom_config(model_config):
@@ -145,7 +154,11 @@ class ModelFactory:
             if proxy_file_path:
                 proxy = get_random_proxy_from_file(proxy_file_path)
             
-            client = httpx.AsyncClient(headers=headers, verify=ca_certs_path, proxy=proxy)
+            # Only pass proxy to client if it's valid
+            client_args = {"headers": headers, "verify": ca_certs_path}
+            if proxy is not None:
+                client_args["proxy"] = proxy
+            client = httpx.AsyncClient(**client_args)
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
@@ -217,7 +230,11 @@ class ModelFactory:
             if proxy_file_path:
                 proxy = get_random_proxy_from_file(proxy_file_path)
             
-            client = httpx.AsyncClient(headers=headers, verify=ca_certs_path, proxy=proxy)
+            # Only pass proxy to client if it's valid
+            client_args = {"headers": headers, "verify": ca_certs_path}
+            if proxy is not None:
+                client_args["proxy"] = proxy
+            client = httpx.AsyncClient(**client_args)
             provider_args = dict(
                 base_url=url,
                 http_client=client,
