@@ -8,6 +8,7 @@ from pydantic_ai.mcp import MCPServerSSE
 from code_puppy.agent_prompts import get_system_prompt
 from code_puppy.model_factory import ModelFactory
 from code_puppy.session_memory import SessionMemory
+from code_puppy.state_management import message_history_accumulator
 from code_puppy.tools import register_all_tools
 from code_puppy.tools.common import console
 
@@ -84,11 +85,6 @@ def reload_code_generation_agent():
     from code_puppy.config import get_model_name
 
     model_name = get_model_name()
-    console.print(f"[bold cyan]Loading Model: {model_name}")
-    global _code_generation_agent, _LAST_MODEL_NAME
-    from code_puppy.config import get_model_name
-
-    model_name = get_model_name()
     console.print(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
     models_path = (
         Path(MODELS_JSON_PATH)
@@ -105,6 +101,7 @@ def reload_code_generation_agent():
         instructions=instructions,
         output_type=str,
         retries=3,
+        history_processors=[message_history_accumulator]
     )
     register_all_tools(agent)
     _code_generation_agent = agent
