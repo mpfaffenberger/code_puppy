@@ -18,6 +18,11 @@
 
 Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor. 
 
+## Quick start
+
+`uvx code-puppy -i`
+
+
 ## Features
 
 - **Multi-language support**: Capable of generating code in various programming languages.
