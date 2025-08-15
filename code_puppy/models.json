@@ -11,6 +11,10 @@
     "type": "openai",
     "name": "gpt-4.1-mini"
   },
+  "gpt-5": {
+    "type": "openai",
+    "name": "gpt-5"
+  },
   "gpt-4.1-nano": {
     "type": "openai",
     "name": "gpt-4.1-nano"
@@ -83,6 +87,14 @@
   "Cerebras-Qwen3-235b-a22b-instruct-2507": {
     "type": "custom_openai",
     "name": "qwen-3-235b-a22b-instruct-2507",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY"
+    }
+  },
+  "Cerebras-gpt-oss-120b": {
+    "type": "custom_openai",
+    "name": "gpt-oss-120b",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
       "api_key": "$CEREBRAS_API_KEY"

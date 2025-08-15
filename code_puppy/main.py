@@ -9,17 +9,19 @@ from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from code_puppy import __version__
+from code_puppy import __version__, state_management
 from code_puppy.agent import get_code_generation_agent, session_memory
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
 )
 from code_puppy.config import ensure_config_exists
+from code_puppy.state_management import get_message_history, set_message_history
 
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
 from code_puppy.version_checker import fetch_latest_version
+from code_puppy.message_history_processor import message_history_processor
 
 # from code_puppy.tools import *  # noqa: F403
 
@@ -130,8 +132,6 @@ async def interactive_mode(history_file_path: str) -> None:
                 "[yellow]Falling back to basic input without tab completion[/yellow]"
             )
 
-    message_history = []
-
     # Set up history file in home directory
     history_file_path_prompt = os.path.expanduser("~/.code_puppy_history.txt")
     history_dir = os.path.dirname(history_file_path_prompt)
@@ -172,7 +172,7 @@ async def interactive_mode(history_file_path: str) -> None:
 
         # Check for clear command (supports both `clear` and `~clear`)
         if task.strip().lower() in ("clear", "~clear"):
-            message_history = []
+            state_management._message_history = []
             console.print("[bold yellow]Conversation history cleared![/bold yellow]")
             console.print(
                 "[dim]The agent will not remember previous interactions.[/dim]\n"
@@ -192,71 +192,56 @@ async def interactive_mode(history_file_path: str) -> None:
 
             try:
                 prettier_code_blocks()
+                local_cancelled = False
+                async def run_agent_task():
+                    try:
+                        agent = get_code_generation_agent()
+                        async with agent.run_mcp_servers():
+                            return await agent.run(
+                                task,
+                                message_history=get_message_history()
+                            )
+                    except Exception as e:
+                        console.log("Task failed", e)
 
-                console.log(f"Asking: {task}...", style="cyan")
+                agent_task = asyncio.create_task(run_agent_task())
 
-                # Store agent's full response
-                agent_response = None
+                import signal
 
-                agent = get_code_generation_agent()
-                async with agent.run_mcp_servers():
-                    result = await agent.run(task, message_history=message_history)
-                # Get the structured response
-                agent_response = result.output
-                console.print(agent_response)
-                # Log to session memory
+                original_handler = None
 
-                # Update message history but apply filters & limits
-                new_msgs = result.new_messages()
-                # 1. Drop any system/config messages (e.g., "agent loaded with model")
-                filtered = [
-                    m
-                    for m in new_msgs
-                    if not (isinstance(m, dict) and m.get("role") == "system")
-                ]
-                # 2. Append to existing history and keep only the most recent set by config
-                from code_puppy.config import get_message_history_limit
+                def keyboard_interrupt_handler(sig, frame):
+                    nonlocal local_cancelled
+                    if not agent_task.done():
+                        set_message_history(
+                            message_history_processor(
+                                get_message_history()
+                            )
+                        )
+                        agent_task.cancel()
+                        local_cancelled = True
 
-                message_history.extend(filtered)
+                try:
+                    original_handler = signal.getsignal(signal.SIGINT)
+                    signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+                    result = await agent_task
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    if original_handler:
+                        signal.signal(signal.SIGINT, original_handler)
 
-                # --- BEGIN GROUP-AWARE TRUNCATION LOGIC ---
-                limit = get_message_history_limit()
-                if len(message_history) > limit:
-
-                    def group_by_tool_call_id(msgs):
-                        grouped = {}
-                        no_group = []
-                        for m in msgs:
-                            # Find all tool_call_id in message parts
-                            tool_call_ids = set()
-                            for part in getattr(m, "parts", []):
-                                if hasattr(part, "tool_call_id") and part.tool_call_id:
-                                    tool_call_ids.add(part.tool_call_id)
-                            if tool_call_ids:
-                                for tcid in tool_call_ids:
-                                    grouped.setdefault(tcid, []).append(m)
-                            else:
-                                no_group.append(m)
-                        return grouped, no_group
-
-                    grouped, no_group = group_by_tool_call_id(message_history)
-                    # Flatten into groups or singletons
-                    grouped_msgs = list(grouped.values()) + [[m] for m in no_group]
-                    # Flattened history (latest groups/singletons last, trunc to N messages total),
-                    # but always keep complete tool_call_id groups together
-                    truncated = []
-                    count = 0
-                    for group in reversed(grouped_msgs):
-                        if count + len(group) > limit:
-                            break
-                        truncated[:0] = group  # insert at front
-                        count += len(group)
-                    message_history = truncated
-                # --- END GROUP-AWARE TRUNCATION LOGIC ---
+                if local_cancelled:
+                    console.print("Task canceled by user")
+                else:
+                    agent_response = result.output
+                    console.print(agent_response)
+                    filtered = message_history_processor(get_message_history())
+                    set_message_history(filtered)
 
                 # Show context status
                 console.print(
-                    f"[dim]Context: {len(message_history)} messages in history[/dim]\n"
+                    f"[dim]Context: {len(get_message_history())} messages in history[/dim]\n"
                 )
 
             except Exception:
