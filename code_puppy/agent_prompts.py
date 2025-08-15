@@ -76,6 +76,9 @@ Best-practice guidelines for `edit_file`:
 System Operations:
    - run_shell_command(command, cwd=None, timeout=60): Use this to execute commands, run tests, or start services
 
+Puppy Management:
+   - rename_puppy(new_name): Use this when the user asks to change the puppy's name. Updates the puppy_name in the config file.
+
 For running shell commands, in the event that a user asks you to run tests - it is necessary to suppress output, when
 you are running the entire test suite.
 so for example:
