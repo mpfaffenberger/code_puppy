@@ -182,3 +182,22 @@ def test_custom_anthropic_missing_url():
     }
     with pytest.raises(ValueError):
         ModelFactory.get_model("x", config)
+
+
+def test_get_random_proxy_from_file_with_malformed_proxy(monkeypatch, tmp_path):
+    from code_puppy.model_factory import get_random_proxy_from_file
+    
+    # Create a proxy file with both valid and malformed proxies
+    proxy_file = tmp_path / "proxies.txt"
+    proxy_file.write_text("192.168.1.1:8080:user:pass\nmalformed_proxy_without_correct_format\n10.0.0.1:3128:admin:secret")
+    
+    # Mock console.log to avoid printing warnings during test
+    monkeypatch.setattr("code_puppy.model_factory.console.log", lambda x: None)
+    
+    # Should return None for malformed proxy instead of raising ValueError
+    proxy = get_random_proxy_from_file(str(proxy_file))
+    # Either a valid proxy object or None (if the malformed one was selected)
+    # We're fine with either outcome as long as no ValueError is raised
+    
+    # If we get here without exception, the test passes
+    assert proxy is None or hasattr(proxy, 'url')
