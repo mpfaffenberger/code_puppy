@@ -34,8 +34,9 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 
 ## Usage
 ```bash
-export MODEL_NAME=gpt-4.1 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
+export MODEL_NAME=gpt-5 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
 export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
+export CEREBRAS_API_KEY=<your_cerebras_api_key> # for Cerebras models
 export YOLO_MODE=true # to bypass the safety confirmation prompt when running shell commands
 
 # or ...
@@ -73,7 +74,7 @@ export MODELS_JSON_PATH=/path/to/custom/models.json
     }
 }
 ```
-Note that the `OPENAI_API_KEY` env variable must be set when using `custom_openai` endpoints.
+Note that the `OPENAI_API_KEY` or `CEREBRAS_API_KEY` env variable must be set when using `custom_openai` endpoints.
 
 Open an issue if your environment is somehow weirder than mine.
 
@@ -89,6 +90,7 @@ code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it 
 - Python 3.9+
 - OpenAI API key (for GPT models)
 - Gemini API key (for Google's Gemini models)
+- Cerebras API key (for Cerebras models)
 - Anthropic key (for Claude models)
 - Ollama endpoint available
 
