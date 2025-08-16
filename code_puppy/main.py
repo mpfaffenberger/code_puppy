@@ -53,7 +53,7 @@ async def main():
     load_dotenv()
 
     # Set up argument parser
-    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
+    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent (custom)")
     parser.add_argument(
         "--interactive", "-i", action="store_true", help="Run in interactive mode"
     )
@@ -199,7 +199,9 @@ async def interactive_mode(history_file_path: str) -> None:
                         async with agent.run_mcp_servers():
                             return await agent.run(
                                 task,
-                                message_history=get_message_history()
+                                message_history=message_history_processor(
+                                    get_message_history()
+                                ),
                             )
                     except Exception as e:
                         console.log("Task failed", e)
