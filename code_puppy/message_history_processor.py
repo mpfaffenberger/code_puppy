@@ -1,5 +1,6 @@
 import json
 import math
+import tiktoken
 import queue
 from typing import List
 
@@ -36,7 +37,13 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
 
     # Helper: estimate tokens for a list of ModelMessage(s)
     def estimate_tokens_for_messages(msgs: List[ModelMessage]) -> int:
+        """
+        Estimates the token count for a list of ModelMessage objects for context compaction.
+        Uses tiktoken (cl100k_base) for accurate tokenization
+        """
         chars = 0
+        texts = []
+
         for m in msgs:
             for part in getattr(m, "parts", []) or []:
                 # Prefer explicit textual fields
@@ -47,16 +54,19 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
                         text_val = v
                         break
                 if text_val is not None:
+                    texts.append(text_val)
                     chars += len(text_val)
                     continue
                 # Tool calls/returns may have structured args; count roughly
                 try:
                     if hasattr(part, "args") and part.args is not None:
-                        chars += len(json.dumps(part.args, ensure_ascii=False))
+                        json_str = json.dumps(part.args, ensure_ascii=False)
+                        texts.append(json_str)
+                        chars += len(json_str)
                 except Exception:
                     pass
-        # Heuristic: ~4 chars per token
-        return max(1, math.ceil(chars / 4))
+        encoding = tiktoken.get_encoding("cl100k_base")  # For GPT-4o, o1, etc.
+        return sum(len(encoding.encode(text)) for text in texts)
 
     # Always keep the system message
     system_msg = messages[0]

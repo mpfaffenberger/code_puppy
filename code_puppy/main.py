@@ -53,7 +53,7 @@ async def main():
     load_dotenv()
 
     # Set up argument parser
-    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent (custom)")
+    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
         "--interactive", "-i", action="store_true", help="Run in interactive mode"
     )
