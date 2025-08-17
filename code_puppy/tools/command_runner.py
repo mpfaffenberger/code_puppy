@@ -10,6 +10,12 @@ from rich.syntax import Syntax
 from code_puppy.tools.common import console
 
 
+# Deduplication state for reasoning prints
+_last_reasoning_text: str | None = None
+_last_reasoning_time: float = 0.0
+_DEDUPE_WINDOW_SECONDS: float = 10.0
+
+
 class ShellCommandOutput(BaseModel):
     success: bool
     command: str | None
@@ -171,13 +177,33 @@ class ReasoningOutput(BaseModel):
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str = None
 ) -> ReasoningOutput:
-    console.print("\n[bold white on purple] AGENT REASONING [/bold white on purple]")
-    console.print("[bold cyan]Current reasoning:[/bold cyan]")
-    console.print(Markdown(reasoning))
-    if next_steps and next_steps.strip():
-        console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
-        console.print(Markdown(next_steps))
-    console.print("[dim]" + "-" * 60 + "[/dim]\n")
+    global _last_reasoning_text, _last_reasoning_time
+
+    now = time.time()
+    text_key = (reasoning or "").strip()
+    suppress = False
+    if text_key:
+        if (
+            _last_reasoning_text == text_key
+            and (now - _last_reasoning_time) < _DEDUPE_WINDOW_SECONDS
+        ):
+            suppress = True
+
+    # Update state regardless so later identical calls can be suppressed
+    _last_reasoning_text = text_key
+    _last_reasoning_time = now
+
+    if not suppress:
+        console.print("\n[bold white on purple] AGENT REASONING [/bold white on purple]")
+        console.print("[bold cyan]Current reasoning:[/bold cyan]")
+        console.print(Markdown(reasoning))
+        if next_steps and next_steps.strip():
+            console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
+            console.print(Markdown(next_steps))
+        console.print("[dim]" + "-" * 60 + "[/dim]\n")
+    else:
+        console.print("[dim]Suppressed duplicate reasoning within 10s window[/dim]")
+
     return ReasoningOutput(**{"success": True, "reasoning": reasoning, "next_steps": next_steps})
 
 

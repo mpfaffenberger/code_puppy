@@ -199,7 +199,9 @@ async def interactive_mode(history_file_path: str) -> None:
                         async with agent.run_mcp_servers():
                             return await agent.run(
                                 task,
-                                message_history=get_message_history()
+                                message_history=message_history_processor(
+                                    get_message_history()
+                                ),
                             )
                     except Exception as e:
                         console.log("Task failed", e)

@@ -73,6 +73,32 @@ def get_message_history_limit():
         return 40
 
 
+def get_max_input_tokens_per_request():
+    """
+    Returns the configured maximum input tokens per request used for context compaction.
+    Defaults to 32768 if unset or invalid.
+    Configurable by 'max_input_tokens_per_request' key.
+    """
+    val = get_value("max_input_tokens_per_request")
+    try:
+        return max(1000, int(val)) if val else 32768
+    except (ValueError, TypeError):
+        return 32768
+
+
+def get_expected_output_tokens():
+    """
+    Returns the expected output tokens reserved for the assistant's reply
+    when compacting context. Defaults to 4096 if unset or invalid.
+    Configurable by 'expected_output_tokens' key.
+    """
+    val = get_value("expected_output_tokens")
+    try:
+        return max(256, int(val)) if val else 4096
+    except (ValueError, TypeError):
+        return 4096
+
+
 # --- CONFIG SETTER STARTS HERE ---
 def get_config_keys():
     """
