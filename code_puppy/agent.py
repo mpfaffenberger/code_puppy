@@ -7,7 +7,6 @@ from pydantic_ai.mcp import MCPServerSSE
 
 from code_puppy.agent_prompts import get_system_prompt
 from code_puppy.model_factory import ModelFactory
-from code_puppy.session_memory import SessionMemory
 from code_puppy.state_management import message_history_accumulator
 from code_puppy.tools import register_all_tools
 from code_puppy.tools.common import console
@@ -20,24 +19,16 @@ from code_puppy.tools.common import console
 
 MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH", None)
 
-# Puppy rules loader
-PUPPY_RULES_PATH = Path("AGENT.md")
-PUPPY_RULES = None
-
-
-def load_puppy_rules(path=None):
+def load_puppy_rules():
     global PUPPY_RULES
-    rules_path = Path(path) if path else PUPPY_RULES_PATH
-    if rules_path.exists():
-        with open(rules_path, "r") as f:
-            PUPPY_RULES = f.read()
-    else:
-        PUPPY_RULES = None
-
+    puppy_rules_path = Path("AGENT.md")
+    if puppy_rules_path.exists():
+        with open(puppy_rules_path, "r") as f:
+            puppy_rules = f.read()
+            return puppy_rules
 
 # Load at import
-load_puppy_rules()
-
+PUPPY_RULES = load_puppy_rules()
 
 class AgentResponse(pydantic.BaseModel):
     """Represents a response from the agent."""
@@ -50,20 +41,7 @@ class AgentResponse(pydantic.BaseModel):
     )
 
 
-# --- NEW DYNAMIC AGENT LOGIC ---
-_LAST_MODEL_NAME = None
 _code_generation_agent = None
-_session_memory = None
-
-
-def session_memory():
-    """
-    Returns a singleton SessionMemory instance to allow agent and tools to persist and recall context/history.
-    """
-    global _session_memory
-    if _session_memory is None:
-        _session_memory = SessionMemory()
-    return _session_memory
 
 
 def _load_mcp_servers():
@@ -106,11 +84,6 @@ def reload_code_generation_agent():
     register_all_tools(agent)
     _code_generation_agent = agent
     _LAST_MODEL_NAME = model_name
-    # NEW: Log session event
-    try:
-        session_memory().log_task(f"Agent loaded with model: {model_name}")
-    except Exception:
-        pass
     return _code_generation_agent
 
 

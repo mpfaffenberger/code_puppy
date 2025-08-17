@@ -10,7 +10,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy import __version__, state_management
-from code_puppy.agent import get_code_generation_agent, session_memory
+from code_puppy.agent import get_code_generation_agent
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
