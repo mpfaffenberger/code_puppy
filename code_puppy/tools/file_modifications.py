@@ -58,12 +58,21 @@ def _delete_snippet_from_file(
     diff_text = ""
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
+            return {
+                "success": False,
+                "path": file_path,
+                "message": f"File '{file_path}' does not exist.",
+                "changed": False,
+                "diff": diff_text,
+            }
         with open(file_path, "r", encoding="utf-8") as f:
             original = f.read()
         if snippet not in original:
             return {
-                "error": f"Snippet not found in file '{file_path}'.",
+                "success": False,
+                "path": file_path,
+                "message": f"Snippet not found in file '{file_path}'.",
+                "changed": False,
                 "diff": diff_text,
             }
         modified = original.replace(snippet, "")
@@ -317,7 +326,13 @@ def _delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+            res = {
+                "success": False,
+                "path": file_path,
+                "message": f"File '{file_path}' does not exist.",
+                "changed": False,
+                "diff": "",
+            }
         else:
             with open(file_path, "r", encoding="utf-8") as f:
                 original = f.read()
@@ -340,7 +355,13 @@ def _delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
             }
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
+        res = {
+            "success": False,
+            "path": file_path,
+            "message": str(exc),
+            "changed": False,
+            "diff": "",
+        }
     _print_diff(res.get("diff", ""))
     return res
 

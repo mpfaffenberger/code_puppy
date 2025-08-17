@@ -33,6 +33,6 @@ def test_list_files_get_file_icon_full_coverage():
         patch("os.path.getsize", return_value=420),
     ):
         results = list_files(None, directory="/repo")
-        paths = set(f["path"] for f in results)
+        paths = set(f.path for f in results.files)
         for p in all_types:
             assert p in paths

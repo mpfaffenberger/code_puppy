@@ -164,21 +164,19 @@ def run_shell_command(
 
 class ReasoningOutput(BaseModel):
     success: bool = True
-    reasoning: str = ""
-    next_steps: str = ""
 
 
 def share_your_reasoning(
-    context: RunContext, reasoning: str, next_steps: str = None
+    context: RunContext, reasoning: str, next_steps: str | None = None
 ) -> ReasoningOutput:
     console.print("\n[bold white on purple] AGENT REASONING [/bold white on purple]")
     console.print("[bold cyan]Current reasoning:[/bold cyan]")
     console.print(Markdown(reasoning))
-    if next_steps and next_steps.strip():
+    if next_steps is not None and next_steps.strip():
         console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
         console.print(Markdown(next_steps))
     console.print("[dim]" + "-" * 60 + "[/dim]\n")
-    return ReasoningOutput(**{"success": True, "reasoning": reasoning, "next_steps": next_steps})
+    return ReasoningOutput(**{"success": True})
 
 
 def register_command_runner_tools(agent):
@@ -190,6 +188,6 @@ def register_command_runner_tools(agent):
 
     @agent.tool
     def agent_share_your_reasoning(
-        context: RunContext, reasoning: str, next_steps: str = None
+        context: RunContext, reasoning: str, next_steps: str | None = None
     ) -> ReasoningOutput:
         return share_your_reasoning(context, reasoning, next_steps)

@@ -41,11 +41,11 @@ def _list_files(
             f"[bold red]Error:[/bold red] Directory '{directory}' does not exist"
         )
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
-        return ListFileOutput(files=[ListedFile(**{"error": f"Directory '{directory}' does not exist"})])
+        return ListFileOutput(files=[ListedFile(path=None, type=None, full_path=None, depth=None)])
     if not os.path.isdir(directory):
         console.print(f"[bold red]Error:[/bold red] '{directory}' is not a directory")
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
-        return ListFileOutput(files=[ListedFile(**{"error": f"'{directory}' is not a directory"})])
+        return ListFileOutput(files=[ListedFile(path=None, type=None, full_path=None, depth=None)])
     folder_structure = {}
     file_list = []
     for root, dirs, files in os.walk(directory):
@@ -266,22 +266,26 @@ def _grep(
             f"[green]Found {len(matches)} match(es) for '{search_string}' in {directory}[/green]"
         )
 
-    return GrepOutput(matches=[])
+    return GrepOutput(matches=matches)
+
+
+def list_files(
+    context: RunContext, directory: str = ".", recursive: bool = True
+) -> ListFileOutput:
+    return _list_files(context, directory, recursive)
+
+
+def read_file(context: RunContext, file_path: str = "") -> ReadFileOutput:
+    return _read_file(context, file_path)
+
+
+def grep(
+    context: RunContext, search_string: str = "", directory: str = "."
+) -> GrepOutput:
+    return _grep(context, search_string, directory)
 
 
 def register_file_operations_tools(agent):
-    @agent.tool
-    def list_files(
-        context: RunContext, directory: str = ".", recursive: bool = True
-    ) -> ListFileOutput:
-        return _list_files(context, directory, recursive)
-
-    @agent.tool
-    def read_file(context: RunContext, file_path: str = "") -> ReadFileOutput:
-        return _read_file(context, file_path)
-
-    @agent.tool
-    def grep(
-        context: RunContext, search_string: str = "", directory: str = "."
-    ) -> GrepOutput:
-        return _grep(context, search_string, directory)
+    agent.tool(list_files)
+    agent.tool(read_file)
+    agent.tool(grep)

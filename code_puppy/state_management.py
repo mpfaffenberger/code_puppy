@@ -1,6 +1,7 @@
 from typing import Any, List
 
 from code_puppy.tools.common import console
+from code_puppy.message_history_processor import message_history_processor
 
 _message_history: List[Any] = []
 
@@ -35,8 +36,19 @@ def hash_message(message):
 
 
 def message_history_accumulator(messages: List[Any]):
+    global _message_history
+    
     message_history_hashes = set([hash_message(m) for m in _message_history])
     for msg in messages:
         if hash_message(msg) not in message_history_hashes:
             _message_history.append(msg)
-    return messages
+    
+    # Apply message history trimming using the main processor
+    # This ensures we maintain global state while still managing context limits
+    trimmed_messages = message_history_processor(_message_history)
+    
+    # Update our global state with the trimmed version
+    # This preserves the state but keeps us within token limits
+    _message_history = trimmed_messages
+    
+    return _message_history
