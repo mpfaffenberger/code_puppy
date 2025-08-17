@@ -378,7 +378,9 @@ def register_file_modifications_tools(agent):
     """Attach file-editing tools to *agent* with mandatory diff rendering."""
 
     @agent.tool(retries=5)
-    def edit_file(context: RunContext, path: str = "", diff: str = "") -> EditFileOutput:
+    def edit_file(
+        context: RunContext, path: str = "", diff: str = ""
+    ) -> EditFileOutput:
         return EditFileOutput(**_edit_file(context, path, diff))
 
     @agent.tool(retries=5)

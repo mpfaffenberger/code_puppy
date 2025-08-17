@@ -1,9 +1,7 @@
 import os
 from pathlib import Path
 
-import pydantic
 from pydantic_ai import Agent
-from pydantic_ai.mcp import MCPServerSSE
 
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.common import console
@@ -33,7 +31,7 @@ def reload_summarization_agent():
         else Path(__file__).parent / "models.json"
     )
     model = ModelFactory.get_model(model_name, ModelFactory.load_config(models_path))
-    
+
     # Specialized instructions for summarization
     instructions = """You are a message summarization expert. Your task is to summarize conversation messages 
 while preserving important context and information. The summaries should be concise but capture the essential 
@@ -51,7 +49,7 @@ When summarizing:
         model=model,
         instructions=instructions,
         output_type=str,
-        retries=1  # Fewer retries for summarization
+        retries=1,  # Fewer retries for summarization
     )
     _summarization_agent = agent
     _LAST_MODEL_NAME = model_name

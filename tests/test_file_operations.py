@@ -84,7 +84,8 @@ class TestListFiles:
             patch("os.path.abspath", return_value=fake_dir),
             patch("os.path.relpath", side_effect=mock_relpath),
             patch(
-                "code_puppy.tools.file_operations.should_ignore_path", return_value=False
+                "code_puppy.tools.file_operations.should_ignore_path",
+                return_value=False,
             ),
             patch("os.path.getsize", return_value=100),
         ):

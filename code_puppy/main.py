@@ -193,13 +193,13 @@ async def interactive_mode(history_file_path: str) -> None:
             try:
                 prettier_code_blocks()
                 local_cancelled = False
+
                 async def run_agent_task():
                     try:
                         agent = get_code_generation_agent()
                         async with agent.run_mcp_servers():
                             return await agent.run(
-                                task,
-                                message_history=get_message_history()
+                                task, message_history=get_message_history()
                             )
                     except Exception as e:
                         console.log("Task failed", e)
@@ -214,9 +214,7 @@ async def interactive_mode(history_file_path: str) -> None:
                     nonlocal local_cancelled
                     if not agent_task.done():
                         set_message_history(
-                            message_history_processor(
-                                get_message_history()
-                            )
+                            message_history_processor(get_message_history())
                         )
                         agent_task.cancel()
                         local_cancelled = True
