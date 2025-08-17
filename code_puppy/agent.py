@@ -21,7 +21,7 @@ from code_puppy.tools.common import console
 MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH", None)
 
 # Puppy rules loader
-PUPPY_RULES_PATH = Path(".puppy_rules")
+PUPPY_RULES_PATH = Path("AGENT.md")
 PUPPY_RULES = None
 
 

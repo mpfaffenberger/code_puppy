@@ -61,14 +61,16 @@ def test_delete_snippet_no_file(tmp_path):
     res = file_modifications._delete_snippet_from_file(
         None, str(path), "does not matter"
     )
-    assert "error" in res
+    assert not res["success"]
+    assert "does not exist" in res["message"]
 
 
 def test_delete_snippet_not_found(tmp_path):
     path = tmp_path / "g.txt"
     path.write_text("i am loyal.")
     res = file_modifications._delete_snippet_from_file(None, str(path), "NEVER here!")
-    assert "error" in res
+    assert not res["success"]
+    assert "Snippet not found" in res["message"]
 
 
 class DummyContext:
@@ -370,8 +372,8 @@ class TestRegisterFileModificationsTools:
 
         result = file_modifications._delete_file(context, file_path_str)
 
-        assert "error" in result
-        assert result["error"] == f"File '{file_path_str}' does not exist."
+        assert not result["success"]
+        assert result["message"] == f"File '{file_path_str}' does not exist."
         assert result["diff"] == ""
 
 
@@ -394,6 +396,9 @@ class TestEditFileTool:
 
         mock_internal_delete.return_value = {
             "success": True,
+            "path": str(tmp_path / "file.txt"),
+            "message": "Snippet deleted from file.",
+            "changed": True,
             "diff": "delete_diff_via_edit",
         }
         context = DummyContext()
@@ -405,7 +410,7 @@ class TestEditFileTool:
         mock_internal_delete.assert_called_once_with(
             context, file_path, "text_to_remove"
         )
-        assert result["success"]
+        assert result.success
 
     @patch(f"{file_modifications.__name__}._replace_in_file")
     def test_edit_file_routes_to_replace_in_file(self, mock_internal_replace, tmp_path):
@@ -414,6 +419,9 @@ class TestEditFileTool:
         replacements_payload = [{"old_str": "old", "new_str": "new"}]
         mock_internal_replace.return_value = {
             "success": True,
+            "path": str(tmp_path / "file.txt"),
+            "message": "Replacements applied.",
+            "changed": True,
             "diff": "replace_diff_via_edit",
         }
         context = DummyContext()
@@ -424,7 +432,7 @@ class TestEditFileTool:
         mock_internal_replace.assert_called_once_with(
             context, file_path, replacements_payload
         )
-        assert result["success"]
+        assert result.success
 
     @patch(f"{file_modifications.__name__}._write_to_file")
     @patch(
