@@ -42,15 +42,17 @@ def build_httpx_proxy(proxy):
     """Build an httpx.Proxy object from a proxy string in format ip:port:username:password"""
     proxy_tokens = proxy.split(":")
     if len(proxy_tokens) != 4:
-        raise ValueError(f"Invalid proxy format: {proxy}. Expected format: ip:port:username:password")
-    
+        raise ValueError(
+            f"Invalid proxy format: {proxy}. Expected format: ip:port:username:password"
+        )
+
     ip, port, username, password = proxy_tokens
     proxy_url = f"http://{ip}:{port}"
     proxy_auth = (username, password)
-    
+
     # Log the proxy being used
     console.log(f"Using proxy: {proxy_url} with username: {username}")
-    
+
     return httpx.Proxy(url=proxy_url, auth=proxy_auth)
 
 
@@ -58,18 +60,22 @@ def get_random_proxy_from_file(file_path):
     """Reads proxy file and returns a random proxy formatted for httpx.AsyncClient"""
     if not os.path.exists(file_path):
         raise ValueError(f"Proxy file '{file_path}' not found.")
-    
+
     with open(file_path, "r") as f:
         proxies = [line.strip() for line in f.readlines() if line.strip()]
-    
+
     if not proxies:
-        raise ValueError(f"Proxy file '{file_path}' is empty or contains only whitespace.")
-    
+        raise ValueError(
+            f"Proxy file '{file_path}' is empty or contains only whitespace."
+        )
+
     selected_proxy = random.choice(proxies)
     try:
         return build_httpx_proxy(selected_proxy)
-    except ValueError as e:
-        console.log(f"Warning: Malformed proxy '{selected_proxy}' found in file '{file_path}', ignoring and continuing without proxy.")
+    except ValueError:
+        console.log(
+            f"Warning: Malformed proxy '{selected_proxy}' found in file '{file_path}', ignoring and continuing without proxy."
+        )
         return None
 
 
@@ -147,13 +153,13 @@ class ModelFactory:
 
         elif model_type == "custom_anthropic":
             url, headers, ca_certs_path, api_key = get_custom_config(model_config)
-            
+
             # Check for proxy configuration
             proxy_file_path = os.environ.get("CODE_PUPPY_PROXIES")
             proxy = None
             if proxy_file_path:
                 proxy = get_random_proxy_from_file(proxy_file_path)
-            
+
             # Only pass proxy to client if it's valid
             client_args = {"headers": headers, "verify": ca_certs_path}
             if proxy is not None:
@@ -223,13 +229,13 @@ class ModelFactory:
 
         elif model_type == "custom_openai":
             url, headers, ca_certs_path, api_key = get_custom_config(model_config)
-            
+
             # Check for proxy configuration
             proxy_file_path = os.environ.get("CODE_PUPPY_PROXIES")
             proxy = None
             if proxy_file_path:
                 proxy = get_random_proxy_from_file(proxy_file_path)
-            
+
             # Only pass proxy to client if it's valid
             client_args = {"headers": headers, "verify": ca_certs_path}
             if proxy is not None:

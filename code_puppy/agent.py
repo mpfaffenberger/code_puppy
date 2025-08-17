@@ -79,7 +79,7 @@ def reload_code_generation_agent():
         instructions=instructions,
         output_type=str,
         retries=3,
-        history_processors=[message_history_accumulator]
+        history_processors=[message_history_accumulator],
     )
     register_all_tools(agent)
     _code_generation_agent = agent

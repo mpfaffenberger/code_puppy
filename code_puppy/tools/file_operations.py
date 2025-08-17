@@ -1,9 +1,9 @@
 # file_operations.py
 
 import os
-from typing import Any, Dict, List
+from typing import List
 
-from pydantic import BaseModel, StrictStr, StrictInt
+from pydantic import BaseModel
 from pydantic_ai import RunContext
 
 from code_puppy.tools.common import console
@@ -41,11 +41,15 @@ def _list_files(
             f"[bold red]Error:[/bold red] Directory '{directory}' does not exist"
         )
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
-        return ListFileOutput(files=[ListedFile(path=None, type=None, full_path=None, depth=None)])
+        return ListFileOutput(
+            files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
+        )
     if not os.path.isdir(directory):
         console.print(f"[bold red]Error:[/bold red] '{directory}' is not a directory")
         console.print("[dim]" + "-" * 60 + "[/dim]\n")
-        return ListFileOutput(files=[ListedFile(path=None, type=None, full_path=None, depth=None)])
+        return ListFileOutput(
+            files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
+        )
     folder_structure = {}
     file_list = []
     for root, dirs, files in os.walk(directory):
@@ -57,13 +61,15 @@ def _list_files(
         if rel_path:
             dir_path = os.path.join(directory, rel_path)
             results.append(
-                ListedFile(**{
-                    "path": rel_path,
-                    "type": "directory",
-                    "size": 0,
-                    "full_path": dir_path,
-                    "depth": depth,
-                })
+                ListedFile(
+                    **{
+                        "path": rel_path,
+                        "type": "directory",
+                        "size": 0,
+                        "full_path": dir_path,
+                        "depth": depth,
+                    }
+                )
             )
             folder_structure[rel_path] = {
                 "path": rel_path,
@@ -131,9 +137,7 @@ def _list_files(
             return "\U0001f4c4"
 
     if results:
-        files = sorted(
-            [f for f in results if f.type == "file"], key=lambda x: x.path
-        )
+        files = sorted([f for f in results if f.type == "file"], key=lambda x: x.path)
         console.print(
             f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]"
         )
@@ -177,6 +181,7 @@ def _list_files(
 class ReadFileOutput(BaseModel):
     content: str | None
 
+
 def _read_file(context: RunContext, file_path: str) -> ReadFileOutput:
     file_path = os.path.abspath(file_path)
     console.print(
@@ -191,7 +196,7 @@ def _read_file(context: RunContext, file_path: str) -> ReadFileOutput:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
         return ReadFileOutput(content=content)
-    except Exception as exc:
+    except Exception:
         return ReadFileOutput(content="FILE NOT FOUND")
 
 
@@ -200,12 +205,12 @@ class MatchInfo(BaseModel):
     line_number: int | None
     line_content: str | None
 
+
 class GrepOutput(BaseModel):
     matches: List[MatchInfo]
 
-def _grep(
-    context: RunContext, search_string: str, directory: str = "."
-) -> GrepOutput:
+
+def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     matches: List[MatchInfo] = []
     directory = os.path.abspath(directory)
     console.print(
@@ -229,11 +234,13 @@ def _grep(
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
                     for line_number, line_content in enumerate(fh, 1):
                         if search_string in line_content:
-                            match_info = MatchInfo(**{
-                                "file_path": file_path,
-                                "line_number": line_number,
-                                "line_content": line_content.strip(),
-                            })
+                            match_info = MatchInfo(
+                                **{
+                                    "file_path": file_path,
+                                    "line_number": line_number,
+                                    "line_content": line_content.strip(),
+                                }
+                            )
                             matches.append(match_info)
                             # console.print(
                             #     f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}"
