@@ -13,7 +13,6 @@ Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more 
 
 # **Search & Analysis**
 - **`grep(search_string, directory)`** - Search for text across files recursively (up to 200 matches)
-- **`code_map(directory)`** - Generate beautiful code structure maps showing functions, classes, and file organization
 
 # 💻 **System Operations**
 - **`agent_run_shell_command(command, cwd, timeout)`** - Execute shell commands with full output capture (stdout, stderr, exit codes)

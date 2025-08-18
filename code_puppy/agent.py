@@ -15,7 +15,6 @@ from code_puppy.messaging.message_queue import (
     emit_system_message,
 )
 from code_puppy.model_factory import ModelFactory
-from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
 
 from .http_utils import create_reopenable_async_client
@@ -54,17 +53,6 @@ class AgentResponse(pydantic.BaseModel):
 # --- NEW DYNAMIC AGENT LOGIC ---
 _LAST_MODEL_NAME = None
 _code_generation_agent = None
-_session_memory = None
-
-
-def session_memory():
-    """
-    Returns a singleton SessionMemory instance to allow agent and tools to persist and recall context/history.
-    """
-    global _session_memory
-    if _session_memory is None:
-        _session_memory = SessionMemory()
-    return _session_memory
 
 
 def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
@@ -173,7 +161,6 @@ def reload_code_generation_agent():
     max_tokens = get_max_tokens()
     if max_tokens is not None:
         model_settings_dict["max_tokens"] = max_tokens
-        emit_info(f"[cyan]Using max_tokens: {max_tokens}[/cyan]")
 
     model_settings = ModelSettings(**model_settings_dict)
     agent = Agent(
@@ -188,11 +175,6 @@ def reload_code_generation_agent():
     register_all_tools(agent)
     _code_generation_agent = agent
     _LAST_MODEL_NAME = model_name
-    # NEW: Log session event
-    try:
-        session_memory().log_task(f"Agent loaded with model: {model_name}")
-    except Exception:
-        pass
     return _code_generation_agent
 
 

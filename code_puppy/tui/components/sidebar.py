@@ -181,7 +181,6 @@ class Sidebar(Container):
             # Filter out CLI-specific commands that aren't relevant for TUI
             cli_commands = {
                 "/help",
-                "/codemap",
                 "/exit",
                 "/m",
                 "/motd",

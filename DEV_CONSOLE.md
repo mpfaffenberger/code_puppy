@@ -9,7 +9,7 @@ Woof! Here's the scoop on built-in dev-console `/` commands and exactly how you 
 | `/cd [dir]`         | Show directory listing or change working directory       |
 | `/show`             | Show puppy/owner/model status and metadata              |
 | `/m <model>`        | Switch the active code model for the agent              |
-| `/codemap [dir]`    | Visualize the project's code structure/tree             |
+
 | `/set KEY=VALUE`    | Set a puppy.cfg setting!                                |
 | `/help` or `/h`     | Show available commands                                  |
 | any unknown `/...`  | Warn user about unknown command and (for plain `/`)     |

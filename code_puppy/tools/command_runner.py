@@ -1,15 +1,15 @@
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 import traceback
-import uuid
-from typing import Any, Dict
+from typing import Set
 
+from pydantic import BaseModel
 from pydantic_ai import RunContext
 from rich.markdown import Markdown
-from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy.messaging import (
@@ -21,12 +21,104 @@ from code_puppy.messaging import (
 )
 from code_puppy.state_management import is_tui_mode
 
-# Flag to indicate if we need user input - this will be checked by interactive mode
-# to determine if spinner should be shown
 _AWAITING_USER_INPUT = False
 
-# Lock to ensure only one command can request confirmation at a time
 _CONFIRMATION_LOCK = threading.Lock()
+
+# Track running shell processes so we can kill them on Ctrl-C from the UI
+_RUNNING_PROCESSES: Set[subprocess.Popen] = set()
+_RUNNING_PROCESSES_LOCK = threading.Lock()
+_USER_KILLED_PROCESSES = set()
+
+
+def _register_process(proc: subprocess.Popen) -> None:
+    with _RUNNING_PROCESSES_LOCK:
+        _RUNNING_PROCESSES.add(proc)
+
+
+def _unregister_process(proc: subprocess.Popen) -> None:
+    with _RUNNING_PROCESSES_LOCK:
+        _RUNNING_PROCESSES.discard(proc)
+
+
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    """Attempt to aggressively terminate a process and its group.
+
+    Cross-platform best-effort. On POSIX, uses process groups. On Windows, tries CTRL_BREAK_EVENT, then terminate().
+    """
+    try:
+        if sys.platform.startswith("win"):
+            try:
+                # Try a soft break first if the group exists
+                proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+                time.sleep(0.8)
+            except Exception:
+                pass
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                    time.sleep(0.8)
+                except Exception:
+                    pass
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            return
+
+        # POSIX
+        pid = proc.pid
+        try:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGTERM)
+            time.sleep(1.0)
+            if proc.poll() is None:
+                os.killpg(pgid, signal.SIGINT)
+                time.sleep(0.6)
+            if proc.poll() is None:
+                os.killpg(pgid, signal.SIGKILL)
+                time.sleep(0.5)
+        except (OSError, ProcessLookupError):
+            # Fall back to direct kill of the process
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+            except (OSError, ProcessLookupError):
+                pass
+
+        if proc.poll() is None:
+            # Last ditch attempt; may be unkillable zombie
+            try:
+                for _ in range(3):
+                    os.kill(proc.pid, signal.SIGKILL)
+                    time.sleep(0.2)
+                    if proc.poll() is not None:
+                        break
+            except Exception:
+                pass
+    except Exception as e:
+        emit_error(f"Kill process error: {e}")
+
+
+def kill_all_running_shell_processes() -> int:
+    """Kill all currently tracked running shell processes.
+
+    Returns the number of processes signaled.
+    """
+    procs: list[subprocess.Popen]
+    with _RUNNING_PROCESSES_LOCK:
+        procs = list(_RUNNING_PROCESSES)
+    count = 0
+    for p in procs:
+        try:
+            if p.poll() is None:
+                _kill_process_group(p)
+                count += 1
+                _USER_KILLED_PROCESSES.add(p.pid)
+        finally:
+            _unregister_process(p)
+    return count
 
 
 # Function to check if user input is awaited
@@ -45,179 +137,80 @@ def set_awaiting_user_input(awaiting=True):
     # When we're setting this flag, also pause/resume all active spinners
     if awaiting:
         # Pause all active spinners (imported here to avoid circular imports)
-        from code_puppy.messaging.spinner import pause_all_spinners
+        try:
+            from code_puppy.messaging.spinner import pause_all_spinners
 
-        pause_all_spinners()
+            pause_all_spinners()
+        except ImportError:
+            pass  # Spinner functionality not available
     else:
         # Resume all active spinners
-        from code_puppy.messaging.spinner import resume_all_spinners
+        try:
+            from code_puppy.messaging.spinner import resume_all_spinners
 
-        resume_all_spinners()
+            resume_all_spinners()
+        except ImportError:
+            pass  # Spinner functionality not available
+
+
+class ShellCommandOutput(BaseModel):
+    success: bool
+    command: str | None
+    error: str | None = ""
+    stdout: str | None
+    stderr: str | None
+    exit_code: int | None
+    execution_time: float | None
+    timeout: bool | None = False
+    user_interrupted: bool | None = False
 
 
 def run_shell_command_streaming(
-    process: subprocess.Popen,
-    timeout: int = 60,
-    command: str = "",
-) -> Dict[str, Any]:
-    """
-    Execute a subprocess with real-time output streaming and dual timeout protection.
-
-    Features:
-    1. Real-time output streaming as lines are produced
-    2. Inactivity timeout: Kill after N seconds of no output
-    3. Absolute timeout: Kill after 4m30s total (prevents TCP timeouts)
-    4. Separate handling of stdout and stderr
-    5. Proper process and thread cleanup on timeout
-
-    Args:
-        process: Already created subprocess.Popen object
-        timeout: Kill after this many seconds of no output (inactivity timeout)
-        command: Command string for logging purposes
-
-    Returns:
-        Dict with success, stdout, stderr, exit_code, etc.
-    """
+    process: subprocess.Popen, timeout: int = 60, command: str = ""
+):
     start_time = time.time()
-    last_output_time = [start_time]  # Use list for mutable reference in threads
+    last_output_time = [start_time]
 
-    # Absolute timeout: 4 minutes 30 seconds to prevent TCP timeouts
     ABSOLUTE_TIMEOUT_SECONDS = 270
 
     stdout_lines = []
     stderr_lines = []
-    command_shown = [False]  # Track if we've shown the command yet
 
-    # Generate a unique group ID for all streaming output to group messages in TUI mode
-    group_id = uuid.uuid4().hex
-
-    # Track threads for proper cleanup
     stdout_thread = None
     stderr_thread = None
 
-    def emit_real_time_output(line: str, is_stderr: bool = False):
-        """Emit output in real-time with Rich formatting."""
-        if line.strip():
-            # Show command header only on first output
-            if not command_shown[0] and not is_tui_mode():
-                emit_info(
-                    f"[bold green]$ {command}[/bold green]", message_group=group_id
-                )
-                command_shown[0] = True
-
-            # Format output with syntax highlighting
-            syntax_output = Syntax(
-                line, "bash", theme="monokai", background_color="default"
-            )
-            emit_system_message(syntax_output, command=command, message_group=group_id)
-
     def read_stdout():
-        """Thread function to read stdout line by line."""
-        from code_puppy.state_management import is_tui_mode
-
         try:
             for line in iter(process.stdout.readline, ""):
                 if line:
-                    if not is_tui_mode():
-                        line = line.rstrip("\n\r")
+                    line = line.rstrip("\n\r")
                     stdout_lines.append(line)
-                    emit_real_time_output(line, is_stderr=False)
+                    emit_system_message(line)
                     last_output_time[0] = time.time()
         except Exception:
-            pass  # Process might be killed/closed
+            pass
 
     def read_stderr():
-        """Thread function to read stderr line by line."""
         try:
             for line in iter(process.stderr.readline, ""):
                 if line:
                     line = line.rstrip("\n\r")
                     stderr_lines.append(line)
-                    emit_real_time_output(line, is_stderr=True)
+                    emit_system_message(line)
                     last_output_time[0] = time.time()
         except Exception:
-            pass  # Process might be killed/closed
+            pass
 
     def cleanup_process_and_threads(timeout_type: str = "unknown"):
-        """Aggressively cleanup process and threads - kill with extreme prejudice."""
         nonlocal stdout_thread, stderr_thread
 
         def nuclear_kill(proc):
-            """Nuclear option: kill process group with escalating force."""
-            pid = proc.pid
-
-            # Step 1: Try to kill the entire process group (gets child processes too)
-            try:
-                # Get process group ID
-                pgid = os.getpgid(pid)
-                emit_warning(f"💀 Attempting to kill process group {pgid} (PID {pid})")
-
-                # Kill entire process group with SIGTERM first
-                os.killpg(pgid, signal.SIGTERM)
-                time.sleep(1.5)
-
-                # Check if main process is still alive
-                if proc.poll() is None:
-                    emit_warning("⚡ SIGTERM failed, escalating to SIGINT")
-                    os.killpg(pgid, signal.SIGINT)
-                    time.sleep(1.0)
-
-                # Still alive? Time for the nuclear option
-                if proc.poll() is None:
-                    emit_warning("💥 SIGINT failed, going nuclear with SIGKILL")
-                    os.killpg(pgid, signal.SIGKILL)
-                    time.sleep(1.0)
-
-                # Final check - if it's STILL alive, try individual process kill
-                if proc.poll() is None:
-                    emit_warning(
-                        "🔥 Process group kill failed, targeting individual process"
-                    )
-                    proc.kill()  # Direct SIGKILL to main process
-                    time.sleep(0.5)
-
-            except (OSError, ProcessLookupError):
-                # Process/group might already be dead - try individual kill as backup
-                try:
-                    if proc.poll() is None:
-                        proc.kill()
-                        time.sleep(0.5)
-                except (OSError, ProcessLookupError):
-                    pass  # Really dead now
-
-            # Platform-specific nuclear options for REALLY stubborn processes
-            if proc.poll() is None:
-                try:
-                    emit_warning(
-                        f"☢️  DEFCON 1: Process {pid} refuses to die, trying platform-specific nuclear options"
-                    )
-
-                    # On Unix systems, try sending SIGKILL multiple times
-                    for i in range(3):
-                        try:
-                            os.kill(pid, signal.SIGKILL)
-                            time.sleep(0.2)
-                            if proc.poll() is not None:
-                                break
-                        except (OSError, ProcessLookupError):
-                            break
-
-                    # If STILL alive, try the most aggressive approach
-                    if proc.poll() is None:
-                        emit_error(
-                            f"🚨 CRITICAL: Process {pid} is UNKILLABLE! This should not happen!"
-                        )
-                        # At this point we just have to give up and let the OS deal with it
-
-                except Exception as e:
-                    emit_warning(f"Nuclear kill attempt failed: {e}")
+            _kill_process_group(proc)
 
         try:
-            # Step 1: Aggressive process termination
-            if process.poll() is None:  # Process still running
+            if process.poll() is None:
                 nuclear_kill(process)
 
-            # Step 2: Close pipes to unblock reader threads
             try:
                 if process.stdout and not process.stdout.closed:
                     process.stdout.close()
@@ -226,13 +219,14 @@ def run_shell_command_streaming(
                 if process.stdin and not process.stdin.closed:
                     process.stdin.close()
             except (OSError, ValueError):
-                pass  # Pipes might already be closed
+                pass
 
-            # Step 3: Wait for threads to finish (with longer timeout since pipes are closed)
+            # Unregister once we're done cleaning up
+            _unregister_process(process)
+
             if stdout_thread and stdout_thread.is_alive():
                 stdout_thread.join(timeout=3)
                 if stdout_thread.is_alive():
-                    # Thread is still alive after pipe closure and timeout - this is unusual
                     emit_warning(
                         f"stdout reader thread failed to terminate after {timeout_type} timeout"
                     )
@@ -248,64 +242,55 @@ def run_shell_command_streaming(
             emit_warning(f"Error during process cleanup: {e}")
 
         execution_time = time.time() - start_time
-        return {
-            "success": False,
-            "command": command,
-            "stdout": "\n".join(stdout_lines[-1000:]),
-            "stderr": "\n".join(stderr_lines[-1000:]),
-            "exit_code": -9,
-            "execution_time": execution_time,
-            "timeout": True,
-            "timeout_type": timeout_type,
-            "error": f"Process timed out ({timeout_type})",
-        }
+        return ShellCommandOutput(
+            **{
+                "success": False,
+                "command": command,
+                "stdout": "\n".join(stdout_lines[-1000:]),
+                "stderr": "\n".join(stderr_lines[-1000:]),
+                "exit_code": -9,
+                "execution_time": execution_time,
+                "timeout": True,
+                "error": f"Command timed out after {timeout} seconds",
+            }
+        )
 
     try:
-        # Start reader threads for real-time output (keep as daemon for safety)
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
         stderr_thread = threading.Thread(target=read_stderr, daemon=True)
 
         stdout_thread.start()
         stderr_thread.start()
 
-        # Monitor process: check for inactivity and absolute (wall) timeout
         while process.poll() is None:
             current_time = time.time()
 
-            # Absolute timeout
             if current_time - start_time > ABSOLUTE_TIMEOUT_SECONDS:
                 error_msg = Text()
                 error_msg.append(
-                    "⏰ Process killed: absolute timeout reached ", style="bold red"
+                    "Process killed: inactivity timeout reached", style="bold red"
                 )
-                error_msg.append(
-                    f"({ABSOLUTE_TIMEOUT_SECONDS}s total)", style="bold red"
-                )
-                emit_error(error_msg, message_group=group_id)
+                emit_error(error_msg)
                 return cleanup_process_and_threads("absolute")
 
-            # Inactivity timeout
             if current_time - last_output_time[0] > timeout:
                 error_msg = Text()
                 error_msg.append(
-                    "⏰ Process killed: inactivity timeout reached ", style="bold red"
+                    "Process killed: inactivity timeout reached", style="bold red"
                 )
-                error_msg.append(f"({timeout}s no output)", style="bold red")
-                emit_error(error_msg, message_group=group_id)
+                emit_error(error_msg)
                 return cleanup_process_and_threads("inactivity")
 
-            time.sleep(0.1)  # Don't go brrr
+            time.sleep(0.1)
 
-        # Process completed normally - wait for output threads to drain
         if stdout_thread:
-            stdout_thread.join(timeout=5)  # Increase timeout for normal completion
+            stdout_thread.join(timeout=5)
         if stderr_thread:
             stderr_thread.join(timeout=5)
 
         exit_code = process.returncode
         execution_time = time.time() - start_time
 
-        # Clean up process resources
         try:
             if process.stdout and not process.stdout.closed:
                 process.stdout.close()
@@ -314,154 +299,121 @@ def run_shell_command_streaming(
             if process.stdin and not process.stdin.closed:
                 process.stdin.close()
         except (OSError, ValueError):
-            pass  # Already closed
+            pass
 
-        # Show execution summary
+        _unregister_process(process)
+
         if exit_code != 0:
-            error_msg = Text()
-            error_msg.append("✗ Command failed with exit code ", style="bold red")
-            error_msg.append(str(exit_code))
-            error_msg.append(f" (took {execution_time:.2f}s)", style="dim")
-            emit_error(error_msg, message_group=group_id)
-        return {
-            "success": exit_code == 0,
-            "command": command,
-            "stdout": "\n".join(stdout_lines[-1000:]),
-            "stderr": "\n".join(stderr_lines[-1000:]),
-            "exit_code": exit_code,
-            "execution_time": execution_time,
-            "timeout": False,
-        }
+            emit_error(f"Command failed with exit code {exit_code}")
+            emit_info(f"Took {execution_time:.2f}s")
+            time.sleep(1)
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error="""The process didn't exit cleanly! If the user_interrupted flag is true,
+                please stop all execution and ask the user for clarification!""",
+                stdout="\n".join(stdout_lines[-1000:]),
+                stderr="\n".join(stderr_lines[-1000:]),
+                exit_code=exit_code,
+                execution_time=execution_time,
+                timeout=False,
+                user_interrupted=process.pid in _USER_KILLED_PROCESSES,
+            )
+        return ShellCommandOutput(
+            success=exit_code == 0,
+            command=command,
+            stdout="\n".join(stdout_lines[-1000:]),
+            stderr="\n".join(stderr_lines[-1000:]),
+            exit_code=exit_code,
+            execution_time=execution_time,
+            timeout=False,
+        )
 
     except Exception as e:
-        return {
-            "success": False,
-            "command": command,
-            "error": f"Error during streaming execution: {str(e)}",
-            "stdout": "\n".join(stdout_lines[-1000:]),
-            "stderr": "\n".join(stderr_lines[-1000:]),
-            "exit_code": -1,
-            "timeout": False,
-        }
+        return ShellCommandOutput(
+            success=False,
+            command=command,
+            error=f"Error during streaming execution: {str(e)}",
+            stdout="\n".join(stdout_lines[-1000:]),
+            stderr="\n".join(stderr_lines[-1000:]),
+            exit_code=-1,
+            timeout=False,
+        )
 
 
 def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
-) -> Dict[str, Any]:
-    # Flag to track if we've already displayed the command
+) -> ShellCommandOutput:
     command_displayed = False
     if not command or not command.strip():
         emit_error("Command cannot be empty")
-        return {"error": "Command cannot be empty"}
+        return ShellCommandOutput(
+            **{"success": False, "error": "Command cannot be empty"}
+        )
+
+    emit_info(
+        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] 📂 [bold green]$ {command}[/bold green]"
+    )
 
     from code_puppy.config import get_yolo_mode
 
     yolo_mode = get_yolo_mode()
 
-    # Flag to track if we acquired the lock (for thread safety)
     confirmation_lock_acquired = False
 
-    if not yolo_mode:
-        # Acquire lock to ensure only one command can request confirmation at a time
+    # Only ask for confirmation if we're in an interactive TTY and not in yolo mode.
+    if not yolo_mode and sys.stdin.isatty():
         confirmation_lock_acquired = _CONFIRMATION_LOCK.acquire(blocking=False)
         if not confirmation_lock_acquired:
-            # emit_warning("Another command is currently awaiting confirmation. Please respond to that first.")
-            return {
-                "success": False,
-                "command": command,
-                "error": "Another command is currently awaiting confirmation",
-            }
-        # Show command info before asking for confirmation
-        emit_divider()
-        emit_info(
-            f"[bold white on blue]SHELL[/bold white on blue] [bold cyan]$ {command}[/bold cyan]"
-        )
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error="Another command is currently awaiting confirmation",
+            )
 
         command_displayed = True
 
         if cwd:
-            emit_info(f"[dim]Working directory: {cwd}[/dim]")
-        import sys
+            emit_info(f"[dim] Working directory: {cwd} [/dim]")
 
-        # Import here to minimize dependencies
-        from code_puppy.messaging.spinner import ConsoleSpinner
-
-        # Simpler approach to find active spinners
-        active_spinner = None
-        try:
-            # Look for active spinner in the caller's stack frames
-            frame = sys._getframe()
-            while frame:
-                for var_name, var_val in frame.f_locals.items():
-                    if isinstance(var_val, ConsoleSpinner):
-                        active_spinner = var_val
-                        active_spinner.pause()
-                        break
-                if active_spinner:
-                    break
-                frame = frame.f_back
-        except Exception:
-            # Just continue if we can't pause the spinner
-            pass
-
-        # First, set the flag to indicate we're awaiting user input - BEFORE printing anything
-        # This ensures spinners immediately show "waiting" instead of "thinking"
+        # Set the flag to indicate we're awaiting user input
         set_awaiting_user_input(True)
 
-        # Allow a moment for spinners to update their text
         time.sleep(0.2)
-
-        # Print directly to stdout to be more visible and use a custom prompt
-        # that won't be overwritten by the Rich console or spinners
-        sys.stdout.write("👉 Are you sure you want to run this command? (y(es)/n(o))\n")
+        sys.stdout.write("Are you sure you want to run this command? (y(es)/n(o))\n")
         sys.stdout.flush()
 
-        # Get user input
         try:
-            # Need to keep the flag set during input() to prevent spinner display
             user_input = input()
-            # Only clear the flag after we've got the input
             confirmed = user_input.strip().lower() in {"yes", "y"}
-
         except (KeyboardInterrupt, EOFError):
-            emit_warning("\nCancelled by user")
+            emit_warning("\n Cancelled by user")
             confirmed = False
         finally:
             # Clear the flag regardless of the outcome
-            # But wait until *after* we've processed the input
             set_awaiting_user_input(False)
-
-            # Release the lock only if we acquired it
             if confirmation_lock_acquired:
                 _CONFIRMATION_LOCK.release()
 
         if not confirmed:
-            emit_warning("Command execution canceled by user.")
-            # No need to resume spinner if command was canceled
-            result = {
-                "success": False,
-                "command": command,
-                "error": "User canceled command execution",
-            }
-            # Lock release will happen in the finally block
+            result = ShellCommandOutput(
+                success=False, command=command, error="User rejected the command!"
+            )
             return result
-
     else:
-        emit_divider()
-        emit_info(
-            f"[bold white on blue]SHELL[/bold white on blue] [bold cyan]$ {command}[/bold cyan]"
-        )
-
-        command_displayed = True
-
-        if cwd:
-            emit_info(f"[dim]Working directory: {cwd}[/dim]")
-
-    try:
         start_time = time.time()
 
-        # Create process with new process group for better kill control
-        # This ensures child processes can be killed together
+    try:
+        creationflags = 0
+        preexec_fn = None
+        if sys.platform.startswith("win"):
+            try:
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            except Exception:
+                creationflags = 0
+        else:
+            preexec_fn = os.setsid if hasattr(os, "setsid") else None
+
         process = subprocess.Popen(
             command,
             shell=True,
@@ -469,60 +421,64 @@ def run_shell_command(
             stderr=subprocess.PIPE,
             text=True,
             cwd=cwd,
-            bufsize=1,  # Line buffered for better streaming
+            bufsize=1,
             universal_newlines=True,
-            preexec_fn=os.setsid
-            if hasattr(os, "setsid")
-            else None,  # Create new process group on Unix
+            preexec_fn=preexec_fn,
+            creationflags=creationflags,
         )
-        return run_shell_command_streaming(process, timeout=timeout, command=command)
+        _register_process(process)
+        try:
+            return run_shell_command_streaming(
+                process, timeout=timeout, command=command
+            )
+        finally:
+            # Ensure unregistration in case streaming returned early or raised
+            _unregister_process(process)
     except Exception as e:
         emit_error(traceback.format_exc())
-        emit_divider()
-        # Ensure stdout and stderr are always defined
         if "stdout" not in locals():
             stdout = None
         if "stderr" not in locals():
             stderr = None
-        return {
-            "success": False,
-            "command": command,
-            "error": f"Error executing command: {str(e)}",
-            "stdout": stdout[-1000:] if stdout else None,
-            "stderr": stderr[-1000:] if stderr else None,
-            "exit_code": -1,
-            "timeout": False,
-        }
+        return ShellCommandOutput(
+            success=False,
+            command=command,
+            error=f"Error executing command {str(e)}",
+            stdout="\n".join(stdout[-1000:]) if stdout else None,
+            stderr="\n".join(stderr[-1000:]) if stderr else None,
+            exit_code=-1,
+            timeout=False,
+        )
+
+
+class ReasoningOutput(BaseModel):
+    success: bool = True
 
 
 def share_your_reasoning(
-    context: RunContext, reasoning: str, next_steps: str = None
-) -> Dict[str, Any]:
-    from code_puppy.messaging import emit_agent_reasoning, emit_planned_next_steps
-
+    context: RunContext, reasoning: str, next_steps: str | None = None
+) -> ReasoningOutput:
     if not is_tui_mode():
         emit_divider()
-        emit_agent_reasoning(
-            "\n[bold white on purple] AGENT REASONING [/bold white on purple]"
-        )
-    emit_agent_reasoning(Markdown(reasoning))
-
-    if next_steps and next_steps.strip():
-        if not is_tui_mode():
-            emit_planned_next_steps("\n[bold purple]PLANNED NEXT STEPS:[/bold purple]")
-        emit_planned_next_steps(Markdown(next_steps))
-    return {"success": True, "reasoning": reasoning, "next_steps": next_steps}
+        emit_info("\n[bold white on purple] AGENT REASONING [/bold white on purple]")
+    emit_info("[bold cyan]Current reasoning:[/bold cyan]")
+    emit_system_message(Markdown(reasoning))
+    if next_steps is not None and next_steps.strip():
+        emit_info("\n[bold cyan]Planned next steps:[/bold cyan]")
+        emit_system_message(Markdown(next_steps))
+    emit_info("[dim]" + "-" * 60 + "[/dim]\n")
+    return ReasoningOutput(**{"success": True})
 
 
 def register_command_runner_tools(agent):
     @agent.tool
     def agent_run_shell_command(
         context: RunContext, command: str, cwd: str = None, timeout: int = 60
-    ) -> Dict[str, Any]:
+    ) -> ShellCommandOutput:
         return run_shell_command(context, command, cwd, timeout)
 
     @agent.tool
     def agent_share_your_reasoning(
-        context: RunContext, reasoning: str, next_steps: str = None
-    ) -> Dict[str, Any]:
+        context: RunContext, reasoning: str, next_steps: str | None = None
+    ) -> ReasoningOutput:
         return share_your_reasoning(context, reasoning, next_steps)

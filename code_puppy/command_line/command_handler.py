@@ -14,7 +14,7 @@ COMMANDS_HELP = """
 [bold magenta]Commands Help[/bold magenta]
 /help, /h             Show this help message
 /cd <dir>             Change directory or show directories
-/codemap <dir>        Show code structure for <dir>
+
 /exit, /quit          Exit interactive mode
 /generate-pr-description [@dir]  Generate comprehensive PR description
 /m <model>            Set active model
@@ -40,21 +40,6 @@ def handle_command(command: str):
 
     if command.strip().startswith("/motd"):
         print_motd(force=True)
-        return True
-
-    # /codemap (code structure visualization)
-    if command.startswith("/codemap"):
-        from code_puppy.tools.ts_code_map import make_code_map
-
-        tokens = command.split()
-        if len(tokens) > 1:
-            target_dir = os.path.expanduser(tokens[1])
-        else:
-            target_dir = os.getcwd()
-        try:
-            make_code_map(target_dir, ignore_tests=True)
-        except Exception as e:
-            emit_error(f"Error generating code map: {e}")
         return True
 
     if command.startswith("/cd"):

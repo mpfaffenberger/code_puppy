@@ -11,12 +11,22 @@ Key guarantees
 from __future__ import annotations
 
 import difflib
+import json
 import os
 import traceback
 from typing import Any, Dict, List
 
 from pydantic import BaseModel
 from pydantic_ai import RunContext
+
+# Add JSON repair functionality
+try:
+    from json_repair import repair_json
+except ImportError:
+    # Fallback if json_repair is not available
+    def repair_json(json_str):
+        return json_str
+
 
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
@@ -41,6 +51,14 @@ class ContentPayload(BaseModel):
 
 
 EditFilePayload = DeleteSnippetPayload | ReplacementsPayload | ContentPayload
+
+
+class EditFileOutput(BaseModel):
+    success: bool | None
+    path: str | None
+    message: str | None
+    changed: bool | None
+    diff: str | None
 
 
 def _print_diff(diff_text: str, message_group: str = None) -> None:
@@ -95,12 +113,21 @@ def _delete_snippet_from_file(
     diff_text = ""
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
+            return {
+                "success": False,
+                "path": file_path,
+                "message": f"File '{file_path}' does not exist.",
+                "changed": False,
+                "diff": diff_text,
+            }
         with open(file_path, "r", encoding="utf-8") as f:
             original = f.read()
         if snippet not in original:
             return {
-                "error": f"Snippet not found in file '{file_path}'.",
+                "success": False,
+                "path": file_path,
+                "message": f"Snippet not found in file '{file_path}'.",
+                "changed": False,
                 "diff": diff_text,
             }
         modified = original.replace(snippet, "")
@@ -123,6 +150,9 @@ def _delete_snippet_from_file(
             "diff": diff_text,
         }
     except Exception as exc:
+        _log_error(
+            "Unhandled exception in delete_snippet_from_file", exc, message_group
+        )
         return {"error": str(exc), "diff": diff_text}
 
 
@@ -243,7 +273,7 @@ def _write_to_file(
         }
 
     except Exception as exc:
-        _log_error("Unhandled exception in write_to_file", exc)
+        _log_error("Unhandled exception in write_to_file", exc, message_group)
         return {"error": str(exc), "diff": ""}
 
 
@@ -322,14 +352,11 @@ def _edit_file(
     ----------
     path : str
         Path to the target file (relative or absolute)
-    diff : str
-        Either:
-            * Raw file content (for file creation)
-            * A JSON string with one of the following shapes:
-                {"content": "full file contents", "overwrite": true}
-                {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
-                {"delete_snippet": "text to remove"}
-    The function auto-detects the payload type and routes to the appropriate internal helper.
+    payload : EditFilePayload
+        A Pydantic payload that's either:
+            * ContentPayload with content and optional overwrite flag
+            * ReplacementsPayload with list of Replacement objects
+            * DeleteSnippetPayload with snippet to delete
     """
     # Generate group_id for this tool execution
     group_id = generate_group_id("edit_file", path)
@@ -389,6 +416,83 @@ def _edit_file(
         }
 
 
+def _edit_file_with_json(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
+    """
+    Unified file editing tool that can:
+    - Create/write a new file when the target does not exist (using raw content or a JSON payload with a "content" key)
+    - Replace text within an existing file via a JSON payload with "replacements" (delegates to internal replace logic)
+    - Delete a snippet from an existing file via a JSON payload with "delete_snippet"
+
+    This version maintains backward compatibility with JSON string inputs while providing
+    the same functionality as the Pydantic version.
+
+    Parameters
+    ----------
+    path : str
+        Path to the target file (relative or absolute)
+    diff : str
+        Either:
+            * Raw file content (for file creation)
+            * A JSON string with one of the following shapes:
+                {"content": "full file contents", "overwrite": true}
+                {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
+                {"delete_snippet": "text to remove"}
+    The function auto-detects the payload type and routes to the appropriate internal helper.
+    """
+    emit_info("\n[bold white on blue] EDIT FILE [/bold white on blue]")
+    file_path = os.path.abspath(path)
+    try:
+        parsed_payload = json.loads(diff)
+    except json.JSONDecodeError:
+        try:
+            emit_warning(
+                "[bold yellow] JSON Parsing Failed! TRYING TO REPAIR! [/bold yellow]"
+            )
+            parsed_payload = json.loads(repair_json(diff))
+            emit_info("[bold white on blue] SUCCESS - WOOF! [/bold white on blue]")
+        except Exception as e:
+            emit_error(f"[bold red] Unable to parse diff [/bold red] -- {str(e)}")
+            return {
+                "success": False,
+                "path": file_path,
+                "message": f"Unable to parse diff JSON -- {str(e)}",
+                "changed": False,
+                "diff": "",
+            }
+    try:
+        if isinstance(parsed_payload, dict):
+            if "delete_snippet" in parsed_payload:
+                snippet = parsed_payload["delete_snippet"]
+                return delete_snippet_from_file(context, file_path, snippet)
+            if "replacements" in parsed_payload:
+                replacements = parsed_payload["replacements"]
+                return replace_in_file(context, file_path, replacements)
+            if "content" in parsed_payload:
+                content = parsed_payload["content"]
+                overwrite = bool(parsed_payload.get("overwrite", False))
+                file_exists = os.path.exists(file_path)
+                if file_exists and not overwrite:
+                    return {
+                        "success": False,
+                        "path": file_path,
+                        "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
+                        "changed": False,
+                    }
+                return write_to_file(context, file_path, content, overwrite)
+        return write_to_file(context, file_path, diff, overwrite=False)
+    except Exception as e:
+        emit_error(
+            "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
+        )
+        emit_error(str(e))
+        return {
+            "success": False,
+            "path": file_path,
+            "message": f"Something went wrong in file editing: {str(e)}",
+            "changed": False,
+        }
+
+
 def _delete_file(
     context: RunContext, file_path: str, message_group: str = None
 ) -> Dict[str, Any]:
@@ -398,7 +502,13 @@ def _delete_file(
     file_path = os.path.abspath(file_path)
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+            res = {
+                "success": False,
+                "path": file_path,
+                "message": f"File '{file_path}' does not exist.",
+                "changed": False,
+                "diff": "",
+            }
         else:
             with open(file_path, "r", encoding="utf-8") as f:
                 original = f.read()
@@ -420,8 +530,14 @@ def _delete_file(
                 "diff": diff_text,
             }
     except Exception as exc:
-        _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
+        _log_error("Unhandled exception in delete_file", exc, message_group)
+        res = {
+            "success": False,
+            "path": file_path,
+            "message": str(exc),
+            "changed": False,
+            "diff": "",
+        }
     _print_diff(res.get("diff", ""), message_group=message_group)
     return res
 
@@ -432,7 +548,7 @@ def register_file_modifications_tools(agent):
     @agent.tool(retries=5)
     def edit_file(
         context: RunContext, file_path: str, payload: EditFilePayload
-    ) -> Dict[str, Any]:
+    ) -> EditFileOutput:
         """
         Agent-facing wrapper around :func:`_edit_file`.
 
@@ -448,13 +564,13 @@ def register_file_modifications_tools(agent):
         result = _edit_file(context, file_path, payload)
         if "diff" in result:
             del result["diff"]
-        return result
+        return EditFileOutput(**result)
 
     @agent.tool(retries=5)
-    def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+    def delete_file(context: RunContext, file_path: str) -> EditFileOutput:
         # Generate group_id for delete_file tool execution
         group_id = generate_group_id("delete_file", file_path)
         result = _delete_file(context, file_path, message_group=group_id)
         if "diff" in result:
             del result["diff"]
-        return result
+        return EditFileOutput(**result)
