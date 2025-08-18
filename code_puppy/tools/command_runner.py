@@ -57,9 +57,6 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
                     proc.kill()
                 except Exception:
                     pass
-            # On Windows, restore terminal state after killing process
-            if hasattr(signal, "CTRL_C_EVENT"):
-                os.kill(proc.pid, signal.CTRL_C_EVENT)
             return
 
         # POSIX
