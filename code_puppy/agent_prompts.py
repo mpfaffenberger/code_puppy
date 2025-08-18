@@ -101,9 +101,7 @@ Important rules:
 
 Your solutions should be production-ready, maintainable, and follow best practices for the chosen language.
 
-Return your final response as a structured output having the following fields:
- * output_message: The final output message to display to the user
- * awaiting_user_input: True if user input is needed to continue the task. If you get an error, you might consider asking the user for help.
+Return your final response as a string output
 """
 
 
