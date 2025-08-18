@@ -25,6 +25,7 @@ class ListedFile(BaseModel):
 
 class ListFileOutput(BaseModel):
     files: List[ListedFile]
+    error: str | None = None
 
 
 def _list_files(
@@ -270,7 +271,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 **{
                                     "file_path": file_path,
                                     "line_number": line_number,
-                                    "line_content": line_content.rstrip("\n\r"),
+                                    "line_content": line_content.rstrip("\n\r")[2048:],
                                 }
                             )
                             matches.append(match_info)
@@ -311,7 +312,15 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 def list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-    return _list_files(context, directory, recursive)
+    list_files_output = _list_files(context, directory, recursive)
+    tokenizer = get_tokenizer()
+    num_tokens = len(tokenizer.encode(list_files_output.model_dump_json()))
+    if num_tokens > 10000:
+        return ListFileOutput(
+            files=[],
+            error="Too many files - tokens exceeded. Try listing non-recursively"
+        )
+    return list_files_output
 
 
 def read_file(context: RunContext, file_path: str = "", start_line: int | None = None, num_lines: int | None = None) -> ReadFileOutput:
