@@ -250,7 +250,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
 [bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f}
 """)
 
-    if proportion_used > 0.9:
+    if proportion_used > 0.85:
         summary = summarize_messages(messages)
         result_messages = [messages[0], summary]
         final_token_count = sum(
