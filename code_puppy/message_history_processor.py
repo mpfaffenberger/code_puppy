@@ -267,7 +267,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     
     # Print blue status bar - ALWAYS at top
     console.print(f"""
-[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used}{token_rate_info}
+[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f}{token_rate_info}
 """)
     
     # Print extra line to ensure separation
