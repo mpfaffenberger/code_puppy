@@ -47,6 +47,7 @@ class ListedFile(BaseModel):
 
 class ListFileOutput(BaseModel):
     files: List[ListedFile]
+    error: str | None = None
 
 
 class ReadFileOutput(BaseModel):
@@ -453,7 +454,15 @@ def register_file_operations_tools(agent):
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
     ) -> ListFileOutput:
-        return _list_files(context, directory, recursive)
+        list_files_result = _list_files(context, directory, recursive)
+        tokenizer = get_tokenizer()
+        num_tokens = len(tokenizer.encode(list_files_result.model_dump_json()))
+        if num_tokens > 10000:
+            return ListFileOutput(
+                files=[],
+                error="Too many files - tokens exceeded. Try listing non-recursively",
+            )
+        return list_files_result
 
     @agent.tool
     def read_file(
@@ -469,33 +478,3 @@ def register_file_operations_tools(agent):
         context: RunContext, search_string: str = "", directory: str = "."
     ) -> GrepOutput:
         return _grep(context, search_string, directory)
-
-    @agent.tool
-    def code_map(context: RunContext, directory: str = ".") -> str:
-        """Generate a code map for the specified directory.
-           This will have a list of all function / class names and nested structure
-        Args:
-            context: The context object.
-            directory: The directory to generate the code map for.
-
-        Returns:
-            A string containing the code map.
-        """
-        # Generate group_id for this tool execution
-        group_id = generate_group_id("code_map", directory)
-
-        emit_info(
-            "[bold white on blue] CODE MAP [/bold white on blue]",
-            message_group=group_id,
-        )
-        try:
-            from code_puppy.tools.ts_code_map import make_code_map
-
-            result = make_code_map(directory, ignore_tests=True)
-            return result
-        except ImportError:
-            emit_warning(
-                "Code map functionality not available - ts_code_map module not found",
-                message_group=group_id,
-            )
-            return "Code map functionality not available"
