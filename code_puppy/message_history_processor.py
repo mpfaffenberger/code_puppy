@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Set
 import os
 from pathlib import Path
 
@@ -189,8 +189,58 @@ def get_model_context_length() -> int:
     # Reserve 10% of context for response
     return int(context_length)
 
+def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
+    """
+    Remove any messages that participate in mismatched tool call sequences.
+
+    A mismatched tool call id is one that appears in a ToolCall (model/tool request)
+    without a corresponding tool return, or vice versa. We preserve original order
+    and only drop messages that contain parts referencing mismatched tool_call_ids.
+    """
+    if not messages:
+        return messages
+
+    tool_call_ids: Set[str] = set()
+    tool_return_ids: Set[str] = set()
+
+    # First pass: collect ids for calls vs returns
+    for msg in messages:
+        for part in getattr(msg, "parts", []) or []:
+            tool_call_id = getattr(part, "tool_call_id", None)
+            if not tool_call_id:
+                continue
+            # Heuristic: if it's an explicit ToolCallPart or has a tool_name/args,
+            # consider it a call; otherwise it's a return/result.
+            if part.part_kind == "tool-call":
+                tool_call_ids.add(tool_call_id)
+            else:
+                tool_return_ids.add(tool_call_id)
+
+    mismatched: Set[str] = tool_call_ids.symmetric_difference(tool_return_ids)
+    if not mismatched:
+        return messages
+
+    pruned: List[ModelMessage] = []
+    dropped_count = 0
+    for msg in messages:
+        has_mismatched = False
+        for part in getattr(msg, "parts", []) or []:
+            tcid = getattr(part, "tool_call_id", None)
+            if tcid and tcid in mismatched:
+                has_mismatched = True
+                break
+        if has_mismatched:
+            dropped_count += 1
+            continue
+        pruned.append(msg)
+
+    if dropped_count:
+        console.print(f"[yellow]Pruned {dropped_count} message(s) with mismatched tool_call_id pairs[/yellow]")
+    return pruned
+
 
 def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
+    # First, prune any interrupted/mismatched tool-call conversations
     total_current_tokens = sum(estimate_tokens_for_message(msg) for msg in messages)
 
     model_max = get_model_context_length()

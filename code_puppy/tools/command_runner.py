@@ -5,11 +5,11 @@ import threading
 import time
 import traceback
 import sys
+from typing import Set
 
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 from rich.markdown import Markdown
-from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy.tools.common import console
@@ -17,6 +17,100 @@ from code_puppy.tools.common import console
 _AWAITING_USER_INPUT = False
 
 _CONFIRMATION_LOCK = threading.Lock()
+
+# Track running shell processes so we can kill them on Ctrl-C from the UI
+_RUNNING_PROCESSES: Set[subprocess.Popen] = set()
+_RUNNING_PROCESSES_LOCK = threading.Lock()
+_USER_KILLED_PROCESSES = set()
+
+def _register_process(proc: subprocess.Popen) -> None:
+    with _RUNNING_PROCESSES_LOCK:
+        _RUNNING_PROCESSES.add(proc)
+
+
+def _unregister_process(proc: subprocess.Popen) -> None:
+    with _RUNNING_PROCESSES_LOCK:
+        _RUNNING_PROCESSES.discard(proc)
+
+
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    """Attempt to aggressively terminate a process and its group.
+
+    Cross-platform best-effort. On POSIX, uses process groups. On Windows, tries CTRL_BREAK_EVENT, then terminate().
+    """
+    try:
+        if sys.platform.startswith("win"):
+            try:
+                # Try a soft break first if the group exists
+                proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+                time.sleep(0.8)
+            except Exception:
+                pass
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                    time.sleep(0.8)
+                except Exception:
+                    pass
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            return
+
+        # POSIX
+        pid = proc.pid
+        try:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGTERM)
+            time.sleep(1.0)
+            if proc.poll() is None:
+                os.killpg(pgid, signal.SIGINT)
+                time.sleep(0.6)
+            if proc.poll() is None:
+                os.killpg(pgid, signal.SIGKILL)
+                time.sleep(0.5)
+        except (OSError, ProcessLookupError):
+            # Fall back to direct kill of the process
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+            except (OSError, ProcessLookupError):
+                pass
+
+        if proc.poll() is None:
+            # Last ditch attempt; may be unkillable zombie
+            try:
+                for _ in range(3):
+                    os.kill(proc.pid, signal.SIGKILL)
+                    time.sleep(0.2)
+                    if proc.poll() is not None:
+                        break
+            except Exception:
+                pass
+    except Exception as e:
+        console.print(f"Kill process error: {e}")
+
+
+def kill_all_running_shell_processes() -> int:
+    """Kill all currently tracked running shell processes.
+
+    Returns the number of processes signaled.
+    """
+    procs: list[subprocess.Popen]
+    with _RUNNING_PROCESSES_LOCK:
+        procs = list(_RUNNING_PROCESSES)
+    count = 0
+    for p in procs:
+        try:
+            if p.poll() is None:
+                _kill_process_group(p)
+                count += 1
+                _USER_KILLED_PROCESSES.add(p.pid)
+        finally:
+            _unregister_process(p)
+    return count
 
 
 class ShellCommandOutput(BaseModel):
@@ -28,6 +122,7 @@ class ShellCommandOutput(BaseModel):
     exit_code: int | None
     execution_time: float | None
     timeout: bool | None = False
+    user_interrupted: bool | None = False
 
 
 def run_shell_command_streaming(
@@ -40,7 +135,6 @@ def run_shell_command_streaming(
 
     stdout_lines = []
     stderr_lines = []
-    command_shown = [False]
 
     stdout_thread = None
     stderr_thread = None
@@ -71,55 +165,7 @@ def run_shell_command_streaming(
         nonlocal stdout_thread, stderr_thread
 
         def nuclear_kill(proc):
-            pid = proc.pid
-            try:
-                pgid = os.getpgid(pid)
-                console.print(f"Attempting to kill process group {pgid} (PID {pid})")
-                os.killpg(pgid, signal.SIGTERM)
-                time.sleep(1.5)
-                if proc.poll() is None:
-                    console.print("SIGTERM failed, escalating to SIGINT")
-                    os.killpg(pgid, signal.SIGINT)
-                    time.sleep(1)
-
-                if proc.poll() is None:
-                    console.print("SIGINT failed, escalating to SIGKILL")
-                    os.killpg(pgid, signal.SIGKILL)
-                    time.sleep(1)
-
-                if proc.poll() is None:
-                    console.print(
-                        "Proc group kill failed, killing individual processes"
-                    )
-                    proc.kill()
-                    time.sleep(0.5)
-            except (OSError, ProcessLookupError):
-                try:
-                    if proc.poll() is None:
-                        proc.kill()
-                        time.sleep(0.5)
-                except (OSError, ProcessLookupError):
-                    pass
-
-            if proc.poll() is None:
-                try:
-                    console.print(
-                        f"Process {pid} refuses to die, trying platform-specific nuclear options"
-                    )
-                    for i in range(3):
-                        try:
-                            os.kill(pid, signal.SIGKILL)
-                            time.sleep(0.2)
-                            if proc.poll() is not None:
-                                break
-                        except (OSError, ProcessLookupError):
-                            break
-
-                    if proc.poll() is None:
-                        console.print(f"Process {pid} is unkillable.")
-
-                except Exception as e:
-                    console.print(f"Nuclear kill attempt failed {e}")
+            _kill_process_group(proc)
 
         try:
             if process.poll() is None:
@@ -134,6 +180,9 @@ def run_shell_command_streaming(
                     process.stdin.close()
             except (OSError, ValueError):
                 pass
+
+            # Unregister once we're done cleaning up
+            _unregister_process(process)
 
             if stdout_thread and stdout_thread.is_alive():
                 stdout_thread.join(timeout=3)
@@ -212,11 +261,26 @@ def run_shell_command_streaming(
         except (OSError, ValueError):
             pass
 
+        _unregister_process(process)
+
         if exit_code != 0:
             console.print(
                 f"Command failed with exit code {exit_code}", style="bold red"
             )
             console.print(f"Took {execution_time:.2f}s", style="dim")
+            time.sleep(1)
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error="""The process didn't exit cleanly! If the user_interrupted flag is true,
+                please stop all execution and ask the user for clarification!""",
+                stdout="\n".join(stdout_lines[-1000:]),
+                stderr="\n".join(stderr_lines[-1000:]),
+                exit_code=exit_code,
+                execution_time=execution_time,
+                timeout=False,
+                user_interrupted=process.pid in _USER_KILLED_PROCESSES
+            )
         return ShellCommandOutput(
             success=exit_code == 0,
             command=command,
@@ -293,6 +357,15 @@ def run_shell_command(
     else:
         start_time = time.time()
     try:
+        creationflags = 0
+        preexec_fn = None
+        if sys.platform.startswith("win"):
+            try:
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            except Exception:
+                creationflags = 0
+        else:
+            preexec_fn = os.setsid if hasattr(os, "setsid") else None
         process = subprocess.Popen(
             command,
             shell=True,
@@ -302,9 +375,15 @@ def run_shell_command(
             cwd=cwd,
             bufsize=1,
             universal_newlines=True,
-            preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+            preexec_fn=preexec_fn,
+            creationflags=creationflags,
         )
-        return run_shell_command_streaming(process, timeout=timeout, command=command)
+        _register_process(process)
+        try:
+            return run_shell_command_streaming(process, timeout=timeout, command=command)
+        finally:
+            # Ensure unregistration in case streaming returned early or raised
+            _unregister_process(process)
     except Exception as e:
         console.print(traceback.format_exc())
         if "stdout" not in locals():

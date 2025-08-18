@@ -21,7 +21,8 @@ from code_puppy.state_management import get_message_history, set_message_history
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
 from code_puppy.version_checker import fetch_latest_version
-from code_puppy.message_history_processor import message_history_processor
+from code_puppy.message_history_processor import message_history_processor, prune_interrupted_tool_calls
+
 
 # from code_puppy.tools import *  # noqa: F403
 
@@ -207,18 +208,30 @@ async def interactive_mode(history_file_path: str) -> None:
                 agent_task = asyncio.create_task(run_agent_task())
 
                 import signal
+                from code_puppy.tools import kill_all_running_shell_processes
 
                 original_handler = None
 
+                # Ensure the interrupt handler only acts once per task
+                handled = False
                 def keyboard_interrupt_handler(sig, frame):
                     nonlocal local_cancelled
-                    if not agent_task.done():
-                        set_message_history(
-                            message_history_processor(get_message_history())
-                        )
-                        agent_task.cancel()
-                        local_cancelled = True
-
+                    nonlocal handled
+                    if handled:
+                        return
+                    handled = True
+                    # First, nuke any running shell processes triggered by tools
+                    try:
+                        killed = kill_all_running_shell_processes()
+                        if killed:
+                            console.print(f"[yellow]Cancelled {killed} running shell process(es).[/yellow]")
+                        else:
+                            # Then cancel the agent task
+                            if not agent_task.done():
+                                agent_task.cancel()
+                                local_cancelled = True
+                    except Exception as e:
+                        console.print(f"[dim]Shell kill error: {e}[/dim]")
                 try:
                     original_handler = signal.getsignal(signal.SIGINT)
                     signal.signal(signal.SIGINT, keyboard_interrupt_handler)
