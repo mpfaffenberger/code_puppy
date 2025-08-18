@@ -232,12 +232,19 @@ async def interactive_mode(history_file_path: str) -> None:
                                 local_cancelled = True
                     except Exception as e:
                         console.print(f"[dim]Shell kill error: {e}[/dim]")
+                    # On Windows, we need to reset the signal handler to avoid weird terminal behavior
+                    if sys.platform.startswith("win"):
+                        signal.signal(signal.SIGINT, original_handler or signal.SIG_DFL)
                 try:
                     original_handler = signal.getsignal(signal.SIGINT)
                     signal.signal(signal.SIGINT, keyboard_interrupt_handler)
                     result = await agent_task
                 except asyncio.CancelledError:
                     pass
+                except KeyboardInterrupt:
+                    # Handle Ctrl+C from terminal
+                    keyboard_interrupt_handler(signal.SIGINT, None)
+                    raise
                 finally:
                     if original_handler:
                         signal.signal(signal.SIGINT, original_handler)
