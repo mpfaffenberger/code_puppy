@@ -2,12 +2,42 @@ import os
 import fnmatch
 
 from typing import Optional, Tuple
-
+import tiktoken
 from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 
+# get_model_context_length will be imported locally where needed to avoid circular imports
+
 NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
 console = Console(no_color=NO_COLOR)
+
+
+def get_model_context_length() -> int:
+    """
+    Get the context length for the currently configured model from models.json
+    """
+    # Import locally to avoid circular imports
+    from code_puppy.model_factory import ModelFactory
+    from code_puppy.config import get_model_name
+    import os
+    from pathlib import Path
+
+    # Load model configuration
+    models_path = os.environ.get("MODELS_JSON_PATH")
+    if not models_path:
+        models_path = Path(__file__).parent.parent / "models.json"
+    else:
+        models_path = Path(models_path)
+
+    model_configs = ModelFactory.load_config(str(models_path))
+    model_name = get_model_name()
+
+    # Get context length from model config
+    model_config = model_configs.get(model_name, {})
+    context_length = model_config.get("context_length", 128000)  # Default value
+
+    # Reserve 10% of context for response
+    return int(context_length)
 
 
 # -------------------

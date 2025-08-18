@@ -14,7 +14,6 @@ META_COMMANDS_HELP = """
 [bold magenta]Meta Commands Help[/bold magenta]
 ~help, ~h             Show this help message
 ~cd <dir>             Change directory or show directories
-~codemap <dir>        Show code structure for <dir>
 ~m <model>            Set active model
 ~motd                 Show the latest message of the day (MOTD)
 ~show                 Show puppy config key-values
@@ -32,21 +31,6 @@ def handle_meta_command(command: str, console: Console) -> bool:
 
     if command.strip().startswith("~motd"):
         print_motd(console, force=True)
-        return True
-
-    # ~codemap (code structure visualization)
-    if command.startswith("~codemap"):
-        from code_puppy.tools.ts_code_map import make_code_map
-
-        tokens = command.split()
-        if len(tokens) > 1:
-            target_dir = os.path.expanduser(tokens[1])
-        else:
-            target_dir = os.getcwd()
-        try:
-            make_code_map(target_dir, ignore_tests=True)
-        except Exception as e:
-            console.print(f"[red]Error generating code map:[/red] {e}")
         return True
 
     if command.startswith("~cd"):

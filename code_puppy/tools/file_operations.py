@@ -3,11 +3,12 @@
 import os
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, conint
 from pydantic_ai import RunContext
 
 from code_puppy.tools.common import console
-
+from code_puppy.token_utils import get_tokenizer
+from code_puppy.tools.token_check import token_guard
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
@@ -180,24 +181,55 @@ def _list_files(
 
 class ReadFileOutput(BaseModel):
     content: str | None
+    num_tokens: conint(lt=10000)
+    error: str | None = None
 
 
-def _read_file(context: RunContext, file_path: str) -> ReadFileOutput:
+def _read_file(context: RunContext, file_path: str, start_line: int | None = None, num_lines: int | None = None) -> ReadFileOutput:
     file_path = os.path.abspath(file_path)
-    console.print(
-        f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
-    )
+    
+    # Build console message with optional parameters
+    console_msg = f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
+    if start_line is not None and num_lines is not None:
+        console_msg += f" [dim](lines {start_line}-{start_line + num_lines - 1})[/dim]"
+    console.print(console_msg)
+    
     console.print("[dim]" + "-" * 60 + "[/dim]")
     if not os.path.exists(file_path):
-        return ReadFileOutput(content=f"File '{file_path}' does not exist")
+        error_msg = f"File {file_path} does not exist"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     if not os.path.isfile(file_path):
-        return ReadFileOutput(content=f"'{file_path}' is not a file")
+        error_msg = f"{file_path} is not a file"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return ReadFileOutput(content=content)
-    except Exception:
-        return ReadFileOutput(content="FILE NOT FOUND")
+            if start_line is not None and num_lines is not None:
+                # Read only the specified lines
+                lines = f.readlines()
+                # Adjust for 1-based line numbering
+                start_idx = start_line - 1
+                end_idx = start_idx + num_lines
+                # Ensure indices are within bounds
+                start_idx = max(0, start_idx)
+                end_idx = min(len(lines), end_idx)
+                content = ''.join(lines[start_idx:end_idx])
+            else:
+                # Read the entire file
+                content = f.read()
+
+            tokenizer = get_tokenizer()
+            num_tokens = len(tokenizer.encode(content))
+            if num_tokens > 10000:
+                raise ValueError("The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.")
+            token_guard(num_tokens)
+        return ReadFileOutput(content=content, num_tokens=num_tokens)
+    except (FileNotFoundError, PermissionError):
+        # For backward compatibility with tests, return "FILE NOT FOUND" for these specific errors
+        error_msg = "FILE NOT FOUND"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+    except Exception as e:
+        message = f"An error occurred trying to read the file: {e}"
+        return ReadFileOutput(content=message, num_tokens=0, error=message)
 
 
 class MatchInfo(BaseModel):
@@ -238,7 +270,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 **{
                                     "file_path": file_path,
                                     "line_number": line_number,
-                                    "line_content": line_content.strip(),
+                                    "line_content": line_content.rstrip("\n\r"),
                                 }
                             )
                             matches.append(match_info)
@@ -282,8 +314,8 @@ def list_files(
     return _list_files(context, directory, recursive)
 
 
-def read_file(context: RunContext, file_path: str = "") -> ReadFileOutput:
-    return _read_file(context, file_path)
+def read_file(context: RunContext, file_path: str = "", start_line: int | None = None, num_lines: int | None = None) -> ReadFileOutput:
+    return _read_file(context, file_path, start_line, num_lines)
 
 
 def grep(

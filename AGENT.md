@@ -36,7 +36,6 @@ code_puppy.tools
     - command_runner.py - shell command execution with confirmations
     - file_modifications.py - robust file editing with diffs
     - file_operations.py - list read grep filesystem files
-    - ts_code_map.py - code structure mapping via Tree-sitter
 
 code_puppy.command_line
     - __init__.py - marks command line subpackage init

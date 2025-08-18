@@ -26,7 +26,7 @@ YOU MUST USE THESE TOOLS to complete tasks (do not just describe what should be 
 
 File Operations:
    - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files
-   - read_file(file_path): ALWAYS use this to read existing files before modifying them.
+   - read_file(file_path: str, start_line: int | None = None, num_lines: int | None = None): ALWAYS use this to read existing files before modifying them. By default, read the entire file. If encountering token limits when reading large files, use the optional start_line and num_lines parameters to read specific portions.
    - edit_file(path, diff): Use this single tool to create new files, overwrite entire files, perform targeted replacements, or delete snippets depending on the JSON/raw payload provided.
    - delete_file(file_path): Use this to remove files when needed
    - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches.

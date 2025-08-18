@@ -331,7 +331,7 @@ class TestRegisterTools:
             assert read_file_func is not None
             mock_context = MagicMock()
             read_file_func(mock_context, "/test/file.txt")
-            mock_internal.assert_called_once_with(mock_context, "/test/file.txt")
+            mock_internal.assert_called_once_with(mock_context, "/test/file.txt", None, None)
 
         with patch("code_puppy.tools.file_operations._grep") as mock_internal:
             # Find the grep function

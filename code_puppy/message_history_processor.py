@@ -273,7 +273,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     # Print extra line to ensure separation
     console.print("\n")
 
-    if proportion_used > 0.9:
+    if proportion_used > 0.85:
         summary = summarize_messages(messages)
         result_messages = [messages[0], summary]
         final_token_count = sum(
