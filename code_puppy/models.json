@@ -11,7 +11,7 @@
       "url": "https://api.cerebras.ai/v1",
       "api_key": "$CEREBRAS_API_KEY"
     },
-    "context_length": 10000
+    "context_length": 131072
   },
   "Cerebras-Qwen3-235b-a22b-instruct-2507": {
     "type": "custom_openai",
