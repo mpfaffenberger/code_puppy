@@ -145,7 +145,7 @@ def run_shell_command_streaming(
                 if line:
                     line = line.rstrip("\n\r")
                     stdout_lines.append(line)
-                    console.log(line)
+                    console.print(line)
                     last_output_time[0] = time.time()
         except Exception:
             pass
@@ -156,7 +156,7 @@ def run_shell_command_streaming(
                 if line:
                     line = line.rstrip("\n\r")
                     stderr_lines.append(line)
-                    console.log(line)
+                    console.print(line)
                     last_output_time[0] = time.time()
         except Exception:
             pass
