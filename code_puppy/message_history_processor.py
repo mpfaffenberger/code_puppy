@@ -17,6 +17,13 @@ from code_puppy.tools.common import console
 from code_puppy.model_factory import ModelFactory
 from code_puppy.config import get_model_name
 
+# Import the status display to get token rate info
+try:
+    from code_puppy.status_display import StatusDisplay
+    STATUS_DISPLAY_AVAILABLE = True
+except ImportError:
+    STATUS_DISPLAY_AVAILABLE = False
+
 # Import summarization agent
 try:
     from code_puppy.summarization_agent import (
@@ -246,9 +253,25 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     model_max = get_model_context_length()
 
     proportion_used = total_current_tokens / model_max
+    
+    # Include token per second rate if available
+    token_rate_info = ""
+    if STATUS_DISPLAY_AVAILABLE:
+        current_rate = StatusDisplay.get_current_rate()
+        if current_rate > 0:
+            # Format with improved precision when using SSE data
+            if current_rate > 1000:
+                token_rate_info = f", {current_rate:.0f} t/s"
+            else:
+                token_rate_info = f", {current_rate:.1f} t/s"
+    
+    # Print blue status bar - ALWAYS at top
     console.print(f"""
-[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f}
+[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used}{token_rate_info}
 """)
+    
+    # Print extra line to ensure separation
+    console.print("\n")
 
     if proportion_used > 0.85:
         summary = summarize_messages(messages)
