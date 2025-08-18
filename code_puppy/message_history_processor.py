@@ -247,7 +247,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
 
     proportion_used = total_current_tokens / model_max
     console.print(f"""
-[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used}
+[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f}
 """)
 
     if proportion_used > 0.9:
