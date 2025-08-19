@@ -170,7 +170,7 @@ export NO_VERSION_UPDATE=1
 
 #### A) New Console Command (like `/mycommand`)
 - **Location**: `code_puppy/command_line/command_handler.py`
-- **Examples**: `/cd`, `/show`, `/codemap`, `/set`
+
 
 #### B) New AI Tool (for the agent to use)
 - **Location**: `code_puppy/tools/` directory

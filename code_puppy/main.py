@@ -16,11 +16,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy import __version__, state_management
-from code_puppy.agent import (
-    get_code_generation_agent,
-    get_custom_usage_limits,
-    session_memory,
-)
+from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.auth import authenticate_puppy, get_puppy_token
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
@@ -484,14 +480,7 @@ async def main():
                     from code_puppy.messaging import emit_agent_reasoning
 
                     emit_agent_reasoning(agent_response.output_message)
-                    # Log to session memory
-                    session_memory().log_task(
-                        f"Command executed: {command}",
-                        extras={
-                            "output": agent_response.output_message,
-                            "awaiting_user_input": agent_response.awaiting_user_input,
-                        },
-                    )
+
                     if agent_response.awaiting_user_input:
                         from code_puppy.messaging import emit_warning
 
@@ -737,18 +726,44 @@ async def interactive_mode(message_renderer) -> None:
                     # Set up signal handling for Ctrl+C
                     import signal
 
+                    from code_puppy.tools.command_runner import (
+                        kill_all_running_shell_processes,
+                    )
+
                     original_handler = None
+
+                    # Ensure the interrupt handler only acts once per task
+                    handled = False
 
                     def keyboard_interrupt_handler(sig, frame):
                         nonlocal local_cancelled
-                        if not agent_task.done():
-                            state_management._message_history = (
-                                message_history_processor(
-                                    state_management._message_history
+                        nonlocal handled
+                        if handled:
+                            return
+                        handled = True
+                        # First, nuke any running shell processes triggered by tools
+                        try:
+                            killed = kill_all_running_shell_processes()
+                            if killed:
+                                from code_puppy.messaging import emit_warning
+
+                                emit_warning(
+                                    f"Cancelled {killed} running shell process(es)."
                                 )
-                            )
-                            agent_task.cancel()
-                            local_cancelled = True
+                            else:
+                                # Then cancel the agent task
+                                if not agent_task.done():
+                                    state_management._message_history = (
+                                        message_history_processor(
+                                            state_management._message_history
+                                        )
+                                    )
+                                    agent_task.cancel()
+                                    local_cancelled = True
+                        except Exception as e:
+                            from code_puppy.messaging import emit_warning
+
+                            emit_warning(f"Shell kill error: {e}")
                         # Don't call the original handler
                         # This prevents the application from exiting
 
@@ -778,14 +793,6 @@ async def interactive_mode(message_renderer) -> None:
 
                 emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
-                )
-                # Log to session memory
-                session_memory().log_task(
-                    f"Interactive task: {task}",
-                    extras={
-                        "output": agent_response.output_message,
-                        "awaiting_user_input": agent_response.awaiting_user_input,
-                    },
                 )
 
                 # Update message history - the agent's history processor will handle truncation

@@ -12,11 +12,7 @@ from textual.events import Resize
 from textual.reactive import reactive
 from textual.widgets import Footer, Label, ListItem, ListView
 
-from code_puppy.agent import (
-    get_code_generation_agent,
-    get_custom_usage_limits,
-    session_memory,
-)
+from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.config import (
     get_model_name,
@@ -97,7 +93,6 @@ class CodePuppyTUI(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.agent = None
-        self.session_memory = None
         self._current_worker = None
 
         # Initialize message queue renderer
@@ -121,9 +116,7 @@ class CodePuppyTUI(App):
         self.current_model = get_model_name()
         self.puppy_name = get_puppy_name()
 
-        # Initialize agent and session memory
         self.agent = get_code_generation_agent()
-        self.session_memory = session_memory()
 
         # Update status bar
         status_bar = self.query_one(StatusBar)
@@ -353,11 +346,24 @@ class CodePuppyTUI(App):
         """Cancel the current message processing."""
         if hasattr(self, "_current_worker") and self._current_worker is not None:
             try:
-                self._current_worker.cancel()
-                state_management._message_history = message_history_processor(
-                    state_management._message_history
+                # First, kill any running shell processes (same as interactive mode Ctrl+C)
+                from code_puppy.tools.command_runner import (
+                    kill_all_running_shell_processes,
                 )
-                self.add_system_message("⚠️  Processing cancelled by user")
+
+                killed = kill_all_running_shell_processes()
+                if killed:
+                    self.add_system_message(
+                        f"🔥 Cancelled {killed} running shell process(es)"
+                    )
+
+                else:
+                    # Only cancel the agent task if NO processes were killed
+                    self._current_worker.cancel()
+                    state_management._message_history = message_history_processor(
+                        state_management._message_history
+                    )
+                    self.add_system_message("⚠️  Processing cancelled by user")
             except Exception as e:
                 self.add_error_message(f"Failed to cancel processing: {str(e)}")
             finally:
@@ -463,15 +469,6 @@ class CodePuppyTUI(App):
                         # Refresh history display to show new interaction
                         self.refresh_history_display()
 
-                        # Log to session memory
-                        if self.session_memory:
-                            self.session_memory.log_task(
-                                f"TUI interaction: {message}",
-                                extras={
-                                    "output": agent_response.output_message,
-                                    "awaiting_user_input": agent_response.awaiting_user_input,
-                                },
-                            )
                     except Exception as eg:
                         # Handle TaskGroup and other exceptions
                         # BaseExceptionGroup is only available in Python 3.11+

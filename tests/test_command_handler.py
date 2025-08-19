@@ -91,44 +91,6 @@ def test_cd_invalid_directory():
         mocks["emit_error"].stop()
 
 
-def test_codemap_prints_tree():
-    fake_tree = "FAKE_CODMAP_TREE"
-    with patch("code_puppy.tools.ts_code_map.make_code_map") as mock_map:
-        mock_map.return_value = fake_tree
-        result = handle_command("/codemap")
-        assert result is True
-
-
-def test_codemap_prints_tree_with_dir():
-    fake_tree = "TREE_FOR_DIR"
-    with (
-        patch("code_puppy.tools.ts_code_map.make_code_map") as mock_map,
-        patch("os.path.expanduser", side_effect=lambda x: x),
-    ):
-        mock_map.return_value = fake_tree
-        result = handle_command("/codemap /some/dir")
-        assert result is True
-
-
-def test_codemap_error_prints():
-    mocks = setup_messaging_mocks()
-    mock_emit_error = mocks["emit_error"].start()
-
-    try:
-        with patch(
-            "code_puppy.tools.ts_code_map.make_code_map", side_effect=Exception("fail")
-        ):
-            result = handle_command("/codemap")
-            assert result is True
-            mock_emit_error.assert_called()
-            assert any(
-                "Error generating code map" in str(call)
-                for call in mock_emit_error.call_args_list
-            )
-    finally:
-        mocks["emit_error"].stop()
-
-
 def test_m_sets_model():
     # Simplified test - just check that the command handler returns True
     with (

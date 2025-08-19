@@ -9,17 +9,18 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
+from code_puppy.message_history_processor import get_model_context_length
 from code_puppy.messaging.message_queue import (
     emit_error,
     emit_info,
     emit_system_message,
 )
 from code_puppy.model_factory import ModelFactory
-from code_puppy.session_memory import SessionMemory
 from code_puppy.tools import register_all_tools
 
 from .http_utils import create_reopenable_async_client
 from .state_management import message_history_accumulator
+from .tools.common import console
 
 # Puppy rules loader
 PUPPY_RULES_PATH = Path(".puppy_rules")
@@ -54,17 +55,6 @@ class AgentResponse(pydantic.BaseModel):
 # --- NEW DYNAMIC AGENT LOGIC ---
 _LAST_MODEL_NAME = None
 _code_generation_agent = None
-_session_memory = None
-
-
-def session_memory():
-    """
-    Returns a singleton SessionMemory instance to allow agent and tools to persist and recall context/history.
-    """
-    global _session_memory
-    if _session_memory is None:
-        _session_memory = SessionMemory()
-    return _session_memory
 
 
 def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
@@ -167,13 +157,10 @@ def reload_code_generation_agent():
     mcp_servers = _load_mcp_servers()
 
     # Configure model settings with max_tokens if set
-    from code_puppy.config import get_max_tokens
-
     model_settings_dict = {"seed": 42}
-    max_tokens = get_max_tokens()
-    if max_tokens is not None:
-        model_settings_dict["max_tokens"] = max_tokens
-        emit_info(f"[cyan]Using max_tokens: {max_tokens}[/cyan]")
+    output_tokens = int(0.05 * get_model_context_length()) - 1024
+    console.print(f"Max output tokens per message: {output_tokens}")
+    model_settings_dict["max_tokens"] = output_tokens
 
     model_settings = ModelSettings(**model_settings_dict)
     agent = Agent(
@@ -188,11 +175,6 @@ def reload_code_generation_agent():
     register_all_tools(agent)
     _code_generation_agent = agent
     _LAST_MODEL_NAME = model_name
-    # NEW: Log session event
-    try:
-        session_memory().log_task(f"Agent loaded with model: {model_name}")
-    except Exception:
-        pass
     return _code_generation_agent
 
 

@@ -1,85 +1,260 @@
-"""
-Message history processor for Code Puppy agent.
+import json
+import os
+from typing import List, Set
 
-This module provides clean message history truncation that keeps tool calls together
-and maintains proper message ordering, following Pydantic AI best practices.
-"""
+import pydantic
+import tiktoken
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+)
 
-import queue
-from typing import List
+from code_puppy.config import get_model_name
 
-from pydantic_ai.messages import ModelMessage, ToolCallPart, ToolReturnPart
+# Use emit_ functions instead of console
+from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.model_factory import ModelFactory
 
-from code_puppy.config import get_message_history_limit
-from code_puppy.messaging import emit_system_message
+# Import summarization agent
+try:
+    from code_puppy.summarization_agent import (
+        get_summarization_agent as _get_summarization_agent,
+    )
+
+    SUMMARIZATION_AVAILABLE = True
+
+    # Make the function available in this module's namespace for mocking
+    def get_summarization_agent():
+        return _get_summarization_agent()
+
+except ImportError:
+    SUMMARIZATION_AVAILABLE = False
+    emit_warning(
+        "Summarization agent not available. Message history will be truncated instead of summarized."
+    )
+
+    def get_summarization_agent():
+        return None
 
 
-def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
+def get_tokenizer_for_model(model_name: str):
     """
-    Truncate message history to manage token usage while preserving context.
+    Always use cl100k_base tokenizer regardless of model type.
+    This is a simple approach that works reasonably well for most models.
+    """
+    return tiktoken.get_encoding("cl100k_base")
 
-    This implementation:
-    - Uses the configurable message_history_limit from puppy.cfg (defaults to 40)
-    - Preserves system messages at the beginning
-    - Maintains tool call/response pairs together
-    - Follows PydanticAI best practices for message ordering
+
+def stringify_message_part(part) -> str:
+    """
+    Convert a message part to a string representation for token estimation or other uses.
 
     Args:
-        messages: List of ModelMessage objects from conversation history
+        part: A message part that may contain content or be a tool call
 
     Returns:
-        Truncated list of ModelMessage objects
+        String representation of the message part
+    """
+    result = ""
+    if hasattr(part, "part_kind"):
+        result += part.part_kind + ": "
+    else:
+        result += str(type(part)) + ": "
+
+    # Handle content
+    if hasattr(part, "content") and part.content:
+        # Handle different content types
+        if isinstance(part.content, str):
+            result = part.content
+        elif isinstance(part.content, pydantic.BaseModel):
+            result = json.dumps(part.content.model_dump())
+        elif isinstance(part.content, dict):
+            result = json.dumps(part.content)
+        else:
+            result = str(part.content)
+
+    # Handle tool calls which may have additional token costs
+    # If part also has content, we'll process tool calls separately
+    if hasattr(part, "tool_name") and part.tool_name:
+        # Estimate tokens for tool name and parameters
+        tool_text = part.tool_name
+        if hasattr(part, "args"):
+            tool_text += f" {str(part.args)}"
+        result += tool_text
+
+    return result
+
+
+def estimate_tokens_for_message(message: ModelMessage) -> int:
+    """
+    Estimate the number of tokens in a message using tiktoken with cl100k_base encoding.
+    This is more accurate than character-based estimation.
+    """
+    tokenizer = get_tokenizer_for_model(get_model_name())
+    total_tokens = 0
+
+    for part in message.parts:
+        part_str = stringify_message_part(part)
+        if part_str:
+            tokens = tokenizer.encode(part_str, disallowed_special=())
+            total_tokens += len(tokens)
+
+    return max(1, total_tokens)
+
+
+def summarize_messages(messages: List[ModelMessage]) -> ModelMessage:
+    summarization_agent = get_summarization_agent()
+    message_strings: List[str] = []
+    for message in messages:
+        for part in message.parts:
+            message_strings.append(stringify_message_part(part))
+    summary_string = "\n".join(message_strings)
+    instructions = (
+        "Above I've given you a log of Agentic AI steps that have been taken"
+        " as well as user queries, etc. Summarize the contents of these steps."
+        " The high level details should remain but the bulk of the content from tool-call"
+        " responses should be compacted and summarized. For example if you see a tool-call"
+        " reading a file, and the file contents are large, then in your summary you might just"
+        " write: * used read_file on space_invaders.cpp - contents removed."
+        "\n Make sure your result is a bulleted list of all steps and interactions."
+    )
+    try:
+        result = summarization_agent.run_sync(f"{summary_string}\n{instructions}")
+        return ModelResponse(parts=[TextPart(result.output)])
+    except Exception as e:
+        emit_error(f"Summarization failed during compaction: {e}")
+        return None
+
+
+# New: single-message summarization helper used by tests
+# - If the message has a ToolCallPart, return original message (no summarization)
+# - If the message has system/instructions, return original message
+# - Otherwise, summarize and return a new ModelRequest with the summarized content
+# - On any error, return the original message
+
+
+def summarize_message(message: ModelMessage) -> ModelMessage:
+    if not SUMMARIZATION_AVAILABLE:
+        return message
+    try:
+        # If the message looks like a system/instructions message, skip summarization
+        instructions = getattr(message, "instructions", None)
+        if instructions:
+            return message
+        # If any part is a tool call, skip summarization
+        for part in message.parts:
+            if isinstance(part, ToolCallPart) or getattr(part, "tool_name", None):
+                return message
+        # Build prompt from textual content parts
+        content_bits: List[str] = []
+        for part in message.parts:
+            s = stringify_message_part(part)
+            if s:
+                content_bits.append(s)
+        if not content_bits:
+            return message
+        prompt = "Please summarize the following user message:\n" + "\n".join(
+            content_bits
+        )
+        agent = get_summarization_agent()
+        result = agent.run_sync(prompt)
+        summarized = ModelRequest([TextPart(result.output)])
+        return summarized
+    except Exception as e:
+        emit_error(f"Summarization failed: {e}")
+        return message
+
+
+def get_model_context_length() -> int:
+    """
+    Get the context length for the currently configured model from models.json
+    """
+    from code_puppy.config import CONFIG_DIR
+
+    models_config_path = os.path.join(CONFIG_DIR, "models.json")
+    model_configs = ModelFactory.load_config(models_config_path)
+    model_name = get_model_name()
+
+    # Get context length from model config
+    model_config = model_configs.get(model_name, {})
+    context_length = model_config.get("context_length", 128000)  # Default value
+
+    # Reserve 10% of context for response
+    return int(context_length)
+
+
+def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
+    """
+    Remove any messages that participate in mismatched tool call sequences.
+
+    A mismatched tool call id is one that appears in a ToolCall (model/tool request)
+    without a corresponding tool return, or vice versa. We preserve original order
+    and only drop messages that contain parts referencing mismatched tool_call_ids.
     """
     if not messages:
         return messages
 
-    # Get the configurable limit from puppy.cfg
-    max_messages = get_message_history_limit()
-    # If we have max_messages or fewer, no truncation needed
-    if len(messages) <= max_messages:
+    tool_call_ids: Set[str] = set()
+    tool_return_ids: Set[str] = set()
+
+    # First pass: collect ids for calls vs returns
+    for msg in messages:
+        for part in getattr(msg, "parts", []) or []:
+            tool_call_id = getattr(part, "tool_call_id", None)
+            if not tool_call_id:
+                continue
+            # Heuristic: if it's an explicit ToolCallPart or has a tool_name/args,
+            # consider it a call; otherwise it's a return/result.
+            if part.part_kind == "tool-call":
+                tool_call_ids.add(tool_call_id)
+            else:
+                tool_return_ids.add(tool_call_id)
+
+    mismatched: Set[str] = tool_call_ids.symmetric_difference(tool_return_ids)
+    if not mismatched:
         return messages
 
-    emit_system_message(
-        f"Truncating message history to manage token usage: {max_messages}"
+    pruned: List[ModelMessage] = []
+    dropped_count = 0
+    for msg in messages:
+        has_mismatched = False
+        for part in getattr(msg, "parts", []) or []:
+            tcid = getattr(part, "tool_call_id", None)
+            if tcid and tcid in mismatched:
+                has_mismatched = True
+                break
+        if has_mismatched:
+            dropped_count += 1
+            continue
+        pruned.append(msg)
+
+    if dropped_count:
+        emit_warning(
+            f"Pruned {dropped_count} message(s) with mismatched tool_call_id pairs"
+        )
+    return pruned
+
+
+def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
+    # First, prune any interrupted/mismatched tool-call conversations
+    total_current_tokens = sum(estimate_tokens_for_message(msg) for msg in messages)
+
+    model_max = get_model_context_length()
+
+    proportion_used = total_current_tokens / model_max
+    emit_info(
+        f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
     )
-    result = []
-    result.append(messages[0])  # this is the system prompt
-    remaining_messages_to_fill = max_messages - 1
-    stack = queue.LifoQueue()
-    count = 0
-    tool_call_parts = set()
-    tool_return_parts = set()
-    for message in reversed(messages):
-        stack.put(message)
-        count += 1
-        if count >= remaining_messages_to_fill:
-            break
 
-    while not stack.empty():
-        item = stack.get()
-        for part in item.parts:
-            if hasattr(part, "tool_call_id") and part.tool_call_id:
-                if isinstance(part, ToolCallPart):
-                    tool_call_parts.add(part.tool_call_id)
-                if isinstance(part, ToolReturnPart):
-                    tool_return_parts.add(part.tool_call_id)
-
-        result.append(item)
-
-    missmatched_tool_call_ids = (tool_call_parts.union(tool_return_parts)) - (
-        tool_call_parts.intersection(tool_return_parts)
-    )
-    # trust...
-    final_result = result
-    if missmatched_tool_call_ids:
-        final_result = []
-        for msg in result:
-            is_missmatched = False
-            for part in msg.parts:
-                if hasattr(part, "tool_call_id"):
-                    if part.tool_call_id in missmatched_tool_call_ids:
-                        is_missmatched = True
-            if is_missmatched:
-                continue
-            final_result.append(msg)
-    return final_result
+    if proportion_used > 0.85:
+        summary = summarize_messages(messages)
+        result_messages = [messages[0], summary]
+        final_token_count = sum(
+            estimate_tokens_for_message(msg) for msg in result_messages
+        )
+        emit_info(f"Final token count after processing: {final_token_count}")
+        return result_messages
+    return messages
