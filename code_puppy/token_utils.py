@@ -64,7 +64,7 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            tokens = tokenizer.encode(part_str)
+            tokens = tokenizer.encode(part_str, disallowed_special=())
             total_tokens += len(tokens)
 
     return max(1, total_tokens)

@@ -340,7 +340,7 @@ def _read_file(
                 content = f.read()
 
             tokenizer = get_tokenizer()
-            num_tokens = len(tokenizer.encode(content))
+            num_tokens = len(tokenizer.encode(content, disallowed_special=()))
             if num_tokens > 10000:
                 raise ValueError(
                     "The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks."
@@ -456,7 +456,9 @@ def register_file_operations_tools(agent):
     ) -> ListFileOutput:
         list_files_result = _list_files(context, directory, recursive)
         tokenizer = get_tokenizer()
-        num_tokens = len(tokenizer.encode(list_files_result.model_dump_json()))
+        num_tokens = len(
+            tokenizer.encode(list_files_result.model_dump_json(), disallowed_special=())
+        )
         if num_tokens > 10000:
             return ListFileOutput(
                 files=[],
