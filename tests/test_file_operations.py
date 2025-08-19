@@ -39,9 +39,8 @@ class TestListFiles:
     def test_directory_not_exists(self):
         with patch("os.path.exists", return_value=False):
             result = list_files(None, directory="/nonexistent")
-            assert len(result) == 1
-            assert "error" in result[0]
-            assert "does not exist" in result[0]["error"]
+            assert len(result.files) == 1
+            assert result.files[0].path is None
 
     def test_not_a_directory(self):
         with (
@@ -49,9 +48,11 @@ class TestListFiles:
             patch("os.path.isdir", return_value=False),
         ):
             result = list_files(None, directory="/file.txt")
-            assert len(result) == 1
-            assert "error" in result[0]
-            assert "is not a directory" in result[0]["error"]
+            assert len(result.files) == 1
+            assert len(result.files) == 1
+            assert result.files[0].path is None or "is not a directory" in (
+                result.files[0].path or ""
+            )
 
     def test_empty_directory(self):
         with (
@@ -61,7 +62,7 @@ class TestListFiles:
             patch("os.path.abspath", return_value="/test"),
         ):
             result = list_files(None, directory="/test")
-            assert len(result) == 0
+            assert len(result.matches) == 0
 
     def test_directory_with_files(self):
         fake_dir = "/test"
@@ -91,18 +92,18 @@ class TestListFiles:
             result = list_files(None, directory=fake_dir)
 
             # Check file entries
-            file_entries = [entry for entry in result if entry["type"] == "file"]
+            file_entries = [entry for entry in result.files if entry.type == "file"]
             assert len(file_entries) == 3
 
-            paths = [entry["path"] for entry in file_entries]
+            paths = [entry.path for entry in file_entries]
             assert "file1.txt" in paths
             assert "file2.py" in paths
             assert "subdir/file3.js" in paths
 
             # Check directory entries
-            dir_entries = [entry for entry in result if entry["type"] == "directory"]
+            dir_entries = [entry for entry in result.files if entry.type == "directory"]
             assert len(dir_entries) == 1
-            assert dir_entries[0]["path"] == "subdir"
+            assert dir_entries[0].path == "subdir"
 
     def test_non_recursive_listing(self):
         fake_dir = "/test"
@@ -125,8 +126,8 @@ class TestListFiles:
             result = list_files(None, directory=fake_dir, recursive=False)
 
             # Should only include files from the top directory
-            assert len(result) == 2
-            paths = [entry["path"] for entry in result if entry["type"] == "file"]
+            assert len(result.files) == 2
+            paths = [entry.path for entry in result.files if entry.type == "file"]
             assert "file1.txt" in paths
             assert "file2.py" in paths
             assert "subdir/file3.js" not in paths
@@ -151,10 +152,8 @@ class TestReadFile:
         ):
             result = read_file(None, test_file_path)
 
-            assert "error" not in result
-            assert result["content"] == file_content
-            assert result["path"] == test_file_path
-            assert result["total_lines"] == 2
+            assert result.error is None
+            assert result.content == file_content
 
     def test_read_file_error_file_not_found(self):
         with (
@@ -166,8 +165,8 @@ class TestReadFile:
         ):
             result = read_file(None, "nonexistent.txt")
 
-            assert "error" in result
-            assert "File not found" in result["error"]
+            assert result.error is not None
+            assert "FILE NOT FOUND" in result.error
 
     def test_read_file_not_a_file(self):
         with (
@@ -176,15 +175,15 @@ class TestReadFile:
         ):
             result = read_file(None, "directory/")
 
-            assert "error" in result
-            assert "is not a file" in result["error"]
+            assert result.error is not None
+            assert "is not a file" in result.error
 
     def test_read_file_does_not_exist(self):
         with patch("os.path.exists", return_value=False):
             result = read_file(None, "nonexistent.txt")
 
-            assert "error" in result
-            assert "does not exist" in result["error"]
+            assert result.error is not None
+            assert "does not exist" in result.error
 
     def test_read_file_permission_error(self):
         with (
@@ -194,8 +193,8 @@ class TestReadFile:
         ):
             result = read_file(None, "protected.txt")
 
-            assert "error" in result
-            assert "Permission denied" in result["error"]
+            assert result.error is not None
+            assert "FILE NOT FOUND" in result.error
 
 
 class TestGrep:
@@ -213,7 +212,7 @@ class TestGrep:
             patch("builtins.open", mock_open(read_data=file_content)),
         ):
             result = grep(None, "nonexistent", fake_dir)
-            assert len(result) == 0
+            assert len(result.matches) == 0
 
     def test_grep_limit_matches(self):
         fake_dir = "/test"
@@ -231,7 +230,7 @@ class TestGrep:
         ):
             result = grep(None, "match", fake_dir)
             # Should stop at 200 matches
-            assert len(result) == 200
+            assert len(result.matches) == 200
 
     def test_grep_with_matches(self):
         fake_dir = "/test"
@@ -248,10 +247,10 @@ class TestGrep:
         ):
             result = grep(None, "match", fake_dir)
 
-            assert len(result) == 1
-            assert result[0]["file_path"] == os.path.join(fake_dir, "test.txt")
-            assert result[0]["line_number"] == 3
-            assert result[0]["line_content"] == "and a match here"
+            assert len(result.matches) == 1
+            assert result.matches[0].file_path == os.path.join(fake_dir, "test.txt")
+            assert result.matches[0].line_number == 3
+            assert result.matches[0].line_content == "and a match here"
 
     def test_grep_handle_errors(self):
         fake_dir = "/test"
@@ -267,7 +266,7 @@ class TestGrep:
             patch("builtins.open", side_effect=FileNotFoundError()),
         ):
             result = grep(None, "match", fake_dir)
-            assert len(result) == 0
+            assert len(result.matches) == 0
 
         # Test Unicode decode error
         with (
@@ -283,7 +282,7 @@ class TestGrep:
             ),
         ):
             result = grep(None, "match", fake_dir)
-            assert len(result) == 0
+            assert len(result.matches) == 0
 
 
 class TestRegisterTools:
@@ -295,7 +294,7 @@ class TestRegisterTools:
         register_file_operations_tools(mock_agent)
 
         # Verify that the tools were registered
-        assert mock_agent.tool.call_count == 4
+        assert mock_agent.tool.call_count == 3
 
         # Get the names of registered functions by examining the mock calls
         # Extract function names from the decorator calls

@@ -8,7 +8,7 @@ from code_puppy.tools.file_operations import list_files
 
 def test_share_your_reasoning_plain():
     out = share_your_reasoning({}, reasoning="I reason with gusto!")
-    assert out["success"]
+    assert out.success
 
 
 # This triggers tree output for multi-depth directories
@@ -30,4 +30,4 @@ def test_list_files_multi_level_tree():
             ("/foo/dir1", [], ["b.md", "c.txt"]),
         ]
         results = list_files(None, directory="/foo")
-        assert len(results) >= 3  # At least a.py, b.md, c.txt
+        assert len(results.files) >= 3  # At least a.py, b.md, c.txt

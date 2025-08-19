@@ -9,6 +9,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
+from code_puppy.message_history_processor import get_model_context_length
 from code_puppy.messaging.message_queue import (
     emit_error,
     emit_info,
@@ -19,6 +20,7 @@ from code_puppy.tools import register_all_tools
 
 from .http_utils import create_reopenable_async_client
 from .state_management import message_history_accumulator
+from .tools.common import console
 
 # Puppy rules loader
 PUPPY_RULES_PATH = Path(".puppy_rules")
@@ -155,12 +157,10 @@ def reload_code_generation_agent():
     mcp_servers = _load_mcp_servers()
 
     # Configure model settings with max_tokens if set
-    from code_puppy.config import get_max_tokens
-
     model_settings_dict = {"seed": 42}
-    max_tokens = get_max_tokens()
-    if max_tokens is not None:
-        model_settings_dict["max_tokens"] = max_tokens
+    output_tokens = int(0.05 * get_model_context_length()) - 1024
+    console.print(f"Max output tokens per message: {output_tokens}")
+    model_settings_dict["max_tokens"] = output_tokens
 
     model_settings = ModelSettings(**model_settings_dict)
     agent = Agent(

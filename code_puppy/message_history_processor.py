@@ -1,6 +1,5 @@
 import json
 import os
-from pathlib import Path
 from typing import List, Set
 
 import pydantic
@@ -173,14 +172,10 @@ def get_model_context_length() -> int:
     """
     Get the context length for the currently configured model from models.json
     """
-    # Load model configuration
-    models_path = os.environ.get("MODELS_JSON_PATH")
-    if not models_path:
-        models_path = Path(__file__).parent / "models.json"
-    else:
-        models_path = Path(models_path)
+    from code_puppy.config import CONFIG_DIR
 
-    model_configs = ModelFactory.load_config(str(models_path))
+    models_config_path = os.path.join(CONFIG_DIR, "models.json")
+    model_configs = ModelFactory.load_config(models_config_path)
     model_name = get_model_name()
 
     # Get context length from model config

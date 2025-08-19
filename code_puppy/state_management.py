@@ -3,6 +3,7 @@ from typing import Any, List
 from code_puppy.message_history_processor import message_history_processor
 
 _message_history: List[Any] = []
+_tui_mode: bool = False
 
 
 def set_tui_mode(enabled: bool) -> None:

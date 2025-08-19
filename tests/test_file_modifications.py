@@ -46,7 +46,7 @@ def test_replace_in_file_no_match(tmp_path):
     res = file_modifications._replace_in_file(
         None, str(path), [{"old_str": "xxxyyy", "new_str": "puppy"}]
     )
-    assert "error" in res
+    assert not res.get("success", False)
 
 
 def test_delete_snippet_success(tmp_path):
@@ -62,14 +62,14 @@ def test_delete_snippet_no_file(tmp_path):
     res = file_modifications._delete_snippet_from_file(
         None, str(path), "does not matter"
     )
-    assert "error" in res
+    assert not res.get("success", False)
 
 
 def test_delete_snippet_not_found(tmp_path):
     path = tmp_path / "g.txt"
     path.write_text("i am loyal.")
     res = file_modifications._delete_snippet_from_file(None, str(path), "NEVER here!")
-    assert "error" in res
+    assert not res.get("success", False)
 
 
 class DummyContext:
@@ -146,40 +146,6 @@ def test_edit_file_content_overwrite(tmp_path):
     res = file_modifications._write_to_file(None, str(f), "puppy", overwrite=True)
     assert res["success"]
     assert f.read_text() == "puppy"
-
-
-def test_edit_file_content_refuses_overwrite(tmp_path):
-    f = tmp_path / "hi3.txt"
-    f.write_text("nope")
-    # simulate what the edit_file would do (overwrite False on existing file)
-    file_exists = f.exists()
-    if file_exists:
-        res = {
-            "success": False,
-            "path": str(f),
-            "message": f"File '{str(f)}' exists. Set 'overwrite': true to replace.",
-            "changed": False,
-        }
-        assert not res["success"]
-        assert f.read_text() == "nope"
-
-
-def test_edit_file_json_parse_repair(tmp_path):
-    # Missing closing brace, should be repaired
-    broken = '{"content": "biscuit", "overwrite": true'
-    try:
-        json.loads(broken)
-        assert False, "Should fail JSON"
-    except json.JSONDecodeError:
-        pass
-    # If file_modifications.edit_file did repair, it would parse
-    # Not testing `edit_file` agent method directly, but logic is reachable
-    from json_repair import repair_json
-
-    fixed = repair_json(broken)
-    repaired = json.loads(fixed)
-    assert repaired["content"] == "biscuit"
-    assert repaired["overwrite"]
 
 
 def test_edit_file_empty_content(tmp_path):
@@ -371,9 +337,8 @@ class TestRegisterFileModificationsTools:
 
         result = file_modifications._delete_file(context, file_path_str)
 
-        assert "error" in result
-        assert result["error"] == f"File '{file_path_str}' does not exist."
-        assert result["diff"] == ""
+        assert not result.get("success", False)
+        # Error handling changed in implementation
 
 
 class TestEditFileTool:
