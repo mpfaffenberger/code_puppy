@@ -446,16 +446,74 @@ def register_file_modifications_tools(agent):
     def edit_file(
         context: RunContext, file_path: str, payload: EditFilePayload
     ) -> Dict[str, Any]:
-        """
-        Agent-facing wrapper around :func:`_edit_file`.
+        """Comprehensive file editing tool supporting multiple modification strategies.
 
-        Accepts a single *payload* argument that must validate against one of the following
-        Pydantic schemas:
+        This is the primary file modification tool that supports three distinct editing
+        approaches: full content replacement, targeted text replacements, and snippet
+        deletion. It provides robust diff generation, error handling, and automatic
+        retry capabilities for reliable file operations.
 
-        1. `ContentPayload` – fields: ``content`` (str), optional ``overwrite`` (bool, default *False*)
-        2. `ReplacementsPayload` – field: ``replacements`` (List[Replacement]) where ``Replacement``
-           contains ``old_str`` and ``new_str``
-        3. `DeleteSnippetPayload` – field: ``delete_snippet`` (str)
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            file_path (str): Path to the target file. Can be relative or absolute.
+                File will be created if it doesn't exist (for ContentPayload).
+            payload (EditFilePayload): One of three payload types:
+
+                ContentPayload:
+                    - content (str): Full file content to write
+                    - overwrite (bool, optional): Whether to overwrite existing files.
+                      Defaults to False (safe mode).
+
+                ReplacementsPayload:
+                    - replacements (List[Replacement]): List of text replacements where
+                      each Replacement contains:
+                      - old_str (str): Exact text to find and replace
+                      - new_str (str): Replacement text
+
+                DeleteSnippetPayload:
+                    - delete_snippet (str): Exact text snippet to remove from file
+
+        Returns:
+            Dict[str, Any]: Operation result containing:
+                - success (bool): True if operation completed successfully
+                - path (str): Absolute path to the modified file
+                - message (str): Human-readable description of what occurred
+                - changed (bool): True if file content was actually modified
+                - error (str, optional): Error message if operation failed
+
+        Note:
+            - Automatic retry (up to 5 attempts) for transient failures
+            - Unified diff is generated and displayed for all operations
+            - Fuzzy matching (Jaro-Winkler) used for replacements when exact match fails
+            - Minimum similarity threshold of 0.95 for fuzzy replacements
+            - Creates parent directories automatically when needed
+            - UTF-8 encoding enforced for all file operations
+
+        Examples:
+            >>> # Create new file
+            >>> payload = ContentPayload(content="print('Hello World')")
+            >>> result = edit_file(ctx, "hello.py", payload)
+
+            >>> # Replace specific text
+            >>> replacements = [Replacement(old_str="foo", new_str="bar")]
+            >>> payload = ReplacementsPayload(replacements=replacements)
+            >>> result = edit_file(ctx, "config.py", payload)
+
+            >>> # Delete code block
+            >>> payload = DeleteSnippetPayload(delete_snippet="# TODO: remove this")
+            >>> result = edit_file(ctx, "main.py", payload)
+
+        Warning:
+            - Always verify file contents after modification
+            - Use overwrite=False by default to prevent accidental data loss
+            - Large files may be slow due to diff generation
+            - Exact string matching required for reliable replacements
+
+        Best Practice:
+            - Use ReplacementsPayload for targeted changes to preserve file structure
+            - Read file first to understand current content before modifications
+            - Keep replacement strings specific and unique to avoid unintended matches
+            - Test modifications on non-critical files first
         """
         # Generate group_id for edit_file tool execution
         group_id = generate_group_id("edit_file", file_path)
@@ -466,6 +524,55 @@ def register_file_modifications_tools(agent):
 
     @agent.tool(retries=5)
     def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+        """Safely delete files with comprehensive logging and diff generation.
+
+        This tool provides safe file deletion with automatic diff generation to show
+        exactly what content was removed. It includes proper error handling and
+        automatic retry capabilities for reliable operation.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            file_path (str): Path to the file to delete. Can be relative or absolute.
+                Must be an existing regular file (not a directory).
+
+        Returns:
+            Dict[str, Any]: Operation result containing:
+                - success (bool): True if file was successfully deleted
+                - path (str): Absolute path to the deleted file
+                - message (str): Human-readable description of the operation
+                - changed (bool): True if file was actually removed
+                - error (str, optional): Error message if deletion failed
+
+        Note:
+            - Automatic retry (up to 5 attempts) for transient failures
+            - Complete file content is captured and shown in diff before deletion
+            - Only deletes regular files, not directories or special files
+            - Generates unified diff showing all removed content
+            - Error if file doesn't exist or is not accessible
+
+        Examples:
+            >>> # Delete temporary file
+            >>> result = delete_file(ctx, "temp_output.txt")
+            >>> if result['success']:
+            ...     print(f"Successfully deleted {result['path']}")
+
+            >>> # Delete with error handling
+            >>> result = delete_file(ctx, "config.bak")
+            >>> if 'error' in result:
+            ...     print(f"Deletion failed: {result['error']}")
+
+        Warning:
+            - File deletion is irreversible - ensure you have backups if needed
+            - Will not delete directories (use appropriate directory removal tools)
+            - No "trash" or "recycle bin" - files are permanently removed
+            - Check file importance before deletion
+
+        Best Practice:
+            - Always verify file path before deletion
+            - Review the generated diff to confirm deletion scope
+            - Consider moving files to backup location instead of deleting
+            - Use in combination with list_files to verify target
+        """
         # Generate group_id for delete_file tool execution
         group_id = generate_group_id("delete_file", file_path)
         result = _delete_file(context, file_path, message_group=group_id)
