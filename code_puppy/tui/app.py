@@ -90,10 +90,11 @@ class CodePuppyTUI(App):
         # Update the submit/cancel button state when agent_busy changes
         self._update_submit_cancel_button(self.agent_busy)
 
-    def __init__(self, **kwargs):
+    def __init__(self, initial_command: str = None, **kwargs):
         super().__init__(**kwargs)
         self.agent = None
         self._current_worker = None
+        self.initial_command = initial_command
 
         # Initialize message queue renderer
         self.message_queue = get_global_queue()
@@ -143,6 +144,10 @@ class CodePuppyTUI(App):
 
         # Auto-focus the input field so user can start typing immediately
         self.call_after_refresh(self.focus_input_field)
+
+        # Process initial command if provided
+        if self.initial_command:
+            self.call_after_refresh(self.process_initial_command)
 
     def add_system_message(
         self, content: str, message_group: str = None, group_id: str = None
@@ -631,6 +636,21 @@ class CodePuppyTUI(App):
 
         self.push_screen(SettingsScreen(), handle_settings_result)
 
+    def process_initial_command(self) -> None:
+        """Process the initial command provided when starting the TUI."""
+        if self.initial_command:
+            # Add the initial command to the input field
+            input_field = self.query_one("#input-field", CustomTextArea)
+            input_field.text = self.initial_command
+
+            # Show that we're auto-executing the initial command
+            self.add_system_message(
+                f"🚀 Auto-executing initial command: {self.initial_command}"
+            )
+
+            # Automatically submit the message
+            self.action_send_message()
+
     # History management methods
     def load_history_list(self) -> None:
         """Load session history into the history tab."""
@@ -1007,7 +1027,7 @@ class CodePuppyTUI(App):
                 pass
 
 
-async def run_textual_ui():
+async def run_textual_ui(initial_command: str = None):
     """Run the Textual UI interface."""
     # Always enable YOLO mode in TUI mode for a smoother experience
     from code_puppy.config import set_config_value
@@ -1017,5 +1037,5 @@ async def run_textual_ui():
 
     set_config_value("yolo_mode", "true")
 
-    app = CodePuppyTUI()
+    app = CodePuppyTUI(initial_command=initial_command)
     await app.run_async()
