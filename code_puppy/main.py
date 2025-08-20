@@ -779,6 +779,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                     f"Cancelled {killed} running shell process(es)."
                                 )
                             else:
+                                from code_puppy.message_history_processor import (
+                                    message_history_processor,
+                                )
+
                                 # Then cancel the agent task
                                 if not agent_task.done():
                                     state_management._message_history = (
@@ -822,6 +826,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
                 )
+                from code_puppy.message_history_processor import (
+                    message_history_processor,
+                )
+                from code_puppy.state_management import set_message_history
 
                 # Update message history - the agent's history processor will handle truncation
                 new_msgs = result.all_messages()
