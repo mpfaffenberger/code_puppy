@@ -112,6 +112,11 @@ class CodePuppyTUI(App):
 
     def on_mount(self) -> None:
         """Initialize the application when mounted."""
+        # Register this app instance for global access
+        from code_puppy.state_management import set_tui_app_instance
+
+        set_tui_app_instance(self)
+
         # Load configuration
         self.current_model = get_model_name()
         self.puppy_name = get_puppy_name()

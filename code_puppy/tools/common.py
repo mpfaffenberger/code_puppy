@@ -113,9 +113,12 @@ def generate_group_id(tool_name: str, extra_context: str = "") -> str:
     Returns:
         A string in format: tool_name_hash
     """
-    # Create a unique identifier using timestamp and context
-    timestamp = str(int(time.time() * 1000))  # milliseconds for more uniqueness
-    context_string = f"{tool_name}_{timestamp}_{extra_context}"
+    # Create a unique identifier using timestamp, context, and a random component
+    import random
+
+    timestamp = str(int(time.time() * 1000000))  # microseconds for more uniqueness
+    random_component = random.randint(1000, 9999)  # Add randomness
+    context_string = f"{tool_name}_{timestamp}_{random_component}_{extra_context}"
 
     # Generate a short hash
     hash_obj = hashlib.md5(context_string.encode())
