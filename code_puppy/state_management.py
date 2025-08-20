@@ -1,18 +1,9 @@
-"""
-Global state management for Code Puppy.
-
-This module provides a centralized location for global state that needs to be
-accessed across different modules in the application. This includes TUI mode
-tracking and message history management.
-"""
-
 from typing import Any, List
 
-# Global variable to track TUI mode
-_tui_mode = False
+from code_puppy.message_history_processor import message_history_processor
 
-# Global variable to store message history for interactive sessions
 _message_history: List[Any] = []
+_tui_mode: bool = False
 
 
 def set_tui_mode(enabled: bool) -> None:
@@ -44,63 +35,53 @@ def get_tui_mode() -> bool:
 
 
 def get_message_history() -> List[Any]:
-    """Get the current message history.
-
-    Returns:
-        A list of messages from the current session
-    """
     return _message_history
 
 
 def set_message_history(history: List[Any]) -> None:
-    """Set the message history.
-
-    Args:
-        history: List of messages to set as the current history
-    """
     global _message_history
     _message_history = history
 
 
 def clear_message_history() -> None:
-    """Clear the message history."""
     global _message_history
     _message_history = []
 
 
 def append_to_message_history(message: Any) -> None:
-    """Add a message to the history.
-
-    Args:
-        message: Message to add to the history
-    """
     _message_history.append(message)
 
 
-def extend_message_history(messages: List[Any]) -> None:
-    """Extend the message history with multiple messages.
-
-    Args:
-        messages: List of messages to add to the history
-    """
-    _message_history.extend(messages)
+def extend_message_history(history: List[Any]) -> None:
+    _message_history.extend(history)
 
 
 def hash_message(message):
-    hashable_entites = []
+    hashable_entities = []
     for part in message.parts:
         if hasattr(part, "timestamp"):
-            hashable_entites.append(part.timestamp.isoformat())
+            hashable_entities.append(part.timestamp.isoformat())
         elif hasattr(part, "tool_call_id"):
-            hashable_entites.append(part.tool_call_id)
+            hashable_entities.append(part.tool_call_id)
         else:
-            hashable_entites.append(part.content)
-    return hash(",".join(hashable_entites))
+            hashable_entities.append(part.content)
+    return hash(",".join(hashable_entities))
 
 
 def message_history_accumulator(messages: List[Any]):
+    global _message_history
+
     message_history_hashes = set([hash_message(m) for m in _message_history])
     for msg in messages:
         if hash_message(msg) not in message_history_hashes:
             _message_history.append(msg)
-    return messages
+
+    # Apply message history trimming using the main processor
+    # This ensures we maintain global state while still managing context limits
+    trimmed_messages = message_history_processor(_message_history)
+
+    # Update our global state with the trimmed version
+    # This preserves the state but keeps us within token limits
+    _message_history = trimmed_messages
+
+    return _message_history

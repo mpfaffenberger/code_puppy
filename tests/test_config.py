@@ -276,7 +276,7 @@ class TestGetConfigKeys:
         keys = cp_config.get_config_keys()
 
         mock_parser_instance.read.assert_called_once_with(mock_cfg_file)
-        assert keys == sorted(["key1", "key2", "model", "yolo_mode", "max_tokens"])
+        assert keys == sorted(["key1", "key2", "model", "yolo_mode"])
 
     @patch("configparser.ConfigParser")
     def test_get_config_keys_empty_config(
@@ -288,7 +288,7 @@ class TestGetConfigKeys:
         mock_config_parser_class.return_value = mock_parser_instance
 
         keys = cp_config.get_config_keys()
-        assert keys == sorted(["model", "yolo_mode", "max_tokens"])
+        assert keys == sorted(["model", "yolo_mode"])
 
 
 class TestSetConfigValue:
@@ -468,88 +468,6 @@ class TestGetYoloMode:
 
         assert cp_config.get_yolo_mode() is False
         mock_get_value.assert_called_once_with("yolo_mode")
-
-
-class TestMaxTokens:
-    @patch("code_puppy.config.get_value")
-    def test_get_max_tokens_exists_valid_integer(self, mock_get_value):
-        mock_get_value.return_value = "4000"
-        assert cp_config.get_max_tokens() == 4000
-        mock_get_value.assert_called_once_with("max_tokens")
-
-    @patch("code_puppy.config.get_value")
-    def test_get_max_tokens_exists_zero_returns_default(self, mock_get_value):
-        mock_get_value.return_value = "0"
-        assert cp_config.get_max_tokens() == 32768
-        mock_get_value.assert_called_once_with("max_tokens")
-
-    @patch("code_puppy.config.get_value")
-    def test_get_max_tokens_exists_negative_returns_default(self, mock_get_value):
-        mock_get_value.return_value = "-100"
-        assert cp_config.get_max_tokens() == 32768
-        mock_get_value.assert_called_once_with("max_tokens")
-
-    @patch("code_puppy.config.get_value")
-    def test_get_max_tokens_not_exists_returns_default(self, mock_get_value):
-        mock_get_value.return_value = None
-        assert cp_config.get_max_tokens() == 32768
-        mock_get_value.assert_called_once_with("max_tokens")
-
-    @patch("code_puppy.config.get_value")
-    def test_get_max_tokens_invalid_value_returns_default(self, mock_get_value):
-        mock_get_value.return_value = "not_a_number"
-        assert cp_config.get_max_tokens() == 32768
-        mock_get_value.assert_called_once_with("max_tokens")
-
-    @patch("code_puppy.config.set_config_value")
-    def test_set_max_tokens_valid_value(self, mock_set_config_value):
-        cp_config.set_max_tokens(8000)
-        mock_set_config_value.assert_called_once_with("max_tokens", "8000")
-
-    @patch("configparser.ConfigParser")
-    @patch("builtins.open", new_callable=mock_open)
-    def test_set_max_tokens_none_removes_setting(
-        self, mock_file_open, mock_config_parser_class, mock_config_paths
-    ):
-        _, mock_cfg_file = mock_config_paths
-        mock_parser_instance = MagicMock()
-
-        # Setup section dict that contains max_tokens
-        section_dict = {"max_tokens": "4000", "other_key": "other_value"}
-        mock_parser_instance.read.return_value = [mock_cfg_file]
-        mock_parser_instance.__contains__.return_value = True
-        mock_parser_instance.__getitem__.return_value = section_dict
-        mock_config_parser_class.return_value = mock_parser_instance
-
-        cp_config.set_max_tokens(None)
-
-        # Should remove max_tokens but keep other keys
-        assert "max_tokens" not in section_dict
-        assert "other_key" in section_dict
-        mock_file_open.assert_called_once_with(mock_cfg_file, "w")
-        mock_parser_instance.write.assert_called_once_with(mock_file_open())
-
-    @patch("configparser.ConfigParser")
-    @patch("builtins.open", new_callable=mock_open)
-    def test_set_max_tokens_zero_removes_setting(
-        self, mock_file_open, mock_config_parser_class, mock_config_paths
-    ):
-        _, mock_cfg_file = mock_config_paths
-        mock_parser_instance = MagicMock()
-
-        # Setup section dict that contains max_tokens
-        section_dict = {"max_tokens": "4000"}
-        mock_parser_instance.read.return_value = [mock_cfg_file]
-        mock_parser_instance.__contains__.return_value = True
-        mock_parser_instance.__getitem__.return_value = section_dict
-        mock_config_parser_class.return_value = mock_parser_instance
-
-        cp_config.set_max_tokens(0)
-
-        # Should remove max_tokens since 0 means use model default
-        assert "max_tokens" not in section_dict
-        mock_file_open.assert_called_once_with(mock_cfg_file, "w")
-        mock_parser_instance.write.assert_called_once_with(mock_file_open())
 
 
 class TestCommandHistory:

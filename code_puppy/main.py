@@ -16,11 +16,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy import __version__, state_management
-from code_puppy.agent import (
-    get_code_generation_agent,
-    get_custom_usage_limits,
-    session_memory,
-)
+from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.auth import authenticate_puppy, get_puppy_token
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
@@ -205,14 +201,22 @@ async def main():
         action="store_true",
         help="Run in web mode (serves TUI in browser)",
     )
-    parser.add_argument("command", nargs="*", help="Run a single command")
+    parser.add_argument(
+        "--prompt",
+        "-p",
+        type=str,
+        help="Execute a single prompt and exit (no interactive mode)",
+    )
+    parser.add_argument(
+        "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
+    )
     args = parser.parse_args()
 
     # Determine if we're in TUI mode early and set it globally
     # Web mode also uses TUI interface (served in browser), so treat it as TUI mode
     if args.tui or args.web:
         set_tui_mode(True)
-    elif args.interactive or args.command:
+    elif args.interactive or args.command or args.prompt:
         # Default to interactive mode when commands are provided or explicitly requested
         set_tui_mode(False)
 
@@ -235,21 +239,18 @@ async def main():
         message_renderer.start()
 
     # Import message queue functions early
-    # Handle help case early (when no mode is specified and no command given)
-    if not args.tui and not args.interactive and not args.web and not args.command:
-        # Show help with information about all modes
-        parser.print_help()
-        print("\nAvailable modes:")
-        print("  --interactive, -i  Interactive command-line mode")
-        print("  --tui, -t         Terminal User Interface mode")
-        print("  --web, -w         Web interface mode (serves TUI in browser)")
-        print("  <command>         Execute a single command")
-        print("\nExamples:")
-        print("  code-puppy --interactive")
-        print("  code-puppy --tui")
-        print("  code-puppy --web")
-        print("  code-puppy 'create a hello world script'")
-        return
+    # Determine mode based on arguments
+    # If no specific mode flags are provided and no command/prompt, we'll default to prompt-then-interactive
+    if (
+        not args.tui
+        and not args.interactive
+        and not args.web
+        and not args.command
+        and not args.prompt
+    ):
+        # New behavior: prompt for input then continue in interactive mode
+        # This will be handled later in the main logic
+        pass
 
     # Initialize command history file
     initialize_command_history_file()
@@ -424,12 +425,24 @@ async def main():
     os.environ["puppy_token"] = token
 
     try:
-        # Prepare initial command if provided
+        # Prepare initial command and determine execution mode
         initial_command = None
-        if args.command:
-            initial_command = " ".join(args.command)
+        prompt_only_mode = False
 
-        if is_tui_mode():
+        if args.prompt:
+            # -p flag: execute prompt and exit
+            initial_command = args.prompt
+            prompt_only_mode = True
+        elif args.command:
+            # Positional command args: run in interactive mode with this as initial command
+            initial_command = " ".join(args.command)
+            # Changed behavior: instead of exiting after one command, continue in interactive mode
+            prompt_only_mode = False
+
+        # Handle prompt-only mode (execute once and exit)
+        if prompt_only_mode:
+            await execute_single_prompt(initial_command, message_renderer)
+        elif is_tui_mode():
             # Import here to avoid dependency issues if textual is not available
             try:
                 from code_puppy.tui import run_textual_ui
@@ -449,11 +462,12 @@ async def main():
                 emit_error(f"TUI Error: {str(e)}")
                 emit_warning("Falling back to interactive mode...")
                 await interactive_mode(message_renderer)
-        elif args.interactive or args.command:
+        elif args.interactive or initial_command:
+            # Interactive mode (either explicit --interactive flag or we have an initial command)
             await interactive_mode(message_renderer, initial_command=initial_command)
         else:
-            # This case should not be reached due to early help handling
-            parser.print_help()
+            # Default mode: prompt for input then continue in interactive mode
+            await prompt_then_interactive_mode(message_renderer)
     finally:
         # Stop the message renderer if it was started
         if message_renderer:
@@ -588,15 +602,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             emit_system_message(
                 f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
-            )
-
-            # Log to session memory
-            session_memory().log_task(
-                f"Initial command: {initial_command}",
-                extras={
-                    "output": agent_response.output_message,
-                    "awaiting_user_input": agent_response.awaiting_user_input,
-                },
             )
 
             # Update message history with the initial command and response
@@ -749,18 +754,44 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # Set up signal handling for Ctrl+C
                     import signal
 
+                    from code_puppy.tools.command_runner import (
+                        kill_all_running_shell_processes,
+                    )
+
                     original_handler = None
+
+                    # Ensure the interrupt handler only acts once per task
+                    handled = False
 
                     def keyboard_interrupt_handler(sig, frame):
                         nonlocal local_cancelled
-                        if not agent_task.done():
-                            state_management._message_history = (
-                                message_history_processor(
-                                    state_management._message_history
+                        nonlocal handled
+                        if handled:
+                            return
+                        handled = True
+                        # First, nuke any running shell processes triggered by tools
+                        try:
+                            killed = kill_all_running_shell_processes()
+                            if killed:
+                                from code_puppy.messaging import emit_warning
+
+                                emit_warning(
+                                    f"Cancelled {killed} running shell process(es)."
                                 )
-                            )
-                            agent_task.cancel()
-                            local_cancelled = True
+                            else:
+                                # Then cancel the agent task
+                                if not agent_task.done():
+                                    state_management._message_history = (
+                                        message_history_processor(
+                                            state_management._message_history
+                                        )
+                                    )
+                                    agent_task.cancel()
+                                    local_cancelled = True
+                        except Exception as e:
+                            from code_puppy.messaging import emit_warning
+
+                            emit_warning(f"Shell kill error: {e}")
                         # Don't call the original handler
                         # This prevents the application from exiting
 
@@ -790,14 +821,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
-                )
-                # Log to session memory
-                session_memory().log_task(
-                    f"Interactive task: {task}",
-                    extras={
-                        "output": agent_response.output_message,
-                        "awaiting_user_input": agent_response.awaiting_user_input,
-                    },
                 )
 
                 # Update message history - the agent's history processor will handle truncation
@@ -850,6 +873,113 @@ def prettier_code_blocks():
             yield Text(f"/{self.lexer_name}", style="dim")
 
     Markdown.elements["fence"] = SimpleCodeBlock
+
+
+async def execute_single_prompt(prompt: str, message_renderer) -> None:
+    """Execute a single prompt and exit (for -p flag)."""
+    from code_puppy.messaging import emit_info, emit_system_message
+
+    emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
+
+    try:
+        # Get the agent
+        agent = get_code_generation_agent()
+
+        # Use our custom spinner for better compatibility with user input
+        from code_puppy.messaging.spinner import ConsoleSpinner
+
+        display_console = message_renderer.console
+        with ConsoleSpinner(console=display_console):
+            try:
+                async with agent.run_mcp_servers():
+                    response = await agent.run(
+                        prompt, usage_limits=get_custom_usage_limits()
+                    )
+            except Exception as mcp_error:
+                from code_puppy.messaging import emit_warning
+
+                emit_warning(f"MCP server error: {str(mcp_error)}")
+                emit_warning("Running without MCP servers...")
+                # Run without MCP servers as fallback
+                response = await agent.run(
+                    prompt, usage_limits=get_custom_usage_limits()
+                )
+
+        agent_response = response.output
+        emit_system_message(
+            f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+        )
+
+        if agent_response.awaiting_user_input:
+            from code_puppy.messaging import emit_warning
+
+            emit_warning(
+                "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
+            )
+
+    except Exception as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(f"Error executing prompt: {str(e)}")
+
+
+async def prompt_then_interactive_mode(message_renderer) -> None:
+    """Prompt user for input, execute it, then continue in interactive mode."""
+    from code_puppy.messaging import emit_info, emit_system_message
+
+    emit_info("[bold green]🐶 Code Puppy[/bold green] - Enter your request")
+    emit_system_message(
+        "After processing your request, you'll continue in interactive mode."
+    )
+
+    try:
+        # Get user input
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_input_with_combined_completion,
+            get_prompt_with_active_model,
+        )
+        from code_puppy.config import COMMAND_HISTORY_FILE
+
+        emit_info("[bold blue]What would you like me to help you with?[/bold blue]")
+
+        try:
+            # Use prompt_toolkit for enhanced input with path completion
+            user_prompt = await get_input_with_combined_completion(
+                get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+            )
+        except ImportError:
+            # Fall back to basic input if prompt_toolkit is not available
+            user_prompt = input(">>> ")
+
+        if user_prompt.strip():
+            # Execute the prompt
+            await execute_single_prompt(user_prompt, message_renderer)
+
+            # Transition to interactive mode
+            emit_system_message("\n" + "=" * 50)
+            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+            emit_system_message(
+                "Your request and response are preserved in the conversation history."
+            )
+            emit_system_message("=" * 50 + "\n")
+
+            # Continue in interactive mode with the initial command as history
+            await interactive_mode(message_renderer, initial_command=user_prompt)
+        else:
+            # No input provided, just go to interactive mode
+            await interactive_mode(message_renderer)
+
+    except (KeyboardInterrupt, EOFError):
+        from code_puppy.messaging import emit_warning
+
+        emit_warning("\nInput cancelled. Starting interactive mode...")
+        await interactive_mode(message_renderer)
+    except Exception as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(f"Error in prompt mode: {str(e)}")
+        emit_info("Falling back to interactive mode...")
+        await interactive_mode(message_renderer)
 
 
 def main_entry():

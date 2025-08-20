@@ -75,7 +75,6 @@ class TestSidebarHistory(unittest.TestCase):
             },
             {"timestamp": "2024-01-01T10:01:00Z", "command": "/help"},
             {"timestamp": "2024-01-01T10:02:00Z", "command": "Write a Python script"},
-            {"timestamp": "2024-01-01T10:03:00Z", "command": "/codemap src/"},
             {"timestamp": "2024-01-01T10:04:00Z", "command": "/exit"},
             {"timestamp": "2024-01-01T10:05:00Z", "command": "Debug this error"},
             {"timestamp": "2024-01-01T10:06:00Z", "command": "/m gpt-4"},
@@ -107,7 +106,6 @@ class TestSidebarHistory(unittest.TestCase):
                     command.startswith(cli_cmd)
                     for cli_cmd in {
                         "/help",
-                        "/codemap",
                         "/exit",
                         "/m",
                         "/motd",

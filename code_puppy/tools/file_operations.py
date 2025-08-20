@@ -1,8 +1,9 @@
 # file_operations.py
 
 import os
-from typing import Any, Dict, List
+from typing import List
 
+from pydantic import BaseModel, conint
 from pydantic_ai import RunContext
 
 # ---------------------------------------------------------------------------
@@ -16,6 +17,53 @@ from code_puppy.messaging import (
     emit_warning,
 )
 from code_puppy.tools.common import generate_group_id, should_ignore_path
+
+# Add token checking functionality
+try:
+    from code_puppy.token_utils import get_tokenizer
+    from code_puppy.tools.token_check import token_guard
+except ImportError:
+    # Fallback for when token checking modules aren't available
+    def get_tokenizer():
+        import tiktoken
+
+        return tiktoken.get_encoding("cl100k_base")
+
+    def token_guard(num_tokens):
+        if num_tokens > 10000:
+            raise ValueError(
+                f"Token count {num_tokens} exceeds safety limit of 10,000 tokens"
+            )
+
+
+# Pydantic models for tool return types
+class ListedFile(BaseModel):
+    path: str | None
+    type: str | None
+    size: int = 0
+    full_path: str | None
+    depth: int | None
+
+
+class ListFileOutput(BaseModel):
+    files: List[ListedFile]
+    error: str | None = None
+
+
+class ReadFileOutput(BaseModel):
+    content: str | None
+    num_tokens: conint(lt=10000)
+    error: str | None = None
+
+
+class MatchInfo(BaseModel):
+    file_path: str | None
+    line_number: int | None
+    line_content: str | None
+
+
+class GrepOutput(BaseModel):
+    matches: List[MatchInfo]
 
 
 def is_likely_home_directory(directory):
@@ -76,7 +124,7 @@ def is_project_directory(directory):
 
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
-) -> List[Dict[str, Any]]:
+) -> ListFileOutput:
     results = []
     directory = os.path.abspath(directory)
 
@@ -95,11 +143,15 @@ def _list_files(
     if not os.path.exists(directory):
         emit_error(f"Directory '{directory}' does not exist", message_group=group_id)
         emit_divider(message_group=group_id)
-        return [{"error": f"Directory '{directory}' does not exist"}]
+        return ListFileOutput(
+            files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
+        )
     if not os.path.isdir(directory):
         emit_error(f"'{directory}' is not a directory", message_group=group_id)
         emit_divider(message_group=group_id)
-        return [{"error": f"'{directory}' is not a directory"}]
+        return ListFileOutput(
+            files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
+        )
 
     # Smart home directory detection - auto-limit recursion for performance
     if is_likely_home_directory(directory) and recursive:
@@ -124,13 +176,15 @@ def _list_files(
         if rel_path:
             dir_path = os.path.join(directory, rel_path)
             results.append(
-                {
-                    "path": rel_path,
-                    "type": "directory",
-                    "size": 0,
-                    "full_path": dir_path,
-                    "depth": depth,
-                }
+                ListedFile(
+                    **{
+                        "path": rel_path,
+                        "type": "directory",
+                        "size": 0,
+                        "full_path": dir_path,
+                        "depth": depth,
+                    }
+                )
             )
             folder_structure[rel_path] = {
                 "path": rel_path,
@@ -151,7 +205,7 @@ def _list_files(
                     "full_path": file_path,
                     "depth": depth,
                 }
-                results.append(file_info)
+                results.append(ListedFile(**file_info))
                 file_list.append(file_info)
             except (FileNotFoundError, PermissionError):
                 continue
@@ -198,86 +252,112 @@ def _list_files(
             return "\U0001f4c4"
 
     if results:
-        files = sorted(
-            [f for f in results if f["type"] == "file"], key=lambda x: x["path"]
-        )
+        files = sorted([f for f in results if f.type == "file"], key=lambda x: x.path)
         emit_info(
             f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]",
             message_group=group_id,
         )
-    all_items = sorted(results, key=lambda x: x["path"])
+    all_items = sorted(results, key=lambda x: x.path)
     parent_dirs_with_content = set()
     for i, item in enumerate(all_items):
-        if item["type"] == "directory" and not item["path"]:
+        if item.type == "directory" and not item.path:
             continue
-        if os.sep in item["path"]:
-            parent_path = os.path.dirname(item["path"])
+        if os.sep in item.path:
+            parent_path = os.path.dirname(item.path)
             parent_dirs_with_content.add(parent_path)
-        depth = item["path"].count(os.sep) + 1 if item["path"] else 0
+        depth = item.path.count(os.sep) + 1 if item.path else 0
         prefix = ""
         for d in range(depth):
             if d == depth - 1:
                 prefix += "\u2514\u2500\u2500 "
             else:
                 prefix += "    "
-        name = os.path.basename(item["path"]) or item["path"]
-        if item["type"] == "directory":
+        name = os.path.basename(item.path) or item.path
+        if item.type == "directory":
             emit_info(
                 f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]",
                 message_group=group_id,
             )
         else:
-            icon = get_file_icon(item["path"])
-            size_str = format_size(item["size"])
+            icon = get_file_icon(item.path)
+            size_str = format_size(item.size)
             emit_info(
                 f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]",
                 message_group=group_id,
             )
     else:
         emit_warning("Directory is empty", message_group=group_id)
-    dir_count = sum(1 for item in results if item["type"] == "directory")
-    file_count = sum(1 for item in results if item["type"] == "file")
-    total_size = sum(item["size"] for item in results if item["type"] == "file")
+    dir_count = sum(1 for item in results if item.type == "directory")
+    file_count = sum(1 for item in results if item.type == "file")
+    total_size = sum(item.size for item in results if item.type == "file")
     emit_info("\n[bold cyan]Summary:[/bold cyan]", message_group=group_id)
     emit_info(
         f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]",
         message_group=group_id,
     )
     emit_divider(message_group=group_id)
-    return results
+    return ListFileOutput(files=results)
 
 
-def _read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
+def _read_file(
+    context: RunContext,
+    file_path: str,
+    start_line: int | None = None,
+    num_lines: int | None = None,
+) -> ReadFileOutput:
     file_path = os.path.abspath(file_path)
 
     # Generate group_id for this tool execution
     group_id = generate_group_id("read_file", file_path)
 
-    emit_info(
-        f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]",
-        message_group=group_id,
-    )
+    # Build console message with optional parameters
+    console_msg = f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
+    if start_line is not None and num_lines is not None:
+        console_msg += f" [dim](lines {start_line}-{start_line + num_lines - 1})[/dim]"
+    emit_info(console_msg, message_group=group_id)
+
     emit_divider(message_group=group_id)
     if not os.path.exists(file_path):
-        return {"error": f"File '{file_path}' does not exist"}
+        error_msg = f"File {file_path} does not exist"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     if not os.path.isfile(file_path):
-        return {"error": f"'{file_path}' is not a file"}
+        error_msg = f"{file_path} is not a file"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return {
-            "content": content,
-            "path": file_path,
-            "total_lines": len(content.splitlines()),
-        }
-    except Exception as exc:
-        return {"error": str(exc)}
+            if start_line is not None and num_lines is not None:
+                # Read only the specified lines
+                lines = f.readlines()
+                # Adjust for 1-based line numbering
+                start_idx = start_line - 1
+                end_idx = start_idx + num_lines
+                # Ensure indices are within bounds
+                start_idx = max(0, start_idx)
+                end_idx = min(len(lines), end_idx)
+                content = "".join(lines[start_idx:end_idx])
+            else:
+                # Read the entire file
+                content = f.read()
+
+            tokenizer = get_tokenizer()
+            num_tokens = len(tokenizer.encode(content, disallowed_special=()))
+            if num_tokens > 10000:
+                raise ValueError(
+                    "The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks."
+                )
+            token_guard(num_tokens)
+        return ReadFileOutput(content=content, num_tokens=num_tokens)
+    except (FileNotFoundError, PermissionError):
+        # For backward compatibility with tests, return "FILE NOT FOUND" for these specific errors
+        error_msg = "FILE NOT FOUND"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+    except Exception as e:
+        message = f"An error occurred trying to read the file: {e}"
+        return ReadFileOutput(content=message, num_tokens=0, error=message)
 
 
-def _grep(
-    context: RunContext, search_string: str, directory: str = "."
-) -> List[Dict[str, Any]]:
-    matches: List[Dict[str, Any]] = []
+def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
+    matches: List[MatchInfo] = []
     directory = os.path.abspath(directory)
 
     # Generate group_id for this tool execution
@@ -305,11 +385,13 @@ def _grep(
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
                     for line_number, line_content in enumerate(fh, 1):
                         if search_string in line_content:
-                            match_info = {
-                                "file_path": file_path,
-                                "line_number": line_number,
-                                "line_content": line_content.strip(),
-                            }
+                            match_info = MatchInfo(
+                                **{
+                                    "file_path": file_path,
+                                    "line_number": line_number,
+                                    "line_content": line_content.rstrip("\n\r"),
+                                }
+                            )
                             matches.append(match_info)
                             # emit_system_message(
                             #     f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}"
@@ -319,7 +401,7 @@ def _grep(
                                     "Limit of 200 matches reached. Stopping search.",
                                     message_group=group_id,
                                 )
-                                return matches
+                                return GrepOutput(matches=matches)
             except FileNotFoundError:
                 emit_warning(
                     f"File not found (possibly a broken symlink): {file_path}",
@@ -349,7 +431,7 @@ def _grep(
             message_group=group_id,
         )
 
-    return matches
+    return GrepOutput(matches=matches)
 
 
 # Exported top-level functions for direct import by tests and other code
@@ -359,8 +441,8 @@ def list_files(context, directory=".", recursive=True):
     return _list_files(context, directory, recursive)
 
 
-def read_file(context, file_path):
-    return _read_file(context, file_path)
+def read_file(context, file_path, start_line=None, num_lines=None):
+    return _read_file(context, file_path, start_line, num_lines)
 
 
 def grep(context, search_string, directory="."):
@@ -371,38 +453,30 @@ def register_file_operations_tools(agent):
     @agent.tool
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
-    ) -> List[Dict[str, Any]]:
-        return _list_files(context, directory, recursive)
+    ) -> ListFileOutput:
+        list_files_result = _list_files(context, directory, recursive)
+        tokenizer = get_tokenizer()
+        num_tokens = len(
+            tokenizer.encode(list_files_result.model_dump_json(), disallowed_special=())
+        )
+        if num_tokens > 10000:
+            return ListFileOutput(
+                files=[],
+                error="Too many files - tokens exceeded. Try listing non-recursively",
+            )
+        return list_files_result
 
     @agent.tool
-    def read_file(context: RunContext, file_path: str) -> Dict[str, Any]:
-        return _read_file(context, file_path)
+    def read_file(
+        context: RunContext,
+        file_path: str = "",
+        start_line: int | None = None,
+        num_lines: int | None = None,
+    ) -> ReadFileOutput:
+        return _read_file(context, file_path, start_line, num_lines)
 
     @agent.tool
     def grep(
-        context: RunContext, search_string: str, directory: str = "."
-    ) -> List[Dict[str, Any]]:
+        context: RunContext, search_string: str = "", directory: str = "."
+    ) -> GrepOutput:
         return _grep(context, search_string, directory)
-
-    @agent.tool
-    def code_map(context: RunContext, directory: str = ".") -> str:
-        """Generate a code map for the specified directory.
-           This will have a list of all function / class names and nested structure
-        Args:
-            context: The context object.
-            directory: The directory to generate the code map for.
-
-        Returns:
-            A string containing the code map.
-        """
-        # Generate group_id for this tool execution
-        group_id = generate_group_id("code_map", directory)
-
-        emit_info(
-            "[bold white on blue] CODE MAP [/bold white on blue]",
-            message_group=group_id,
-        )
-        from code_puppy.tools.ts_code_map import make_code_map
-
-        result = make_code_map(directory, ignore_tests=True)
-        return result
