@@ -25,9 +25,8 @@ try:
 except ImportError:
     # Fallback for when token checking modules aren't available
     def get_tokenizer():
-        import tiktoken
-
-        return tiktoken.get_encoding("cl100k_base")
+        # Simple token estimation - no longer using tiktoken
+        return None
 
     def token_guard(num_tokens):
         if num_tokens > 10000:

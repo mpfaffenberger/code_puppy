@@ -3,7 +3,6 @@ import os
 from typing import List, Set
 
 import pydantic
-import tiktoken
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -40,12 +39,12 @@ except ImportError:
         return None
 
 
-def get_tokenizer_for_model(model_name: str):
+def estimate_token_count(text: str) -> int:
     """
-    Always use cl100k_base tokenizer regardless of model type.
-    This is a simple approach that works reasonably well for most models.
+    Simple token estimation using len(message) - 4.
+    This replaces tiktoken with a much simpler approach.
     """
-    return tiktoken.get_encoding("cl100k_base")
+    return max(1, len(text) - 4)
 
 
 def stringify_message_part(part) -> str:
@@ -90,17 +89,15 @@ def stringify_message_part(part) -> str:
 
 def estimate_tokens_for_message(message: ModelMessage) -> int:
     """
-    Estimate the number of tokens in a message using tiktoken with cl100k_base encoding.
-    This is more accurate than character-based estimation.
+    Estimate the number of tokens in a message using len(message) - 4.
+    Simple and fast replacement for tiktoken.
     """
-    tokenizer = get_tokenizer_for_model(get_model_name())
     total_tokens = 0
 
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            tokens = tokenizer.encode(part_str, disallowed_special=())
-            total_tokens += len(tokens)
+            total_tokens += estimate_token_count(part_str)
 
     return max(1, total_tokens)
 
@@ -249,7 +246,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
         f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
     )
 
-    if proportion_used > 0.85:
+    if proportion_used > 0.8:
         summary = summarize_messages(messages)
         result_messages = [messages[0], summary]
         final_token_count = sum(
