@@ -40,5 +40,15 @@
     },
     "name": "o3",
     "type": "custom_openai"
+  },
+  "gpt-5": {
+    "custom_endpoint": {
+      "headers": {
+        "X-Api-Key": "$puppy_token"
+      },
+      "url": "https://puppy-backend.stg.walmart.com"
+    },
+    "name": "gpt-5",
+    "type": "custom_openai"
   }
 }

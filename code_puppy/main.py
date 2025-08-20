@@ -35,7 +35,6 @@ from code_puppy.config import (
 
 # HTTP server imports
 from code_puppy.http_server import app as http_app
-from code_puppy.message_history_processor import message_history_processor
 from code_puppy.state_management import is_tui_mode, set_tui_mode
 
 # Initialize rich console for pretty output
@@ -213,12 +212,14 @@ async def main():
     # Web mode also uses TUI interface (served in browser), so treat it as TUI mode
     if args.tui or args.web:
         set_tui_mode(True)
-    elif args.interactive:
+    elif args.interactive or args.command:
+        # Default to interactive mode when commands are provided or explicitly requested
         set_tui_mode(False)
 
     # Set up message renderer for interactive mode
     message_renderer = None
-    if args.interactive and not is_tui_mode():
+    # Initialize message_renderer for any non-TUI mode that will use interactive_mode
+    if not is_tui_mode():
         from rich.console import Console
 
         from code_puppy.messaging import (
@@ -423,99 +424,17 @@ async def main():
     os.environ["puppy_token"] = token
 
     try:
+        # Prepare initial command if provided
+        initial_command = None
         if args.command:
-            # Join the list of command arguments into a single string command
-            command = " ".join(args.command)
-            try:
-                while not shutdown_flag:
-                    # Check if any tool is waiting for user input before showing spinner
-                    try:
-                        from code_puppy.tools.command_runner import (
-                            is_awaiting_user_input,
-                        )
+            initial_command = " ".join(args.command)
 
-                        awaiting_input = is_awaiting_user_input()
-                    except ImportError:
-                        awaiting_input = False
-
-                    # Get the agent
-                    agent = get_code_generation_agent()
-
-                    # Run with or without spinner based on whether we're awaiting input
-                    if awaiting_input:
-                        # No spinner - just run the agent
-                        try:
-                            async with agent.run_mcp_servers():
-                                response = await agent.run(
-                                    command, usage_limits=get_custom_usage_limits()
-                                )
-                        except Exception as mcp_error:
-                            from code_puppy.messaging import emit_warning
-
-                            emit_warning(f"MCP server error: {str(mcp_error)}")
-                            emit_warning("Running without MCP servers...")
-                            # Run without MCP servers as fallback
-                            response = await agent.run(
-                                command, usage_limits=get_custom_usage_limits()
-                            )
-                    else:
-                        # Use our custom spinner for better compatibility with user input
-                        from rich.console import Console as RichConsole
-
-                        from code_puppy.messaging.spinner import ConsoleSpinner
-
-                        rich_console = RichConsole()
-                        with ConsoleSpinner(console=rich_console):
-                            try:
-                                async with agent.run_mcp_servers():
-                                    response = await agent.run(
-                                        command, usage_limits=get_custom_usage_limits()
-                                    )
-                            except Exception as mcp_error:
-                                from code_puppy.messaging import emit_warning
-
-                                emit_warning(f"MCP server error: {str(mcp_error)}")
-                                emit_warning("Running without MCP servers...")
-                                # Run without MCP servers as fallback
-                                response = await agent.run(
-                                    command, usage_limits=get_custom_usage_limits()
-                                )
-                    agent_response = response.output
-                    from code_puppy.messaging import emit_agent_reasoning
-
-                    emit_agent_reasoning(agent_response.output_message)
-                    # Log to session memory
-                    session_memory().log_task(
-                        f"Command executed: {command}",
-                        extras={
-                            "output": agent_response.output_message,
-                            "awaiting_user_input": agent_response.awaiting_user_input,
-                        },
-                    )
-                    if agent_response.awaiting_user_input:
-                        from code_puppy.messaging import emit_warning
-
-                        emit_warning(
-                            "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
-                        )
-                    break
-            except AttributeError as e:
-                from code_puppy.messaging import emit_error, emit_warning
-
-                emit_error(f"AttributeError: {str(e)}")
-                emit_warning(
-                    "\u26a0 The response might not be in the expected format, missing attributes like 'output_message'."
-                )
-            except Exception as e:
-                from code_puppy.messaging import emit_error
-
-                emit_error(f"Unexpected Error: {str(e)}")
-        elif is_tui_mode():
+        if is_tui_mode():
             # Import here to avoid dependency issues if textual is not available
             try:
                 from code_puppy.tui import run_textual_ui
 
-                await run_textual_ui()
+                await run_textual_ui(initial_command=initial_command)
             except ImportError:
                 from code_puppy.messaging import emit_error, emit_warning
 
@@ -530,8 +449,8 @@ async def main():
                 emit_error(f"TUI Error: {str(e)}")
                 emit_warning("Falling back to interactive mode...")
                 await interactive_mode(message_renderer)
-        elif args.interactive:
-            await interactive_mode(message_renderer)
+        elif args.interactive or args.command:
+            await interactive_mode(message_renderer, initial_command=initial_command)
         else:
             # This case should not be reached due to early help handling
             parser.print_help()
@@ -555,7 +474,7 @@ async def main():
 
 
 # Add the file handling functionality for interactive mode
-async def interactive_mode(message_renderer) -> None:
+async def interactive_mode(message_renderer, initial_command: str = None) -> None:
     from code_puppy.command_line.command_handler import handle_command
 
     """Run the agent in interactive mode."""
@@ -607,6 +526,99 @@ async def interactive_mode(message_renderer) -> None:
 
     # Load agent early (similar to TUI mode) to ensure MCP registration messages are captured
     get_code_generation_agent()
+
+    # Process initial command if provided
+    if initial_command:
+        from code_puppy.messaging import emit_info, emit_system_message
+
+        emit_info(
+            f"[bold blue]Processing initial command:[/bold blue] {initial_command}"
+        )
+
+        try:
+            # Get the agent (already loaded above)
+            agent = get_code_generation_agent()
+
+            # Check if any tool is waiting for user input before showing spinner
+            try:
+                from code_puppy.tools.command_runner import is_awaiting_user_input
+
+                awaiting_input = is_awaiting_user_input()
+            except ImportError:
+                awaiting_input = False
+
+            # Run with or without spinner based on whether we're awaiting input
+            if awaiting_input:
+                # No spinner - just run the agent
+                try:
+                    async with agent.run_mcp_servers():
+                        response = await agent.run(
+                            initial_command, usage_limits=get_custom_usage_limits()
+                        )
+                except Exception as mcp_error:
+                    from code_puppy.messaging import emit_warning
+
+                    emit_warning(f"MCP server error: {str(mcp_error)}")
+                    emit_warning("Running without MCP servers...")
+                    # Run without MCP servers as fallback
+                    response = await agent.run(
+                        initial_command, usage_limits=get_custom_usage_limits()
+                    )
+            else:
+                # Use our custom spinner for better compatibility with user input
+                from code_puppy.messaging.spinner import ConsoleSpinner
+
+                with ConsoleSpinner(console=display_console):
+                    try:
+                        async with agent.run_mcp_servers():
+                            response = await agent.run(
+                                initial_command, usage_limits=get_custom_usage_limits()
+                            )
+                    except Exception as mcp_error:
+                        from code_puppy.messaging import emit_warning
+
+                        emit_warning(f"MCP server error: {str(mcp_error)}")
+                        emit_warning("Running without MCP servers...")
+                        # Run without MCP servers as fallback
+                        response = await agent.run(
+                            initial_command, usage_limits=get_custom_usage_limits()
+                        )
+
+            agent_response = response.output
+
+            emit_system_message(
+                f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+            )
+
+            # Log to session memory
+            session_memory().log_task(
+                f"Initial command: {initial_command}",
+                extras={
+                    "output": agent_response.output_message,
+                    "awaiting_user_input": agent_response.awaiting_user_input,
+                },
+            )
+
+            # Update message history with the initial command and response
+            from code_puppy.message_history_processor import message_history_processor
+            from code_puppy.state_management import set_message_history
+
+            new_msgs = response.all_messages()
+            filtered = message_history_processor(new_msgs)
+            set_message_history(filtered)
+
+            # Show transition to interactive mode
+            emit_system_message("\n" + "=" * 50)
+            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+            emit_system_message(
+                "Your command and response are preserved in the conversation history."
+            )
+            emit_system_message("=" * 50 + "\n")
+
+        except Exception as e:
+            from code_puppy.messaging import emit_error
+
+            emit_error(f"Error processing initial command: {str(e)}")
 
     # Check if prompt_toolkit is installed
     try:
