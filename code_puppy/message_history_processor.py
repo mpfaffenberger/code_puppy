@@ -259,7 +259,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     if STATUS_DISPLAY_AVAILABLE:
         current_rate = StatusDisplay.get_current_rate()
         if current_rate > 0:
-            # Format with improved precision when using SSE data
+            # Format rate with sensible precision
             if current_rate > 1000:
                 token_rate_info = f", {current_rate:.0f} t/s"
             else:

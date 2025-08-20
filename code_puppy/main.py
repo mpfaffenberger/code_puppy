@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import time
 import random
 import sys
 
@@ -210,76 +211,39 @@ async def interactive_mode(history_file_path: str) -> None:
                     This async function runs in the background and periodically checks
                     the message history for new tokens. When new tokens are detected,
                     it updates the StatusDisplay with the incremental count to calculate
-                    an accurate tokens-per-second rate.
-                    
-                    It also looks for SSE stream time_info data to get precise token rate
-                    calculations using the formula: completion_tokens * 1 / completion_time
-                    
+                    an approximate tokens-per-second rate.
+
                     The function continues running until status_display.is_active becomes False.
                     """
                     from code_puppy.message_history_processor import estimate_tokens_for_message
-                    import json
-                    import re
+                    from pydantic_ai.messages import ModelResponse
                     
-                    last_token_total = 0
-                    last_sse_data = None
+                    # Baseline to exclude any tokens already present before tracking starts
+                    baseline_messages = get_message_history()
+                    if baseline_messages:
+                        last_token_total = sum(
+                            estimate_tokens_for_message(msg)
+                            for msg in baseline_messages
+                            if isinstance(msg, ModelResponse)
+                        )
+                    else:
+                        last_token_total = 0
                     
                     while status_display.is_active:
                         # Get real token count from message history
                         messages = get_message_history()
                         if messages:
-                            # Calculate total tokens across all messages
-                            current_token_total = sum(estimate_tokens_for_message(msg) for msg in messages)
+                            # Calculate total output tokens across model responses only
+                            current_token_total = sum(
+                                estimate_tokens_for_message(msg)
+                                for msg in messages
+                                if isinstance(msg, ModelResponse)
+                            )
                             
                             # If tokens increased, update the display with the incremental count
                             if current_token_total > last_token_total:
                                 status_display.update_token_count(current_token_total - last_token_total)
                                 last_token_total = current_token_total
-                            
-                            # Try to find SSE stream data in assistant messages
-                            for msg in messages:
-                                # Handle different message types (dict or ModelMessage objects)
-                                if hasattr(msg, 'role') and msg.role == 'assistant':
-                                    # ModelMessage object with role attribute
-                                    content = msg.content if hasattr(msg, 'content') else ''
-                                elif isinstance(msg, dict) and msg.get('role') == 'assistant':
-                                    # Dictionary with 'role' key
-                                    content = msg.get('content', '')
-                                # Support for ModelRequest/ModelResponse objects
-                                elif hasattr(msg, 'message') and hasattr(msg.message, 'role') and msg.message.role == 'assistant':
-                                    # Access content through the message attribute
-                                    content = msg.message.content if hasattr(msg.message, 'content') else ''
-                                else:
-                                    # Skip if not an assistant message or unrecognized format
-                                    continue
-                                
-                                # Convert content to string if it's not already
-                                if not isinstance(content, str):
-                                    try:
-                                        content = str(content)
-                                    except:
-                                        continue
-                                
-                                # Look for SSE usage data pattern in the message content
-                                sse_matches = re.findall(r'\{\s*"usage".*?"time_info".*?\}', content, re.DOTALL)
-                                for match in sse_matches:
-                                    try:
-                                        # Parse the JSON data
-                                        sse_data = json.loads(match)
-                                        if sse_data != last_sse_data:  # Only process new data
-                                            # Check if we have time_info and completion_tokens
-                                            if 'time_info' in sse_data and 'completion_time' in sse_data['time_info'] and \
-                                               'usage' in sse_data and 'completion_tokens' in sse_data['usage']:
-                                                completion_time = float(sse_data['time_info']['completion_time'])
-                                                completion_tokens = int(sse_data['usage']['completion_tokens'])
-                                                
-                                                # Update rate using the accurate SSE data
-                                                if completion_time > 0 and completion_tokens > 0:
-                                                    status_display.update_rate_from_sse(completion_tokens, completion_time)
-                                                    last_sse_data = sse_data
-                                    except (json.JSONDecodeError, KeyError, ValueError):
-                                        # Ignore parsing errors and continue
-                                        pass
                         
                         # Small sleep interval for responsive updates without excessive CPU usage
                         await asyncio.sleep(0.1)
@@ -341,6 +305,49 @@ async def interactive_mode(history_file_path: str) -> None:
                                 task,
                                 message_history=get_message_history()
                             )
+                            # Use pydantic_ai usage to set final token count for accurate avg t/s
+                            try:
+                                # Helper to robustly extract output tokens across versions
+                                def _extract_output_tokens(usage_obj):
+                                    if usage_obj is None:
+                                        return None
+                                    # If callable (method), call to get usage value
+                                    if callable(usage_obj):
+                                        try:
+                                            usage_obj = usage_obj()
+                                        except TypeError:
+                                            pass
+                                    # Attribute-based access
+                                    for attr in ("output_tokens", "output", "completion_tokens", "generated_tokens"):
+                                        if hasattr(usage_obj, attr):
+                                            try:
+                                                val = getattr(usage_obj, attr)
+                                                if val is not None:
+                                                    return int(val)
+                                            except Exception:
+                                                continue
+                                    # Dict-like access
+                                    try:
+                                        for key in ("output_tokens", "output", "completion_tokens", "generated_tokens"):
+                                            if key in usage_obj:
+                                                val = usage_obj[key]
+                                                if val is not None:
+                                                    return int(val)
+                                    except Exception:
+                                        pass
+                                    return None
+
+                                run_usage_obj = getattr(result, "usage", None)
+                                final_tokens = _extract_output_tokens(run_usage_obj)
+                                if final_tokens is not None:
+                                    # Set absolute final tokens and align counters to avoid a spike
+                                    status_display.token_count = final_tokens
+                                    status_display.last_token_count = final_tokens
+                                    # Align timestamp using perf_counter to match StatusDisplay timing
+                                    status_display.last_update_time = time.perf_counter()
+                            except Exception:
+                                # If usage is unavailable, proceed without updating
+                                pass
                             return result
                     except Exception as e:
                         console.log("Task failed", e)
@@ -351,12 +358,6 @@ async def interactive_mode(history_file_path: str) -> None:
                             status_display.stop()
                         if token_tracking_task and not token_tracking_task.done():
                             token_tracking_task.cancel()
-                    if not agent_task.done():
-                        set_message_history(
-                            message_history_processor(
-                                get_message_history()
-                            )
-                        )
                 agent_task = asyncio.create_task(run_agent_task())
 
                 import signal
