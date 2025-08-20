@@ -20,7 +20,7 @@ class CopyButton(Button):
         width: auto;
         height: 3;
         min-width: 8;
-        margin: 0 1;
+        margin: 0 1 1 1;
         padding: 0 1;
         background: $primary;
         color: $text;

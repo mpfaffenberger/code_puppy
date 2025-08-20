@@ -34,6 +34,9 @@ class StatusBar(Static):
     connection_status = reactive("Connected")
     agent_status = reactive("Ready")
     progress_visible = reactive(False)
+    token_count = reactive(0)
+    token_capacity = reactive(0)
+    token_proportion = reactive(0.0)
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-content")
@@ -48,6 +51,15 @@ class StatusBar(Static):
         self.update_status()
 
     def watch_agent_status(self) -> None:
+        self.update_status()
+
+    def watch_token_count(self) -> None:
+        self.update_status()
+
+    def watch_token_capacity(self) -> None:
+        self.update_status()
+
+    def watch_token_proportion(self) -> None:
         self.update_status()
 
     def watch_progress_visible(self) -> None:
@@ -84,11 +96,27 @@ class StatusBar(Static):
         # Create responsive status text based on terminal width
         rich_text = Text()
 
-        if terminal_width >= 120:
-            # Extra wide - show full path and all info
+        # Token status with color coding
+        token_status = ""
+        token_color = "green"
+        if self.token_count > 0 and self.token_capacity > 0:
+            if self.token_proportion > 0.85:
+                token_color = "red"
+                token_status = f"🔴 {self.token_count}/{self.token_capacity} ({self.token_proportion:.1%})"
+            elif self.token_proportion > 0.70:
+                token_color = "yellow"
+                token_status = f"🟡 {self.token_count}/{self.token_capacity} ({self.token_proportion:.1%})"
+            else:
+                token_color = "green"
+                token_status = f"🟢 {self.token_count}/{self.token_capacity} ({self.token_proportion:.1%})"
+
+        if terminal_width >= 140:
+            # Extra wide - show full path and all info including tokens
             rich_text.append(
                 f"📁 {cwd} | 🐶 {self.puppy_name} | Model: {self.current_model} | "
             )
+            if token_status:
+                rich_text.append(f"{token_status} | ", style=token_color)
             rich_text.append(
                 f"{status_indicator} {self.agent_status}", style=status_color
             )
@@ -100,7 +128,7 @@ class StatusBar(Static):
             rich_text.append(
                 f"{status_indicator} {self.agent_status}", style=status_color
             )
-        elif terminal_width >= 80:
+        elif terminal_width >= 120:
             # Medium display - shorten model name if needed
             model_display = (
                 self.current_model[:15] + "..."
@@ -110,6 +138,8 @@ class StatusBar(Static):
             rich_text.append(
                 f"📁 {cwd_short} | 🐶 {self.puppy_name} | {model_display} | "
             )
+            if token_status:
+                rich_text.append(f"{token_status} | ", style=token_color)
             rich_text.append(
                 f"{status_indicator} {self.agent_status}", style=status_color
             )
@@ -135,3 +165,11 @@ class StatusBar(Static):
 
         rich_text.justify = "right"
         status_widget.update(rich_text)
+
+    def update_token_info(
+        self, current_tokens: int, max_tokens: int, proportion: float
+    ) -> None:
+        """Update token information in the status bar."""
+        self.token_count = current_tokens
+        self.token_capacity = max_tokens
+        self.token_proportion = proportion

@@ -45,7 +45,6 @@ EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayloa
 
 def _print_diff(diff_text: str, message_group: str = None) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
-    from rich.text import Text
 
     emit_info(
         "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]",
@@ -53,24 +52,37 @@ def _print_diff(diff_text: str, message_group: str = None) -> None:
     )
     if diff_text and diff_text.strip():
         for line in diff_text.splitlines():
-            # Git-style diff coloring: '+' green, '-' red, context/cursor blue/cyan
+            # Git-style diff coloring using markup strings for TUI compatibility
             if line.startswith("+") and not line.startswith("+++"):
-                # Addition line
-                text = Text(line, style="bold green")
-                emit_info(text, highlight=False, message_group=message_group)
+                # Addition line - use markup string instead of Rich Text
+                emit_info(
+                    f"[bold green]{line}[/bold green]",
+                    highlight=False,
+                    message_group=message_group,
+                )
             elif line.startswith("-") and not line.startswith("---"):
-                # Removal line
-                text = Text(line, style="bold red")
-                emit_info(text, highlight=False, message_group=message_group)
+                # Removal line - use markup string instead of Rich Text
+                emit_info(
+                    f"[bold red]{line}[/bold red]",
+                    highlight=False,
+                    message_group=message_group,
+                )
             elif line.startswith("@@"):
-                # Hunk info
-                text = Text(line, style="bold cyan")
-                emit_info(text, highlight=False, message_group=message_group)
+                # Hunk info - use markup string instead of Rich Text
+                emit_info(
+                    f"[bold cyan]{line}[/bold cyan]",
+                    highlight=False,
+                    message_group=message_group,
+                )
             elif line.startswith("+++") or line.startswith("---"):
-                # Filename lines in diff
-                text = Text(line, style="dim white")
-                emit_info(text, highlight=False, message_group=message_group)
+                # Filename lines in diff - use markup string instead of Rich Text
+                emit_info(
+                    f"[dim white]{line}[/dim white]",
+                    highlight=False,
+                    message_group=message_group,
+                )
             else:
+                # Context lines - no special formatting
                 emit_info(line, highlight=False, message_group=message_group)
     else:
         emit_info("[dim]-- no diff available --[/dim]", message_group=message_group)
@@ -300,7 +312,7 @@ def replace_in_file(
 
 
 def _edit_file(
-    context: RunContext, path: str, payload: EditFilePayload
+    context: RunContext, path: str, payload: EditFilePayload, group_id: str = None
 ) -> Dict[str, Any]:
     """
     High-level implementation of the *edit_file* behaviour.
@@ -331,8 +343,9 @@ def _edit_file(
                 {"delete_snippet": "text to remove"}
     The function auto-detects the payload type and routes to the appropriate internal helper.
     """
-    # Generate group_id for this tool execution
-    group_id = generate_group_id("edit_file", path)
+    # Use provided group_id or generate one if not provided
+    if group_id is None:
+        group_id = generate_group_id("edit_file", path)
 
     emit_info(
         "\n[bold white on blue] EDIT FILE [/bold white on blue]", message_group=group_id
@@ -445,7 +458,8 @@ def register_file_modifications_tools(agent):
         3. `DeleteSnippetPayload` – field: ``delete_snippet`` (str)
         """
         # Generate group_id for edit_file tool execution
-        result = _edit_file(context, file_path, payload)
+        group_id = generate_group_id("edit_file", file_path)
+        result = _edit_file(context, file_path, payload, group_id)
         if "diff" in result:
             del result["diff"]
         return result

@@ -242,9 +242,36 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     model_max = get_model_context_length()
 
     proportion_used = total_current_tokens / model_max
-    emit_info(
-        f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
-    )
+
+    # Check if we're in TUI mode and can update the status bar
+    from code_puppy.state_management import get_tui_app_instance, is_tui_mode
+
+    if is_tui_mode():
+        tui_app = get_tui_app_instance()
+        if tui_app:
+            try:
+                # Update the status bar instead of emitting a chat message
+                status_bar = tui_app.query_one("StatusBar")
+                status_bar.update_token_info(
+                    total_current_tokens, model_max, proportion_used
+                )
+            except Exception:
+                # Fallback to chat message if status bar update fails
+                emit_info(
+                    f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
+                    message_group="token_context_status",
+                )
+        else:
+            # Fallback if no TUI app instance
+            emit_info(
+                f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
+                message_group="token_context_status",
+            )
+    else:
+        # Non-TUI mode - emit to console as before
+        emit_info(
+            f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
+        )
 
     if proportion_used > 0.8:
         summary = summarize_messages(messages)
@@ -252,6 +279,26 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
         final_token_count = sum(
             estimate_tokens_for_message(msg) for msg in result_messages
         )
-        emit_info(f"Final token count after processing: {final_token_count}")
+        # Update status bar with final token count if in TUI mode
+        if is_tui_mode():
+            tui_app = get_tui_app_instance()
+            if tui_app:
+                try:
+                    status_bar = tui_app.query_one("StatusBar")
+                    status_bar.update_token_info(
+                        final_token_count, model_max, final_token_count / model_max
+                    )
+                except Exception:
+                    emit_info(
+                        f"Final token count after processing: {final_token_count}",
+                        message_group="token_context_status",
+                    )
+            else:
+                emit_info(
+                    f"Final token count after processing: {final_token_count}",
+                    message_group="token_context_status",
+                )
+        else:
+            emit_info(f"Final token count after processing: {final_token_count}")
         return result_messages
     return messages

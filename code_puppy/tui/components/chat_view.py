@@ -25,15 +25,17 @@ class ChatView(VerticalScroll):
         background: $background;
         scrollbar-background: $primary;
         scrollbar-color: $accent;
-        margin: 1;
-        padding: 1;
+        margin: 0 0 1 0;
+        padding: 0;
     }
 
     .user-message {
         background: #1e3a8a;
         color: #ffffff;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
@@ -41,8 +43,10 @@ class ChatView(VerticalScroll):
     .agent-message {
         background: #374151;
         color: #f3f4f6;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
@@ -50,8 +54,10 @@ class ChatView(VerticalScroll):
     .system-message {
         background: #1f2937;
         color: #d1d5db;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-style: italic;
         text-wrap: wrap;
         border: round $primary;
@@ -60,8 +66,10 @@ class ChatView(VerticalScroll):
     .error-message {
         background: #7f1d1d;
         color: #fef2f2;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
@@ -69,8 +77,10 @@ class ChatView(VerticalScroll):
     .agent_reasoning-message {
         background: #1f2937;
         color: #f3e8ff;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         text-style: italic;
         border: round $primary;
@@ -79,8 +89,10 @@ class ChatView(VerticalScroll):
     .planned_next_steps-message {
         background: #1f2937;
         color: #f3e8ff;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         text-style: italic;
         border: round $primary;
@@ -89,8 +101,10 @@ class ChatView(VerticalScroll):
     .agent_response-message {
         background: #1f2937;
         color: #f3e8ff;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
@@ -98,8 +112,10 @@ class ChatView(VerticalScroll):
     .info-message {
         background: #065f46;
         color: #d1fae5;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
@@ -107,8 +123,10 @@ class ChatView(VerticalScroll):
     .success-message {
         background: #064e3b;
         color: #d1fae5;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
@@ -116,8 +134,10 @@ class ChatView(VerticalScroll):
     .warning-message {
         background: #92400e;
         color: #fef3c7;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
@@ -125,8 +145,10 @@ class ChatView(VerticalScroll):
     .tool_output-message {
         background: #1e40af;
         color: #dbeafe;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
@@ -134,14 +156,16 @@ class ChatView(VerticalScroll):
     .command_output-message {
         background: #7c2d12;
         color: #fed7aa;
-        margin: 1 0;
-        padding: 1;
+        margin: 0 0 1 0;
+        margin-top: 0;
+        padding: 0;
+        padding-top: 0;
         text-wrap: wrap;
         border: round $primary;
     }
 
     .message-container {
-        margin: 0;
+        margin: 0 0 1 0;
         padding: 0;
         width: 1fr;
     }
@@ -153,12 +177,20 @@ class ChatView(VerticalScroll):
         height: auto;
         align: left top;
     }
+
+    /* Ensure first message has no top spacing */
+    ChatView > *:first-child {
+        margin-top: 0;
+        padding-top: 0;
+    }
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.messages: List[ChatMessage] = []
         self.message_groups: dict = {}  # Track groups for visual grouping
+        self.group_widgets: dict = {}  # Track widgets by group_id for enhanced grouping
+        self._scroll_pending = False  # Track if scroll is already scheduled
 
     def _render_agent_message_with_syntax(self, prefix: str, content: str):
         """Render agent message with proper syntax highlighting for code blocks."""
@@ -204,76 +236,94 @@ class ChatView(VerticalScroll):
 
         return Group(*rendered_parts)
 
+    def _append_to_existing_group(self, message: ChatMessage) -> None:
+        """Append a message to an existing group by group_id."""
+        if message.group_id not in self.group_widgets:
+            # If group doesn't exist, fall back to normal message creation
+            return
+
+        # Find the most recent message in this group to append to
+        group_widgets = self.group_widgets[message.group_id]
+        if not group_widgets:
+            return
+
+        # Get the last widget entry for this group
+        last_entry = group_widgets[-1]
+        last_message = last_entry["message"]
+        last_widget = last_entry["widget"]
+        copy_button = last_entry.get("copy_button")
+
+        # Create a separator for different message types in the same group
+        if message.type != last_message.type:
+            separator = "\n" + "─" * 40 + "\n"
+        else:
+            separator = "\n"
+
+        # Update the message content
+        last_message.content += separator + message.content
+
+        # Update the widget based on message type
+        if last_message.type == MessageType.AGENT_RESPONSE:
+            # Re-render agent response with updated content
+            prefix = "AGENT RESPONSE:\n"
+            try:
+                md = Markdown(last_message.content)
+                header = Text(prefix, style="bold")
+                group_content = Group(header, md)
+                last_widget.update(group_content)
+            except Exception:
+                full_content = f"{prefix}{last_message.content}"
+                last_widget.update(Text(full_content))
+
+            # Update the copy button if it exists
+            if copy_button:
+                copy_button.update_text_to_copy(last_message.content)
+        else:
+            # Handle other message types
+            content = last_message.content
+
+            # Apply the same rendering logic as in add_message
+            if (
+                "[" in content
+                and "]" in content
+                and (
+                    content.strip().startswith("$ ")
+                    or content.strip().startswith("git ")
+                )
+            ):
+                # Treat as literal text
+                last_widget.update(Text(content))
+            else:
+                # Try to render markup
+                try:
+                    last_widget.update(Text.from_markup(content))
+                except Exception:
+                    last_widget.update(Text(content))
+
+        # Add the new message to our tracking lists
+        self.messages.append(message)
+        if message.group_id in self.message_groups:
+            self.message_groups[message.group_id].append(message)
+
+        # Auto-scroll to bottom with refresh to fix scroll bar issues (debounced)
+        self._schedule_scroll()
+
     def add_message(self, message: ChatMessage) -> None:
         """Add a new message to the chat view."""
-        # Handle grouping for ANY message type with same group_id
+        # Enhanced grouping: check if we can append to ANY existing group
+        if message.group_id is not None and message.group_id in self.group_widgets:
+            self._append_to_existing_group(message)
+            return
+
+        # Old logic for consecutive grouping (keeping as fallback)
         if (
             message.group_id is not None
             and self.messages
             and self.messages[-1].group_id == message.group_id
         ):
-            # Concatenate with the previous grouped message
-            previous_message = self.messages[-1]
-
-            # Create a separator for different message types in the same group
-            if message.type != previous_message.type:
-                separator = "\n" + "─" * 40 + "\n"
-            else:
-                separator = "\n"
-
-            previous_message.content += separator + message.content
-
-            # Update the existing widget with the concatenated content
-            # For agent responses with copy buttons, we need to update both the message and the copy button
-            if previous_message.type == MessageType.AGENT_RESPONSE:
-                # Find the last static widget (the message) and copy button
-                static_widgets = list(self.query(Static))
-                copy_buttons = list(self.query(CopyButton))
-
-                if static_widgets:
-                    # Update the last static widget (should be the agent response message)
-                    last_widget = static_widgets[-1]
-                    # Re-render the agent response with updated content
-                    prefix = "AGENT RESPONSE:\n"
-                    try:
-                        md = Markdown(previous_message.content)
-                        header = Text(prefix, style="bold")
-                        group_content = Group(header, md)
-                        last_widget.update(group_content)
-                    except Exception:
-                        full_content = f"{prefix}{previous_message.content}"
-                        last_widget.update(Text(full_content))
-
-                # Update the copy button with the new content
-                if copy_buttons:
-                    copy_buttons[-1].update_text_to_copy(previous_message.content)
-            else:
-                # Handle non-agent-response messages as before
-                static_widgets = list(self.query(Static))
-                if static_widgets:
-                    last_widget = static_widgets[-1]
-                    content = f"{previous_message.content}"
-
-                    # Apply the same rendering logic as below
-                    if (
-                        "[" in previous_message.content
-                        and "]" in previous_message.content
-                        and (
-                            previous_message.content.strip().startswith("$ ")
-                            or previous_message.content.strip().startswith("git ")
-                        )
-                    ):
-                        # Treat as literal text
-                        last_widget.update(Text(content))
-                    else:
-                        # Try to render markup
-                        try:
-                            last_widget.update(Text.from_markup(content))
-                        except Exception:
-                            last_widget.update(Text(content))
-
-            # Auto-scroll to bottom
-            self.scroll_end(animate=True)
+            # This case should now be handled by _append_to_existing_group above
+            # but keeping for safety
+            self._append_to_existing_group(message)
             return
 
         # Add to messages list
@@ -353,8 +403,20 @@ class ChatView(VerticalScroll):
                 # Then mount the copy button directly
                 self.mount(copy_button)
 
-                # Auto-scroll to bottom
-                self.scroll_end(animate=True)
+                # Track both the widget and copy button for group-based updates
+                if message.group_id:
+                    if message.group_id not in self.group_widgets:
+                        self.group_widgets[message.group_id] = []
+                    self.group_widgets[message.group_id].append(
+                        {
+                            "message": message,
+                            "widget": message_widget,
+                            "copy_button": copy_button,
+                        }
+                    )
+
+                # Auto-scroll to bottom with refresh to fix scroll bar issues (debounced)
+                self._schedule_scroll()
                 return  # Early return only if copy button creation succeeded
 
             except Exception as e:
@@ -391,13 +453,26 @@ class ChatView(VerticalScroll):
 
         self.mount(message_widget)
 
-        # Auto-scroll to bottom
-        self.scroll_end(animate=True)
+        # Track the widget for group-based updates
+        if message.group_id:
+            if message.group_id not in self.group_widgets:
+                self.group_widgets[message.group_id] = []
+            self.group_widgets[message.group_id].append(
+                {
+                    "message": message,
+                    "widget": message_widget,
+                    "copy_button": None,  # Will be set if created
+                }
+            )
+
+        # Auto-scroll to bottom with refresh to fix scroll bar issues (debounced)
+        self._schedule_scroll()
 
     def clear_messages(self) -> None:
         """Clear all messages from the chat view."""
         self.messages.clear()
         self.message_groups.clear()  # Clear groups too
+        self.group_widgets.clear()  # Clear widget tracking too
         # Remove all message widgets (Static widgets, CopyButtons, and any Vertical containers)
         for widget in self.query(Static):
             widget.remove()
@@ -424,3 +499,14 @@ class ChatView(VerticalScroll):
                 timestamp=datetime.now(timezone.utc),
             )
             self.add_message(error_message)
+
+    def _schedule_scroll(self) -> None:
+        """Schedule a scroll operation, avoiding duplicate calls."""
+        if not self._scroll_pending:
+            self._scroll_pending = True
+            self.call_after_refresh(self._do_scroll)
+
+    def _do_scroll(self) -> None:
+        """Perform the actual scroll operation."""
+        self._scroll_pending = False
+        self.scroll_end(animate=False)

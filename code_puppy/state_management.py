@@ -4,6 +4,7 @@ from code_puppy.message_history_processor import message_history_processor
 
 _message_history: List[Any] = []
 _tui_mode: bool = False
+_tui_app_instance: Any = None
 
 
 def set_tui_mode(enabled: bool) -> None:
@@ -23,6 +24,25 @@ def is_tui_mode() -> bool:
         True if running in TUI mode, False otherwise
     """
     return _tui_mode
+
+
+def set_tui_app_instance(app_instance: Any) -> None:
+    """Set the global TUI app instance reference.
+
+    Args:
+        app_instance: The TUI app instance
+    """
+    global _tui_app_instance
+    _tui_app_instance = app_instance
+
+
+def get_tui_app_instance() -> Any:
+    """Get the current TUI app instance.
+
+    Returns:
+        The TUI app instance if available, None otherwise
+    """
+    return _tui_app_instance
 
 
 def get_tui_mode() -> bool:

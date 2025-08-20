@@ -20,6 +20,7 @@ from code_puppy.messaging import (
     emit_warning,
 )
 from code_puppy.state_management import is_tui_mode
+from code_puppy.tools.common import generate_group_id
 
 _AWAITING_USER_INPUT = False
 
@@ -166,7 +167,10 @@ class ShellCommandOutput(BaseModel):
 
 
 def run_shell_command_streaming(
-    process: subprocess.Popen, timeout: int = 60, command: str = ""
+    process: subprocess.Popen,
+    timeout: int = 60,
+    command: str = "",
+    group_id: str = None,
 ):
     start_time = time.time()
     last_output_time = [start_time]
@@ -185,7 +189,7 @@ def run_shell_command_streaming(
                 if line:
                     line = line.rstrip("\n\r")
                     stdout_lines.append(line)
-                    emit_system_message(line)
+                    emit_system_message(line, message_group=group_id)
                     last_output_time[0] = time.time()
         except Exception:
             pass
@@ -196,7 +200,7 @@ def run_shell_command_streaming(
                 if line:
                     line = line.rstrip("\n\r")
                     stderr_lines.append(line)
-                    emit_system_message(line)
+                    emit_system_message(line, message_group=group_id)
                     last_output_time[0] = time.time()
         except Exception:
             pass
@@ -228,18 +232,20 @@ def run_shell_command_streaming(
                 stdout_thread.join(timeout=3)
                 if stdout_thread.is_alive():
                     emit_warning(
-                        f"stdout reader thread failed to terminate after {timeout_type} timeout"
+                        f"stdout reader thread failed to terminate after {timeout_type} timeout",
+                        message_group=group_id,
                     )
 
             if stderr_thread and stderr_thread.is_alive():
                 stderr_thread.join(timeout=3)
                 if stderr_thread.is_alive():
                     emit_warning(
-                        f"stderr reader thread failed to terminate after {timeout_type} timeout"
+                        f"stderr reader thread failed to terminate after {timeout_type} timeout",
+                        message_group=group_id,
                     )
 
         except Exception as e:
-            emit_warning(f"Error during process cleanup: {e}")
+            emit_warning(f"Error during process cleanup: {e}", message_group=group_id)
 
         execution_time = time.time() - start_time
         return ShellCommandOutput(
@@ -270,7 +276,7 @@ def run_shell_command_streaming(
                 error_msg.append(
                     "Process killed: inactivity timeout reached", style="bold red"
                 )
-                emit_error(error_msg)
+                emit_error(error_msg, message_group=group_id)
                 return cleanup_process_and_threads("absolute")
 
             if current_time - last_output_time[0] > timeout:
@@ -278,7 +284,7 @@ def run_shell_command_streaming(
                 error_msg.append(
                     "Process killed: inactivity timeout reached", style="bold red"
                 )
-                emit_error(error_msg)
+                emit_error(error_msg, message_group=group_id)
                 return cleanup_process_and_threads("inactivity")
 
             time.sleep(0.1)
@@ -304,8 +310,10 @@ def run_shell_command_streaming(
         _unregister_process(process)
 
         if exit_code != 0:
-            emit_error(f"Command failed with exit code {exit_code}")
-            emit_info(f"Took {execution_time:.2f}s")
+            emit_error(
+                f"Command failed with exit code {exit_code}", message_group=group_id
+            )
+            emit_info(f"Took {execution_time:.2f}s", message_group=group_id)
             time.sleep(1)
             return ShellCommandOutput(
                 success=False,
@@ -345,14 +353,19 @@ def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> ShellCommandOutput:
     command_displayed = False
+
+    # Generate unique group_id for this command execution
+    group_id = generate_group_id("shell_command", command)
+
     if not command or not command.strip():
-        emit_error("Command cannot be empty")
+        emit_error("Command cannot be empty", message_group=group_id)
         return ShellCommandOutput(
             **{"success": False, "error": "Command cannot be empty"}
         )
 
     emit_info(
-        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] 📂 [bold green]$ {command}[/bold green]"
+        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] 📂 [bold green]$ {command}[/bold green]",
+        message_group=group_id,
     )
 
     from code_puppy.config import get_yolo_mode
@@ -374,7 +387,7 @@ def run_shell_command(
         command_displayed = True
 
         if cwd:
-            emit_info(f"[dim] Working directory: {cwd} [/dim]")
+            emit_info(f"[dim] Working directory: {cwd} [/dim]", message_group=group_id)
 
         # Set the flag to indicate we're awaiting user input
         set_awaiting_user_input(True)
@@ -429,13 +442,13 @@ def run_shell_command(
         _register_process(process)
         try:
             return run_shell_command_streaming(
-                process, timeout=timeout, command=command
+                process, timeout=timeout, command=command, group_id=group_id
             )
         finally:
             # Ensure unregistration in case streaming returned early or raised
             _unregister_process(process)
     except Exception as e:
-        emit_error(traceback.format_exc())
+        emit_error(traceback.format_exc(), message_group=group_id)
         if "stdout" not in locals():
             stdout = None
         if "stderr" not in locals():
@@ -458,15 +471,25 @@ class ReasoningOutput(BaseModel):
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str | None = None
 ) -> ReasoningOutput:
+    # Generate unique group_id for this reasoning session
+    group_id = generate_group_id(
+        "agent_reasoning", reasoning[:50]
+    )  # Use first 50 chars for context
+
     if not is_tui_mode():
-        emit_divider()
-        emit_info("\n[bold white on purple] AGENT REASONING [/bold white on purple]")
-    emit_info("[bold cyan]Current reasoning:[/bold cyan]")
-    emit_system_message(Markdown(reasoning))
+        emit_divider(message_group=group_id)
+        emit_info(
+            "\n[bold white on purple] AGENT REASONING [/bold white on purple]",
+            message_group=group_id,
+        )
+    emit_info("[bold cyan]Current reasoning:[/bold cyan]", message_group=group_id)
+    emit_system_message(Markdown(reasoning), message_group=group_id)
     if next_steps is not None and next_steps.strip():
-        emit_info("\n[bold cyan]Planned next steps:[/bold cyan]")
-        emit_system_message(Markdown(next_steps))
-    emit_info("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_info(
+            "\n[bold cyan]Planned next steps:[/bold cyan]", message_group=group_id
+        )
+        emit_system_message(Markdown(next_steps), message_group=group_id)
+    emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
     return ReasoningOutput(**{"success": True})
 
 
