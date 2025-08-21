@@ -1,10 +1,7 @@
 import asyncio
-import random
 import time
-from datetime import datetime
-from typing import List, Optional
 
-from rich.console import Console, RenderableType
+from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.spinner import Spinner
@@ -45,7 +42,7 @@ class StatusDisplay:
             "Howling at the code...",
             "Snuggling up to the task...",
             "Bounding through data...",
-            "Puppy pondering..."
+            "Puppy pondering...",
         ]
         self.current_message_index = 0
         self.spinner = Spinner("dots", text="")
@@ -93,59 +90,70 @@ class StatusDisplay:
 
     def _get_status_panel(self) -> Panel:
         """Generate a status panel with current rate and animated message"""
-        rate_text = f"{self.current_rate:.1f} t/s" if self.current_rate > 0 else "Warming up..."
-        
+        rate_text = (
+            f"{self.current_rate:.1f} t/s" if self.current_rate > 0 else "Warming up..."
+        )
+
         # Update spinner
         self.spinner.update()
-        
+
         # Rotate through loading messages every few updates
         if int(time.time() * 2) % 4 == 0:
-            self.current_message_index = (self.current_message_index + 1) % len(self.loading_messages)
-        
+            self.current_message_index = (self.current_message_index + 1) % len(
+                self.loading_messages
+            )
+
         # Create a highly visible status message
         status_text = Text.assemble(
             Text(f"⏳ {rate_text} ", style="bold cyan"),
             self.spinner,
-            Text(f" {self.loading_messages[self.current_message_index]} ⏳", style="bold yellow")
+            Text(
+                f" {self.loading_messages[self.current_message_index]} ⏳",
+                style="bold yellow",
+            ),
         )
-        
+
         # Use expanded panel with more visible formatting
         return Panel(
-            status_text, 
-            title="[bold blue]Code Puppy Status[/bold blue]", 
+            status_text,
+            title="[bold blue]Code Puppy Status[/bold blue]",
             border_style="bright_blue",
             expand=False,
-            padding=(1, 2)
+            padding=(1, 2),
         )
 
     def _get_status_text(self) -> Text:
         """Generate a status text with current rate and animated message"""
-        rate_text = f"{self.current_rate:.1f} t/s" if self.current_rate > 0 else "Warming up..."
-        
+        rate_text = (
+            f"{self.current_rate:.1f} t/s" if self.current_rate > 0 else "Warming up..."
+        )
+
         # Update spinner
         self.spinner.update()
-        
+
         # Rotate through loading messages
-        self.current_message_index = (self.current_message_index + 1) % len(self.loading_messages)
+        self.current_message_index = (self.current_message_index + 1) % len(
+            self.loading_messages
+        )
         message = self.loading_messages[self.current_message_index]
-        
+
         # Create a highly visible status text
         return Text.assemble(
             Text(f"⏳ {rate_text} 🐾", style="bold cyan"),
-            Text(f" {message}", style="yellow")
+            Text(f" {message}", style="yellow"),
         )
-    
+
     async def _update_display(self) -> None:
         """Update the display continuously while active using Rich Live display"""
         # Add a newline to ensure we're below the blue bar
         self.console.print("\n")
-        
+
         # Create a Live display that will update in-place
         with Live(
-            self._get_status_text(), 
+            self._get_status_text(),
             console=self.console,
             refresh_per_second=2,  # Update twice per second
-            transient=False        # Keep the final state visible
+            transient=False,  # Keep the final state visible
         ) as live:
             # Keep updating the live display while active
             while self.is_active:
@@ -173,7 +181,7 @@ class StatusDisplay:
             if self.task:
                 self.task.cancel()
             self.task = None
-            
+
             # Print final stats
             elapsed = time.perf_counter() - self.start_time if self.start_time else 0
             avg_rate = self.token_count / elapsed if elapsed > 0 else 0

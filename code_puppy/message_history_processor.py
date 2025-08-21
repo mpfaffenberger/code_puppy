@@ -194,6 +194,7 @@ def get_model_context_length() -> int:
     # Reserve 10% of context for response
     return int(context_length)
 
+
 def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
     """
     Remove any messages that participate in mismatched tool call sequences.
