@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 
+from pathlib import Path
 # get_model_context_length will be imported locally where needed to avoid circular imports
 
 NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
