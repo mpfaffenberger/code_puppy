@@ -80,6 +80,7 @@ def reload_code_generation_agent():
         output_type=str,
         retries=3,
         history_processors=[message_history_accumulator],
+        toolsets=_load_mcp_servers()
     )
     register_all_tools(agent)
     _code_generation_agent = agent
