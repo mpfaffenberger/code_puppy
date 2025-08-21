@@ -8,39 +8,18 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-08-18"
+MOTD_VERSION = "2025-08-21"
 MOTD_MESSAGE = """🐕‍🦺
 🐾```
-🐶🎉🐕 WOOF WOOF! 0.0.108! 🐕🎉🐶
+🐶🎉🐕 WOOF WOOF! AUGUST 21ST (WALMART EARNINGS CALL DAY!!!) BIG FLEA EXTERMINATION! 🐕🎉🐶
 
-🚀🐶 AWESOME NEW STUFF THAT'LL BLOW YOUR MIND! 🐶🚀
+🦟🔧 SQUASHED A NASTY FLEA THAT WAS BUGGING EVERYONE! 🔧🦟
 
-* Your puppy is now SMART about memory! It keeps track of how much brain space it's using 🐕‍🦺
-    * No more brain explosions! Built-in protection so I don't try to remember too much at once 🛡️🐶
-    * If you ask me to read a MASSIVE file, I'll politely say "nope, too big for my puppy brain!" 📁🐕
-        * I can only handle 10,000 tokens at once (that's like 1/20th of Claude's mega-brain) 🧠🐶
-        * But don't worry! I'm clever enough to read stuff in bite-sized chunks if needed 🧩🐕
-    * When searching with grep, I won't spam you with walls of text anymore (max 4096 chars per line) 🔍🐶
-    * At 90% brain capacity, I'll do some smart compression magic to make room for more awesomeness 📝🐕‍🦺
-    * Hard stop at 95% - I'll never let myself get overwhelmed and crash on you! 🚨🐶
+* 🚨 URGENT FIX: File utilities were being REALLY BAD PUPPIES! 🚨
+    * grep, list_files, and other tools were NOT ignoring build directories! 😱🐕
+    * node_modules/ was sneaking through like a sneaky squirrel! 🐿️💥
 
-* CTRL+C on shell commands works now! No more waiting forever for runaway processes to die 🛑🐕
-    * I'll know when you hit cancel and ask "what went wrong?" like a good helpful puppy 💬🐶
-
-* I got WAY more efficient! No more chatty tools hogging precious brain space ⚡🐕‍🦺
-    * Tools now shut up when they don't need to be verbose, saving room for the important stuff 💎🐶
-
-
-🚀🐕 SPRING CLEANING TIME! 🐕🚀
-
-* Threw out the broken session memory - it was causing more problems than my chewed up shoes! 🧹🐶
-* Said goodbye to the Codemap tool - turns out nobody really used it anyway 🗑️🐕
-* Ditched web search - who needs Google when you have a smart puppy? 🌐🐶
-
-
-🚀🐕‍🦺 SQUASHED THOSE PESKY BUGS! 🐕‍🦺🚀
-
-* Remember when I used to crash and burn trying to list massive directories? NOT ANYMORE! Now I'm tough as nails 💪🐶
+🐾 YOUR PUPPY HAS ONE LESS FLEA! 🚀🐕
 
 🐾```
 """
