@@ -77,6 +77,7 @@ IGNORE_PATTERNS = [
     "**/.parcel-cache/**",
     "**/.vite/**",
     "**/storybook-static/**",
+    "**/*.tsbuildinfo/*",
     # Python
     "**/__pycache__/**",
     "**/__pycache__",
@@ -317,7 +318,7 @@ IGNORE_PATTERNS = [
     "**/*.old",
     "**/*.save",
     # Hidden files (but be careful with this one)
-    # "**/.*",  # Commented out as it might be too aggressive
+    "**/.*",  # Commented out as it might be too aggressive
 ]
 
 
