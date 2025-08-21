@@ -14,6 +14,7 @@ from code_puppy.messaging import (
     emit_error,
     emit_info,
     emit_success,
+    emit_system_message,
     emit_warning,
 )
 from code_puppy.tools.common import generate_group_id, should_ignore_path
@@ -376,11 +377,15 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             file_path = os.path.join(root, f_name)
 
             if should_ignore_path(file_path):
-                # emit_system_message(f"[dim]Ignoring: {file_path}[/dim]") # Optional: for debugging ignored files
+                emit_system_message(
+                    f"[dim]Ignoring: {file_path}[/dim]", message_group=group_id
+                )  # Optional: for debugging ignored files
                 continue
 
             try:
-                # emit_system_message(f"\U0001f4c2 [bold cyan]Searching: {file_path}[/bold cyan]") # Optional: for verbose searching log
+                emit_system_message(
+                    f"\U0001f4c2 [bold cyan]Searching: {file_path}\n[/bold cyan]"
+                )  # Optional: for verbose searching log
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
                     for line_number, line_content in enumerate(fh, 1):
                         if search_string in line_content:
@@ -392,9 +397,10 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 }
                             )
                             matches.append(match_info)
-                            # emit_system_message(
-                            #     f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}"
-                            # ) # Optional: for verbose match logging
+                            emit_system_message(
+                                f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
+                                message_group=group_id,
+                            )
                             if len(matches) >= 200:
                                 emit_warning(
                                     "Limit of 200 matches reached. Stopping search.",
