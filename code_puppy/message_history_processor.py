@@ -16,27 +16,7 @@ from code_puppy.config import get_model_name
 # Use emit_ functions instead of console
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory
-
-# Import summarization agent
-try:
-    from code_puppy.summarization_agent import (
-        get_summarization_agent as _get_summarization_agent,
-    )
-
-    SUMMARIZATION_AVAILABLE = True
-
-    # Make the function available in this module's namespace for mocking
-    def get_summarization_agent():
-        return _get_summarization_agent()
-
-except ImportError:
-    SUMMARIZATION_AVAILABLE = False
-    emit_warning(
-        "Summarization agent not available. Message history will be truncated instead of summarized."
-    )
-
-    def get_summarization_agent():
-        return None
+from code_puppy.summarization_agent import run_summarization_sync
 
 
 def estimate_token_count(text: str) -> int:
@@ -103,7 +83,6 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
 
 
 def summarize_messages(messages: List[ModelMessage]) -> ModelMessage:
-    summarization_agent = get_summarization_agent()
     message_strings: List[str] = []
     for message in messages:
         for part in message.parts:
@@ -119,8 +98,8 @@ def summarize_messages(messages: List[ModelMessage]) -> ModelMessage:
         "\n Make sure your result is a bulleted list of all steps and interactions."
     )
     try:
-        result = summarization_agent.run_sync(f"{summary_string}\n{instructions}")
-        return ModelResponse(parts=[TextPart(result.output)])
+        output_text = run_summarization_sync(f"{summary_string}\n{instructions}")
+        return ModelResponse(parts=[TextPart(output_text)])
     except Exception as e:
         emit_error(f"Summarization failed during compaction: {e}")
         return None
@@ -134,8 +113,6 @@ def summarize_messages(messages: List[ModelMessage]) -> ModelMessage:
 
 
 def summarize_message(message: ModelMessage) -> ModelMessage:
-    if not SUMMARIZATION_AVAILABLE:
-        return message
     try:
         # If the message looks like a system/instructions message, skip summarization
         instructions = getattr(message, "instructions", None)
@@ -156,9 +133,8 @@ def summarize_message(message: ModelMessage) -> ModelMessage:
         prompt = "Please summarize the following user message:\n" + "\n".join(
             content_bits
         )
-        agent = get_summarization_agent()
-        result = agent.run_sync(prompt)
-        summarized = ModelRequest([TextPart(result.output)])
+        output_text = run_summarization_sync(prompt)
+        summarized = ModelRequest([TextPart(output_text)])
         return summarized
     except Exception as e:
         emit_error(f"Summarization failed: {e}")

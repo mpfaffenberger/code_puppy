@@ -7,7 +7,6 @@ from code_puppy.command_line.model_picker_completion import (
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import get_config_keys
-from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.tools_content import tools_content
 
 COMMANDS_HELP = """
@@ -20,6 +19,7 @@ COMMANDS_HELP = """
 /m <model>            Set active model
 /motd                 Show the latest message of the day (MOTD)
 /show                 Show puppy config key-values
+/compact              Summarize and compact current chat history
 /set                  Set puppy config key-values (e.g., /set yolo_mode true)
 /tools                Show available tools and capabilities
 /<unknown>            Show unknown command warning
@@ -27,6 +27,8 @@ COMMANDS_HELP = """
 
 
 def handle_command(command: str):
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
     """
     Handle commands prefixed with '/'.
 
@@ -41,6 +43,48 @@ def handle_command(command: str):
     if command.strip().startswith("/motd"):
         print_motd(force=True)
         return True
+
+    if command.strip().startswith("/compact"):
+        from code_puppy.message_history_processor import (
+            estimate_tokens_for_message,
+            summarize_messages,
+        )
+        from code_puppy.messaging import (
+            emit_error,
+            emit_info,
+            emit_success,
+            emit_warning,
+        )
+        from code_puppy.state_management import get_message_history, set_message_history
+
+        try:
+            history = get_message_history()
+            if not history:
+                emit_warning("No history to compact yet. Ask me something first!")
+                return True
+
+            before_tokens = sum(estimate_tokens_for_message(m) for m in history)
+            emit_info(
+                f"Compacting {len(history)} messages... (~{before_tokens} tokens)"
+            )
+
+            summary = summarize_messages(history)
+            if not summary:
+                emit_error("Summarization failed. History unchanged.")
+                return True
+
+            # Preserve the initial system/instruction message if present
+            compacted = [history[0], summary] if len(history) > 0 else [summary]
+            set_message_history(compacted)
+
+            after_tokens = sum(estimate_tokens_for_message(m) for m in compacted)
+            emit_success(
+                f"Done! History reduced to {len(compacted)} messages (~{after_tokens} tokens)."
+            )
+            return True
+        except Exception as e:
+            emit_error(f"/compact error: {e}")
+            return True
 
     if command.startswith("/cd"):
         tokens = command.split()
