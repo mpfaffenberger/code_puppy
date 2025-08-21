@@ -301,7 +301,7 @@ IGNORE_PATTERNS = [
     "**/*.old",
     "**/*.save",
     # Hidden files (but be careful with this one)
-    # "**/.*",  # Commented out as it might be too aggressive
+    "**/.*",  # Commented out as it might be too aggressive
 ]
 
 
