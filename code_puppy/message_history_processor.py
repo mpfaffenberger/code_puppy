@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 import pydantic
-import tiktoken
 from pydantic_ai.messages import (
     ModelMessage,
     TextPart,
@@ -16,10 +15,12 @@ from pydantic_ai.messages import (
 from code_puppy.tools.common import console
 from code_puppy.model_factory import ModelFactory
 from code_puppy.config import get_model_name
+from code_puppy.token_utils import estimate_tokens
 
 # Import the status display to get token rate info
 try:
     from code_puppy.status_display import StatusDisplay
+
     STATUS_DISPLAY_AVAILABLE = True
 except ImportError:
     STATUS_DISPLAY_AVAILABLE = False
@@ -46,12 +47,12 @@ except ImportError:
         return None
 
 
+# Dummy function for backward compatibility
 def get_tokenizer_for_model(model_name: str):
     """
-    Always use cl100k_base tokenizer regardless of model type.
-    This is a simple approach that works reasonably well for most models.
+    Dummy function that returns None since we're now using len/4 heuristic.
     """
-    return tiktoken.get_encoding("cl100k_base")
+    return None
 
 
 def stringify_message_part(part) -> str:
@@ -96,17 +97,15 @@ def stringify_message_part(part) -> str:
 
 def estimate_tokens_for_message(message: ModelMessage) -> int:
     """
-    Estimate the number of tokens in a message using tiktoken with cl100k_base encoding.
-    This is more accurate than character-based estimation.
+    Estimate the number of tokens in a message using the len/4 heuristic.
+    This is a simple approximation that works reasonably well for most text.
     """
-    tokenizer = get_tokenizer_for_model(get_model_name())
     total_tokens = 0
 
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            tokens = tokenizer.encode(part_str)
-            total_tokens += len(tokens)
+            total_tokens += estimate_tokens(part_str)
 
     return max(1, total_tokens)
 
@@ -162,9 +161,8 @@ def summarize_message(message: ModelMessage) -> ModelMessage:
                 content_bits.append(s)
         if not content_bits:
             return message
-        prompt = (
-            "Please summarize the following user message:\n"
-            + "\n".join(content_bits)
+        prompt = "Please summarize the following user message:\n" + "\n".join(
+            content_bits
         )
         agent = get_summarization_agent()
         result = agent.run_sync(prompt)
@@ -242,7 +240,9 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
         pruned.append(msg)
 
     if dropped_count:
-        console.print(f"[yellow]Pruned {dropped_count} message(s) with mismatched tool_call_id pairs[/yellow]")
+        console.print(
+            f"[yellow]Pruned {dropped_count} message(s) with mismatched tool_call_id pairs[/yellow]"
+        )
     return pruned
 
 
@@ -253,23 +253,23 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     model_max = get_model_context_length()
 
     proportion_used = total_current_tokens / model_max
-    
+
     # Include token per second rate if available
     token_rate_info = ""
     if STATUS_DISPLAY_AVAILABLE:
         current_rate = StatusDisplay.get_current_rate()
         if current_rate > 0:
-            # Format rate with sensible precision
+            # Format with improved precision when using SSE data
             if current_rate > 1000:
                 token_rate_info = f", {current_rate:.0f} t/s"
             else:
                 token_rate_info = f", {current_rate:.1f} t/s"
-    
+
     # Print blue status bar - ALWAYS at top
     console.print(f"""
 [bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f}{token_rate_info}
 """)
-    
+
     # Print extra line to ensure separation
     console.print("\n")
 

@@ -28,6 +28,7 @@ from code_puppy.message_history_processor import message_history_processor, prun
 
 
 # from code_puppy.tools import *  # noqa: F403
+import logfire
 
 
 # Define a function to get the secret file path
@@ -40,7 +41,12 @@ def get_secret_file_path():
 
 async def main():
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
+    logfire.configure(
+        token="pylf_v1_us_8G5nLznQtHMRsL4hsNG5v3fPWKjyXbysrMgrQ1bV1wRP", console=False
+    )
+    logfire.instrument_pydantic_ai()
     ensure_config_exists()
+
     current_version = __version__
     latest_version = fetch_latest_version("code-puppy")
     console.print(f"Current version: {current_version}")
@@ -289,8 +295,10 @@ async def interactive_mode(history_file_path: str) -> None:
                         status_display.start()
                         
                         # Start token tracking
-                        token_tracking_task = asyncio.create_task(track_tokens_from_messages())
-                        
+                        token_tracking_task = asyncio.create_task(
+                            track_tokens_from_messages()
+                        )
+
                         # Create a wrapper for the agent's run method
                         original_run = agent.run
                         
@@ -358,6 +366,11 @@ async def interactive_mode(history_file_path: str) -> None:
                             status_display.stop()
                         if token_tracking_task and not token_tracking_task.done():
                             token_tracking_task.cancel()
+                    if not agent_task.done():
+                        set_message_history(
+                            message_history_processor(get_message_history())
+                        )
+
                 agent_task = asyncio.create_task(run_agent_task())
 
                 import signal
@@ -367,6 +380,7 @@ async def interactive_mode(history_file_path: str) -> None:
 
                 # Ensure the interrupt handler only acts once per task
                 handled = False
+
                 def keyboard_interrupt_handler(sig, frame):
                     nonlocal local_cancelled
                     nonlocal handled
@@ -377,7 +391,9 @@ async def interactive_mode(history_file_path: str) -> None:
                     try:
                         killed = kill_all_running_shell_processes()
                         if killed:
-                            console.print(f"[yellow]Cancelled {killed} running shell process(es).[/yellow]")
+                            console.print(
+                                f"[yellow]Cancelled {killed} running shell process(es).[/yellow]"
+                            )
                         else:
                             # Then cancel the agent task
                             if not agent_task.done():
@@ -388,6 +404,7 @@ async def interactive_mode(history_file_path: str) -> None:
                     # On Windows, we need to reset the signal handler to avoid weird terminal behavior
                     if sys.platform.startswith("win"):
                         signal.signal(signal.SIGINT, original_handler or signal.SIG_DFL)
+
                 try:
                     original_handler = signal.getsignal(signal.SIGINT)
                     signal.signal(signal.SIGINT, keyboard_interrupt_handler)
@@ -408,13 +425,15 @@ async def interactive_mode(history_file_path: str) -> None:
                     if status_display.is_active:
                         status_display.stop()
                 else:
-                    if result is not None and hasattr(result, 'output'):
+                    if result is not None and hasattr(result, "output"):
                         agent_response = result.output
                         console.print(agent_response)
                         filtered = message_history_processor(get_message_history())
                         set_message_history(filtered)
                     else:
-                        console.print("[yellow]No result received from the agent[/yellow]")
+                        console.print(
+                            "[yellow]No result received from the agent[/yellow]"
+                        )
                         # Still process history if possible
                         filtered = message_history_processor(get_message_history())
                         set_message_history(filtered)
