@@ -61,6 +61,7 @@ IGNORE_PATTERNS = [
     "**/.parcel-cache/**",
     "**/.vite/**",
     "**/storybook-static/**",
+    "**/*.tsbuildinfo/**",
     # Python
     "**/__pycache__/**",
     "**/__pycache__",
