@@ -87,6 +87,7 @@ IGNORE_PATTERNS = [
     "**/*.egg-info/**",
     "**/dist/**",
     "**/wheels/**",
+    "**/pytest-reports/**",
     # Java (Maven, Gradle, SBT)
     "**/target/**",
     "**/target",
