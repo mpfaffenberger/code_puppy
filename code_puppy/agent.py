@@ -19,6 +19,7 @@ from code_puppy.tools.common import console
 
 MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH", None)
 
+
 def load_puppy_rules():
     global PUPPY_RULES
     puppy_rules_path = Path("AGENT.md")
@@ -27,8 +28,10 @@ def load_puppy_rules():
             puppy_rules = f.read()
             return puppy_rules
 
+
 # Load at import
 PUPPY_RULES = load_puppy_rules()
+
 
 class AgentResponse(pydantic.BaseModel):
     """Represents a response from the agent."""
@@ -80,7 +83,7 @@ def reload_code_generation_agent():
         output_type=str,
         retries=3,
         history_processors=[message_history_accumulator],
-        toolsets=_load_mcp_servers()
+        toolsets=_load_mcp_servers(),
     )
     register_all_tools(agent)
     _code_generation_agent = agent

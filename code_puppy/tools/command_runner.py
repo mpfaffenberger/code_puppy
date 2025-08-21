@@ -23,6 +23,7 @@ _RUNNING_PROCESSES: Set[subprocess.Popen] = set()
 _RUNNING_PROCESSES_LOCK = threading.Lock()
 _USER_KILLED_PROCESSES = set()
 
+
 def _register_process(proc: subprocess.Popen) -> None:
     with _RUNNING_PROCESSES_LOCK:
         _RUNNING_PROCESSES.add(proc)
@@ -279,7 +280,7 @@ def run_shell_command_streaming(
                 exit_code=exit_code,
                 execution_time=execution_time,
                 timeout=False,
-                user_interrupted=process.pid in _USER_KILLED_PROCESSES
+                user_interrupted=process.pid in _USER_KILLED_PROCESSES,
             )
         return ShellCommandOutput(
             success=exit_code == 0,
@@ -380,7 +381,9 @@ def run_shell_command(
         )
         _register_process(process)
         try:
-            return run_shell_command_streaming(process, timeout=timeout, command=command)
+            return run_shell_command_streaming(
+                process, timeout=timeout, command=command
+            )
         finally:
             # Ensure unregistration in case streaming returned early or raised
             _unregister_process(process)

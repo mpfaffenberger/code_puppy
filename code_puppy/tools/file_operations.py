@@ -9,6 +9,7 @@ from pydantic_ai import RunContext
 from code_puppy.tools.common import console
 from code_puppy.token_utils import estimate_tokens
 from code_puppy.tools.token_check import token_guard
+
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
@@ -186,15 +187,20 @@ class ReadFileOutput(BaseModel):
     error: str | None = None
 
 
-def _read_file(context: RunContext, file_path: str, start_line: int | None = None, num_lines: int | None = None) -> ReadFileOutput:
+def _read_file(
+    context: RunContext,
+    file_path: str,
+    start_line: int | None = None,
+    num_lines: int | None = None,
+) -> ReadFileOutput:
     file_path = os.path.abspath(file_path)
-    
+
     # Build console message with optional parameters
     console_msg = f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
     if start_line is not None and num_lines is not None:
         console_msg += f" [dim](lines {start_line}-{start_line + num_lines - 1})[/dim]"
     console.print(console_msg)
-    
+
     console.print("[dim]" + "-" * 60 + "[/dim]")
     if not os.path.exists(file_path):
         error_msg = f"File {file_path} does not exist"
@@ -213,14 +219,16 @@ def _read_file(context: RunContext, file_path: str, start_line: int | None = Non
                 # Ensure indices are within bounds
                 start_idx = max(0, start_idx)
                 end_idx = min(len(lines), end_idx)
-                content = ''.join(lines[start_idx:end_idx])
+                content = "".join(lines[start_idx:end_idx])
             else:
                 # Read the entire file
                 content = f.read()
 
             num_tokens = estimate_tokens(content)
             if num_tokens > 10000:
-                raise ValueError("The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.")
+                raise ValueError(
+                    "The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks."
+                )
             token_guard(num_tokens)
         return ReadFileOutput(content=content, num_tokens=num_tokens)
     except (FileNotFoundError, PermissionError):
@@ -316,12 +324,17 @@ def list_files(
     if num_tokens > 10000:
         return ListFileOutput(
             files=[],
-            error="Too many files - tokens exceeded. Try listing non-recursively"
+            error="Too many files - tokens exceeded. Try listing non-recursively",
         )
     return list_files_output
 
 
-def read_file(context: RunContext, file_path: str = "", start_line: int | None = None, num_lines: int | None = None) -> ReadFileOutput:
+def read_file(
+    context: RunContext,
+    file_path: str = "",
+    start_line: int | None = None,
+    num_lines: int | None = None,
+) -> ReadFileOutput:
     return _read_file(context, file_path, start_line, num_lines)
 
 
