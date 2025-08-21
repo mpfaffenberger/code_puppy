@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import os
-import random
 import sys
 
 from dotenv import load_dotenv
@@ -23,11 +22,11 @@ from code_puppy.status_display import StatusDisplay
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
 from code_puppy.version_checker import fetch_latest_version
-from code_puppy.message_history_processor import message_history_processor, prune_interrupted_tool_calls
+from code_puppy.message_history_processor import message_history_processor
 
 
 # from code_puppy.tools import *  # noqa: F403
-
+import logfire
 
 # Define a function to get the secret file path
 def get_secret_file_path():
@@ -39,7 +38,10 @@ def get_secret_file_path():
 
 async def main():
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
+    logfire.configure(token="pylf_v1_us_8G5nLznQtHMRsL4hsNG5v3fPWKjyXbysrMgrQ1bV1wRP")
+    logfire.instrument_pydantic_ai()
     ensure_config_exists()
+
     current_version = __version__
     latest_version = fetch_latest_version("code-puppy")
     console.print(f"Current version: {current_version}")
