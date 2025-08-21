@@ -52,14 +52,10 @@ def test_stringify_message_part_with_content_and_tool_call():
     assert "value" in result
 
 
-@patch("code_puppy.message_history_processor.get_tokenizer_for_model")
-@patch("code_puppy.message_history_processor.get_model_name")
-def test_estimate_tokens_for_message(mock_get_model_name, mock_get_tokenizer):
-    # Mock the tokenizer to return a predictable number of tokens
-    mock_tokenizer = MagicMock()
-    mock_tokenizer.encode.return_value = [1, 2, 3, 4, 5]  # 5 tokens
-    mock_get_tokenizer.return_value = mock_tokenizer
-    mock_get_model_name.return_value = "test-model"
+@patch("code_puppy.message_history_processor.estimate_tokens")
+def test_estimate_tokens_for_message(mock_exchange_tokens):
+    # Mock the estimate_tokens function to return a predictable number of tokens
+    mock_exchange_tokens.return_value = 5
 
     # Create a mock message with one part
     part = MockPart(content="test content")
@@ -71,18 +67,14 @@ def test_estimate_tokens_for_message(mock_get_model_name, mock_get_tokenizer):
     # Should return the number of tokens (5) but at least 1
     assert result == 5
 
-    # Verify the tokenizer was called with the stringified content
-    mock_tokenizer.encode.assert_called_with("test content")
+    # Verify the estimate_tokens function was called with the stringified content
+    mock_exchange_tokens.assert_called_with("test content")
 
 
-@patch("code_puppy.message_history_processor.get_tokenizer_for_model")
-@patch("code_puppy.message_history_processor.get_model_name")
-def test_estimate_tokens_for_message_minimum(mock_get_model_name, mock_get_tokenizer):
-    # Mock the tokenizer to return an empty list (0 tokens)
-    mock_tokenizer = MagicMock()
-    mock_tokenizer.encode.return_value = []  # 0 tokens
-    mock_get_tokenizer.return_value = mock_tokenizer
-    mock_get_model_name.return_value = "test-model"
+@patch("code_puppy.message_history_processor.estimate_tokens")
+def test_estimate_tokens_for_message_minimum(mock_exchange_tokens):
+    # Mock the estimate_tokens function to return 0 tokens
+    mock_exchange_tokens.return_value = 0
 
     # Create a mock message with one part
     part = MockPart(content="")

@@ -48,14 +48,24 @@ class StatusDisplay:
         self.spinner = Spinner("dots", text="")
 
     def _calculate_rate(self) -> float:
-        """Calculate the current average token rate since start"""
+        """Calculate the current average token rate since start.
+
+        To avoid absurd spikes on the first update (elapsed ~0), we wait
+        for a minimal elapsed time window before computing a rate.
+        """
         current_time = time.perf_counter()
-        if self.start_time:
+        global CURRENT_TOKEN_RATE
+        if self.start_time is not None:
             elapsed = current_time - self.start_time
-            if elapsed > 0:
+            # Require a small warm-up window before reporting a rate
+            MIN_ELAPSED_FOR_RATE = 0.1  # seconds
+            if elapsed >= MIN_ELAPSED_FOR_RATE:
                 self.current_rate = max(0, self.token_count / elapsed)
                 # Update the global rate for other components to access
-                global CURRENT_TOKEN_RATE
+                CURRENT_TOKEN_RATE = self.current_rate
+            else:
+                # Too soon to compute a meaningful rate; report 0 for now
+                self.current_rate = 0
                 CURRENT_TOKEN_RATE = self.current_rate
         # Maintain last markers (not used for rate now, but kept for completeness)
         self.last_update_time = current_time
