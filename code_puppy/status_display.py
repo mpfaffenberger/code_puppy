@@ -61,11 +61,13 @@ class StatusDisplay:
         self.last_update_time = current_time
         self.last_token_count = self.token_count
         return self.current_rate
-        
-    def update_rate_from_sse(self, completion_tokens: int, completion_time: float) -> None:
+
+    def update_rate_from_sse(
+        self, completion_tokens: int, completion_time: float
+    ) -> None:
         """Deprecated: SSE-based rate updates removed. No-op retained for compatibility."""
         return
-        
+
     @staticmethod
     def get_current_rate() -> float:
         """Get the current token rate for use in other components"""
@@ -81,11 +83,11 @@ class StatusDisplay:
         if self.start_time is None and tokens > 0:
             self.start_time = time.perf_counter()
             self.last_update_time = self.start_time
-        
+
         # tokens is a delta (positive to add, negative to subtract)
         if tokens != 0:
             self.token_count = max(0, self.token_count + tokens)
-        
+
         self._calculate_rate()
 
     def _get_status_panel(self) -> Panel:
@@ -189,8 +191,10 @@ class StatusDisplay:
             self.current_rate = avg_rate
             global CURRENT_TOKEN_RATE
             CURRENT_TOKEN_RATE = self.current_rate
-            self.console.print(f"[dim]Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)[/dim]")
-            
+            self.console.print(
+                f"[dim]Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)[/dim]"
+            )
+
             # Reset
             self.start_time = None
             self.token_count = 0

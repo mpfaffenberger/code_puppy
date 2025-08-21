@@ -30,7 +30,6 @@ from code_puppy.message_history_processor import message_history_processor
 import logfire
 
 
-
 # Define a function to get the secret file path
 def get_secret_file_path():
     hidden_directory = os.path.join(os.path.expanduser("~"), ".agent_secret")
@@ -221,9 +220,11 @@ async def interactive_mode(history_file_path: str) -> None:
 
                     The function continues running until status_display.is_active becomes False.
                     """
-                    from code_puppy.message_history_processor import estimate_tokens_for_message
+                    from code_puppy.message_history_processor import (
+                        estimate_tokens_for_message,
+                    )
                     from pydantic_ai.messages import ModelResponse
-                    
+
                     # Baseline to exclude any tokens already present before tracking starts
                     baseline_messages = get_message_history()
                     if baseline_messages:
@@ -234,7 +235,7 @@ async def interactive_mode(history_file_path: str) -> None:
                         )
                     else:
                         last_token_total = 0
-                    
+
                     while status_display.is_active:
                         # Get real token count from message history
                         messages = get_message_history()
@@ -245,14 +246,14 @@ async def interactive_mode(history_file_path: str) -> None:
                                 for msg in messages
                                 if isinstance(msg, ModelResponse)
                             )
-                            
+
                             # If tokens increased, update the display with the incremental count
                             if current_token_total > last_token_total:
                                 status_display.update_token_count(
                                     current_token_total - last_token_total
                                 )
                                 last_token_total = current_token_total
-                        
+
                         # Small sleep interval for responsive updates without excessive CPU usage
                         await asyncio.sleep(0.1)
 
@@ -331,7 +332,12 @@ async def interactive_mode(history_file_path: str) -> None:
                                         except TypeError:
                                             pass
                                     # Attribute-based access
-                                    for attr in ("output_tokens", "output", "completion_tokens", "generated_tokens"):
+                                    for attr in (
+                                        "output_tokens",
+                                        "output",
+                                        "completion_tokens",
+                                        "generated_tokens",
+                                    ):
                                         if hasattr(usage_obj, attr):
                                             try:
                                                 val = getattr(usage_obj, attr)
@@ -341,7 +347,12 @@ async def interactive_mode(history_file_path: str) -> None:
                                                 continue
                                     # Dict-like access
                                     try:
-                                        for key in ("output_tokens", "output", "completion_tokens", "generated_tokens"):
+                                        for key in (
+                                            "output_tokens",
+                                            "output",
+                                            "completion_tokens",
+                                            "generated_tokens",
+                                        ):
                                             if key in usage_obj:
                                                 val = usage_obj[key]
                                                 if val is not None:
@@ -357,7 +368,9 @@ async def interactive_mode(history_file_path: str) -> None:
                                     status_display.token_count = final_tokens
                                     status_display.last_token_count = final_tokens
                                     # Align timestamp using perf_counter to match StatusDisplay timing
-                                    status_display.last_update_time = time.perf_counter()
+                                    status_display.last_update_time = (
+                                        time.perf_counter()
+                                    )
                             except Exception:
                                 # If usage is unavailable, proceed without updating
                                 pass
