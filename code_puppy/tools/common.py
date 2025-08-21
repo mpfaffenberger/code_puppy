@@ -2,7 +2,6 @@ import os
 import fnmatch
 
 from typing import Optional, Tuple
-import tiktoken
 from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 

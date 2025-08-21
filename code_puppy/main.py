@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import os
 import time
-import random
 import sys
 
 from dotenv import load_dotenv
@@ -24,7 +23,7 @@ from code_puppy.status_display import StatusDisplay
 # Initialize rich console for pretty output
 from code_puppy.tools.common import console
 from code_puppy.version_checker import fetch_latest_version
-from code_puppy.message_history_processor import message_history_processor, prune_interrupted_tool_calls
+from code_puppy.message_history_processor import message_history_processor
 
 
 # from code_puppy.tools import *  # noqa: F403
