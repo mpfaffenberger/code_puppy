@@ -66,9 +66,6 @@ def test_cd_invalid_directory():
         )
 
 
-
-
-
 def test_m_sets_model():
     console = make_fake_console()
     with (

@@ -1,7 +1,3 @@
-
-
-
-
 # ANSI color codes are no longer necessary because prompt_toolkit handles
 # styling via the `Style` class. We keep them here commented-out in case
 # someone needs raw ANSI later, but they are unused in the current code.
@@ -175,7 +171,7 @@ async def get_input_with_combined_completion(
     def _(event):
         event.app.current_buffer.insert_text("\n")
 
-    @bindings.add('c-c')
+    @bindings.add("c-c")
     def _(event):
         """Cancel the current prompt when the user presses the ESC key alone."""
         event.app.exit(exception=KeyboardInterrupt)

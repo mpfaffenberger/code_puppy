@@ -20,6 +20,7 @@ from code_puppy.token_utils import estimate_tokens
 # Import the status display to get token rate info
 try:
     from code_puppy.status_display import StatusDisplay
+
     STATUS_DISPLAY_AVAILABLE = True
 except ImportError:
     STATUS_DISPLAY_AVAILABLE = False
@@ -160,9 +161,8 @@ def summarize_message(message: ModelMessage) -> ModelMessage:
                 content_bits.append(s)
         if not content_bits:
             return message
-        prompt = (
-            "Please summarize the following user message:\n"
-            + "\n".join(content_bits)
+        prompt = "Please summarize the following user message:\n" + "\n".join(
+            content_bits
         )
         agent = get_summarization_agent()
         result = agent.run_sync(prompt)
@@ -193,6 +193,7 @@ def get_model_context_length() -> int:
 
     # Reserve 10% of context for response
     return int(context_length)
+
 
 def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
     """
@@ -240,7 +241,9 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
         pruned.append(msg)
 
     if dropped_count:
-        console.print(f"[yellow]Pruned {dropped_count} message(s) with mismatched tool_call_id pairs[/yellow]")
+        console.print(
+            f"[yellow]Pruned {dropped_count} message(s) with mismatched tool_call_id pairs[/yellow]"
+        )
     return pruned
 
 
@@ -251,7 +254,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     model_max = get_model_context_length()
 
     proportion_used = total_current_tokens / model_max
-    
+
     # Include token per second rate if available
     token_rate_info = ""
     if STATUS_DISPLAY_AVAILABLE:
@@ -262,12 +265,12 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
                 token_rate_info = f", {current_rate:.0f} t/s"
             else:
                 token_rate_info = f", {current_rate:.1f} t/s"
-    
+
     # Print blue status bar - ALWAYS at top
     console.print(f"""
 [bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f}{token_rate_info}
 """)
-    
+
     # Print extra line to ensure separation
     console.print("\n")
 

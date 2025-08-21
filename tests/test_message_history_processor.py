@@ -5,7 +5,6 @@ from code_puppy.message_history_processor import (
     estimate_tokens_for_message,
     summarize_message,
 )
-from code_puppy.token_utils import estimate_tokens
 
 
 class MockPart:
