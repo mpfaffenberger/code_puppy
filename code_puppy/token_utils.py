@@ -1,16 +1,17 @@
 import json
-import tiktoken
 
 import pydantic
 from pydantic_ai.messages import ModelMessage
 
 
-def get_tokenizer():
+def estimate_tokens(text: str) -> int:
     """
-    Always use cl100k_base tokenizer regardless of model type.
-    This is a simple approach that works reasonably well for most models.
+    Estimate the number of tokens using the len/4 heuristic.
+    This is a simple approximation that works reasonably well for most text.
     """
-    return tiktoken.get_encoding("cl100k_base")
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
 
 
 def stringify_message_part(part) -> str:
@@ -55,16 +56,14 @@ def stringify_message_part(part) -> str:
 
 def estimate_tokens_for_message(message: ModelMessage) -> int:
     """
-    Estimate the number of tokens in a message using tiktoken with cl100k_base encoding.
-    This is more accurate than character-based estimation.
+    Estimate the number of tokens in a message using the len/4 heuristic.
+    This is a simple approximation that works reasonably well for most text.
     """
-    tokenizer = get_tokenizer()
     total_tokens = 0
 
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            tokens = tokenizer.encode(part_str)
-            total_tokens += len(tokens)
+            total_tokens += estimate_tokens(part_str)
 
     return max(1, total_tokens)

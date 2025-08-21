@@ -7,7 +7,7 @@ from pydantic import BaseModel, conint
 from pydantic_ai import RunContext
 
 from code_puppy.tools.common import console
-from code_puppy.token_utils import get_tokenizer
+from code_puppy.token_utils import get_tokenizer, estimate_tokens
 from code_puppy.tools.token_check import token_guard
 
 # ---------------------------------------------------------------------------
