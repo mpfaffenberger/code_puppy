@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 import pydantic
-import tiktoken
 from pydantic_ai.messages import (
     ModelMessage,
     TextPart,
@@ -16,6 +15,7 @@ from pydantic_ai.messages import (
 from code_puppy.tools.common import console
 from code_puppy.model_factory import ModelFactory
 from code_puppy.config import get_model_name
+from code_puppy.token_utils import estimate_tokens
 
 # Import the status display to get token rate info
 try:
@@ -46,12 +46,12 @@ except ImportError:
         return None
 
 
+# Dummy function for backward compatibility
 def get_tokenizer_for_model(model_name: str):
     """
-    Always use cl100k_base tokenizer regardless of model type.
-    This is a simple approach that works reasonably well for most models.
+    Dummy function that returns None since we're now using len/4 heuristic.
     """
-    return tiktoken.get_encoding("cl100k_base")
+    return None
 
 
 def stringify_message_part(part) -> str:
@@ -96,17 +96,15 @@ def stringify_message_part(part) -> str:
 
 def estimate_tokens_for_message(message: ModelMessage) -> int:
     """
-    Estimate the number of tokens in a message using tiktoken with cl100k_base encoding.
-    This is more accurate than character-based estimation.
+    Estimate the number of tokens in a message using the len/4 heuristic.
+    This is a simple approximation that works reasonably well for most text.
     """
-    tokenizer = get_tokenizer_for_model(get_model_name())
     total_tokens = 0
 
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            tokens = tokenizer.encode(part_str)
-            total_tokens += len(tokens)
+            total_tokens += estimate_tokens(part_str)
 
     return max(1, total_tokens)
 

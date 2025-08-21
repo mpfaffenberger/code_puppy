@@ -7,7 +7,7 @@ from pydantic import BaseModel, conint
 from pydantic_ai import RunContext
 
 from code_puppy.tools.common import console
-from code_puppy.token_utils import get_tokenizer
+from code_puppy.token_utils import estimate_tokens
 from code_puppy.tools.token_check import token_guard
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
@@ -218,8 +218,7 @@ def _read_file(context: RunContext, file_path: str, start_line: int | None = Non
                 # Read the entire file
                 content = f.read()
 
-            tokenizer = get_tokenizer()
-            num_tokens = len(tokenizer.encode(content))
+            num_tokens = estimate_tokens(content)
             if num_tokens > 10000:
                 raise ValueError("The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.")
             token_guard(num_tokens)
@@ -313,8 +312,7 @@ def list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
     list_files_output = _list_files(context, directory, recursive)
-    tokenizer = get_tokenizer()
-    num_tokens = len(tokenizer.encode(list_files_output.model_dump_json()))
+    num_tokens = estimate_tokens(list_files_output.model_dump_json())
     if num_tokens > 10000:
         return ListFileOutput(
             files=[],
