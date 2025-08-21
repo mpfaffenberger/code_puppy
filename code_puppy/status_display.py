@@ -104,9 +104,13 @@ class StatusDisplay:
 
     def update_token_count(self, tokens: int) -> None:
         """Update the token count and recalculate the rate"""
+        # Reset timing if this is the first update of a new task
         if self.start_time is None:
             self.start_time = time.time()
             self.last_update_time = self.start_time
+            # Reset token counters for new task
+            self.last_token_count = 0
+            self.current_rate = 0.0
         
         # Allow for incremental updates (common for streaming) or absolute updates
         if tokens > self.token_count or tokens < 0:
@@ -204,6 +208,13 @@ class StatusDisplay:
             avg_rate = self.token_count / elapsed if elapsed > 0 else 0
             self.console.print(f"[dim]Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)[/dim]")
             
-            # Reset
+            # Reset state
             self.start_time = None
             self.token_count = 0
+            self.last_update_time = None
+            self.last_token_count = 0
+            self.current_rate = 0
+            
+            # Reset global rate to 0 to avoid affecting subsequent tasks
+            global CURRENT_TOKEN_RATE
+            CURRENT_TOKEN_RATE = 0.0

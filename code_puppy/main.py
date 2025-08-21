@@ -38,7 +38,10 @@ def get_secret_file_path():
 
 async def main():
     # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
-    logfire.configure(token="pylf_v1_us_8G5nLznQtHMRsL4hsNG5v3fPWKjyXbysrMgrQ1bV1wRP")
+    logfire.configure(
+        token="pylf_v1_us_8G5nLznQtHMRsL4hsNG5v3fPWKjyXbysrMgrQ1bV1wRP",
+        console=False
+    )
     logfire.instrument_pydantic_ai()
     ensure_config_exists()
 
