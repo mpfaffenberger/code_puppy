@@ -185,12 +185,14 @@ class StatusDisplay:
         self.console.print("\n")
 
         # Create a Live display that will update in-place
-        with Live(
-            self._get_status_text(),
-            console=self.console,
-            refresh_per_second=2,  # Update twice per second
-            transient=True,  # Clear the live display when done so prompts aren't obscured
-        ) as live:
+        with (
+            Live(
+                self._get_status_text(),
+                console=self.console,
+                refresh_per_second=2,  # Update twice per second
+                transient=True,  # Clear the live display when done so prompts aren't obscured
+            ) as live
+        ):
             # Keep updating the live display while active
             while self.is_active:
                 live.update(self._get_status_text())

@@ -6,6 +6,7 @@ def token_guard(num_tokens: int):
     # Import lazily to avoid circular deps and to make tests resilient to open() monkeypatching
     try:
         from code_puppy import state_management
+
         current_history = state_management.get_message_history()
     except Exception:
         current_history = []

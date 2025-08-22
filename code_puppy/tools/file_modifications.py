@@ -214,7 +214,11 @@ def _write_to_file(
             }
 
         diff_lines = difflib.unified_diff(
-            [] if not exists else orig_text.splitlines(keepends=True) if orig_text is not None else [""],
+            []
+            if not exists
+            else orig_text.splitlines(keepends=True)
+            if orig_text is not None
+            else [""],
             content.splitlines(keepends=True),
             fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
             tofile=f"b/{os.path.basename(file_path)}",

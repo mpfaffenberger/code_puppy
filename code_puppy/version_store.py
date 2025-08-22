@@ -206,7 +206,9 @@ def list_versions(prompt_text: str) -> Iterable[tuple[int, int, str]]:
             yield int(row[0]), int(row[1]), str(row[2])
 
 
-def list_all_versions(limit: Optional[int] = None) -> Iterable[tuple[int, str, int, str]]:
+def list_all_versions(
+    limit: Optional[int] = None,
+) -> Iterable[tuple[int, str, int, str]]:
     """
     Yield (response_id, prompt_text, version, timestamp) for all prompts, newest first.
     If limit is provided, only return that many rows.
@@ -288,6 +290,7 @@ def get_response_by_id(response_id: int) -> Optional[Dict[str, str]]:
 
 # ---- Change capture (no Git) ----
 
+
 def start_change_capture() -> None:
     """Begin a new capture session for file changes."""
     _pending_changes.set([])
@@ -347,7 +350,9 @@ def finalize_changes(response_id: int) -> None:
         conn.commit()
 
 
-def get_changes_for_version(prompt_text: str, version: int) -> Iterable[Dict[str, Optional[str]]]:
+def get_changes_for_version(
+    prompt_text: str, version: int
+) -> Iterable[Dict[str, Optional[str]]]:
     """
     Yield rows with keys: file_path, change_type, diff, before_content, after_content, timestamp.
     """
@@ -395,7 +400,9 @@ def get_response_id_for_prompt_version(prompt_text: str, version: int) -> Option
         return int(row[0]) if row else None
 
 
-def compute_snapshot_as_of_response_id(response_id: int) -> Iterable[Dict[str, Optional[str]]]:
+def compute_snapshot_as_of_response_id(
+    response_id: int,
+) -> Iterable[Dict[str, Optional[str]]]:
     """
     Compute the repository snapshot as-of the given response id across ALL tracked files.
 

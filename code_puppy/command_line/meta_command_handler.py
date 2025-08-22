@@ -93,7 +93,9 @@ def handle_meta_command(command: str, console: Console) -> bool:
             output = resp.get("output_text", "")
             ts = resp.get("timestamp", "")
             ver = resp.get("version", "")
-            console.print(f"[bold magenta]Output for id={rid} v{ver} at {ts}[/bold magenta]")
+            console.print(
+                f"[bold magenta]Output for id={rid} v{ver} at {ts}[/bold magenta]"
+            )
             console.print(output)
         except Exception as e:
             console.print(f"[red]Error loading output:[/red] {e}")
@@ -160,7 +162,9 @@ def handle_meta_command(command: str, console: Console) -> bool:
         # Syntax: ~changes <prompt> <version> [--patch]
         args_str = command[len("~changes") :].strip()
         if not args_str:
-            console.print("[yellow]Usage:[/yellow] ~changes <prompt> <version> [--patch]")
+            console.print(
+                "[yellow]Usage:[/yellow] ~changes <prompt> <version> [--patch]"
+            )
             return True
         show_patch = "--patch" in args_str
         if show_patch:
@@ -168,7 +172,9 @@ def handle_meta_command(command: str, console: Console) -> bool:
         # last token must be version
         tokens = args_str.split()
         if not tokens:
-            console.print("[yellow]Usage:[/yellow] ~changes <prompt> <version> [--patch]")
+            console.print(
+                "[yellow]Usage:[/yellow] ~changes <prompt> <version> [--patch]"
+            )
             return True
         try:
             version = int(tokens[-1])
@@ -308,7 +314,9 @@ def handle_meta_command(command: str, console: Console) -> bool:
         # Syntax: ~checkout-snapshot-id <response_id> [--patch]
         args_str = command[len("~checkout-snapshot-id") :].strip()
         if not args_str:
-            console.print("[yellow]Usage:[/yellow] ~checkout-snapshot-id <response_id> [--patch]")
+            console.print(
+                "[yellow]Usage:[/yellow] ~checkout-snapshot-id <response_id> [--patch]"
+            )
             return True
         show_patch = "--patch" in args_str
         if show_patch:
@@ -340,17 +348,21 @@ def handle_meta_command(command: str, console: Console) -> bool:
                         current = None
                 if desired is None:
                     if exists:
-                        ops.append({"op": "delete", "file_path": fp, "current": current})
+                        ops.append(
+                            {"op": "delete", "file_path": fp, "current": current}
+                        )
                         delete_count += 1
                     # else: file doesn't exist and should not exist => noop
                 else:
                     if current != desired:
-                        ops.append({
-                            "op": "write",
-                            "file_path": fp,
-                            "new_content": desired,
-                            "current": current or "",
-                        })
+                        ops.append(
+                            {
+                                "op": "write",
+                                "file_path": fp,
+                                "new_content": desired,
+                                "current": current or "",
+                            }
+                        )
                         write_count += 1
             console.print(
                 f"[bold magenta]Snapshot checkout[/bold magenta] for id={rid}: will [green]write {write_count}[/green], [red]delete {delete_count}[/red]"
@@ -442,7 +454,9 @@ def handle_meta_command(command: str, console: Console) -> bool:
                 console.print("[dim]No response found for that prompt/version.[/dim]")
                 return True
             # Reuse the same logic by constructing a synthetic command body
-            internal = f"~checkout-snapshot-id {rid} {'--patch' if show_patch else ''}".strip()
+            internal = (
+                f"~checkout-snapshot-id {rid} {'--patch' if show_patch else ''}".strip()
+            )
             # Recursively handle using this same function
             return handle_meta_command(internal, console)
         except Exception as e:
