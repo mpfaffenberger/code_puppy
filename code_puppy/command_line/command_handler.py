@@ -20,6 +20,8 @@ COMMANDS_HELP = """
 /motd                 Show the latest message of the day (MOTD)
 /show                 Show puppy config key-values
 /compact              Summarize and compact current chat history
+/dump_context <name>  Save current message history to file
+/load_context <name>  Load message history from file
 /set                  Set puppy config key-values (e.g., /set yolo_mode true)
 /tools                Show available tools and capabilities
 /<unknown>            Show unknown command warning
@@ -46,8 +48,9 @@ def handle_command(command: str):
 
     if command.strip().startswith("/compact"):
         from code_puppy.message_history_processor import (
+            PROTECTED_TOKENS,
             estimate_tokens_for_message,
-            summarize_messages,
+            summarize_messages_with_protection,
         )
         from code_puppy.messaging import (
             emit_error,
@@ -65,21 +68,28 @@ def handle_command(command: str):
 
             before_tokens = sum(estimate_tokens_for_message(m) for m in history)
             emit_info(
-                f"Compacting {len(history)} messages... (~{before_tokens} tokens)"
+                f"🤔 Compacting {len(history)} messages... (~{before_tokens} tokens)"
+            )
+            emit_info(
+                f"🔒 Protecting up to {PROTECTED_TOKENS:,} tokens of recent messages"
             )
 
-            summary = summarize_messages(history)
-            if not summary:
+            compacted = summarize_messages_with_protection(history)
+            if not compacted:
                 emit_error("Summarization failed. History unchanged.")
                 return True
 
-            # Preserve the initial system/instruction message if present
-            compacted = [history[0], summary] if len(history) > 0 else [summary]
             set_message_history(compacted)
 
             after_tokens = sum(estimate_tokens_for_message(m) for m in compacted)
+            reduction_pct = (
+                ((before_tokens - after_tokens) / before_tokens * 100)
+                if before_tokens > 0
+                else 0
+            )
             emit_success(
-                f"Done! History reduced to {len(compacted)} messages (~{after_tokens} tokens)."
+                f"✨ Done! History: {len(history)} → {len(compacted)} messages\n"
+                f"🏦 Tokens: {before_tokens:,} → {after_tokens:,} ({reduction_pct:.1f}% reduction)"
             )
             return True
         except Exception as e:
@@ -227,6 +237,104 @@ def handle_command(command: str):
 
         # Return the prompt to be processed by the main chat system
         return pr_prompt
+
+    if command.startswith("/dump_context"):
+        import json
+        import pickle
+        from datetime import datetime
+        from pathlib import Path
+
+        from code_puppy.config import CONFIG_DIR
+        from code_puppy.message_history_processor import estimate_tokens_for_message
+        from code_puppy.state_management import get_message_history
+
+        tokens = command.split()
+        if len(tokens) != 2:
+            emit_warning("Usage: /dump_context <session_name>")
+            return True
+
+        session_name = tokens[1]
+        history = get_message_history()
+
+        if not history:
+            emit_warning("No message history to dump!")
+            return True
+
+        # Create contexts directory inside CONFIG_DIR if it doesn't exist
+        contexts_dir = Path(CONFIG_DIR) / "contexts"
+        contexts_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # Save as pickle for exact preservation
+            pickle_file = contexts_dir / f"{session_name}.pkl"
+            with open(pickle_file, "wb") as f:
+                pickle.dump(history, f)
+
+            # Also save metadata as JSON for readability
+            meta_file = contexts_dir / f"{session_name}_meta.json"
+            metadata = {
+                "session_name": session_name,
+                "timestamp": datetime.now().isoformat(),
+                "message_count": len(history),
+                "total_tokens": sum(estimate_tokens_for_message(m) for m in history),
+                "file_path": str(pickle_file),
+            }
+
+            with open(meta_file, "w") as f:
+                json.dump(metadata, f, indent=2)
+
+            emit_success(
+                f"✅ Context saved: {len(history)} messages ({metadata['total_tokens']} tokens)\n"
+                f"📁 Files: {pickle_file}, {meta_file}"
+            )
+            return True
+
+        except Exception as e:
+            emit_error(f"Failed to dump context: {e}")
+            return True
+
+    if command.startswith("/load_context"):
+        import pickle
+        from pathlib import Path
+
+        from code_puppy.config import CONFIG_DIR
+        from code_puppy.message_history_processor import estimate_tokens_for_message
+        from code_puppy.state_management import set_message_history
+
+        tokens = command.split()
+        if len(tokens) != 2:
+            emit_warning("Usage: /load_context <session_name>")
+            return True
+
+        session_name = tokens[1]
+        contexts_dir = Path(CONFIG_DIR) / "contexts"
+        pickle_file = contexts_dir / f"{session_name}.pkl"
+
+        if not pickle_file.exists():
+            emit_error(f"Context file not found: {pickle_file}")
+            # List available contexts
+            available = list(contexts_dir.glob("*.pkl"))
+            if available:
+                names = [f.stem for f in available]
+                emit_info(f"Available contexts: {', '.join(names)}")
+            return True
+
+        try:
+            with open(pickle_file, "rb") as f:
+                history = pickle.load(f)
+
+            set_message_history(history)
+            total_tokens = sum(estimate_tokens_for_message(m) for m in history)
+
+            emit_success(
+                f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
+                f"📁 From: {pickle_file}"
+            )
+            return True
+
+        except Exception as e:
+            emit_error(f"Failed to load context: {e}")
+            return True
 
     if command in ("/exit", "/quit"):
         emit_success("Goodbye!")

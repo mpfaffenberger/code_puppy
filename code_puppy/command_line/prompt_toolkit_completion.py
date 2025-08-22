@@ -19,6 +19,7 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 
 from code_puppy.command_line.file_path_completion import FilePathCompleter
+from code_puppy.command_line.load_context_completion import LoadContextCompleter
 from code_puppy.command_line.model_picker_completion import (
     ModelNameCompleter,
     get_active_model,
@@ -165,6 +166,7 @@ async def get_input_with_combined_completion(
             ModelNameCompleter(trigger="/m"),
             CDCompleter(trigger="/cd"),
             SetCompleter(trigger="/set"),
+            LoadContextCompleter(trigger="/load_context"),
         ]
     )
     # Add custom key bindings for multiline input

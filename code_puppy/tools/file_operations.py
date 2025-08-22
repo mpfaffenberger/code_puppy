@@ -377,15 +377,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             file_path = os.path.join(root, f_name)
 
             if should_ignore_path(file_path):
-                emit_system_message(
-                    f"[dim]Ignoring: {file_path}[/dim]", message_group=group_id
-                )  # Optional: for debugging ignored files
                 continue
 
             try:
-                emit_system_message(
-                    f"\U0001f4c2 [bold cyan]Searching: {file_path}\n[/bold cyan]"
-                )  # Optional: for verbose searching log
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
                     for line_number, line_content in enumerate(fh, 1):
                         if search_string in line_content:

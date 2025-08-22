@@ -473,8 +473,10 @@ class CodePuppyTUI(App):
                         self.add_agent_message(agent_response.output_message)
 
                         # Update message history
-                        new_msgs = result.all_messages()
-                        set_message_history(message_history_processor(new_msgs))
+                        new_msgs = result.new_messages()
+                        filtered = get_message_history()
+                        filtered.append(new_msgs[-1])
+                        set_message_history(filtered)
 
                         # Refresh history display to show new interaction
                         self.refresh_history_display()
