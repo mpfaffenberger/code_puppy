@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
+import httpx
 import pydantic
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
@@ -21,7 +22,7 @@ from code_puppy.messaging.message_queue import (
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools import register_all_tools
 
-from .http_utils import create_reopenable_async_client
+from .http_utils import create_reopenable_async_client, resolve_env_var_in_header
 from .tools.common import console
 
 # Puppy rules loader
@@ -77,19 +78,29 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
         server_type = conf.get("type", "sse")
         url = conf.get("url")
         walmart_internal = conf.get("walmart_internal", False)
-        http_client = (
-            create_reopenable_async_client(headers=walmart_headers)
-            if walmart_internal
-            else None
-        )
+        timeout = conf.get("timeout", 30)
+        # Build per-server headers: start with walmart headers if internal, then merge user headers
+        server_headers = {}
+        if walmart_internal and walmart_headers:
+            server_headers.update(walmart_headers)
+        user_headers = conf.get("headers") or {}
+        if isinstance(user_headers, dict) and user_headers:
+            try:
+                user_headers = resolve_env_var_in_header(user_headers)
+            except Exception:
+                pass
+            server_headers.update(user_headers)
+        # We’ll build the http_client per branch with the right timeout
+        http_client = None
 
         try:
             if server_type == "http" and url:
-                timeout = conf.get("timeout", 30)  # Default 30 seconds for HTTP servers
                 emit_system_message(
-                    f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url} (timeout: {timeout}s)"
+                    f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
                 )
-                # Note: MCPServerStreamableHTTP may not support timeout parameter - check pydantic-ai docs
+                http_client = create_reopenable_async_client(
+                    timeout=timeout, headers=server_headers or None
+                )
                 servers.append(
                     MCPServerStreamableHTTP(url=url, http_client=http_client)
                 )
@@ -109,11 +120,14 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
                 else:
                     emit_error(f"MCP Server '{name}' missing required 'command' field")
             elif server_type == "sse" and url:
-                timeout = conf.get("timeout", 30)  # Default 30 seconds for SSE servers
                 emit_system_message(
-                    f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url} (timeout: {timeout}s)"
+                    f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
                 )
-                # Note: MCPServerSSE may not support timeout parameter - check pydantic-ai docs
+                # For SSE, allow long reads; only bound connect timeout
+                sse_timeout = httpx.Timeout(connect=timeout, read=None)
+                http_client = create_reopenable_async_client(
+                    timeout=sse_timeout, headers=server_headers or None
+                )
                 servers.append(MCPServerSSE(url=url, http_client=http_client))
             else:
                 emit_error(

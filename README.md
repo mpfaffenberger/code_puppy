@@ -150,13 +150,18 @@ Code Puppy supports **MCP (Model Context Protocol) servers** to give you access 
 An MCP server is a standalone process (can be local or remote) that offers specialized functionality (plugins, doc search, code analysis, etc.). Code Puppy can connect to one or more MCP servers at startup, unlocking these extra commands inside your coding agent.
 
 ### Configuration
-Create a config file at `~/.code_puppy/mcp_servers.json`. Here’s an example that connects to a local Context7 MCP server:
+Create a config file at `~/.code_puppy/mcp_servers.json`. Here’s an example configuring a GitHub MCP server that requires custom headers (env vars supported with $NAME). Note: Context7 typically does NOT require custom headers.
 
 ```json
 {
   "mcp_servers": {
-     "context7": {
-        "url": "https://mcp.context7.com/sse"
+     "github": {
+        "type": "sse",
+        "url": "https://api.github.com/mcp/sse",
+        "headers": {
+          "Authorization": "Bearer $GITHUB_TOKEN",
+          "X-GitHub-Api-Version": "2022-11-28"
+        }
      }
   }
 }
