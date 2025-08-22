@@ -51,6 +51,27 @@ export MODEL_NAME=gemini-2.5-flash-preview-05-20
 code-puppy --interactive
 ```
 
+## Version Store Location
+
+Control where the SQLite version store database is created/read.
+
+| Variable | Description | Default | Used In |
+|----------|-------------|---------|---------|
+| `CODE_PUPPY_DB_PATH` | Absolute or relative FILE path to the SQLite DB. Overrides all other location settings. | None | `code_puppy/version_store.py` |
+| `CODE_PUPPY_DB_DIR` | Directory where `version_store.db` will be created/used. Overrides the project-local default. | None | `code_puppy/version_store.py` |
+
+If neither is set, the DB defaults to a project-local path based on the current working directory at startup:
+
+```
+$CWD/.code_puppy/version_store.db
+```
+
+If the project-local path cannot be used, Code Puppy falls back to the home directory path:
+
+```
+~/.code_puppy/version_store.db
+```
+
 ### Using a Custom Models Configuration
 
 ```bash

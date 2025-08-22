@@ -22,6 +22,12 @@ from pydantic_ai import RunContext
 
 from code_puppy.tools.common import _find_best_window, console
 
+# Optional import: change capture for versioning (no circular dependency on tools)
+try:  # pragma: no cover - best-effort import
+    from code_puppy.version_store import record_change
+except Exception:  # noqa: BLE001
+    record_change = None  # type: ignore
+
 
 def _print_diff(diff_text: str) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
@@ -87,6 +93,12 @@ def _delete_snippet_from_file(
         )
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(modified)
+        # Record change for versioning
+        try:
+            if record_change:
+                record_change(file_path, "modify", original, modified, diff_text)
+        except Exception:
+            pass
         return {
             "success": True,
             "path": file_path,
@@ -160,6 +172,12 @@ def _replace_in_file(
     )
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(modified)
+    # Record change for versioning
+    try:
+        if record_change:
+            record_change(file_path, "modify", original, modified, diff_text)
+    except Exception:
+        pass
     return {
         "success": True,
         "path": file_path,
@@ -179,6 +197,13 @@ def _write_to_file(
 
     try:
         exists = os.path.exists(file_path)
+        orig_text = None
+        if exists:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    orig_text = f.read()
+            except Exception:
+                orig_text = None
         if exists and not overwrite:
             return {
                 "success": False,
@@ -189,7 +214,11 @@ def _write_to_file(
             }
 
         diff_lines = difflib.unified_diff(
-            [] if not exists else [""],
+            []
+            if not exists
+            else orig_text.splitlines(keepends=True)
+            if orig_text is not None
+            else [""],
             content.splitlines(keepends=True),
             fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
             tofile=f"b/{os.path.basename(file_path)}",
@@ -202,6 +231,13 @@ def _write_to_file(
             f.write(content)
 
         action = "overwritten" if exists else "created"
+        # Record change for versioning
+        try:
+            if record_change:
+                change_type = "modify" if exists else "create"
+                record_change(file_path, change_type, orig_text, content, diff_text)
+        except Exception:
+            pass
         return {
             "success": True,
             "path": file_path,
@@ -353,6 +389,12 @@ def _delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
                 "changed": True,
                 "diff": diff_text,
             }
+            # Record change for versioning
+            try:
+                if record_change:
+                    record_change(file_path, "delete", original, None, diff_text)
+            except Exception:
+                pass
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
         res = {
