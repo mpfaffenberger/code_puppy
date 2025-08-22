@@ -31,7 +31,10 @@ from code_puppy.config import (
 
 # HTTP server imports
 from code_puppy.http_server import app as http_app
-from code_puppy.message_history_processor import message_history_accumulator
+from code_puppy.message_history_processor import (
+    message_history_accumulator,
+    prune_interrupted_tool_calls,
+)
 from code_puppy.state_management import is_tui_mode, set_tui_mode
 
 # Initialize rich console for pretty output
@@ -773,14 +776,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                     f"Cancelled {killed} running shell process(es)."
                                 )
                             else:
-                                from code_puppy.message_history_processor import (
-                                    message_history_accumulator,
-                                )
-
                                 # Then cancel the agent task
                                 if not agent_task.done():
                                     state_management._message_history = (
-                                        message_history_accumulator(
+                                        prune_interrupted_tool_calls(
                                             state_management._message_history
                                         )
                                     )

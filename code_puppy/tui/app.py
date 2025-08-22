@@ -20,15 +20,14 @@ from code_puppy.config import (
     initialize_command_history_file,
     save_command_to_history,
 )
-from code_puppy.message_history_processor import message_history_processor
+from code_puppy.message_history_processor import (
+    message_history_accumulator,
+    prune_interrupted_tool_calls,
+)
 
 # Import our message queue system
 from code_puppy.messaging import TUIRenderer, get_global_queue
-from code_puppy.state_management import (
-    clear_message_history,
-    get_message_history,
-    set_message_history,
-)
+from code_puppy.state_management import clear_message_history, get_message_history
 from code_puppy.tui.components import (
     ChatView,
     CustomTextArea,
@@ -370,7 +369,7 @@ class CodePuppyTUI(App):
                 else:
                     # Only cancel the agent task if NO processes were killed
                     self._current_worker.cancel()
-                    state_management._message_history = message_history_processor(
+                    state_management._message_history = prune_interrupted_tool_calls(
                         state_management._message_history
                     )
                     self.add_system_message("⚠️  Processing cancelled by user")
@@ -473,8 +472,8 @@ class CodePuppyTUI(App):
                         self.add_agent_message(agent_response.output_message)
 
                         # Update message history
-                        new_msgs = result.all_messages()
-                        set_message_history(message_history_processor(new_msgs))
+                        new_msgs = result.new_messages()
+                        message_history_accumulator(new_msgs)
 
                         # Refresh history display to show new interaction
                         self.refresh_history_display()

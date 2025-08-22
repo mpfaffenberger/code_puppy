@@ -41,7 +41,6 @@ class ListedFile(BaseModel):
     path: str | None
     type: str | None
     size: int = 0
-    full_path: str | None
     depth: int | None
 
 
@@ -174,14 +173,13 @@ def _list_files(
         if rel_path == ".":
             rel_path = ""
         if rel_path:
-            dir_path = os.path.join(directory, rel_path)
+            os.path.join(directory, rel_path)
             results.append(
                 ListedFile(
                     **{
                         "path": rel_path,
                         "type": "directory",
                         "size": 0,
-                        "full_path": dir_path,
                         "depth": depth,
                     }
                 )
@@ -189,7 +187,6 @@ def _list_files(
             folder_structure[rel_path] = {
                 "path": rel_path,
                 "depth": depth,
-                "full_path": dir_path,
             }
         for file in files:
             file_path = os.path.join(root, file)
@@ -202,7 +199,6 @@ def _list_files(
                     "path": rel_file_path,
                     "type": "file",
                     "size": size,
-                    "full_path": file_path,
                     "depth": depth,
                 }
                 results.append(ListedFile(**file_info))
@@ -342,10 +338,11 @@ def _read_file(
             # Simple approximation: ~4 characters per token
             num_tokens = len(content) // 4
             if num_tokens > 10000:
-                raise ValueError(
-                    "The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks."
+                return ReadFileOutput(
+                    content=None,
+                    error="The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.",
+                    num_tokens=0,
                 )
-            token_guard(num_tokens)
         return ReadFileOutput(content=content, num_tokens=num_tokens)
     except (FileNotFoundError, PermissionError):
         # For backward compatibility with tests, return "FILE NOT FOUND" for these specific errors
@@ -387,7 +384,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 **{
                                     "file_path": file_path,
                                     "line_number": line_number,
-                                    "line_content": line_content.rstrip("\n\r"),
+                                    "line_content": line_content.rstrip("\n\r")[512:],
                                 }
                             )
                             matches.append(match_info)
@@ -395,9 +392,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
                                 message_group=group_id,
                             )
-                            if len(matches) >= 200:
+                            if len(matches) >= 50:
                                 emit_warning(
-                                    "Limit of 200 matches reached. Stopping search.",
+                                    "Limit of 50 matches reached. Stopping search.",
                                     message_group=group_id,
                                 )
                                 return GrepOutput(matches=matches)
