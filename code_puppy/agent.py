@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-import httpx
 import pydantic
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
@@ -99,7 +98,7 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
                     f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
                 )
                 http_client = create_reopenable_async_client(
-                    timeout=timeout, headers=server_headers or None
+                    timeout=timeout, headers=server_headers or None, verify=False
                 )
                 servers.append(
                     MCPServerStreamableHTTP(url=url, http_client=http_client)
@@ -124,9 +123,8 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
                     f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
                 )
                 # For SSE, allow long reads; only bound connect timeout
-                sse_timeout = httpx.Timeout(connect=timeout, read=None)
                 http_client = create_reopenable_async_client(
-                    timeout=sse_timeout, headers=server_headers or None
+                    timeout=30, headers=server_headers or None, verify=False
                 )
                 servers.append(MCPServerSSE(url=url, http_client=http_client))
             else:
