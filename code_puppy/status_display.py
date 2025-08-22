@@ -189,7 +189,7 @@ class StatusDisplay:
             self._get_status_text(),
             console=self.console,
             refresh_per_second=2,  # Update twice per second
-            transient=False,  # Keep the final state visible
+            transient=True,  # Clear the live display when done so prompts aren't obscured
         ) as live:
             # Keep updating the live display while active
             while self.is_active:

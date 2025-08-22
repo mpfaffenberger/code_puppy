@@ -23,6 +23,14 @@ from code_puppy.status_display import StatusDisplay
 from code_puppy.tools.common import console
 from code_puppy.version_checker import fetch_latest_version
 from code_puppy.message_history_processor import message_history_processor
+from code_puppy.version_store import (
+    initialize_db,
+    start_change_capture,
+    add_version,
+    finalize_changes,
+    get_db_path,
+    update_response_output,
+)
 
 
 # from code_puppy.tools import *  # noqa: F403
@@ -44,6 +52,15 @@ async def main():
     )
     logfire.instrument_pydantic_ai()
     ensure_config_exists()
+    # Initialize versioning database
+    try:
+        initialize_db()
+    except Exception as e:
+        console.print(f"[yellow]Version store init failed: {e}[/yellow]")
+    try:
+        console.print(f"[dim]Version store DB:[/dim] {get_db_path()}")
+    except Exception:
+        pass
 
     current_version = __version__
     latest_version = fetch_latest_version("code-puppy")
@@ -77,9 +94,36 @@ async def main():
             while not shutdown_flag:
                 agent = get_code_generation_agent()
                 async with agent.run_mcp_servers():
+                    # Create a pre-run checkpoint version, then capture and run
+                    response_id = None
+                    version_num = None
+                    try:
+                        version_num, response_id = add_version(command, "")
+                    except Exception as ve:
+                        console.print(
+                            f"[yellow]Failed to create pre-run checkpoint: {ve}[/yellow]"
+                        )
+                    # Begin capture of file changes for this run
+                    start_change_capture()
                     response = await agent.run(command)
                 agent_response = response.output
                 console.print(agent_response)
+                # Persist output and captured changes
+                try:
+                    if response_id is not None:
+                        update_response_output(response_id, agent_response)
+                        finalize_changes(response_id)
+                        console.print(
+                            f"[dim]Saved version {version_num} for prompt[/dim]"
+                        )
+                    else:
+                        console.print(
+                            "[yellow]No checkpoint version; cannot persist changes.[/yellow]"
+                        )
+                except Exception as e:
+                    console.print(
+                        f"[yellow]Failed to persist version/changes: {e}[/yellow]"
+                    )
                 break
         except AttributeError as e:
             console.print(f"[bold red]AttributeError:[/bold red] {str(e)}")
@@ -153,6 +197,9 @@ async def interactive_mode(history_file_path: str) -> None:
                 f"[yellow]Warning: Could not create history directory: {e}[/yellow]"
             )
 
+    # Track last non-meta prompt to enable ~redo
+    last_task: str | None = None
+
     while True:
         console.print("[bold blue]Enter your coding task:[/bold blue]")
 
@@ -187,6 +234,17 @@ async def interactive_mode(history_file_path: str) -> None:
             )
             continue
 
+        # Handle ~redo inside REPL (not via meta handler)
+        if task.strip() == "~redo":
+            if last_task:
+                console.print(
+                    f"[bold magenta]Re-running last prompt:[/bold magenta] {last_task}"
+                )
+                task = last_task
+            else:
+                console.print("[dim]No previous prompt to redo.[/dim]")
+                continue
+
         # Handle ~ meta/config commands before anything else
         if task.strip().startswith("~"):
             if handle_meta_command(task.strip(), console):
@@ -197,6 +255,9 @@ async def interactive_mode(history_file_path: str) -> None:
             # Write to the secret file for permanent history
             with open(history_file_path, "a") as f:
                 f.write(f"{task}\n")
+
+            # Remember last non-meta task for ~redo
+            last_task = task
 
             try:
                 prettier_code_blocks()
@@ -389,9 +450,39 @@ async def interactive_mode(history_file_path: str) -> None:
 
                         # Run the agent with MCP servers
                         async with agent.run_mcp_servers():
+                            # Create a pre-run checkpoint version, then capture and run
+                            response_id = None
+                            version_num = None
+                            try:
+                                version_num, response_id = add_version(task, "")
+                            except Exception as ve:
+                                console.print(
+                                    f"[yellow]Failed to create pre-run checkpoint: {ve}[/yellow]"
+                                )
+                            # Start change capture within the same task context
+                            start_change_capture()
                             result = await agent.run(
                                 task, message_history=get_message_history()
                             )
+                            try:
+                                if result is not None and hasattr(result, "output"):
+                                    agent_response_local = result.output
+                                    if response_id is not None:
+                                        update_response_output(
+                                            response_id, agent_response_local
+                                        )
+                                        finalize_changes(response_id)
+                                        console.print(
+                                            f"[dim]Saved version {version_num} for prompt[/dim]"
+                                        )
+                                    else:
+                                        console.print(
+                                            "[yellow]No checkpoint version; cannot persist changes.[/yellow]"
+                                        )
+                            except Exception as ve:
+                                console.print(
+                                    f"[yellow]Failed to persist version/changes: {ve}[/yellow]"
+                                )
                             return result
                     except Exception as e:
                         console.log("Task failed", e)

@@ -1,8 +1,17 @@
 from code_puppy.tools.command_runner import (
     register_command_runner_tools,
+    kill_all_running_shell_processes,
 )
 from code_puppy.tools.file_modifications import register_file_modifications_tools
 from code_puppy.tools.file_operations import register_file_operations_tools
+
+__all__ = [
+    "register_command_runner_tools",
+    "kill_all_running_shell_processes",
+    "register_file_modifications_tools",
+    "register_file_operations_tools",
+    "register_all_tools",
+]
 
 
 def register_all_tools(agent):

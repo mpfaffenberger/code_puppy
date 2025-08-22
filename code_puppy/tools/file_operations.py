@@ -278,7 +278,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 **{
                                     "file_path": file_path,
                                     "line_number": line_number,
-                                    "line_content": line_content.rstrip("\n\r")[512:],
+                                    # Keep at most the first 512 characters of the line for display,
+                                    # rather than dropping the first 512 (which could yield empty strings).
+                                    "line_content": line_content.rstrip("\n\r")[:512],
                                 }
                             )
                             matches.append(match_info)
