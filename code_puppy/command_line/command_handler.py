@@ -48,9 +48,8 @@ def handle_command(command: str):
 
     if command.strip().startswith("/compact"):
         from code_puppy.message_history_processor import (
-            PROTECTED_TOKENS,
             estimate_tokens_for_message,
-            summarize_messages_with_protection,
+            summarize_messages,
         )
         from code_puppy.messaging import (
             emit_error,
@@ -70,11 +69,8 @@ def handle_command(command: str):
             emit_info(
                 f"🤔 Compacting {len(history)} messages... (~{before_tokens} tokens)"
             )
-            emit_info(
-                f"🔒 Protecting up to {PROTECTED_TOKENS:,} tokens of recent messages"
-            )
 
-            compacted = summarize_messages_with_protection(history)
+            compacted, _ = summarize_messages(history, with_protection=False)
             if not compacted:
                 emit_error("Summarization failed. History unchanged.")
                 return True
@@ -120,9 +116,10 @@ def handle_command(command: str):
     if command.strip().startswith("/show"):
         from code_puppy.command_line.model_picker_completion import get_active_model
         from code_puppy.config import (
-            get_message_history_limit,
             get_owner_name,
+            get_protected_token_count,
             get_puppy_name,
+            get_summarization_threshold,
             get_yolo_mode,
         )
 
@@ -130,15 +127,17 @@ def handle_command(command: str):
         owner_name = get_owner_name()
         model = get_active_model()
         yolo_mode = get_yolo_mode()
-        msg_limit = get_message_history_limit()
+        protected_tokens = get_protected_token_count()
+        summary_threshold = get_summarization_threshold()
 
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
-[bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
-[bold]owner_name:[/bold]     [cyan]{owner_name}[/cyan]
-[bold]model:[/bold]          [green]{model}[/green]
-[bold]YOLO_MODE:[/bold]      {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
-[bold]message_history_limit:[/bold]   Keeping last [cyan]{msg_limit}[/cyan] messages in context
+[bold]puppy_name:[/bold]            [cyan]{puppy_name}[/cyan]
+[bold]owner_name:[/bold]            [cyan]{owner_name}[/cyan]
+[bold]model:[/bold]                 [green]{model}[/green]
+[bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
+[bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
+[bold]summary_threshold:[/bold]     [cyan]{summary_threshold:.1%}[/cyan] context usage triggers summarization
 
 """
         emit_info(status_msg)

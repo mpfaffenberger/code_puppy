@@ -92,11 +92,19 @@ class SettingsScreen(ModalScreen):
                     )
 
                 with Container(classes="setting-row"):
-                    yield Static("History Limit:", classes="setting-label")
+                    yield Static("Protected Tokens:", classes="setting-label")
                     yield Input(
-                        id="history-limit-input",
+                        id="protected-tokens-input",
                         classes="setting-input",
-                        placeholder="e.g., 50",
+                        placeholder="e.g., 50000",
+                    )
+
+                with Container(classes="setting-row"):
+                    yield Static("Summary Threshold:", classes="setting-label")
+                    yield Input(
+                        id="summary-threshold-input",
+                        classes="setting-input",
+                        placeholder="e.g., 0.85",
                     )
 
             with Container(id="settings-buttons"):
@@ -106,21 +114,24 @@ class SettingsScreen(ModalScreen):
     def on_mount(self) -> None:
         """Load current settings when the screen mounts."""
         from code_puppy.config import (
-            get_message_history_limit,
             get_model_name,
             get_owner_name,
+            get_protected_token_count,
             get_puppy_name,
+            get_summarization_threshold,
         )
 
         # Load current values
         puppy_name_input = self.query_one("#puppy-name-input", Input)
         owner_name_input = self.query_one("#owner-name-input", Input)
         model_select = self.query_one("#model-select", Select)
-        history_limit_input = self.query_one("#history-limit-input", Input)
+        protected_tokens_input = self.query_one("#protected-tokens-input", Input)
+        summary_threshold_input = self.query_one("#summary-threshold-input", Input)
 
         puppy_name_input.value = get_puppy_name() or ""
         owner_name_input.value = get_owner_name() or ""
-        history_limit_input.value = str(get_message_history_limit())
+        protected_tokens_input.value = str(get_protected_token_count())
+        summary_threshold_input.value = str(get_summarization_threshold())
 
         # Load available models
         self.load_model_options(model_select)
@@ -169,7 +180,12 @@ class SettingsScreen(ModalScreen):
             owner_name = self.query_one("#owner-name-input", Input).value.strip()
             selected_model = self.query_one("#model-select", Select).value
             yolo_mode = "true"  # Always set to true in TUI mode
-            history_limit = self.query_one("#history-limit-input", Input).value.strip()
+            protected_tokens = self.query_one(
+                "#protected-tokens-input", Input
+            ).value.strip()
+            summary_threshold = self.query_one(
+                "#summary-threshold-input", Input
+            ).value.strip()
 
             # Validate and save
             if puppy_name:
@@ -183,8 +199,33 @@ class SettingsScreen(ModalScreen):
 
             set_config_value("yolo_mode", yolo_mode)
 
-            if history_limit.isdigit():
-                set_config_value("message_history_limit", history_limit)
+            # Validate and save protected tokens
+            if protected_tokens.isdigit():
+                tokens_value = int(protected_tokens)
+                if tokens_value >= 1000:  # Minimum validation
+                    set_config_value("protected_token_count", protected_tokens)
+                else:
+                    raise ValueError("Protected tokens must be at least 1000")
+            elif protected_tokens:  # If not empty but not digit
+                raise ValueError("Protected tokens must be a valid number")
+
+            # Validate and save summary threshold
+            if summary_threshold:
+                try:
+                    threshold_value = float(summary_threshold)
+                    if 0.1 <= threshold_value <= 0.95:  # Same bounds as config function
+                        set_config_value("summarization_threshold", summary_threshold)
+                    else:
+                        raise ValueError(
+                            "Summary threshold must be between 0.1 and 0.95"
+                        )
+                except ValueError as ve:
+                    if "must be between" in str(ve):
+                        raise ve
+                    else:
+                        raise ValueError(
+                            "Summary threshold must be a valid decimal number"
+                        )
 
             # Return success message with model change info
             message = "Settings saved successfully!"

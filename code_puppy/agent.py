@@ -9,7 +9,10 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
-from code_puppy.message_history_processor import get_model_context_length
+from code_puppy.message_history_processor import (
+    get_model_context_length,
+    message_history_accumulator,
+)
 from code_puppy.messaging.message_queue import (
     emit_error,
     emit_info,
@@ -19,7 +22,6 @@ from code_puppy.model_factory import ModelFactory
 from code_puppy.tools import register_all_tools
 
 from .http_utils import create_reopenable_async_client
-from .state_management import message_history_accumulator
 from .tools.common import console
 
 # Puppy rules loader

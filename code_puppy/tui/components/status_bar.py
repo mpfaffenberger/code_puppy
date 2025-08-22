@@ -100,10 +100,17 @@ class StatusBar(Static):
         token_status = ""
         token_color = "green"
         if self.token_count > 0 and self.token_capacity > 0:
-            if self.token_proportion > 0.85:
+            # Import here to avoid circular import
+            from code_puppy.config import get_summarization_threshold
+
+            summarization_threshold = get_summarization_threshold()
+
+            if self.token_proportion > summarization_threshold:
                 token_color = "red"
                 token_status = f"🔴 {self.token_count}/{self.token_capacity} ({self.token_proportion:.1%})"
-            elif self.token_proportion > 0.70:
+            elif self.token_proportion > (
+                summarization_threshold - 0.15
+            ):  # 15% before summarization threshold
                 token_color = "yellow"
                 token_status = f"🟡 {self.token_count}/{self.token_capacity} ({self.token_proportion:.1%})"
             else:

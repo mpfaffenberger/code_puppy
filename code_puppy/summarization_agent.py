@@ -1,6 +1,7 @@
 import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
+from typing import List
 
 from pydantic_ai import Agent
 
@@ -24,11 +25,11 @@ def _ensure_thread_pool():
     return _thread_pool
 
 
-async def _run_agent_async(agent: Agent, prompt: str):
-    return await agent.run(prompt)
+async def _run_agent_async(agent: Agent, prompt: str, message_history: List):
+    return await agent.run(prompt, message_history=message_history)
 
 
-def run_summarization_sync(prompt: str) -> str:
+def run_summarization_sync(prompt: str, message_history: List) -> List:
     agent = get_summarization_agent()
     try:
         # Try to detect if we're already in an event loop
@@ -36,14 +37,18 @@ def run_summarization_sync(prompt: str) -> str:
 
         # We're in an event loop: offload to a dedicated thread with its own loop
         def _worker(prompt_: str):
-            return asyncio.run(_run_agent_async(agent, prompt_))
+            return asyncio.run(
+                _run_agent_async(agent, prompt_, message_history=message_history)
+            )
 
         pool = _ensure_thread_pool()
         result = pool.submit(_worker, prompt).result()
     except RuntimeError:
         # No running loop, safe to run directly
-        result = asyncio.run(_run_agent_async(agent, prompt))
-    return result.output
+        result = asyncio.run(
+            _run_agent_async(agent, prompt, message_history=message_history)
+        )
+    return result.new_messages()
 
 
 def reload_summarization_agent():

@@ -8,11 +8,11 @@ def setup_messaging_mocks():
     """Set up mocks for all the messaging functions and return them in a dictionary."""
     mocks = {}
     patch_targets = [
-        "code_puppy.command_line.command_handler.emit_info",
-        "code_puppy.command_line.command_handler.emit_error",
-        "code_puppy.command_line.command_handler.emit_warning",
-        "code_puppy.command_line.command_handler.emit_success",
-        "code_puppy.command_line.command_handler.emit_system_message",
+        "code_puppy.messaging.emit_info",
+        "code_puppy.messaging.emit_error",
+        "code_puppy.messaging.emit_warning",
+        "code_puppy.messaging.emit_success",
+        "code_puppy.messaging.emit_system_message",
     ]
 
     for target in patch_targets:
@@ -94,7 +94,7 @@ def test_cd_invalid_directory():
 def test_m_sets_model():
     # Simplified test - just check that the command handler returns True
     with (
-        patch("code_puppy.command_line.command_handler.emit_success"),
+        patch("code_puppy.messaging.emit_success"),
         patch(
             "code_puppy.command_line.model_picker_completion.update_model_in_input",
             return_value="some_model",

@@ -31,6 +31,7 @@ from code_puppy.config import (
 
 # HTTP server imports
 from code_puppy.http_server import app as http_app
+from code_puppy.message_history_processor import message_history_accumulator
 from code_puppy.state_management import is_tui_mode, set_tui_mode
 
 # Initialize rich console for pretty output
@@ -492,11 +493,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.command_line.command_handler import handle_command
 
     """Run the agent in interactive mode."""
-    from code_puppy.state_management import (
-        clear_message_history,
-        get_message_history,
-        set_message_history,
-    )
+    from code_puppy.state_management import clear_message_history, get_message_history
 
     # Clear message history at the start of interactive mode
     clear_message_history()
@@ -605,12 +602,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             )
 
             # Update message history with the initial command and response
-            from code_puppy.message_history_processor import message_history_processor
-            from code_puppy.state_management import set_message_history
 
             new_msgs = response.all_messages()
-            filtered = message_history_processor(new_msgs)
-            set_message_history(filtered)
+            message_history_accumulator(new_msgs)
 
             # Show transition to interactive mode
             emit_system_message("\n" + "=" * 50)
@@ -780,13 +774,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 )
                             else:
                                 from code_puppy.message_history_processor import (
-                                    message_history_processor,
+                                    message_history_accumulator,
                                 )
 
                                 # Then cancel the agent task
                                 if not agent_task.done():
                                     state_management._message_history = (
-                                        message_history_processor(
+                                        message_history_accumulator(
                                             state_management._message_history
                                         )
                                     )
@@ -826,15 +820,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
                 )
-                from code_puppy.message_history_processor import (
-                    message_history_processor,
-                )
-                from code_puppy.state_management import set_message_history
 
                 # Update message history - the agent's history processor will handle truncation
                 new_msgs = result.all_messages()
-                filtered = message_history_processor(new_msgs)
-                set_message_history(filtered)
+                message_history_accumulator(new_msgs)
 
                 if agent_response and agent_response.awaiting_user_input:
                     from code_puppy.messaging import emit_warning

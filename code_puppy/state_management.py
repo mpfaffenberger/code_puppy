@@ -1,10 +1,19 @@
 from typing import Any, List
 
-from code_puppy.message_history_processor import message_history_processor
-
 _message_history: List[Any] = []
+_compacted_message_hashes = set()
 _tui_mode: bool = False
 _tui_app_instance: Any = None
+
+
+def add_compacted_message_hash(message_hash: str) -> None:
+    """Add a message hash to the set of compacted message hashes."""
+    _compacted_message_hashes.add(message_hash)
+
+
+def get_compacted_message_hashes():
+    """Get the set of compacted message hashes."""
+    return _compacted_message_hashes
 
 
 def set_tui_mode(enabled: bool) -> None:
@@ -86,22 +95,3 @@ def hash_message(message):
         else:
             hashable_entities.append(part.content)
     return hash(",".join(hashable_entities))
-
-
-def message_history_accumulator(messages: List[Any]):
-    global _message_history
-
-    message_history_hashes = set([hash_message(m) for m in _message_history])
-    for msg in messages:
-        if hash_message(msg) not in message_history_hashes:
-            _message_history.append(msg)
-
-    # Apply message history trimming using the main processor
-    # This ensures we maintain global state while still managing context limits
-    trimmed_messages = message_history_processor(_message_history)
-
-    # Update our global state with the trimmed version
-    # This preserves the state but keeps us within token limits
-    _message_history = trimmed_messages
-
-    return _message_history

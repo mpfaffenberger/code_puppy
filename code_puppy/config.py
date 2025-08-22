@@ -62,17 +62,9 @@ def get_owner_name():
     return get_value("owner_name") or "Master"
 
 
-def get_message_history_limit():
-    """
-    Returns the user-configured message truncation limit (for remembering context),
-    or 40 if unset or misconfigured.
-    Configurable by 'message_history_limit' key.
-    """
-    val = get_value("message_history_limit")
-    try:
-        return max(1, int(val)) if val else 40
-    except (ValueError, TypeError):
-        return 40
+# Legacy function removed - message history limit is no longer used
+# Message history is now managed by token-based compaction system
+# using get_protected_token_count() and get_summarization_threshold()
 
 
 # --- CONFIG SETTER STARTS HERE ---
@@ -353,6 +345,36 @@ def get_mcp_disabled():
             return True
         return False
     return False
+
+
+def get_protected_token_count():
+    """
+    Returns the user-configured protected token count for message history compaction.
+    This is the number of tokens in recent messages that won't be summarized.
+    Defaults to 50000 if unset or misconfigured.
+    Configurable by 'protected_token_count' key.
+    """
+    val = get_value("protected_token_count")
+    try:
+        return max(1000, int(val)) if val else 50000  # Minimum 1000 tokens
+    except (ValueError, TypeError):
+        return 50000
+
+
+def get_summarization_threshold():
+    """
+    Returns the user-configured summarization threshold as a float between 0.0 and 1.0.
+    This is the proportion of model context that triggers summarization.
+    Defaults to 0.85 (85%) if unset or misconfigured.
+    Configurable by 'summarization_threshold' key.
+    """
+    val = get_value("summarization_threshold")
+    try:
+        threshold = float(val) if val else 0.85
+        # Clamp between reasonable bounds
+        return max(0.1, min(0.95, threshold))
+    except (ValueError, TypeError):
+        return 0.85
 
 
 def save_command_to_history(command: str):
