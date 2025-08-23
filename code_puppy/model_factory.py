@@ -3,6 +3,8 @@ import os
 import random
 from typing import Any, Dict
 
+from code_puppy.rate_limiter import create_rate_limited_client
+
 import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI  # For Azure OpenAI client
@@ -164,7 +166,7 @@ class ModelFactory:
             client_args = {"headers": headers, "verify": ca_certs_path}
             if proxy is not None:
                 client_args["proxy"] = proxy
-            client = httpx.AsyncClient(**client_args)
+            client = create_rate_limited_client(client_args, model_config)
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
@@ -240,7 +242,7 @@ class ModelFactory:
             client_args = {"headers": headers, "verify": ca_certs_path}
             if proxy is not None:
                 client_args["proxy"] = proxy
-            client = httpx.AsyncClient(**client_args)
+            client = create_rate_limited_client(client_args, model_config)
             provider_args = dict(
                 base_url=url,
                 http_client=client,
