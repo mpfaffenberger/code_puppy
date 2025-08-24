@@ -1,6 +1,7 @@
 import json
+import logging
 import os
-import random
+import pathlib
 from typing import Any, Dict
 
 import httpx
@@ -12,9 +13,10 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.providers.openrouter import OpenRouterProvider
 
-from code_puppy.tools.common import console
+from . import callbacks
+from .config import EXTRA_MODELS_FILE
+from .http_utils import create_async_client
 
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
@@ -24,59 +26,6 @@ from code_puppy.tools.common import console
 # When using custom endpoints (type: "custom_openai" in models.json):
 # - Environment variables can be referenced in header values by prefixing with $ in models.json.
 #   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
-
-
-def build_proxy_dict(proxy):
-    proxy_tokens = proxy.split(":")
-    structure = "{}:{}@{}:{}".format(
-        proxy_tokens[2], proxy_tokens[3], proxy_tokens[0], proxy_tokens[1]
-    )
-    proxies = {
-        "http": "http://{}/".format(structure),
-        "https": "http://{}".format(structure),
-    }
-    return proxies
-
-
-def build_httpx_proxy(proxy):
-    """Build an httpx.Proxy object from a proxy string in format ip:port:username:password"""
-    proxy_tokens = proxy.split(":")
-    if len(proxy_tokens) != 4:
-        raise ValueError(
-            f"Invalid proxy format: {proxy}. Expected format: ip:port:username:password"
-        )
-
-    ip, port, username, password = proxy_tokens
-    proxy_url = f"http://{ip}:{port}"
-    proxy_auth = (username, password)
-
-    # Log the proxy being used
-    console.log(f"Using proxy: {proxy_url} with username: {username}")
-
-    return httpx.Proxy(url=proxy_url, auth=proxy_auth)
-
-
-def get_random_proxy_from_file(file_path):
-    """Reads proxy file and returns a random proxy formatted for httpx.AsyncClient"""
-    if not os.path.exists(file_path):
-        raise ValueError(f"Proxy file '{file_path}' not found.")
-
-    with open(file_path, "r") as f:
-        proxies = [line.strip() for line in f.readlines() if line.strip()]
-
-    if not proxies:
-        raise ValueError(
-            f"Proxy file '{file_path}' is empty or contains only whitespace."
-        )
-
-    selected_proxy = random.choice(proxies)
-    try:
-        return build_httpx_proxy(selected_proxy)
-    except ValueError:
-        console.log(
-            f"Warning: Malformed proxy '{selected_proxy}' found in file '{file_path}', ignoring and continuing without proxy."
-        )
-        return None
 
 
 def get_custom_config(model_config):
@@ -91,32 +40,62 @@ def get_custom_config(model_config):
     headers = {}
     for key, value in custom_config.get("headers", {}).items():
         if value.startswith("$"):
-            value = os.environ.get(value[1:])
+            env_var_name = value[1:]
+            resolved_value = os.environ.get(env_var_name)
+            if resolved_value is None:
+                raise ValueError(
+                    f"Environment variable '{env_var_name}' is required for custom endpoint headers but is not set. "
+                    f"Please set the environment variable: export {env_var_name}=your_value"
+                )
+            value = resolved_value
         headers[key] = value
-
-    ca_certs_path = None
-    if "ca_certs_path" in custom_config:
-        ca_certs_path = custom_config.get("ca_certs_path")
-        if ca_certs_path.lower() == "false":
-            ca_certs_path = False
 
     api_key = None
     if "api_key" in custom_config:
         if custom_config["api_key"].startswith("$"):
-            api_key = os.environ.get(custom_config["api_key"][1:])
+            env_var_name = custom_config["api_key"][1:]
+            api_key = os.environ.get(env_var_name)
+            if api_key is None:
+                raise ValueError(
+                    f"Environment variable '{env_var_name}' is required for custom endpoint API key but is not set. "
+                    f"Please set the environment variable: export {env_var_name}=your_value"
+                )
         else:
             api_key = custom_config["api_key"]
-    return url, headers, ca_certs_path, api_key
+    if "ca_certs_path" in custom_config:
+        verify = custom_config["ca_certs_path"]
+    else:
+        verify = None
+    return url, headers, verify, api_key
 
 
 class ModelFactory:
     """A factory for creating and managing different AI models."""
 
     @staticmethod
-    def load_config(config_path: str) -> Dict[str, Any]:
-        """Loads model configurations from a JSON file."""
-        with open(config_path, "r") as f:
-            return json.load(f)
+    def load_config() -> Dict[str, Any]:
+        load_model_config_callbacks = callbacks.get_callbacks("load_model_config")
+        if len(load_model_config_callbacks) > 0:
+            if len(load_model_config_callbacks) > 1:
+                logging.getLogger(__name__).warning(
+                    "Multiple load_model_config callbacks registered, using the first"
+                )
+            config = callbacks.on_load_model_config()[0]
+        else:
+            from code_puppy.config import MODELS_FILE
+
+            if not pathlib.Path(MODELS_FILE).exists():
+                with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
+                    with open(pathlib.Path(MODELS_FILE), "w") as target:
+                        target.write(src.read())
+
+            with open(MODELS_FILE, "r") as f:
+                config = json.load(f)
+        if pathlib.Path(EXTRA_MODELS_FILE).exists():
+            with open(EXTRA_MODELS_FILE, "r") as f:
+                extra_config = json.load(f)
+                config.update(extra_config)
+        return config
 
     @staticmethod
     def get_model(model_name: str, config: Dict[str, Any]) -> Any:
@@ -152,19 +131,8 @@ class ModelFactory:
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_anthropic":
-            url, headers, ca_certs_path, api_key = get_custom_config(model_config)
-
-            # Check for proxy configuration
-            proxy_file_path = os.environ.get("CODE_PUPPY_PROXIES")
-            proxy = None
-            if proxy_file_path:
-                proxy = get_random_proxy_from_file(proxy_file_path)
-
-            # Only pass proxy to client if it's valid
-            client_args = {"headers": headers, "verify": ca_certs_path}
-            if proxy is not None:
-                client_args["proxy"] = proxy
-            client = httpx.AsyncClient(**client_args)
+            url, headers, verify, api_key = get_custom_config(model_config)
+            client = create_async_client(headers=headers, verify=verify)
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
@@ -228,19 +196,8 @@ class ModelFactory:
             return model
 
         elif model_type == "custom_openai":
-            url, headers, ca_certs_path, api_key = get_custom_config(model_config)
-
-            # Check for proxy configuration
-            proxy_file_path = os.environ.get("CODE_PUPPY_PROXIES")
-            proxy = None
-            if proxy_file_path:
-                proxy = get_random_proxy_from_file(proxy_file_path)
-
-            # Only pass proxy to client if it's valid
-            client_args = {"headers": headers, "verify": ca_certs_path}
-            if proxy is not None:
-                client_args["proxy"] = proxy
-            client = httpx.AsyncClient(**client_args)
+            url, headers, verify, api_key = get_custom_config(model_config)
+            client = create_async_client(headers=headers, verify=verify)
             provider_args = dict(
                 base_url=url,
                 http_client=client,
@@ -252,16 +209,27 @@ class ModelFactory:
             model = OpenAIModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
-        elif model_type == "openrouter":
-            api_key = None
-            if "api_key" in model_config:
-                if model_config["api_key"].startswith("$"):
-                    api_key = os.environ.get(model_config["api_key"][1:])
-                else:
-                    api_key = model_config["api_key"]
-            provider = OpenRouterProvider(api_key=api_key)
-            model_name = model_config.get("name")
-            model = OpenAIModel(model_name, provider=provider)
+
+        elif model_type == "custom_gemini":
+            url, headers, verify, api_key = get_custom_config(model_config)
+            os.environ["GEMINI_API_KEY"] = api_key
+
+            class CustomGoogleGLAProvider(GoogleGLAProvider):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+
+                @property
+                def base_url(self):
+                    return url
+
+                @property
+                def client(self) -> httpx.AsyncClient:
+                    _client = create_async_client(headers=headers, verify=verify)
+                    _client.base_url = self.base_url
+                    return _client
+
+            google_gla = CustomGoogleGLAProvider(api_key=api_key)
+            model = GeminiModel(model_name=model_config["name"], provider=google_gla)
             return model
         else:
             raise ValueError(f"Unsupported model type: {model_type}")

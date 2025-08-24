@@ -1,4 +1,3 @@
-import json
 import os
 from typing import Iterable, Optional
 
@@ -8,17 +7,13 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 
 from code_puppy.config import get_model_name, set_model_name
-
-MODELS_JSON_PATH = os.environ.get("MODELS_JSON_PATH")
-if not MODELS_JSON_PATH:
-    MODELS_JSON_PATH = os.path.join(os.path.dirname(__file__), "..", "models.json")
-    MODELS_JSON_PATH = os.path.abspath(MODELS_JSON_PATH)
+from code_puppy.model_factory import ModelFactory
 
 
 def load_model_names():
-    with open(MODELS_JSON_PATH, "r") as f:
-        models = json.load(f)
-    return list(models.keys())
+    """Load model names from the config that's fetched from the endpoint."""
+    models_config = ModelFactory.load_config()
+    return list(models_config.keys())
 
 
 def get_active_model():
@@ -31,11 +26,9 @@ def get_active_model():
 
 def set_active_model(model_name: str):
     """
-    Sets the active model name by updating both config (for persistence)
-    and env (for process lifetime override).
+    Sets the active model name by updating the config (for persistence).
     """
     set_model_name(model_name)
-    os.environ["MODEL_NAME"] = model_name.strip()
     # Reload agent globally
     try:
         from code_puppy.agent import reload_code_generation_agent
@@ -47,11 +40,11 @@ def set_active_model(model_name: str):
 
 class ModelNameCompleter(Completer):
     """
-    A completer that triggers on '~m' to show available models from models.json.
-    Only '~m' (not just '~') will trigger the dropdown.
+    A completer that triggers on '/m' to show available models from models.json.
+    Only '/m' (not just '/') will trigger the dropdown.
     """
 
-    def __init__(self, trigger: str = "~m"):
+    def __init__(self, trigger: str = "/m"):
         self.trigger = trigger
         self.model_names = load_model_names()
 
@@ -77,23 +70,23 @@ class ModelNameCompleter(Completer):
 
 
 def update_model_in_input(text: str) -> Optional[str]:
-    # If input starts with ~m and a model name, set model and strip it out
+    # If input starts with /m and a model name, set model and strip it out
     content = text.strip()
-    if content.startswith("~m"):
+    if content.startswith("/m"):
         rest = content[2:].strip()
         for model in load_model_names():
             if rest == model:
                 set_active_model(model)
-                # Remove ~mmodel from the input
-                idx = text.find("~m" + model)
+                # Remove /mmodel from the input
+                idx = text.find("/m" + model)
                 if idx != -1:
-                    new_text = (text[:idx] + text[idx + len("~m" + model) :]).strip()
+                    new_text = (text[:idx] + text[idx + len("/m" + model) :]).strip()
                     return new_text
     return None
 
 
 async def get_input_with_model_completion(
-    prompt_str: str = ">>> ", trigger: str = "~m", history_file: Optional[str] = None
+    prompt_str: str = ">>> ", trigger: str = "/m", history_file: Optional[str] = None
 ) -> str:
     history = FileHistory(os.path.expanduser(history_file)) if history_file else None
     session = PromptSession(

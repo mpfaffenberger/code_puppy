@@ -1,20 +1,36 @@
-from unittest.mock import Mock, patch
-
-import requests
-
-from code_puppy.version_checker import fetch_latest_version
+from code_puppy.version_checker import normalize_version, versions_are_equal
 
 
-def test_fetch_latest_version_success():
-    mock_response = Mock()
-    mock_response.raise_for_status.return_value = None
-    mock_response.json.return_value = {"info": {"version": "9.8.7"}}
-    with patch("requests.get", return_value=mock_response):
-        version = fetch_latest_version("some-pkg")
-        assert version == "9.8.7"
+def test_normalize_version():
+    """Test version string normalization."""
+    assert normalize_version("v1.2.3") == "1.2.3"
+    assert normalize_version("1.2.3") == "1.2.3"
+    assert normalize_version("v0.0.78") == "0.0.78"
+    assert normalize_version("0.0.78") == "0.0.78"
+    assert normalize_version("") == ""
+    assert normalize_version(None) is None
+    assert normalize_version("vvv1.2.3") == "1.2.3"  # Multiple v's
 
 
-def test_fetch_latest_version_error():
-    with patch("requests.get", side_effect=requests.RequestException):
-        version = fetch_latest_version("does-not-matter")
-        assert version is None
+def test_versions_are_equal():
+    """Test version equality comparison."""
+    # Same versions with and without v prefix
+    assert versions_are_equal("1.2.3", "v1.2.3") is True
+    assert versions_are_equal("v1.2.3", "1.2.3") is True
+    assert versions_are_equal("v1.2.3", "v1.2.3") is True
+    assert versions_are_equal("1.2.3", "1.2.3") is True
+
+    # The specific case from our API
+    assert versions_are_equal("0.0.78", "v0.0.78") is True
+    assert versions_are_equal("v0.0.78", "0.0.78") is True
+
+    # Different versions
+    assert versions_are_equal("1.2.3", "1.2.4") is False
+    assert versions_are_equal("v1.2.3", "v1.2.4") is False
+    assert versions_are_equal("1.2.3", "v1.2.4") is False
+
+    # Edge cases
+    assert versions_are_equal("", "") is True
+    assert versions_are_equal(None, None) is True
+    assert versions_are_equal("1.2.3", "") is False
+    assert versions_are_equal("", "1.2.3") is False

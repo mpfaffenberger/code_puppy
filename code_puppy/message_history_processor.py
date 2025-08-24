@@ -1,58 +1,35 @@
 import json
-from typing import List, Set
-import os
-from pathlib import Path
+from typing import Any, List, Set, Tuple
 
 import pydantic
-from pydantic_ai.messages import (
-    ModelMessage,
-    TextPart,
-    ModelResponse,
-    ModelRequest,
-    ToolCallPart,
+from pydantic_ai.messages import ModelMessage, ModelRequest, TextPart, ToolCallPart
+
+from code_puppy.config import (
+    get_model_name,
+    get_protected_token_count,
+    get_summarization_threshold,
 )
-
-from code_puppy.tools.common import console
+from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory
-from code_puppy.config import get_model_name
-from code_puppy.token_utils import estimate_tokens
+from code_puppy.state_management import (
+    add_compacted_message_hash,
+    get_compacted_message_hashes,
+    get_message_history,
+    hash_message,
+    set_message_history,
+)
+from code_puppy.summarization_agent import run_summarization_sync
 
-# Import the status display to get token rate info
-try:
-    from code_puppy.status_display import StatusDisplay
-
-    STATUS_DISPLAY_AVAILABLE = True
-except ImportError:
-    STATUS_DISPLAY_AVAILABLE = False
-
-# Import summarization agent
-try:
-    from code_puppy.summarization_agent import (
-        get_summarization_agent as _get_summarization_agent,
-    )
-
-    SUMMARIZATION_AVAILABLE = True
-
-    # Make the function available in this module's namespace for mocking
-    def get_summarization_agent():
-        return _get_summarization_agent()
-
-except ImportError:
-    SUMMARIZATION_AVAILABLE = False
-    console.print(
-        "[yellow]Warning: Summarization agent not available. Message history will be truncated instead of summarized.[/yellow]"
-    )
-
-    def get_summarization_agent():
-        return None
+# Protected tokens are now configurable via get_protected_token_count()
+# Default is 50000 but can be customized in ~/.code_puppy/puppy.cfg
 
 
-# Dummy function for backward compatibility
-def get_tokenizer_for_model(model_name: str):
+def estimate_token_count(text: str) -> int:
     """
-    Dummy function that returns None since we're now using len/4 heuristic.
+    Simple token estimation using len(message) - 4.
+    This replaces tiktoken with a much simpler approach.
     """
-    return None
+    return max(1, len(text) - 4)
 
 
 def stringify_message_part(part) -> str:
@@ -97,53 +74,123 @@ def stringify_message_part(part) -> str:
 
 def estimate_tokens_for_message(message: ModelMessage) -> int:
     """
-    Estimate the number of tokens in a message using the len/4 heuristic.
-    This is a simple approximation that works reasonably well for most text.
+    Estimate the number of tokens in a message using len(message) - 4.
+    Simple and fast replacement for tiktoken.
     """
     total_tokens = 0
 
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            total_tokens += estimate_tokens(part_str)
+            total_tokens += estimate_token_count(part_str)
 
     return max(1, total_tokens)
 
 
-def summarize_messages(messages: List[ModelMessage]) -> ModelMessage:
-    summarization_agent = get_summarization_agent()
-    message_strings: List[str] = []
-    for message in messages:
-        for part in message.parts:
-            message_strings.append(stringify_message_part(part))
-    summary_string = "\n".join(message_strings)
+def split_messages_for_protected_summarization(
+    messages: List[ModelMessage],
+) -> Tuple[List[ModelMessage], List[ModelMessage]]:
+    """
+    Split messages into two groups: messages to summarize and protected recent messages.
+
+    Returns:
+        Tuple of (messages_to_summarize, protected_messages)
+
+    The protected_messages are the most recent messages that total up to the configured protected token count.
+    The system message (first message) is always protected.
+    All other messages that don't fit in the protected zone will be summarized.
+    """
+    if len(messages) <= 1:  # Just system message or empty
+        return [], messages
+
+    # Always protect the system message (first message)
+    system_message = messages[0]
+    system_tokens = estimate_tokens_for_message(system_message)
+
+    if len(messages) == 1:
+        return [], messages
+
+    # Get the configured protected token count
+    protected_tokens_limit = get_protected_token_count()
+
+    # Calculate tokens for messages from most recent backwards (excluding system message)
+    protected_messages = []
+    protected_token_count = system_tokens  # Start with system message tokens
+
+    # Go backwards through non-system messages to find protected zone
+    for i in range(len(messages) - 1, 0, -1):  # Stop at 1, not 0 (skip system message)
+        message = messages[i]
+        message_tokens = estimate_tokens_for_message(message)
+
+        # If adding this message would exceed protected tokens, stop here
+        if protected_token_count + message_tokens > protected_tokens_limit:
+            break
+
+        protected_messages.insert(0, message)  # Insert at beginning to maintain order
+        protected_token_count += message_tokens
+
+    # Add system message at the beginning of protected messages
+    protected_messages.insert(0, system_message)
+
+    # Messages to summarize are everything between system message and protected zone
+    protected_start_idx = (
+        len(messages) - len(protected_messages) + 1
+    )  # +1 because system message is protected
+    messages_to_summarize = messages[
+        1:protected_start_idx
+    ]  # Start from 1 to skip system message
+
+    emit_info(
+        f"🔒 Protecting {len(protected_messages)} recent messages ({protected_token_count} tokens, limit: {protected_tokens_limit})"
+    )
+    emit_info(f"📝 Summarizing {len(messages_to_summarize)} older messages")
+
+    return messages_to_summarize, protected_messages
+
+
+def summarize_messages(
+    messages: List[ModelMessage], with_protection=True
+) -> Tuple[List[ModelMessage], List[ModelMessage]]:
+    """
+    Summarize messages while protecting recent messages up to PROTECTED_TOKENS.
+
+    Returns:
+        List of messages: [system_message, summary_of_old_messages, ...protected_recent_messages]
+    """
+    messages_to_summarize, protected_messages = messages, []
+    if with_protection:
+        messages_to_summarize, protected_messages = (
+            split_messages_for_protected_summarization(messages)
+        )
+
+    if not messages_to_summarize:
+        # Nothing to summarize, return protected messages as-is
+        return protected_messages, messages_to_summarize
+
     instructions = (
-        "Above I've given you a log of Agentic AI steps that have been taken"
+        "The input will be a log of Agentic AI steps that have been taken"
         " as well as user queries, etc. Summarize the contents of these steps."
         " The high level details should remain but the bulk of the content from tool-call"
         " responses should be compacted and summarized. For example if you see a tool-call"
         " reading a file, and the file contents are large, then in your summary you might just"
         " write: * used read_file on space_invaders.cpp - contents removed."
         "\n Make sure your result is a bulleted list of all steps and interactions."
+        "\n\nNOTE: This summary represents older conversation history. Recent messages are preserved separately."
     )
+
     try:
-        result = summarization_agent.run_sync(f"{summary_string}\n{instructions}")
-        return ModelResponse(parts=[TextPart(result.output)])
+        new_messages = run_summarization_sync(
+            instructions, message_history=messages_to_summarize
+        )
+        # Return: [system_message, summary, ...protected_recent_messages]
+        result = new_messages + protected_messages[1:]
+        return prune_interrupted_tool_calls(result), messages_to_summarize
     except Exception as e:
-        console.print(f"Summarization failed during compaction: {e}")
-        return None
-
-
-# New: single-message summarization helper used by tests
-# - If the message has a ToolCallPart, return original message (no summarization)
-# - If the message has system/instructions, return original message
-# - Otherwise, summarize and return a new ModelRequest with the summarized content
-# - On any error, return the original message
+        emit_error(f"Summarization failed during compaction: {e}")
+        return messages, messages_to_summarize  # Return original messages on failure
 
 
 def summarize_message(message: ModelMessage) -> ModelMessage:
-    if not SUMMARIZATION_AVAILABLE:
-        return message
     try:
         # If the message looks like a system/instructions message, skip summarization
         instructions = getattr(message, "instructions", None)
@@ -164,12 +211,11 @@ def summarize_message(message: ModelMessage) -> ModelMessage:
         prompt = "Please summarize the following user message:\n" + "\n".join(
             content_bits
         )
-        agent = get_summarization_agent()
-        result = agent.run_sync(prompt)
-        summarized = ModelRequest([TextPart(result.output)])
+        output_text = run_summarization_sync(prompt)
+        summarized = ModelRequest([TextPart(output_text)])
         return summarized
     except Exception as e:
-        console.print(f"Summarization failed: {e}")
+        emit_error(f"Summarization failed: {e}")
         return message
 
 
@@ -177,14 +223,7 @@ def get_model_context_length() -> int:
     """
     Get the context length for the currently configured model from models.json
     """
-    # Load model configuration
-    models_path = os.environ.get("MODELS_JSON_PATH")
-    if not models_path:
-        models_path = Path(__file__).parent / "models.json"
-    else:
-        models_path = Path(models_path)
-
-    model_configs = ModelFactory.load_config(str(models_path))
+    model_configs = ModelFactory.load_config()
     model_name = get_model_name()
 
     # Get context length from model config
@@ -241,8 +280,8 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
         pruned.append(msg)
 
     if dropped_count:
-        console.print(
-            f"[yellow]Pruned {dropped_count} message(s) with mismatched tool_call_id pairs[/yellow]"
+        emit_warning(
+            f"Pruned {dropped_count} message(s) with mismatched tool_call_id pairs"
         )
     return pruned
 
@@ -255,31 +294,83 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
 
     proportion_used = total_current_tokens / model_max
 
-    # Include token per second rate if available
-    token_rate_info = ""
-    if STATUS_DISPLAY_AVAILABLE:
-        current_rate = StatusDisplay.get_current_rate()
-        if current_rate > 0:
-            # Format with improved precision when using SSE data
-            if current_rate > 1000:
-                token_rate_info = f", {current_rate:.0f} t/s"
-            else:
-                token_rate_info = f", {current_rate:.1f} t/s"
+    # Check if we're in TUI mode and can update the status bar
+    from code_puppy.state_management import get_tui_app_instance, is_tui_mode
 
-    # Print blue status bar - ALWAYS at top
-    console.print(f"""
-[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f}{token_rate_info}
-""")
+    if is_tui_mode():
+        tui_app = get_tui_app_instance()
+        if tui_app:
+            try:
+                # Update the status bar instead of emitting a chat message
+                status_bar = tui_app.query_one("StatusBar")
+                status_bar.update_token_info(
+                    total_current_tokens, model_max, proportion_used
+                )
+            except Exception:
+                # Fallback to chat message if status bar update fails
+                emit_info(
+                    f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
+                    message_group="token_context_status",
+                )
+        else:
+            # Fallback if no TUI app instance
+            emit_info(
+                f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
+                message_group="token_context_status",
+            )
+    else:
+        # Non-TUI mode - emit to console as before
+        emit_info(
+            f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
+        )
 
-    # Print extra line to ensure separation
-    console.print("\n")
+    # Get the configured summarization threshold
+    summarization_threshold = get_summarization_threshold()
 
-    if proportion_used > 0.85:
-        summary = summarize_messages(messages)
-        result_messages = [messages[0], summary]
+    if proportion_used > summarization_threshold:
+        result_messages, summarized_messages = summarize_messages(messages)
         final_token_count = sum(
             estimate_tokens_for_message(msg) for msg in result_messages
         )
-        console.print(f"Final token count after processing: {final_token_count}")
+        # Update status bar with final token count if in TUI mode
+        if is_tui_mode():
+            tui_app = get_tui_app_instance()
+            if tui_app:
+                try:
+                    status_bar = tui_app.query_one("StatusBar")
+                    status_bar.update_token_info(
+                        final_token_count, model_max, final_token_count / model_max
+                    )
+                except Exception:
+                    emit_info(
+                        f"Final token count after processing: {final_token_count}",
+                        message_group="token_context_status",
+                    )
+            else:
+                emit_info(
+                    f"Final token count after processing: {final_token_count}",
+                    message_group="token_context_status",
+                )
+        else:
+            emit_info(f"Final token count after processing: {final_token_count}")
+        set_message_history(result_messages)
+        for m in summarized_messages:
+            add_compacted_message_hash(hash_message(m))
         return result_messages
     return messages
+
+
+def message_history_accumulator(messages: List[Any]):
+    _message_history = get_message_history()
+    message_history_hashes = set([hash_message(m) for m in _message_history])
+    for msg in messages:
+        if (
+            hash_message(msg) not in message_history_hashes
+            and hash_message(msg) not in get_compacted_message_hashes()
+        ):
+            _message_history.append(msg)
+
+    # Apply message history trimming using the main processor
+    # This ensures we maintain global state while still managing context limits
+    message_history_processor(_message_history)
+    return get_message_history()
