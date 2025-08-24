@@ -19,17 +19,23 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 
 from code_puppy.command_line.file_path_completion import FilePathCompleter
+from code_puppy.command_line.load_context_completion import LoadContextCompleter
 from code_puppy.command_line.model_picker_completion import (
     ModelNameCompleter,
     get_active_model,
     update_model_in_input,
 )
 from code_puppy.command_line.utils import list_directory
-from code_puppy.config import get_config_keys, get_puppy_name, get_value
+from code_puppy.config import (
+    COMMAND_HISTORY_FILE,
+    get_config_keys,
+    get_puppy_name,
+    get_value,
+)
 
 
 class SetCompleter(Completer):
-    def __init__(self, trigger: str = "~set"):
+    def __init__(self, trigger: str = "/set"):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
@@ -40,15 +46,15 @@ class SetCompleter(Completer):
             return
 
         # Determine the part of the text that is relevant for this completer
-        # This handles cases like "  ~set foo" where the trigger isn't at the start of the string
+        # This handles cases like "  /set foo" where the trigger isn't at the start of the string
         actual_trigger_pos = text_before_cursor.find(self.trigger)
         effective_input = text_before_cursor[
             actual_trigger_pos:
-        ]  # e.g., "~set keypart" or "~set " or "~set"
+        ]  # e.g., "/set keypart" or "/set "
 
         tokens = effective_input.split()
 
-        # Case 1: Input is exactly the trigger (e.g., "~set") and nothing more (not even a trailing space on effective_input).
+        # Case 1: Input is exactly the trigger (e.g., "/set") and nothing more (not even a trailing space on effective_input).
         # Suggest adding a space.
         if (
             len(tokens) == 1
@@ -63,11 +69,11 @@ class SetCompleter(Completer):
             )
             return
 
-        # Case 2: Input is trigger + space (e.g., "~set ") or trigger + partial key (e.g., "~set partial")
+        # Case 2: Input is trigger + space (e.g., "/set ") or trigger + partial key (e.g., "/set partial")
         base_to_complete = ""
-        if len(tokens) > 1:  # e.g., ["~set", "partialkey"]
+        if len(tokens) > 1:  # e.g., ["/set", "partialkey"]
             base_to_complete = tokens[1]
-        # If len(tokens) == 1, it implies effective_input was like "~set ", so base_to_complete remains ""
+        # If len(tokens) == 1, it implies effective_input was like "/set ", so base_to_complete remains ""
         # This means we list all keys.
 
         # --- SPECIAL HANDLING FOR 'model' KEY ---
@@ -75,8 +81,8 @@ class SetCompleter(Completer):
             # Don't return any completions -- let ModelNameCompleter handle it
             return
         for key in get_config_keys():
-            if key == "model":
-                continue  # exclude 'model' from regular ~set completions
+            if key == "model" or key == "puppy_token":
+                continue  # exclude 'model' and 'puppy_token' from regular /set completions
             if key.startswith(base_to_complete):
                 prev_value = get_value(key)
                 value_part = f" = {prev_value}" if prev_value is not None else " = "
@@ -87,14 +93,12 @@ class SetCompleter(Completer):
                     start_position=-len(
                         base_to_complete
                     ),  # Correctly replace only the typed part of the key
-                    display_meta=f"puppy.cfg key (was: {prev_value})"
-                    if prev_value is not None
-                    else "puppy.cfg key",
+                    display_meta="",
                 )
 
 
 class CDCompleter(Completer):
-    def __init__(self, trigger: str = "~cd"):
+    def __init__(self, trigger: str = "/cd"):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
@@ -159,19 +163,35 @@ async def get_input_with_combined_completion(
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),
-            ModelNameCompleter(trigger="~m"),
-            CDCompleter(trigger="~cd"),
-            SetCompleter(trigger="~set"),
+            ModelNameCompleter(trigger="/m"),
+            CDCompleter(trigger="/cd"),
+            SetCompleter(trigger="/set"),
+            LoadContextCompleter(trigger="/load_context"),
         ]
     )
-    # Add custom key bindings for Alt+M to insert a new line without submitting
+    # Add custom key bindings for multiline input
     bindings = KeyBindings()
 
-    @bindings.add(Keys.Escape, "m")  # Alt+M
+    @bindings.add(Keys.Escape, "m")  # Alt+M (legacy support)
     def _(event):
         event.app.current_buffer.insert_text("\n")
 
-    @bindings.add("c-c")
+    # Create a special binding for shift+enter
+    @bindings.add("escape", "enter")
+    def _(event):
+        """Pressing alt+enter (meta+enter) inserts a newline."""
+        event.app.current_buffer.insert_text("\n")
+
+    # Override the default enter behavior to check for shift
+    @bindings.add("enter")
+    def _(event):
+        """Accept input or insert newline depending on shift key."""
+        # Check if shift is pressed - this comes from key press event data
+        # Using a key sequence like Alt+Enter is more reliable than detecting shift
+        # So we'll use the default behavior for Enter
+        event.current_buffer.validate_and_handle()
+
+    @bindings.add(Keys.Escape)
     def _(event):
         """Cancel the current prompt when the user presses the ESC key alone."""
         event.app.exit(exception=KeyboardInterrupt)
@@ -206,14 +226,13 @@ async def get_input_with_combined_completion(
 
 
 if __name__ == "__main__":
-    print("Type '@' for path-completion or '~m' to pick a model. Ctrl+D to exit.")
+    print("Type '@' for path-completion or '/m' to pick a model. Ctrl+D to exit.")
 
     async def main():
         while True:
             try:
                 inp = await get_input_with_combined_completion(
-                    get_prompt_with_active_model(),
-                    history_file="~/.path_completion_history.txt",
+                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
                 )
                 print(f"You entered: {inp}")
             except KeyboardInterrupt:

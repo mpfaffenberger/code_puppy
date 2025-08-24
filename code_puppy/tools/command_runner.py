@@ -1,10 +1,10 @@
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 import traceback
-import sys
 from typing import Set
 
 from pydantic import BaseModel
@@ -12,7 +12,15 @@ from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.text import Text
 
-from code_puppy.tools.common import console
+from code_puppy.messaging import (
+    emit_divider,
+    emit_error,
+    emit_info,
+    emit_system_message,
+    emit_warning,
+)
+from code_puppy.state_management import is_tui_mode
+from code_puppy.tools.common import generate_group_id
 
 _AWAITING_USER_INPUT = False
 
@@ -91,7 +99,7 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
             except Exception:
                 pass
     except Exception as e:
-        console.print(f"Kill process error: {e}")
+        emit_error(f"Kill process error: {e}")
 
 
 def kill_all_running_shell_processes() -> int:
@@ -114,6 +122,38 @@ def kill_all_running_shell_processes() -> int:
     return count
 
 
+# Function to check if user input is awaited
+def is_awaiting_user_input():
+    """Check if command_runner is waiting for user input."""
+    global _AWAITING_USER_INPUT
+    return _AWAITING_USER_INPUT
+
+
+# Function to set user input flag
+def set_awaiting_user_input(awaiting=True):
+    """Set the flag indicating if user input is awaited."""
+    global _AWAITING_USER_INPUT
+    _AWAITING_USER_INPUT = awaiting
+
+    # When we're setting this flag, also pause/resume all active spinners
+    if awaiting:
+        # Pause all active spinners (imported here to avoid circular imports)
+        try:
+            from code_puppy.messaging.spinner import pause_all_spinners
+
+            pause_all_spinners()
+        except ImportError:
+            pass  # Spinner functionality not available
+    else:
+        # Resume all active spinners
+        try:
+            from code_puppy.messaging.spinner import resume_all_spinners
+
+            resume_all_spinners()
+        except ImportError:
+            pass  # Spinner functionality not available
+
+
 class ShellCommandOutput(BaseModel):
     success: bool
     command: str | None
@@ -127,7 +167,10 @@ class ShellCommandOutput(BaseModel):
 
 
 def run_shell_command_streaming(
-    process: subprocess.Popen, timeout: int = 60, command: str = ""
+    process: subprocess.Popen,
+    timeout: int = 60,
+    command: str = "",
+    group_id: str = None,
 ):
     start_time = time.time()
     last_output_time = [start_time]
@@ -146,7 +189,7 @@ def run_shell_command_streaming(
                 if line:
                     line = line.rstrip("\n\r")
                     stdout_lines.append(line)
-                    console.print(line)
+                    emit_system_message(line, message_group=group_id)
                     last_output_time[0] = time.time()
         except Exception:
             pass
@@ -157,7 +200,7 @@ def run_shell_command_streaming(
                 if line:
                     line = line.rstrip("\n\r")
                     stderr_lines.append(line)
-                    console.print(line)
+                    emit_system_message(line, message_group=group_id)
                     last_output_time[0] = time.time()
         except Exception:
             pass
@@ -188,19 +231,21 @@ def run_shell_command_streaming(
             if stdout_thread and stdout_thread.is_alive():
                 stdout_thread.join(timeout=3)
                 if stdout_thread.is_alive():
-                    console.print(
-                        f"stdout reader thread failed to terminate after {timeout_type} seconds"
+                    emit_warning(
+                        f"stdout reader thread failed to terminate after {timeout_type} timeout",
+                        message_group=group_id,
                     )
 
             if stderr_thread and stderr_thread.is_alive():
                 stderr_thread.join(timeout=3)
                 if stderr_thread.is_alive():
-                    console.print(
-                        f"stderr reader thread failed to terminate after {timeout_type} seconds"
+                    emit_warning(
+                        f"stderr reader thread failed to terminate after {timeout_type} timeout",
+                        message_group=group_id,
                     )
 
         except Exception as e:
-            console.log(f"Error during process cleanup {e}")
+            emit_warning(f"Error during process cleanup: {e}", message_group=group_id)
 
         execution_time = time.time() - start_time
         return ShellCommandOutput(
@@ -231,7 +276,7 @@ def run_shell_command_streaming(
                 error_msg.append(
                     "Process killed: inactivity timeout reached", style="bold red"
                 )
-                console.print(error_msg)
+                emit_error(error_msg, message_group=group_id)
                 return cleanup_process_and_threads("absolute")
 
             if current_time - last_output_time[0] > timeout:
@@ -239,7 +284,7 @@ def run_shell_command_streaming(
                 error_msg.append(
                     "Process killed: inactivity timeout reached", style="bold red"
                 )
-                console.print(error_msg)
+                emit_error(error_msg, message_group=group_id)
                 return cleanup_process_and_threads("inactivity")
 
             time.sleep(0.1)
@@ -265,10 +310,10 @@ def run_shell_command_streaming(
         _unregister_process(process)
 
         if exit_code != 0:
-            console.print(
-                f"Command failed with exit code {exit_code}", style="bold red"
+            emit_error(
+                f"Command failed with exit code {exit_code}", message_group=group_id
             )
-            console.print(f"Took {execution_time:.2f}s", style="dim")
+            emit_info(f"Took {execution_time:.2f}s", message_group=group_id)
             time.sleep(1)
             return ShellCommandOutput(
                 success=False,
@@ -296,7 +341,7 @@ def run_shell_command_streaming(
         return ShellCommandOutput(
             success=False,
             command=command,
-            error=f"Error durign streaming execution {str(e)}",
+            error=f"Error during streaming execution: {str(e)}",
             stdout="\n".join(stdout_lines[-1000:]),
             stderr="\n".join(stderr_lines[-1000:]),
             exit_code=-1,
@@ -308,14 +353,21 @@ def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> ShellCommandOutput:
     command_displayed = False
+
+    # Generate unique group_id for this command execution
+    group_id = generate_group_id("shell_command", command)
+
     if not command or not command.strip():
-        console.print("[bold red]Error:[/bold red] Command cannot be empty")
+        emit_error("Command cannot be empty", message_group=group_id)
         return ShellCommandOutput(
             **{"success": False, "error": "Command cannot be empty"}
         )
-    console.print(
-        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] \U0001f4c2 [bold green]$ {command}[/bold green]"
+
+    emit_info(
+        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] 📂 [bold green]$ {command}[/bold green]",
+        message_group=group_id,
     )
+
     from code_puppy.config import get_yolo_mode
 
     yolo_mode = get_yolo_mode()
@@ -335,7 +387,11 @@ def run_shell_command(
         command_displayed = True
 
         if cwd:
-            console.print(f"[dim] Working directory: {cwd} [/dim]")
+            emit_info(f"[dim] Working directory: {cwd} [/dim]", message_group=group_id)
+
+        # Set the flag to indicate we're awaiting user input
+        set_awaiting_user_input(True)
+
         time.sleep(0.2)
         sys.stdout.write("Are you sure you want to run this command? (y(es)/n(o))\n")
         sys.stdout.flush()
@@ -344,9 +400,11 @@ def run_shell_command(
             user_input = input()
             confirmed = user_input.strip().lower() in {"yes", "y"}
         except (KeyboardInterrupt, EOFError):
-            console.print("\n Cancelled by user")
+            emit_warning("\n Cancelled by user")
             confirmed = False
         finally:
+            # Clear the flag regardless of the outcome
+            set_awaiting_user_input(False)
             if confirmation_lock_acquired:
                 _CONFIRMATION_LOCK.release()
 
@@ -357,6 +415,7 @@ def run_shell_command(
             return result
     else:
         start_time = time.time()
+
     try:
         creationflags = 0
         preexec_fn = None
@@ -367,6 +426,7 @@ def run_shell_command(
                 creationflags = 0
         else:
             preexec_fn = os.setsid if hasattr(os, "setsid") else None
+
         process = subprocess.Popen(
             command,
             shell=True,
@@ -382,13 +442,13 @@ def run_shell_command(
         _register_process(process)
         try:
             return run_shell_command_streaming(
-                process, timeout=timeout, command=command
+                process, timeout=timeout, command=command, group_id=group_id
             )
         finally:
             # Ensure unregistration in case streaming returned early or raised
             _unregister_process(process)
     except Exception as e:
-        console.print(traceback.format_exc())
+        emit_error(traceback.format_exc(), message_group=group_id)
         if "stdout" not in locals():
             stdout = None
         if "stderr" not in locals():
@@ -411,25 +471,120 @@ class ReasoningOutput(BaseModel):
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str | None = None
 ) -> ReasoningOutput:
-    console.print("\n[bold white on purple] AGENT REASONING [/bold white on purple]")
-    console.print("[bold cyan]Current reasoning:[/bold cyan]")
-    console.print(Markdown(reasoning))
+    # Generate unique group_id for this reasoning session
+    group_id = generate_group_id(
+        "agent_reasoning", reasoning[:50]
+    )  # Use first 50 chars for context
+
+    if not is_tui_mode():
+        emit_divider(message_group=group_id)
+        emit_info(
+            "\n[bold white on purple] AGENT REASONING [/bold white on purple]",
+            message_group=group_id,
+        )
+    emit_info("[bold cyan]Current reasoning:[/bold cyan]", message_group=group_id)
+    emit_system_message(Markdown(reasoning), message_group=group_id)
     if next_steps is not None and next_steps.strip():
-        console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
-        console.print(Markdown(next_steps))
-    console.print("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_info(
+            "\n[bold cyan]Planned next steps:[/bold cyan]", message_group=group_id
+        )
+        emit_system_message(Markdown(next_steps), message_group=group_id)
+    emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
     return ReasoningOutput(**{"success": True})
 
 
 def register_command_runner_tools(agent):
     @agent.tool
     def agent_run_shell_command(
-        context: RunContext, command: str, cwd: str = None, timeout: int = 60
+        context: RunContext, command: str = "", cwd: str = None, timeout: int = 60
     ) -> ShellCommandOutput:
+        """Execute a shell command with comprehensive monitoring and safety features.
+
+        This tool provides robust shell command execution with streaming output,
+        timeout handling, user confirmation (when not in yolo mode), and proper
+        process lifecycle management. Commands are executed in a controlled
+        environment with cross-platform process group handling.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            command (str): The shell command to execute. Cannot be empty or whitespace-only.
+            cwd (str, optional): Working directory for command execution. If None,
+                uses the current working directory. Defaults to None.
+            timeout (int, optional): Inactivity timeout in seconds. If no output is
+                produced for this duration, the process will be terminated.
+                Defaults to 60 seconds.
+
+        Returns:
+            ShellCommandOutput: A structured response containing:
+                - success (bool): True if command executed successfully (exit code 0)
+                - command (str | None): The executed command string
+                - error (str | None): Error message if execution failed
+                - stdout (str | None): Standard output from the command (last 1000 lines)
+                - stderr (str | None): Standard error from the command (last 1000 lines)
+                - exit_code (int | None): Process exit code
+                - execution_time (float | None): Total execution time in seconds
+                - timeout (bool | None): True if command was terminated due to timeout
+                - user_interrupted (bool | None): True if user killed the process
+
+        Note:
+            - In interactive mode (not yolo), user confirmation is required before execution
+            - Commands have an absolute timeout of 270 seconds regardless of activity
+            - Process groups are properly managed for clean termination
+            - Output is streamed in real-time and displayed to the user
+            - Large output is truncated to the last 1000 lines for memory efficiency
+
+        Examples:
+            >>> result = agent_run_shell_command(ctx, "ls -la", cwd="/tmp", timeout=30)
+            >>> if result.success:
+            ...     print(f"Command completed in {result.execution_time:.2f}s")
+            ...     print(result.stdout)
+
+        Warning:
+            This tool can execute arbitrary shell commands. Exercise caution when
+            running untrusted commands, especially those that modify system state.
+        """
         return run_shell_command(context, command, cwd, timeout)
 
     @agent.tool
     def agent_share_your_reasoning(
-        context: RunContext, reasoning: str, next_steps: str | None = None
+        context: RunContext, reasoning: str = "", next_steps: str | None = None
     ) -> ReasoningOutput:
+        """Share the agent's current reasoning and planned next steps with the user.
+
+        This tool provides transparency into the agent's decision-making process
+        by displaying the current reasoning and upcoming actions in a formatted,
+        user-friendly manner. It's essential for building trust and understanding
+        between the agent and user.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            reasoning (str): The agent's current thought process, analysis, or
+                reasoning for the current situation. This should be clear,
+                comprehensive, and explain the 'why' behind decisions.
+            next_steps (str | None, optional): Planned upcoming actions or steps
+                the agent intends to take. Can be None if no specific next steps
+                are determined. Defaults to None.
+
+        Returns:
+            ReasoningOutput: A simple response object containing:
+                - success (bool): Always True, indicating the reasoning was shared
+
+        Note:
+            - Reasoning is displayed with Markdown formatting for better readability
+            - Next steps are only shown if provided and non-empty
+            - Output is visually separated with dividers in TUI mode
+            - This tool should be called before major actions to explain intent
+
+        Examples:
+            >>> reasoning = "I need to analyze the codebase structure before making changes"
+            >>> next_steps = "First, I'll list the directory contents, then read key files"
+            >>> result = agent_share_your_reasoning(ctx, reasoning, next_steps)
+
+        Best Practice:
+            Use this tool frequently to maintain transparency. Call it:
+            - Before starting complex operations
+            - When changing strategy or approach
+            - To explain why certain decisions are being made
+            - When encountering unexpected situations
+        """
         return share_your_reasoning(context, reasoning, next_steps)

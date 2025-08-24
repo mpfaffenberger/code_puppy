@@ -1,168 +1,383 @@
 import argparse
 import asyncio
 import os
+import subprocess
 import sys
+import time
+import webbrowser
 
-from dotenv import load_dotenv
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from code_puppy import __version__, state_management
-from code_puppy.agent import get_code_generation_agent
+from code_puppy import __version__, callbacks, plugins, state_management
+from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
 )
-from code_puppy.config import ensure_config_exists
-from code_puppy.state_management import get_message_history, set_message_history
-from code_puppy.status_display import StatusDisplay
-
-# Initialize rich console for pretty output
+from code_puppy.config import (
+    COMMAND_HISTORY_FILE,
+    ensure_config_exists,
+    initialize_command_history_file,
+    save_command_to_history,
+)
+from code_puppy.http_utils import find_available_port
+from code_puppy.message_history_processor import (
+    message_history_accumulator,
+    prune_interrupted_tool_calls,
+)
+from code_puppy.state_management import is_tui_mode, set_tui_mode
 from code_puppy.tools.common import console
-from code_puppy.version_checker import fetch_latest_version
-from code_puppy.message_history_processor import message_history_processor
+from code_puppy.version_checker import default_version_mismatch_behavior
 
-
-# from code_puppy.tools import *  # noqa: F403
-import logfire
-
-
-# Define a function to get the secret file path
-def get_secret_file_path():
-    hidden_directory = os.path.join(os.path.expanduser("~"), ".agent_secret")
-    if not os.path.exists(hidden_directory):
-        os.makedirs(hidden_directory)
-    return os.path.join(hidden_directory, "history.txt")
+plugins.load_plugin_callbacks()
 
 
 async def main():
-    # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
-    logfire.configure(
-        token="pylf_v1_us_8G5nLznQtHMRsL4hsNG5v3fPWKjyXbysrMgrQ1bV1wRP", console=False
-    )
-    logfire.instrument_pydantic_ai()
-    ensure_config_exists()
-
-    current_version = __version__
-    latest_version = fetch_latest_version("code-puppy")
-    console.print(f"Current version: {current_version}")
-    console.print(f"Latest version: {latest_version}")
-    if latest_version and latest_version != current_version:
-        console.print(
-            f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
-        )
-        console.print("[bold green]Please consider updating![/bold green]")
-    global shutdown_flag
-    shutdown_flag = False  # ensure this is initialized
-
-    # Load environment variables from .env file
-    load_dotenv()
-
-    # Set up argument parser
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
-        "--interactive", "-i", action="store_true", help="Run in interactive mode"
+        "--version",
+        "-v",
+        action="version",
+        version=f"{__version__}",
+        help="Show version and exit",
     )
-    parser.add_argument("command", nargs="*", help="Run a single command")
+    parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Run in interactive mode",
+    )
+    parser.add_argument("--tui", "-t", action="store_true", help="Run in TUI mode")
+    parser.add_argument(
+        "--web",
+        "-w",
+        action="store_true",
+        help="Run in web mode (serves TUI in browser)",
+    )
+    parser.add_argument(
+        "--prompt",
+        "-p",
+        type=str,
+        help="Execute a single prompt and exit (no interactive mode)",
+    )
+    parser.add_argument(
+        "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
+    )
     args = parser.parse_args()
 
-    history_file_path = get_secret_file_path()
+    if args.tui or args.web:
+        set_tui_mode(True)
+    elif args.interactive or args.command or args.prompt:
+        set_tui_mode(False)
 
-    if args.command:
-        # Join the list of command arguments into a single string command
-        command = " ".join(args.command)
+    message_renderer = None
+    if not is_tui_mode():
+        from rich.console import Console
+
+        from code_puppy.messaging import (
+            SynchronousInteractiveRenderer,
+            get_global_queue,
+        )
+
+        message_queue = get_global_queue()
+        display_console = Console()  # Separate console for rendering messages
+        message_renderer = SynchronousInteractiveRenderer(
+            message_queue, display_console
+        )
+        message_renderer.start()
+
+    if (
+        not args.tui
+        and not args.interactive
+        and not args.web
+        and not args.command
+        and not args.prompt
+    ):
+        pass
+
+    initialize_command_history_file()
+    if args.web:
+        from rich.console import Console
+
+        direct_console = Console()
         try:
-            while not shutdown_flag:
-                agent = get_code_generation_agent()
-                async with agent.run_mcp_servers():
-                    response = await agent.run(command)
-                agent_response = response.output
-                console.print(agent_response)
-                break
-        except AttributeError as e:
-            console.print(f"[bold red]AttributeError:[/bold red] {str(e)}")
-            console.print(
-                "[bold yellow]\u26a0 The response might not be in the expected format, missing attributes like 'output_message'."
+            # Find an available port for the web server
+            available_port = find_available_port()
+            if available_port is None:
+                direct_console.print(
+                    "[bold red]Error:[/bold red] No available ports in range 8090-9010!"
+                )
+                sys.exit(1)
+            python_executable = sys.executable
+            serve_command = f"{python_executable} -m code_puppy --tui"
+            textual_serve_cmd = [
+                "textual",
+                "serve",
+                "-c",
+                serve_command,
+                "--port",
+                str(available_port),
+            ]
+            direct_console.print(
+                "[bold blue]🌐 Starting Code Puppy web interface...[/bold blue]"
             )
+            direct_console.print(f"[dim]Running: {' '.join(textual_serve_cmd)}[/dim]")
+            web_url = f"http://localhost:{available_port}"
+            direct_console.print(
+                f"[green]Web interface will be available at: {web_url}[/green]"
+            )
+            direct_console.print("[yellow]Press Ctrl+C to stop the server.[/yellow]\n")
+            process = subprocess.Popen(textual_serve_cmd)
+            time.sleep(2)
+            try:
+                direct_console.print(
+                    "[cyan]🚀 Opening web interface in your default browser...[/cyan]"
+                )
+                webbrowser.open(web_url)
+                direct_console.print("[green]✅ Browser opened successfully![/green]\n")
+            except Exception as e:
+                direct_console.print(
+                    f"[yellow]⚠️  Could not automatically open browser: {e}[/yellow]"
+                )
+                direct_console.print(
+                    f"[yellow]Please manually open: {web_url}[/yellow]\n"
+                )
+            result = process.wait()
+            sys.exit(result)
         except Exception as e:
-            console.print(f"[bold red]Unexpected Error:[/bold red] {str(e)}")
-    elif args.interactive:
-        await interactive_mode(history_file_path)
+            direct_console.print(
+                f"[bold red]Error starting web interface:[/bold red] {str(e)}"
+            )
+            sys.exit(1)
+    from code_puppy.messaging import emit_system_message
+
+    emit_system_message("🐶 Code Puppy is Loading...")
+
+    available_port = find_available_port()
+    if available_port is None:
+        error_msg = "Error: No available ports in range 8090-9010!"
+        emit_system_message(f"[bold red]{error_msg}[/bold red]")
+        return
+
+    ensure_config_exists()
+    current_version = __version__
+
+    no_version_update = os.getenv("NO_VERSION_UPDATE", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if no_version_update:
+        version_msg = f"Current version: {current_version}"
+        update_disabled_msg = (
+            "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true"
+        )
+        emit_system_message(version_msg)
+        emit_system_message(f"[dim]{update_disabled_msg}[/dim]")
     else:
-        parser.print_help()
+        if len(callbacks.get_callbacks("version_check")):
+            await callbacks.on_version_check(current_version)
+        else:
+            default_version_mismatch_behavior(current_version)
+
+    await callbacks.on_startup()
+
+    global shutdown_flag
+    shutdown_flag = False
+    try:
+        initial_command = None
+        prompt_only_mode = False
+
+        if args.prompt:
+            initial_command = args.prompt
+            prompt_only_mode = True
+        elif args.command:
+            initial_command = " ".join(args.command)
+            prompt_only_mode = False
+
+        if prompt_only_mode:
+            await execute_single_prompt(initial_command, message_renderer)
+        elif is_tui_mode():
+            try:
+                from code_puppy.tui import run_textual_ui
+
+                await run_textual_ui(initial_command=initial_command)
+            except ImportError:
+                from code_puppy.messaging import emit_error, emit_warning
+
+                emit_error(
+                    "Error: Textual UI not available. Install with: pip install textual"
+                )
+                emit_warning("Falling back to interactive mode...")
+                await interactive_mode(message_renderer)
+            except Exception as e:
+                from code_puppy.messaging import emit_error, emit_warning
+
+                emit_error(f"TUI Error: {str(e)}")
+                emit_warning("Falling back to interactive mode...")
+                await interactive_mode(message_renderer)
+        elif args.interactive or initial_command:
+            await interactive_mode(message_renderer, initial_command=initial_command)
+        else:
+            await prompt_then_interactive_mode(message_renderer)
+    finally:
+        if message_renderer:
+            message_renderer.stop()
+        await callbacks.on_shutdown()
 
 
 # Add the file handling functionality for interactive mode
-async def interactive_mode(history_file_path: str) -> None:
-    from code_puppy.command_line.meta_command_handler import handle_meta_command
+async def interactive_mode(message_renderer, initial_command: str = None) -> None:
+    from code_puppy.command_line.command_handler import handle_command
 
     """Run the agent in interactive mode."""
-    console.print("[bold green]Code Puppy[/bold green] - Interactive Mode")
-    console.print("Type 'exit' or 'quit' to exit the interactive mode.")
-    console.print("Type 'clear' to reset the conversation history.")
-    console.print(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]~m[/bold blue] to pick a model."
+    from code_puppy.state_management import clear_message_history, get_message_history
+
+    clear_message_history()
+    display_console = message_renderer.console
+    from code_puppy.messaging import emit_info, emit_system_message
+
+    emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
+    emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
+    emit_system_message("Type 'clear' to reset the conversation history.")
+    emit_system_message(
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
     )
+    emit_system_message(
+        "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
+    )
+    from code_puppy.command_line.command_handler import COMMANDS_HELP
 
-    # Show meta commands right at startup - DRY!
-    from code_puppy.command_line.meta_command_handler import META_COMMANDS_HELP
-
-    console.print(META_COMMANDS_HELP)
-    # Show MOTD if user hasn't seen it after an update
+    emit_system_message(COMMANDS_HELP)
     try:
         from code_puppy.command_line.motd import print_motd
 
         print_motd(console, force=False)
     except Exception as e:
-        console.print(f"[yellow]MOTD error: {e}[/yellow]")
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(f"MOTD error: {e}")
+    from code_puppy.messaging import emit_info
+
+    emit_info("[bold cyan]Initializing agent...[/bold cyan]")
+    get_code_generation_agent()
+    if initial_command:
+        from code_puppy.messaging import emit_info, emit_system_message
+
+        emit_info(
+            f"[bold blue]Processing initial command:[/bold blue] {initial_command}"
+        )
+
+        try:
+            # Get the agent (already loaded above)
+            agent = get_code_generation_agent()
+
+            # Check if any tool is waiting for user input before showing spinner
+            try:
+                from code_puppy.tools.command_runner import is_awaiting_user_input
+
+                awaiting_input = is_awaiting_user_input()
+            except ImportError:
+                awaiting_input = False
+
+            # Run with or without spinner based on whether we're awaiting input
+            if awaiting_input:
+                # No spinner - just run the agent
+                try:
+                    async with agent.run_mcp_servers():
+                        response = await agent.run(
+                            initial_command, usage_limits=get_custom_usage_limits()
+                        )
+                except Exception as mcp_error:
+                    from code_puppy.messaging import emit_warning
+
+                    emit_warning(f"MCP server error: {str(mcp_error)}")
+                    emit_warning("Running without MCP servers...")
+                    # Run without MCP servers as fallback
+                    response = await agent.run(
+                        initial_command, usage_limits=get_custom_usage_limits()
+                    )
+            else:
+                # Use our custom spinner for better compatibility with user input
+                from code_puppy.messaging.spinner import ConsoleSpinner
+
+                with ConsoleSpinner(console=display_console):
+                    try:
+                        async with agent.run_mcp_servers():
+                            response = await agent.run(
+                                initial_command, usage_limits=get_custom_usage_limits()
+                            )
+                    except Exception as mcp_error:
+                        from code_puppy.messaging import emit_warning
+
+                        emit_warning(f"MCP server error: {str(mcp_error)}")
+                        emit_warning("Running without MCP servers...")
+                        # Run without MCP servers as fallback
+                        response = await agent.run(
+                            initial_command, usage_limits=get_custom_usage_limits()
+                        )
+
+            agent_response = response.output
+
+            emit_system_message(
+                f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+            )
+            new_msgs = response.all_messages()
+            message_history_accumulator(new_msgs)
+
+            emit_system_message("\n" + "=" * 50)
+            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+            emit_system_message(
+                "Your command and response are preserved in the conversation history."
+            )
+            emit_system_message("=" * 50 + "\n")
+
+        except Exception as e:
+            from code_puppy.messaging import emit_error
+
+            emit_error(f"Error processing initial command: {str(e)}")
 
     # Check if prompt_toolkit is installed
     try:
-        import prompt_toolkit  # noqa: F401
+        from code_puppy.messaging import emit_system_message
 
-        console.print("[dim]Using prompt_toolkit for enhanced tab completion[/dim]")
-    except ImportError:
-        console.print(
-            "[yellow]Warning: prompt_toolkit not installed. Installing now...[/yellow]"
+        emit_system_message(
+            "[dim]Using prompt_toolkit for enhanced tab completion[/dim]"
         )
+    except ImportError:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning("Warning: prompt_toolkit not installed. Installing now...")
         try:
             import subprocess
 
             subprocess.check_call(
                 [sys.executable, "-m", "pip", "install", "prompt_toolkit"]
             )
-            console.print("[green]Successfully installed prompt_toolkit[/green]")
-        except Exception as e:
-            console.print(f"[bold red]Error installing prompt_toolkit: {e}[/bold red]")
-            console.print(
-                "[yellow]Falling back to basic input without tab completion[/yellow]"
-            )
+            from code_puppy.messaging import emit_success
 
-    # Set up history file in home directory
-    history_file_path_prompt = os.path.expanduser("~/.code_puppy_history.txt")
-    history_dir = os.path.dirname(history_file_path_prompt)
-
-    # Ensure history directory exists
-    if history_dir and not os.path.exists(history_dir):
-        try:
-            os.makedirs(history_dir, exist_ok=True)
+            emit_success("Successfully installed prompt_toolkit")
         except Exception as e:
-            console.print(
-                f"[yellow]Warning: Could not create history directory: {e}[/yellow]"
-            )
+            from code_puppy.messaging import emit_error, emit_warning
+
+            emit_error(f"Error installing prompt_toolkit: {e}")
+            emit_warning("Falling back to basic input without tab completion")
 
     while True:
-        console.print("[bold blue]Enter your coding task:[/bold blue]")
+        from code_puppy.messaging import emit_info
+
+        emit_info("[bold blue]Enter your coding task:[/bold blue]")
 
         try:
             # Use prompt_toolkit for enhanced input with path completion
             try:
                 # Use the async version of get_input_with_combined_completion
                 task = await get_input_with_combined_completion(
-                    get_prompt_with_active_model(),
-                    history_file=history_file_path_prompt,
+                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
                 )
             except ImportError:
                 # Fall back to basic input if prompt_toolkit is not available
@@ -170,317 +385,184 @@ async def interactive_mode(history_file_path: str) -> None:
 
         except (KeyboardInterrupt, EOFError):
             # Handle Ctrl+C or Ctrl+D
-            console.print("\n[yellow]Input cancelled[/yellow]")
+            from code_puppy.messaging import emit_warning
+
+            emit_warning("\nInput cancelled")
             continue
 
-        # Check for exit commands
-        if task.strip().lower() in ["exit", "quit"]:
-            console.print("[bold green]Goodbye![/bold green]")
+        # Check for exit commands (plain text or command form)
+        if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
+            "/exit",
+            "/quit",
+        ]:
+            from code_puppy.messaging import emit_success
+
+            emit_success("Goodbye!")
+            # The renderer is stopped in the finally block of main().
             break
 
-        # Check for clear command (supports both `clear` and `~clear`)
-        if task.strip().lower() in ("clear", "~clear"):
-            state_management._message_history = []
-            console.print("[bold yellow]Conversation history cleared![/bold yellow]")
-            console.print(
-                "[dim]The agent will not remember previous interactions.[/dim]\n"
-            )
+        # Check for clear command (supports both `clear` and `/clear`)
+        if task.strip().lower() in ("clear", "/clear"):
+            clear_message_history()
+            from code_puppy.messaging import emit_system_message, emit_warning
+
+            emit_warning("Conversation history cleared!")
+            emit_system_message("The agent will not remember previous interactions.\n")
             continue
 
-        # Handle ~ meta/config commands before anything else
-        if task.strip().startswith("~"):
-            if handle_meta_command(task.strip(), console):
+        # Handle / commands before anything else
+        if task.strip().startswith("/"):
+            command_result = handle_command(task.strip())
+            if command_result is True:
                 continue
-        if task.strip():
-            console.print(f"\n[bold blue]Processing task:[/bold blue] {task}\n")
+            elif isinstance(command_result, str):
+                # Command returned a prompt to execute
+                task = command_result
+            elif command_result is False:
+                # Command not recognized, continue with normal processing
+                pass
 
-            # Write to the secret file for permanent history
-            with open(history_file_path, "a") as f:
-                f.write(f"{task}\n")
+        if task.strip():
+            # Write to the secret file for permanent history with timestamp
+            save_command_to_history(task)
 
             try:
                 prettier_code_blocks()
+
+                # Store agent's full response
+                agent_response = None
+
+                # Get the agent (uses cached version from early initialization)
+                agent = get_code_generation_agent()
+
+                # Use our custom spinner for better compatibility with user input
+                from code_puppy.messaging import emit_warning
+                from code_puppy.messaging.spinner import ConsoleSpinner
+
+                # Create a simple flag to track cancellation locally
                 local_cancelled = False
 
-                # Initialize status display for tokens per second and loading messages
-                status_display = StatusDisplay(console)
+                # Run with spinner
+                with ConsoleSpinner(console=display_console):
+                    # Use a separate asyncio task that we can cancel
+                    async def run_agent_task():
+                        try:
+                            async with agent.run_mcp_servers():
+                                return await agent.run(
+                                    task,
+                                    message_history=get_message_history(),
+                                    usage_limits=get_custom_usage_limits(),
+                                )
+                        except Exception as mcp_error:
+                            # Handle MCP server errors
+                            emit_warning(f"MCP server error: {str(mcp_error)}")
+                            emit_warning("Running without MCP servers...")
+                            # Run without MCP servers as fallback
+                            return await agent.run(
+                                task,
+                                message_history=get_message_history(),
+                                usage_limits=get_custom_usage_limits(),
+                            )
 
-                # Print a message indicating we're about to start processing
-                console.print("\nStarting task processing...")
+                    # Create the task
+                    agent_task = asyncio.create_task(run_agent_task())
 
-                async def track_tokens_from_messages():
-                    """
-                    Track real token counts from message history.
+                    # Set up signal handling for Ctrl+C
+                    import signal
 
-                    This async function runs in the background and periodically checks
-                    the message history for new tokens. When new tokens are detected,
-                    it updates the StatusDisplay with the incremental count to calculate
-                    an accurate tokens-per-second rate.
-
-                    It also looks for SSE stream time_info data to get precise token rate
-                    calculations using the formula: completion_tokens * 1 / completion_time
-
-                    The function continues running until status_display.is_active becomes False.
-                    """
-                    from code_puppy.message_history_processor import (
-                        estimate_tokens_for_message,
+                    from code_puppy.tools.command_runner import (
+                        kill_all_running_shell_processes,
                     )
-                    import json
-                    import re
 
-                    last_token_total = 0
-                    last_sse_data = None
+                    original_handler = None
 
-                    while status_display.is_active:
-                        # Get real token count from message history
-                        messages = get_message_history()
-                        if messages:
-                            # Calculate total tokens across all messages
-                            current_token_total = sum(
-                                estimate_tokens_for_message(msg) for msg in messages
-                            )
+                    # Ensure the interrupt handler only acts once per task
+                    handled = False
 
-                            # If tokens increased, update the display with the incremental count
-                            if current_token_total > last_token_total:
-                                status_display.update_token_count(
-                                    current_token_total - last_token_total
+                    def keyboard_interrupt_handler(sig, frame):
+                        nonlocal local_cancelled
+                        nonlocal handled
+                        if handled:
+                            return
+                        handled = True
+                        # First, nuke any running shell processes triggered by tools
+                        try:
+                            killed = kill_all_running_shell_processes()
+                            if killed:
+                                from code_puppy.messaging import emit_warning
+
+                                emit_warning(
+                                    f"Cancelled {killed} running shell process(es)."
                                 )
-                                last_token_total = current_token_total
-
-                            # Try to find SSE stream data in assistant messages
-                            for msg in messages:
-                                # Handle different message types (dict or ModelMessage objects)
-                                if hasattr(msg, "role") and msg.role == "assistant":
-                                    # ModelMessage object with role attribute
-                                    content = (
-                                        msg.content if hasattr(msg, "content") else ""
+                            else:
+                                # Then cancel the agent task
+                                if not agent_task.done():
+                                    state_management._message_history = (
+                                        prune_interrupted_tool_calls(
+                                            state_management._message_history
+                                        )
                                     )
-                                elif (
-                                    isinstance(msg, dict)
-                                    and msg.get("role") == "assistant"
-                                ):
-                                    # Dictionary with 'role' key
-                                    content = msg.get("content", "")
-                                # Support for ModelRequest/ModelResponse objects
-                                elif (
-                                    hasattr(msg, "message")
-                                    and hasattr(msg.message, "role")
-                                    and msg.message.role == "assistant"
-                                ):
-                                    # Access content through the message attribute
-                                    content = (
-                                        msg.message.content
-                                        if hasattr(msg.message, "content")
-                                        else ""
-                                    )
-                                else:
-                                    # Skip if not an assistant message or unrecognized format
-                                    continue
+                                    agent_task.cancel()
+                                    local_cancelled = True
+                        except Exception as e:
+                            from code_puppy.messaging import emit_warning
 
-                                # Convert content to string if it's not already
-                                if not isinstance(content, str):
-                                    try:
-                                        content = str(content)
-                                    except Exception:
-                                        continue
-
-                                # Look for SSE usage data pattern in the message content
-                                sse_matches = re.findall(
-                                    r'\{\s*"usage".*?"time_info".*?\}',
-                                    content,
-                                    re.DOTALL,
-                                )
-                                for match in sse_matches:
-                                    try:
-                                        # Parse the JSON data
-                                        sse_data = json.loads(match)
-                                        if (
-                                            sse_data != last_sse_data
-                                        ):  # Only process new data
-                                            # Check if we have time_info and completion_tokens
-                                            if (
-                                                "time_info" in sse_data
-                                                and "completion_time"
-                                                in sse_data["time_info"]
-                                                and "usage" in sse_data
-                                                and "completion_tokens"
-                                                in sse_data["usage"]
-                                            ):
-                                                completion_time = float(
-                                                    sse_data["time_info"][
-                                                        "completion_time"
-                                                    ]
-                                                )
-                                                completion_tokens = int(
-                                                    sse_data["usage"][
-                                                        "completion_tokens"
-                                                    ]
-                                                )
-
-                                                # Update rate using the accurate SSE data
-                                                if (
-                                                    completion_time > 0
-                                                    and completion_tokens > 0
-                                                ):
-                                                    status_display.update_rate_from_sse(
-                                                        completion_tokens,
-                                                        completion_time,
-                                                    )
-                                                    last_sse_data = sse_data
-                                    except (json.JSONDecodeError, KeyError, ValueError):
-                                        # Ignore parsing errors and continue
-                                        pass
-
-                        # Small sleep interval for responsive updates without excessive CPU usage
-                        await asyncio.sleep(0.1)
-
-                async def wrap_agent_run(original_run, *args, **kwargs):
-                    """
-                    Wraps the agent's run method to enable token tracking.
-
-                    This wrapper preserves the original functionality while allowing
-                    us to track tokens as they are generated by the model. No additional
-                    logic is needed here since the token tracking happens in a separate task.
-
-                    Args:
-                        original_run: The original agent.run method
-                        *args, **kwargs: Arguments to pass to the original run method
-
-                    Returns:
-                        The result from the original run method
-                    """
-                    result = await original_run(*args, **kwargs)
-                    return result
-
-                async def run_agent_task():
-                    """
-                    Main task runner for the agent with token tracking.
-
-                    This function:
-                    1. Sets up the agent with token tracking
-                    2. Starts the status display showing token rate
-                    3. Runs the agent with the user's task
-                    4. Ensures proper cleanup of all resources
-
-                    Returns the agent's result or raises any exceptions that occurred.
-                    """
-                    # Token tracking task reference for cleanup
-                    token_tracking_task = None
+                            emit_warning(f"Shell kill error: {e}")
+                        # Don't call the original handler
+                        # This prevents the application from exiting
 
                     try:
-                        # Initialize the agent
-                        agent = get_code_generation_agent()
+                        # Save original handler and set our custom one
+                        original_handler = signal.getsignal(signal.SIGINT)
+                        signal.signal(signal.SIGINT, keyboard_interrupt_handler)
 
-                        # Start status display
-                        status_display.start()
-
-                        # Start token tracking
-                        token_tracking_task = asyncio.create_task(
-                            track_tokens_from_messages()
-                        )
-
-                        # Create a wrapper for the agent's run method
-                        original_run = agent.run
-
-                        async def wrapped_run(*args, **kwargs):
-                            return await wrap_agent_run(original_run, *args, **kwargs)
-
-                        agent.run = wrapped_run
-
-                        # Run the agent with MCP servers
-                        async with agent.run_mcp_servers():
-                            result = await agent.run(
-                                task, message_history=get_message_history()
-                            )
-                            return result
-                    except Exception as e:
-                        console.log("Task failed", e)
-                        raise
+                        # Wait for the task to complete or be cancelled
+                        result = await agent_task
+                    except asyncio.CancelledError:
+                        # Task was cancelled by our handler
+                        pass
                     finally:
-                        # Clean up resources
-                        if status_display.is_active:
-                            status_display.stop()
-                        if token_tracking_task and not token_tracking_task.done():
-                            token_tracking_task.cancel()
-                    if not agent_task.done():
-                        set_message_history(
-                            message_history_processor(get_message_history())
-                        )
+                        # Restore original signal handler
+                        if original_handler:
+                            signal.signal(signal.SIGINT, original_handler)
 
-                agent_task = asyncio.create_task(run_agent_task())
-
-                import signal
-                from code_puppy.tools import kill_all_running_shell_processes
-
-                original_handler = None
-
-                # Ensure the interrupt handler only acts once per task
-                handled = False
-
-                def keyboard_interrupt_handler(sig, frame):
-                    nonlocal local_cancelled
-                    nonlocal handled
-                    if handled:
-                        return
-                    handled = True
-                    # First, nuke any running shell processes triggered by tools
-                    try:
-                        killed = kill_all_running_shell_processes()
-                        if killed:
-                            console.print(
-                                f"[yellow]Cancelled {killed} running shell process(es).[/yellow]"
-                            )
-                        else:
-                            # Then cancel the agent task
-                            if not agent_task.done():
-                                agent_task.cancel()
-                                local_cancelled = True
-                    except Exception as e:
-                        console.print(f"[dim]Shell kill error: {e}[/dim]")
-                    # On Windows, we need to reset the signal handler to avoid weird terminal behavior
-                    if sys.platform.startswith("win"):
-                        signal.signal(signal.SIGINT, original_handler or signal.SIG_DFL)
-
-                try:
-                    original_handler = signal.getsignal(signal.SIGINT)
-                    signal.signal(signal.SIGINT, keyboard_interrupt_handler)
-                    result = await agent_task
-                except asyncio.CancelledError:
-                    pass
-                except KeyboardInterrupt:
-                    # Handle Ctrl+C from terminal
-                    keyboard_interrupt_handler(signal.SIGINT, None)
-                    raise
-                finally:
-                    if original_handler:
-                        signal.signal(signal.SIGINT, original_handler)
-
+                # Check if the task was cancelled
                 if local_cancelled:
-                    console.print("Task canceled by user")
-                    # Ensure status display is stopped if canceled
-                    if status_display.is_active:
-                        status_display.stop()
-                else:
-                    if result is not None and hasattr(result, "output"):
-                        agent_response = result.output
-                        console.print(agent_response)
-                        filtered = message_history_processor(get_message_history())
-                        set_message_history(filtered)
-                    else:
-                        console.print(
-                            "[yellow]No result received from the agent[/yellow]"
-                        )
-                        # Still process history if possible
-                        filtered = message_history_processor(get_message_history())
-                        set_message_history(filtered)
+                    emit_warning("\n⚠️ Processing cancelled by user (Ctrl+C)")
+                    # Skip the rest of this loop iteration
+                    continue
+                # Get the structured response
+                agent_response = result.output
+                from code_puppy.messaging import emit_info
 
-                # Show context status
-                console.print(
-                    f"[dim]Context: {len(get_message_history())} messages in history[/dim]\n"
+                emit_system_message(
+                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
 
+                # Update message history - the agent's history processor will handle truncation
+                new_msgs = result.all_messages()
+                message_history_accumulator(new_msgs)
+
+                # Show context status
+                from code_puppy.messaging import emit_system_message
+
+                emit_system_message(
+                    f"Context: {len(get_message_history())} messages in history\n"
+                )
+
+                # Ensure console output is flushed before next prompt
+                # This fixes the issue where prompt doesn't appear after agent response
+                display_console.file.flush() if hasattr(
+                    display_console.file, "flush"
+                ) else None
+                import time
+
+                time.sleep(0.1)  # Brief pause to ensure all messages are rendered
+
             except Exception:
-                console.print_exception()
+                from code_puppy.messaging.queue_console import get_queue_console
+
+                get_queue_console().print_exception()
 
 
 def prettier_code_blocks():
@@ -503,9 +585,114 @@ def prettier_code_blocks():
     Markdown.elements["fence"] = SimpleCodeBlock
 
 
+async def execute_single_prompt(prompt: str, message_renderer) -> None:
+    """Execute a single prompt and exit (for -p flag)."""
+    from code_puppy.messaging import emit_info, emit_system_message
+
+    emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
+
+    try:
+        # Get the agent
+        agent = get_code_generation_agent()
+
+        # Use our custom spinner for better compatibility with user input
+        from code_puppy.messaging.spinner import ConsoleSpinner
+
+        display_console = message_renderer.console
+        with ConsoleSpinner(console=display_console):
+            try:
+                async with agent.run_mcp_servers():
+                    response = await agent.run(
+                        prompt, usage_limits=get_custom_usage_limits()
+                    )
+            except Exception as mcp_error:
+                from code_puppy.messaging import emit_warning
+
+                emit_warning(f"MCP server error: {str(mcp_error)}")
+                emit_warning("Running without MCP servers...")
+                # Run without MCP servers as fallback
+                response = await agent.run(
+                    prompt, usage_limits=get_custom_usage_limits()
+                )
+
+        agent_response = response.output
+        emit_system_message(
+            f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
+        )
+
+    except Exception as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(f"Error executing prompt: {str(e)}")
+
+
+async def prompt_then_interactive_mode(message_renderer) -> None:
+    """Prompt user for input, execute it, then continue in interactive mode."""
+    from code_puppy.messaging import emit_info, emit_system_message
+
+    emit_info("[bold green]🐶 Code Puppy[/bold green] - Enter your request")
+    emit_system_message(
+        "After processing your request, you'll continue in interactive mode."
+    )
+
+    try:
+        # Get user input
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_input_with_combined_completion,
+            get_prompt_with_active_model,
+        )
+        from code_puppy.config import COMMAND_HISTORY_FILE
+
+        emit_info("[bold blue]What would you like me to help you with?[/bold blue]")
+
+        try:
+            # Use prompt_toolkit for enhanced input with path completion
+            user_prompt = await get_input_with_combined_completion(
+                get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+            )
+        except ImportError:
+            # Fall back to basic input if prompt_toolkit is not available
+            user_prompt = input(">>> ")
+
+        if user_prompt.strip():
+            # Execute the prompt
+            await execute_single_prompt(user_prompt, message_renderer)
+
+            # Transition to interactive mode
+            emit_system_message("\n" + "=" * 50)
+            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+            emit_system_message(
+                "Your request and response are preserved in the conversation history."
+            )
+            emit_system_message("=" * 50 + "\n")
+
+            # Continue in interactive mode with the initial command as history
+            await interactive_mode(message_renderer, initial_command=user_prompt)
+        else:
+            # No input provided, just go to interactive mode
+            await interactive_mode(message_renderer)
+
+    except (KeyboardInterrupt, EOFError):
+        from code_puppy.messaging import emit_warning
+
+        emit_warning("\nInput cancelled. Starting interactive mode...")
+        await interactive_mode(message_renderer)
+    except Exception as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(f"Error in prompt mode: {str(e)}")
+        emit_info("Falling back to interactive mode...")
+        await interactive_mode(message_renderer)
+
+
 def main_entry():
     """Entry point for the installed CLI tool."""
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # Just exit gracefully with no error message
+        callbacks.on_shutdown()
+        return 0
 
 
 if __name__ == "__main__":
