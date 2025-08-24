@@ -40,7 +40,6 @@ def create_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> httpx.AsyncClient:
-    # If verify is None, use the Walmart certificate bundle
     if verify is None:
         verify = get_cert_bundle_path()
 
@@ -92,7 +91,6 @@ def create_reopenable_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> Union["ReopenableAsyncClient", httpx.AsyncClient]:
-    # If verify is None, use the Walmart certificate bundle
     if verify is None:
         verify = get_cert_bundle_path()
 

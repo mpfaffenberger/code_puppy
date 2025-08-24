@@ -48,7 +48,7 @@ class CodePuppyTUI(App):
     """Main Code Puppy TUI application."""
 
     TITLE = "Code Puppy - AI Code Assistant"
-    SUB_TITLE = "Walmart Global Tech Edition"
+    SUB_TITLE = "TUI Mode"
 
     CSS = """
     Screen {

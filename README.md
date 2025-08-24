@@ -21,7 +21,7 @@
 - **Legacy Code (Pre-July 7, 2025):** Open Source (MIT License)
 - **Walmart Enhancements (Post-July 7, 2025):** Proprietary Walmart Inc.
 - **Original Contributors:** Michael Pfaffenberger, John Choi, Jacob Simpson
-- **See [LICENSE](LICENSE) for complete dual licensing details**
+- **See [LICENSE](code_puppy/plugins/walmart_specific/LICENSE) for complete dual licensing details**
 
 ## Overview
 
@@ -113,7 +113,7 @@ This Walmart internal fork operates under a **dual licensing model**:
 
 **Original Repository:** [github.com/mpfaffenberger/code_puppy](https://github.com/mpfaffenberger/code_puppy/)
 
-See the [LICENSE](LICENSE) file for complete legal details and contributor acknowledgments.
+See the [LICENSE](code_puppy/plugins/walmart_specific/LICENSE) file for complete legal details and contributor acknowledgments.
 
 ## 🌟 Walmart Global Tech Optimizations
 

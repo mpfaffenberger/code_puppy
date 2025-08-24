@@ -328,7 +328,7 @@ This project adheres to the [Contributor Covenant code of conduct](https://www.c
 - All code submissions are subject to our dual-license model: Contributions pre July 7, 2025, fall under MIT license; post July 7, 2025, are Walmart proprietary properties.
 
 ## Licensing Agreement
-- By contributing, you agree that your contributions will be dual-licensed under the relevant terms mentioned in the [LICENSE](LICENSE) file.
+- By contributing, you agree that your contributions will be dual-licensed under the relevant terms mentioned in the [LICENSE](code_puppy/plugins/walmart_specific/LICENSE) file.
 
 
 ---
