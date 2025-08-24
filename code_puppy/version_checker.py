@@ -1,81 +1,35 @@
 import httpx
 
-from .http_utils import create_client
-from .urls import get_latest_version_url
+from code_puppy.tools.common import console
 
 
 def normalize_version(version_str):
-    """
-    Normalize version string by removing 'v' prefix for comparison.
-
-    Args:
-        version_str: Version string like "v0.0.78" or "0.0.78"
-
-    Returns:
-        str: Normalized version string without 'v' prefix
-    """
     if not version_str:
         return version_str
     return version_str.lstrip("v")
 
 
 def versions_are_equal(current, latest):
-    """
-    Compare two version strings, ignoring 'v' prefix differences.
-
-    Args:
-        current: Current version string
-        latest: Latest version string
-
-    Returns:
-        bool: True if versions are equivalent
-    """
     return normalize_version(current) == normalize_version(latest)
 
 
-def fetch_latest_version(package_name=None):
-    """
-    Fetch the latest version from the code-puppy staging API.
-
-    Args:
-        package_name: Ignored for backwards compatibility. We always fetch from the staging API.
-
-    Returns:
-        str: Latest version string (e.g., "v0.0.78") or None if fetch fails
-    """
+def fetch_latest_version(package_name):
     try:
-        # Use properly configured httpx client with correct certificates and 10 second timeout
-        with create_client(timeout=10) as client:
-            response = client.get(get_latest_version_url())
-            response.raise_for_status()  # Raise an error for bad responses
-            data = response.json()
-
-            # Check if the response has the expected structure
-            if not data.get("success"):
-                print(
-                    f"API returned unsuccessful response: {data.get('message', 'Unknown error')}"
-                )
-                return None
-
-            # Extract version from nested structure
-            version = data.get("data", {}).get("version")
-            if not version:
-                print("Error: Version not found in API response")
-                return None
-
-            return normalize_version(version)
-
-    except httpx.TimeoutException:
-        print("Error fetching version: Request timed out")
-        return None
-    except httpx.HTTPStatusError as e:
-        print(
-            f"Error fetching version: HTTP {e.response.status_code} - {e.response.reason_phrase}"
-        )
-        return None
-    except httpx.RequestError as e:
+        response = httpx.get(f"https://pypi.org/pypi/{package_name}/json")
+        response.raise_for_status()  # Raise an error for bad responses
+        data = response.json()
+        return data["info"]["version"]
+    except Exception as e:
         print(f"Error fetching version: {e}")
         return None
-    except (KeyError, ValueError) as e:
-        print(f"Error parsing version response: {e}")
-        return None
+
+
+def default_version_mismatch_behavior(current_version):
+    latest_version = fetch_latest_version("code-puppy")
+    console.print(f"Current version: {current_version}")
+    console.print(f"Latest version: {latest_version}")
+    if latest_version and latest_version != current_version:
+        console.print(
+            f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
+        )
+        console.print("[bold green]Please consider updating![/bold green]")

@@ -1,23 +1,18 @@
 import argparse
 import asyncio
 import os
-import shutil
-import socket
 import subprocess
 import sys
+import time
 import webbrowser
 
-# HTTP server imports
-import uvicorn
-from dotenv import load_dotenv
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from code_puppy import __version__, state_management
+from code_puppy import __version__, callbacks, plugins, state_management
 from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
-from code_puppy.auth import authenticate_puppy, get_puppy_token
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
@@ -28,162 +23,19 @@ from code_puppy.config import (
     initialize_command_history_file,
     save_command_to_history,
 )
-
-# HTTP server imports
-from code_puppy.http_server import app as http_app
+from code_puppy.http_utils import find_available_port
 from code_puppy.message_history_processor import (
     message_history_accumulator,
     prune_interrupted_tool_calls,
 )
 from code_puppy.state_management import is_tui_mode, set_tui_mode
-
-# Initialize rich console for pretty output
 from code_puppy.tools.common import console
-from code_puppy.urls import get_setup_url
-from code_puppy.version_checker import fetch_latest_version, versions_are_equal
+from code_puppy.version_checker import default_version_mismatch_behavior
 
-# from code_puppy.tools import *  # noqa: F403
-
-
-def display_disclaimer():
-    """Display a disclaimer message about data sensitivity and usage guidelines."""
-    from code_puppy.messaging import emit_system_message
-
-    message = "\n[bold yellow]DISCLAIMER : Be a responsible Puppy Owner[/bold yellow]"
-    emit_system_message(message)
-
-    message = "[yellow]Prompt responsibly: Only use internal data available to all HO associates. No permission based data should be included in prompts.[/yellow]"
-    emit_system_message(message)
-
-    message = (
-        "[yellow]All information entered will be monitored in accordance with "
-        "applicable Walmart policies and used for enhancement of this tool and "
-        "AI adoption at Walmart. Refer to "
-        "[link=https://one.walmart.com/content/uswire/en_us/work1/policies/"
-        "people-policies/company-issued-equipment-useage.html]usage[/link] "
-        "for best practices on secure usage.[/yellow]\n"
-    )
-    emit_system_message(message)
+plugins.load_plugin_callbacks()
 
 
-def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
-    """Find an available port in the given range.
-
-    Args:
-        start_port: First port to try (default: 8090)
-        end_port: Last port to try (default: 9010)
-        host: Host to bind to (default: 127.0.0.1)
-
-    Returns:
-        int: Available port number, or None if no ports available
-    """
-    for port in range(start_port, end_port + 1):
-        try:
-            # Try to bind to the port to check if it's available
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind((host, port))
-                return port
-        except OSError:
-            # Port is in use, try the next one
-            continue
-    return None
-
-
-def _handle_update(current_version, latest_version):
-    """Handle the auto-update process if a new version is available."""
-    from code_puppy.messaging import emit_system_message
-
-    update_available_msg = f"A new version of code puppy is available: {latest_version}"
-    emit_system_message(f"[bold yellow]{update_available_msg}[/bold yellow]")
-    emit_system_message("[bold green]Auto-updating now...[/bold green]")
-
-    try:
-        if sys.platform == "win32":
-            # Windows update command
-            update_command = "iwr -useb https://puppy.stg.walmart.com/api/releases/setup_windows | iex"
-            emit_system_message(f"[dim]Running: {update_command}[/dim]")
-            result = subprocess.run(
-                update_command,
-                shell=True,
-                timeout=120,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                success_msg = "✅ Update completed successfully!"
-                restart_msg = "Restarting code-puppy..."
-                emit_system_message(f"[bold green]{success_msg}[/bold green]")
-                emit_system_message(f"[yellow]{restart_msg}[/yellow]")
-                sys.exit(0)
-            else:
-                error_msg = f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
-                emit_system_message(f"[bold red]{error_msg}[/bold red]")
-
-        else:
-            # macOS and Linux update
-            setup_url = get_setup_url()
-            emit_system_message(f"[dim]{setup_url}[/dim]")
-
-            result = subprocess.run(
-                ["curl", "-skSL", setup_url],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            if result.returncode == 0:
-                bash_result = subprocess.run(
-                    ["bash"], input=result.stdout, text=True, timeout=120
-                )
-
-                if bash_result.returncode == 0:
-                    success_msg = "✅ Update completed successfully!"
-                    restart_msg = "Restarting code-puppy..."
-                    emit_system_message(f"[bold green]{success_msg}[/bold green]")
-                    emit_system_message(f"[yellow]{restart_msg}[/yellow]")
-                    sys.exit(0)
-                else:
-                    error_msg = f"❌ Update script failed with exit code: {bash_result.returncode}"
-                    emit_system_message(f"[bold red]{error_msg}[/bold red]")
-            else:
-                error_msg = f"❌ Failed to download update script: {result.stderr}"
-                emit_system_message(f"[bold red]{error_msg}[/bold red]")
-
-    except subprocess.TimeoutExpired:
-        timeout_msg = "❌ Update timed out"
-        emit_system_message(f"[bold red]{timeout_msg}[/bold red]")
-    except Exception as e:
-        error_msg = f"❌ An unexpected error occurred during update: {str(e)}"
-        emit_system_message(f"[bold red]{error_msg}[/bold red]")
-
-    continue_msg = "Continuing with current version..."
-    emit_system_message(f"[yellow]{continue_msg}[/yellow]")
-
-
-def print_textual_installation_help(direct_console: Console):
-    """Print helpful instructions for installing the textual CLI."""
-
-    direct_console.print("[bold red]Error:[/bold red] 'textual' command not found.")
-    direct_console.print(
-        "\n[bold yellow]The textual CLI is required to run code-puppy in web mode.[/bold yellow]"
-    )
-    direct_console.print("\n[bold blue]Installation:[/bold blue]")
-    direct_console.print("[green]pip install textual-dev[/green]")
-    direct_console.print("\n[dim]After installation, you can run:[/dim]")
-    direct_console.print("[green]code-puppy --web[/green]")
-    direct_console.print(
-        "\n[dim]For more info, visit: https://textual.textualize.io/[/dim]"
-    )
-
-
-# ===================================
-# main
-# ===================================
 async def main():
-    # Import console early for help display
-
-    # Parse arguments FIRST to determine if we're in TUI mode
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
         "--version",
@@ -216,17 +68,12 @@ async def main():
     )
     args = parser.parse_args()
 
-    # Determine if we're in TUI mode early and set it globally
-    # Web mode also uses TUI interface (served in browser), so treat it as TUI mode
     if args.tui or args.web:
         set_tui_mode(True)
     elif args.interactive or args.command or args.prompt:
-        # Default to interactive mode when commands are provided or explicitly requested
         set_tui_mode(False)
 
-    # Set up message renderer for interactive mode
     message_renderer = None
-    # Initialize message_renderer for any non-TUI mode that will use interactive_mode
     if not is_tui_mode():
         from rich.console import Console
 
@@ -242,9 +89,6 @@ async def main():
         )
         message_renderer.start()
 
-    # Import message queue functions early
-    # Determine mode based on arguments
-    # If no specific mode flags are provided and no command/prompt, we'll default to prompt-then-interactive
     if (
         not args.tui
         and not args.interactive
@@ -252,28 +96,13 @@ async def main():
         and not args.command
         and not args.prompt
     ):
-        # New behavior: prompt for input then continue in interactive mode
-        # This will be handled later in the main logic
         pass
 
-    # Initialize command history file
     initialize_command_history_file()
-
-    # Handle web mode first - this will launch textual serve and exit
-    # NOTE: here we are using console.print, since the messaging system is not up yet
-    # and these messages need to be displayed in the terminal before actually starting code-puppy
     if args.web:
-        # Use a direct Rich console to ensure messages are displayed immediately
-        # The queue-based console might not be initialized at this early stage
         from rich.console import Console
 
         direct_console = Console()
-
-        # Check if textual CLI is available before proceeding
-        if shutil.which("textual") is None:
-            print_textual_installation_help(direct_console)
-            sys.exit(1)
-
         try:
             # Find an available port for the web server
             available_port = find_available_port()
@@ -282,14 +111,8 @@ async def main():
                     "[bold red]Error:[/bold red] No available ports in range 8090-9010!"
                 )
                 sys.exit(1)
-
-            # Construct the command to run code-puppy in TUI mode
             python_executable = sys.executable
-
-            # Use the entry point command that would be available after installation
             serve_command = f"{python_executable} -m code_puppy --tui"
-
-            # Try to use textual serve with -c flag for command mode and custom port
             textual_serve_cmd = [
                 "textual",
                 "serve",
@@ -298,27 +121,17 @@ async def main():
                 "--port",
                 str(available_port),
             ]
-
             direct_console.print(
                 "[bold blue]🌐 Starting Code Puppy web interface...[/bold blue]"
             )
             direct_console.print(f"[dim]Running: {' '.join(textual_serve_cmd)}[/dim]")
-
             web_url = f"http://localhost:{available_port}"
             direct_console.print(
                 f"[green]Web interface will be available at: {web_url}[/green]"
             )
             direct_console.print("[yellow]Press Ctrl+C to stop the server.[/yellow]\n")
-
-            # Start the textual serve process
             process = subprocess.Popen(textual_serve_cmd)
-
-            # Give the server a moment to start up
-            import time
-
             time.sleep(2)
-
-            # Automatically open the web interface in the default browser
             try:
                 direct_console.print(
                     "[cyan]🚀 Opening web interface in your default browser...[/cyan]"
@@ -332,122 +145,63 @@ async def main():
                 direct_console.print(
                     f"[yellow]Please manually open: {web_url}[/yellow]\n"
                 )
-
-            # Wait for the process to complete
             result = process.wait()
             sys.exit(result)
-
-        except FileNotFoundError:
-            # This should not happen anymore due to our pre-check, but keeping as fallback
-            print_textual_installation_help(direct_console=direct_console)
-            sys.exit(1)
         except Exception as e:
             direct_console.print(
                 f"[bold red]Error starting web interface:[/bold red] {str(e)}"
             )
             sys.exit(1)
-
-    # Import message queue functions early for TUI mode
     from code_puppy.messaging import emit_system_message
 
-    # Show immediate loading feedback to user
     emit_system_message("🐶 Code Puppy is Loading...")
 
-    # Find an available port for the HTTP server
     available_port = find_available_port()
     if available_port is None:
         error_msg = "Error: No available ports in range 8090-9010!"
         emit_system_message(f"[bold red]{error_msg}[/bold red]")
         return
 
-    # HTTP server starts silently in the background
-
-    # Start the HTTP server in the background
-    async def run_http_server():
-        try:
-            config = uvicorn.Config(
-                http_app,
-                host="127.0.0.1",
-                port=available_port,
-                log_level="critical",  # suppress most logs
-                access_log=False,  # suppress access logs
-            )
-            server = uvicorn.Server(config)
-            await server.serve()
-        except Exception as e:
-            # Log HTTP server errors but don't crash the main application
-            emit_system_message(f"[dim red]HTTP server error: {e}[/dim red]")
-
-    # Store the HTTP server task for proper lifecycle management
-    http_server_task = asyncio.create_task(run_http_server())
-
-    # Ensure the config directory and puppy.cfg with name info exist (prompt user if needed)
     ensure_config_exists()
     current_version = __version__
 
-    # Check if auto-update is disabled via environment variable
     no_version_update = os.getenv("NO_VERSION_UPDATE", "").lower() in (
         "1",
         "true",
         "yes",
         "on",
     )
-
-    # Print startup messages
     if no_version_update:
         version_msg = f"Current version: {current_version}"
         update_disabled_msg = (
-            "Auto-update disabled via NO_VERSION_UPDATE environment variable"
+            "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true"
         )
-
         emit_system_message(version_msg)
         emit_system_message(f"[dim]{update_disabled_msg}[/dim]")
     else:
-        latest_version = fetch_latest_version("code-puppy")
-        version_msg = f"Current version: {current_version}"
-        latest_msg = f"Latest version: {latest_version}"
+        if len(callbacks.get_callbacks("version_check")):
+            await callbacks.on_version_check(current_version)
+        else:
+            default_version_mismatch_behavior(current_version)
 
-        emit_system_message(version_msg)
-        emit_system_message(latest_msg)
-
-        if latest_version and not versions_are_equal(current_version, latest_version):
-            _handle_update(current_version, latest_version)
-
-    # Display the disclaimer message
-    display_disclaimer()
+    await callbacks.on_startup()
 
     global shutdown_flag
-    shutdown_flag = False  # ensure this is initialized
-
-    # Load environment variables from .env file
-    load_dotenv()
-
-    # Import the modified authenticate_puppy that accepts tui_mode
-    await authenticate_puppy(available_port)
-
-    token = get_puppy_token()
-    os.environ["puppy_token"] = token
-
+    shutdown_flag = False
     try:
-        # Prepare initial command and determine execution mode
         initial_command = None
         prompt_only_mode = False
 
         if args.prompt:
-            # -p flag: execute prompt and exit
             initial_command = args.prompt
             prompt_only_mode = True
         elif args.command:
-            # Positional command args: run in interactive mode with this as initial command
             initial_command = " ".join(args.command)
-            # Changed behavior: instead of exiting after one command, continue in interactive mode
             prompt_only_mode = False
 
-        # Handle prompt-only mode (execute once and exit)
         if prompt_only_mode:
             await execute_single_prompt(initial_command, message_renderer)
         elif is_tui_mode():
-            # Import here to avoid dependency issues if textual is not available
             try:
                 from code_puppy.tui import run_textual_ui
 
@@ -467,28 +221,13 @@ async def main():
                 emit_warning("Falling back to interactive mode...")
                 await interactive_mode(message_renderer)
         elif args.interactive or initial_command:
-            # Interactive mode (either explicit --interactive flag or we have an initial command)
             await interactive_mode(message_renderer, initial_command=initial_command)
         else:
-            # Default mode: prompt for input then continue in interactive mode
             await prompt_then_interactive_mode(message_renderer)
     finally:
-        # Stop the message renderer if it was started
         if message_renderer:
             message_renderer.stop()
-
-        # Clean up the HTTP server task when exiting
-        if not http_server_task.done():
-            http_server_task.cancel()
-            try:
-                await http_server_task
-            except asyncio.CancelledError:
-                pass  # Expected when cancelling
-            except Exception as e:
-                # Log cleanup errors but don't crash
-                emit_system_message(
-                    f"[dim red]HTTP server cleanup error: {e}[/dim red]"
-                )
+        await callbacks.on_shutdown()
 
 
 # Add the file handling functionality for interactive mode
@@ -498,14 +237,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     """Run the agent in interactive mode."""
     from code_puppy.state_management import clear_message_history, get_message_history
 
-    # Clear message history at the start of interactive mode
     clear_message_history()
-
-    # The message_renderer is now started in main() and passed in.
-    # We just need to make sure we stop it when we exit.
     display_console = message_renderer.console
-
-    # Now that the renderer is started, we can safely emit messages and see the output
     from code_puppy.messaging import emit_info, emit_system_message
 
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
@@ -517,12 +250,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
     )
-
-    # Show commands right at startup - DRY!
     from code_puppy.command_line.command_handler import COMMANDS_HELP
 
     emit_system_message(COMMANDS_HELP)
-    # Show MOTD if user hasn't seen it after an update
     try:
         from code_puppy.command_line.motd import print_motd
 
@@ -531,17 +261,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
-
-    # Load the agent early to capture MCP server registration messages (like TUI mode does)
-    # This ensures the "Registering Internal MCP Server..." messages are displayed
     from code_puppy.messaging import emit_info
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
-
-    # Load agent early (similar to TUI mode) to ensure MCP registration messages are captured
     get_code_generation_agent()
-
-    # Process initial command if provided
     if initial_command:
         from code_puppy.messaging import emit_info, emit_system_message
 
@@ -603,13 +326,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_system_message(
                 f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
             )
-
-            # Update message history with the initial command and response
-
             new_msgs = response.all_messages()
             message_history_accumulator(new_msgs)
 
-            # Show transition to interactive mode
             emit_system_message("\n" + "=" * 50)
             emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
             emit_system_message(
@@ -984,6 +703,7 @@ def main_entry():
         asyncio.run(main())
     except KeyboardInterrupt:
         # Just exit gracefully with no error message
+        callbacks.on_shutdown()
         return 0
 
 

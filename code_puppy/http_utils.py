@@ -5,7 +5,7 @@ This module provides functions for creating properly configured HTTP clients.
 """
 
 import os
-import pathlib
+import socket
 from typing import Dict, Optional, Union
 
 import httpx
@@ -18,24 +18,10 @@ except ImportError:
 
 
 def get_cert_bundle_path() -> str:
-    """
-    Get the path to the certificate bundle to use.
-
-    First checks if SSL_CERT_FILE environment variable is set.
-    If not, falls back to the bundled Walmart certificate.
-
-    Returns:
-        Path to the certificate bundle file
-    """
     # First check if SSL_CERT_FILE environment variable is set
     ssl_cert_file = os.environ.get("SSL_CERT_FILE")
     if ssl_cert_file and os.path.exists(ssl_cert_file):
         return ssl_cert_file
-
-    # Fall back to the bundled certificate
-    module_dir = pathlib.Path(__file__).parent.absolute()
-    cert_path = module_dir / "certs" / "walmart-bundle.pem"
-    return str(cert_path)
 
 
 def create_client(
@@ -43,19 +29,6 @@ def create_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> httpx.Client:
-    """
-    Create a synchronous HTTP client with the specified configuration.
-
-    Args:
-        verify: Whether to verify SSL certificates. If None, uses the Walmart certificate bundle.
-               If True, uses the default CA bundle. If False, disables verification.
-               Can also be a path to a specific certificate bundle.
-        headers: Optional headers to include with requests
-
-    Returns:
-        Configured httpx.Client instance
-    """
-    # If verify is None, use the Walmart certificate bundle
     if verify is None:
         verify = get_cert_bundle_path()
 
@@ -67,18 +40,6 @@ def create_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> httpx.AsyncClient:
-    """
-    Create an asynchronous HTTP client with the specified configuration.
-
-    Args:
-        verify: Whether to verify SSL certificates. If None, uses the Walmart certificate bundle.
-               If True, uses the default CA bundle. If False, disables verification.
-               Can also be a path to a specific certificate bundle.
-        headers: Optional headers to include with requests
-
-    Returns:
-        Configured httpx.AsyncClient instance
-    """
     # If verify is None, use the Walmart certificate bundle
     if verify is None:
         verify = get_cert_bundle_path()
@@ -91,22 +52,8 @@ def create_requests_session(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> requests.Session:
-    """
-    Create a requests Session with the specified configuration.
-
-    Args:
-        timeout: Request timeout in seconds
-        verify: Whether to verify SSL certificates. If None, uses the Walmart certificate bundle.
-               If True, uses the default CA bundle. If False, disables verification.
-               Can also be a path to a specific certificate bundle.
-        headers: Optional headers to include with requests
-
-    Returns:
-        Configured requests.Session instance
-    """
     session = requests.Session()
 
-    # If verify is None, use the Walmart certificate bundle
     if verify is None:
         verify = get_cert_bundle_path()
 
@@ -121,38 +68,15 @@ def create_requests_session(
 def create_auth_headers(
     api_key: str, header_name: str = "Authorization"
 ) -> Dict[str, str]:
-    """
-    Create authorization headers using the provided API key.
-
-    Args:
-        api_key: The API key to use for authorization
-        header_name: The header name to use (default: "Authorization")
-
-    Returns:
-        Dictionary containing the authorization header
-    """
     return {header_name: f"Bearer {api_key}"}
 
 
 def resolve_env_var_in_header(headers: Dict[str, str]) -> Dict[str, str]:
-    """
-    Resolve environment variables in header values.
-
-    Supports $VAR and ${VAR} anywhere in the string, not just at the start,
-    using os.path.expandvars semantics.
-
-    Args:
-        headers: Dictionary of headers that may contain environment variable references
-
-    Returns:
-        Dictionary with resolved header values
-    """
     resolved_headers = {}
 
     for key, value in headers.items():
         if isinstance(value, str):
             try:
-                # Expand $VAR or ${VAR} anywhere in the string
                 expanded = os.path.expandvars(value)
                 resolved_headers[key] = expanded
             except Exception:
@@ -168,22 +92,6 @@ def create_reopenable_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> Union["ReopenableAsyncClient", httpx.AsyncClient]:
-    """
-    Create a reopenable asynchronous HTTP client with the specified configuration.
-
-    This client can be closed and reopened multiple times, unlike the standard
-    httpx.AsyncClient which becomes unusable after calling aclose().
-
-    Args:
-        timeout: Request timeout in seconds
-        verify: Whether to verify SSL certificates. If None, uses the Walmart certificate bundle.
-               If True, uses the default CA bundle. If False, disables verification.
-               Can also be a path to a specific certificate bundle.
-        headers: Optional headers to include with requests
-
-    Returns:
-        ReopenableAsyncClient instance if available, otherwise falls back to httpx.AsyncClient
-    """
     # If verify is None, use the Walmart certificate bundle
     if verify is None:
         verify = get_cert_bundle_path()
@@ -198,11 +106,19 @@ def create_reopenable_async_client(
 
 
 def is_cert_bundle_available() -> bool:
-    """
-    Check if the certificate bundle is available.
-
-    Returns:
-        True if the certificate bundle exists, False otherwise
-    """
     cert_path = get_cert_bundle_path()
     return os.path.exists(cert_path) and os.path.isfile(cert_path)
+
+
+def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
+    for port in range(start_port, end_port + 1):
+        try:
+            # Try to bind to the port to check if it's available
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind((host, port))
+                return port
+        except OSError:
+            # Port is in use, try the next one
+            continue
+    return None

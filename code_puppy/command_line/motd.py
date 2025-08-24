@@ -8,36 +8,13 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-08-22"
+MOTD_VERSION = "2025-08-24"
 MOTD_MESSAGE = """🐕‍🦺
 🐾```
-# 🐶🎉🐕 WOOF WOOF! AUGUST 22ND FLEA COLLAR! 🐕🎉🐶
-
-**Fleas flicked**:
-
- * 🐶 Message history compaction should now be much more graceful
-    * 🐶 The agent can continue its task even if compaction occurs mid-tool-call
-    * 🐶 There is now a configurable buffer of token context (the most recent `50,000` by default)
-       that is protected from compaction.
-    * 🐶 There is now a configurable `compaction threshold` which defaults to `0.85`
-        * 🐶 The compaction will trigger once the context length exceeds this threshold
-
-**New features**:
- * 🐶 Save your session with the new command `/dump_context <session_name>`
-    * 🐶 Auto-naming and auto-save will come soon
- * 🐶 Load your previous session with `/load_session <session_name>`
- * 🐶 You can now add a custom header block in your MCP JSON, like such:
- ```json
- "jira": {
-    "type": "http",
-    "url": "https://mcp-jira.stage.walmart.com/mcp/",
-    "headers": {
-      "Authorization": "Bearer <token>"
-    },
-    "walmart_internal": true
-  }
- ```
-
+# 🐶🎉🐕 WOOF WOOF! AUGUST 24th 🐕🎉🐶
+40k Downloads! Woot!
+Thanks for your support!
+-Mike
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 

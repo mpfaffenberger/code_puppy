@@ -1,3 +1,4 @@
+from code_puppy import callbacks
 from code_puppy.config import get_owner_name, get_puppy_name
 
 SYSTEM_PROMPT_TEMPLATE = """
@@ -98,7 +99,6 @@ Important rules:
 - After using system operations tools, always explain the results
 - You're encouraged to loop between share_your_reasoning, file tools, and run_shell_command to test output in order to write programs
 - Aim to continue operations independently unless user input is definitively required.
-- Always use uv when working with python, and always use --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple
 
 Your solutions should be production-ready, maintainable, and follow best practices for the chosen language.
 
@@ -108,6 +108,10 @@ Return your final response as a string output
 
 def get_system_prompt():
     """Returns the main system prompt, populated with current puppy and owner name."""
-    return SYSTEM_PROMPT_TEMPLATE.format(
+    prompt_additions = callbacks.on_load_prompt()
+    main_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         puppy_name=get_puppy_name(), owner_name=get_owner_name()
     )
+    if len(prompt_additions):
+        main_prompt += "\n".join(prompt_additions)
+    return main_prompt

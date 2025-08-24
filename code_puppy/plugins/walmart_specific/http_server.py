@@ -26,11 +26,9 @@ async def save_token(puppy_token: str = Form(...)):
     preserving other config values.
     """
     try:
-        # Ensure config directory exists
         os.makedirs(CONFIG_DIR, exist_ok=True)
         config_lines = []
         found = False
-        # Read existing config if it exists
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r") as f:
                 for line in f:

@@ -14,8 +14,7 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-
-from .urls import get_authentication_url
+from code_puppy.plugins.walmart_specific.urls import get_authentication_url
 
 
 def decode_jwt_without_validation(token: str) -> Optional[dict]:

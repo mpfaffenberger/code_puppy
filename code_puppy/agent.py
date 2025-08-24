@@ -54,12 +54,11 @@ class AgentResponse(pydantic.BaseModel):
     )
 
 
-# --- NEW DYNAMIC AGENT LOGIC ---
 _LAST_MODEL_NAME = None
 _code_generation_agent = None
 
 
-def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
+def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
     from code_puppy.config import get_value, load_mcp_server_configs
 
     # Check if MCP servers are disabled
@@ -76,12 +75,10 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
     for name, conf in configs.items():
         server_type = conf.get("type", "sse")
         url = conf.get("url")
-        walmart_internal = conf.get("walmart_internal", False)
         timeout = conf.get("timeout", 30)
-        # Build per-server headers: start with walmart headers if internal, then merge user headers
         server_headers = {}
-        if walmart_internal and walmart_headers:
-            server_headers.update(walmart_headers)
+        if extra_headers:
+            server_headers.update(extra_headers)
         user_headers = conf.get("headers") or {}
         if isinstance(user_headers, dict) and user_headers:
             try:
@@ -89,13 +86,12 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
             except Exception:
                 pass
             server_headers.update(user_headers)
-        # We’ll build the http_client per branch with the right timeout
         http_client = None
 
         try:
             if server_type == "http" and url:
                 emit_system_message(
-                    f"Registering {'Internal ' if walmart_internal else ''}MCP Server (HTTP) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
+                    f"Registering MCP Server (HTTP) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
                 )
                 http_client = create_reopenable_async_client(
                     timeout=timeout, headers=server_headers or None, verify=False
@@ -120,7 +116,7 @@ def _load_mcp_servers(walmart_headers: Optional[Dict[str, str]] = None):
                     emit_error(f"MCP Server '{name}' missing required 'command' field")
             elif server_type == "sse" and url:
                 emit_system_message(
-                    f"Registering {'Internal ' if walmart_internal else ''} MCP Server (SSE) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
+                    f"Registering MCP Server (SSE) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
                 )
                 # For SSE, allow long reads; only bound connect timeout
                 http_client = create_reopenable_async_client(
