@@ -232,7 +232,7 @@ def handle_command(command: str):
  4 Create a markdown file: Generate a PR_DESCRIPTION.md file with proper GitHub markdown formatting that I can directly copy-paste into GitHub's PR
    description field. Use proper markdown syntax with headers, bullet points, code blocks, and formatting.
  5 Make it review-ready: Ensure the description helps reviewers understand the context, approach, and impact of the changes.
-6. If you have Github MCP, or gh cli is installed and authenticated to gecgithub01.walmart.com then find the PR for the branch we analyzed and update the PR description there and then delete the PR_DESCRIPTION.md file. (If you have a better name (title) for the PR, go ahead and update the title too.{directory_context}"""
+6. If you have Github MCP, or gh cli is installed and authenticated then find the PR for the branch we analyzed and update the PR description there and then delete the PR_DESCRIPTION.md file. (If you have a better name (title) for the PR, go ahead and update the title too.{directory_context}"""
 
         # Return the prompt to be processed by the main chat system
         return pr_prompt
