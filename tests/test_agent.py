@@ -3,12 +3,6 @@ from unittest.mock import MagicMock, patch
 import code_puppy.agent as agent_module
 
 
-def test_agentresponse_model():
-    resp = agent_module.AgentResponse(output_message="hi", awaiting_user_input=True)
-    assert resp.output_message == "hi"
-    assert resp.awaiting_user_input is True
-
-
 def test_session_memory_singleton():
     # Skip this test since session_memory is no longer a module-level function
     # Should always return the same instance
@@ -125,20 +119,3 @@ def test_get_code_generation_agent_cached(monkeypatch):
     with patch("code_puppy.config.get_model_name", return_value="gpt-4o"):
         out = agent_module.get_code_generation_agent(force_reload=False)
     assert out == "CACHED"
-
-
-def test_puppy_rules_loading(tmp_path):
-    # Simulate .puppy_rules file
-    rules_path = tmp_path / ".puppy_rules"
-    rules_path.write_text("RULES!")
-    agent_module.load_puppy_rules(rules_path)
-    assert agent_module.PUPPY_RULES == "RULES!"
-
-
-def test_puppy_rules_not_present(tmp_path):
-    # No .puppy_rules file
-    rules_path = tmp_path / ".puppy_rules"
-    if rules_path.exists():
-        rules_path.unlink()
-    agent_module.load_puppy_rules(rules_path)
-    assert agent_module.PUPPY_RULES is None

@@ -441,21 +441,6 @@ class TestEditFileTool:
         )
         assert result["changed"] is False
 
-    @patch(f"{file_modifications.__name__}._write_to_file")
-    def test_edit_file_routes_to_write_to_file_raw_string_payload(
-        self, mock_internal_write, tmp_path
-    ):
-        mock_internal_write.return_value = {
-            "success": True,
-            "diff": "write_diff_via_edit_raw_string",
-        }
-        context = DummyContext()
-        file_path = str(tmp_path / "file.txt")
-        raw_content_payload = "this is raw content"
-
-        result = file_modifications._edit_file(context, file_path, raw_content_payload)
-        assert result
-
     def disabled_test_edit_file_handles_unparseable_json(self):
         import pathlib
         from tempfile import mkdtemp

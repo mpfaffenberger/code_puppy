@@ -51,7 +51,7 @@ class TestEnsureConfigExists:
 
         mock_input_values = {
             "What should we name the puppy? ": "TestPuppy",
-            "What's your name (so Code Puppy knows its master)? ": "TestOwner",
+            "What's your name (so Code Puppy knows its owner)? ": "TestOwner",
         }
         mock_input = MagicMock(side_effect=lambda prompt: mock_input_values[prompt])
         monkeypatch.setattr("builtins.input", mock_input)
@@ -87,7 +87,7 @@ class TestEnsureConfigExists:
 
         mock_input_values = {
             "What should we name the puppy? ": "DirExistsPuppy",
-            "What's your name (so Code Puppy knows its master)? ": "DirExistsOwner",
+            "What's your name (so Code Puppy knows its owner)? ": "DirExistsOwner",
         }
         mock_input = MagicMock(side_effect=lambda prompt: mock_input_values[prompt])
         monkeypatch.setattr("builtins.input", mock_input)
@@ -169,7 +169,7 @@ class TestEnsureConfigExists:
         monkeypatch.setattr(configparser, "ConfigParser", mock_cp)
 
         mock_input_values = {
-            "What's your name (so Code Puppy knows its master)? ": "PartialOwnerFilled"
+            "What's your name (so Code Puppy knows its owner)? ": "PartialOwnerFilled"
         }
         # Only owner_name should be prompted
         mock_input = MagicMock(side_effect=lambda prompt: mock_input_values[prompt])

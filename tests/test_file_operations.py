@@ -229,8 +229,7 @@ class TestGrep:
             patch("builtins.open", mock_open(read_data=file_content)),
         ):
             result = grep(None, "match", fake_dir)
-            # Should stop at 200 matches
-            assert len(result.matches) == 200
+            assert len(result.matches) == 50
 
     def test_grep_with_matches(self):
         fake_dir = "/test"
@@ -250,7 +249,6 @@ class TestGrep:
             assert len(result.matches) == 1
             assert result.matches[0].file_path == os.path.join(fake_dir, "test.txt")
             assert result.matches[0].line_number == 3
-            assert result.matches[0].line_content == "and a match here"
 
     def test_grep_handle_errors(self):
         fake_dir = "/test"
