@@ -1,11 +1,10 @@
 import asyncio
-import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 from pydantic_ai import Agent
 
-from code_puppy.config import CONFIG_DIR
+from code_puppy.config import get_model_name
 from code_puppy.model_factory import ModelFactory
 
 # Keep a module-level agent reference to avoid rebuilding per call
@@ -53,9 +52,10 @@ def run_summarization_sync(prompt: str, message_history: List) -> List:
 
 def reload_summarization_agent():
     """Create a specialized agent for summarizing messages when context limit is reached."""
+    models_config = ModelFactory.load_config()
     model_name = "gemini-2.5-pro"
-    models_config_path = os.path.join(CONFIG_DIR, "models.json")
-    models_config = ModelFactory.load_config(models_config_path)
+    if model_name not in models_config:
+        model_name = get_model_name()
     model = ModelFactory.get_model(model_name, models_config)
 
     # Specialized instructions for summarization

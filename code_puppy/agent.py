@@ -1,14 +1,16 @@
-import os
 from pathlib import Path
 from typing import Dict, Optional
 
-import pydantic
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agent_prompts import get_system_prompt
+from code_puppy.http_utils import (
+    create_reopenable_async_client,
+    resolve_env_var_in_header,
+)
 from code_puppy.message_history_processor import (
     get_model_context_length,
     message_history_accumulator,
@@ -20,40 +22,20 @@ from code_puppy.messaging.message_queue import (
 )
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools import register_all_tools
-
-from .http_utils import create_reopenable_async_client, resolve_env_var_in_header
-from .tools.common import console
-
-# Puppy rules loader
-PUPPY_RULES_PATH = Path(".puppy_rules")
-PUPPY_RULES = None
+from code_puppy.tools.common import console
 
 
-def load_puppy_rules(path=None):
+def load_puppy_rules():
     global PUPPY_RULES
-    rules_path = Path(path) if path else PUPPY_RULES_PATH
-    if rules_path.exists():
-        with open(rules_path, "r") as f:
-            PUPPY_RULES = f.read()
-    else:
-        PUPPY_RULES = None
+    puppy_rules_path = Path("AGENT.md")
+    if puppy_rules_path.exists():
+        with open(puppy_rules_path, "r") as f:
+            puppy_rules = f.read()
+            return puppy_rules
 
 
 # Load at import
-load_puppy_rules()
-
-
-class AgentResponse(pydantic.BaseModel):
-    """Represents a response from the agent."""
-
-    output_message: str = pydantic.Field(
-        ..., description="The final output message to display to the user"
-    )
-    awaiting_user_input: bool = pydantic.Field(
-        False, description="True if user input is needed to continue the task"
-    )
-
-
+PUPPY_RULES = load_puppy_rules()
 _LAST_MODEL_NAME = None
 _code_generation_agent = None
 
@@ -155,10 +137,7 @@ def reload_code_generation_agent():
 
     model_name = get_model_name()
     emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
-    from code_puppy.config import CONFIG_DIR
-
-    models_config_path = os.path.join(CONFIG_DIR, "models.json")
-    models_config = ModelFactory.load_config(models_config_path)
+    models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
     instructions = get_system_prompt()
     if PUPPY_RULES:
@@ -168,7 +147,7 @@ def reload_code_generation_agent():
 
     # Configure model settings with max_tokens if set
     model_settings_dict = {"seed": 42}
-    output_tokens = int(0.05 * get_model_context_length()) - 1024
+    output_tokens = min(int(0.05 * get_model_context_length()) - 1024, 16384)
     console.print(f"Max output tokens per message: {output_tokens}")
     model_settings_dict["max_tokens"] = output_tokens
 
@@ -176,7 +155,7 @@ def reload_code_generation_agent():
     agent = Agent(
         model=model,
         instructions=instructions,
-        output_type=AgentResponse,
+        output_type=str,
         retries=3,
         mcp_servers=mcp_servers,
         history_processors=[message_history_accumulator],

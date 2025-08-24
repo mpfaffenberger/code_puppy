@@ -496,7 +496,7 @@ def share_your_reasoning(
 def register_command_runner_tools(agent):
     @agent.tool
     def agent_run_shell_command(
-        context: RunContext, command: str, cwd: str = None, timeout: int = 60
+        context: RunContext, command: str = "", cwd: str = None, timeout: int = 60
     ) -> ShellCommandOutput:
         """Execute a shell command with comprehensive monitoring and safety features.
 
@@ -547,7 +547,7 @@ def register_command_runner_tools(agent):
 
     @agent.tool
     def agent_share_your_reasoning(
-        context: RunContext, reasoning: str, next_steps: str | None = None
+        context: RunContext, reasoning: str = "", next_steps: str | None = None
     ) -> ReasoningOutput:
         """Share the agent's current reasoning and planned next steps with the user.
 

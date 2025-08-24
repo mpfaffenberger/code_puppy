@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import pathlib
 from typing import Any, Dict
 
 import httpx
@@ -14,6 +15,7 @@ from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from . import callbacks
+from .config import EXTRA_MODELS_FILE
 from .http_utils import create_async_client
 
 # Environment variables used in this module:
@@ -60,25 +62,40 @@ def get_custom_config(model_config):
                 )
         else:
             api_key = custom_config["api_key"]
-    return url, headers, api_key
+    if "ca_certs_path" in custom_config:
+        verify = custom_config["ca_certs_path"]
+    else:
+        verify = None
+    return url, headers, verify, api_key
 
 
 class ModelFactory:
     """A factory for creating and managing different AI models."""
 
     @staticmethod
-    def load_config(config_path: str) -> Dict[str, Any]:
+    def load_config() -> Dict[str, Any]:
         load_model_config_callbacks = callbacks.get_callbacks("load_model_config")
         if len(load_model_config_callbacks) > 0:
             if len(load_model_config_callbacks) > 1:
                 logging.getLogger(__name__).warning(
                     "Multiple load_model_config callbacks registered, using the first"
                 )
-            config = callbacks.on_load_model_config(config_path)[0]
-            return config
-        """Loads model configurations from a JSON file."""
-        with open(config_path, "r") as f:
-            return json.load(f)
+            config = callbacks.on_load_model_config()[0]
+        else:
+            from code_puppy.config import MODELS_FILE
+
+            if not pathlib.Path(MODELS_FILE).exists():
+                with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
+                    with open(pathlib.Path(MODELS_FILE), "w") as target:
+                        target.write(src.read())
+
+            with open(MODELS_FILE, "r") as f:
+                config = json.load(f)
+        if pathlib.Path(EXTRA_MODELS_FILE).exists():
+            with open(EXTRA_MODELS_FILE, "r") as f:
+                extra_config = json.load(f)
+                config.update(extra_config)
+        return config
 
     @staticmethod
     def get_model(model_name: str, config: Dict[str, Any]) -> Any:
@@ -114,8 +131,8 @@ class ModelFactory:
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_anthropic":
-            url, headers, api_key = get_custom_config(model_config)
-            client = create_async_client(headers=headers)
+            url, headers, verify, api_key = get_custom_config(model_config)
+            client = create_async_client(headers=headers, verify=verify)
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
@@ -179,8 +196,8 @@ class ModelFactory:
             return model
 
         elif model_type == "custom_openai":
-            url, headers, api_key = get_custom_config(model_config)
-            client = create_async_client(headers=headers)
+            url, headers, verify, api_key = get_custom_config(model_config)
+            client = create_async_client(headers=headers, verify=verify)
             provider_args = dict(
                 base_url=url,
                 http_client=client,
@@ -194,7 +211,7 @@ class ModelFactory:
             return model
 
         elif model_type == "custom_gemini":
-            url, headers, api_key = get_custom_config(model_config)
+            url, headers, verify, api_key = get_custom_config(model_config)
             os.environ["GEMINI_API_KEY"] = api_key
 
             class CustomGoogleGLAProvider(GoogleGLAProvider):
@@ -207,7 +224,7 @@ class ModelFactory:
 
                 @property
                 def client(self) -> httpx.AsyncClient:
-                    _client = create_async_client(headers=headers)
+                    _client = create_async_client(headers=headers, verify=verify)
                     _client.base_url = self.base_url
                     return _client
 

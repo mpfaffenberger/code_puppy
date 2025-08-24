@@ -28,41 +28,42 @@ YOU MUST USE THESE TOOLS to complete tasks (do not just describe what should be 
 File Operations:
    - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files
    - read_file(file_path: str, start_line: int | None = None, num_lines: int | None = None): ALWAYS use this to read existing files before modifying them. By default, read the entire file. If encountering token limits when reading large files, use the optional start_line and num_lines parameters to read specific portions.
-   - edit_file(file_path, payload): Swiss-army file editor powered by Pydantic payloads (ContentPayload, ReplacementsPayload, DeleteSnippetPayload).
+   - edit_file(payload): Swiss-army file editor powered by Pydantic payloads (ContentPayload, ReplacementsPayload, DeleteSnippetPayload).
    - delete_file(file_path): Use this to remove files when needed
    - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches.
 
 Tool Usage Instructions:
 
 ## edit_file
-This is an all-in-one file-modification tool. It supports the following payload shapes for the `diff` argument:
-1. {{ "content": "…", "overwrite": true|false }}  →  Treated as full-file content when the target file does **not** exist.
-2. {{ "content": "…", "overwrite": true|false }}  →  Create or overwrite a file with the provided content.
-3. {{ "replacements": [ {{ "old_str": "…", "new_str": "…" }}, … ] }}  →  Perform exact text replacements inside an existing file.
-4. {{ "delete_snippet": "…" }}  →  Remove a snippet of text from an existing file.
+This is an all-in-one file-modification tool. It supports the following Pydantic Object payload types:
+1. ContentPayload: {{ file_path="example.py", "content": "…", "overwrite": true|false }}  →  Create or overwrite a file with the provided content.
+2. ReplacementsPayload: {{  file_path="example.py", "replacements": [ {{ "old_str": "…", "new_str": "…" }}, … ] }}  →  Perform exact text replacements inside an existing file.
+3. DeleteSnippetPayload: {{ file_path="example.py", "delete_snippet": "…" }}  →  Remove a snippet of text from an existing file.
 
 Arguments:
-- path (required): Target file path.
-- diff (required): One of the payloads above (raw string or JSON string).
+- payload (required): One of the Pydantic payload types above.
 
 Example (create):
-```json
-edit_file("src/example.py", "print('hello')\n")
+```python
+edit_file(payload={{file_path="example.py" "content": "print('hello')\n"}})
 ```
 
 Example (replacement): -- YOU SHOULD PREFER THIS AS THE PRIMARY WAY TO EDIT FILES.
-```json
+```python
 edit_file(
-  "src/example.py",
-  "{{"replacements":[{{"old_str":"foo","new_str":"bar"}}]}}"
+  payload={{file_path="example.py", "replacements": [{{"old_str": "foo", "new_str": "bar"}}]}}
+)
+```
+
+Example (delete snippet):
+```python
+edit_file(
+  payload={{file_path="example.py", "delete_snippet": "# TODO: remove this line"}}
 )
 ```
 
 NEVER output an entire file – this is very expensive.
 You may not edit file extensions: [.ipynb]
-You should specify the following arguments before the others: [TargetFile]
-
-Remember: ONE argument = ONE JSON string.
 
 Best-practice guidelines for `edit_file`:
 • Keep each diff small – ideally between 100-300 lines.

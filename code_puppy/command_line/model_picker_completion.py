@@ -6,14 +6,13 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 
-from code_puppy.config import CONFIG_DIR, get_model_name, set_model_name
+from code_puppy.config import get_model_name, set_model_name
 from code_puppy.model_factory import ModelFactory
 
 
 def load_model_names():
     """Load model names from the config that's fetched from the endpoint."""
-    models_config_path = os.path.join(CONFIG_DIR, "models.json")
-    models_config = ModelFactory.load_config(models_config_path)
+    models_config = ModelFactory.load_config()
     return list(models_config.keys())
 
 

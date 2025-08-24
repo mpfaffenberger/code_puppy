@@ -15,18 +15,20 @@ class ModelConfigFetcher:
     _cache_initialized: Dict[str, bool] = {}
 
     @staticmethod
-    def load_config(config_path: str) -> Dict[str, Any]:
+    def load_config() -> Dict[str, Any]:
         """Loads model configurations, checking for updates from remote source first.
 
         Uses a class-level cache to prevent redundant fetching during the same session.
         Cache is keyed by config_path to support multiple different config files.
         """
         # Check cache first - avoid redundant network calls! 🐕
+        from code_puppy.config import MODELS_FILE
+
         if (
-            config_path in ModelConfigFetcher._config_cache
-            and ModelConfigFetcher._cache_initialized.get(config_path, False)
+            MODELS_FILE in ModelConfigFetcher._config_cache
+            and ModelConfigFetcher._cache_initialized.get(MODELS_FILE, False)
         ):
-            return ModelConfigFetcher._config_cache[config_path]
+            return ModelConfigFetcher._config_cache[MODELS_FILE]
         remote_url = get_models_url()
         logger = logging.getLogger(__name__)
 
@@ -44,12 +46,12 @@ class ModelConfigFetcher:
 
         # Try to load existing local config
         local_config = None
-        config_exists = os.path.exists(config_path)
+        config_exists = os.path.exists(MODELS_FILE)
         if config_exists:
             try:
-                with open(config_path, "r") as f:
+                with open(MODELS_FILE, "r") as f:
                     local_config = json.load(f)
-                logger.info(f"Loaded local config from {config_path}")
+                logger.info(f"Loaded local config from {MODELS_FILE}")
             except Exception as e:
                 logger.warning(f"Failed to load local config: {e}")
 
@@ -72,25 +74,25 @@ class ModelConfigFetcher:
         else:
             # Neither remote nor local config available
             raise FileNotFoundError(
-                f"Could not load model configuration: remote fetch failed and no local config exists at {config_path}"
+                f"Could not load model configuration: remote fetch failed and no local config exists at {MODELS_FILE}"
             )
 
         # Update local file if needed
         if should_update_local:
             try:
                 # Ensure directory exists
-                os.makedirs(os.path.dirname(config_path), exist_ok=True)
+                os.makedirs(os.path.dirname(MODELS_FILE), exist_ok=True)
 
-                with open(config_path, "w") as f:
+                with open(MODELS_FILE, "w") as f:
                     json.dump(config_to_use, f, indent=2)
-                logger.info(f"Updated local config file at {config_path}")
+                logger.info(f"Updated local config file at {MODELS_FILE}")
             except Exception as e:
                 logger.error(f"Failed to update local config file: {e}")
                 # Don't fail if we can't write - we still have the config to use
 
         # Cache the config to prevent redundant fetching! 🎾
-        ModelConfigFetcher._config_cache[config_path] = config_to_use
-        ModelConfigFetcher._cache_initialized[config_path] = True
-        logger.info(f"Cached model config for {config_path}")
+        ModelConfigFetcher._config_cache[MODELS_FILE] = config_to_use
+        ModelConfigFetcher._cache_initialized[MODELS_FILE] = True
+        logger.info(f"Cached model config for {MODELS_FILE}")
 
         return config_to_use

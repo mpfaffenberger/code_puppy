@@ -7,7 +7,8 @@ CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
-
+MODELS_FILE = os.path.join(CONFIG_DIR, "models.json")
+EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -37,7 +38,7 @@ def ensure_config_exists():
                 val = input("What should we name the puppy? ").strip()
             elif key == "owner_name":
                 val = input(
-                    "What's your name (so Code Puppy knows its master)? "
+                    "What's your name (so Code Puppy knows its owner)? "
                 ).strip()
             else:
                 val = input(f"Enter {key}: ").strip()

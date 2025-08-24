@@ -9,7 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "pydantic-ai>=0.6.2",
+    "pydantic-ai>=0.7.4",
     "httpx>=0.24.1",
     "rich>=13.4.2",
     "logfire>=0.7.1",
@@ -31,7 +31,7 @@ dependencies = [
     "textual>=5.0.0",
     "termcolor>=3.1.0",
     "textual-dev>=1.7.0",
-    "openai==1.99.1",
+    "openai>=1.99.1",
 
 ]
 dev-dependencies = [

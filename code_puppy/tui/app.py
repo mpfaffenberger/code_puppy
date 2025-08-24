@@ -479,7 +479,7 @@ class CodePuppyTUI(App):
 
                         self.update_agent_progress("Processing", 75)
                         agent_response = result.output
-                        self.add_agent_message(agent_response.output_message)
+                        self.add_agent_message(agent_response)
 
                         # Update message history
                         new_msgs = result.new_messages()

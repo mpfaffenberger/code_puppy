@@ -536,17 +536,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging import emit_info
 
                 emit_system_message(
-                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
 
                 # Update message history - the agent's history processor will handle truncation
                 new_msgs = result.all_messages()
                 message_history_accumulator(new_msgs)
-
-                if agent_response and agent_response.awaiting_user_input:
-                    from code_puppy.messaging import emit_warning
-
-                    emit_warning("\n\u26a0 Agent needs your input to continue.")
 
                 # Show context status
                 from code_puppy.messaging import emit_system_message
@@ -622,15 +617,8 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 
         agent_response = response.output
         emit_system_message(
-            f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+            f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
         )
-
-        if agent_response.awaiting_user_input:
-            from code_puppy.messaging import emit_warning
-
-            emit_warning(
-                "[bold red]The agent requires further input. Interactive mode is recommended for such tasks."
-            )
 
     except Exception as e:
         from code_puppy.messaging import emit_error

@@ -75,9 +75,9 @@ async def auth_flow():
 register_callback("startup", auth_flow)
 
 
-def load_model_config(config_path):
+def load_model_config():
     config_fetcher = ModelConfigFetcher()
-    return config_fetcher.load_config(config_path)
+    return config_fetcher.load_config()
 
 
 register_callback("load_model_config", load_model_config)
