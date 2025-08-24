@@ -365,6 +365,8 @@ class CodePuppyTUI(App):
                     self.add_system_message(
                         f"🔥 Cancelled {killed} running shell process(es)"
                     )
+                    # Don't stop spinner/agent - let the agent continue processing
+                    # Shell processes killed, but agent worker continues running
 
                 else:
                     # Only cancel the agent task if NO processes were killed
@@ -373,12 +375,20 @@ class CodePuppyTUI(App):
                         state_management._message_history
                     )
                     self.add_system_message("⚠️  Processing cancelled by user")
+                    # Stop spinner and clear state only when agent is actually cancelled
+                    self._current_worker = None
+                    self.agent_busy = False
+                    self.stop_agent_progress()
             except Exception as e:
                 self.add_error_message(f"Failed to cancel processing: {str(e)}")
-            finally:
-                self._current_worker = None
-                self.agent_busy = False
-                self.stop_agent_progress()
+                # Only clear state on exception if we haven't already done so
+                if (
+                    hasattr(self, "_current_worker")
+                    and self._current_worker is not None
+                ):
+                    self._current_worker = None
+                    self.agent_busy = False
+                    self.stop_agent_progress()
 
     async def process_message(self, message: str) -> None:
         """Process a user message asynchronously."""
