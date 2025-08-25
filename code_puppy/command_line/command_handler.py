@@ -1,4 +1,5 @@
 import os
+import shlex
 
 import code_puppy.messaging as messaging
 from code_puppy.command_line.model_picker_completion import (
@@ -28,7 +29,10 @@ COMMANDS_HELP = """
 /undo                 Undo the last change
 /redo                 Redo the last undone change
 /checkout <version>   Checkout a specific version
-/history              Show version history
+/versions [limit]     Show recent versions across prompts
+/history              Show version history for the last prompt
+/history all [limit]  Show recent versions across prompts (same as /versions)
+/history "<prompt>"  Show version history for a specific prompt
 /<unknown>            Show unknown command warning
 """
 
@@ -201,6 +205,31 @@ def handle_command(command: str):
         return True
     if command in ("/help", "/h"):
         messaging.emit_info(COMMANDS_HELP)
+        return True
+
+    # Global versions listing across prompts
+    if command.startswith("/versions"):
+        from code_puppy.version_store import list_all_versions
+
+        tokens = command.split()
+        limit = None
+        if len(tokens) >= 2:
+            try:
+                limit = int(tokens[1])
+            except ValueError:
+                messaging.emit_warning("Usage: /versions [limit]")
+                return True
+
+        rows = list(list_all_versions(limit=limit))
+        if not rows:
+            messaging.emit_warning("No versions found!")
+            return True
+
+        text = "[bold magenta]Recent Versions[/bold magenta]\n"
+        for response_id, prompt_text, version, timestamp in rows:
+            safe_prompt = (prompt_text[:80] + "…") if len(prompt_text) > 80 else prompt_text
+            text += f"#{response_id} | v{version} | {timestamp} | Prompt: {safe_prompt}\n"
+        messaging.emit_info(text)
         return True
 
     if command.startswith("/generate-pr-description"):
@@ -614,19 +643,59 @@ def handle_command(command: str):
         return True
 
     if command.startswith("/history"):
-        from code_puppy.version_store import list_versions
+        from code_puppy.version_store import list_versions, list_all_versions
         from code_puppy.state_management import get_message_history
-        
-        # Get the current prompt (last message in history)
+
+        argstr = command[len("/history"):].strip()
+
+        # Case 1: /history all [limit]
+        if argstr.startswith("all"):
+            parts = argstr.split()
+            limit = None
+            if len(parts) >= 2:
+                try:
+                    limit = int(parts[1])
+                except ValueError:
+                    messaging.emit_warning("Usage: /history all [limit]")
+                    return True
+            rows = list(list_all_versions(limit=limit))
+            if not rows:
+                messaging.emit_warning("No versions found!")
+                return True
+            text = "[bold magenta]Recent Versions[/bold magenta]\n"
+            for response_id, prompt_text, version, timestamp in rows:
+                safe_prompt = (prompt_text[:80] + "…") if len(prompt_text) > 80 else prompt_text
+                text += f"#{response_id} | v{version} | {timestamp} | Prompt: {safe_prompt}\n"
+            messaging.emit_info(text)
+            return True
+
+        # Case 2: /history "<prompt>"
+        if argstr:
+            try:
+                parsed = shlex.split(argstr)
+            except Exception:
+                parsed = argstr.split()
+            if parsed:
+                prompt_text = parsed[0]
+                versions = list(list_versions(prompt_text))
+                if not versions:
+                    messaging.emit_warning("No versions found!")
+                    return True
+                history_text = "[bold magenta]Version History[/bold magenta]\n"
+                for response_id, version, timestamp in versions:
+                    history_text += f"Version {version}: {timestamp}\n"
+                messaging.emit_info(history_text)
+                return True
+
+        # Case 3: default behavior (use last prompt from session)
         history = get_message_history()
         if not history:
             messaging.emit_warning("No history to show!")
             return True
-            
+
         # Find the last user message (prompt)
         last_prompt = None
         for msg in reversed(history):
-            # Look for a user message with text content
             if hasattr(msg, 'role') and msg.role == 'user':
                 for part in msg.parts:
                     if hasattr(part, 'content') and isinstance(part.content, str):
@@ -634,23 +703,19 @@ def handle_command(command: str):
                         break
                 if last_prompt:
                     break
-        
+
         if not last_prompt:
             messaging.emit_warning("No prompt found to show history for!")
             return True
-            
-        # List versions for this prompt
+
         versions = list(list_versions(last_prompt))
-        
         if not versions:
             messaging.emit_warning("No versions found!")
             return True
-            
-        # Display history
+
         history_text = "[bold magenta]Version History[/bold magenta]\n"
         for response_id, version, timestamp in versions:
             history_text += f"Version {version}: {timestamp}\n"
-            
         messaging.emit_info(history_text)
         return True
     if command.startswith("/"):
