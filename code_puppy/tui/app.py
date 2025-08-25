@@ -13,6 +13,12 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Label, ListItem, ListView
 
 from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
+from code_puppy.version_store import (
+    add_version,
+    start_change_capture,
+    finalize_changes,
+    update_response_output,
+)
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.config import (
     get_model_name,
@@ -453,6 +459,9 @@ class CodePuppyTUI(App):
 
                     # Handle MCP servers with specific TaskGroup exception handling
                     try:
+                        # Begin version capture for this message
+                        version_num, response_id = add_version(message, "")
+                        start_change_capture()
                         try:
                             async with self.agent.run_mcp_servers():
                                 self.update_agent_progress("Processing", 50)
@@ -481,6 +490,12 @@ class CodePuppyTUI(App):
                         agent_response = result.output
                         self.add_agent_message(agent_response)
 
+                        # Save output text for this version
+                        try:
+                            update_response_output(response_id, str(agent_response))
+                        except Exception:
+                            pass
+
                         # Update message history
                         new_msgs = result.new_messages()
                         message_history_accumulator(new_msgs)
@@ -499,6 +514,11 @@ class CodePuppyTUI(App):
                             # Handle regular exceptions
                             self.add_error_message(f"MCP/Agent error: {str(eg)}")
                     finally:
+                        # Ensure we finalize captured changes
+                        try:
+                            finalize_changes(response_id)
+                        except Exception:
+                            pass
                         set_message_history(prune_interrupted_tool_calls(get_message_history()))
                 except Exception as agent_error:
                     # Handle any other errors in agent processing

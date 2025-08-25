@@ -48,26 +48,26 @@ class StatusDisplay:
         self.spinner = Spinner("dots", text="")
 
     def _calculate_rate(self) -> float:
-        """Calculate the current token rate"""
-        current_time = time.time()
-        if self.last_update_time:
-            time_diff = current_time - self.last_update_time
-            token_diff = self.token_count - self.last_token_count
-            if time_diff > 0:
-                rate = token_diff / time_diff
-                # Smooth the rate calculation with the current rate
-                if self.current_rate > 0:
-                    self.current_rate = (self.current_rate * 0.7) + (rate * 0.3)
-                else:
-                    self.current_rate = rate
+        """Calculate the current average token rate since start.
 
-                # Only ensure rate is not negative
-                self.current_rate = max(0, self.current_rate)
-
+        To avoid absurd spikes on the first update (elapsed ~0), we wait
+        for a minimal elapsed time window before computing a rate.
+        """
+        current_time = time.perf_counter()
+        global CURRENT_TOKEN_RATE
+        if self.start_time is not None:
+            elapsed = current_time - self.start_time
+            # Require a small warm-up window before reporting a rate
+            MIN_ELAPSED_FOR_RATE = 0.1  # seconds
+            if elapsed >= MIN_ELAPSED_FOR_RATE:
+                self.current_rate = max(0, self.token_count / elapsed)
                 # Update the global rate for other components to access
-                global CURRENT_TOKEN_RATE
                 CURRENT_TOKEN_RATE = self.current_rate
-
+            else:
+                # Too soon to compute a meaningful rate; report 0 for now
+                self.current_rate = 0
+                CURRENT_TOKEN_RATE = self.current_rate
+        # Maintain last markers (not used for rate now, but kept for completeness)
         self.last_update_time = current_time
         self.last_token_count = self.token_count
         return self.current_rate
@@ -75,27 +75,8 @@ class StatusDisplay:
     def update_rate_from_sse(
         self, completion_tokens: int, completion_time: float
     ) -> None:
-        """Update the token rate directly using SSE time_info data
-
-        Args:
-            completion_tokens: Number of tokens in the completion (from SSE stream)
-            completion_time: Time taken for completion in seconds (from SSE stream)
-        """
-        if completion_time > 0:
-            # Using the direct t/s formula: tokens / time
-            rate = completion_tokens / completion_time
-
-            # Use a lighter smoothing for this more accurate data
-            if self.current_rate > 0:
-                self.current_rate = (self.current_rate * 0.3) + (
-                    rate * 0.7
-                )  # Weight SSE data more heavily
-            else:
-                self.current_rate = rate
-
-            # Update the global rate
-            global CURRENT_TOKEN_RATE
-            CURRENT_TOKEN_RATE = self.current_rate
+        """Deprecated: SSE-based rate updates removed. No-op retained for compatibility."""
+        return
 
     @staticmethod
     def get_current_rate() -> float:
@@ -104,23 +85,18 @@ class StatusDisplay:
         return CURRENT_TOKEN_RATE
 
     def update_token_count(self, tokens: int) -> None:
-        """Update the token count and recalculate the rate"""
-        # Reset timing if this is the first update of a new task
-        if self.start_time is None:
-            self.start_time = time.time()
-            self.last_update_time = self.start_time
-            # Reset token counters for new task
-            self.last_token_count = 0
-            self.current_rate = 0.0
+        """Update the token count by delta and recalculate the rate (stream-only timing).
 
-        # Allow for incremental updates (common for streaming) or absolute updates
-        if tokens > self.token_count or tokens < 0:
-            # Incremental update or reset
-            self.token_count = tokens if tokens >= 0 else 0
-        else:
-            # If tokens <= current count but > 0, treat as incremental
-            # This handles simulated token streaming
-            self.token_count += tokens
+        Timer starts on the first positive token delta to measure pure decode throughput.
+        """
+        # Start timer only when the first token arrives
+        if self.start_time is None and tokens > 0:
+            self.start_time = time.perf_counter()
+            self.last_update_time = self.start_time
+
+        # tokens is a delta (positive to add, negative to subtract)
+        if tokens != 0:
+            self.token_count = max(0, self.token_count + tokens)
 
         self._calculate_rate()
 
@@ -189,7 +165,7 @@ class StatusDisplay:
             self._get_status_text(),
             console=self.console,
             refresh_per_second=2,  # Update twice per second
-            transient=False,  # Keep the final state visible
+            transient=True,  # Clear the live display when done so prompts aren't obscured
         ) as live:
             # Keep updating the live display while active
             while self.is_active:
@@ -197,11 +173,14 @@ class StatusDisplay:
                 await asyncio.sleep(0.5)
 
     def start(self) -> None:
-        """Start the status display"""
+        """Start the status display.
+
+        Stream-only t/s: do not start the timer here; it starts on first token.
+        """
         if not self.is_active:
             self.is_active = True
-            self.start_time = time.time()
-            self.last_update_time = self.start_time
+            self.start_time = None
+            self.last_update_time = None
             self.token_count = 0
             self.last_token_count = 0
             self.current_rate = 0
@@ -216,19 +195,16 @@ class StatusDisplay:
             self.task = None
 
             # Print final stats
-            elapsed = time.time() - self.start_time if self.start_time else 0
+            elapsed = time.perf_counter() - self.start_time if self.start_time else 0
             avg_rate = self.token_count / elapsed if elapsed > 0 else 0
+            # Set final average rate so downstream displays use it
+            self.current_rate = avg_rate
+            global CURRENT_TOKEN_RATE
+            CURRENT_TOKEN_RATE = self.current_rate
             self.console.print(
                 f"[dim]Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)[/dim]"
             )
 
-            # Reset state
+            # Reset
             self.start_time = None
             self.token_count = 0
-            self.last_update_time = None
-            self.last_token_count = 0
-            self.current_rate = 0
-
-            # Reset global rate to 0 to avoid affecting subsequent tasks
-            global CURRENT_TOKEN_RATE
-            CURRENT_TOKEN_RATE = 0.0

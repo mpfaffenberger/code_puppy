@@ -106,6 +106,10 @@ Commands:
 - /cd <dir>: Change directory
 - /help: Show help
 - /status: Show current status
+- /undo: Undo the last change
+- /redo: Redo the last undone change
+- /checkout <version>: Checkout a specific version
+- /history: Show version history
 
 Use the input area at the bottom to type messages.
 Press Ctrl+2 to view History when needed.

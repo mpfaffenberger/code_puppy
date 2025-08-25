@@ -4,12 +4,14 @@ import pydantic
 from pydantic_ai.messages import ModelMessage
 
 
-def estimate_token_count(text: str) -> int:
+def estimate_tokens(text: str) -> int:
     """
-    Simple token estimation using len(message) - 4.
-    This replaces tiktoken with a much simpler approach.
+    Estimate the number of tokens using the len/4 heuristic.
+    This is a simple approximation that works reasonably well for most text.
     """
-    return max(1, len(text) - 4)
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
 
 
 def stringify_message_part(part) -> str:

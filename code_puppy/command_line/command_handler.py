@@ -1,5 +1,6 @@
 import os
 
+import code_puppy.messaging as messaging
 from code_puppy.command_line.model_picker_completion import (
     load_model_names,
     update_model_in_input,
@@ -24,13 +25,19 @@ COMMANDS_HELP = """
 /load_context <name>  Load message history from file
 /set                  Set puppy config key-values (e.g., /set yolo_mode true)
 /tools                Show available tools and capabilities
+/undo                 Undo the last change
+/redo                 Redo the last undone change
+/checkout <version>   Checkout a specific version
+/history              Show version history
 /<unknown>            Show unknown command warning
 """
 
 
-def handle_command(command: str):
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+# Global to track current version for redo functionality
+_current_version_track = {}
 
+
+def handle_command(command: str):
     """
     Handle commands prefixed with '/'.
 
@@ -51,28 +58,22 @@ def handle_command(command: str):
             estimate_tokens_for_message,
             summarize_messages,
         )
-        from code_puppy.messaging import (
-            emit_error,
-            emit_info,
-            emit_success,
-            emit_warning,
-        )
         from code_puppy.state_management import get_message_history, set_message_history
 
         try:
             history = get_message_history()
             if not history:
-                emit_warning("No history to compact yet. Ask me something first!")
+                messaging.emit_warning("No history to compact yet. Ask me something first!")
                 return True
 
             before_tokens = sum(estimate_tokens_for_message(m) for m in history)
-            emit_info(
+            messaging.emit_info(
                 f"🤔 Compacting {len(history)} messages... (~{before_tokens} tokens)"
             )
 
             compacted, _ = summarize_messages(history, with_protection=False)
             if not compacted:
-                emit_error("Summarization failed. History unchanged.")
+                messaging.emit_error("Summarization failed. History unchanged.")
                 return True
 
             set_message_history(compacted)
@@ -83,13 +84,13 @@ def handle_command(command: str):
                 if before_tokens > 0
                 else 0
             )
-            emit_success(
+            messaging.emit_success(
                 f"✨ Done! History: {len(history)} → {len(compacted)} messages\n"
                 f"🏦 Tokens: {before_tokens:,} → {after_tokens:,} ({reduction_pct:.1f}% reduction)"
             )
             return True
         except Exception as e:
-            emit_error(f"/compact error: {e}")
+            messaging.emit_error(f"/compact error: {e}")
             return True
 
     if command.startswith("/cd"):
@@ -97,9 +98,9 @@ def handle_command(command: str):
         if len(tokens) == 1:
             try:
                 table = make_directory_table()
-                emit_info(table)
+                messaging.emit_info(table)
             except Exception as e:
-                emit_error(f"Error listing directory: {e}")
+                messaging.emit_error(f"Error listing directory: {e}")
             return True
         elif len(tokens) == 2:
             dirname = tokens[1]
@@ -108,9 +109,9 @@ def handle_command(command: str):
                 target = os.path.join(os.getcwd(), target)
             if os.path.isdir(target):
                 os.chdir(target)
-                emit_success(f"Changed directory to: {target}")
+                messaging.emit_success(f"Changed directory to: {target}")
             else:
-                emit_error(f"Not a directory: {dirname}")
+                messaging.emit_error(f"Not a directory: {dirname}")
             return True
 
     if command.strip().startswith("/show"):
@@ -140,7 +141,7 @@ def handle_command(command: str):
 [bold]summary_threshold:[/bold]     [cyan]{summary_threshold:.1%}[/cyan] context usage triggers summarization
 
 """
-        emit_info(status_msg)
+        messaging.emit_info(status_msg)
         return True
 
     if command.startswith("/set"):
@@ -162,15 +163,15 @@ def handle_command(command: str):
             key = tokens[1]
             value = ""
         else:
-            emit_warning(
+            messaging.emit_warning(
                 f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(get_config_keys())}"
             )
             return True
         if key:
             set_config_value(key, value)
-            emit_success(f'🌶 Set {key} = "{value}" in puppy.cfg!')
+            messaging.emit_success(f'🌶 Set {key} = "{value}" in puppy.cfg!')
         else:
-            emit_error("You must supply a key.")
+            messaging.emit_error("You must supply a key.")
         return True
 
     if command.startswith("/tools"):
@@ -178,7 +179,7 @@ def handle_command(command: str):
         from rich.markdown import Markdown
 
         markdown_content = Markdown(tools_content)
-        emit_info(markdown_content)
+        messaging.emit_info(markdown_content)
         return True
 
     if command.startswith("/m"):
@@ -191,15 +192,15 @@ def handle_command(command: str):
             model = get_active_model()
             # Make sure this is called for the test
             get_code_generation_agent(force_reload=True)
-            emit_success(f"Active model set and loaded: {model}")
+            messaging.emit_success(f"Active model set and loaded: {model}")
             return True
         # If no model matched, show available models
         model_names = load_model_names()
-        emit_warning("Usage: /m <model-name>")
-        emit_warning(f"Available models: {', '.join(model_names)}")
+        messaging.emit_warning("Usage: /m <model-name>")
+        messaging.emit_warning(f"Available models: {', '.join(model_names)}")
         return True
     if command in ("/help", "/h"):
-        emit_info(COMMANDS_HELP)
+        messaging.emit_info(COMMANDS_HELP)
         return True
 
     if command.startswith("/generate-pr-description"):
@@ -249,14 +250,14 @@ def handle_command(command: str):
 
         tokens = command.split()
         if len(tokens) != 2:
-            emit_warning("Usage: /dump_context <session_name>")
+            messaging.emit_warning("Usage: /dump_context <session_name>")
             return True
 
         session_name = tokens[1]
         history = get_message_history()
 
         if not history:
-            emit_warning("No message history to dump!")
+            messaging.emit_warning("No message history to dump!")
             return True
 
         # Create contexts directory inside CONFIG_DIR if it doesn't exist
@@ -282,14 +283,14 @@ def handle_command(command: str):
             with open(meta_file, "w") as f:
                 json.dump(metadata, f, indent=2)
 
-            emit_success(
+            messaging.emit_success(
                 f"✅ Context saved: {len(history)} messages ({metadata['total_tokens']} tokens)\n"
                 f"📁 Files: {pickle_file}, {meta_file}"
             )
             return True
 
         except Exception as e:
-            emit_error(f"Failed to dump context: {e}")
+            messaging.emit_error(f"Failed to dump context: {e}")
             return True
 
     if command.startswith("/load_context"):
@@ -302,7 +303,7 @@ def handle_command(command: str):
 
         tokens = command.split()
         if len(tokens) != 2:
-            emit_warning("Usage: /load_context <session_name>")
+            messaging.emit_warning("Usage: /load_context <session_name>")
             return True
 
         session_name = tokens[1]
@@ -310,12 +311,12 @@ def handle_command(command: str):
         pickle_file = contexts_dir / f"{session_name}.pkl"
 
         if not pickle_file.exists():
-            emit_error(f"Context file not found: {pickle_file}")
+            messaging.emit_error(f"Context file not found: {pickle_file}")
             # List available contexts
             available = list(contexts_dir.glob("*.pkl"))
             if available:
                 names = [f.stem for f in available]
-                emit_info(f"Available contexts: {', '.join(names)}")
+                messaging.emit_info(f"Available contexts: {', '.join(names)}")
             return True
 
         try:
@@ -325,25 +326,337 @@ def handle_command(command: str):
             set_message_history(history)
             total_tokens = sum(estimate_tokens_for_message(m) for m in history)
 
-            emit_success(
+            messaging.emit_success(
                 f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
                 f"📁 From: {pickle_file}"
             )
             return True
 
         except Exception as e:
-            emit_error(f"Failed to load context: {e}")
+            messaging.emit_error(f"Failed to load context: {e}")
             return True
 
     if command in ("/exit", "/quit"):
-        emit_success("Goodbye!")
+        messaging.emit_success("Goodbye!")
         # Signal to the main app that we want to exit
         # The actual exit handling is done in main.py
+        return True
+
+    if command.startswith("/undo"):
+        from code_puppy.version_store import list_versions, get_response_by_version, compute_snapshot_as_of_response_id, get_response_id_for_prompt_version
+        from code_puppy.state_management import get_message_history
+        
+        # Get the current prompt (last message in history)
+        history = get_message_history()
+        if not history:
+            messaging.emit_warning("No history to undo!")
+            return True
+            
+        # Find the last user message (prompt)
+        last_prompt = None
+        for msg in reversed(history):
+            # Look for a user message with text content
+            if hasattr(msg, 'role') and msg.role == 'user':
+                for part in msg.parts:
+                    if hasattr(part, 'content') and isinstance(part.content, str):
+                        last_prompt = part.content
+                        break
+                if last_prompt:
+                    break
+        
+        if not last_prompt:
+            messaging.emit_warning("No prompt found to undo!")
+            return True
+            
+        # List versions for this prompt
+        versions = list(list_versions(last_prompt))
+        if len(versions) <= 1:
+            messaging.emit_warning("No previous version to undo to!")
+            return True
+            
+        # Store current version for potential redo
+        current_version = versions[-1][1]  # Last version is current
+        _current_version_track[last_prompt] = current_version
+            
+        # Get the previous version
+        prev_version_data = versions[-2]  # Second to last is the previous version
+        prev_response = get_response_by_version(last_prompt, prev_version_data[1])
+        
+        if not prev_response:
+            messaging.emit_error("Failed to retrieve previous version!")
+            return True
+            
+        # Restore files to the previous version
+        response_id = get_response_id_for_prompt_version(last_prompt, prev_version_data[1])
+        if response_id is None:
+            messaging.emit_error("Failed to get response ID for version!")
+            return True
+            
+        try:
+            snapshot = compute_snapshot_as_of_response_id(response_id)
+            restored_files = 0
+            for file_record in snapshot:
+                file_path = file_record['file_path']
+                content = file_record['content']
+                
+                # Restore file content
+                if content is None:
+                    # File should not exist, remove it if present
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        restored_files += 1
+                else:
+                    # Write the content to the file
+                    with open(file_path, 'w') as f:
+                        f.write(content)
+                    restored_files += 1
+            
+            messaging.emit_success(f"[bold green]✅ Undone to version {prev_version_data[1]}[/bold green]")
+            messaging.emit_info(f"[blue]Restored {restored_files} files[/blue]")
+            messaging.emit_info(f"Previous response:\n{prev_response['output_text']}")
+        except Exception as e:
+            messaging.emit_error(f"Failed to restore files: {e}")
+            return True
+            
+        return True
+
+    if command.startswith("/redo"):
+        from code_puppy.version_store import list_versions, get_response_by_version, compute_snapshot_as_of_response_id, get_response_id_for_prompt_version
+        from code_puppy.state_management import get_message_history
+        
+        # Get the current prompt (last message in history)
+        history = get_message_history()
+        if not history:
+            messaging.emit_warning("No history to redo!")
+            return True
+            
+        # Find the last user message (prompt)
+        last_prompt = None
+        for msg in reversed(history):
+            # Look for a user message with text content
+            if hasattr(msg, 'role') and msg.role == 'user':
+                for part in msg.parts:
+                    if hasattr(part, 'content') and isinstance(part.content, str):
+                        last_prompt = part.content
+                        break
+                if last_prompt:
+                    break
+        
+        if not last_prompt:
+            messaging.emit_warning("No prompt found to redo!")
+            return True
+            
+        # Check if we have a version track for this prompt
+        if last_prompt not in _current_version_track:
+            messaging.emit_warning("No redo history available!")
+            return True
+            
+        # Get current tracked version
+        tracked_version = _current_version_track[last_prompt]
+
+        # List versions for this prompt
+        versions = list(list_versions(last_prompt))
+        # If there are no versions at all, any existing tracking is stale or irrelevant
+        if len(versions) == 0:
+            try:
+                del _current_version_track[last_prompt]
+            except Exception:
+                pass
+            messaging.emit_warning("No redo history available!")
+            return True
+
+        # If the tracked version is not in the current versions, the redo track is stale
+        if not any(version == tracked_version for (_, version, _) in versions):
+            # Clear stale entry and report no next version available
+            try:
+                del _current_version_track[last_prompt]
+            except Exception:
+                pass
+            messaging.emit_warning("No version to redo to!")
+            return True
+
+        # Find if there's a version after the tracked one
+        next_version = None
+        for i, (response_id, version, timestamp) in enumerate(versions):
+            if version == tracked_version and i < len(versions) - 1:
+                next_version = versions[i + 1]
+                break
+        
+        if next_version is None:
+            messaging.emit_warning("No version to redo to!")
+            return True
+            
+        # Get the next version's response
+        next_response = get_response_by_version(last_prompt, next_version[1])
+        
+        if not next_response:
+            messaging.emit_error("Failed to retrieve next version!")
+            return True
+            
+        # Restore files to the next version
+        response_id = get_response_id_for_prompt_version(last_prompt, next_version[1])
+        if response_id is None:
+            messaging.emit_error("Failed to get response ID for version!")
+            return True
+            
+        try:
+            snapshot = compute_snapshot_as_of_response_id(response_id)
+            restored_files = 0
+            for file_record in snapshot:
+                file_path = file_record['file_path']
+                content = file_record['content']
+                
+                # Restore file content
+                if content is None:
+                    # File should not exist, remove it if present
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        restored_files += 1
+                else:
+                    # Write the content to the file
+                    with open(file_path, 'w') as f:
+                        f.write(content)
+                    restored_files += 1
+            
+            # Update tracked version
+            _current_version_track[last_prompt] = next_version[1]
+            
+            messaging.emit_success(f"[bold green]✅ Redone to version {next_version[1]}[/bold green]")
+            messaging.emit_info(f"[blue]Restored {restored_files} files[/blue]")
+            messaging.emit_info(f"Next response:\n{next_response['output_text']}")
+        except Exception as e:
+            messaging.emit_error(f"Failed to restore files: {e}")
+            return True
+            
+        return True
+
+    if command.startswith("/checkout"):
+        from code_puppy.version_store import list_versions, get_response_by_version
+        from code_puppy.state_management import get_message_history
+        
+        tokens = command.split()
+        if len(tokens) != 2:
+            messaging.emit_warning("Usage: /checkout <version-number>")
+            return True
+            
+        try:
+            version_num = int(tokens[1])
+        except ValueError:
+            messaging.emit_error("Version number must be an integer!")
+            return True
+        
+        # Get the current prompt (last message in history)
+        history = get_message_history()
+        if not history:
+            messaging.emit_warning("No history to checkout!")
+            return True
+            
+        # Find the last user message (prompt)
+        last_prompt = None
+        for msg in reversed(history):
+            # Look for a user message with text content
+            if hasattr(msg, 'role') and msg.role == 'user':
+                for part in msg.parts:
+                    if hasattr(part, 'content') and isinstance(part.content, str):
+                        last_prompt = part.content
+                        break
+                if last_prompt:
+                    break
+        
+        if not last_prompt:
+            messaging.emit_warning("No prompt found to checkout!")
+            return True
+            
+        # Get the specified version
+        response = get_response_by_version(last_prompt, version_num)
+        
+        if not response:
+            messaging.emit_error(f"Version {version_num} not found!")
+            return True
+            
+        # Restore files to the specified version
+        from code_puppy.version_store import get_response_id_for_prompt_version, compute_snapshot_as_of_response_id
+        
+        response_id = get_response_id_for_prompt_version(last_prompt, version_num)
+        if response_id is None:
+            messaging.emit_error("Failed to get response ID for version!")
+            return True
+            
+        try:
+            snapshot = compute_snapshot_as_of_response_id(response_id)
+            restored_files = 0
+            for file_record in snapshot:
+                file_path = file_record['file_path']
+                content = file_record['content']
+                
+                # Restore file content
+                if content is None:
+                    # File should not exist, remove it if present
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        restored_files += 1
+                else:
+                    # Write the content to the file
+                    with open(file_path, 'w') as f:
+                        f.write(content)
+                    restored_files += 1
+            
+            # Update tracked version
+            _current_version_track[last_prompt] = version_num
+            
+            messaging.emit_success(f"[bold green]✅ Checked out version {version_num}[/bold green]")
+            messaging.emit_info(f"[blue]Restored {restored_files} files[/blue]")
+            messaging.emit_info(f"Response:\n{response['output_text']}")
+        except Exception as e:
+            messaging.emit_error(f"Failed to restore files: {e}")
+            return True
+            
+        return True
+
+    if command.startswith("/history"):
+        from code_puppy.version_store import list_versions
+        from code_puppy.state_management import get_message_history
+        
+        # Get the current prompt (last message in history)
+        history = get_message_history()
+        if not history:
+            messaging.emit_warning("No history to show!")
+            return True
+            
+        # Find the last user message (prompt)
+        last_prompt = None
+        for msg in reversed(history):
+            # Look for a user message with text content
+            if hasattr(msg, 'role') and msg.role == 'user':
+                for part in msg.parts:
+                    if hasattr(part, 'content') and isinstance(part.content, str):
+                        last_prompt = part.content
+                        break
+                if last_prompt:
+                    break
+        
+        if not last_prompt:
+            messaging.emit_warning("No prompt found to show history for!")
+            return True
+            
+        # List versions for this prompt
+        versions = list(list_versions(last_prompt))
+        
+        if not versions:
+            messaging.emit_warning("No versions found!")
+            return True
+            
+        # Display history
+        history_text = "[bold magenta]Version History[/bold magenta]\n"
+        for response_id, version, timestamp in versions:
+            history_text += f"Version {version}: {timestamp}\n"
+            
+        messaging.emit_info(history_text)
         return True
     if command.startswith("/"):
         name = command[1:].split()[0] if len(command) > 1 else ""
         if name:
-            emit_warning(
+            messaging.emit_warning(
                 f"Unknown command: {command}\n[dim]Type /help for options.[/dim]"
             )
         else:
@@ -351,7 +664,7 @@ def handle_command(command: str):
             from code_puppy.command_line.model_picker_completion import get_active_model
 
             current_model = get_active_model()
-            emit_info(
+            messaging.emit_info(
                 f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]"
             )
         return True

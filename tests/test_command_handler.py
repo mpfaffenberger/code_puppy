@@ -418,3 +418,302 @@ def test_quit_command():
         mock_emit_success.assert_called_with("Goodbye!")
     finally:
         mocks["emit_success"].stop()
+
+
+def test_undo_command_no_history():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        with patch("code_puppy.state_management.get_message_history", return_value=[]):
+            result = handle_command("/undo")
+            assert result is True
+            mock_emit_warning.assert_called_with("No history to undo!")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_undo_command_no_prompt():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        # Mock history with no user messages
+        mock_history = [
+            type('Message', (), {'role': 'assistant', 'parts': [type('Part', (), {'content': 'test'})()]})()
+        ]
+        with patch("code_puppy.state_management.get_message_history", return_value=mock_history):
+            result = handle_command("/undo")
+            assert result is True
+            mock_emit_warning.assert_called_with("No prompt found to undo!")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_undo_command_single_version():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        # Mock history with a user message
+        mock_user_msg = type('Message', (), {
+            'role': 'user', 
+            'parts': [type('Part', (), {'content': 'test prompt'})()]
+        })()
+        mock_history = [mock_user_msg]
+        
+        with (
+            patch("code_puppy.state_management.get_message_history", return_value=mock_history),
+            patch("code_puppy.version_store.list_versions", return_value=[(1, 1, '2025-01-01T00:00:00')]),
+        ):
+            result = handle_command("/undo")
+            assert result is True
+            mock_emit_warning.assert_called_with("No previous version to undo to!")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_undo_command_success():
+    mocks = setup_messaging_mocks()
+    mock_emit_success = mocks["emit_success"].start()
+    mock_emit_info = mocks["emit_info"].start()
+
+    try:
+        # Mock history with a user message
+        mock_user_msg = type('Message', (), {
+            'role': 'user', 
+            'parts': [type('Part', (), {'content': 'test prompt'})()]
+        })()
+        mock_history = [mock_user_msg]
+        
+        # Mock version store functions
+        with (
+            patch("code_puppy.state_management.get_message_history", return_value=mock_history),
+            patch("code_puppy.version_store.list_versions", return_value=[
+                (1, 1, '2025-01-01T00:00:00'),
+                (2, 2, '2025-01-01T00:01:00')
+            ]),
+            patch("code_puppy.version_store.get_response_by_version", return_value={
+                'id': 1,
+                'version': 1,
+                'output_text': 'test output',
+                'timestamp': '2025-01-01T00:00:00'
+            }),
+            patch("code_puppy.version_store.get_response_id_for_prompt_version", return_value=1),
+            patch("code_puppy.version_store.compute_snapshot_as_of_response_id", return_value=[]),
+        ):
+            result = handle_command("/undo")
+            assert result is True
+            mock_emit_success.assert_called_with("[bold green]✅ Undone to version 1[/bold green]")
+    finally:
+        mocks["emit_success"].stop()
+        mocks["emit_info"].stop()
+
+
+def test_redo_command_no_history():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        with patch("code_puppy.state_management.get_message_history", return_value=[]):
+            result = handle_command("/redo")
+            assert result is True
+            mock_emit_warning.assert_called_with("No history to redo!")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_redo_command_no_tracking():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        # Mock history with a user message but no version tracking
+        mock_user_msg = type('Message', (), {
+            'role': 'user', 
+            'parts': [type('Part', (), {'content': 'test prompt'})()]
+        })()
+        mock_history = [mock_user_msg]
+        
+        with patch("code_puppy.state_management.get_message_history", return_value=mock_history):
+            result = handle_command("/redo")
+            assert result is True
+            mock_emit_warning.assert_called_with("No redo history available!")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_redo_command_no_next_version():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        # Mock history with a user message
+        mock_user_msg = type('Message', (), {
+            'role': 'user', 
+            'parts': [type('Part', (), {'content': 'test prompt'})()]
+        })()
+        mock_history = [mock_user_msg]
+        
+        with (
+            patch("code_puppy.state_management.get_message_history", return_value=mock_history),
+            patch("code_puppy.command_line.command_handler._current_version_track", {'test prompt': 2}),
+            patch("code_puppy.version_store.list_versions", return_value=[(1, 1, '2025-01-01T00:00:00')]),
+        ):
+            result = handle_command("/redo")
+            assert result is True
+            mock_emit_warning.assert_called_with("No version to redo to!")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_redo_command_success():
+    mocks = setup_messaging_mocks()
+    mock_emit_success = mocks["emit_success"].start()
+    mock_emit_info = mocks["emit_info"].start()
+
+    try:
+        # Mock history with a user message
+        mock_user_msg = type('Message', (), {
+            'role': 'user', 
+            'parts': [type('Part', (), {'content': 'test prompt'})()]
+        })()
+        mock_history = [mock_user_msg]
+        
+        # Mock version store functions
+        with (
+            patch("code_puppy.state_management.get_message_history", return_value=mock_history),
+            patch("code_puppy.command_line.command_handler._current_version_track", {'test prompt': 1}),
+            patch("code_puppy.version_store.list_versions", return_value=[
+                (1, 1, '2025-01-01T00:00:00'),
+                (2, 2, '2025-01-01T00:01:00')
+            ]),
+            patch("code_puppy.version_store.get_response_by_version", return_value={
+                'id': 2,
+                'version': 2,
+                'output_text': 'test output',
+                'timestamp': '2025-01-01T00:01:00'
+            }),
+            patch("code_puppy.version_store.get_response_id_for_prompt_version", return_value=2),
+            patch("code_puppy.version_store.compute_snapshot_as_of_response_id", return_value=[]),
+        ):
+            result = handle_command("/redo")
+            assert result is True
+            mock_emit_success.assert_called_with("[bold green]✅ Redone to version 2[/bold green]")
+    finally:
+        mocks["emit_success"].stop()
+        mocks["emit_info"].stop()
+
+
+def test_checkout_command_invalid_args():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        result = handle_command("/checkout")
+        assert result is True
+        mock_emit_warning.assert_called_with("Usage: /checkout <version-number>")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_checkout_command_invalid_version():
+    mocks = setup_messaging_mocks()
+    mock_emit_error = mocks["emit_error"].start()
+
+    try:
+        result = handle_command("/checkout not-a-number")
+        assert result is True
+        mock_emit_error.assert_called_with("Version number must be an integer!")
+    finally:
+        mocks["emit_error"].stop()
+
+
+def test_checkout_command_no_history():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        with patch("code_puppy.state_management.get_message_history", return_value=[]):
+            result = handle_command("/checkout 1")
+            assert result is True
+            mock_emit_warning.assert_called_with("No history to checkout!")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_checkout_command_success():
+    mocks = setup_messaging_mocks()
+    mock_emit_success = mocks["emit_success"].start()
+    mock_emit_info = mocks["emit_info"].start()
+
+    try:
+        # Mock history with a user message
+        mock_user_msg = type('Message', (), {
+            'role': 'user', 
+            'parts': [type('Part', (), {'content': 'test prompt'})()]
+        })()
+        mock_history = [mock_user_msg]
+        
+        # Mock version store functions
+        with (
+            patch("code_puppy.state_management.get_message_history", return_value=mock_history),
+            patch("code_puppy.version_store.get_response_by_version", return_value={
+                'id': 1,
+                'version': 1,
+                'output_text': 'test output',
+                'timestamp': '2025-01-01T00:00:00'
+            }),
+            patch("code_puppy.version_store.get_response_id_for_prompt_version", return_value=1),
+            patch("code_puppy.version_store.compute_snapshot_as_of_response_id", return_value=[]),
+        ):
+            result = handle_command("/checkout 1")
+            assert result is True
+            mock_emit_success.assert_called_with("[bold green]✅ Checked out version 1[/bold green]")
+    finally:
+        mocks["emit_success"].stop()
+        mocks["emit_info"].stop()
+
+
+def test_history_command_no_history():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        with patch("code_puppy.state_management.get_message_history", return_value=[]):
+            result = handle_command("/history")
+            assert result is True
+            mock_emit_warning.assert_called_with("No history to show!")
+    finally:
+        mocks["emit_warning"].stop()
+
+
+def test_history_command_success():
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+
+    try:
+        # Mock history with a user message
+        mock_user_msg = type('Message', (), {
+            'role': 'user', 
+            'parts': [type('Part', (), {'content': 'test prompt'})()]
+        })()
+        mock_history = [mock_user_msg]
+        
+        # Mock version store functions
+        with (
+            patch("code_puppy.state_management.get_message_history", return_value=mock_history),
+            patch("code_puppy.version_store.list_versions", return_value=[
+                (1, 1, '2025-01-01T00:00:00'),
+                (2, 2, '2025-01-01T00:01:00')
+            ]),
+        ):
+            result = handle_command("/history")
+            assert result is True
+            mock_emit_info.assert_called()
+            # Check that version history was displayed
+            assert any(
+                "Version History" in str(call) for call in mock_emit_info.call_args_list
+            )
+    finally:
+        mocks["emit_info"].stop()
