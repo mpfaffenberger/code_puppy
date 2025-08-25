@@ -30,7 +30,7 @@ class ChatView(VerticalScroll):
     }
 
     .user-message {
-        background: #1e3a8a;
+        background: transparent;
         color: #ffffff;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -41,7 +41,7 @@ class ChatView(VerticalScroll):
     }
 
     .agent-message {
-        background: #374151;
+        background: transparent;
         color: #f3f4f6;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -52,7 +52,7 @@ class ChatView(VerticalScroll):
     }
 
     .system-message {
-        background: #1f2937;
+        background: transparent;
         color: #d1d5db;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -64,7 +64,7 @@ class ChatView(VerticalScroll):
     }
 
     .error-message {
-        background: #7f1d1d;
+        background: transparent;
         color: #fef2f2;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -75,7 +75,7 @@ class ChatView(VerticalScroll):
     }
 
     .agent_reasoning-message {
-        background: #1f2937;
+        background: transparent;
         color: #f3e8ff;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -87,7 +87,7 @@ class ChatView(VerticalScroll):
     }
 
     .planned_next_steps-message {
-        background: #1f2937;
+        background: transparent;
         color: #f3e8ff;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -99,7 +99,7 @@ class ChatView(VerticalScroll):
     }
 
     .agent_response-message {
-        background: #1f2937;
+        background: transparent;
         color: #f3e8ff;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -110,7 +110,7 @@ class ChatView(VerticalScroll):
     }
 
     .info-message {
-        background: #065f46;
+        background: transparent;
         color: #d1fae5;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -121,7 +121,7 @@ class ChatView(VerticalScroll):
     }
 
     .success-message {
-        background: #064e3b;
+        background: #0d9488;
         color: #d1fae5;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -132,7 +132,7 @@ class ChatView(VerticalScroll):
     }
 
     .warning-message {
-        background: #92400e;
+        background: #d97706;
         color: #fef3c7;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -143,7 +143,7 @@ class ChatView(VerticalScroll):
     }
 
     .tool_output-message {
-        background: #1e40af;
+        background: #5b21b6;
         color: #dbeafe;
         margin: 0 0 1 0;
         margin-top: 0;
@@ -154,7 +154,7 @@ class ChatView(VerticalScroll):
     }
 
     .command_output-message {
-        background: #7c2d12;
+        background: #9a3412;
         color: #fed7aa;
         margin: 0 0 1 0;
         margin-top: 0;

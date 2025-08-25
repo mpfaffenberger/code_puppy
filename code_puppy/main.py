@@ -28,7 +28,7 @@ from code_puppy.message_history_processor import (
     message_history_accumulator,
     prune_interrupted_tool_calls,
 )
-from code_puppy.state_management import is_tui_mode, set_tui_mode
+from code_puppy.state_management import is_tui_mode, set_tui_mode, set_message_history
 from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
 
@@ -320,6 +320,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         response = await agent.run(
                             initial_command, usage_limits=get_custom_usage_limits()
                         )
+                    finally:
+                        set_message_history(prune_interrupted_tool_calls(get_message_history()))
 
             agent_response = response.output
 
@@ -328,7 +330,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             )
             new_msgs = response.all_messages()
             message_history_accumulator(new_msgs)
-
+            set_message_history(prune_interrupted_tool_calls(get_message_history()))
             emit_system_message("\n" + "=" * 50)
             emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
             emit_system_message(
@@ -463,6 +465,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 message_history=get_message_history(),
                                 usage_limits=get_custom_usage_limits(),
                             )
+                        finally:
+                            set_message_history(prune_interrupted_tool_calls(get_message_history()))
 
                     # Create the task
                     agent_task = asyncio.create_task(run_agent_task())
