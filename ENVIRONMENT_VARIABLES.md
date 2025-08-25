@@ -9,6 +9,7 @@ This document lists all environment variables that can be used to configure Code
 
 | `GEMINI_API_KEY` | API key for Google's Gemini models. | None | model_factory.py |
 | `OPENAI_API_KEY` | API key for OpenAI models. | None | model_factory.py |
+| `CEREBRAS_API_KEY` | API key for Cerebras models. | None | model_factory.py |
 
 ## Version Management
 
@@ -75,6 +76,7 @@ The system will:
 # Set API keys for model providers
 export OPENAI_API_KEY=sk-...
 export GEMINI_API_KEY=...
+export CEREBRAS_API_KEY=...
 code-puppy --interactive
 ```
 

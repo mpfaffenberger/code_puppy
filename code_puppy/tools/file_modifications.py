@@ -526,9 +526,9 @@ def register_file_modifications_tools(agent):
             payload = json.loads(json_repair.repair_json(payload))
             if "replacements" in payload:
                 payload = ReplacementsPayload(**payload)
-            if "delete_snippet" in payload:
+            elif "delete_snippet" in payload:
                 payload = DeleteSnippetPayload(**payload)
-            if "content" in payload:
+            elif "content" in payload:
                 payload = ContentPayload(**payload)
             else:
                 file_path = "Unknown"

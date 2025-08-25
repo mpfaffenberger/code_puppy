@@ -87,6 +87,8 @@ Try this:
     }
 }
 ```
+Note that the `OPENAI_API_KEY` or `CEREBRAS_API_KEY` env variable must be set when using `custom_openai` endpoints.
+
 Open an issue if your environment is somehow weirder than mine.
 
 Run specific tasks or engage in interactive mode:
@@ -101,6 +103,7 @@ code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it 
 - Python 3.9+
 - OpenAI API key (for GPT models)
 - Gemini API key (for Google's Gemini models)
+- Cerebras API key (for Cerebras models)
 - Anthropic key (for Claude models)
 - Ollama endpoint available
 
