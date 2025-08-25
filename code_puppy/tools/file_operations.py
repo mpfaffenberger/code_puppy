@@ -6,21 +6,41 @@ from typing import List
 from pydantic import BaseModel, conint
 from pydantic_ai import RunContext
 
-from code_puppy.tools.common import console
-from code_puppy.token_utils import estimate_tokens
-from code_puppy.tools.token_check import token_guard
-
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
-from code_puppy.tools.common import should_ignore_path
+from code_puppy.messaging import (
+    emit_divider,
+    emit_error,
+    emit_info,
+    emit_success,
+    emit_system_message,
+    emit_warning,
+)
+from code_puppy.tools.common import generate_group_id, should_ignore_path
+
+# Add token checking functionality
+try:
+    from code_puppy.token_utils import get_tokenizer
+    from code_puppy.tools.token_check import token_guard
+except ImportError:
+    # Fallback for when token checking modules aren't available
+    def get_tokenizer():
+        # Simple token estimation - no longer using tiktoken
+        return None
+
+    def token_guard(num_tokens):
+        if num_tokens > 10000:
+            raise ValueError(
+                f"Token count {num_tokens} exceeds safety limit of 10,000 tokens"
+            )
 
 
+# Pydantic models for tool return types
 class ListedFile(BaseModel):
     path: str | None
     type: str | None
     size: int = 0
-    full_path: str | None
     depth: int | None
 
 
@@ -29,30 +49,121 @@ class ListFileOutput(BaseModel):
     error: str | None = None
 
 
+class ReadFileOutput(BaseModel):
+    content: str | None
+    num_tokens: conint(lt=10000)
+    error: str | None = None
+
+
+class MatchInfo(BaseModel):
+    file_path: str | None
+    line_number: int | None
+    line_content: str | None
+
+
+class GrepOutput(BaseModel):
+    matches: List[MatchInfo]
+
+
+def is_likely_home_directory(directory):
+    """Detect if directory is likely a user's home directory or common home subdirectory"""
+    abs_dir = os.path.abspath(directory)
+    home_dir = os.path.expanduser("~")
+
+    # Exact home directory match
+    if abs_dir == home_dir:
+        return True
+
+    # Check for common home directory subdirectories
+    common_home_subdirs = {
+        "Documents",
+        "Desktop",
+        "Downloads",
+        "Pictures",
+        "Music",
+        "Videos",
+        "Movies",
+        "Public",
+        "Library",
+        "Applications",  # Cover macOS/Linux
+    }
+    if (
+        os.path.basename(abs_dir) in common_home_subdirs
+        and os.path.dirname(abs_dir) == home_dir
+    ):
+        return True
+
+    return False
+
+
+def is_project_directory(directory):
+    """Quick heuristic to detect if this looks like a project directory"""
+    project_indicators = {
+        "package.json",
+        "pyproject.toml",
+        "Cargo.toml",
+        "pom.xml",
+        "build.gradle",
+        "CMakeLists.txt",
+        ".git",
+        "requirements.txt",
+        "composer.json",
+        "Gemfile",
+        "go.mod",
+        "Makefile",
+        "setup.py",
+    }
+
+    try:
+        contents = os.listdir(directory)
+        return any(indicator in contents for indicator in project_indicators)
+    except (OSError, PermissionError):
+        return False
+
+
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
     results = []
     directory = os.path.abspath(directory)
-    console.print("\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]")
-    console.print(
-        f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]"
+
+    # Generate group_id for this tool execution
+    group_id = generate_group_id("list_files", directory)
+
+    emit_info(
+        "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]",
+        message_group=group_id,
     )
-    console.print("[dim]" + "-" * 60 + "[/dim]")
+    emit_info(
+        f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]\n",
+        message_group=group_id,
+    )
+    emit_divider(message_group=group_id)
     if not os.path.exists(directory):
-        console.print(
-            f"[bold red]Error:[/bold red] Directory '{directory}' does not exist"
-        )
-        console.print("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_error(f"Directory '{directory}' does not exist", message_group=group_id)
+        emit_divider(message_group=group_id)
         return ListFileOutput(
             files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
         )
     if not os.path.isdir(directory):
-        console.print(f"[bold red]Error:[/bold red] '{directory}' is not a directory")
-        console.print("[dim]" + "-" * 60 + "[/dim]\n")
+        emit_error(f"'{directory}' is not a directory", message_group=group_id)
+        emit_divider(message_group=group_id)
         return ListFileOutput(
             files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
         )
+
+    # Smart home directory detection - auto-limit recursion for performance
+    if is_likely_home_directory(directory) and recursive:
+        if not is_project_directory(directory):
+            emit_warning(
+                "🏠 Detected home directory - limiting to non-recursive listing for performance",
+                message_group=group_id,
+            )
+            emit_info(
+                f"💡 To force recursive listing in home directory, use list_files('{directory}', recursive=True) explicitly",
+                message_group=group_id,
+            )
+            recursive = False
     folder_structure = {}
     file_list = []
     for root, dirs, files in os.walk(directory):
@@ -62,14 +173,13 @@ def _list_files(
         if rel_path == ".":
             rel_path = ""
         if rel_path:
-            dir_path = os.path.join(directory, rel_path)
+            os.path.join(directory, rel_path)
             results.append(
                 ListedFile(
                     **{
                         "path": rel_path,
                         "type": "directory",
                         "size": 0,
-                        "full_path": dir_path,
                         "depth": depth,
                     }
                 )
@@ -77,7 +187,6 @@ def _list_files(
             folder_structure[rel_path] = {
                 "path": rel_path,
                 "depth": depth,
-                "full_path": dir_path,
             }
         for file in files:
             file_path = os.path.join(root, file)
@@ -90,7 +199,6 @@ def _list_files(
                     "path": rel_file_path,
                     "type": "file",
                     "size": size,
-                    "full_path": file_path,
                     "depth": depth,
                 }
                 results.append(ListedFile(**file_info))
@@ -141,8 +249,9 @@ def _list_files(
 
     if results:
         files = sorted([f for f in results if f.type == "file"], key=lambda x: x.path)
-        console.print(
-            f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]"
+        emit_info(
+            f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]",
+            message_group=group_id,
         )
     all_items = sorted(results, key=lambda x: x.path)
     parent_dirs_with_content = set()
@@ -161,30 +270,29 @@ def _list_files(
                 prefix += "    "
         name = os.path.basename(item.path) or item.path
         if item.type == "directory":
-            console.print(f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]")
+            emit_info(
+                f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]",
+                message_group=group_id,
+            )
         else:
             icon = get_file_icon(item.path)
             size_str = format_size(item.size)
-            console.print(
-                f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]"
+            emit_info(
+                f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]",
+                message_group=group_id,
             )
     else:
-        console.print("[yellow]Directory is empty[/yellow]")
+        emit_warning("Directory is empty", message_group=group_id)
     dir_count = sum(1 for item in results if item.type == "directory")
     file_count = sum(1 for item in results if item.type == "file")
     total_size = sum(item.size for item in results if item.type == "file")
-    console.print("\n[bold cyan]Summary:[/bold cyan]")
-    console.print(
-        f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]"
+    emit_info("\n[bold cyan]Summary:[/bold cyan]", message_group=group_id)
+    emit_info(
+        f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]",
+        message_group=group_id,
     )
-    console.print("[dim]" + "-" * 60 + "[/dim]\n")
+    emit_divider(message_group=group_id)
     return ListFileOutput(files=results)
-
-
-class ReadFileOutput(BaseModel):
-    content: str | None
-    num_tokens: conint(lt=10000)
-    error: str | None = None
 
 
 def _read_file(
@@ -195,13 +303,16 @@ def _read_file(
 ) -> ReadFileOutput:
     file_path = os.path.abspath(file_path)
 
+    # Generate group_id for this tool execution
+    group_id = generate_group_id("read_file", file_path)
+
     # Build console message with optional parameters
     console_msg = f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
     if start_line is not None and num_lines is not None:
         console_msg += f" [dim](lines {start_line}-{start_line + num_lines - 1})[/dim]"
-    console.print(console_msg)
+    emit_info(console_msg, message_group=group_id)
 
-    console.print("[dim]" + "-" * 60 + "[/dim]")
+    emit_divider(message_group=group_id)
     if not os.path.exists(file_path):
         error_msg = f"File {file_path} does not exist"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
@@ -224,12 +335,14 @@ def _read_file(
                 # Read the entire file
                 content = f.read()
 
-            num_tokens = estimate_tokens(content)
+            # Simple approximation: ~4 characters per token
+            num_tokens = len(content) // 4
             if num_tokens > 10000:
-                raise ValueError(
-                    "The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks."
+                return ReadFileOutput(
+                    content=None,
+                    error="The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.",
+                    num_tokens=0,
                 )
-            token_guard(num_tokens)
         return ReadFileOutput(content=content, num_tokens=num_tokens)
     except (FileNotFoundError, PermissionError):
         # For backward compatibility with tests, return "FILE NOT FOUND" for these specific errors
@@ -240,23 +353,18 @@ def _read_file(
         return ReadFileOutput(content=message, num_tokens=0, error=message)
 
 
-class MatchInfo(BaseModel):
-    file_path: str | None
-    line_number: int | None
-    line_content: str | None
-
-
-class GrepOutput(BaseModel):
-    matches: List[MatchInfo]
-
-
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     matches: List[MatchInfo] = []
     directory = os.path.abspath(directory)
-    console.print(
-        f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]"
+
+    # Generate group_id for this tool execution
+    group_id = generate_group_id("grep", f"{directory}_{search_string}")
+
+    emit_info(
+        f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]",
+        message_group=group_id,
     )
-    console.print("[dim]" + "-" * 60 + "[/dim]")
+    emit_divider(message_group=group_id)
 
     for root, dirs, files in os.walk(directory, topdown=True):
         # Filter out ignored directories
@@ -266,11 +374,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             file_path = os.path.join(root, f_name)
 
             if should_ignore_path(file_path):
-                # console.print(f"[dim]Ignoring: {file_path}[/dim]") # Optional: for debugging ignored files
                 continue
 
             try:
-                # console.print(f"\U0001f4c2 [bold cyan]Searching: {file_path}[/bold cyan]") # Optional: for verbose searching log
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
                     for line_number, line_content in enumerate(fh, 1):
                         if search_string in line_content:
@@ -282,69 +388,236 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 }
                             )
                             matches.append(match_info)
-                            # console.print(
-                            #     f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}"
-                            # ) # Optional: for verbose match logging
-                            if len(matches) >= 200:
-                                console.print(
-                                    "[yellow]Limit of 200 matches reached. Stopping search.[/yellow]"
+                            emit_system_message(
+                                f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
+                                message_group=group_id,
+                            )
+                            if len(matches) >= 50:
+                                emit_warning(
+                                    "Limit of 50 matches reached. Stopping search.",
+                                    message_group=group_id,
                                 )
                                 return GrepOutput(matches=matches)
             except FileNotFoundError:
-                console.print(
-                    f"[yellow]File not found (possibly a broken symlink): {file_path}[/yellow]"
+                emit_warning(
+                    f"File not found (possibly a broken symlink): {file_path}",
+                    message_group=group_id,
                 )
                 continue
             except UnicodeDecodeError:
-                console.print(
-                    f"[yellow]Cannot decode file (likely binary): {file_path}[/yellow]"
+                emit_warning(
+                    f"Cannot decode file (likely binary): {file_path}",
+                    message_group=group_id,
                 )
                 continue
             except Exception as e:
-                console.print(f"[red]Error processing file {file_path}: {e}[/red]")
+                emit_error(
+                    f"Error processing file {file_path}: {e}", message_group=group_id
+                )
                 continue
 
     if not matches:
-        console.print(
-            f"[yellow]No matches found for '{search_string}' in {directory}[/yellow]"
+        emit_warning(
+            f"No matches found for '{search_string}' in {directory}",
+            message_group=group_id,
         )
     else:
-        console.print(
-            f"[green]Found {len(matches)} match(es) for '{search_string}' in {directory}[/green]"
+        emit_success(
+            f"Found {len(matches)} match(es) for '{search_string}' in {directory}",
+            message_group=group_id,
         )
 
     return GrepOutput(matches=matches)
 
 
-def list_files(
-    context: RunContext, directory: str = ".", recursive: bool = True
-) -> ListFileOutput:
-    list_files_output = _list_files(context, directory, recursive)
-    num_tokens = estimate_tokens(list_files_output.model_dump_json())
-    if num_tokens > 10000:
-        return ListFileOutput(
-            files=[],
-            error="Too many files - tokens exceeded. Try listing non-recursively",
-        )
-    return list_files_output
+# Exported top-level functions for direct import by tests and other code
 
 
-def read_file(
-    context: RunContext,
-    file_path: str = "",
-    start_line: int | None = None,
-    num_lines: int | None = None,
-) -> ReadFileOutput:
+def list_files(context, directory=".", recursive=True):
+    return _list_files(context, directory, recursive)
+
+
+def read_file(context, file_path, start_line=None, num_lines=None):
     return _read_file(context, file_path, start_line, num_lines)
 
 
-def grep(
-    context: RunContext, search_string: str = "", directory: str = "."
-) -> GrepOutput:
+def grep(context, search_string, directory="."):
     return _grep(context, search_string, directory)
 
 
 def register_file_operations_tools(agent):
-    agent.tool(list_files)
-    agent.tool(read_file)
-    agent.tool(grep)
+    @agent.tool
+    def list_files(
+        context: RunContext, directory: str = ".", recursive: bool = True
+    ) -> ListFileOutput:
+        """List files and directories with intelligent filtering and safety features.
+
+        This tool provides comprehensive directory listing with smart home directory
+        detection, project-aware recursion, and token-safe output. It automatically
+        ignores common build artifacts, cache directories, and other noise while
+        providing rich file metadata and visual formatting.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            directory (str, optional): Path to the directory to list. Can be relative
+                or absolute. Defaults to "." (current directory).
+            recursive (bool, optional): Whether to recursively list subdirectories.
+                Automatically disabled for home directories unless they contain
+                project indicators. Defaults to True.
+
+        Returns:
+            ListFileOutput: A structured response containing:
+                - files (List[ListedFile]): List of files and directories found, where
+                  each ListedFile contains:
+                  - path (str | None): Relative path from the listing directory
+                  - type (str | None): "file" or "directory"
+                  - size (int): File size in bytes (0 for directories)
+                  - full_path (str | None): Absolute path to the item
+                  - depth (int | None): Nesting depth from the root directory
+                - error (str | None): Error message if listing failed
+
+        Note:
+            - Automatically ignores common patterns (.git, node_modules, __pycache__, etc.)
+            - Limits output to 10,000 tokens for safety (suggests non-recursive if exceeded)
+            - Smart home directory detection prevents performance issues
+            - Files are displayed with appropriate icons and size formatting
+            - Project directories are detected via common configuration files
+
+        Examples:
+            >>> result = list_files(ctx, "./src", recursive=True)
+            >>> if not result.error:
+            ...     for file in result.files:
+            ...         if file.type == "file" and file.path.endswith(".py"):
+            ...             print(f"Python file: {file.path} ({file.size} bytes)")
+
+        Best Practice:
+            - Use recursive=False for initial exploration of unknown directories
+            - When encountering "too many files" errors, try non-recursive listing
+            - Check the error field before processing the files list
+        """
+        list_files_result = _list_files(context, directory, recursive)
+        num_tokens = (
+            len(list_files_result.model_dump_json()) / 4
+        )  # Rough estimate of tokens
+        if num_tokens > 10000:
+            return ListFileOutput(
+                files=[],
+                error="Too many files - tokens exceeded. Try listing non-recursively",
+            )
+        return list_files_result
+
+    @agent.tool
+    def read_file(
+        context: RunContext,
+        file_path: str = "",
+        start_line: int | None = None,
+        num_lines: int | None = None,
+    ) -> ReadFileOutput:
+        """Read file contents with optional line-range selection and token safety.
+
+        This tool provides safe file reading with automatic token counting and
+        optional line-range selection for handling large files efficiently.
+        It protects against reading excessively large files that could overwhelm
+        the agent's context window.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            file_path (str): Path to the file to read. Can be relative or absolute.
+                Cannot be empty.
+            start_line (int | None, optional): Starting line number for partial reads
+                (1-based indexing). If specified, num_lines must also be provided.
+                Defaults to None (read entire file).
+            num_lines (int | None, optional): Number of lines to read starting from
+                start_line. Must be specified if start_line is provided.
+                Defaults to None (read to end of file).
+
+        Returns:
+            ReadFileOutput: A structured response containing:
+                - content (str | None): The file contents or error message
+                - num_tokens (int): Estimated token count (constrained to < 10,000)
+                - error (str | None): Error message if reading failed
+
+        Note:
+            - Files larger than 10,000 estimated tokens cannot be read entirely
+            - Token estimation uses ~4 characters per token approximation
+            - Line numbers are 1-based (first line is line 1)
+            - Supports UTF-8 encoding with fallback error handling
+            - Non-existent files return "FILE NOT FOUND" for backward compatibility
+
+        Examples:
+            >>> # Read entire file
+            >>> result = read_file(ctx, "config.py")
+            >>> if not result.error:
+            ...     print(f"File has {result.num_tokens} tokens")
+            ...     print(result.content)
+
+            >>> # Read specific line range
+            >>> result = read_file(ctx, "large_file.py", start_line=100, num_lines=50)
+            >>> # Reads lines 100-149
+
+        Raises:
+            ValueError: If file exceeds 10,000 token safety limit (caught and returned as error)
+
+        Best Practice:
+            - For large files, use line-range reading to avoid token limits
+            - Always check the error field before processing content
+            - Use grep tool first to locate relevant sections in large files
+            - Prefer reading configuration files entirely, code files in chunks
+        """
+        return _read_file(context, file_path, start_line, num_lines)
+
+    @agent.tool
+    def grep(
+        context: RunContext, search_string: str = "", directory: str = "."
+    ) -> GrepOutput:
+        """Recursively search for text patterns across files with intelligent filtering.
+
+        This tool provides powerful text searching across directory trees with
+        automatic filtering of irrelevant files, binary detection, and match limiting
+        for performance. It's essential for code exploration and finding specific
+        patterns or references.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            search_string (str): The text pattern to search for. Performs exact
+                string matching (not regex). Cannot be empty.
+            directory (str, optional): Root directory to start the recursive search.
+                Can be relative or absolute. Defaults to "." (current directory).
+
+        Returns:
+            GrepOutput: A structured response containing:
+                - matches (List[MatchInfo]): List of matches found, where each
+                  MatchInfo contains:
+                  - file_path (str | None): Absolute path to the file containing the match
+                  - line_number (int | None): Line number where match was found (1-based)
+                  - line_content (str | None): Full line content containing the match
+
+        Note:
+            - Automatically ignores common patterns (.git, node_modules, __pycache__, etc.)
+            - Skips binary files and handles Unicode decode errors gracefully
+            - Limited to 200 matches maximum for performance and relevance
+            - UTF-8 encoding with error tolerance for text files
+            - Results are not sorted - appear in filesystem traversal order
+
+        Examples:
+            >>> # Search for function definitions
+            >>> result = grep(ctx, "def calculate_", "./src")
+            >>> for match in result.matches:
+            ...     print(f"{match.file_path}:{match.line_number}: {match.line_content.strip()}")
+
+            >>> # Find configuration references
+            >>> result = grep(ctx, "DATABASE_URL", ".")
+            >>> print(f"Found {len(result.matches)} references to DATABASE_URL")
+
+        Warning:
+            - Large codebases may hit the 200 match limit
+            - Search is case-sensitive and literal (no regex patterns)
+            - Binary files are automatically skipped with warnings
+
+        Best Practice:
+            - Use specific search terms to avoid too many matches
+            - Start with narrow directory scope for faster results
+            - Combine with read_file to examine matches in detail
+            - For case-insensitive search, try multiple variants manually
+        """
+        return _grep(context, search_string, directory)

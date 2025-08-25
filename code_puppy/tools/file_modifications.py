@@ -14,65 +14,110 @@ import difflib
 import json
 import os
 import traceback
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
-from json_repair import repair_json
+import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from code_puppy.tools.common import _find_best_window, console
+from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.tools.common import _find_best_window, generate_group_id
 
 
-def _print_diff(diff_text: str) -> None:
+class DeleteSnippetPayload(BaseModel):
+    file_path: str
+    delete_snippet: str
+
+
+class Replacement(BaseModel):
+    old_str: str
+    new_str: str
+
+
+class ReplacementsPayload(BaseModel):
+    file_path: str
+    replacements: List[Replacement]
+
+
+class ContentPayload(BaseModel):
+    file_path: str
+    content: str
+    overwrite: bool = False
+
+
+EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
+
+
+def _print_diff(diff_text: str, message_group: str = None) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
-    console.print(
-        "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]"
+
+    emit_info(
+        "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]",
+        message_group=message_group,
     )
     if diff_text and diff_text.strip():
         for line in diff_text.splitlines():
+            # Git-style diff coloring using markup strings for TUI compatibility
             if line.startswith("+") and not line.startswith("+++"):
-                console.print(f"[bold green]{line}[/bold green]", highlight=False)
+                # Addition line - use markup string instead of Rich Text
+                emit_info(
+                    f"[bold green]{line}[/bold green]",
+                    highlight=False,
+                    message_group=message_group,
+                )
             elif line.startswith("-") and not line.startswith("---"):
-                console.print(f"[bold red]{line}[/bold red]", highlight=False)
-            elif line.startswith("@"):
-                console.print(f"[bold cyan]{line}[/bold cyan]", highlight=False)
+                # Removal line - use markup string instead of Rich Text
+                emit_info(
+                    f"[bold red]{line}[/bold red]",
+                    highlight=False,
+                    message_group=message_group,
+                )
+            elif line.startswith("@@"):
+                # Hunk info - use markup string instead of Rich Text
+                emit_info(
+                    f"[bold cyan]{line}[/bold cyan]",
+                    highlight=False,
+                    message_group=message_group,
+                )
+            elif line.startswith("+++") or line.startswith("---"):
+                # Filename lines in diff - use markup string instead of Rich Text
+                emit_info(
+                    f"[dim white]{line}[/dim white]",
+                    highlight=False,
+                    message_group=message_group,
+                )
             else:
-                console.print(line, highlight=False)
+                # Context lines - no special formatting
+                emit_info(line, highlight=False, message_group=message_group)
     else:
-        console.print("[dim]-- no diff available --[/dim]")
-    console.print(
-        "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]"
+        emit_info("[dim]-- no diff available --[/dim]", message_group=message_group)
+    emit_info(
+        "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]",
+        message_group=message_group,
     )
 
 
-def _log_error(msg: str, exc: Exception | None = None) -> None:
-    console.print(f"[bold red]Error:[/bold red] {msg}")
+def _log_error(
+    msg: str, exc: Exception | None = None, message_group: str = None
+) -> None:
+    emit_error(f"{msg}", message_group=message_group)
     if exc is not None:
-        console.print(traceback.format_exc(), highlight=False)
+        emit_error(traceback.format_exc(), highlight=False, message_group=message_group)
 
 
 def _delete_snippet_from_file(
-    context: RunContext | None, file_path: str, snippet: str
+    context: RunContext | None, file_path: str, snippet: str, message_group: str = None
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
     diff_text = ""
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            return {
-                "success": False,
-                "path": file_path,
-                "message": f"File '{file_path}' does not exist.",
-                "changed": False,
-                "diff": diff_text,
-            }
+            return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
         with open(file_path, "r", encoding="utf-8") as f:
             original = f.read()
         if snippet not in original:
             return {
-                "success": False,
-                "path": file_path,
-                "message": f"Snippet not found in file '{file_path}'.",
-                "changed": False,
+                "error": f"Snippet not found in file '{file_path}'.",
                 "diff": diff_text,
             }
         modified = original.replace(snippet, "")
@@ -94,13 +139,15 @@ def _delete_snippet_from_file(
             "changed": True,
             "diff": diff_text,
         }
-    except Exception as exc:  # noqa: BLE001
-        _log_error("Unhandled exception in delete_snippet_from_file", exc)
+    except Exception as exc:
         return {"error": str(exc), "diff": diff_text}
 
 
 def _replace_in_file(
-    context: RunContext | None, path: str, replacements: List[Dict[str, str]]
+    context: RunContext | None,
+    path: str,
+    replacements: List[Dict[str, str]],
+    message_group: str = None,
 ) -> Dict[str, Any]:
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
@@ -138,8 +185,9 @@ def _replace_in_file(
         )
 
     if modified == original:
-        console.print(
-            "[bold yellow]No changes to apply – proposed content is identical.[/bold yellow]"
+        emit_warning(
+            "No changes to apply – proposed content is identical.",
+            message_group=message_group,
         )
         return {
             "success": False,
@@ -174,6 +222,7 @@ def _write_to_file(
     path: str,
     content: str,
     overwrite: bool = False,
+    message_group: str = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(path)
 
@@ -216,44 +265,76 @@ def _write_to_file(
 
 
 def delete_snippet_from_file(
-    context: RunContext, file_path: str, snippet: str
+    context: RunContext, file_path: str, snippet: str, message_group: str = None
 ) -> Dict[str, Any]:
-    console.log(f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]")
-    res = _delete_snippet_from_file(context, file_path, snippet)
+    emit_info(
+        f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]",
+        message_group=message_group,
+    )
+    res = _delete_snippet_from_file(
+        context, file_path, snippet, message_group=message_group
+    )
     diff = res.get("diff", "")
     if diff:
-        _print_diff(diff)
+        _print_diff(diff, message_group=message_group)
     return res
 
 
 def write_to_file(
-    context: RunContext, path: str, content: str, overwrite: bool
+    context: RunContext,
+    path: str,
+    content: str,
+    overwrite: bool,
+    message_group: str = None,
 ) -> Dict[str, Any]:
-    console.log(f"✏️ Writing file [bold blue]{path}[/bold blue]")
-    res = _write_to_file(context, path, content, overwrite=overwrite)
+    emit_info(
+        f"✏️ Writing file [bold blue]{path}[/bold blue]", message_group=message_group
+    )
+    res = _write_to_file(
+        context, path, content, overwrite=overwrite, message_group=message_group
+    )
     diff = res.get("diff", "")
     if diff:
-        _print_diff(diff)
+        _print_diff(diff, message_group=message_group)
     return res
 
 
 def replace_in_file(
-    context: RunContext, path: str, replacements: List[Dict[str, str]]
+    context: RunContext,
+    path: str,
+    replacements: List[Dict[str, str]],
+    message_group: str = None,
 ) -> Dict[str, Any]:
-    console.log(f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]")
-    res = _replace_in_file(context, path, replacements)
+    emit_info(
+        f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]",
+        message_group=message_group,
+    )
+    res = _replace_in_file(context, path, replacements, message_group=message_group)
     diff = res.get("diff", "")
     if diff:
-        _print_diff(diff)
+        _print_diff(diff, message_group=message_group)
     return res
 
 
-def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
+def _edit_file(
+    context: RunContext, payload: EditFilePayload, group_id: str = None
+) -> Dict[str, Any]:
     """
-    Unified file editing tool that can:
-    - Create/write a new file when the target does not exist (using raw content or a JSON payload with a "content" key)
-    - Replace text within an existing file via a JSON payload with "replacements" (delegates to internal replace logic)
-    - Delete a snippet from an existing file via a JSON payload with "delete_snippet"
+    High-level implementation of the *edit_file* behaviour.
+
+    This function performs the heavy-lifting after the lightweight agent-exposed wrapper has
+    validated / coerced the inbound *payload* to one of the Pydantic models declared at the top
+    of this module.
+
+    Supported payload variants
+    --------------------------
+    • **ContentPayload** – full file write / overwrite.
+    • **ReplacementsPayload** – targeted in-file replacements.
+    • **DeleteSnippetPayload** – remove an exact snippet.
+
+    The helper decides which low-level routine to delegate to and ensures the resulting unified
+    diff is always returned so the caller can pretty-print it for the user.
+
     Parameters
     ----------
     path : str
@@ -267,52 +348,57 @@ def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
                 {"delete_snippet": "text to remove"}
     The function auto-detects the payload type and routes to the appropriate internal helper.
     """
-    console.print("\n[bold white on blue] EDIT FILE [/bold white on blue]")
-    file_path = os.path.abspath(path)
+    # Use provided group_id or generate one if not provided
+    if group_id is None:
+        group_id = generate_group_id("edit_file", payload.file_path)
+
+    emit_info(
+        "\n[bold white on blue] EDIT FILE [/bold white on blue]", message_group=group_id
+    )
+    file_path = os.path.abspath(payload.file_path)
     try:
-        parsed_payload = json.loads(diff)
-    except json.JSONDecodeError:
-        try:
-            console.print(
-                "[bold yellow] JSON Parsing Failed! TRYING TO REPAIR! [/bold yellow]"
+        if isinstance(payload, DeleteSnippetPayload):
+            return delete_snippet_from_file(
+                context, file_path, payload.delete_snippet, message_group=group_id
             )
-            parsed_payload = json.loads(repair_json(diff))
-            console.print("[bold white on blue] SUCCESS - WOOF! [/bold white on blue]")
-        except Exception as e:
-            console.print(f"[bold red] Unable to parse diff [/bold red] -- {str(e)}")
+        elif isinstance(payload, ReplacementsPayload):
+            # Convert Pydantic Replacement models to dict format for legacy compatibility
+            replacements_dict = [
+                {"old_str": rep.old_str, "new_str": rep.new_str}
+                for rep in payload.replacements
+            ]
+            return replace_in_file(
+                context, file_path, replacements_dict, message_group=group_id
+            )
+        elif isinstance(payload, ContentPayload):
+            file_exists = os.path.exists(file_path)
+            if file_exists and not payload.overwrite:
+                return {
+                    "success": False,
+                    "path": file_path,
+                    "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
+                    "changed": False,
+                }
+            return write_to_file(
+                context,
+                file_path,
+                payload.content,
+                payload.overwrite,
+                message_group=group_id,
+            )
+        else:
             return {
                 "success": False,
                 "path": file_path,
-                "message": f"Unable to parse diff JSON -- {str(e)}",
+                "message": f"Unknown payload type: {type(payload)}",
                 "changed": False,
-                "diff": "",
             }
-    try:
-        if isinstance(parsed_payload, dict):
-            if "delete_snippet" in parsed_payload:
-                snippet = parsed_payload["delete_snippet"]
-                return delete_snippet_from_file(context, file_path, snippet)
-            if "replacements" in parsed_payload:
-                replacements = parsed_payload["replacements"]
-                return replace_in_file(context, file_path, replacements)
-            if "content" in parsed_payload:
-                content = parsed_payload["content"]
-                overwrite = bool(parsed_payload.get("overwrite", False))
-                file_exists = os.path.exists(file_path)
-                if file_exists and not overwrite:
-                    return {
-                        "success": False,
-                        "path": file_path,
-                        "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
-                        "changed": False,
-                    }
-                return write_to_file(context, file_path, content, overwrite)
-        return write_to_file(context, file_path, diff, overwrite=False)
     except Exception as e:
-        console.print(
-            "[bold red] Unable to route file modification tool call to sub-tool [/bold red]"
+        emit_error(
+            "Unable to route file modification tool call to sub-tool",
+            message_group=group_id,
         )
-        console.print(str(e))
+        emit_error(str(e), message_group=group_id)
         return {
             "success": False,
             "path": file_path,
@@ -321,18 +407,16 @@ def _edit_file(context: RunContext, path: str, diff: str) -> Dict[str, Any]:
         }
 
 
-def _delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
-    console.log(f"🗑️ Deleting file [bold red]{file_path}[/bold red]")
+def _delete_file(
+    context: RunContext, file_path: str, message_group: str = None
+) -> Dict[str, Any]:
+    emit_info(
+        f"🗑️ Deleting file [bold red]{file_path}[/bold red]", message_group=message_group
+    )
     file_path = os.path.abspath(file_path)
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            res = {
-                "success": False,
-                "path": file_path,
-                "message": f"File '{file_path}' does not exist.",
-                "changed": False,
-                "diff": "",
-            }
+            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
         else:
             with open(file_path, "r", encoding="utf-8") as f:
                 original = f.read()
@@ -355,23 +439,9 @@ def _delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
             }
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
-        res = {
-            "success": False,
-            "path": file_path,
-            "message": str(exc),
-            "changed": False,
-            "diff": "",
-        }
-    _print_diff(res.get("diff", ""))
+        res = {"error": str(exc), "diff": ""}
+    _print_diff(res.get("diff", ""), message_group=message_group)
     return res
-
-
-class EditFileOutput(BaseModel):
-    success: bool | None
-    path: str | None
-    message: str | None
-    changed: bool | None
-    diff: str | None
 
 
 def register_file_modifications_tools(agent):
@@ -379,10 +449,157 @@ def register_file_modifications_tools(agent):
 
     @agent.tool(retries=5)
     def edit_file(
-        context: RunContext, path: str = "", diff: str = ""
-    ) -> EditFileOutput:
-        return EditFileOutput(**_edit_file(context, path, diff))
+        context: RunContext, payload: EditFilePayload | str = ""
+    ) -> Dict[str, Any]:
+        """Comprehensive file editing tool supporting multiple modification strategies.
+
+        This is the primary file modification tool that supports three distinct editing
+        approaches: full content replacement, targeted text replacements, and snippet
+        deletion. It provides robust diff generation, error handling, and automatic
+        retry capabilities for reliable file operations.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            payload (EditFilePayload): One of three payload types:
+
+                ContentPayload:
+                    - content (str): Full file content to write
+                    - overwrite (bool, optional): Whether to overwrite existing files.
+                      Defaults to False (safe mode).
+
+                ReplacementsPayload:
+                    - replacements (List[Replacement]): List of text replacements where
+                      each Replacement contains:
+                      - old_str (str): Exact text to find and replace
+                      - new_str (str): Replacement text
+
+                DeleteSnippetPayload:
+                    - delete_snippet (str): Exact text snippet to remove from file
+
+            file_path (str): Path to the target file. Can be relative or absolute.
+                File will be created if it doesn't exist (for ContentPayload).
+        Returns:
+            Dict[str, Any]: Operation result containing:
+                - success (bool): True if operation completed successfully
+                - path (str): Absolute path to the modified file
+                - message (str): Human-readable description of what occurred
+                - changed (bool): True if file content was actually modified
+                - error (str, optional): Error message if operation failed
+
+        Note:
+            - Automatic retry (up to 5 attempts) for transient failures
+            - Unified diff is generated and displayed for all operations
+            - Fuzzy matching (Jaro-Winkler) used for replacements when exact match fails
+            - Minimum similarity threshold of 0.95 for fuzzy replacements
+            - Creates parent directories automatically when needed
+            - UTF-8 encoding enforced for all file operations
+
+        Examples:
+            >>> # Create new file
+            >>> payload = ContentPayload(file_path="foo.py", content="print('Hello World')")
+            >>> result = edit_file(payload)
+
+            >>> # Replace specific text
+            >>> replacements = [Replacement(old_str="foo", new_str="bar")]
+            >>> payload = ReplacementsPayload(file_path="foo.py", replacements=replacements)
+            >>> result = edit_file(payload)
+
+            >>> # Delete code block
+            >>> payload = DeleteSnippetPayload(file_path="foo.py", delete_snippet="# TODO: remove this")
+            >>> result = edit_file(payload)
+
+        Warning:
+            - Always verify file contents after modification
+            - Use overwrite=False by default to prevent accidental data loss
+            - Large files may be slow due to diff generation
+            - Exact string matching required for reliable replacements
+
+        Best Practice:
+            - Use ReplacementsPayload for targeted changes to preserve file structure
+            - Read file first to understand current content before modifications
+            - Keep replacement strings specific and unique to avoid unintended matches
+            - Test modifications on non-critical files first
+        """
+        # Generate group_id for edit_file tool execution
+        if isinstance(payload, str):
+            # Fallback for weird models that just can't help but send json strings...
+            payload = json.loads(json_repair.repair_json(payload))
+            if "replacements" in payload:
+                payload = ReplacementsPayload(**payload)
+            elif "delete_snippet" in payload:
+                payload = DeleteSnippetPayload(**payload)
+            elif "content" in payload:
+                payload = ContentPayload(**payload)
+            else:
+                file_path = "Unknown"
+                if "file_path" in payload:
+                    file_path = payload["file_path"]
+                return {
+                    "success": False,
+                    "path": file_path,
+                    "message": "One of 'content', 'replacements', or 'delete_snippet' must be provided in payload.",
+                    "changed": False,
+                }
+        group_id = generate_group_id("edit_file", payload.file_path)
+        result = _edit_file(context, payload, group_id)
+        if "diff" in result:
+            del result["diff"]
+        return result
 
     @agent.tool(retries=5)
-    def delete_file(context: RunContext, file_path: str = "") -> EditFileOutput:
-        return EditFileOutput(**_delete_file(context, file_path))
+    def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
+        """Safely delete files with comprehensive logging and diff generation.
+
+        This tool provides safe file deletion with automatic diff generation to show
+        exactly what content was removed. It includes proper error handling and
+        automatic retry capabilities for reliable operation.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            file_path (str): Path to the file to delete. Can be relative or absolute.
+                Must be an existing regular file (not a directory).
+
+        Returns:
+            Dict[str, Any]: Operation result containing:
+                - success (bool): True if file was successfully deleted
+                - path (str): Absolute path to the deleted file
+                - message (str): Human-readable description of the operation
+                - changed (bool): True if file was actually removed
+                - error (str, optional): Error message if deletion failed
+
+        Note:
+            - Automatic retry (up to 5 attempts) for transient failures
+            - Complete file content is captured and shown in diff before deletion
+            - Only deletes regular files, not directories or special files
+            - Generates unified diff showing all removed content
+            - Error if file doesn't exist or is not accessible
+
+        Examples:
+            >>> # Delete temporary file
+            >>> result = delete_file(ctx, "temp_output.txt")
+            >>> if result['success']:
+            ...     print(f"Successfully deleted {result['path']}")
+
+            >>> # Delete with error handling
+            >>> result = delete_file(ctx, "config.bak")
+            >>> if 'error' in result:
+            ...     print(f"Deletion failed: {result['error']}")
+
+        Warning:
+            - File deletion is irreversible - ensure you have backups if needed
+            - Will not delete directories (use appropriate directory removal tools)
+            - No "trash" or "recycle bin" - files are permanently removed
+            - Check file importance before deletion
+
+        Best Practice:
+            - Always verify file path before deletion
+            - Review the generated diff to confirm deletion scope
+            - Consider moving files to backup location instead of deleting
+            - Use in combination with list_files to verify target
+        """
+        # Generate group_id for delete_file tool execution
+        group_id = generate_group_id("delete_file", file_path)
+        result = _delete_file(context, file_path, message_group=group_id)
+        if "diff" in result:
+            del result["diff"]
+        return result

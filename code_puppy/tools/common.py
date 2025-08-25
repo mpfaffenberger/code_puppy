@@ -1,43 +1,27 @@
-import os
 import fnmatch
-
+import hashlib
+import os
+import time
+from pathlib import Path
 from typing import Optional, Tuple
+
 from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 
-from pathlib import Path
-# get_model_context_length will be imported locally where needed to avoid circular imports
+# Import our queue-based console system
+try:
+    from code_puppy.messaging import get_queue_console
 
-NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
-console = Console(no_color=NO_COLOR)
-
-
-def get_model_context_length() -> int:
-    """
-    Get the context length for the currently configured model from models.json
-    """
-    # Import locally to avoid circular imports
-    from code_puppy.model_factory import ModelFactory
-    from code_puppy.config import get_model_name
-    import os
-    from pathlib import Path
-
-    # Load model configuration
-    models_path = os.environ.get("MODELS_JSON_PATH")
-    if not models_path:
-        models_path = Path(__file__).parent.parent / "models.json"
-    else:
-        models_path = Path(models_path)
-
-    model_configs = ModelFactory.load_config(str(models_path))
-    model_name = get_model_name()
-
-    # Get context length from model config
-    model_config = model_configs.get(model_name, {})
-    context_length = model_config.get("context_length", 128000)  # Default value
-
-    # Reserve 10% of context for response
-    return int(context_length)
+    # Use queue console by default, but allow fallback
+    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    _rich_console = Console(no_color=NO_COLOR)
+    console = get_queue_console()
+    # Set the fallback console for compatibility
+    console.fallback_console = _rich_console
+except ImportError:
+    # Fallback to regular Rich console if messaging system not available
+    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    console = Console(no_color=NO_COLOR)
 
 
 # -------------------
@@ -77,7 +61,7 @@ IGNORE_PATTERNS = [
     "**/.parcel-cache/**",
     "**/.vite/**",
     "**/storybook-static/**",
-    "**/*.tsbuildinfo/*",
+    "**/*.tsbuildinfo/**",
     # Python
     "**/__pycache__/**",
     "**/__pycache__",
@@ -104,6 +88,7 @@ IGNORE_PATTERNS = [
     "**/*.egg-info/**",
     "**/dist/**",
     "**/wheels/**",
+    "**/pytest-reports/**",
     # Java (Maven, Gradle, SBT)
     "**/target/**",
     "**/target",
@@ -384,3 +369,27 @@ def _find_best_window(
     console.log(f"Best window: {best_window}")
     console.log(f"Best score: {best_score}")
     return best_span, best_score
+
+
+def generate_group_id(tool_name: str, extra_context: str = "") -> str:
+    """Generate a unique group_id for tool output grouping.
+
+    Args:
+        tool_name: Name of the tool (e.g., 'list_files', 'edit_file')
+        extra_context: Optional extra context to make group_id more unique
+
+    Returns:
+        A string in format: tool_name_hash
+    """
+    # Create a unique identifier using timestamp, context, and a random component
+    import random
+
+    timestamp = str(int(time.time() * 1000000))  # microseconds for more uniqueness
+    random_component = random.randint(1000, 9999)  # Add randomness
+    context_string = f"{tool_name}_{timestamp}_{random_component}_{extra_context}"
+
+    # Generate a short hash
+    hash_obj = hashlib.md5(context_string.encode())
+    short_hash = hash_obj.hexdigest()[:8]
+
+    return f"{tool_name}_{short_hash}"

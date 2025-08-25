@@ -1,11 +1,14 @@
 import configparser
-import os
 import json
+import os
 import pathlib
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
+COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
+MODELS_FILE = os.path.join(CONFIG_DIR, "models.json")
+EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -35,7 +38,7 @@ def ensure_config_exists():
                 val = input("What should we name the puppy? ").strip()
             elif key == "owner_name":
                 val = input(
-                    "What's your name (so Code Puppy knows its master)? "
+                    "What's your name (so Code Puppy knows its owner)? "
                 ).strip()
             else:
                 val = input(f"Enter {key}: ").strip()
@@ -60,17 +63,9 @@ def get_owner_name():
     return get_value("owner_name") or "Master"
 
 
-def get_message_history_limit():
-    """
-    Returns the user-configured message truncation limit (for remembering context),
-    or 40 if unset or misconfigured.
-    Configurable by 'message_history_limit' key.
-    """
-    val = get_value("message_history_limit")
-    try:
-        return max(1, int(val)) if val else 40
-    except (ValueError, TypeError):
-        return 40
+# Legacy function removed - message history limit is no longer used
+# Message history is now managed by token-based compaction system
+# using get_protected_token_count() and get_summarization_threshold()
 
 
 # --- CONFIG SETTER STARTS HERE ---
@@ -107,21 +102,102 @@ def load_mcp_server_configs():
     Returns a dict mapping names to their URL or config dict.
     If file does not exist, returns an empty dict.
     """
+    from code_puppy.messaging.message_queue import emit_error, emit_system_message
+
     try:
         if not pathlib.Path(MCP_SERVERS_FILE).exists():
-            print("No MCP configuration was found")
+            emit_system_message("[dim]No MCP configuration was found[/dim]")
             return {}
         with open(MCP_SERVERS_FILE, "r") as f:
             conf = json.loads(f.read())
             return conf["mcp_servers"]
     except Exception as e:
-        print(f"Failed to load MCP servers - {str(e)}")
+        emit_error(f"Failed to load MCP servers - {str(e)}")
         return {}
 
 
+# Cache for model validation to prevent hitting ModelFactory on every call
+_model_validation_cache = {}
+_default_model_cache = None
+
+
+def _default_model_from_models_json():
+    """Attempt to load the first model name from models.json.
+
+    Falls back to the hard-coded default (``claude-4-0-sonnet``) if the file
+    cannot be read for any reason or is empty.
+    """
+    global _default_model_cache
+
+    # Return cached default if we have one
+    if _default_model_cache is not None:
+        return _default_model_cache
+
+    try:
+        # Local import to avoid potential circular dependency on module import
+        from code_puppy.model_factory import ModelFactory
+
+        models_config_path = os.path.join(CONFIG_DIR, "models.json")
+        models_config = ModelFactory.load_config(models_config_path)
+        first_key = next(iter(models_config))  # Raises StopIteration if empty
+        _default_model_cache = first_key
+        return first_key
+    except Exception:
+        # Any problem (network, file missing, empty dict, etc.) => fall back
+        _default_model_cache = "claude-4-0-sonnet"
+        return "claude-4-0-sonnet"
+
+
+def _validate_model_exists(model_name: str) -> bool:
+    """Check if a model exists in models.json with caching to avoid redundant calls."""
+    global _model_validation_cache
+
+    # Check cache first
+    if model_name in _model_validation_cache:
+        return _model_validation_cache[model_name]
+
+    try:
+        from code_puppy.model_factory import ModelFactory
+
+        models_config_path = os.path.join(CONFIG_DIR, "models.json")
+        models_config = ModelFactory.load_config(models_config_path)
+        exists = model_name in models_config
+
+        # Cache the result
+        _model_validation_cache[model_name] = exists
+        return exists
+    except Exception:
+        # If we can't validate, assume it exists to avoid breaking things
+        _model_validation_cache[model_name] = True
+        return True
+
+
+def clear_model_cache():
+    """Clear the model validation cache. Call this when models.json changes."""
+    global _model_validation_cache, _default_model_cache
+    _model_validation_cache.clear()
+    _default_model_cache = None
+
+
 def get_model_name():
-    """Returns the last used model name stored in config, or None if unset."""
-    return get_value("model") or "gpt-4.1"
+    """Return a valid model name for Code Puppy to use.
+
+    1. Look at ``model`` in *puppy.cfg*.
+    2. If that value exists **and** is present in *models.json*, use it.
+    3. Otherwise return the first model listed in *models.json*.
+    4. As a last resort (e.g.
+       *models.json* unreadable) fall back to ``claude-4-0-sonnet``.
+    """
+
+    stored_model = get_value("model")
+
+    if stored_model:
+        # Use cached validation to avoid hitting ModelFactory every time
+        if _validate_model_exists(stored_model):
+            return stored_model
+
+    # Either no stored model or it's not valid – choose default from models.json
+    return _default_model_from_models_json()
 
 
 def set_model_name(model: str):
@@ -134,15 +210,118 @@ def set_model_name(model: str):
     with open(CONFIG_FILE, "w") as f:
         config.write(f)
 
+    # Clear model cache when switching models to ensure fresh validation
+    clear_model_cache()
+
+
+def get_puppy_token():
+    """Returns the puppy_token from config, or None if not set."""
+    return get_value("puppy_token")
+
+
+def set_puppy_token(token: str):
+    """Sets the puppy_token in the persistent config file."""
+    set_config_value("puppy_token", token)
+
+
+def normalize_command_history():
+    """
+    Normalize the command history file by converting old format timestamps to the new format.
+
+    Old format example:
+    - "# 2025-08-04 12:44:45.469829"
+
+    New format example:
+    - "# 2025-08-05T10:35:33" (ISO)
+    """
+    import os
+    import re
+
+    # Skip implementation during tests
+    import sys
+
+    if "pytest" in sys.modules:
+        return
+
+    # Skip normalization if file doesn't exist
+    command_history_exists = os.path.isfile(COMMAND_HISTORY_FILE)
+    if not command_history_exists:
+        return
+
+    try:
+        # Read the entire file
+        with open(COMMAND_HISTORY_FILE, "r") as f:
+            content = f.read()
+
+        # Skip empty files
+        if not content.strip():
+            return
+
+        # Define regex pattern for old timestamp format
+        # Format: "# YYYY-MM-DD HH:MM:SS.ffffff"
+        old_timestamp_pattern = r"# (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.(\d+)"
+
+        # Function to convert matched timestamp to ISO format
+        def convert_to_iso(match):
+            date = match.group(1)
+            time = match.group(2)
+            # Create ISO format (YYYY-MM-DDThh:mm:ss)
+            return f"# {date}T{time}"
+
+        # Replace all occurrences of the old timestamp format with the new ISO format
+        updated_content = re.sub(old_timestamp_pattern, convert_to_iso, content)
+
+        # Write the updated content back to the file only if changes were made
+        if content != updated_content:
+            with open(COMMAND_HISTORY_FILE, "w") as f:
+                f.write(updated_content)
+    except Exception as e:
+        from rich.console import Console
+
+        direct_console = Console()
+        error_msg = f"❌ An unexpected error occurred while normalizing command history: {str(e)}"
+        direct_console.print(f"[bold red]{error_msg}[/bold red]")
+
+
+def initialize_command_history_file():
+    """Create the command history file if it doesn't exist.
+    Handles migration from the old history file location for backward compatibility.
+    Also normalizes the command history format if needed.
+    """
+    import os
+    from pathlib import Path
+
+    command_history_exists = os.path.isfile(COMMAND_HISTORY_FILE)
+    if not command_history_exists:
+        try:
+            Path(COMMAND_HISTORY_FILE).touch()
+
+            # For backwards compatibility, copy the old history file, then remove it
+            old_history_file = os.path.join(
+                os.path.expanduser("~"), ".code_puppy_history.txt"
+            )
+            old_history_exists = os.path.isfile(old_history_file)
+            if old_history_exists:
+                import shutil
+
+                shutil.copy2(Path(old_history_file), Path(COMMAND_HISTORY_FILE))
+                Path(old_history_file).unlink(missing_ok=True)
+
+                # Normalize the command history format if needed
+                normalize_command_history()
+        except Exception as e:
+            from rich.console import Console
+
+            direct_console = Console()
+            error_msg = f"❌ An unexpected error occurred while trying to initialize history file: {str(e)}"
+            direct_console.print(f"[bold red]{error_msg}[/bold red]")
+
 
 def get_yolo_mode():
     """
     Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
-    If not set, checks YOLO_MODE env var:
-    - If found in env, saves that value to puppy.cfg for future use.
-    - If neither present, defaults to False.
+    Defaults to False if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
-    Always prioritizes the config once set!
     """
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("yolo_mode")
@@ -150,11 +329,72 @@ def get_yolo_mode():
         if str(cfg_val).strip().lower() in true_vals:
             return True
         return False
-    env_val = os.getenv("YOLO_MODE")
-    if env_val is not None:
-        # Persist the env value now
-        set_config_value("yolo_mode", env_val)
-        if str(env_val).strip().lower() in true_vals:
+    return False
+
+
+def get_mcp_disabled():
+    """
+    Checks puppy.cfg for 'disable_mcp' (case-insensitive in value only).
+    Defaults to False if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+    When enabled, Code Puppy will skip loading MCP servers entirely.
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("disable_mcp")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
             return True
         return False
     return False
+
+
+def get_protected_token_count():
+    """
+    Returns the user-configured protected token count for message history compaction.
+    This is the number of tokens in recent messages that won't be summarized.
+    Defaults to 50000 if unset or misconfigured.
+    Configurable by 'protected_token_count' key.
+    """
+    val = get_value("protected_token_count")
+    try:
+        return max(1000, int(val)) if val else 50000  # Minimum 1000 tokens
+    except (ValueError, TypeError):
+        return 50000
+
+
+def get_summarization_threshold():
+    """
+    Returns the user-configured summarization threshold as a float between 0.0 and 1.0.
+    This is the proportion of model context that triggers summarization.
+    Defaults to 0.85 (85%) if unset or misconfigured.
+    Configurable by 'summarization_threshold' key.
+    """
+    val = get_value("summarization_threshold")
+    try:
+        threshold = float(val) if val else 0.85
+        # Clamp between reasonable bounds
+        return max(0.1, min(0.95, threshold))
+    except (ValueError, TypeError):
+        return 0.85
+
+
+def save_command_to_history(command: str):
+    """Save a command to the history file with an ISO format timestamp.
+
+    Args:
+        command: The command to save
+    """
+    import datetime
+
+    try:
+        timestamp = datetime.datetime.now().isoformat(timespec="seconds")
+        with open(COMMAND_HISTORY_FILE, "a") as f:
+            f.write(f"\n# {timestamp}\n{command}\n")
+    except Exception as e:
+        from rich.console import Console
+
+        direct_console = Console()
+        error_msg = (
+            f"❌ An unexpected error occurred while saving command history: {str(e)}"
+        )
+        direct_console.print(f"[bold red]{error_msg}[/bold red]")

@@ -16,7 +16,6 @@ __all__ = [
 
 def register_all_tools(agent):
     """Register all available tools to the provided agent."""
-
     register_file_operations_tools(agent)
     register_file_modifications_tools(agent)
     register_command_runner_tools(agent)
