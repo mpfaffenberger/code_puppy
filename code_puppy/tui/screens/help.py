@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
-
+from code_puppy.command_line.command_handler import COMMANDS_HELP
 
 class HelpScreen(ModalScreen):
     """Help modal screen."""
@@ -73,16 +73,16 @@ Controls:
 - Ctrl+5: Focus prompt
 - Ctrl+6: Focus response
 
-Use this help for full details.
+Type /help in the input for full command list.
 """
         else:
             # Full help text
-            return """
+            return f"""
 Code Puppy TUI Help:
 
 Input Controls:
 - Enter: Send message
-- ALT+Enter: New line (multi-line input)
+- Ctrl+Enter: New line (multi-line input)
 - Standard text editing shortcuts supported
 
 Keyboard Shortcuts:
@@ -100,16 +100,8 @@ Chat Navigation:
 - Ctrl+Home: Scroll to top
 - Ctrl+End: Scroll to bottom
 
-Commands:
-- /clear: Clear chat history
-- /m <model>: Switch model
-- /cd <dir>: Change directory
-- /help: Show help
-- /status: Show current status
-- /undo: Undo the last change
-- /redo: Redo the last undone change
-- /checkout <version>: Checkout a specific version
-- /history: Show version history
+Interactive Commands (same as Interactive Mode):
+{COMMANDS_HELP.strip()}
 
 Use the input area at the bottom to type messages.
 Press Ctrl+2 to view History when needed.

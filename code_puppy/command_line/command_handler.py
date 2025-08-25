@@ -13,27 +13,28 @@ from code_puppy.tools.tools_content import tools_content
 
 COMMANDS_HELP = """
 [bold magenta]Commands Help[/bold magenta]
-/help, /h             Show this help message
-/cd <dir>             Change directory or show directories
+/help, /h                 Show this help message
+/cd <dir>                 Change directory or show directories
 
-/exit, /quit          Exit interactive mode
+/exit, /quit              Exit interactive mode
 /generate-pr-description [@dir]  Generate comprehensive PR description
-/m <model>            Set active model
-/motd                 Show the latest message of the day (MOTD)
-/show                 Show puppy config key-values
-/compact              Summarize and compact current chat history
-/dump_context <name>  Save current message history to file
-/load_context <name>  Load message history from file
-/set                  Set puppy config key-values (e.g., /set yolo_mode true)
-/tools                Show available tools and capabilities
-/undo                 Undo the last change
-/redo                 Redo the last undone change
-/checkout <version>   Checkout a specific version
-/versions [limit]     Show recent versions across prompts
-/history              Show version history for the last prompt
-/history all [limit]  Show recent versions across prompts (same as /versions)
-/history "<prompt>"  Show version history for a specific prompt
-/<unknown>            Show unknown command warning
+/m <model>                Set active model
+/motd                     Show the latest message of the day (MOTD)
+/show                     Show puppy config key-values
+/compact                  Summarize and compact current chat history
+/dump_context <name>      Save current message history to file
+/load_context <name>      Load message history from file
+/set                      Set puppy config key-values (e.g., /set yolo_mode true)
+/tools                    Show available tools and capabilities
+/undo                     Undo the last change
+/redo                     Redo the last undone change
+/checkout <response_id>   Checkout by response id from /versions (default)
+/checkout prompt <ver>    Checkout a specific version for the current prompt
+/versions [limit]         Show recent versions across prompts
+/history [limit]          Show recent versions across prompts (same as /versions)
+/history prompts          Show version history for the current prompt
+/history "<prompt>"       Show version history for a specific prompt
+/<unknown>                Show unknown command warning
 """
 
 
@@ -560,30 +561,144 @@ def handle_command(command: str):
         return True
 
     if command.startswith("/checkout"):
-        from code_puppy.version_store import list_versions, get_response_by_version
+        from code_puppy.version_store import (
+            get_response_by_version,
+            get_response_id_for_prompt_version,
+            compute_snapshot_as_of_response_id,
+            get_response_by_id,
+        )
         from code_puppy.state_management import get_message_history
-        
+
         tokens = command.split()
-        if len(tokens) != 2:
-            messaging.emit_warning("Usage: /checkout <version-number>")
+
+        # New form: /checkout prompt <version-number>
+        if len(tokens) == 3 and tokens[1] == "prompt":
+            try:
+                version_num = int(tokens[2])
+            except ValueError:
+                messaging.emit_error("Version number must be an integer!")
+                return True
+
+            # Get the current prompt (last message in history)
+            from code_puppy.state_management import get_message_history
+            history = get_message_history()
+            if not history:
+                messaging.emit_warning("No history to checkout!")
+                return True
+
+            last_prompt = None
+            for msg in reversed(history):
+                if hasattr(msg, 'role') and msg.role == 'user':
+                    for part in msg.parts:
+                        if hasattr(part, 'content') and isinstance(part.content, str):
+                            last_prompt = part.content
+                            break
+                    if last_prompt:
+                        break
+
+            if not last_prompt:
+                messaging.emit_warning("No prompt found to checkout!")
+                return True
+
+            response = get_response_by_version(last_prompt, version_num)
+            if not response:
+                messaging.emit_error(f"Version {version_num} not found!")
+                return True
+
+            response_id = get_response_id_for_prompt_version(last_prompt, version_num)
+            if response_id is None:
+                messaging.emit_error("Failed to get response ID for version!")
+                return True
+
+            try:
+                snapshot = compute_snapshot_as_of_response_id(response_id)
+                restored_files = 0
+                for file_record in snapshot:
+                    file_path = file_record['file_path']
+                    content = file_record['content']
+
+                    if content is None:
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                            restored_files += 1
+                    else:
+                        with open(file_path, 'w') as f:
+                            f.write(content)
+                        restored_files += 1
+
+                _current_version_track[last_prompt] = version_num
+
+                messaging.emit_success(f"[bold green]✅ Checked out version {version_num}[/bold green]")
+                messaging.emit_info(f"[blue]Restored {restored_files} files[/blue]")
+                messaging.emit_info(f"Response:\n{response['output_text']}")
+            except Exception as e:
+                messaging.emit_error(f"Failed to restore files: {e}")
+                return True
+
             return True
-            
+
+        # Legacy one-arg path: either response-id (preferred) or prompt-version (deprecated)
+        if len(tokens) != 2:
+            messaging.emit_warning("Usage: /checkout <response-id> or /checkout prompt <version-number>")
+            return True
+
         try:
-            version_num = int(tokens[1])
+            number = int(tokens[1])
         except ValueError:
             messaging.emit_error("Version number must be an integer!")
             return True
-        
+
+        # First, try interpreting the number as a global response ID from /versions
+        try:
+            response = get_response_by_id(number)
+        except Exception:
+            # If version store isn't available or errors, fall back to legacy path
+            response = None
+        if response:
+            try:
+                snapshot = compute_snapshot_as_of_response_id(number)
+                restored_files = 0
+                for file_record in snapshot:
+                    file_path = file_record['file_path']
+                    content = file_record['content']
+
+                    if content is None:
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                            restored_files += 1
+                    else:
+                        with open(file_path, 'w') as f:
+                            f.write(content)
+                        restored_files += 1
+
+                # Track version for this prompt to enable redo within session
+                prompt_text = response.get('prompt_text', '')
+                version_num = response.get('version')
+                if prompt_text and isinstance(version_num, int):
+                    _current_version_track[prompt_text] = version_num
+
+                messaging.emit_success(f"[bold green]✅ Checked out response id {number} (v{response['version']})[/bold green]")
+                messaging.emit_info(f"[blue]Restored {restored_files} files[/blue]")
+                messaging.emit_info(f"Response:\n{response['output_text']}")
+            except Exception as e:
+                messaging.emit_error(f"Failed to restore files: {e}")
+                return True
+
+            return True
+
+        # Fallback: treat the number as a legacy version for the last prompt in session
+        version_num = number
+
         # Get the current prompt (last message in history)
         history = get_message_history()
         if not history:
+            # Keep legacy message exactly for test compatibility
             messaging.emit_warning("No history to checkout!")
             return True
-            
+
         # Find the last user message (prompt)
         last_prompt = None
         for msg in reversed(history):
-            # Look for a user message with text content
             if hasattr(msg, 'role') and msg.role == 'user':
                 for part in msg.parts:
                     if hasattr(part, 'content') and isinstance(part.content, str):
@@ -591,55 +706,48 @@ def handle_command(command: str):
                         break
                 if last_prompt:
                     break
-        
+
         if not last_prompt:
             messaging.emit_warning("No prompt found to checkout!")
             return True
-            
-        # Get the specified version
+
         response = get_response_by_version(last_prompt, version_num)
-        
         if not response:
             messaging.emit_error(f"Version {version_num} not found!")
             return True
-            
-        # Restore files to the specified version
-        from code_puppy.version_store import get_response_id_for_prompt_version, compute_snapshot_as_of_response_id
-        
+
         response_id = get_response_id_for_prompt_version(last_prompt, version_num)
         if response_id is None:
             messaging.emit_error("Failed to get response ID for version!")
             return True
-            
+
         try:
             snapshot = compute_snapshot_as_of_response_id(response_id)
             restored_files = 0
             for file_record in snapshot:
                 file_path = file_record['file_path']
                 content = file_record['content']
-                
-                # Restore file content
+
                 if content is None:
-                    # File should not exist, remove it if present
                     if os.path.exists(file_path):
                         os.remove(file_path)
                         restored_files += 1
                 else:
-                    # Write the content to the file
                     with open(file_path, 'w') as f:
                         f.write(content)
                     restored_files += 1
-            
-            # Update tracked version
+
             _current_version_track[last_prompt] = version_num
-            
+
+            # Inform about legacy path usage
+            messaging.emit_warning("Deprecated: use '/checkout prompt <version-number>' for prompt versions")
             messaging.emit_success(f"[bold green]✅ Checked out version {version_num}[/bold green]")
             messaging.emit_info(f"[blue]Restored {restored_files} files[/blue]")
             messaging.emit_info(f"Response:\n{response['output_text']}")
         except Exception as e:
             messaging.emit_error(f"Failed to restore files: {e}")
             return True
-            
+
         return True
 
     if command.startswith("/history"):
@@ -648,75 +756,65 @@ def handle_command(command: str):
 
         argstr = command[len("/history"):].strip()
 
-        # Case 1: /history all [limit]
-        if argstr.startswith("all"):
-            parts = argstr.split()
-            limit = None
-            if len(parts) >= 2:
+        # Mode: '/history prompts' or '/history "<prompt>"'
+        if argstr.startswith("prompts") or (argstr and argstr.startswith("\"")):
+            # '/history prompts' (current prompt) OR '/history "<prompt>"'
+            remaining = argstr[len("prompts"):].strip() if argstr.startswith("prompts") else argstr
+            prompt_text = None
+            if remaining:
                 try:
-                    limit = int(parts[1])
-                except ValueError:
-                    messaging.emit_warning("Usage: /history all [limit]")
+                    parsed = shlex.split(remaining)
+                except Exception:
+                    parsed = remaining.split()
+                if parsed:
+                    prompt_text = parsed[0]
+
+            if not prompt_text:
+                # Use last user prompt from session
+                history = get_message_history()
+                if not history:
+                    messaging.emit_warning("No history to show!")
                     return True
-            rows = list(list_all_versions(limit=limit))
-            if not rows:
+                for msg in reversed(history):
+                    if hasattr(msg, 'role') and msg.role == 'user':
+                        for part in msg.parts:
+                            if hasattr(part, 'content') and isinstance(part.content, str):
+                                prompt_text = part.content
+                                break
+                        if prompt_text:
+                            break
+                if not prompt_text:
+                    messaging.emit_warning("No prompt found to show history for!")
+                    return True
+
+            versions = list(list_versions(prompt_text))
+            if not versions:
                 messaging.emit_warning("No versions found!")
                 return True
-            text = "[bold magenta]Recent Versions[/bold magenta]\n"
-            for response_id, prompt_text, version, timestamp in rows:
-                safe_prompt = (prompt_text[:80] + "…") if len(prompt_text) > 80 else prompt_text
-                text += f"#{response_id} | v{version} | {timestamp} | Prompt: {safe_prompt}\n"
-            messaging.emit_info(text)
+
+            history_text = "[bold magenta]Version History[/bold magenta]\n"
+            for response_id, version, timestamp in versions:
+                history_text += f"Version {version}: {timestamp}\n"
+            messaging.emit_info(history_text)
             return True
 
-        # Case 2: /history "<prompt>"
+        # Default: '/history [limit]' same as '/versions [limit]'
+        limit = None
         if argstr:
             try:
-                parsed = shlex.split(argstr)
-            except Exception:
-                parsed = argstr.split()
-            if parsed:
-                prompt_text = parsed[0]
-                versions = list(list_versions(prompt_text))
-                if not versions:
-                    messaging.emit_warning("No versions found!")
-                    return True
-                history_text = "[bold magenta]Version History[/bold magenta]\n"
-                for response_id, version, timestamp in versions:
-                    history_text += f"Version {version}: {timestamp}\n"
-                messaging.emit_info(history_text)
+                limit = int(argstr.split()[0])
+            except ValueError:
+                messaging.emit_warning("Usage: /history [limit] | /history prompts | /history \"<prompt>\"")
                 return True
-
-        # Case 3: default behavior (use last prompt from session)
-        history = get_message_history()
-        if not history:
-            messaging.emit_warning("No history to show!")
-            return True
-
-        # Find the last user message (prompt)
-        last_prompt = None
-        for msg in reversed(history):
-            if hasattr(msg, 'role') and msg.role == 'user':
-                for part in msg.parts:
-                    if hasattr(part, 'content') and isinstance(part.content, str):
-                        last_prompt = part.content
-                        break
-                if last_prompt:
-                    break
-
-        if not last_prompt:
-            messaging.emit_warning("No prompt found to show history for!")
-            return True
-
-        versions = list(list_versions(last_prompt))
-        if not versions:
+        rows = list(list_all_versions(limit=limit))
+        if not rows:
             messaging.emit_warning("No versions found!")
             return True
-
-        history_text = "[bold magenta]Version History[/bold magenta]\n"
-        for response_id, version, timestamp in versions:
-            history_text += f"Version {version}: {timestamp}\n"
-        messaging.emit_info(history_text)
+        text = "[bold magenta]Recent Versions[/bold magenta]\n"
+        for response_id, prompt_text, version, timestamp in rows:
+            safe_prompt = (prompt_text[:80] + "…") if len(prompt_text) > 80 else prompt_text
+            text += f"#{response_id} | v{version} | {timestamp} | Prompt: {safe_prompt}\n"
+        messaging.emit_info(text)
         return True
     if command.startswith("/"):
         name = command[1:].split()[0] if len(command) > 1 else ""
