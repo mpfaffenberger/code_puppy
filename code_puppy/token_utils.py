@@ -64,6 +64,6 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            total_tokens += estimate_token_count(part_str)
+            total_tokens += estimate_tokens(part_str)
 
     return max(1, total_tokens)

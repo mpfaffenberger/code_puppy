@@ -476,7 +476,7 @@ def test_undo_command_single_version():
 def test_undo_command_success():
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    mock_emit_info = mocks["emit_info"].start()
+    mocks["emit_info"].start()
 
     try:
         # Mock history with a user message
@@ -570,7 +570,7 @@ def test_redo_command_no_next_version():
 def test_redo_command_success():
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    mock_emit_info = mocks["emit_info"].start()
+    mocks["emit_info"].start()
 
     try:
         # Mock history with a user message
@@ -648,7 +648,7 @@ def test_checkout_command_no_history():
 def test_checkout_command_success():
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    mock_emit_info = mocks["emit_info"].start()
+    mocks["emit_info"].start()
 
     try:
         # Mock history with a user message

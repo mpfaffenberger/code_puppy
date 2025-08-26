@@ -11,7 +11,7 @@ from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from code_puppy import __version__, callbacks, plugins, state_management
+from code_puppy import __version__, callbacks, plugins
 from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
@@ -705,7 +705,6 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 async def prompt_then_interactive_mode(message_renderer) -> None:
     """Prompt user for input, execute it, then continue in interactive mode."""
     from code_puppy.messaging import emit_info, emit_system_message
-    from code_puppy.version_store import add_version, start_change_capture, finalize_changes
 
     emit_info("[bold green]🐶 Code Puppy[/bold green] - Enter your request")
     emit_system_message(
