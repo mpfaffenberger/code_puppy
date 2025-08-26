@@ -241,7 +241,11 @@ async def main():
 # Add the file handling functionality for interactive mode
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
     from code_puppy.command_line.command_handler import handle_command
-    from code_puppy.version_store import add_version, start_change_capture, finalize_changes
+    from code_puppy.version_store import (
+        add_version,
+        start_change_capture,
+        finalize_changes,
+    )
 
     """Run the agent in interactive mode."""
     from code_puppy.state_management import clear_message_history, get_message_history
@@ -291,7 +295,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             # Initialize status display for tokens per second and loading messages
             status_display = StatusDisplay(console)
-            
+
             # Check if any tool is waiting for user input before showing spinner
             try:
                 from code_puppy.tools.command_runner import is_awaiting_user_input
@@ -306,10 +310,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 try:
                     # Start status display
                     status_display.start()
-                    
+
                     # Start token tracking
-                    token_tracking_task = asyncio.create_task(track_tokens_from_messages(status_display))
-                    
+                    token_tracking_task = asyncio.create_task(
+                        track_tokens_from_messages(status_display)
+                    )
+
                     async with agent.run_mcp_servers():
                         response = await agent.run(
                             initial_command, usage_limits=get_custom_usage_limits()
@@ -336,10 +342,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 with ConsoleSpinner(console=display_console):
                     # Start status display
                     status_display.start()
-                    
+
                     # Start token tracking
-                    token_tracking_task = asyncio.create_task(track_tokens_from_messages(status_display))
-                    
+                    token_tracking_task = asyncio.create_task(
+                        track_tokens_from_messages(status_display)
+                    )
+
                     try:
                         async with agent.run_mcp_servers():
                             response = await agent.run(
@@ -360,7 +368,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             status_display.stop()
                         if token_tracking_task and not token_tracking_task.done():
                             token_tracking_task.cancel()
-                        set_message_history(prune_interrupted_tool_calls(get_message_history()))
+                        set_message_history(
+                            prune_interrupted_tool_calls(get_message_history())
+                        )
 
             agent_response = response.output
 
@@ -370,10 +380,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             new_msgs = response.all_messages()
             message_history_accumulator(new_msgs)
             set_message_history(prune_interrupted_tool_calls(get_message_history()))
-            
+
             # Finalize version tracking after execution
             finalize_changes(response_id)
-            
+
             emit_system_message("\n" + "=" * 50)
             emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
             emit_system_message(
@@ -489,7 +499,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # Initialize status display for tokens per second and loading messages
                 status_display = StatusDisplay(console)
-                
+
                 # Add version tracking before executing the task
                 version_num, response_id = add_version(task, "")
                 start_change_capture()
@@ -525,9 +535,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         # Ensure status display is stopped and token tracking cancelled
                         if status_display.is_active:
                             status_display.stop()
-                        if 'token_tracking_task' in locals() and token_tracking_task and not token_tracking_task.done():
+                        if (
+                            "token_tracking_task" in locals()
+                            and token_tracking_task
+                            and not token_tracking_task.done()
+                        ):
                             token_tracking_task.cancel()
-                        set_message_history(prune_interrupted_tool_calls(get_message_history()))
+                        set_message_history(
+                            prune_interrupted_tool_calls(get_message_history())
+                        )
 
                 # Check if the task was cancelled
                 if local_cancelled:
@@ -640,7 +656,11 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
     from code_puppy.messaging import emit_info, emit_system_message
     from code_puppy.state_management import get_message_history
-    from code_puppy.version_store import add_version, start_change_capture, finalize_changes
+    from code_puppy.version_store import (
+        add_version,
+        start_change_capture,
+        finalize_changes,
+    )
 
     emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
 
@@ -654,7 +674,7 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 
         # Initialize status display for tokens per second and loading messages
         status_display = StatusDisplay(console)
-        
+
         # Use our custom spinner for better compatibility with user input
         from code_puppy.messaging.spinner import ConsoleSpinner
 
@@ -662,10 +682,12 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         with ConsoleSpinner(console=display_console):
             # Start status display
             status_display.start()
-            
+
             # Start token tracking
-            token_tracking_task = asyncio.create_task(track_tokens_from_messages(status_display))
-            
+            token_tracking_task = asyncio.create_task(
+                track_tokens_from_messages(status_display)
+            )
+
             try:
                 async with agent.run_mcp_servers():
                     response = await agent.run(

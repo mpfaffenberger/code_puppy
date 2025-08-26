@@ -33,7 +33,11 @@ from code_puppy.message_history_processor import (
 
 # Import our message queue system
 from code_puppy.messaging import TUIRenderer, get_global_queue
-from code_puppy.state_management import clear_message_history, get_message_history, set_message_history
+from code_puppy.state_management import (
+    clear_message_history,
+    get_message_history,
+    set_message_history,
+)
 from code_puppy.tui.components import (
     ChatView,
     CustomTextArea,
@@ -519,7 +523,9 @@ class CodePuppyTUI(App):
                             finalize_changes(response_id)
                         except Exception:
                             pass
-                        set_message_history(prune_interrupted_tool_calls(get_message_history()))
+                        set_message_history(
+                            prune_interrupted_tool_calls(get_message_history())
+                        )
                 except Exception as agent_error:
                     # Handle any other errors in agent processing
                     self.add_error_message(

@@ -9,6 +9,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 from code_puppy.command_line.command_handler import COMMANDS_HELP
 
+
 class HelpScreen(ModalScreen):
     """Help modal screen."""
 
