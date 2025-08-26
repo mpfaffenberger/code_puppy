@@ -146,9 +146,6 @@ class SettingsScreen(ModalScreen):
         """Load available models into the model select widget."""
         try:
             # Use the same method that interactive mode uses to load models
-            import os
-
-            from code_puppy.config import CONFIG_DIR
             from code_puppy.model_factory import ModelFactory
 
             # Load models using the same path and method as interactive mode

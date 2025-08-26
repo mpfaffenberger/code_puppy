@@ -19,17 +19,10 @@ from code_puppy.state_management import (
     set_message_history,
 )
 from code_puppy.summarization_agent import run_summarization_sync
+from code_puppy.token_utils import estimate_tokens
 
 # Protected tokens are now configurable via get_protected_token_count()
 # Default is 50000 but can be customized in ~/.code_puppy/puppy.cfg
-
-
-def estimate_token_count(text: str) -> int:
-    """
-    Simple token estimation using len(message) - 4.
-    This replaces tiktoken with a much simpler approach.
-    """
-    return max(1, len(text) - 4)
 
 
 def stringify_message_part(part) -> str:
@@ -74,15 +67,15 @@ def stringify_message_part(part) -> str:
 
 def estimate_tokens_for_message(message: ModelMessage) -> int:
     """
-    Estimate the number of tokens in a message using len(message) - 4.
-    Simple and fast replacement for tiktoken.
+    Estimate the number of tokens in a message using the len/4 heuristic.
+    This is a simple approximation that works reasonably well for most text.
     """
     total_tokens = 0
 
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            total_tokens += estimate_token_count(part_str)
+            total_tokens += estimate_tokens(part_str)
 
     return max(1, total_tokens)
 
