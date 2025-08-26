@@ -308,7 +308,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     status_display.start()
                     
                     # Start token tracking
-                    token_tracking_task = asyncio.create_task(track_tokens_from_messages())
+                    token_tracking_task = asyncio.create_task(track_tokens_from_messages(status_display))
                     
                     async with agent.run_mcp_servers():
                         response = await agent.run(
@@ -338,7 +338,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     status_display.start()
                     
                     # Start token tracking
-                    token_tracking_task = asyncio.create_task(track_tokens_from_messages())
+                    token_tracking_task = asyncio.create_task(track_tokens_from_messages(status_display))
                     
                     try:
                         async with agent.run_mcp_servers():
@@ -490,163 +490,44 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Initialize status display for tokens per second and loading messages
                 status_display = StatusDisplay(console)
                 
+                # Add version tracking before executing the task
+                version_num, response_id = add_version(task, "")
+                start_change_capture()
+
                 # Run with spinner
                 with ConsoleSpinner(console=display_console):
                     # Start status display
                     status_display.start()
-                    
-                    # Add version tracking before executing the task
-                    version_num, response_id = add_version(task, "")
-                    start_change_capture()
-                    
-                    async def track_tokens_from_messages():
-                        """
-                        Track real token counts from message history.
 
-                        This async function runs in the background and periodically checks
-                        the message history for new tokens. When new tokens are detected,
-                        it updates the StatusDisplay with the incremental count to calculate
-                        an approximate tokens-per-second rate.
-
-                        The function continues running until status_display.is_active becomes False.
-                        """
-                        from code_puppy.message_history_processor import (
-                            estimate_tokens_for_message,
-                        )
-
-                        # Baseline to exclude any tokens already present before tracking starts
-                        baseline_messages = get_message_history()
-                        if baseline_messages:
-                            last_token_total = sum(
-                                estimate_tokens_for_message(msg)
-                                for msg in baseline_messages
-                                if hasattr(msg, "parts") or hasattr(msg, "tool_calls")
-                            )
-                        else:
-                            last_token_total = 0
-
-                        # Get real token count from message history
-                        while status_display.is_active:
-                            current_history = get_message_history()
-                            if current_history:
-                                # Calculate total output tokens across model responses only
-                                current_token_total = sum(
-                                    estimate_tokens_for_message(msg)
-                                    for msg in current_history
-                                    if hasattr(msg, "parts") or hasattr(msg, "tool_calls")
-                                )
-                                
-                                # If tokens increased, update the display with the incremental count
-                                if current_token_total > last_token_total:
-                                    status_display.update_token_count(
-                                        current_token_total - last_token_total
-                                    )
-                                    last_token_total = current_token_total
-                            
-                            # Sleep briefly to avoid busy-waiting
-                            await asyncio.sleep(0.1)
-                    
                     # Start token tracking
-                    token_tracking_task = asyncio.create_task(track_tokens_from_messages())
-                    
-                    # Use a separate asyncio task that we can cancel
-                    async def run_agent_task():
-                        try:
-                            async with agent.run_mcp_servers():
-                                return await agent.run(
-                                    task,
-                                    message_history=get_message_history(),
-                                    usage_limits=get_custom_usage_limits(),
-                                )
-                        except Exception as mcp_error:
-                            # Handle MCP server errors
-                            emit_warning(f"MCP server error: {str(mcp_error)}")
-                            emit_warning("Running without MCP servers...")
-                            # Run without MCP servers as fallback
-                            return await agent.run(
+                    token_tracking_task = asyncio.create_task(
+                        track_tokens_from_messages(status_display)
+                    )
+
+                    try:
+                        async with agent.run_mcp_servers():
+                            result = await agent.run(
                                 task,
                                 message_history=get_message_history(),
                                 usage_limits=get_custom_usage_limits(),
                             )
-                        finally:
-                            set_message_history(prune_interrupted_tool_calls(get_message_history()))
-                    
-                    # Create the task
-                    agent_task = asyncio.create_task(run_agent_task())
-                    
-                    # Wait for the task to complete
-                    await agent_task
-
-                    # Set up signal handling for Ctrl+C
-                    import signal
-
-                    from code_puppy.tools.command_runner import (
-                        kill_all_running_shell_processes,
-                    )
-
-                    original_handler = None
-
-                    # Ensure the interrupt handler only acts once per task
-                    handled = False
-
-                    def keyboard_interrupt_handler(sig, frame):
-                        nonlocal local_cancelled
-                        nonlocal handled
-                        if handled:
-                            return
-                        handled = True
-                        # First, nuke any running shell processes triggered by tools
-                        try:
-                            killed = kill_all_running_shell_processes()
-                            if killed:
-                                from code_puppy.messaging import emit_warning
-
-                                emit_warning(
-                                    f"Cancelled {killed} running shell process(es)."
-                                )
-                            else:
-                                # Then cancel the agent task
-                                if not agent_task.done():
-                                    state_management._message_history = (
-                                        prune_interrupted_tool_calls(
-                                            state_management._message_history
-                                        )
-                                    )
-                                    agent_task.cancel()
-                                    local_cancelled = True
-                        except Exception as e:
-                            from code_puppy.messaging import emit_warning
-
-                            emit_warning(f"Shell kill error: {e}")
-                        # Don't call the original handler
-                        # This prevents the application from exiting
-
-                    try:
-                        # Save original handler and set our custom one
-                        original_handler = signal.getsignal(signal.SIGINT)
-                        signal.signal(signal.SIGINT, keyboard_interrupt_handler)
-
-                        # Wait for the task to complete or be cancelled
-                        result = await agent_task
-                        
-                        # Stop token tracking
-                        if status_display.is_active:
-                            status_display.stop()
-                        if token_tracking_task and not token_tracking_task.done():
-                            token_tracking_task.cancel()
-                    except asyncio.CancelledError:
-                        # Task was cancelled by our handler
-                        pass
+                    except Exception as mcp_error:
+                        # Handle MCP server errors
+                        emit_warning(f"MCP server error: {str(mcp_error)}")
+                        emit_warning("Running without MCP servers...")
+                        # Run without MCP servers as fallback
+                        result = await agent.run(
+                            task,
+                            message_history=get_message_history(),
+                            usage_limits=get_custom_usage_limits(),
+                        )
                     finally:
-                        # Restore original signal handler
-                        if original_handler:
-                            signal.signal(signal.SIGINT, original_handler)
-                        
-                        # Ensure token tracking is stopped even if cancelled
+                        # Ensure status display is stopped and token tracking cancelled
                         if status_display.is_active:
                             status_display.stop()
-                        if token_tracking_task and not token_tracking_task.done():
+                        if 'token_tracking_task' in locals() and token_tracking_task and not token_tracking_task.done():
                             token_tracking_task.cancel()
+                        set_message_history(prune_interrupted_tool_calls(get_message_history()))
 
                 # Check if the task was cancelled
                 if local_cancelled:
@@ -707,6 +588,54 @@ def prettier_code_blocks():
     Markdown.elements["fence"] = SimpleCodeBlock
 
 
+async def track_tokens_from_messages(status_display):
+    """
+    Track real token counts from message history and update the StatusDisplay.
+
+    Runs in the background and periodically checks the message history for new
+    tokens. When new tokens are detected, updates the StatusDisplay with the
+    incremental count to calculate an approximate tokens-per-second rate.
+
+    Continues running until status_display.is_active becomes False.
+    """
+    from code_puppy.message_history_processor import (
+        estimate_tokens_for_message,
+    )
+    from code_puppy.state_management import get_message_history
+
+    # Baseline to exclude any tokens already present before tracking starts
+    baseline_messages = get_message_history()
+    if baseline_messages:
+        last_token_total = sum(
+            estimate_tokens_for_message(msg)
+            for msg in baseline_messages
+            if hasattr(msg, "parts") or hasattr(msg, "tool_calls")
+        )
+    else:
+        last_token_total = 0
+
+    # Get real token count from message history
+    while status_display.is_active:
+        current_history = get_message_history()
+        if current_history:
+            # Calculate total output tokens across model responses only
+            current_token_total = sum(
+                estimate_tokens_for_message(msg)
+                for msg in current_history
+                if hasattr(msg, "parts") or hasattr(msg, "tool_calls")
+            )
+
+            # If tokens increased, update the display with the incremental count
+            if current_token_total > last_token_total:
+                status_display.update_token_count(
+                    current_token_total - last_token_total
+                )
+                last_token_total = current_token_total
+
+        # Sleep briefly to avoid busy-waiting
+        await asyncio.sleep(0.1)
+
+
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
     from code_puppy.messaging import emit_info, emit_system_message
@@ -735,7 +664,7 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
             status_display.start()
             
             # Start token tracking
-            token_tracking_task = asyncio.create_task(track_tokens_from_messages())
+            token_tracking_task = asyncio.create_task(track_tokens_from_messages(status_display))
             
             try:
                 async with agent.run_mcp_servers():
