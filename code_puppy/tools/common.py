@@ -304,6 +304,54 @@ IGNORE_PATTERNS = [
     "**/*.save",
     # Hidden files (but be careful with this one)
     "**/.*",  # Commented out as it might be too aggressive
+    # Binary image formats
+    "**/*.png",
+    "**/*.jpg",
+    "**/*.jpeg",
+    "**/*.gif",
+    "**/*.bmp",
+    "**/*.tiff",
+    "**/*.tif",
+    "**/*.webp",
+    "**/*.ico",
+    "**/*.svg",
+    # Binary document formats
+    "**/*.pdf",
+    "**/*.doc",
+    "**/*.docx",
+    "**/*.xls",
+    "**/*.xlsx",
+    "**/*.ppt",
+    "**/*.pptx",
+    # Archive formats
+    "**/*.zip",
+    "**/*.tar",
+    "**/*.gz",
+    "**/*.bz2",
+    "**/*.xz",
+    "**/*.rar",
+    "**/*.7z",
+    # Media files
+    "**/*.mp3",
+    "**/*.mp4",
+    "**/*.avi",
+    "**/*.mov",
+    "**/*.wmv",
+    "**/*.flv",
+    "**/*.wav",
+    "**/*.ogg",
+    # Font files
+    "**/*.ttf",
+    "**/*.otf",
+    "**/*.woff",
+    "**/*.woff2",
+    "**/*.eot",
+    # Other binary formats
+    "**/*.bin",
+    "**/*.dat",
+    "**/*.db",
+    "**/*.sqlite",
+    "**/*.sqlite3",
 ]
 
 
