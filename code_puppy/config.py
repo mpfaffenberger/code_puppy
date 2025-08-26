@@ -9,6 +9,7 @@ MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
 MODELS_FILE = os.path.join(CONFIG_DIR, "models.json")
 EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
+AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -281,6 +282,17 @@ def normalize_command_history():
         direct_console = Console()
         error_msg = f"❌ An unexpected error occurred while normalizing command history: {str(e)}"
         direct_console.print(f"[bold red]{error_msg}[/bold red]")
+
+
+def get_user_agents_directory() -> str:
+    """Get the user's agents directory path.
+    
+    Returns:
+        Path to the user's Code Puppy agents directory.
+    """
+    # Ensure the agents directory exists
+    os.makedirs(AGENTS_DIR, exist_ok=True)
+    return AGENTS_DIR
 
 
 def initialize_command_history_file():

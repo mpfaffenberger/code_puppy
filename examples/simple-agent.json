@@ -1,0 +1,17 @@
+{
+  "name": "simple-agent",
+  "display_name": "Simple Agent 🤖",
+  "description": "A simple example agent for demonstration purposes",
+  "system_prompt": [
+    "You are a helpful coding assistant.",
+    "You help users with simple programming tasks.",
+    "Always be concise and clear in your responses."
+  ],
+  "tools": [
+    "list_files",
+    "read_file",
+    "edit_file",
+    "agent_share_your_reasoning"
+  ],
+  "user_prompt": "What can I help you code today?"
+}

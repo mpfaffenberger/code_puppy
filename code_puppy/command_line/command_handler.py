@@ -13,7 +13,7 @@ COMMANDS_HELP = """
 [bold magenta]Commands Help[/bold magenta]
 /help, /h             Show this help message
 /cd <dir>             Change directory or show directories
-
+/agent <name>         Switch to a different agent or show available agents
 /exit, /quit          Exit interactive mode
 /generate-pr-description [@dir]  Generate comprehensive PR description
 /m <model>            Set active model
@@ -122,6 +122,7 @@ def handle_command(command: str):
             get_summarization_threshold,
             get_yolo_mode,
         )
+        from code_puppy.agents import get_current_agent_config
 
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
@@ -129,11 +130,15 @@ def handle_command(command: str):
         yolo_mode = get_yolo_mode()
         protected_tokens = get_protected_token_count()
         summary_threshold = get_summarization_threshold()
+        
+        # Get current agent info
+        current_agent = get_current_agent_config()
 
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
 [bold]puppy_name:[/bold]            [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]            [cyan]{owner_name}[/cyan]
+[bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
@@ -181,6 +186,56 @@ def handle_command(command: str):
         emit_info(markdown_content)
         return True
 
+    if command.startswith("/agent"):
+        # Handle agent switching
+        from code_puppy.agents import (
+            get_available_agents,
+            get_current_agent_config,
+            set_current_agent,
+            get_agent_descriptions,
+        )
+        from code_puppy.agent import get_code_generation_agent
+        
+        tokens = command.split()
+        
+        if len(tokens) == 1:
+            # Show current agent and available agents
+            current_agent = get_current_agent_config()
+            available_agents = get_available_agents()
+            descriptions = get_agent_descriptions()
+            
+            emit_info(f"[bold green]Current Agent:[/bold green] {current_agent.display_name}")
+            emit_info(f"[dim]{current_agent.description}[/dim]\n")
+            
+            emit_info("[bold magenta]Available Agents:[/bold magenta]")
+            for name, display_name in available_agents.items():
+                description = descriptions.get(name, "No description")
+                current_marker = " [green]← current[/green]" if name == current_agent.name else ""
+                emit_info(f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}")
+                emit_info(f"    [dim]{description}[/dim]")
+            
+            emit_info("\n[yellow]Usage:[/yellow] /agent <agent-name>")
+            return True
+        
+        elif len(tokens) == 2:
+            agent_name = tokens[1].lower()
+            
+            if set_current_agent(agent_name):
+                # Reload the agent with new configuration
+                get_code_generation_agent(force_reload=True)
+                new_agent = get_current_agent_config()
+                emit_success(f"Switched to agent: {new_agent.display_name}")
+                emit_info(f"[dim]{new_agent.description}[/dim]")
+                return True
+            else:
+                available_agents = get_available_agents()
+                emit_error(f"Agent '{agent_name}' not found")
+                emit_warning(f"Available agents: {', '.join(available_agents.keys())}")
+                return True
+        else:
+            emit_warning("Usage: /agent [agent-name]")
+            return True
+    
     if command.startswith("/m"):
         # Try setting model and show confirmation
         new_input = update_model_in_input(command)
