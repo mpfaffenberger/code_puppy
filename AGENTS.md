@@ -247,19 +247,34 @@ The system automatically discovers agents by:
 2. **JSON Agents**: Scanning user's agents directory for `*-agent.json` files
 3. Instantiating and registering discovered agents
 
+### JSONAgent Implementation
+JSON agents are powered by the `JSONAgent` class (`code_puppy/agents/json_agent.py`):
+- Inherits from `BaseAgent` for full system integration
+- Loads configuration from JSON files with robust validation
+- Supports all BaseAgent features (tools, prompts, settings)
+- Cross-platform user directory support
+- Built-in error handling and schema validation
+
 ### BaseAgent Interface
-Python agents implement this interface:
+Both Python and JSON agents implement this interface:
 - `name`: Unique identifier
 - `display_name`: Human-readable name with emoji
 - `description`: Brief description of purpose
 - `get_system_prompt()`: Returns agent-specific system prompt
 - `get_available_tools()`: Returns list of tool names
 
-### Configuration Persistence
-Current agent selection is saved and persists between sessions.
+### Agent Manager Integration
+The `agent_manager.py` provides:
+- Unified registry for both Python and JSON agents
+- Seamless switching between agent types
+- Configuration persistence across sessions
+- Automatic caching for performance
 
-### Caching
-Agent configurations are cached for performance. Cache clears automatically when needed.
+### System Integration
+- **Command Interface**: `/agent` command works with all agent types
+- **Tool Filtering**: Dynamic tool access control per agent
+- **Main Agent System**: Loads and manages both agent types
+- **Cross-Platform**: Consistent behavior across all platforms
 
 ## Adding Python Agents
 
@@ -356,6 +371,46 @@ The agent system supports future expansion:
 - **Team Agents**: Shared configurations for coding standards
 - **Plugin System**: Community-contributed agents
 
+## Benefits of JSON Agents
+
+1. **Easy Customization**: Create agents without Python knowledge
+2. **Team Sharing**: JSON agents can be shared across teams
+3. **Rapid Prototyping**: Quick agent creation for specific workflows
+4. **Version Control**: JSON agents are git-friendly
+5. **Built-in Validation**: Schema validation with helpful error messages
+6. **Cross-Platform**: Works consistently across all platforms
+7. **Backward Compatible**: Doesn't affect existing Python agents
+
+## Implementation Details
+
+### Files in System
+- **Core Implementation**: `code_puppy/agents/json_agent.py`
+- **Agent Discovery**: Integrated in `code_puppy/agents/agent_manager.py`
+- **Command Interface**: Works through existing `/agent` command
+- **Testing**: Comprehensive test suite in `tests/test_json_agents.py`
+
+### JSON Agent Loading Process
+1. System scans `~/.code_puppy/agents/` for `*-agent.json` files
+2. `JSONAgent` class loads and validates each JSON configuration
+3. Agents are registered in unified agent registry
+4. Users can switch to JSON agents via `/agent <name>` command
+5. Tool access and system prompts work identically to Python agents
+
+### Error Handling
+- Invalid JSON syntax: Clear error messages with line numbers
+- Missing required fields: Specific field validation errors
+- Invalid tool names: Warning with list of available tools
+- File permission issues: Helpful troubleshooting guidance
+
+## Future Possibilities
+
+- **Agent Templates**: Pre-built JSON agents for common tasks
+- **Visual Editor**: GUI for creating JSON agents
+- **Hot Reloading**: Update agents without restart
+- **Agent Marketplace**: Share and discover community agents
+- **Enhanced Validation**: More sophisticated schema validation
+- **Team Agents**: Shared configurations for coding standards
+
 ## Contributing
 
 ### Sharing JSON Agents
@@ -363,13 +418,23 @@ The agent system supports future expansion:
 2. Ensure it follows best practices
 3. Submit a pull request with agent JSON
 4. Include documentation and examples
+5. Test across different platforms
 
 ### Python Agent Contributions
 1. Follow existing code style
 2. Include comprehensive tests
 3. Document the agent's purpose and usage
 4. Submit pull request for review
+5. Ensure backward compatibility
+
+### Agent Templates
+Consider contributing agent templates for:
+- Code reviewers and auditors
+- Language-specific tutors
+- DevOps and deployment helpers
+- Documentation writers
+- Testing specialists
 
 ---
 
-**Happy Agent Building!** 🚀 The agent system makes Code Puppy infinitely customizable for your specific workflows and needs.
+**Happy Agent Building!** 🚀 Code Puppy now supports both Python and JSON agents, making it easy for anyone to create custom AI coding assistants! 🐶✨
