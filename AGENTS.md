@@ -210,9 +210,7 @@ Agents can access these tools based on their configuration:
 ## File Locations
 
 ### JSON Agents Directory
-- **macOS**: `~/Library/Application Support/code-puppy/agents/`
-- **Linux**: `~/.local/share/code-puppy/agents/`
-- **Windows**: `%APPDATA%\code-puppy\agents\`
+- **All platforms**: `~/.code_puppy/agents/`
 
 ### Python Agents Directory
 - **Built-in**: `code_puppy/agents/` (in package)
