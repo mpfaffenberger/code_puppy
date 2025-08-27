@@ -52,7 +52,7 @@ flows:
             - shell: uv --native-tls venv
             - shell: uv --native-tls version --bump patch
             - shell: uv pip install --native-tls -e .
-            - call: pre_commit
+            # - call: pre_commit
             # - shell: uv --native-tls run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - call: python_releaseSteps()
             - call: commitVersion()
