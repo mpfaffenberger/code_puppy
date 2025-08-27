@@ -83,7 +83,7 @@ flows:
     - shell: uv tool install pre-commit --with pre-commit-uv
     - shell: git config --unset-all core.hooksPath
     - shell: uv --native-tls run pre-commit install
-    - shell: uv --native-tls run pre-commit run --all-files
+    - shell: uv --native-tls run pre-commit run --all-files --allow-insecure-host pypi.ci.artifacts.walmart.com
 
   python_releaseSteps:
     - shell: uv --native-tls build
