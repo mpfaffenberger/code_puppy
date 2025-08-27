@@ -47,13 +47,7 @@ class BaseAgent(ABC):
         """
         return None
     
-    def get_model_settings(self) -> Optional[Dict[str, Any]]:
-        """Get model-specific settings for this agent.
-        
-        Returns:
-            Dict with model settings, or None to use defaults.
-        """
-        return None
+
     
     def get_user_prompt(self) -> Optional[str]:
         """Get custom user prompt for this agent.

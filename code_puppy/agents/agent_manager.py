@@ -2,7 +2,7 @@
 
 import importlib
 import pkgutil
-from typing import Dict, List, Optional, Type, Union
+from typing import Dict, Optional, Type, Union
 
 from code_puppy.config import get_value, set_config_value
 from .base_agent import BaseAgent
@@ -24,7 +24,7 @@ def _discover_agents():
     import code_puppy.agents as agents_package
     
     # Iterate through all modules in the agents package
-    for importer, modname, ispkg in pkgutil.iter_modules(agents_package.__path__):
+    for _, modname, _ in pkgutil.iter_modules(agents_package.__path__):
         if modname.startswith('_') or modname in ['base_agent', 'json_agent', 'agent_manager']:
             continue
             

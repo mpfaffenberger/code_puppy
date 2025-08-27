@@ -90,9 +90,7 @@ class JSONAgent(BaseAgent):
         """Get tool configuration from JSON config."""
         return self._config.get('tools_config')
     
-    def get_model_settings(self) -> Optional[Dict]:
-        """Get model settings from JSON config."""
-        return self._config.get('model_settings')
+
 
 
 def discover_json_agents() -> Dict[str, str]:

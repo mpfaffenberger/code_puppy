@@ -46,9 +46,6 @@ Added comprehensive support for **JSON-defined agents** to Code Puppy! Users can
   "user_prompt": "How can I help?",
   "tools_config": {
     "timeout": 60
-  },
-  "model_settings": {
-    "temperature": 0.7
   }
 }
 ```
@@ -63,7 +60,6 @@ Added comprehensive support for **JSON-defined agents** to Code Puppy! Users can
 - `display_name`: Custom display name
 - `user_prompt`: Custom user prompt
 - `tools_config`: Tool configuration
-- `model_settings`: Model settings
 
 ## 🧪 System Prompt Formats
 
@@ -120,7 +116,6 @@ Added comprehensive support for **JSON-defined agents** to Code Puppy! Users can
 ### New Files
 - `code_puppy/agents/json_agent.py` - JSON agent implementation
 - `tests/test_json_agents.py` - Comprehensive test suite
-- `examples/simple-agent.json` - Example JSON agent
 - `JSON_AGENTS_IMPLEMENTATION.md` - This documentation
 
 ### Modified Files

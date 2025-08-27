@@ -28,8 +28,7 @@ class TestJSONAgent:
             "system_prompt": "You are a test agent.",
             "tools": ["list_files", "read_file", "edit_file"],
             "user_prompt": "Enter your test request:",
-            "tools_config": {"timeout": 30},
-            "model_settings": {"temperature": 0.5}
+            "tools_config": {"timeout": 30}
         }
     
     @pytest.fixture
@@ -69,7 +68,6 @@ class TestJSONAgent:
         assert agent.get_system_prompt() == "You are a test agent."
         assert agent.get_user_prompt() == "Enter your test request:"
         assert agent.get_tools_config() == {"timeout": 30}
-        assert agent.get_model_settings() == {"temperature": 0.5}
     
     def test_json_agent_with_list_prompt(self, sample_json_config_with_list_prompt):
         """Test JSON agent with list-based system prompt."""

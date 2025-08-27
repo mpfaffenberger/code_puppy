@@ -115,9 +115,6 @@ To add a new JSON agent:
   "user_prompt": "Enter your request:",
   "tools_config": {
     "timeout": 60
-  },
-  "model_settings": {
-    "temperature": 0.7
   }
 }
 ```
@@ -132,7 +129,6 @@ To add a new JSON agent:
 - `display_name`: Custom display name (defaults to formatted name + 🤖)
 - `user_prompt`: Custom prompt shown to user
 - `tools_config`: Tool-specific configuration
-- `model_settings`: Model-specific settings
 
 **System Prompt Formats:**
 - **String**: Single prompt text
