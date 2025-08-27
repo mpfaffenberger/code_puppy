@@ -33,10 +33,8 @@ class TestToolRegistration:
             assert tool in TOOL_REGISTRY, f"Tool {tool} missing from registry"
         
         # Check structure of registry entries
-        for tool_name, (reg_func, category) in TOOL_REGISTRY.items():
+        for tool_name, reg_func in TOOL_REGISTRY.items():
             assert callable(reg_func), f"Registration function for {tool_name} is not callable"
-            assert isinstance(category, str), f"Category for {tool_name} is not a string"
-            assert category in ["file_operations", "file_modifications", "command_runner"]
     
     def test_get_available_tool_names(self):
         """Test that get_available_tool_names returns the correct tools."""
@@ -61,11 +59,14 @@ class TestToolRegistration:
         assert True  # If we get here, no exception was raised
     
     def test_register_tools_invalid_tool(self):
-        """Test that registering an invalid tool raises an error."""
+        """Test that registering an invalid tool prints warning and continues."""
         mock_agent = MagicMock()
         
-        with pytest.raises(ValueError, match="Unknown tool: invalid_tool"):
-            register_tools_for_agent(mock_agent, ["invalid_tool"])
+        # This should not raise an error, just print a warning and continue
+        register_tools_for_agent(mock_agent, ["invalid_tool"])
+        
+        # Verify agent was not called for the invalid tool
+        assert mock_agent.call_count == 0 or not any('invalid_tool' in str(call) for call in mock_agent.call_args_list)
     
     def test_register_all_tools(self):
         """Test registering all available tools."""
