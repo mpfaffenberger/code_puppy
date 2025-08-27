@@ -588,3 +588,98 @@ def register_command_runner_tools(agent):
             - When encountering unexpected situations
         """
         return share_your_reasoning(context, reasoning, next_steps)
+
+
+def register_agent_run_shell_command(agent):
+    """Register only the agent_run_shell_command tool."""
+    @agent.tool
+    def agent_run_shell_command(
+        context: RunContext, command: str = "", cwd: str = None, timeout: int = 60
+    ) -> ShellCommandOutput:
+        """Execute a shell command with comprehensive monitoring and safety features.
+
+        This tool provides robust shell command execution with streaming output,
+        timeout handling, user confirmation (when not in yolo mode), and proper
+        process lifecycle management. Commands are executed in a controlled
+        environment with cross-platform process group handling.
+
+        Args:
+            command: The shell command to execute. Cannot be empty or whitespace-only.
+            cwd: Working directory for command execution. If None,
+                uses the current working directory. Defaults to None.
+            timeout: Inactivity timeout in seconds. If no output is
+                produced for this duration, the process will be terminated.
+                Defaults to 60 seconds.
+
+        Returns:
+            ShellCommandOutput: A structured response containing:
+                - success (bool): True if command executed successfully (exit code 0)
+                - command (str | None): The executed command string
+                - error (str | None): Error message if execution failed
+                - stdout (str | None): Standard output from the command (last 1000 lines)
+                - stderr (str | None): Standard error from the command (last 1000 lines)
+                - exit_code (int | None): Process exit code
+                - execution_time (float | None): Total execution time in seconds
+                - timeout (bool | None): True if command was terminated due to timeout
+                - user_interrupted (bool | None): True if user killed the process
+
+        Examples:
+            >>> # Basic command execution
+            >>> result = agent_run_shell_command(ctx, "ls -la")
+            >>> print(result.stdout)
+
+            >>> # Command with working directory
+            >>> result = agent_run_shell_command(ctx, "npm test", "/path/to/project")
+            >>> if result.success:
+            ...     print("Tests passed!")
+
+            >>> # Command with custom timeout
+            >>> result = agent_run_shell_command(ctx, "long_running_command", timeout=300)
+            >>> if result.timeout:
+            ...     print("Command timed out")
+
+        Warning:
+            This tool can execute arbitrary shell commands. Exercise caution when
+            running untrusted commands, especially those that modify system state.
+        """
+        return run_shell_command(context, command, cwd, timeout)
+
+
+def register_agent_share_your_reasoning(agent):
+    """Register only the agent_share_your_reasoning tool."""
+    @agent.tool
+    def agent_share_your_reasoning(
+        context: RunContext, reasoning: str = "", next_steps: str | None = None
+    ) -> ReasoningOutput:
+        """Share the agent's current reasoning and planned next steps with the user.
+
+        This tool provides transparency into the agent's decision-making process
+        by displaying the current reasoning and upcoming actions in a formatted,
+        user-friendly manner. It's essential for building trust and understanding
+        between the agent and user.
+
+        Args:
+            reasoning: The agent's current thought process, analysis, or
+                reasoning for the current situation. This should be clear,
+                comprehensive, and explain the 'why' behind decisions.
+            next_steps: Planned upcoming actions or steps
+                the agent intends to take. Can be None if no specific next steps
+                are determined. Defaults to None.
+
+        Returns:
+            ReasoningOutput: A simple response object containing:
+                - success (bool): Always True, indicating the reasoning was shared
+
+        Examples:
+            >>> reasoning = "I need to analyze the codebase structure first"
+            >>> next_steps = "First, I'll list the directory contents, then read key files"
+            >>> result = agent_share_your_reasoning(ctx, reasoning, next_steps)
+
+        Best Practice:
+            Use this tool frequently to maintain transparency. Call it:
+            - Before starting complex operations
+            - When changing strategy or approach
+            - To explain why certain decisions are being made
+            - When encountering unexpected situations
+        """
+        return share_your_reasoning(context, reasoning, next_steps)

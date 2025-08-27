@@ -1,22 +1,22 @@
-from code_puppy.tools.command_runner import register_command_runner_tools
-from code_puppy.tools.file_modifications import register_file_modifications_tools
-from code_puppy.tools.file_operations import register_file_operations_tools
+from code_puppy.tools.command_runner import register_agent_run_shell_command, register_agent_share_your_reasoning
+from code_puppy.tools.file_modifications import register_edit_file, register_delete_file
+from code_puppy.tools.file_operations import register_list_files, register_read_file, register_grep
 
 
-# Map of tool names to their registration functions and categories
+# Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
     # File Operations
-    "list_files": (register_file_operations_tools, "file_operations"),
-    "read_file": (register_file_operations_tools, "file_operations"),
-    "grep": (register_file_operations_tools, "file_operations"),
+    "list_files": register_list_files,
+    "read_file": register_read_file,
+    "grep": register_grep,
     
     # File Modifications
-    "edit_file": (register_file_modifications_tools, "file_modifications"),
-    "delete_file": (register_file_modifications_tools, "file_modifications"),
+    "edit_file": register_edit_file,
+    "delete_file": register_delete_file,
     
     # Command Runner
-    "agent_run_shell_command": (register_command_runner_tools, "command_runner"),
-    "agent_share_your_reasoning": (register_command_runner_tools, "command_runner"),
+    "agent_run_shell_command": register_agent_run_shell_command,
+    "agent_share_your_reasoning": register_agent_share_your_reasoning,
 }
 
 
@@ -27,24 +27,15 @@ def register_tools_for_agent(agent, tool_names: list[str]):
         agent: The agent to register tools to.
         tool_names: List of tool names to register.
     """
-    # Group tools by their registration function to avoid duplicate calls
-    categories_to_register = set()
-    
     for tool_name in tool_names:
         if tool_name not in TOOL_REGISTRY:
-            raise ValueError(f"Unknown tool: {tool_name}")
+            # Skip unknown tools with a warning instead of failing
+            print(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
+            continue
         
-        _, category = TOOL_REGISTRY[tool_name]
-        categories_to_register.add(category)
-    
-    # Register tools by category
-    for category in categories_to_register:
-        if category == "file_operations":
-            register_file_operations_tools(agent)
-        elif category == "file_modifications":
-            register_file_modifications_tools(agent)
-        elif category == "command_runner":
-            register_command_runner_tools(agent)
+        # Register the individual tool
+        register_func = TOOL_REGISTRY[tool_name]
+        register_func(agent)
 
 
 def register_all_tools(agent):

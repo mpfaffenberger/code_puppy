@@ -11,7 +11,7 @@ from code_puppy.agents import (
     clear_agent_cache,
 )
 from code_puppy.agents.base_agent import BaseAgent
-from code_puppy.agents.code_puppy_agent import CodePuppyAgent
+from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
 
 class TestAgentDiscovery:
