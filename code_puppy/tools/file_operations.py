@@ -387,7 +387,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 **{
                                     "file_path": file_path,
                                     "line_number": line_number,
-                                    "line_content": line_content.rstrip("\n\r"),
+                                    "line_content": line_content.rstrip("\n\r")[512:],
                                 }
                             )
                             matches.append(match_info)
@@ -395,9 +395,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
                                 message_group=group_id,
                             )
-                            if len(matches) >= 200:
+                            if len(matches) >= 50:
                                 emit_warning(
-                                    "Limit of 200 matches reached. Stopping search.",
+                                    "Limit of 50 matches reached. Stopping search.",
                                     message_group=group_id,
                                 )
                                 return GrepOutput(matches=matches)
