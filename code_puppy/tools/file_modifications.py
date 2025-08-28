@@ -317,7 +317,7 @@ def replace_in_file(
 
 
 def _edit_file(
-    context: RunContext, path: str, payload: EditFilePayload, group_id: str = None
+    context: RunContext, payload: EditFilePayload, group_id: str = None
 ) -> Dict[str, Any]:
     """
     High-level implementation of the *edit_file* behaviour.
@@ -337,25 +337,24 @@ def _edit_file(
 
     Parameters
     ----------
-    path : str
-        Path to the target file (relative or absolute)
-    diff : str
-        Either:
-            * Raw file content (for file creation)
-            * A JSON string with one of the following shapes:
-                {"content": "full file contents", "overwrite": true}
-                {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
-                {"delete_snippet": "text to remove"}
+    payload : EditFilePayload
+        A structured payload object (ContentPayload, ReplacementsPayload, or DeleteSnippetPayload)
+        that contains the file_path and operation-specific data.
+    group_id : str, optional
+        Message group identifier for logging. Auto-generated if not provided.
+    
     The function auto-detects the payload type and routes to the appropriate internal helper.
     """
+    # Extract file_path from payload
+    file_path = os.path.abspath(payload.file_path)
+    
     # Use provided group_id or generate one if not provided
     if group_id is None:
-        group_id = generate_group_id("edit_file", path)
+        group_id = generate_group_id("edit_file", file_path)
 
     emit_info(
         "\n[bold white on blue] EDIT FILE [/bold white on blue]", message_group=group_id
     )
-    file_path = os.path.abspath(path)
     try:
         if isinstance(payload, DeleteSnippetPayload):
             return delete_snippet_from_file(
@@ -520,9 +519,8 @@ def register_file_modifications_tools(agent):
             - Keep replacement strings specific and unique to avoid unintended matches
             - Test modifications on non-critical files first
         """
-        # Generate group_id for edit_file tool execution
-        group_id = generate_group_id("edit_file", file_path)
-        result = _edit_file(context, file_path, payload, group_id)
+        # Call _edit_file which will extract file_path from payload and handle group_id generation
+        result = _edit_file(context, payload)
         if "diff" in result:
             del result["diff"]
         return result
@@ -693,9 +691,8 @@ def register_edit_file(agent):
                     "changed": False,
                 }
 
-        # Generate group_id for edit_file tool execution
-        group_id = generate_group_id("edit_file", payload.file_path)
-        result = _edit_file(context, payload.file_path, payload, group_id=group_id)
+        # Call _edit_file which will extract file_path from payload and handle group_id generation
+        result = _edit_file(context, payload)
         if "diff" in result:
             del result["diff"]
         return result
