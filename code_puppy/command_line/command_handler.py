@@ -130,7 +130,7 @@ def handle_command(command: str):
         yolo_mode = get_yolo_mode()
         protected_tokens = get_protected_token_count()
         summary_threshold = get_summarization_threshold()
-        
+
         # Get current agent info
         current_agent = get_current_agent_config()
 
@@ -195,31 +195,35 @@ def handle_command(command: str):
             get_agent_descriptions,
         )
         from code_puppy.agent import get_code_generation_agent
-        
+
         tokens = command.split()
-        
+
         if len(tokens) == 1:
             # Show current agent and available agents
             current_agent = get_current_agent_config()
             available_agents = get_available_agents()
             descriptions = get_agent_descriptions()
-            
-            emit_info(f"[bold green]Current Agent:[/bold green] {current_agent.display_name}")
+
+            emit_info(
+                f"[bold green]Current Agent:[/bold green] {current_agent.display_name}"
+            )
             emit_info(f"[dim]{current_agent.description}[/dim]\n")
-            
+
             emit_info("[bold magenta]Available Agents:[/bold magenta]")
             for name, display_name in available_agents.items():
                 description = descriptions.get(name, "No description")
-                current_marker = " [green]← current[/green]" if name == current_agent.name else ""
+                current_marker = (
+                    " [green]← current[/green]" if name == current_agent.name else ""
+                )
                 emit_info(f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}")
                 emit_info(f"    [dim]{description}[/dim]")
-            
+
             emit_info("\n[yellow]Usage:[/yellow] /agent <agent-name>")
             return True
-        
+
         elif len(tokens) == 2:
             agent_name = tokens[1].lower()
-            
+
             if set_current_agent(agent_name):
                 # Reload the agent with new configuration
                 get_code_generation_agent(force_reload=True)
@@ -235,7 +239,7 @@ def handle_command(command: str):
         else:
             emit_warning("Usage: /agent [agent-name]")
             return True
-    
+
     if command.startswith("/m"):
         # Try setting model and show confirmation
         new_input = update_model_in_input(command)

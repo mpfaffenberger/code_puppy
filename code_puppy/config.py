@@ -286,7 +286,7 @@ def normalize_command_history():
 
 def get_user_agents_directory() -> str:
     """Get the user's agents directory path.
-    
+
     Returns:
         Path to the user's Code Puppy agents directory.
     """

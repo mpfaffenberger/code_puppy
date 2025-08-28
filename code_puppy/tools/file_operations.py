@@ -625,6 +625,7 @@ def register_file_operations_tools(agent):
 
 def register_list_files(agent):
     """Register only the list_files tool."""
+
     @agent.tool
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
@@ -681,6 +682,7 @@ def register_list_files(agent):
 
 def register_read_file(agent):
     """Register only the read_file tool."""
+
     @agent.tool
     def read_file(
         context: RunContext,
@@ -738,6 +740,7 @@ def register_read_file(agent):
 
 def register_grep(agent):
     """Register only the grep tool."""
+
     @agent.tool
     def grep(
         context: RunContext, search_string: str = "", directory: str = "."

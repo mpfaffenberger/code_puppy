@@ -321,7 +321,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             initial_command, usage_limits=get_custom_usage_limits()
                         )
                     finally:
-                        set_message_history(prune_interrupted_tool_calls(get_message_history()))
+                        set_message_history(
+                            prune_interrupted_tool_calls(get_message_history())
+                        )
 
             agent_response = response.output
 
@@ -376,7 +378,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         # Get the custom prompt from the current agent, or use default
         current_agent = get_current_agent_config()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
-        
+
         emit_info(f"[bold blue]{user_prompt}[/bold blue]")
 
         try:
@@ -471,7 +473,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 usage_limits=get_custom_usage_limits(),
                             )
                         finally:
-                            set_message_history(prune_interrupted_tool_calls(get_message_history()))
+                            set_message_history(
+                                prune_interrupted_tool_calls(get_message_history())
+                            )
 
                     # Create the task
                     agent_task = asyncio.create_task(run_agent_task())

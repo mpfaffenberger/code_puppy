@@ -592,6 +592,7 @@ def register_command_runner_tools(agent):
 
 def register_agent_run_shell_command(agent):
     """Register only the agent_run_shell_command tool."""
+
     @agent.tool
     def agent_run_shell_command(
         context: RunContext, command: str = "", cwd: str = None, timeout: int = 60
@@ -647,6 +648,7 @@ def register_agent_run_shell_command(agent):
 
 def register_agent_share_your_reasoning(agent):
     """Register only the agent_share_your_reasoning tool."""
+
     @agent.tool
     def agent_share_your_reasoning(
         context: RunContext, reasoning: str = "", next_steps: str | None = None

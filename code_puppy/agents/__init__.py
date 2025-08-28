@@ -15,7 +15,7 @@ from .agent_manager import (
 
 __all__ = [
     "get_available_agents",
-    "get_current_agent_config", 
+    "get_current_agent_config",
     "set_current_agent",
     "load_agent_config",
     "get_agent_descriptions",

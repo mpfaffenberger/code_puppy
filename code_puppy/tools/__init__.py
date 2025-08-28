@@ -1,6 +1,13 @@
-from code_puppy.tools.command_runner import register_agent_run_shell_command, register_agent_share_your_reasoning
+from code_puppy.tools.command_runner import (
+    register_agent_run_shell_command,
+    register_agent_share_your_reasoning,
+)
 from code_puppy.tools.file_modifications import register_edit_file, register_delete_file
-from code_puppy.tools.file_operations import register_list_files, register_read_file, register_grep
+from code_puppy.tools.file_operations import (
+    register_list_files,
+    register_read_file,
+    register_grep,
+)
 
 
 # Map of tool names to their individual registration functions
@@ -9,11 +16,9 @@ TOOL_REGISTRY = {
     "list_files": register_list_files,
     "read_file": register_read_file,
     "grep": register_grep,
-    
     # File Modifications
     "edit_file": register_edit_file,
     "delete_file": register_delete_file,
-    
     # Command Runner
     "agent_run_shell_command": register_agent_run_shell_command,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
@@ -22,7 +27,7 @@ TOOL_REGISTRY = {
 
 def register_tools_for_agent(agent, tool_names: list[str]):
     """Register specific tools for an agent based on tool names.
-    
+
     Args:
         agent: The agent to register tools to.
         tool_names: List of tool names to register.
@@ -32,7 +37,7 @@ def register_tools_for_agent(agent, tool_names: list[str]):
             # Skip unknown tools with a warning instead of failing
             print(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
             continue
-        
+
         # Register the individual tool
         register_func = TOOL_REGISTRY[tool_name]
         register_func(agent)
@@ -40,7 +45,7 @@ def register_tools_for_agent(agent, tool_names: list[str]):
 
 def register_all_tools(agent):
     """Register all available tools to the provided agent.
-    
+
     Args:
         agent: The agent to register tools to.
     """
@@ -50,7 +55,7 @@ def register_all_tools(agent):
 
 def get_available_tool_names() -> list[str]:
     """Get list of all available tool names.
-    
+
     Returns:
         List of all tool names that can be registered.
     """

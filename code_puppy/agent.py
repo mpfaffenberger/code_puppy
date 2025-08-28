@@ -22,6 +22,7 @@ from code_puppy.messaging.message_queue import (
     emit_system_message,
 )
 from code_puppy.model_factory import ModelFactory
+
 # Tool registration is imported on demand
 from code_puppy.tools.common import console
 
@@ -142,17 +143,19 @@ def reload_code_generation_agent():
     emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
-    
+
     # Get agent-specific system prompt
     agent_config = get_current_agent_config()
-    emit_info(f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]")
-    
+    emit_info(
+        f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]"
+    )
+
     # Use agent-specific system prompt if available, otherwise fallback to default
     try:
         instructions = agent_config.get_system_prompt()
     except Exception:
         instructions = get_system_prompt()
-    
+
     if PUPPY_RULES:
         instructions += f"\n{PUPPY_RULES}"
 
@@ -174,9 +177,10 @@ def reload_code_generation_agent():
         history_processors=[message_history_accumulator],
         model_settings=model_settings,
     )
-    
+
     # Register tools specified by the agent
     from code_puppy.tools import register_tools_for_agent
+
     agent_tools = agent_config.get_available_tools()
     register_tools_for_agent(agent, agent_tools)
     _code_generation_agent = agent

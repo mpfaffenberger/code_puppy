@@ -607,6 +607,7 @@ def register_file_modifications_tools(agent):
 
 def register_edit_file(agent):
     """Register only the edit_file tool."""
+
     @agent.tool
     def edit_file(
         context: RunContext,
@@ -675,7 +676,9 @@ def register_edit_file(agent):
             - Use delete_snippet for removing specific code blocks
         """
         # Generate group_id for edit_file tool execution
-        group_id = generate_group_id("edit_file", getattr(payload, 'file_path', 'unknown'))
+        group_id = generate_group_id(
+            "edit_file", getattr(payload, "file_path", "unknown")
+        )
         result = _edit_file(context, payload, message_group=group_id)
         if "diff" in result:
             del result["diff"]
@@ -684,6 +687,7 @@ def register_edit_file(agent):
 
 def register_delete_file(agent):
     """Register only the delete_file tool."""
+
     @agent.tool
     def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
         """Safely delete files with comprehensive logging and diff generation.
