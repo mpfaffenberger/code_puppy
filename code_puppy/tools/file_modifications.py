@@ -337,11 +337,15 @@ def _edit_file(
 
     Parameters
     ----------
-    payload : EditFilePayload
-        A structured payload object (ContentPayload, ReplacementsPayload, or DeleteSnippetPayload)
-        that contains the file_path and operation-specific data.
-    group_id : str, optional
-        Message group identifier for logging. Auto-generated if not provided.
+    path : str
+        Path to the target file (relative or absolute)
+    diff : str
+        Either:
+            * Raw file content (for file creation)
+            * A JSON string with one of the following shapes:
+                {"content": "full file contents", "overwrite": true}
+                {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
+                {"delete_snippet": "text to remove"}
     
     The function auto-detects the payload type and routes to the appropriate internal helper.
     """
@@ -448,7 +452,7 @@ def register_file_modifications_tools(agent):
 
     @agent.tool(retries=5)
     def edit_file(
-        context: RunContext, file_path: str, payload: EditFilePayload
+        context: RunContext, payload: EditFilePayload
     ) -> Dict[str, Any]:
         """Comprehensive file editing tool supporting multiple modification strategies.
 
@@ -459,8 +463,6 @@ def register_file_modifications_tools(agent):
 
         Args:
             context (RunContext): The PydanticAI runtime context for the agent.
-            file_path (str): Path to the target file. Can be relative or absolute.
-                File will be created if it doesn't exist (for ContentPayload).
             payload (EditFilePayload): One of three payload types:
 
                 ContentPayload:
@@ -476,6 +478,9 @@ def register_file_modifications_tools(agent):
 
                 DeleteSnippetPayload:
                     - delete_snippet (str): Exact text snippet to remove from file
+                
+                file_path (str): Path to the target file. Can be relative or absolute.
+                    File will be created if it doesn't exist (for ContentPayload).
 
         Returns:
             Dict[str, Any]: Operation result containing:
@@ -495,17 +500,17 @@ def register_file_modifications_tools(agent):
 
         Examples:
             >>> # Create new file
-            >>> payload = ContentPayload(content="print('Hello World')")
-            >>> result = edit_file(ctx, "hello.py", payload)
+            >>> payload = ContentPayload(file_path="foo.py", content="print('Hello World')")
+            >>> result = edit_file(payload)
 
             >>> # Replace specific text
             >>> replacements = [Replacement(old_str="foo", new_str="bar")]
-            >>> payload = ReplacementsPayload(replacements=replacements)
-            >>> result = edit_file(ctx, "config.py", payload)
+            >>> payload = ReplacementsPayload(file_path="foo.py", replacements=replacements)
+            >>> result = edit_file(payload)
 
             >>> # Delete code block
-            >>> payload = DeleteSnippetPayload(delete_snippet="# TODO: remove this")
-            >>> result = edit_file(ctx, "main.py", payload)
+            >>> payload = DeleteSnippetPayload(file_path="foo.py", delete_snippet="# TODO: remove this")
+            >>> result = edit_file(payload)
 
         Warning:
             - Always verify file contents after modification
