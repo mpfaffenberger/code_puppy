@@ -501,16 +501,16 @@ def register_file_modifications_tools(agent):
         Examples:
             >>> # Create new file
             >>> payload = ContentPayload(file_path="foo.py", content="print('Hello World')")
-            >>> result = edit_file(payload)
+            >>> result = edit_file(context, payload)
 
             >>> # Replace specific text
             >>> replacements = [Replacement(old_str="foo", new_str="bar")]
             >>> payload = ReplacementsPayload(file_path="foo.py", replacements=replacements)
-            >>> result = edit_file(payload)
+            >>> result = edit_file(context, payload)
 
             >>> # Delete code block
             >>> payload = DeleteSnippetPayload(file_path="foo.py", delete_snippet="# TODO: remove this")
-            >>> result = edit_file(payload)
+            >>> result = edit_file(context, payload)
 
         Warning:
             - Always verify file contents after modification
