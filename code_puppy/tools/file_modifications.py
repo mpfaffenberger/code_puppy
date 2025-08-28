@@ -447,7 +447,7 @@ def _delete_file(
 def register_file_modifications_tools(agent):
     """Attach file-editing tools to *agent* with mandatory diff rendering."""
 
-    @agent.tool(retries=5)
+    @agent.tool(retries=5, strict=False)
     def edit_file(
         context: RunContext, payload: EditFilePayload | str = ""
     ) -> Dict[str, Any]:
@@ -546,7 +546,7 @@ def register_file_modifications_tools(agent):
             del result["diff"]
         return result
 
-    @agent.tool(retries=5)
+    @agent.tool(retries=5, strict=False)
     def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
         """Safely delete files with comprehensive logging and diff generation.
 
@@ -608,7 +608,7 @@ def register_file_modifications_tools(agent):
 def register_edit_file(agent):
     """Register only the edit_file tool."""
 
-    @agent.tool
+    @agent.tool(strict=False)
     def edit_file(
         context: RunContext,
         payload,
@@ -688,7 +688,7 @@ def register_edit_file(agent):
 def register_delete_file(agent):
     """Register only the delete_file tool."""
 
-    @agent.tool
+    @agent.tool(strict=False)
     def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
         """Safely delete files with comprehensive logging and diff generation.
 

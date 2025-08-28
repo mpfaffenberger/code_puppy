@@ -446,7 +446,7 @@ def grep(context, search_string, directory="."):
 
 
 def register_file_operations_tools(agent):
-    @agent.tool
+    @agent.tool(strict=False)
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
     ) -> ListFileOutput:
@@ -506,7 +506,7 @@ def register_file_operations_tools(agent):
             )
         return list_files_result
 
-    @agent.tool
+    @agent.tool(strict=False)
     def read_file(
         context: RunContext,
         file_path: str = "",
@@ -566,7 +566,7 @@ def register_file_operations_tools(agent):
         """
         return _read_file(context, file_path, start_line, num_lines)
 
-    @agent.tool
+    @agent.tool(strict=False)
     def grep(
         context: RunContext, search_string: str = "", directory: str = "."
     ) -> GrepOutput:
@@ -626,7 +626,7 @@ def register_file_operations_tools(agent):
 def register_list_files(agent):
     """Register only the list_files tool."""
 
-    @agent.tool
+    @agent.tool(strict=False)
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
     ) -> ListFileOutput:
@@ -683,7 +683,7 @@ def register_list_files(agent):
 def register_read_file(agent):
     """Register only the read_file tool."""
 
-    @agent.tool
+    @agent.tool(strict=False)
     def read_file(
         context: RunContext,
         file_path: str = "",
@@ -741,7 +741,7 @@ def register_read_file(agent):
 def register_grep(agent):
     """Register only the grep tool."""
 
-    @agent.tool
+    @agent.tool(strict=False)
     def grep(
         context: RunContext, search_string: str = "", directory: str = "."
     ) -> GrepOutput:

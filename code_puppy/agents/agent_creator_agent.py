@@ -240,4 +240,4 @@ After creating an agent, always explain how to use it with `/agent agent-name`.
 
     def get_user_prompt(self) -> Optional[str]:
         """Get the initial user prompt."""
-        return "Hi! I'm the Agent Creator 🏗️ Let's build an awesome JSON agent together! What kind of agent would you like to create?"
+        return "Hi! I'm the Agent Creator 🏗️ Let's build an awesome agent together!"
