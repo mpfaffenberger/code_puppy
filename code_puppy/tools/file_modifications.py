@@ -346,12 +346,12 @@ def _edit_file(
                 {"content": "full file contents", "overwrite": true}
                 {"replacements": [ {"old_str": "foo", "new_str": "bar"}, ... ] }
                 {"delete_snippet": "text to remove"}
-    
+
     The function auto-detects the payload type and routes to the appropriate internal helper.
     """
     # Extract file_path from payload
     file_path = os.path.abspath(payload.file_path)
-    
+
     # Use provided group_id or generate one if not provided
     if group_id is None:
         group_id = generate_group_id("edit_file", file_path)
@@ -451,9 +451,7 @@ def register_file_modifications_tools(agent):
     """Attach file-editing tools to *agent* with mandatory diff rendering."""
 
     @agent.tool(retries=5)
-    def edit_file(
-        context: RunContext, payload: EditFilePayload
-    ) -> Dict[str, Any]:
+    def edit_file(context: RunContext, payload: EditFilePayload) -> Dict[str, Any]:
         """Comprehensive file editing tool supporting multiple modification strategies.
 
         This is the primary file modification tool that supports three distinct editing
@@ -478,7 +476,7 @@ def register_file_modifications_tools(agent):
 
                 DeleteSnippetPayload:
                     - delete_snippet (str): Exact text snippet to remove from file
-                
+
                 file_path (str): Path to the target file. Can be relative or absolute.
                     File will be created if it doesn't exist (for ContentPayload).
 
@@ -677,7 +675,7 @@ def register_edit_file(agent):
                 missing = []
                 if "file_path" not in payload:
                     missing.append("file_path")
-                
+
                 payload_type = "unknown"
                 if "content" in payload:
                     payload_type = "content"
@@ -687,7 +685,7 @@ def register_edit_file(agent):
                     payload_type = "delete_snippet"
                 else:
                     missing.append("content/replacements/delete_snippet")
-                
+
                 missing_str = ", ".join(missing) if missing else "none"
                 return {
                     "success": False,
