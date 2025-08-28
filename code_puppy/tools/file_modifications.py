@@ -317,7 +317,7 @@ def replace_in_file(
 
 
 def _edit_file(
-    context: RunContext, payload: EditFilePayload, group_id: str = None
+    context: RunContext, path: str, payload: EditFilePayload, group_id: str = None
 ) -> Dict[str, Any]:
     """
     High-level implementation of the *edit_file* behaviour.
@@ -350,12 +350,12 @@ def _edit_file(
     """
     # Use provided group_id or generate one if not provided
     if group_id is None:
-        group_id = generate_group_id("edit_file", payload.file_path)
+        group_id = generate_group_id("edit_file", path)
 
     emit_info(
         "\n[bold white on blue] EDIT FILE [/bold white on blue]", message_group=group_id
     )
-    file_path = os.path.abspath(payload.file_path)
+    file_path = os.path.abspath(path)
     try:
         if isinstance(payload, DeleteSnippetPayload):
             return delete_snippet_from_file(
@@ -447,9 +447,9 @@ def _delete_file(
 def register_file_modifications_tools(agent):
     """Attach file-editing tools to *agent* with mandatory diff rendering."""
 
-    @agent.tool(retries=5, strict=False)
+    @agent.tool(retries=5)
     def edit_file(
-        context: RunContext, payload: EditFilePayload | str = ""
+        context: RunContext, file_path: str, payload: EditFilePayload
     ) -> Dict[str, Any]:
         """Comprehensive file editing tool supporting multiple modification strategies.
 
@@ -460,6 +460,8 @@ def register_file_modifications_tools(agent):
 
         Args:
             context (RunContext): The PydanticAI runtime context for the agent.
+            file_path (str): Path to the target file. Can be relative or absolute.
+                File will be created if it doesn't exist (for ContentPayload).
             payload (EditFilePayload): One of three payload types:
 
                 ContentPayload:
@@ -476,8 +478,6 @@ def register_file_modifications_tools(agent):
                 DeleteSnippetPayload:
                     - delete_snippet (str): Exact text snippet to remove from file
 
-            file_path (str): Path to the target file. Can be relative or absolute.
-                File will be created if it doesn't exist (for ContentPayload).
         Returns:
             Dict[str, Any]: Operation result containing:
                 - success (bool): True if operation completed successfully
@@ -496,17 +496,17 @@ def register_file_modifications_tools(agent):
 
         Examples:
             >>> # Create new file
-            >>> payload = ContentPayload(file_path="foo.py", content="print('Hello World')")
-            >>> result = edit_file(payload)
+            >>> payload = ContentPayload(content="print('Hello World')")
+            >>> result = edit_file(ctx, "hello.py", payload)
 
             >>> # Replace specific text
             >>> replacements = [Replacement(old_str="foo", new_str="bar")]
-            >>> payload = ReplacementsPayload(file_path="foo.py", replacements=replacements)
-            >>> result = edit_file(payload)
+            >>> payload = ReplacementsPayload(replacements=replacements)
+            >>> result = edit_file(ctx, "config.py", payload)
 
             >>> # Delete code block
-            >>> payload = DeleteSnippetPayload(file_path="foo.py", delete_snippet="# TODO: remove this")
-            >>> result = edit_file(payload)
+            >>> payload = DeleteSnippetPayload(delete_snippet="# TODO: remove this")
+            >>> result = edit_file(ctx, "main.py", payload)
 
         Warning:
             - Always verify file contents after modification
@@ -521,33 +521,14 @@ def register_file_modifications_tools(agent):
             - Test modifications on non-critical files first
         """
         # Generate group_id for edit_file tool execution
-        if isinstance(payload, str):
-            # Fallback for weird models that just can't help but send json strings...
-            payload = json.loads(json_repair.repair_json(payload))
-            if "replacements" in payload:
-                payload = ReplacementsPayload(**payload)
-            elif "delete_snippet" in payload:
-                payload = DeleteSnippetPayload(**payload)
-            elif "content" in payload:
-                payload = ContentPayload(**payload)
-            else:
-                file_path = "Unknown"
-                if "file_path" in payload:
-                    file_path = payload["file_path"]
-                return {
-                    "success": False,
-                    "path": file_path,
-                    "message": "One of 'content', 'replacements', or 'delete_snippet' must be provided in payload.",
-                    "changed": False,
-                }
-        group_id = generate_group_id("edit_file", payload.file_path)
-        result = _edit_file(context, payload, group_id)
+        group_id = generate_group_id("edit_file", file_path)
+        result = _edit_file(context, file_path, payload, group_id)
         if "diff" in result:
             del result["diff"]
         return result
 
-    @agent.tool(retries=5, strict=False)
-    def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
+    @agent.tool(retries=5)
+    def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
         """Safely delete files with comprehensive logging and diff generation.
 
         This tool provides safe file deletion with automatic diff generation to show
@@ -611,7 +592,7 @@ def register_edit_file(agent):
     @agent.tool(strict=False)
     def edit_file(
         context: RunContext,
-        payload,
+        payload: EditFilePayload | str = "",
     ) -> Dict[str, Any]:
         """Comprehensive file editing tool supporting multiple modification strategies.
 
@@ -675,11 +656,46 @@ def register_edit_file(agent):
             - Review the 'diff' field to understand what changed
             - Use delete_snippet for removing specific code blocks
         """
+        # Handle string payload parsing (for models that send JSON strings)
+        if isinstance(payload, str):
+            # Fallback for weird models that just can't help but send json strings...
+            payload = json.loads(json_repair.repair_json(payload))
+            if "replacements" in payload and "file_path" in payload:
+                payload = ReplacementsPayload(**payload)
+            elif "delete_snippet" in payload and "file_path" in payload:
+                payload = DeleteSnippetPayload(**payload)
+            elif "content" in payload and "file_path" in payload:
+                payload = ContentPayload(**payload)
+            else:
+                file_path = "Unknown"
+                if "file_path" in payload:
+                    file_path = payload["file_path"]
+                # Diagnose what's missing
+                missing = []
+                if "file_path" not in payload:
+                    missing.append("file_path")
+                
+                payload_type = "unknown"
+                if "content" in payload:
+                    payload_type = "content"
+                elif "replacements" in payload:
+                    payload_type = "replacements"
+                elif "delete_snippet" in payload:
+                    payload_type = "delete_snippet"
+                else:
+                    missing.append("content/replacements/delete_snippet")
+                
+                missing_str = ", ".join(missing) if missing else "none"
+                return {
+                    "success": False,
+                    "path": file_path,
+                    "message": f"Invalid payload for {payload_type} operation. Missing required fields: {missing_str}. Payload keys: {list(payload.keys())}",
+                    "changed": False,
+                }
+
         # Generate group_id for edit_file tool execution
-        group_id = generate_group_id(
-            "edit_file", getattr(payload, "file_path", "unknown")
-        )
-        result = _edit_file(context, payload, message_group=group_id)
+        group_id = generate_group_id("edit_file", payload.file_path)
+        result = _edit_file(context, payload.file_path, payload, group_id=group_id)
         if "diff" in result:
             del result["diff"]
         return result

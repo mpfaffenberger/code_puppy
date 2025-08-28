@@ -173,13 +173,14 @@ def _list_files(
         if rel_path == ".":
             rel_path = ""
         if rel_path:
-            os.path.join(directory, rel_path)
+            dir_path = os.path.join(directory, rel_path)
             results.append(
                 ListedFile(
                     **{
                         "path": rel_path,
                         "type": "directory",
                         "size": 0,
+                        "full_path": dir_path,
                         "depth": depth,
                     }
                 )
@@ -187,6 +188,7 @@ def _list_files(
             folder_structure[rel_path] = {
                 "path": rel_path,
                 "depth": depth,
+                "full_path": dir_path,
             }
         for file in files:
             file_path = os.path.join(root, file)
@@ -199,6 +201,7 @@ def _list_files(
                     "path": rel_file_path,
                     "type": "file",
                     "size": size,
+                    "full_path": file_path,
                     "depth": depth,
                 }
                 results.append(ListedFile(**file_info))
@@ -384,7 +387,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 **{
                                     "file_path": file_path,
                                     "line_number": line_number,
-                                    "line_content": line_content.rstrip("\n\r")[512:],
+                                    "line_content": line_content.rstrip("\n\r"),
                                 }
                             )
                             matches.append(match_info)
@@ -392,9 +395,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                                 f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
                                 message_group=group_id,
                             )
-                            if len(matches) >= 50:
+                            if len(matches) >= 200:
                                 emit_warning(
-                                    "Limit of 50 matches reached. Stopping search.",
+                                    "Limit of 200 matches reached. Stopping search.",
                                     message_group=group_id,
                                 )
                                 return GrepOutput(matches=matches)
@@ -446,7 +449,7 @@ def grep(context, search_string, directory="."):
 
 
 def register_file_operations_tools(agent):
-    @agent.tool(strict=False)
+    @agent.tool
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
     ) -> ListFileOutput:
@@ -506,7 +509,7 @@ def register_file_operations_tools(agent):
             )
         return list_files_result
 
-    @agent.tool(strict=False)
+    @agent.tool
     def read_file(
         context: RunContext,
         file_path: str = "",
@@ -566,7 +569,7 @@ def register_file_operations_tools(agent):
         """
         return _read_file(context, file_path, start_line, num_lines)
 
-    @agent.tool(strict=False)
+    @agent.tool
     def grep(
         context: RunContext, search_string: str = "", directory: str = "."
     ) -> GrepOutput:
