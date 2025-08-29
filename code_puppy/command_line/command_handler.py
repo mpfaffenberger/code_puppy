@@ -320,20 +320,26 @@ def handle_command(command: str):
 
     if command.startswith("/agent"):
         from code_puppy.agent import get_code_generation_agent
-        from code_puppy.agents import get_available_agents, get_current_agent_config, set_current_agent
-        
+        from code_puppy.agents import (
+            get_available_agents,
+            get_current_agent_config,
+            set_current_agent,
+        )
+
         tokens = command.split()
         if len(tokens) == 1:
             # Show available agents
             available_agents = get_available_agents(force_refresh=True)
             current_agent = get_current_agent_config()
-            
+
             emit_info("[bold cyan]Available Agents:[/bold cyan]")
             for name, display_name in available_agents.items():
                 marker = "[green]★[/green]" if name == current_agent.name else " "
                 emit_info(f"  {marker} [cyan]{name}[/cyan] - {display_name}")
-            
-            emit_info(f"\nCurrently active: [green]{current_agent.display_name}[/green]")
+
+            emit_info(
+                f"\nCurrently active: [green]{current_agent.display_name}[/green]"
+            )
             emit_info("[dim]Use '/agent <name>' to switch agents[/dim]")
             return True
         elif len(tokens) == 2:

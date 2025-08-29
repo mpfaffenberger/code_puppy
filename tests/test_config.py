@@ -276,7 +276,9 @@ class TestGetConfigKeys:
         keys = cp_config.get_config_keys()
 
         mock_parser_instance.read.assert_called_once_with(mock_cfg_file)
-        assert keys == sorted(["compaction_strategy", "key1", "key2", "model", "yolo_mode"])
+        assert keys == sorted(
+            ["compaction_strategy", "key1", "key2", "model", "yolo_mode"]
+        )
 
     @patch("configparser.ConfigParser")
     def test_get_config_keys_empty_config(

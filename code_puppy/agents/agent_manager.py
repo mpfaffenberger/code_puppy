@@ -8,7 +8,7 @@ from code_puppy.config import get_value, set_config_value
 from .base_agent import BaseAgent
 from .json_agent import JSONAgent, discover_json_agents
 from ..callbacks import on_agent_reload
-from ..messaging import emit_info, emit_warning
+from ..messaging import emit_warning
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -196,7 +196,7 @@ def clear_agent_cache():
 
 def refresh_agents():
     """Refresh the agent discovery to pick up newly created agents.
-    
+
     This clears the agent registry cache and forces a rediscovery of all agents.
     """
     _discover_agents(force_refresh=True)

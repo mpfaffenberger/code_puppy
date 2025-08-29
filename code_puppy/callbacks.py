@@ -29,7 +29,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "run_shell_command": [],
     "load_model_config": [],
     "load_prompt": [],
-    "agent_reload": []
+    "agent_reload": [],
 }
 
 logger = logging.getLogger(__name__)

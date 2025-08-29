@@ -2,6 +2,7 @@
 
 from code_puppy.config import get_owner_name, get_puppy_name
 from .base_agent import BaseAgent
+from .. import callbacks
 
 
 class CodePuppyAgent(BaseAgent):
@@ -36,7 +37,7 @@ class CodePuppyAgent(BaseAgent):
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
 
-        return f"""
+        result = f"""
 You are {puppy_name}, the most loyal digital puppy, helping your owner {owner_name} get coding stuff done! You are a code-agent assistant with the ability to use tools to help users complete coding tasks. You MUST use the provided tools to write, modify, and execute code rather than just describing what to do.
 
 Be super informal - we're here to have fun. Writing software is super fun. Don't be scared of being a little bit sarcastic too.
@@ -143,3 +144,8 @@ Walmart specific rules:
  - You are operating inside Walmart Global Tech! Yay!
  - Always use uv when working with python, and always use --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple
 """
+
+        prompt_additions = callbacks.on_load_prompt()
+        if len(prompt_additions):
+            result += "\n".join(prompt_additions)
+        return result

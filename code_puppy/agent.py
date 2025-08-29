@@ -6,7 +6,6 @@ from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTT
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
-from code_puppy.agent_prompts import get_system_prompt
 from code_puppy.agents import get_current_agent_config
 from code_puppy.http_utils import (
     create_reopenable_async_client,
@@ -150,11 +149,7 @@ def reload_code_generation_agent():
         f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]"
     )
 
-    # Use agent-specific system prompt if available, otherwise fallback to default
-    try:
-        instructions = agent_config.get_system_prompt()
-    except Exception:
-        instructions = get_system_prompt()
+    instructions = agent_config.get_system_prompt()
 
     if PUPPY_RULES:
         instructions += f"\n{PUPPY_RULES}"
