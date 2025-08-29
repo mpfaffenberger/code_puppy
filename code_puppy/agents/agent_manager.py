@@ -13,11 +13,11 @@ _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
 _CURRENT_AGENT_CONFIG: Optional[BaseAgent] = None
 
 
-def _discover_agents():
+def _discover_agents(force_refresh: bool = False):
     """Dynamically discover all agent classes and JSON agents."""
     global _AGENT_REGISTRY
 
-    if _AGENT_REGISTRY:  # Already discovered
+    if _AGENT_REGISTRY and not force_refresh:  # Already discovered
         return
 
     # 1. Discover Python agent classes in the agents package
@@ -105,7 +105,8 @@ def set_current_agent(agent_name: str) -> bool:
     Returns:
         True if the agent was set successfully, False if agent not found.
     """
-    _discover_agents()
+    # Force refresh to discover newly created agents
+    _discover_agents(force_refresh=True)
 
     if agent_name not in _AGENT_REGISTRY:
         return False

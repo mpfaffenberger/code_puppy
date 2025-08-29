@@ -230,37 +230,68 @@ def handle_command(command: str):
             available_agents = get_available_agents()
             descriptions = get_agent_descriptions()
 
-            emit_info(
-                f"[bold green]Current Agent:[/bold green] {current_agent.display_name}"
-            )
-            emit_info(f"[dim]{current_agent.description}[/dim]\n")
+            # Generate a group ID for all messages in this command
+            import uuid
 
-            emit_info("[bold magenta]Available Agents:[/bold magenta]")
+            group_id = str(uuid.uuid4())
+
+            emit_info(
+                f"[bold green]Current Agent:[/bold green] {current_agent.display_name}",
+                message_group=group_id,
+            )
+            emit_info(
+                f"[dim]{current_agent.description}[/dim]\n", message_group=group_id
+            )
+
+            emit_info(
+                "[bold magenta]Available Agents:[/bold magenta]", message_group=group_id
+            )
             for name, display_name in available_agents.items():
                 description = descriptions.get(name, "No description")
                 current_marker = (
                     " [green]← current[/green]" if name == current_agent.name else ""
                 )
-                emit_info(f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}")
-                emit_info(f"    [dim]{description}[/dim]")
+                emit_info(
+                    f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}",
+                    message_group=group_id,
+                )
+                emit_info(f"    [dim]{description}[/dim]", message_group=group_id)
 
-            emit_info("\n[yellow]Usage:[/yellow] /agent <agent-name>")
+            emit_info(
+                "\n[yellow]Usage:[/yellow] /agent <agent-name>", message_group=group_id
+            )
             return True
 
         elif len(tokens) == 2:
             agent_name = tokens[1].lower()
 
+            # Generate a group ID for all messages in this command
+            import uuid
+
+            group_id = str(uuid.uuid4())
+
             if set_current_agent(agent_name):
                 # Reload the agent with new configuration
                 get_code_generation_agent(force_reload=True)
                 new_agent = get_current_agent_config()
-                emit_success(f"Switched to agent: {new_agent.display_name}")
-                emit_info(f"[dim]{new_agent.description}[/dim]")
+                emit_success(
+                    f"Switched to agent: {new_agent.display_name}",
+                    message_group=group_id,
+                )
+                emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
                 return True
             else:
+                # Generate a group ID for all messages in this command
+                import uuid
+
+                group_id = str(uuid.uuid4())
+
                 available_agents = get_available_agents()
-                emit_error(f"Agent '{agent_name}' not found")
-                emit_warning(f"Available agents: {', '.join(available_agents.keys())}")
+                emit_error(f"Agent '{agent_name}' not found", message_group=group_id)
+                emit_warning(
+                    f"Available agents: {', '.join(available_agents.keys())}",
+                    message_group=group_id,
+                )
                 return True
         else:
             emit_warning("Usage: /agent [agent-name]")
