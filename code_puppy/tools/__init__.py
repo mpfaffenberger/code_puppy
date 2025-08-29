@@ -1,3 +1,4 @@
+from code_puppy.messaging import emit_warning
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -35,7 +36,7 @@ def register_tools_for_agent(agent, tool_names: list[str]):
     for tool_name in tool_names:
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
-            print(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
+            emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
             continue
 
         # Register the individual tool
