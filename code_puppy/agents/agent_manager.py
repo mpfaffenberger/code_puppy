@@ -2,6 +2,7 @@
 
 import importlib
 import pkgutil
+import uuid
 from typing import Dict, Optional, Type, Union
 
 from code_puppy.config import get_value, set_config_value
@@ -15,7 +16,7 @@ _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
 _CURRENT_AGENT_CONFIG: Optional[BaseAgent] = None
 
 
-def _discover_agents(force_refresh: bool = True):
+def _discover_agents(force_refresh: bool = True, message_group_id: Optional[str] = None):
     """Dynamically discover all agent classes and JSON agents."""
     # Clear the registry if we're forcing a refresh
     if force_refresh:
@@ -51,7 +52,7 @@ def _discover_agents(force_refresh: bool = True):
 
         except Exception as e:
             # Skip problematic modules
-            emit_warning(f"Warning: Could not load agent module {modname}: {e}")
+            emit_warning(f"Warning: Could not load agent module {modname}: {e}", message_group=message_group_id)
             continue
 
     # 2. Discover JSON agents in user directory
@@ -63,7 +64,7 @@ def _discover_agents(force_refresh: bool = True):
             _AGENT_REGISTRY[agent_name] = json_path
 
     except Exception as e:
-        emit_warning(f"Warning: Could not discover JSON agents: {e}")
+        emit_warning(f"Warning: Could not discover JSON agents: {e}", message_group=message_group_id)
 
 
 def get_available_agents(force_refresh: bool = False) -> Dict[str, str]:
@@ -75,7 +76,9 @@ def get_available_agents(force_refresh: bool = False) -> Dict[str, str]:
     Returns:
         Dict mapping agent names to display names.
     """
-    _discover_agents(force_refresh=force_refresh)
+    # Generate a message group ID for this operation
+    message_group_id = str(uuid.uuid4()) if force_refresh else None
+    _discover_agents(force_refresh=force_refresh, message_group_id=message_group_id)
 
     agents = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
@@ -109,7 +112,9 @@ def set_current_agent(agent_name: str) -> bool:
     Returns:
         True if the agent was set successfully, False if agent not found.
     """
-    _discover_agents()
+    # Generate a message group ID for agent switching
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(message_group_id=message_group_id)
 
     if agent_name not in _AGENT_REGISTRY:
         return False
@@ -131,7 +136,9 @@ def get_current_agent_config() -> BaseAgent:
     """
     global _CURRENT_AGENT_CONFIG
 
-    _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
+    # Only load if not cached
+    if _CURRENT_AGENT_CONFIG is None:
+        _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
 
     return _CURRENT_AGENT_CONFIG
 
@@ -148,7 +155,9 @@ def load_agent_config(agent_name: str) -> BaseAgent:
     Raises:
         ValueError: If the agent is not found.
     """
-    _discover_agents()
+    # Generate a message group ID for agent loading
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(message_group_id=message_group_id)
 
     if agent_name not in _AGENT_REGISTRY:
         # Fallback to code-puppy if agent not found
@@ -172,7 +181,9 @@ def get_agent_descriptions() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to their descriptions.
     """
-    _discover_agents()
+    # Generate a message group ID for this operation
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(message_group_id=message_group_id)
 
     descriptions = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
@@ -199,4 +210,6 @@ def refresh_agents():
 
     This clears the agent registry cache and forces a rediscovery of all agents.
     """
-    _discover_agents(force_refresh=True)
+    # Generate a message group ID for agent refreshing
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(force_refresh=True, message_group_id=message_group_id)
