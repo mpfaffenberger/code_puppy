@@ -433,7 +433,7 @@ def get_compaction_strategy() -> str:
     if val and val.lower() in ["summarization", "truncation"]:
         return val.lower()
     # Default to summarization
-    return "summarization"
+    return "truncation"
 
 
 def save_command_to_history(command: str):
