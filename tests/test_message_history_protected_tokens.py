@@ -1,5 +1,6 @@
 import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
+from unittest.mock import patch
 
 from code_puppy.config import get_protected_token_count
 from code_puppy.message_history_processor import (
@@ -20,7 +21,9 @@ def create_test_message(content: str, is_response: bool = False):
 def test_protected_tokens_default():
     """Test that the protected tokens default value is correct."""
     # Default value should be 50000
-    assert get_protected_token_count() == 50000
+    with patch("code_puppy.config.get_value") as mock_get_value:
+        mock_get_value.return_value = None
+        assert get_protected_token_count() == 50000
 
 
 def test_split_messages_empty_list():

@@ -1,4 +1,5 @@
 import json
+import queue
 from typing import Any, List, Set, Tuple
 
 import pydantic
@@ -7,7 +8,8 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, TextPart, ToolCallP
 from code_puppy.config import (
     get_model_name,
     get_protected_token_count,
-    get_summarization_threshold,
+    get_compaction_threshold,
+    get_compaction_strategy,
 )
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory
@@ -85,6 +87,12 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
             total_tokens += estimate_token_count(part_str)
 
     return max(1, total_tokens)
+
+
+def filter_huge_messages(messages: List[ModelMessage]) -> List[ModelMessage]:
+    filtered = [m for m in messages if estimate_tokens_for_message(m) < 50000]
+    pruned = prune_interrupted_tool_calls(filtered)
+    return pruned
 
 
 def split_messages_for_protected_summarization(
@@ -306,7 +314,8 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
                 status_bar.update_token_info(
                     total_current_tokens, model_max, proportion_used
                 )
-            except Exception:
+            except Exception as e:
+                emit_error(e)
                 # Fallback to chat message if status bar update fails
                 emit_info(
                     f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
@@ -323,12 +332,26 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
         emit_info(
             f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
         )
+    # Get the configured compaction threshold
+    compaction_threshold = get_compaction_threshold()
 
-    # Get the configured summarization threshold
-    summarization_threshold = get_summarization_threshold()
+    # Get the configured compaction strategy
+    compaction_strategy = get_compaction_strategy()
 
-    if proportion_used > summarization_threshold:
-        result_messages, summarized_messages = summarize_messages(messages)
+    if proportion_used > compaction_threshold:
+        if compaction_strategy == "truncation":
+            # Use truncation instead of summarization
+            protected_tokens = get_protected_token_count()
+            result_messages = truncation(
+                filter_huge_messages(messages), protected_tokens
+            )
+            summarized_messages = []  # No summarization in truncation mode
+        else:
+            # Default to summarization
+            result_messages, summarized_messages = summarize_messages(
+                filter_huge_messages(messages)
+            )
+
         final_token_count = sum(
             estimate_tokens_for_message(msg) for msg in result_messages
         )
@@ -358,6 +381,30 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
             add_compacted_message_hash(hash_message(m))
         return result_messages
     return messages
+
+
+def truncation(
+    messages: List[ModelMessage], protected_tokens: int
+) -> List[ModelMessage]:
+    emit_info("Truncating message history to manage token usage")
+    result = [messages[0]]  # Always keep the first message (system prompt)
+    num_tokens = 0
+    stack = queue.LifoQueue()
+
+    # Put messages in reverse order (most recent first) into the stack
+    # but break when we exceed protected_tokens
+    for idx, msg in enumerate(reversed(messages[1:])):  # Skip the first message
+        num_tokens += estimate_tokens_for_message(msg)
+        if num_tokens > protected_tokens:
+            break
+        stack.put(msg)
+
+    # Pop messages from stack to get them in chronological order
+    while not stack.empty():
+        result.append(stack.get())
+
+    result = prune_interrupted_tool_calls(result)
+    return result
 
 
 def message_history_accumulator(messages: List[Any]):

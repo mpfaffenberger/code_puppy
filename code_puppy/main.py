@@ -372,9 +372,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_warning("Falling back to basic input without tab completion")
 
     while True:
+        from code_puppy.agents.agent_manager import get_current_agent_config
         from code_puppy.messaging import emit_info
 
-        emit_info("[bold blue]Enter your coding task:[/bold blue]")
+        # Get the custom prompt from the current agent, or use default
+        current_agent = get_current_agent_config()
+        user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
+
+        emit_info(f"[bold blue]{user_prompt}[/bold blue]")
 
         try:
             # Use prompt_toolkit for enhanced input with path completion

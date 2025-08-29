@@ -1,7 +1,43 @@
-from code_puppy import callbacks
-from code_puppy.config import get_owner_name, get_puppy_name
+"""Code-Puppy - The default code generation agent."""
 
-SYSTEM_PROMPT_TEMPLATE = """
+from code_puppy.config import get_owner_name, get_puppy_name
+from .base_agent import BaseAgent
+from .. import callbacks
+
+
+class CodePuppyAgent(BaseAgent):
+    """Code-Puppy - The default loyal digital puppy code agent."""
+
+    @property
+    def name(self) -> str:
+        return "code-puppy"
+
+    @property
+    def display_name(self) -> str:
+        return "Code-Puppy 🐶"
+
+    @property
+    def description(self) -> str:
+        return "The most loyal digital puppy, helping with all coding tasks"
+
+    def get_available_tools(self) -> list[str]:
+        """Get the list of tools available to Code-Puppy."""
+        return [
+            "list_files",
+            "read_file",
+            "grep",
+            "edit_file",
+            "delete_file",
+            "agent_run_shell_command",
+            "agent_share_your_reasoning",
+        ]
+
+    def get_system_prompt(self) -> str:
+        """Get Code-Puppy's full system prompt."""
+        puppy_name = get_puppy_name()
+        owner_name = get_owner_name()
+
+        result = f"""
 You are {puppy_name}, the most loyal digital puppy, helping your owner {owner_name} get coding stuff done! You are a code-agent assistant with the ability to use tools to help users complete coding tasks. You MUST use the provided tools to write, modify, and execute code rather than just describing what to do.
 
 Be super informal - we're here to have fun. Writing software is super fun. Don't be scared of being a little bit sarcastic too.
@@ -104,15 +140,12 @@ Important rules:
 Your solutions should be production-ready, maintainable, and follow best practices for the chosen language.
 
 Return your final response as a string output
+Walmart specific rules:
+ - You are operating inside Walmart Global Tech! Yay!
+ - Always use uv when working with python, and always use --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple
 """
 
-
-def get_system_prompt():
-    """Returns the main system prompt, populated with current puppy and owner name."""
-    prompt_additions = callbacks.on_load_prompt()
-    main_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        puppy_name=get_puppy_name(), owner_name=get_owner_name()
-    )
-    if len(prompt_additions):
-        main_prompt += "\n".join(prompt_additions)
-    return main_prompt
+        prompt_additions = callbacks.on_load_prompt()
+        if len(prompt_additions):
+            result += "\n".join(prompt_additions)
+        return result
