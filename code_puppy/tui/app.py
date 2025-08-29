@@ -10,7 +10,7 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.events import Resize
 from textual.reactive import reactive
-from textual.widgets import Footer, Label, ListItem, ListView
+from textual.widgets import Footer, ListView
 
 from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.command_line.command_handler import handle_command
@@ -408,6 +408,15 @@ class CodePuppyTUI(App):
                     self.action_clear_chat()
                     return
 
+                # Let the command handler process all /agent commands
+                # result will be handled by the command handler directly through messaging system
+                if message.strip().startswith("/agent"):
+                    # The command handler will emit messages directly to our messaging system
+                    handle_command(message.strip())
+                    # Refresh our agent instance after potential change
+                    self.agent = get_code_generation_agent()
+                    return
+
                 # Handle exit commands
                 if message.strip().lower() in ("/exit", "/quit"):
                     self.add_system_message("Goodbye!")
@@ -416,36 +425,11 @@ class CodePuppyTUI(App):
                     return
 
                 # Use the existing command handler
+                # The command handler directly uses the messaging system, so we don't need to capture stdout
                 try:
-                    import sys
-                    from io import StringIO
-
-                    from code_puppy.tools.common import console as rich_console
-
-                    # Capture the output from the command handler
-                    old_stdout = sys.stdout
-                    captured_output = StringIO()
-                    sys.stdout = captured_output
-
-                    # Also capture Rich console output
-                    rich_console.file = captured_output
-
-                    try:
-                        # Call the existing command handler
-                        result = handle_command(message.strip())
-                        if result:  # Command was handled
-                            output = captured_output.getvalue()
-                            if output.strip():
-                                self.add_system_message(output.strip())
-                            else:
-                                self.add_system_message(f"Command '{message}' executed")
-                        else:
-                            self.add_system_message(f"Unknown command: {message}")
-                    finally:
-                        # Restore stdout and console
-                        sys.stdout = old_stdout
-                        rich_console.file = sys.__stdout__
-
+                    result = handle_command(message.strip())
+                    if not result:
+                        self.add_system_message(f"Unknown command: {message}")
                 except Exception as e:
                     self.add_error_message(f"Error executing command: {str(e)}")
                 return
@@ -667,134 +651,6 @@ class CodePuppyTUI(App):
 
             # Automatically submit the message
             self.action_send_message()
-
-    # History management methods
-    def load_history_list(self) -> None:
-        """Load session history into the history tab."""
-        try:
-            from datetime import datetime, timezone
-
-            history_list = self.query_one("#history-list", ListView)
-
-            # Get history from session memory
-            if self.session_memory:
-                # Get recent history (last 24 hours by default)
-                recent_history = self.session_memory.get_history(within_minutes=24 * 60)
-
-                if not recent_history:
-                    # No history available
-                    history_list.append(
-                        ListItem(Label("No recent history", classes="history-empty"))
-                    )
-                    return
-
-                # Filter out model loading entries and group history by type, display most recent first
-                filtered_history = [
-                    entry
-                    for entry in recent_history
-                    if not entry.get("description", "").startswith("Agent loaded")
-                ]
-
-                # Get sidebar width for responsive text truncation
-                try:
-                    sidebar_width = (
-                        self.query_one("Sidebar").size.width
-                        if hasattr(self.query_one("Sidebar"), "size")
-                        else 30
-                    )
-                except Exception:
-                    sidebar_width = 30
-
-                # Adjust text length based on sidebar width
-                if sidebar_width >= 35:
-                    max_text_length = 45
-                    time_format = "%H:%M:%S"
-                elif sidebar_width >= 25:
-                    max_text_length = 30
-                    time_format = "%H:%M"
-                else:
-                    max_text_length = 20
-                    time_format = "%H:%M"
-
-                for entry in reversed(filtered_history[-20:]):  # Show last 20 entries
-                    timestamp_str = entry.get("timestamp", "")
-                    description = entry.get("description", "Unknown task")
-
-                    # Parse timestamp for display with safe parsing
-                    def parse_timestamp_safely_for_display(timestamp_str: str) -> str:
-                        """Parse timestamp string safely for display purposes."""
-                        try:
-                            # Handle 'Z' suffix (common UTC format)
-                            cleaned_timestamp = timestamp_str.replace("Z", "+00:00")
-                            parsed_dt = datetime.fromisoformat(cleaned_timestamp)
-
-                            # If the datetime is naive (no timezone), assume UTC
-                            if parsed_dt.tzinfo is None:
-                                parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-
-                            return parsed_dt.strftime(time_format)
-                        except (ValueError, AttributeError, TypeError):
-                            # Handle invalid timestamp formats gracefully
-                            fallback = (
-                                timestamp_str[:5]
-                                if sidebar_width < 25
-                                else timestamp_str[:8]
-                            )
-                            return "??:??" if len(fallback) < 5 else fallback
-
-                    time_display = parse_timestamp_safely_for_display(timestamp_str)
-
-                    # Format description for display with responsive truncation
-                    if description.startswith("Interactive task:"):
-                        task_text = description[
-                            17:
-                        ].strip()  # Remove "Interactive task: "
-                        truncated = task_text[:max_text_length] + (
-                            "..." if len(task_text) > max_text_length else ""
-                        )
-                        display_text = f"[{time_display}] 💬 {truncated}"
-                        css_class = "history-interactive"
-                    elif description.startswith("TUI interaction:"):
-                        task_text = description[
-                            16:
-                        ].strip()  # Remove "TUI interaction: "
-                        truncated = task_text[:max_text_length] + (
-                            "..." if len(task_text) > max_text_length else ""
-                        )
-                        display_text = f"[{time_display}] 🖥️ {truncated}"
-                        css_class = "history-tui"
-                    elif description.startswith("Command executed"):
-                        cmd_text = description[
-                            18:
-                        ].strip()  # Remove "Command executed: "
-                        truncated = cmd_text[: max_text_length - 5] + (
-                            "..." if len(cmd_text) > max_text_length - 5 else ""
-                        )
-                        display_text = f"[{time_display}] ⚡ {truncated}"
-                        css_class = "history-command"
-                    else:
-                        # Generic entry
-                        truncated = description[:max_text_length] + (
-                            "..." if len(description) > max_text_length else ""
-                        )
-                        display_text = f"[{time_display}] 📝 {truncated}"
-                        css_class = "history-generic"
-
-                    label = Label(display_text, classes=css_class)
-                    history_item = ListItem(label)
-                    history_item.history_entry = (
-                        entry  # Store full entry for detail view
-                    )
-                    history_list.append(history_item)
-            else:
-                history_list.append(
-                    ListItem(
-                        Label("Session memory not available", classes="history-error")
-                    )
-                )
-
-        except Exception as e:
-            self.add_error_message(f"Failed to load history: {e}")
 
     def show_history_details(self, history_entry: dict) -> None:
         """Show detailed information about a selected history entry."""

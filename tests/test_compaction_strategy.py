@@ -9,10 +9,15 @@ from code_puppy.config import (
 )
 
 
+from unittest.mock import patch
+
+
 def test_default_compaction_strategy():
     """Test that the default compaction strategy is summarization"""
-    strategy = get_compaction_strategy()
-    assert strategy == "summarization"
+    with patch("code_puppy.config.get_value") as mock_get_value:
+        mock_get_value.return_value = None
+        strategy = get_compaction_strategy()
+        assert strategy == "summarization"
 
 
 def test_set_compaction_strategy_truncation():
