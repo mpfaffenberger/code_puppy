@@ -8,13 +8,39 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-08-24"
-MOTD_MESSAGE = """🐕‍🦺
-🐾```
-# 🐶🎉🐕 WOOF WOOF! AUGUST 24th 🐕🎉🐶
-40k Downloads! Woot!
-Thanks for your support!
--Mike
+MOTD_VERSION = "2025-08-29"
+MOTD_MESSAGE = """```
+# 🐶🎉🚀 WOOF WOOF BARK BARK! AUGUST 29th! 🚀🎉🐶
+# 🐕‍🦺 PUPPY POWER RELEASE 0.0.128 TO THE MOON! 🚀🌙🐕
+
+🎉🎊🚀 MEGA ULTRA SUPER DUPER PUPPY FEATURE ALERT! 🚀🎊🎉
+🐶🤖🐕‍🦺 CREATE YOUR OWN AGENT!! By the legendary Andrew Tilson!!! 🏆🐶🚀
+
+🐾 Type `/agents` to list all your puppy friends! 🐕‍🦺🐶
+🚀 Use `/agents agent-creator` to birth a new digital puppy! 🐣🤖🐶
+🎨 Use the agent creator to craft your own coding companion:
+    🏗️ Create a puppy_architect that plans features and saves them in `.md` files! 📋🐕
+    🎯 Make a test_puppy that writes unit tests like a good boy! 🧪🐶
+    🎭 Build a refactor_pup that cleans up messy code! 🧹🐕‍🦺
+🔄 Use `/agents puppy_architect` to switch to your new digital friend! 🐶💝
+🏠 Use `/agents code-puppy` to come back home to default mode! 🏡🐕
+
+
+🎾 ADDITIONAL NEW PUPPY TRICKS (Features):
+🐶🚀 Adds plugin hooks for `edit_file`, `delete_file`, `run_shell_command` (SO FETCH!) 🦴
+🐕 Adds a new config option for truncation strategy (Smart puppy!) 🧠🐶
+🎾 Renamed summarization_threshold to truncation threshold (Fancy words!) 📚🐕‍🦺
+🚀 Added emergency filtration to compaction where enormous messages (>50000 tokens) are clipped (Big bites!) 🍖🐕
+⚖️ Enforced compaction threshold cannot be less than 0.8 (Good puppy boundaries!) 🐶🚧
+🛡️ `protected_tokens` cannot be greater than 75% of model context (Safety first, puppy!) 🦺🐕‍🦺
+
+🐛🔧 Flea Extermination Squad:
+🚀 Fixed flea that caused stack trace in non-interactive mode (Squished that bug!) 🐾💥
+🐛 Fixed a flea where sometimes summarization failed due to tool_call isolates (No more itchy bugs!) 🚿🐶
+
+🚀🐶 WOOF WOOF! Happy coding, human! 🐕‍🦺🎾🦴
+🐾 Remember: Good code is like a well-trained puppy - clean, reliable, and brings joy! 🐶💖
+``
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 
