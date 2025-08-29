@@ -8,7 +8,7 @@ from code_puppy.config import get_value, set_config_value
 from .base_agent import BaseAgent
 from .json_agent import JSONAgent, discover_json_agents
 from ..callbacks import on_agent_reload
-from ..messaging import emit_info
+from ..messaging import emit_info, emit_warning
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -51,7 +51,7 @@ def _discover_agents(force_refresh: bool = True):
 
         except Exception as e:
             # Skip problematic modules
-            print(f"Warning: Could not load agent module {modname}: {e}")
+            emit_warning(f"Warning: Could not load agent module {modname}: {e}")
             continue
 
     # 2. Discover JSON agents in user directory
@@ -63,7 +63,7 @@ def _discover_agents(force_refresh: bool = True):
             _AGENT_REGISTRY[agent_name] = json_path
 
     except Exception as e:
-        print(f"Warning: Could not discover JSON agents: {e}")
+        emit_warning(f"Warning: Could not discover JSON agents: {e}")
 
 
 def get_available_agents(force_refresh: bool = False) -> Dict[str, str]:
@@ -117,10 +117,7 @@ def set_current_agent(agent_name: str) -> bool:
     # Clear the cached config when switching agents
     global _CURRENT_AGENT_CONFIG
     _CURRENT_AGENT_CONFIG = None
-
-    # Save to config
     agent_obj = load_agent_config(agent_name)
-    emit_info(agent_obj)
     on_agent_reload(agent_obj.id, agent_name)
     set_config_value("current_agent", agent_name)
     return True
