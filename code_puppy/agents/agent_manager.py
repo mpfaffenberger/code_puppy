@@ -16,11 +16,10 @@ _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
 _CURRENT_AGENT_CONFIG: Optional[BaseAgent] = None
 
 
-def _discover_agents(force_refresh: bool = True, message_group_id: Optional[str] = None):
+def _discover_agents(message_group_id: Optional[str] = None):
     """Dynamically discover all agent classes and JSON agents."""
-    # Clear the registry if we're forcing a refresh
-    if force_refresh:
-        _AGENT_REGISTRY.clear()
+    # Always clear the registry to force refresh
+    _AGENT_REGISTRY.clear()
 
     # 1. Discover Python agent classes in the agents package
     import code_puppy.agents as agents_package
@@ -67,18 +66,15 @@ def _discover_agents(force_refresh: bool = True, message_group_id: Optional[str]
         emit_warning(f"Warning: Could not discover JSON agents: {e}", message_group=message_group_id)
 
 
-def get_available_agents(force_refresh: bool = False) -> Dict[str, str]:
+def get_available_agents() -> Dict[str, str]:
     """Get a dictionary of available agents with their display names.
-
-    Args:
-        force_refresh: If True, force rediscovery of agents even if already cached.
 
     Returns:
         Dict mapping agent names to display names.
     """
     # Generate a message group ID for this operation
-    message_group_id = str(uuid.uuid4()) if force_refresh else None
-    _discover_agents(force_refresh=force_refresh, message_group_id=message_group_id)
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(message_group_id=message_group_id)
 
     agents = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
@@ -212,4 +208,4 @@ def refresh_agents():
     """
     # Generate a message group ID for agent refreshing
     message_group_id = str(uuid.uuid4())
-    _discover_agents(force_refresh=True, message_group_id=message_group_id)
+    _discover_agents(message_group_id=message_group_id)

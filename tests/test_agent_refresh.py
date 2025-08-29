@@ -27,17 +27,13 @@ def test_refresh_agents_function():
     assert len(agents1) > 0  # Should have at least the built-in agents
 
 
-def test_get_available_agents_force_refresh():
-    """Test that get_available_agents with force_refresh=True works."""
-    # First call without force_refresh
-    agents1 = get_available_agents(force_refresh=False)
+def test_get_available_agents():
+    """Test that get_available_agents works correctly."""
+    # Call get_available_agents
+    agents = get_available_agents()
 
-    # Second call with force_refresh=True
-    agents2 = get_available_agents(force_refresh=True)
-
-    # Should find the same agents
-    assert agents1 == agents2
-    assert len(agents1) > 0
+    # Should find agents
+    assert len(agents) > 0
 
 
 def test_json_agent_discovery_refresh():
@@ -47,7 +43,7 @@ def test_json_agent_discovery_refresh():
             "code_puppy.config.get_user_agents_directory", return_value=temp_dir
         ):
             # Get initial agents (should not include our test agent)
-            initial_agents = get_available_agents(force_refresh=True)
+            initial_agents = get_available_agents()
             assert "test-agent" not in initial_agents
 
             # Create a test JSON agent file
@@ -65,7 +61,7 @@ def test_json_agent_discovery_refresh():
                 json.dump(test_agent_config, f)
 
             # Refresh agents and check if the new agent is discovered
-            refreshed_agents = get_available_agents(force_refresh=True)
+            refreshed_agents = get_available_agents()
             assert "test-agent" in refreshed_agents
             assert (
                 refreshed_agents["test-agent"] == "Test-Agent 🤖"

@@ -329,7 +329,7 @@ def handle_command(command: str):
         tokens = command.split()
         if len(tokens) == 1:
             # Show available agents
-            available_agents = get_available_agents(force_refresh=True)
+            available_agents = get_available_agents()
             current_agent = get_current_agent_config()
 
             emit_info("[bold cyan]Available Agents:[/bold cyan]")
@@ -352,7 +352,7 @@ def handle_command(command: str):
                 emit_info(f"[dim]{new_agent.description}[/dim]")
                 return True
             else:
-                available_agents = get_available_agents(force_refresh=True)
+                available_agents = get_available_agents()
                 emit_error(f"Agent '{agent_name}' not found")
                 emit_warning(f"Available agents: {', '.join(available_agents.keys())}")
                 return True
