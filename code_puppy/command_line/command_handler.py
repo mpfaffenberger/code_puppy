@@ -318,6 +318,42 @@ def handle_command(command: str):
         emit_info(COMMANDS_HELP)
         return True
 
+    if command.startswith("/agent"):
+        from code_puppy.agent import get_code_generation_agent
+        from code_puppy.agents import get_available_agents, get_current_agent_config, set_current_agent
+        
+        tokens = command.split()
+        if len(tokens) == 1:
+            # Show available agents
+            available_agents = get_available_agents(force_refresh=True)
+            current_agent = get_current_agent_config()
+            
+            emit_info("[bold cyan]Available Agents:[/bold cyan]")
+            for name, display_name in available_agents.items():
+                marker = "[green]★[/green]" if name == current_agent.name else " "
+                emit_info(f"  {marker} [cyan]{name}[/cyan] - {display_name}")
+            
+            emit_info(f"\nCurrently active: [green]{current_agent.display_name}[/green]")
+            emit_info("[dim]Use '/agent <name>' to switch agents[/dim]")
+            return True
+        elif len(tokens) == 2:
+            agent_name = tokens[1]
+            if set_current_agent(agent_name, force_refresh=True):
+                # Reload the agent with new configuration
+                get_code_generation_agent(force_reload=True)
+                new_agent = get_current_agent_config()
+                emit_success(f"Switched to agent: {new_agent.display_name}")
+                emit_info(f"[dim]{new_agent.description}[/dim]")
+                return True
+            else:
+                available_agents = get_available_agents(force_refresh=True)
+                emit_error(f"Agent '{agent_name}' not found")
+                emit_warning(f"Available agents: {', '.join(available_agents.keys())}")
+                return True
+        else:
+            emit_warning("Usage: /agent [agent-name]")
+            return True
+
     if command.startswith("/generate-pr-description"):
         # Parse directory argument (e.g., /generate-pr-description @some/dir)
         tokens = command.split()

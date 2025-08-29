@@ -11,6 +11,7 @@ from .agent_manager import (
     load_agent_config,
     get_agent_descriptions,
     clear_agent_cache,
+    refresh_agents,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "load_agent_config",
     "get_agent_descriptions",
     "clear_agent_cache",
+    "refresh_agents",
 ]
