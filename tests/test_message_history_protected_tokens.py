@@ -17,10 +17,14 @@ def create_test_message(content: str, is_response: bool = False):
         return ModelRequest(parts=[TextPart(content)])
 
 
+from unittest.mock import patch
+
 def test_protected_tokens_default():
     """Test that the protected tokens default value is correct."""
     # Default value should be 50000
-    assert get_protected_token_count() == 50000
+    with patch('code_puppy.config.get_value') as mock_get_value:
+        mock_get_value.return_value = None
+        assert get_protected_token_count() == 50000
 
 
 def test_split_messages_empty_list():
