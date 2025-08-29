@@ -20,6 +20,10 @@ def _discover_agents(force_refresh: bool = False):
 
     if _AGENT_REGISTRY and not force_refresh:  # Already discovered
         return
+        
+    # Clear the registry if we're forcing a refresh
+    if force_refresh:
+        _AGENT_REGISTRY.clear()
 
     # 1. Discover Python agent classes in the agents package
     import code_puppy.agents as agents_package
@@ -66,13 +70,16 @@ def _discover_agents(force_refresh: bool = False):
         print(f"Warning: Could not discover JSON agents: {e}")
 
 
-def get_available_agents() -> Dict[str, str]:
+def get_available_agents(force_refresh: bool = False) -> Dict[str, str]:
     """Get a dictionary of available agents with their display names.
+
+    Args:
+        force_refresh: If True, force rediscovery of agents even if already cached.
 
     Returns:
         Dict mapping agent names to display names.
     """
-    _discover_agents()
+    _discover_agents(force_refresh=force_refresh)
 
     agents = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
@@ -97,17 +104,18 @@ def get_current_agent_name() -> str:
     return get_value("current_agent") or "code-puppy"
 
 
-def set_current_agent(agent_name: str) -> bool:
+def set_current_agent(agent_name: str, force_refresh: bool = False) -> bool:
     """Set the current agent by name.
 
     Args:
         agent_name: The name of the agent to set as current.
+        force_refresh: If True, force rediscovery of agents before setting.
 
     Returns:
         True if the agent was set successfully, False if agent not found.
     """
     # Force refresh to discover newly created agents
-    _discover_agents(force_refresh=True)
+    _discover_agents(force_refresh=force_refresh)
 
     if agent_name not in _AGENT_REGISTRY:
         return False
@@ -193,3 +201,11 @@ def clear_agent_cache():
     """Clear the cached agent configuration to force reload."""
     global _CURRENT_AGENT_CONFIG
     _CURRENT_AGENT_CONFIG = None
+
+
+def refresh_agents():
+    """Refresh the agent discovery to pick up newly created agents.
+    
+    This clears the agent registry cache and forces a rediscovery of all agents.
+    """
+    _discover_agents(force_refresh=True)
