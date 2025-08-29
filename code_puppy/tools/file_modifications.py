@@ -20,6 +20,7 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
+from code_puppy.callbacks import on_delete_file, on_edit_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
 
@@ -522,8 +523,29 @@ def register_file_modifications_tools(agent):
             - Keep replacement strings specific and unique to avoid unintended matches
             - Test modifications on non-critical files first
         """
-        # Call _edit_file which will extract file_path from payload and handle group_id generation
-        result = _edit_file(context, payload)
+        # Generate group_id for edit_file tool execution
+        if isinstance(payload, str):
+            # Fallback for weird models that just can't help but send json strings...
+            payload = json.loads(json_repair.repair_json(payload))
+            if "replacements" in payload:
+                payload = ReplacementsPayload(**payload)
+            elif "delete_snippet" in payload:
+                payload = DeleteSnippetPayload(**payload)
+            elif "content" in payload:
+                payload = ContentPayload(**payload)
+            else:
+                file_path = "Unknown"
+                if "file_path" in payload:
+                    file_path = payload["file_path"]
+                return {
+                    "success": False,
+                    "path": file_path,
+                    "message": "One of 'content', 'replacements', or 'delete_snippet' must be provided in payload.",
+                    "changed": False,
+                }
+        group_id = generate_group_id("edit_file", payload.file_path)
+        result = _edit_file(context, payload, group_id)
+        on_edit_file(result)
         if "diff" in result:
             del result["diff"]
         return result
@@ -582,6 +604,7 @@ def register_file_modifications_tools(agent):
         # Generate group_id for delete_file tool execution
         group_id = generate_group_id("delete_file", file_path)
         result = _delete_file(context, file_path, message_group=group_id)
+        on_delete_file(result)
         if "diff" in result:
             del result["diff"]
         return result

@@ -100,9 +100,20 @@ class SettingsScreen(ModalScreen):
                     )
 
                 with Container(classes="setting-row"):
-                    yield Static("Summary Threshold:", classes="setting-label")
+                    yield Static("Compaction Strategy:", classes="setting-label")
+                    yield Select(
+                        [
+                            ("Summarization", "summarization"),
+                            ("Truncation", "truncation"),
+                        ],
+                        id="compaction-strategy-select",
+                        classes="setting-input",
+                    )
+
+                with Container(classes="setting-row"):
+                    yield Static("Compaction Threshold:", classes="setting-label")
                     yield Input(
-                        id="summary-threshold-input",
+                        id="compaction-threshold-input",
                         classes="setting-input",
                         placeholder="e.g., 0.85",
                     )
@@ -118,7 +129,8 @@ class SettingsScreen(ModalScreen):
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
-            get_summarization_threshold,
+            get_compaction_strategy,
+            get_compaction_threshold,
         )
 
         # Load current values
@@ -126,12 +138,18 @@ class SettingsScreen(ModalScreen):
         owner_name_input = self.query_one("#owner-name-input", Input)
         model_select = self.query_one("#model-select", Select)
         protected_tokens_input = self.query_one("#protected-tokens-input", Input)
-        summary_threshold_input = self.query_one("#summary-threshold-input", Input)
+        compaction_threshold_input = self.query_one(
+            "#compaction-threshold-input", Input
+        )
+        compaction_strategy_select = self.query_one(
+            "#compaction-strategy-select", Select
+        )
 
         puppy_name_input.value = get_puppy_name() or ""
         owner_name_input.value = get_owner_name() or ""
         protected_tokens_input.value = str(get_protected_token_count())
-        summary_threshold_input.value = str(get_summarization_threshold())
+        compaction_threshold_input.value = str(get_compaction_threshold())
+        compaction_strategy_select.value = get_compaction_strategy()
 
         # Load available models
         self.load_model_options(model_select)
@@ -169,7 +187,11 @@ class SettingsScreen(ModalScreen):
     @on(Button.Pressed, "#save-button")
     def save_settings(self) -> None:
         """Save the modified settings."""
-        from code_puppy.config import set_config_value, set_model_name
+        from code_puppy.config import (
+            set_config_value,
+            set_model_name,
+            get_model_context_length,
+        )
 
         try:
             # Get values from inputs
@@ -180,8 +202,8 @@ class SettingsScreen(ModalScreen):
             protected_tokens = self.query_one(
                 "#protected-tokens-input", Input
             ).value.strip()
-            summary_threshold = self.query_one(
-                "#summary-threshold-input", Input
+            compaction_threshold = self.query_one(
+                "#compaction-threshold-input", Input
             ).value.strip()
 
             # Validate and save
@@ -199,30 +221,45 @@ class SettingsScreen(ModalScreen):
             # Validate and save protected tokens
             if protected_tokens.isdigit():
                 tokens_value = int(protected_tokens)
+                model_context_length = get_model_context_length()
+                max_protected_tokens = int(model_context_length * 0.75)
+
                 if tokens_value >= 1000:  # Minimum validation
-                    set_config_value("protected_token_count", protected_tokens)
+                    if tokens_value <= max_protected_tokens:  # Maximum validation
+                        set_config_value("protected_token_count", protected_tokens)
+                    else:
+                        raise ValueError(
+                            f"Protected tokens must not exceed 75% of model context length ({max_protected_tokens} tokens for current model)"
+                        )
                 else:
                     raise ValueError("Protected tokens must be at least 1000")
             elif protected_tokens:  # If not empty but not digit
                 raise ValueError("Protected tokens must be a valid number")
 
-            # Validate and save summary threshold
-            if summary_threshold:
+            # Validate and save compaction threshold
+            if compaction_threshold:
                 try:
-                    threshold_value = float(summary_threshold)
-                    if 0.1 <= threshold_value <= 0.95:  # Same bounds as config function
-                        set_config_value("summarization_threshold", summary_threshold)
+                    threshold_value = float(compaction_threshold)
+                    if 0.8 <= threshold_value <= 0.95:  # Same bounds as config function
+                        set_config_value("compaction_threshold", compaction_threshold)
                     else:
                         raise ValueError(
-                            "Summary threshold must be between 0.1 and 0.95"
+                            "Compaction threshold must be between 0.8 and 0.95"
                         )
                 except ValueError as ve:
                     if "must be between" in str(ve):
                         raise ve
                     else:
                         raise ValueError(
-                            "Summary threshold must be a valid decimal number"
+                            "Compaction threshold must be a valid decimal number"
                         )
+
+            # Save compaction strategy
+            compaction_strategy = self.query_one(
+                "#compaction-strategy-select", Select
+            ).value
+            if compaction_strategy in ["summarization", "truncation"]:
+                set_config_value("compaction_strategy", compaction_strategy)
 
             # Return success message with model change info
             message = "Settings saved successfully!"

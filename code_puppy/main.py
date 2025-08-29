@@ -328,7 +328,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             agent_response = response.output
 
             emit_system_message(
-                f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+                f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
             )
             new_msgs = response.all_messages()
             message_history_accumulator(new_msgs)
