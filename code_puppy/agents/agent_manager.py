@@ -111,10 +111,6 @@ def set_current_agent(agent_name: str) -> bool:
     # Generate a message group ID for agent switching
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
-
-    if agent_name not in _AGENT_REGISTRY:
-        return False
-
     # Clear the cached config when switching agents
     global _CURRENT_AGENT_CONFIG
     _CURRENT_AGENT_CONFIG = None
@@ -132,9 +128,7 @@ def get_current_agent_config() -> BaseAgent:
     """
     global _CURRENT_AGENT_CONFIG
 
-    # Only load if not cached
-    if _CURRENT_AGENT_CONFIG is None:
-        _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
+    _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
 
     return _CURRENT_AGENT_CONFIG
 
