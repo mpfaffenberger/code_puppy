@@ -2,10 +2,14 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
+import uuid
 
 
 class BaseAgent(ABC):
     """Base class for all agent configurations."""
+
+    def __init__(self):
+        self.id = str(uuid.uuid4())
 
     @property
     @abstractmethod

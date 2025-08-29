@@ -7,6 +7,7 @@ from typing import Dict, Optional, Type, Union
 from code_puppy.config import get_value, set_config_value
 from .base_agent import BaseAgent
 from .json_agent import JSONAgent, discover_json_agents
+from ..callbacks import on_agent_reload
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -116,6 +117,8 @@ def set_current_agent(agent_name: str) -> bool:
     _CURRENT_AGENT_CONFIG = None
 
     # Save to config
+    agent_obj = load_agent_config(agent_name)
+    on_agent_reload(agent_obj.id, agent_name)
     set_config_value("current_agent", agent_name)
     return True
 
@@ -158,7 +161,6 @@ def load_agent_config(agent_name: str) -> BaseAgent:
             )
 
     agent_ref = _AGENT_REGISTRY[agent_name]
-
     if isinstance(agent_ref, str):  # JSON agent (file path)
         return JSONAgent(agent_ref)
     else:  # Python agent (class)

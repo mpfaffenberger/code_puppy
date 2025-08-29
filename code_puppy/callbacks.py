@@ -14,6 +14,7 @@ PhaseType = Literal[
     "run_shell_command",
     "load_model_config",
     "load_prompt",
+    "agent_reload",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -28,6 +29,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "run_shell_command": [],
     "load_model_config": [],
     "load_prompt": [],
+    "agent_reload": []
 }
 
 logger = logging.getLogger(__name__)
@@ -164,6 +166,10 @@ def on_delete_file(*args, **kwargs) -> Any:
 
 def on_run_shell_command(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("run_shell_command", *args, **kwargs)
+
+
+def on_agent_reload(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("agent_reload", *args, **kwargs)
 
 
 def on_load_prompt():
