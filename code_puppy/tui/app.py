@@ -10,7 +10,7 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.events import Resize
 from textual.reactive import reactive
-from textual.widgets import Footer, Label, ListItem, ListView
+from textual.widgets import Footer, ListView
 
 from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.command_line.command_handler import handle_command

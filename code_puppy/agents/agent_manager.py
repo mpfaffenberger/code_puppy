@@ -51,7 +51,10 @@ def _discover_agents(message_group_id: Optional[str] = None):
 
         except Exception as e:
             # Skip problematic modules
-            emit_warning(f"Warning: Could not load agent module {modname}: {e}", message_group=message_group_id)
+            emit_warning(
+                f"Warning: Could not load agent module {modname}: {e}",
+                message_group=message_group_id,
+            )
             continue
 
     # 2. Discover JSON agents in user directory
@@ -63,7 +66,10 @@ def _discover_agents(message_group_id: Optional[str] = None):
             _AGENT_REGISTRY[agent_name] = json_path
 
     except Exception as e:
-        emit_warning(f"Warning: Could not discover JSON agents: {e}", message_group=message_group_id)
+        emit_warning(
+            f"Warning: Could not discover JSON agents: {e}",
+            message_group=message_group_id,
+        )
 
 
 def get_available_agents() -> Dict[str, str]:
