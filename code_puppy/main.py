@@ -321,12 +321,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             initial_command, usage_limits=get_custom_usage_limits()
                         )
                     finally:
-                        set_message_history(prune_interrupted_tool_calls(get_message_history()))
+                        set_message_history(
+                            prune_interrupted_tool_calls(get_message_history())
+                        )
 
             agent_response = response.output
 
             emit_system_message(
-                f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response.output_message}"
+                f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
             )
             new_msgs = response.all_messages()
             message_history_accumulator(new_msgs)
@@ -466,7 +468,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 usage_limits=get_custom_usage_limits(),
                             )
                         finally:
-                            set_message_history(prune_interrupted_tool_calls(get_message_history()))
+                            set_message_history(
+                                prune_interrupted_tool_calls(get_message_history())
+                            )
 
                     # Create the task
                     agent_task = asyncio.create_task(run_agent_task())
