@@ -54,6 +54,7 @@ Here's the complete schema for JSON agent files:
 
 ```json
 {{
+  "id": "uuid"                       // REQUIRED: you can gen one on the command line or something"
   "name": "agent-name",              // REQUIRED: Unique identifier (no spaces, use hyphens)
   "display_name": "Agent Name 🤖",   // OPTIONAL: Pretty name with emoji
   "description": "What this agent does", // REQUIRED: Clear description

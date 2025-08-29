@@ -16,6 +16,7 @@ class JSONAgent(BaseAgent):
         Args:
             json_path: Path to the JSON configuration file.
         """
+        super().__init__()
         self.json_path = json_path
         self._config = self._load_config()
         self._validate_config()

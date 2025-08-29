@@ -8,19 +8,15 @@ from code_puppy.config import get_value, set_config_value
 from .base_agent import BaseAgent
 from .json_agent import JSONAgent, discover_json_agents
 from ..callbacks import on_agent_reload
+from ..messaging import emit_info
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
 _CURRENT_AGENT_CONFIG: Optional[BaseAgent] = None
 
 
-def _discover_agents(force_refresh: bool = False):
+def _discover_agents(force_refresh: bool = True):
     """Dynamically discover all agent classes and JSON agents."""
-    global _AGENT_REGISTRY
-
-    if _AGENT_REGISTRY and not force_refresh:  # Already discovered
-        return
-        
     # Clear the registry if we're forcing a refresh
     if force_refresh:
         _AGENT_REGISTRY.clear()
@@ -104,18 +100,16 @@ def get_current_agent_name() -> str:
     return get_value("current_agent") or "code-puppy"
 
 
-def set_current_agent(agent_name: str, force_refresh: bool = False) -> bool:
+def set_current_agent(agent_name: str) -> bool:
     """Set the current agent by name.
 
     Args:
         agent_name: The name of the agent to set as current.
-        force_refresh: If True, force rediscovery of agents before setting.
 
     Returns:
         True if the agent was set successfully, False if agent not found.
     """
-    # Force refresh to discover newly created agents
-    _discover_agents(force_refresh=force_refresh)
+    _discover_agents()
 
     if agent_name not in _AGENT_REGISTRY:
         return False
@@ -126,6 +120,7 @@ def set_current_agent(agent_name: str, force_refresh: bool = False) -> bool:
 
     # Save to config
     agent_obj = load_agent_config(agent_name)
+    emit_info(agent_obj)
     on_agent_reload(agent_obj.id, agent_name)
     set_config_value("current_agent", agent_name)
     return True
@@ -139,8 +134,7 @@ def get_current_agent_config() -> BaseAgent:
     """
     global _CURRENT_AGENT_CONFIG
 
-    if _CURRENT_AGENT_CONFIG is None:
-        _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
+    _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
 
     return _CURRENT_AGENT_CONFIG
 
