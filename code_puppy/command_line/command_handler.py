@@ -13,7 +13,7 @@ COMMANDS_HELP = """
 [bold magenta]Commands Help[/bold magenta]
 /help, /h             Show this help message
 /cd <dir>             Change directory or show directories
-
+/agent <name>         Switch to a different agent or show available agents
 /exit, /quit          Exit interactive mode
 /generate-pr-description [@dir]  Generate comprehensive PR description
 /m <model>            Set active model
@@ -141,6 +141,7 @@ def handle_command(command: str):
             get_compaction_threshold,
             get_yolo_mode,
         )
+        from code_puppy.agents import get_current_agent_config
 
         from code_puppy.config import get_compaction_strategy
 
@@ -152,10 +153,14 @@ def handle_command(command: str):
         compaction_threshold = get_compaction_threshold()
         compaction_strategy = get_compaction_strategy()
 
+        # Get current agent info
+        current_agent = get_current_agent_config()
+
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
 [bold]puppy_name:[/bold]            [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]            [cyan]{owner_name}[/cyan]
+[bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
@@ -206,6 +211,91 @@ def handle_command(command: str):
         markdown_content = Markdown(tools_content)
         emit_info(markdown_content)
         return True
+
+    if command.startswith("/agent"):
+        # Handle agent switching
+        from code_puppy.agents import (
+            get_available_agents,
+            get_current_agent_config,
+            set_current_agent,
+            get_agent_descriptions,
+        )
+        from code_puppy.agent import get_code_generation_agent
+
+        tokens = command.split()
+
+        if len(tokens) == 1:
+            # Show current agent and available agents
+            current_agent = get_current_agent_config()
+            available_agents = get_available_agents()
+            descriptions = get_agent_descriptions()
+
+            # Generate a group ID for all messages in this command
+            import uuid
+
+            group_id = str(uuid.uuid4())
+
+            emit_info(
+                f"[bold green]Current Agent:[/bold green] {current_agent.display_name}",
+                message_group=group_id,
+            )
+            emit_info(
+                f"[dim]{current_agent.description}[/dim]\n", message_group=group_id
+            )
+
+            emit_info(
+                "[bold magenta]Available Agents:[/bold magenta]", message_group=group_id
+            )
+            for name, display_name in available_agents.items():
+                description = descriptions.get(name, "No description")
+                current_marker = (
+                    " [green]← current[/green]" if name == current_agent.name else ""
+                )
+                emit_info(
+                    f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}",
+                    message_group=group_id,
+                )
+                emit_info(f"    [dim]{description}[/dim]", message_group=group_id)
+
+            emit_info(
+                "\n[yellow]Usage:[/yellow] /agent <agent-name>", message_group=group_id
+            )
+            return True
+
+        elif len(tokens) == 2:
+            agent_name = tokens[1].lower()
+
+            # Generate a group ID for all messages in this command
+            import uuid
+
+            group_id = str(uuid.uuid4())
+
+            if set_current_agent(agent_name):
+                # Reload the agent with new configuration
+                get_code_generation_agent(force_reload=True)
+                new_agent = get_current_agent_config()
+                emit_success(
+                    f"Switched to agent: {new_agent.display_name}",
+                    message_group=group_id,
+                )
+                emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
+                return True
+            else:
+                # Generate a group ID for all messages in this command
+                import uuid
+
+                group_id = str(uuid.uuid4())
+
+                available_agents = get_available_agents()
+                emit_error(f"Agent '{agent_name}' not found", message_group=group_id)
+                emit_warning(
+                    f"Available agents: {', '.join(available_agents.keys())}",
+                    message_group=group_id,
+                )
+                return True
+        else:
+            emit_warning("Usage: /agent [agent-name]")
+            return True
 
     if command.startswith("/m"):
         # Try setting model and show confirmation
