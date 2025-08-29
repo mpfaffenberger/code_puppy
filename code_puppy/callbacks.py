@@ -9,6 +9,9 @@ PhaseType = Literal[
     "invoke_agent",
     "agent_exception",
     "version_check",
+    "edit_file",
+    "delete_file",
+    "run_shell_command",
     "load_model_config",
     "load_prompt",
 ]
@@ -20,6 +23,9 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "invoke_agent": [],
     "agent_exception": [],
     "version_check": [],
+    "edit_file": [],
+    "delete_file": [],
+    "run_shell_command": [],
     "load_model_config": [],
     "load_prompt": [],
 }
@@ -146,6 +152,18 @@ async def on_version_check(*args, **kwargs) -> List[Any]:
 
 def on_load_model_config(*args, **kwargs) -> List[Any]:
     return _trigger_callbacks_sync("load_model_config", *args, **kwargs)
+
+
+def on_edit_file(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("edit_file", *args, **kwargs)
+
+
+def on_delete_file(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("delete_file", *args, **kwargs)
+
+
+def on_run_shell_command(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("run_shell_command", *args, **kwargs)
 
 
 def on_load_prompt():

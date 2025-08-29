@@ -22,7 +22,7 @@ COMMANDS_HELP = """
 /compact              Summarize and compact current chat history
 /dump_context <name>  Save current message history to file
 /load_context <name>  Load message history from file
-/set                  Set puppy config key-values (e.g., /set yolo_mode true)
+/set                  Set puppy config key-values (e.g., /set yolo_mode true, /set compaction_strategy truncation)
 /tools                Show available tools and capabilities
 /<unknown>            Show unknown command warning
 """
@@ -47,9 +47,12 @@ def handle_command(command: str):
         return True
 
     if command.strip().startswith("/compact"):
+        from code_puppy.config import get_compaction_strategy
         from code_puppy.message_history_processor import (
             estimate_tokens_for_message,
             summarize_messages,
+            truncation,
+            get_protected_token_count,
         )
         from code_puppy.messaging import (
             emit_error,
@@ -66,13 +69,23 @@ def handle_command(command: str):
                 return True
 
             before_tokens = sum(estimate_tokens_for_message(m) for m in history)
+            compaction_strategy = get_compaction_strategy()
             emit_info(
-                f"🤔 Compacting {len(history)} messages... (~{before_tokens} tokens)"
+                f"🤔 Compacting {len(history)} messages using {compaction_strategy} strategy... (~{before_tokens} tokens)"
             )
 
-            compacted, _ = summarize_messages(history, with_protection=False)
+            if compaction_strategy == "truncation":
+                protected_tokens = get_protected_token_count()
+                compacted = truncation(history, protected_tokens)
+                summarized_messages = []  # No summarization in truncation mode
+            else:
+                # Default to summarization
+                compacted, summarized_messages = summarize_messages(
+                    history, with_protection=False
+                )
+
             if not compacted:
-                emit_error("Summarization failed. History unchanged.")
+                emit_error("Compaction failed. History unchanged.")
                 return True
 
             set_message_history(compacted)
@@ -83,8 +96,14 @@ def handle_command(command: str):
                 if before_tokens > 0
                 else 0
             )
+
+            strategy_info = (
+                f"using {compaction_strategy} strategy"
+                if compaction_strategy == "truncation"
+                else "via summarization"
+            )
             emit_success(
-                f"✨ Done! History: {len(history)} → {len(compacted)} messages\n"
+                f"✨ Done! History: {len(history)} → {len(compacted)} messages {strategy_info}\n"
                 f"🏦 Tokens: {before_tokens:,} → {after_tokens:,} ({reduction_pct:.1f}% reduction)"
             )
             return True
@@ -119,16 +138,19 @@ def handle_command(command: str):
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
-            get_summarization_threshold,
+            get_compaction_threshold,
             get_yolo_mode,
         )
+
+        from code_puppy.config import get_compaction_strategy
 
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         model = get_active_model()
         yolo_mode = get_yolo_mode()
         protected_tokens = get_protected_token_count()
-        summary_threshold = get_summarization_threshold()
+        compaction_threshold = get_compaction_threshold()
+        compaction_strategy = get_compaction_strategy()
 
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
@@ -137,7 +159,8 @@ def handle_command(command: str):
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
-[bold]summary_threshold:[/bold]     [cyan]{summary_threshold:.1%}[/cyan] context usage triggers summarization
+[bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
+[bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
 
 """
         emit_info(status_msg)
@@ -162,8 +185,11 @@ def handle_command(command: str):
             key = tokens[1]
             value = ""
         else:
+            config_keys = get_config_keys()
+            if "compaction_strategy" not in config_keys:
+                config_keys.append("compaction_strategy")
             emit_warning(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(get_config_keys())}"
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]"
             )
             return True
         if key:

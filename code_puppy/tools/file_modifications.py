@@ -20,6 +20,7 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
+from code_puppy.callbacks import on_delete_file, on_edit_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
 
@@ -542,6 +543,7 @@ def register_file_modifications_tools(agent):
                 }
         group_id = generate_group_id("edit_file", payload.file_path)
         result = _edit_file(context, payload, group_id)
+        on_edit_file(result)
         if "diff" in result:
             del result["diff"]
         return result
@@ -600,6 +602,7 @@ def register_file_modifications_tools(agent):
         # Generate group_id for delete_file tool execution
         group_id = generate_group_id("delete_file", file_path)
         result = _delete_file(context, file_path, message_group=group_id)
+        on_delete_file(result)
         if "diff" in result:
             del result["diff"]
         return result
