@@ -58,7 +58,7 @@ class TelemetryQueue:
         )
         self._worker_thread.start()
 
-    def stop(self, timeout: float = 2.0) -> None:
+    def stop(self, timeout: float = 1.0) -> None:
         """Stop the background worker thread.
 
         Args:
@@ -76,7 +76,7 @@ class TelemetryQueue:
         except queue.Full:
             pass  # Queue full, that's ok
 
-        # Wait for graceful shutdown
+        # Wait for graceful shutdown with shorter timeout for faster exit
         self._worker_thread.join(timeout=timeout)
 
         if self._worker_thread.is_alive():
@@ -110,8 +110,8 @@ class TelemetryQueue:
             try:
                 # Wait for telemetry data with timeout to check shutdown event
                 telemetry_data = self._queue.get(
-                    timeout=0.5
-                )  # Shorter timeout for faster shutdown
+                    timeout=0.2
+                )  # Even shorter timeout for faster shutdown
 
                 # Check for shutdown signal or dummy shutdown item
                 if self._shutdown_event.is_set() or telemetry_data.get("_shutdown"):
@@ -202,8 +202,9 @@ class TelemetryQueue:
             return
 
         try:
-            # Use shorter timeout for faster shutdown
-            with httpx.Client(timeout=5.0) as client:
+            # Use even shorter timeout during shutdown for faster exit
+            timeout_val = 2.0 if self._shutdown_event.is_set() else 5.0
+            with httpx.Client(timeout=timeout_val) as client:
                 response = client.post(
                     get_telemetry_url(Environment.STAGE),
                     json=telemetry_data,
@@ -241,6 +242,20 @@ class TelemetryQueue:
             and not self._shutdown_event.is_set()
         )
 
+    def force_shutdown(self) -> None:
+        """Force immediate shutdown of the telemetry queue.
+
+        This method can be called from signal handlers or other shutdown scenarios
+        to immediately stop telemetry processing.
+        """
+        self._shutdown_event.set()
+
+        # Try to wake up the worker thread
+        try:
+            self._queue.put_nowait({"_shutdown": True})
+        except queue.Full:
+            pass
+
 
 # Global telemetry queue instance
 _telemetry_queue: Optional[TelemetryQueue] = None
@@ -269,8 +284,22 @@ def shutdown_telemetry_queue() -> None:
     global _telemetry_queue
 
     if _telemetry_queue is not None:
-        _telemetry_queue.stop()
+        # Force immediate shutdown for faster exit
+        _telemetry_queue.force_shutdown()
+        _telemetry_queue.stop(timeout=0.5)  # Shorter timeout
         _telemetry_queue = None
+
+
+def force_shutdown_telemetry_queue() -> None:
+    """Force immediate shutdown of the global telemetry queue.
+
+    This is intended for use in signal handlers where we need
+    to stop telemetry processing immediately.
+    """
+    global _telemetry_queue
+
+    if _telemetry_queue is not None:
+        _telemetry_queue.force_shutdown()
 
 
 # Register cleanup function to ensure graceful shutdown

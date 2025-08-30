@@ -1,4 +1,5 @@
 import asyncio
+import atexit
 import os
 import pathlib
 import uuid
@@ -162,3 +163,5 @@ register_callback("edit_file", collect_edit_file_telemetry)
 register_callback("delete_file", collect_delete_file_telemetry)
 register_callback("run_shell_command", collect_shell_command_telemetry)
 register_callback("shutdown", shutdown_telemetry)
+
+atexit.register(shutdown_telemetry)

@@ -887,6 +887,23 @@ class CodePuppyTUI(App):
         sidebar = self.query_one(Sidebar)
         sidebar.display = False
 
+    def action_quit(self) -> None:
+        """Custom quit action that forces telemetry shutdown for clean exit."""
+        # Force immediate telemetry shutdown for clean exit (prevents hanging on Windows)
+        try:
+            from code_puppy.plugins.walmart_specific.telemetry_queue import (
+                force_shutdown_telemetry_queue,
+            )
+
+            force_shutdown_telemetry_queue()
+        except ImportError:
+            pass  # Telemetry not available
+        except Exception:
+            pass  # Don't let telemetry shutdown errors break quit handling
+
+        # Call the default quit behavior
+        self.exit()
+
     async def on_unmount(self):
         """Clean up when the app is unmounted."""
         try:

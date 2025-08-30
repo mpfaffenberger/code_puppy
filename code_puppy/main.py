@@ -498,6 +498,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         if handled:
                             return
                         handled = True
+
                         # First, nuke any running shell processes triggered by tools
                         try:
                             killed = kill_all_running_shell_processes()
