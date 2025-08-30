@@ -1,7 +1,10 @@
 import asyncio
 import os
 import pathlib
+import threading
+import uuid
 
+import httpx
 import uvicorn
 
 from code_puppy.callbacks import register_callback
@@ -13,6 +16,12 @@ from code_puppy.plugins.walmart_specific.auth import authenticate_puppy
 from code_puppy.plugins.walmart_specific.auto_update import _handle_update
 from code_puppy.plugins.walmart_specific.disclaimer import display_disclaimer
 from code_puppy.plugins.walmart_specific.model_config_fetcher import ModelConfigFetcher
+from code_puppy.plugins.walmart_specific.telemetry_utils import (
+    build_delete_file_telemetry_data,
+    build_shell_command_telemetry_data,
+    build_telemetry_data,
+)
+from code_puppy.tools.file_modifications import EditFilePayload
 
 
 def set_cert_bundle():
@@ -20,6 +29,8 @@ def set_cert_bundle():
     cert_path = module_dir / "certs" / "walmart-bundle.pem"
     os.environ["SSL_CERT_FILE"] = str(cert_path)
 
+
+session_id = str(uuid.uuid4())
 
 set_cert_bundle()
 
@@ -82,3 +93,107 @@ def load_model_config():
 
 register_callback("load_model_config", load_model_config)
 register_callback("load_prompt", lambda: prompt)
+
+
+def collect_edit_file_telemetry(payload: EditFilePayload):
+    """Collect telemetry data for edit_file operations and send to telemetry endpoint."""
+
+    def _send_telemetry():
+        try:
+            # Extract telemetry data from the payload
+            telemetry_data = build_telemetry_data(payload, session_id)
+
+            # Send telemetry in fire-and-forget manner
+            with httpx.Client(timeout=5.0) as client:
+                response = client.post(
+                    "http://localhost:8080/telemetry/code-generation",
+                    json=telemetry_data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Api-Key": get_puppy_token(),
+                    },
+                )
+                # Log success but don't block on response
+                if response.status_code == 200:
+                    pass  # Success, continue silently
+                else:
+                    emit_system_message(
+                        f"[dim yellow]Telemetry upload failed: {response.status_code}[/dim yellow]"
+                    )
+        except Exception as e:
+            # Don't let telemetry failures crash the main flow
+            emit_system_message(f"[dim red]Telemetry error: {str(e)[:100]}[/dim red]")
+
+    # Run telemetry in background thread to avoid blocking
+    threading.Thread(target=_send_telemetry, daemon=True).start()
+
+
+def collect_delete_file_telemetry(result):
+    """Collect telemetry data for delete_file operations and send to telemetry endpoint."""
+
+    def _send_telemetry():
+        try:
+            # Extract telemetry data from the result
+            telemetry_data = build_delete_file_telemetry_data(result, session_id)
+
+            # Send telemetry in fire-and-forget manner
+            with httpx.Client(timeout=5.0) as client:
+                response = client.post(
+                    "http://localhost:8080/telemetry/code-generation",
+                    json=telemetry_data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Api-Key": get_puppy_token(),
+                    },
+                )
+                # Log success but don't block on response
+                if response.status_code == 200:
+                    pass  # Success, continue silently
+                else:
+                    emit_system_message(
+                        f"[dim yellow]Telemetry upload failed: {response.status_code}[/dim yellow]"
+                    )
+        except Exception as e:
+            # Don't let telemetry failures crash the main flow
+            emit_system_message(f"[dim red]Telemetry error: {str(e)[:100]}[/dim red]")
+
+    # Run telemetry in background thread to avoid blocking
+    threading.Thread(target=_send_telemetry, daemon=True).start()
+
+
+def collect_shell_command_telemetry(result):
+    """Collect telemetry data for run_shell_command operations and send to telemetry endpoint."""
+
+    def _send_telemetry():
+        try:
+            # Extract telemetry data from the result
+            telemetry_data = build_shell_command_telemetry_data(result, session_id)
+
+            # Send telemetry in fire-and-forget manner
+            with httpx.Client(timeout=5.0) as client:
+                response = client.post(
+                    "http://localhost:8080/telemetry/code-generation",
+                    json=telemetry_data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Api-Key": get_puppy_token(),
+                    },
+                )
+                # Log success but don't block on response
+                if response.status_code == 200:
+                    pass  # Success, continue silently
+                else:
+                    emit_system_message(
+                        f"[dim yellow]Telemetry upload failed: {response.status_code}[/dim yellow]"
+                    )
+        except Exception as e:
+            # Don't let telemetry failures crash the main flow
+            emit_system_message(f"[dim red]Telemetry error: {str(e)[:100]}[/dim red]")
+
+    # Run telemetry in background thread to avoid blocking
+    threading.Thread(target=_send_telemetry, daemon=True).start()
+
+
+register_callback("edit_file", collect_edit_file_telemetry)
+register_callback("delete_file", collect_delete_file_telemetry)
+register_callback("run_shell_command", collect_shell_command_telemetry)
