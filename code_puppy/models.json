@@ -45,6 +45,22 @@
     "name": "o3",
     "context_length": 200000
   },
+  "grok-4": {
+    "type": "custom_openai",
+    "name": "grok-4",
+    "custom_endpoint": {
+      "url": "https://api.x.ai/v1",
+      "api_key": "$XAI_API_KEY"
+    }
+  },
+    "grok-code-fast-1": {
+    "type": "custom_openai",
+    "name": "grok-code-fast-1",
+    "custom_endpoint": {
+      "url": "https://api.x.ai/v1",
+      "api_key": "$XAI_API_KEY"
+    }
+  },
   "gemini-2.5-flash-preview-05-20": {
     "type": "gemini",
     "name": "gemini-2.5-flash-preview-05-20",
