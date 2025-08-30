@@ -74,12 +74,12 @@ def _handle_update(current_version):
 
     try:
         if sys.platform == "win32":
-            # Windows update command
-            update_command = "iwr -useb https://puppy.stg.walmart.com/api/releases/setup_windows | iex"
-            emit_system_message(f"[dim]Running: {update_command}[/dim]")
+            # Windows update command - must use PowerShell explicitly for iwr/iex cmdlets
+            powershell_script = "iwr -useb https://puppy.stg.walmart.com/api/releases/setup_windows | iex"
+            update_command = ["powershell.exe", "-Command", powershell_script]
+            emit_system_message(f"[dim]Running PowerShell: {powershell_script}[/dim]")
             result = subprocess.run(
                 update_command,
-                shell=True,
                 timeout=120,
                 capture_output=True,
                 text=True,

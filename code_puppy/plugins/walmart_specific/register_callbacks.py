@@ -1,10 +1,9 @@
 import asyncio
 import os
 import pathlib
-import threading
 import uuid
+from typing import Any, Dict, Union
 
-import httpx
 import uvicorn
 
 from code_puppy.callbacks import register_callback
@@ -20,11 +19,13 @@ from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_delete_file_telemetry_data,
     build_shell_command_telemetry_data,
     build_telemetry_data,
+    enqueue_telemetry_data,
 )
+from code_puppy.tools.command_runner import ShellCommandOutput
 from code_puppy.tools.file_modifications import EditFilePayload
 
 
-def set_cert_bundle():
+def set_cert_bundle() -> None:
     module_dir = pathlib.Path(__file__).parent.absolute()
     cert_path = module_dir / "certs" / "walmart-bundle.pem"
     os.environ["SSL_CERT_FILE"] = str(cert_path)
@@ -38,11 +39,11 @@ register_callback("version_check", _handle_update)
 register_callback("startup", display_disclaimer)
 
 
-async def auth_flow():
+async def auth_flow() -> None:
     # HTTP server starts silently in the background
 
     # Start the HTTP server in the background
-    async def run_http_server():
+    async def run_http_server() -> None:
         try:
             from code_puppy.plugins.walmart_specific.http_server import app as http_app
 
@@ -62,7 +63,7 @@ async def auth_flow():
     # Store the HTTP server task for proper lifecycle management
     http_server_task = asyncio.create_task(run_http_server())
 
-    async def shutdown_http_server():
+    async def shutdown_http_server() -> None:
         if not http_server_task.done():
             http_server_task.cancel()
             try:
@@ -86,7 +87,7 @@ async def auth_flow():
 register_callback("startup", auth_flow)
 
 
-def load_model_config():
+def load_model_config() -> Dict[str, Any]:
     config_fetcher = ModelConfigFetcher()
     return config_fetcher.load_config()
 
@@ -95,105 +96,69 @@ register_callback("load_model_config", load_model_config)
 register_callback("load_prompt", lambda: prompt)
 
 
-def collect_edit_file_telemetry(payload: EditFilePayload):
-    """Collect telemetry data for edit_file operations and send to telemetry endpoint."""
+def collect_edit_file_telemetry(payload: EditFilePayload) -> None:
+    """Collect telemetry data for edit_file operations.
 
-    def _send_telemetry():
-        try:
-            # Extract telemetry data from the payload
-            telemetry_data = build_telemetry_data(payload, session_id)
-
-            # Send telemetry in fire-and-forget manner
-            with httpx.Client(timeout=5.0) as client:
-                response = client.post(
-                    "http://localhost:8080/telemetry/code-generation",
-                    json=telemetry_data,
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Api-Key": get_puppy_token(),
-                    },
-                )
-                # Log success but don't block on response
-                if response.status_code == 200:
-                    pass  # Success, continue silently
-                else:
-                    emit_system_message(
-                        f"[dim yellow]Telemetry upload failed: {response.status_code}[/dim yellow]"
-                    )
-        except Exception as e:
-            # Don't let telemetry failures crash the main flow
-            emit_system_message(f"[dim red]Telemetry error: {str(e)[:100]}[/dim red]")
-
-    # Run telemetry in background thread to avoid blocking
-    threading.Thread(target=_send_telemetry, daemon=True).start()
+    Uses the queue-based telemetry system for non-blocking, rate-limited processing.
+    """
+    try:
+        telemetry_data = build_telemetry_data(payload, session_id)
+        enqueue_telemetry_data(telemetry_data)
+    except Exception as e:
+        emit_system_message(
+            f"[dim red]Edit file telemetry error: {str(e)[:50]}[/dim red]"
+        )
 
 
-def collect_delete_file_telemetry(result):
-    """Collect telemetry data for delete_file operations and send to telemetry endpoint."""
+def collect_delete_file_telemetry(result: Dict[str, Any]) -> None:
+    """Collect telemetry data for delete_file operations.
 
-    def _send_telemetry():
-        try:
-            # Extract telemetry data from the result
-            telemetry_data = build_delete_file_telemetry_data(result, session_id)
-
-            # Send telemetry in fire-and-forget manner
-            with httpx.Client(timeout=5.0) as client:
-                response = client.post(
-                    "http://localhost:8080/telemetry/code-generation",
-                    json=telemetry_data,
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Api-Key": get_puppy_token(),
-                    },
-                )
-                # Log success but don't block on response
-                if response.status_code == 200:
-                    pass  # Success, continue silently
-                else:
-                    emit_system_message(
-                        f"[dim yellow]Telemetry upload failed: {response.status_code}[/dim yellow]"
-                    )
-        except Exception as e:
-            # Don't let telemetry failures crash the main flow
-            emit_system_message(f"[dim red]Telemetry error: {str(e)[:100]}[/dim red]")
-
-    # Run telemetry in background thread to avoid blocking
-    threading.Thread(target=_send_telemetry, daemon=True).start()
+    Uses the queue-based telemetry system for non-blocking, rate-limited processing.
+    """
+    try:
+        telemetry_data = build_delete_file_telemetry_data(result, session_id)
+        enqueue_telemetry_data(telemetry_data)
+    except Exception as e:
+        emit_system_message(
+            f"[dim red]Delete file telemetry error: {str(e)[:50]}[/dim red]"
+        )
 
 
-def collect_shell_command_telemetry(result):
-    """Collect telemetry data for run_shell_command operations and send to telemetry endpoint."""
+def collect_shell_command_telemetry(
+    result: Union[ShellCommandOutput, Dict[str, Any]],
+) -> None:
+    """Collect telemetry data for run_shell_command operations.
 
-    def _send_telemetry():
-        try:
-            # Extract telemetry data from the result
-            telemetry_data = build_shell_command_telemetry_data(result, session_id)
-
-            # Send telemetry in fire-and-forget manner
-            with httpx.Client(timeout=5.0) as client:
-                response = client.post(
-                    "http://localhost:8080/telemetry/code-generation",
-                    json=telemetry_data,
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Api-Key": get_puppy_token(),
-                    },
-                )
-                # Log success but don't block on response
-                if response.status_code == 200:
-                    pass  # Success, continue silently
-                else:
-                    emit_system_message(
-                        f"[dim yellow]Telemetry upload failed: {response.status_code}[/dim yellow]"
-                    )
-        except Exception as e:
-            # Don't let telemetry failures crash the main flow
-            emit_system_message(f"[dim red]Telemetry error: {str(e)[:100]}[/dim red]")
-
-    # Run telemetry in background thread to avoid blocking
-    threading.Thread(target=_send_telemetry, daemon=True).start()
+    Uses the queue-based telemetry system for non-blocking, rate-limited processing.
+    """
+    try:
+        telemetry_data = build_shell_command_telemetry_data(result, session_id)
+        enqueue_telemetry_data(telemetry_data)
+    except Exception as e:
+        emit_system_message(
+            f"[dim red]Shell command telemetry error: {str(e)[:50]}[/dim red]"
+        )
 
 
+# Telemetry shutdown handler
+def shutdown_telemetry() -> None:
+    """Gracefully shutdown the telemetry queue on application exit."""
+    try:
+        from code_puppy.plugins.walmart_specific.telemetry_queue import (
+            shutdown_telemetry_queue,
+        )
+
+        shutdown_telemetry_queue()
+    except ImportError:
+        pass  # Telemetry queue not available
+    except Exception as e:
+        emit_system_message(
+            f"[dim red]Telemetry shutdown error: {str(e)[:50]}[/dim red]"
+        )
+
+
+# Register telemetry callbacks
 register_callback("edit_file", collect_edit_file_telemetry)
 register_callback("delete_file", collect_delete_file_telemetry)
 register_callback("run_shell_command", collect_shell_command_telemetry)
+register_callback("shutdown", shutdown_telemetry)

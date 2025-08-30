@@ -5,7 +5,7 @@ import platform
 from typing import Any, Dict, Union
 
 from code_puppy import __version__
-from code_puppy.config import get_puppy_name
+from code_puppy.config import get_model_name, get_puppy_name
 from code_puppy.tools.command_runner import ShellCommandOutput
 from code_puppy.tools.file_modifications import EditFilePayload
 
@@ -17,11 +17,15 @@ def build_telemetry_data(payload: EditFilePayload, session_id: str) -> dict:
 
     # Count lines created and deleted separately
     lines_created, lines_deleted = count_created_and_deleted_lines(payload)
-    generated_lines = lines_created + lines_deleted
+    total_lines = (
+        lines_created + lines_deleted
+    )  # Total activity (additions + deletions)
 
     # Count characters created and deleted separately
     chars_created, chars_deleted = count_created_and_deleted_characters(payload)
-    total_chars = chars_created + chars_deleted
+    total_chars = (
+        chars_created + chars_deleted
+    )  # Total activity (additions + deletions)
 
     # Detect language from file extension
     language = detect_language(file_path)
@@ -34,12 +38,13 @@ def build_telemetry_data(payload: EditFilePayload, session_id: str) -> dict:
         "puppy_name": get_puppy_name(),
         "puppy_version": __version__,
         "tool_name": "edit_file",
+        "model_name": get_model_name(),
         "lines_created": lines_created,
         "lines_deleted": lines_deleted,
-        "generated_lines_of_code": generated_lines,  # Net change
+        "total_lines_of_code": total_lines,  # Total activity (created + deleted)
         "characters_created": chars_created,
         "characters_deleted": chars_deleted,
-        "total_characters_generated": total_chars,  # Net change
+        "total_characters_generated": total_chars,  # Total activity (created + deleted)
         "operating_system": platform.system(),
         "file_name": file_name,
         "language_detected": language,
@@ -47,7 +52,6 @@ def build_telemetry_data(payload: EditFilePayload, session_id: str) -> dict:
         "operation_type": operation_type,
         "session_id": session_id,
         "success_status": "success",
-        "workspace_type": "local",
         "has_tests_generated": has_test_content(payload),
         "has_documentation_generated": has_documentation_content(payload),
     }
@@ -252,16 +256,20 @@ def build_delete_file_telemetry_data(result: Dict[str, Any], session_id: str) ->
     # Build telemetry data for delete operation
     # Note: We'd need the original file content to accurately count deleted lines
     # This would require modifying the delete_file tool to capture content first
+    lines_deleted = len(result["diff"].split("\n")) if result.get("diff") else 0
+    chars_deleted = len(result["diff"]) if result.get("diff") else 0
+
     telemetry_data = {
         "puppy_name": get_puppy_name(),
         "puppy_version": __version__,
         "tool_name": "delete_file",
+        "model_name": get_model_name(),
         "lines_created": 0,  # Delete operations don't create lines
-        "lines_deleted": len(result["diff"].split("\n")),
-        "generated_lines_of_code": 0,
+        "lines_deleted": lines_deleted,
+        "total_lines_of_code": lines_deleted,  # Total activity (0 + deleted)
         "characters_created": 0,
-        "characters_deleted": len(result["diff"]),
-        "total_characters_generated": len(result["diff"]),
+        "characters_deleted": chars_deleted,
+        "total_characters_generated": chars_deleted,  # Total activity (0 + deleted)
         "operating_system": platform.system(),
         "file_name": file_name,
         "language_detected": language,
@@ -269,7 +277,6 @@ def build_delete_file_telemetry_data(result: Dict[str, Any], session_id: str) ->
         "operation_type": "delete",
         "session_id": session_id,
         "success_status": "success" if result.get("success", False) else "failure",
-        "workspace_type": "local",
         "has_tests_generated": False,  # Delete operations don't generate tests
         "has_documentation_generated": False,  # Delete operations don't generate docs
     }
@@ -312,24 +319,20 @@ def build_shell_command_telemetry_data(
     command_type, detected_language = analyze_shell_command(command)
 
     # Build telemetry data for shell command operation
+    command_lines = len(command.split("\n")) if command else 0
+    command_chars = len(command) if command else 0
+
     telemetry_data = {
         "puppy_name": get_puppy_name(),
         "puppy_version": __version__,
         "tool_name": "run_shell_command",
-        "lines_created": len(
-            command.split("\n")
-        ),  # Shell commands don't directly create lines
+        "model_name": get_model_name(),
+        "lines_created": command_lines,  # Shell commands don't directly create lines
         "lines_deleted": 0,  # Shell commands don't directly delete lines
-        "generated_lines_of_code": len(
-            command.split("\n")
-        ),  # Shell commands don't generate code directly
-        "characters_created": len(
-            command
-        ),  # Shell commands don't directly create characters
+        "total_lines_of_code": command_lines,  # Total activity (created + 0)
+        "characters_created": command_chars,  # Shell commands don't directly create characters
         "characters_deleted": 0,  # Shell commands don't directly delete characters
-        "total_characters_generated": len(
-            command
-        ),  # Shell commands don't generate code
+        "total_characters_generated": command_chars,  # Total activity (created + 0)
         "operating_system": platform.system(),
         "file_name": "terminal",  # Shell commands don't work on specific files, use 'terminal' as default
         "language_detected": detected_language,
@@ -337,7 +340,6 @@ def build_shell_command_telemetry_data(
         "operation_type": command_type,
         "session_id": session_id,
         "success_status": "success" if success else "failure",
-        "workspace_type": "local",
         "has_tests_generated": has_test_command(command),
         "has_documentation_generated": has_docs_command(command),
         "execution_time_ms": int((execution_time or 0) * 1000),
@@ -448,3 +450,34 @@ def has_docs_command(command: str) -> bool:
         "readme",
     ]
     return any(indicator in cmd_lower for indicator in doc_indicators)
+
+
+def enqueue_telemetry_data(telemetry_data: Dict[str, Any]) -> None:
+    """Enqueue telemetry data for background processing.
+
+    This is the centralized function for all telemetry collection that follows
+    DRY principles by avoiding duplicate HTTP request code.
+
+    Args:
+        telemetry_data: Telemetry payload to enqueue for processing
+    """
+    try:
+        from code_puppy.plugins.walmart_specific.telemetry_queue import (
+            get_telemetry_queue,
+        )
+
+        queue = get_telemetry_queue()
+        queue.enqueue_telemetry(telemetry_data)
+    except ImportError:
+        # Fallback if telemetry_queue is not available
+        from code_puppy.messaging import emit_system_message
+
+        emit_system_message(
+            "[dim yellow]Telemetry queue not available, skipping telemetry[/dim yellow]"
+        )
+    except Exception as e:
+        from code_puppy.messaging import emit_system_message
+
+        emit_system_message(
+            f"[dim red]Failed to enqueue telemetry: {str(e)[:50]}[/dim red]"
+        )

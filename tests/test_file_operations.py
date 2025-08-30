@@ -1,11 +1,10 @@
 import os
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import mock_open, patch
 
 from code_puppy.tools.file_operations import (
     grep,
     list_files,
     read_file,
-    register_file_operations_tools,
     should_ignore_path,
 )
 
@@ -281,71 +280,6 @@ class TestGrep:
         ):
             result = grep(None, "match", fake_dir)
             assert len(result.matches) == 0
-
-
-class TestRegisterTools:
-    def disabled_test_register_file_operations_tools(self):
-        # Create a mock agent
-        mock_agent = MagicMock()
-
-        # Register the tools
-        register_file_operations_tools(mock_agent)
-
-        # Verify that the tools were registered
-        assert mock_agent.tool.call_count == 3
-
-        # Get the names of registered functions by examining the mock calls
-        # Extract function names from the decorator calls
-        function_names = []
-        for call_obj in mock_agent.tool.call_args_list:
-            func = call_obj[0][0]
-            function_names.append(func.__name__)
-
-        assert "list_files" in function_names
-        assert "read_file" in function_names
-        assert "grep" in function_names
-
-        # Test the tools call the correct underlying functions
-        with patch("code_puppy.tools.file_operations._list_files") as mock_internal:
-            # Find the list_files function
-            list_files_func = None
-            for call_obj in mock_agent.tool.call_args_list:
-                if call_obj[0][0].__name__ == "list_files":
-                    list_files_func = call_obj[0][0]
-                    break
-
-            assert list_files_func is not None
-            mock_context = MagicMock()
-            list_files_func(mock_context, "/test/dir", True)
-            mock_internal.assert_called_once_with(mock_context, "/test/dir", True)
-
-        with patch("code_puppy.tools.file_operations._read_file") as mock_internal:
-            # Find the read_file function
-            read_file_func = None
-            for call_obj in mock_agent.tool.call_args_list:
-                if call_obj[0][0].__name__ == "read_file":
-                    read_file_func = call_obj[0][0]
-                    break
-
-            assert read_file_func is not None
-            mock_context = MagicMock()
-            read_file_func(mock_context, "/test/file.txt")
-            mock_internal.assert_called_once_with(mock_context, "/test/file.txt")
-
-        with patch("code_puppy.tools.file_operations._grep") as mock_internal:
-            # Find the grep function
-            grep_func = None
-            for call_obj in mock_agent.tool.call_args_list:
-                if call_obj[0][0].__name__ == "grep":
-                    grep_func = call_obj[0][0]
-                    break
-
-            assert grep_func is not None
-            mock_context = MagicMock()
-            grep_func(mock_context, "search term", "/test/dir")
-            mock_internal.assert_called_once_with(
-                mock_context, "search term", "/test/dir"
-            )
 
 
 class TestFormatSize:
