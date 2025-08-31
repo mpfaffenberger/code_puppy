@@ -51,7 +51,8 @@
     "custom_endpoint": {
       "url": "https://api.x.ai/v1",
       "api_key": "$XAI_API_KEY"
-    }
+    },
+    "context_length": 256000
   },
     "grok-code-fast-1": {
     "type": "custom_openai",
@@ -59,7 +60,8 @@
     "custom_endpoint": {
       "url": "https://api.x.ai/v1",
       "api_key": "$XAI_API_KEY"
-    }
+    },
+    "context_length": 256000
   },
   "gemini-2.5-flash-preview-05-20": {
     "type": "gemini",
