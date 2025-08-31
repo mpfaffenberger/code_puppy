@@ -78,11 +78,11 @@ class MCPCommandHandler:
             try:
                 args = shlex.split(args_str)
             except ValueError as e:
-                emit_error(f"Invalid command syntax: {e}")
+                emit_error(f"Invalid command syntax: {e}", message_group_id=group_id)
                 return True
             
             if not args:
-                self.cmd_list([])
+                self.cmd_list([], group_id=group_id)
                 return True
             
             subcommand = args[0].lower()
@@ -111,24 +111,26 @@ class MCPCommandHandler:
                 handler(sub_args)
                 return True
             else:
-                emit_warning(f"Unknown MCP subcommand: {subcommand}")
-                emit_info("Type '/mcp help' for available commands")
+                emit_warning(f"Unknown MCP subcommand: {subcommand}", message_group_id=group_id)
+                emit_info("Type '/mcp help' for available commands", message_group_id=group_id)
                 return True
         
         except Exception as e:
             logger.error(f"Error handling MCP command '{command}': {e}")
-            emit_error(f"Error executing MCP command: {e}")
+            emit_error(f"Error executing MCP command: {e}", message_group_id=group_id)
             return True
     
-    def cmd_list(self, args: List[str]) -> None:
+    def cmd_list(self, args: List[str], group_id: str = None) -> None:
         """
         List all registered MCP servers in a formatted table.
         
         Args:
             args: Command arguments (unused for list command)
+            group_id: Optional message group ID for grouping related messages
         """
-        import uuid
-        group_id = str(uuid.uuid4())
+        if group_id is None:
+            import uuid
+            group_id = str(uuid.uuid4())
         
         try:
             servers = self.manager.list_servers()
