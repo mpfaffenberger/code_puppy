@@ -36,15 +36,6 @@ def get_commands_help():
     help_lines.append(Text("/tools", style="cyan") + Text("                Show available tools and capabilities"))
     help_lines.append(Text("/<unknown>", style="cyan") + Text("            Show unknown command warning"))
     
-    # Skip the for loop since we manually added all commands
-    
-    for cmd, desc in commands:
-        if len(cmd.split()) > 1 or not desc.startswith(" "):
-            # Command with no parameters or description doesn't start with space
-            help_lines.append(Text(f"{cmd:<25} {desc}"))
-        else:
-            # Command with parameters - style only the command part
-            help_lines.append(Text(cmd, style="cyan") + Text(f"{desc:<{25-len(cmd)}}"))
     
     # Combine all lines
     final_text = Text()
