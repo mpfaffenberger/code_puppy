@@ -9,6 +9,7 @@ MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
 MODELS_FILE = os.path.join(CONFIG_DIR, "models.json")
 EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
+AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -68,13 +69,33 @@ def get_owner_name():
 # using get_protected_token_count() and get_summarization_threshold()
 
 
+def get_model_context_length() -> int:
+    """
+    Get the context length for the currently configured model from models.json
+    """
+    try:
+        from code_puppy.model_factory import ModelFactory
+
+        model_configs = ModelFactory.load_config()
+        model_name = get_model_name()
+
+        # Get context length from model config
+        model_config = model_configs.get(model_name, {})
+        context_length = model_config.get("context_length", 128000)  # Default value
+
+        return int(context_length)
+    except Exception:
+        # Fallback to default context length if anything goes wrong
+        return 128000
+
+
 # --- CONFIG SETTER STARTS HERE ---
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model").
+    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy").
     """
-    default_keys = ["yolo_mode", "model"]
+    default_keys = ["yolo_mode", "model", "compaction_strategy"]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -281,6 +302,17 @@ def normalize_command_history():
         direct_console.print(f"[bold red]{error_msg}[/bold red]")
 
 
+def get_user_agents_directory() -> str:
+    """Get the user's agents directory path.
+
+    Returns:
+        Path to the user's Code Puppy agents directory.
+    """
+    # Ensure the agents directory exists
+    os.makedirs(AGENTS_DIR, exist_ok=True)
+    return AGENTS_DIR
+
+
 def initialize_command_history_file():
     """Create the command history file if it doesn't exist.
     Handles migration from the old history file location for backward compatibility.
@@ -352,28 +384,54 @@ def get_protected_token_count():
     This is the number of tokens in recent messages that won't be summarized.
     Defaults to 50000 if unset or misconfigured.
     Configurable by 'protected_token_count' key.
+    Enforces that protected tokens don't exceed 75% of model context length.
     """
     val = get_value("protected_token_count")
     try:
-        return max(1000, int(val)) if val else 50000  # Minimum 1000 tokens
+        # Get the model context length to enforce the 75% limit
+        model_context_length = get_model_context_length()
+        max_protected_tokens = int(model_context_length * 0.75)
+
+        # Parse the configured value
+        configured_value = int(val) if val else 50000
+
+        # Apply constraints: minimum 1000, maximum 75% of context length
+        return max(1000, min(configured_value, max_protected_tokens))
     except (ValueError, TypeError):
-        return 50000
+        # If parsing fails, return a reasonable default that respects the 75% limit
+        model_context_length = get_model_context_length()
+        max_protected_tokens = int(model_context_length * 0.75)
+        return min(50000, max_protected_tokens)
 
 
-def get_summarization_threshold():
+def get_compaction_threshold():
     """
-    Returns the user-configured summarization threshold as a float between 0.0 and 1.0.
-    This is the proportion of model context that triggers summarization.
+    Returns the user-configured compaction threshold as a float between 0.0 and 1.0.
+    This is the proportion of model context that triggers compaction.
     Defaults to 0.85 (85%) if unset or misconfigured.
-    Configurable by 'summarization_threshold' key.
+    Configurable by 'compaction_threshold' key.
     """
-    val = get_value("summarization_threshold")
+    val = get_value("compaction_threshold")
     try:
         threshold = float(val) if val else 0.85
         # Clamp between reasonable bounds
-        return max(0.1, min(0.95, threshold))
+        return max(0.8, min(0.95, threshold))
     except (ValueError, TypeError):
         return 0.85
+
+
+def get_compaction_strategy() -> str:
+    """
+    Returns the user-configured compaction strategy.
+    Options are 'summarization' or 'truncation'.
+    Defaults to 'summarization' if not set or misconfigured.
+    Configurable by 'compaction_strategy' key.
+    """
+    val = get_value("compaction_strategy")
+    if val and val.lower() in ["summarization", "truncation"]:
+        return val.lower()
+    # Default to summarization
+    return "truncation"
 
 
 def save_command_to_history(command: str):

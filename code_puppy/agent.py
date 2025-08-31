@@ -6,7 +6,7 @@ from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTT
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
-from code_puppy.agent_prompts import get_system_prompt
+from code_puppy.agents import get_current_agent_config
 from code_puppy.http_utils import (
     create_reopenable_async_client,
     resolve_env_var_in_header,
@@ -21,7 +21,8 @@ from code_puppy.messaging.message_queue import (
     emit_system_message,
 )
 from code_puppy.model_factory import ModelFactory
-from code_puppy.tools import register_all_tools
+
+# Tool registration is imported on demand
 from code_puppy.tools.common import console
 
 
@@ -131,15 +132,25 @@ def reload_code_generation_agent():
     """Force-reload the agent, usually after a model change."""
     global _code_generation_agent, _LAST_MODEL_NAME
     from code_puppy.config import clear_model_cache, get_model_name
+    from code_puppy.agents import clear_agent_cache
 
     # Clear both ModelFactory cache and config cache when force reloading
     clear_model_cache()
+    clear_agent_cache()
 
     model_name = get_model_name()
     emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
-    instructions = get_system_prompt()
+
+    # Get agent-specific system prompt
+    agent_config = get_current_agent_config()
+    emit_info(
+        f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]"
+    )
+
+    instructions = agent_config.get_system_prompt()
+
     if PUPPY_RULES:
         instructions += f"\n{PUPPY_RULES}"
 
@@ -161,7 +172,12 @@ def reload_code_generation_agent():
         history_processors=[message_history_accumulator],
         model_settings=model_settings,
     )
-    register_all_tools(agent)
+
+    # Register tools specified by the agent
+    from code_puppy.tools import register_tools_for_agent
+
+    agent_tools = agent_config.get_available_tools()
+    register_tools_for_agent(agent, agent_tools)
     _code_generation_agent = agent
     _LAST_MODEL_NAME = model_name
     return _code_generation_agent

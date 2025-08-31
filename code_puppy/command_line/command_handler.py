@@ -13,10 +13,10 @@ from code_puppy.tools.tools_content import tools_content
 
 COMMANDS_HELP = """
 [bold magenta]Commands Help[/bold magenta]
-/help, /h                 Show this help message
-/cd <dir>                 Change directory or show directories
-
-/exit, /quit              Exit interactive mode
+/help, /h             Show this help message
+/cd <dir>             Change directory or show directories
+/agent <name>         Switch to a different agent or show available agents
+/exit, /quit          Exit interactive mode
 /generate-pr-description [@dir]  Generate comprehensive PR description
 /m <model>                Set active model
 /motd                     Show the latest message of the day (MOTD)
@@ -59,6 +59,7 @@ def handle_command(command: str):
         return True
 
     if command.strip().startswith("/compact"):
+        from code_puppy.config import get_compaction_strategy
         from code_puppy.message_history_processor import (
             estimate_tokens_for_message,
             summarize_messages,
@@ -74,13 +75,23 @@ def handle_command(command: str):
                 return True
 
             before_tokens = sum(estimate_tokens_for_message(m) for m in history)
-            messaging.emit_info(
-                f"🤔 Compacting {len(history)} messages... (~{before_tokens} tokens)"
+            compaction_strategy = get_compaction_strategy()
+            emit_info(
+                f"🤔 Compacting {len(history)} messages using {compaction_strategy} strategy... (~{before_tokens} tokens)"
             )
 
-            compacted, _ = summarize_messages(history, with_protection=False)
+            if compaction_strategy == "truncation":
+                protected_tokens = get_protected_token_count()
+                compacted = truncation(history, protected_tokens)
+                summarized_messages = []  # No summarization in truncation mode
+            else:
+                # Default to summarization
+                compacted, summarized_messages = summarize_messages(
+                    history, with_protection=False
+                )
+
             if not compacted:
-                messaging.emit_error("Summarization failed. History unchanged.")
+                emit_error("Compaction failed. History unchanged.")
                 return True
 
             set_message_history(compacted)
@@ -91,8 +102,14 @@ def handle_command(command: str):
                 if before_tokens > 0
                 else 0
             )
+
+            strategy_info = (
+                f"using {compaction_strategy} strategy"
+                if compaction_strategy == "truncation"
+                else "via summarization"
+            )
             messaging.emit_success(
-                f"✨ Done! History: {len(history)} → {len(compacted)} messages\n"
+                f"✨ Done! History: {len(history)} → {len(compacted)} messages {strategy_info}\n"
                 f"🏦 Tokens: {before_tokens:,} → {after_tokens:,} ({reduction_pct:.1f}% reduction)"
             )
             return True
@@ -127,25 +144,34 @@ def handle_command(command: str):
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
-            get_summarization_threshold,
+            get_compaction_threshold,
             get_yolo_mode,
         )
+        from code_puppy.agents import get_current_agent_config
+
+        from code_puppy.config import get_compaction_strategy
 
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         model = get_active_model()
         yolo_mode = get_yolo_mode()
         protected_tokens = get_protected_token_count()
-        summary_threshold = get_summarization_threshold()
+        compaction_threshold = get_compaction_threshold()
+        compaction_strategy = get_compaction_strategy()
+
+        # Get current agent info
+        current_agent = get_current_agent_config()
 
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
 [bold]puppy_name:[/bold]            [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]            [cyan]{owner_name}[/cyan]
+[bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
-[bold]summary_threshold:[/bold]     [cyan]{summary_threshold:.1%}[/cyan] context usage triggers summarization
+[bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
+[bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
 
 """
         messaging.emit_info(status_msg)
@@ -170,8 +196,11 @@ def handle_command(command: str):
             key = tokens[1]
             value = ""
         else:
+            config_keys = get_config_keys()
+            if "compaction_strategy" not in config_keys:
+                config_keys.append("compaction_strategy")
             messaging.emit_warning(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(get_config_keys())}"
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]"
             )
             return True
         if key:
@@ -188,6 +217,91 @@ def handle_command(command: str):
         markdown_content = Markdown(tools_content)
         messaging.emit_info(markdown_content)
         return True
+
+    if command.startswith("/agent"):
+        # Handle agent switching
+        from code_puppy.agents import (
+            get_available_agents,
+            get_current_agent_config,
+            set_current_agent,
+            get_agent_descriptions,
+        )
+        from code_puppy.agent import get_code_generation_agent
+
+        tokens = command.split()
+
+        if len(tokens) == 1:
+            # Show current agent and available agents
+            current_agent = get_current_agent_config()
+            available_agents = get_available_agents()
+            descriptions = get_agent_descriptions()
+
+            # Generate a group ID for all messages in this command
+            import uuid
+
+            group_id = str(uuid.uuid4())
+
+            messaging.emit_info(
+                f"[bold green]Current Agent:[/bold green] {current_agent.display_name}",
+                message_group=group_id,
+            )
+            messaging.emit_info(
+                f"[dim]{current_agent.description}[/dim]\n", message_group=group_id
+            )
+
+            messaging.emit_info(
+                "[bold magenta]Available Agents:[/bold magenta]", message_group=group_id
+            )
+            for name, display_name in available_agents.items():
+                description = descriptions.get(name, "No description")
+                current_marker = (
+                    " [green]← current[/green]" if name == current_agent.name else ""
+                )
+                messaging.emit_info(
+                    f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}",
+                    message_group=group_id,
+                )
+                messaging.emit_info(f"    [dim]{description}[/dim]", message_group=group_id)
+
+            messaging.emit_info(
+                "\n[yellow]Usage:[/yellow] /agent <agent-name>", message_group=group_id
+            )
+            return True
+
+        elif len(tokens) == 2:
+            agent_name = tokens[1].lower()
+
+            # Generate a group ID for all messages in this command
+            import uuid
+
+            group_id = str(uuid.uuid4())
+
+            if set_current_agent(agent_name):
+                # Reload the agent with new configuration
+                get_code_generation_agent(force_reload=True)
+                new_agent = get_current_agent_config()
+                messaging.emit_success(
+                    f"Switched to agent: {new_agent.display_name}",
+                    message_group=group_id,
+                )
+                messaging.emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
+                return True
+            else:
+                # Generate a group ID for all messages in this command
+                import uuid
+
+                group_id = str(uuid.uuid4())
+
+                available_agents = get_available_agents()
+                messaging.emit_error(f"Agent '{agent_name}' not found", message_group=group_id)
+                messaging.emit_warning(
+                    f"Available agents: {', '.join(available_agents.keys())}",
+                    message_group=group_id,
+                )
+                return True
+        else:
+            messaging.emit_warning("Usage: /agent [agent-name]")
+            return True
 
     if command.startswith("/m"):
         # Try setting model and show confirmation
