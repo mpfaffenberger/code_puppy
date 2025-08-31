@@ -278,6 +278,16 @@ class MCPCommandHandler:
             
             # Reload agent if any servers were started
             if started_count > 0:
+                # Give async tasks a moment to complete before reloading agent
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If we're in async context, wait a bit for servers to start
+                    import time
+                    time.sleep(0.5)  # Small delay to let async tasks progress
+                except RuntimeError:
+                    pass  # No async loop, servers will start when agent uses them
+                
                 try:
                     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
                     manager = get_runtime_agent_manager()
@@ -382,6 +392,16 @@ class MCPCommandHandler:
             
             # Reload agent if any servers were stopped
             if stopped_count > 0:
+                # Give async tasks a moment to complete before reloading agent
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If we're in async context, wait a bit for servers to stop
+                    import time
+                    time.sleep(0.5)  # Small delay to let async tasks progress
+                except RuntimeError:
+                    pass  # No async loop, servers will stop when needed
+                
                 try:
                     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
                     manager = get_runtime_agent_manager()
