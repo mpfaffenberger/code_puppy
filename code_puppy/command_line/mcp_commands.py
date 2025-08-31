@@ -212,7 +212,8 @@ class MCPCommandHandler:
             success = self.manager.start_server_sync(server_id)
             
             if success:
-                emit_info(f"[green]✓ Started server: {server_name}[/green]", message_group=group_id)
+                # This and subsequent messages will auto-group with the first message
+                emit_info(f"[green]✓ Started server: {server_name}[/green]")
                 
                 # Give async tasks a moment to complete
                 import asyncio
@@ -229,15 +230,15 @@ class MCPCommandHandler:
                     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
-                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group=group_id)
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]")
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
             else:
-                emit_info(f"[red]✗ Failed to start server: {server_name}[/red]", message_group=group_id)
+                emit_info(f"[red]✗ Failed to start server: {server_name}[/red]")
         
         except Exception as e:
             logger.error(f"Error starting server '{server_name}': {e}")
-            emit_info(f"[red]Failed to start server: {e}[/red]", message_group=group_id)
+            emit_info(f"[red]Failed to start server: {e}[/red]")
     
     def cmd_start_all(self, args: List[str]) -> None:
         """
