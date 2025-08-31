@@ -72,6 +72,7 @@ path = "code_puppy/models.json"
 [tool.pytest.ini_options]
 addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [tool.coverage.run]
 omit = ["code_puppy/main.py"]
