@@ -423,89 +423,28 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging import emit_warning
                 from code_puppy.messaging.spinner import ConsoleSpinner
 
-                # Create a simple flag to track cancellation locally
-                local_cancelled = False
-
-                # Run with spinner
-                with ConsoleSpinner(console=display_console):
-                    # Use a separate asyncio task that we can cancel
-                    async def run_agent_task():
-                        try:
-                            # Use agent_manager's run_with_mcp to handle MCP servers properly
-                            return await agent_manager.run_with_mcp(
-                                task,
-                                message_history=get_message_history(),
-                                usage_limits=get_custom_usage_limits(),
-                            )
-                        finally:
-                            set_message_history(
-                                prune_interrupted_tool_calls(get_message_history())
-                            )
-
-                    # Create the task
-                    agent_task = asyncio.create_task(run_agent_task())
-
-                    # Set up signal handling for Ctrl+C
-                    import signal
-
-                    from code_puppy.tools.command_runner import (
-                        kill_all_running_shell_processes,
+                # Run WITHOUT spinner to avoid interference
+                try:
+                    # The manager handles all cancellation logic internally
+                    result = await agent_manager.run_with_mcp(
+                        task,
+                        message_history=get_message_history(),
+                        usage_limits=get_custom_usage_limits(),
+                    )
+                except asyncio.CancelledError:
+                    # Agent was cancelled by user
+                    result = None
+                except KeyboardInterrupt:
+                    # Keyboard interrupt
+                    emit_warning("\n⚠️ Caught KeyboardInterrupt in main")
+                    result = None
+                finally:
+                    set_message_history(
+                        prune_interrupted_tool_calls(get_message_history())
                     )
 
-                    original_handler = None
-
-                    # Ensure the interrupt handler only acts once per task
-                    handled = False
-
-                    def keyboard_interrupt_handler(sig, frame):
-                        nonlocal local_cancelled
-                        nonlocal handled
-                        if handled:
-                            return
-                        handled = True
-                        # First, nuke any running shell processes triggered by tools
-                        try:
-                            killed = kill_all_running_shell_processes()
-                            if killed:
-                                from code_puppy.messaging import emit_warning
-
-                                emit_warning(
-                                    f"Cancelled {killed} running shell process(es)."
-                                )
-                            else:
-                                # Then cancel the agent task
-                                if not agent_task.done():
-                                    state_management._message_history = (
-                                        prune_interrupted_tool_calls(
-                                            state_management._message_history
-                                        )
-                                    )
-                                    agent_task.cancel()
-                                    local_cancelled = True
-                        except Exception as e:
-                            from code_puppy.messaging import emit_warning
-
-                            emit_warning(f"Shell kill error: {e}")
-                        # Don't call the original handler
-                        # This prevents the application from exiting
-
-                    try:
-                        # Save original handler and set our custom one
-                        original_handler = signal.getsignal(signal.SIGINT)
-                        signal.signal(signal.SIGINT, keyboard_interrupt_handler)
-
-                        # Wait for the task to complete or be cancelled
-                        result = await agent_task
-                    except asyncio.CancelledError:
-                        # Task was cancelled by our handler
-                        pass
-                    finally:
-                        # Restore original signal handler
-                        if original_handler:
-                            signal.signal(signal.SIGINT, original_handler)
-
                 # Check if the task was cancelled
-                if local_cancelled:
+                if result is None:
                     emit_warning("\n⚠️ Processing cancelled by user (Ctrl+C)")
                     # Skip the rest of this loop iteration
                     continue

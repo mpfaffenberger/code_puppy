@@ -5,6 +5,8 @@ This module provides a wrapper around the agent singleton that ensures
 all references to the agent are properly updated when it's reloaded.
 """
 
+import asyncio
+import signal
 from typing import Optional, Any
 from pydantic_ai import Agent
 from pydantic_ai.usage import UsageLimits
@@ -61,9 +63,10 @@ class RuntimeAgentManager:
     
     async def run_with_mcp(self, prompt: str, usage_limits: Optional[UsageLimits] = None, **kwargs) -> Any:
         """
-        Run the agent with MCP servers.
+        Run the agent with MCP servers and full cancellation support.
         
-        This method ensures we're always using the current agent instance.
+        This method ensures we're always using the current agent instance
+        and handles Ctrl+C interruption properly by creating a cancellable task.
         
         Args:
             prompt: The user prompt to process
@@ -72,17 +75,81 @@ class RuntimeAgentManager:
             
         Returns:
             The agent's response
+            
+        Raises:
+            asyncio.CancelledError: When execution is cancelled by user
         """
         agent = self.get_agent()
         
-        try:
-            async with agent.run_mcp_servers():
+        # Function to run agent with MCP
+        async def run_agent_task():
+            try:
+                async with agent.run_mcp_servers():
+                    return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
+            except Exception as mcp_error:
+                emit_warning(f"MCP server error: {str(mcp_error)}")
+                emit_warning("Running without MCP servers...")
+                # Run without MCP servers as fallback
                 return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
-        except Exception as mcp_error:
-            emit_warning(f"MCP server error: {str(mcp_error)}")
-            emit_warning("Running without MCP servers...")
-            # Run without MCP servers as fallback
-            return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
+        
+        # Create the task FIRST
+        agent_task = asyncio.create_task(run_agent_task())
+        
+        # Import shell process killer
+        from code_puppy.tools.command_runner import kill_all_running_shell_processes
+        
+        # Ensure the interrupt handler only acts once per task
+        handled = False
+        
+        def keyboard_interrupt_handler(sig, frame):
+            """Signal handler for Ctrl+C - replicating exact original logic"""
+            nonlocal handled
+            if handled:
+                return
+            handled = True
+            
+            # First, nuke any running shell processes triggered by tools
+            try:
+                killed = kill_all_running_shell_processes()
+                if killed:
+                    emit_warning(f"Cancelled {killed} running shell process(es).")
+                else:
+                    # Only cancel the agent task if no shell processes were killed
+                    if not agent_task.done():
+                        agent_task.cancel()
+            except Exception as e:
+                emit_warning(f"Shell kill error: {e}")
+                # If shell kill failed, still try to cancel the agent task
+                if not agent_task.done():
+                    agent_task.cancel()
+            # Don't call the original handler
+            # This prevents the application from exiting
+        
+        try:
+            # Save original handler and set our custom one AFTER task is created
+            original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+            
+            # Wait for the task to complete or be cancelled
+            from code_puppy.messaging.spinner import ConsoleSpinner
+            with ConsoleSpinner():
+                result = await agent_task
+            return result
+        except asyncio.CancelledError:
+            # Task was cancelled by our handler
+            raise
+        except KeyboardInterrupt:
+            # Handle direct keyboard interrupt during await
+            if not agent_task.done():
+                agent_task.cancel()
+            try:
+                await agent_task
+            except asyncio.CancelledError:
+                pass
+            raise asyncio.CancelledError()
+        finally:
+            # Restore original signal handler
+            if original_handler:
+                signal.signal(signal.SIGINT, original_handler)
     
     async def run(self, prompt: str, usage_limits: Optional[UsageLimits] = None, **kwargs) -> Any:
         """
