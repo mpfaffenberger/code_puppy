@@ -9,24 +9,51 @@ from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import get_config_keys
 from code_puppy.tools.tools_content import tools_content
 
-COMMANDS_HELP = """
-[bold magenta]Commands Help[/bold magenta]
-/help, /h             Show this help message
-/cd <dir>             Change directory or show directories
-/agent <name>         Switch to a different agent or show available agents
-/exit, /quit          Exit interactive mode
-/generate-pr-description [@dir]  Generate comprehensive PR description
-/model <model>        Set active model
-/mcp                  Manage MCP servers (list, start, stop, status, etc.)
-/motd                 Show the latest message of the day (MOTD)
-/show                 Show puppy config key-values
-/compact              Summarize and compact current chat history
-/dump_context <name>  Save current message history to file
-/load_context <name>  Load message history from file
-/set                  Set puppy config key-values (e.g., /set yolo_mode true, /set compaction_strategy truncation)
-/tools                Show available tools and capabilities
-/<unknown>            Show unknown command warning
-"""
+def get_commands_help():
+    """Generate commands help using Rich Text objects to avoid markup conflicts."""
+    from rich.text import Text
+    
+    # Build help text programmatically
+    help_lines = []
+    
+    # Title
+    help_lines.append(Text("Commands Help", style="bold magenta"))
+    
+    # Commands - build each line programmatically  
+    help_lines.append(Text("/help, /h", style="cyan") + Text("             Show this help message"))
+    help_lines.append(Text("/cd", style="cyan") + Text(" <dir>             Change directory or show directories"))
+    help_lines.append(Text("/agent", style="cyan") + Text(" <name>         Switch to a different agent or show available agents"))
+    help_lines.append(Text("/exit, /quit", style="cyan") + Text("          Exit interactive mode"))
+    help_lines.append(Text("/generate-pr-description", style="cyan") + Text(" [@dir]  Generate comprehensive PR description"))
+    help_lines.append(Text("/model", style="cyan") + Text(" <model>        Set active model"))
+    help_lines.append(Text("/mcp", style="cyan") + Text("                  Manage MCP servers (list, start, stop, status, etc.)"))
+    help_lines.append(Text("/motd", style="cyan") + Text("                 Show the latest message of the day (MOTD)"))
+    help_lines.append(Text("/show", style="cyan") + Text("                 Show puppy config key-values"))
+    help_lines.append(Text("/compact", style="cyan") + Text("              Summarize and compact current chat history"))
+    help_lines.append(Text("/dump_context", style="cyan") + Text(" <name>  Save current message history to file"))
+    help_lines.append(Text("/load_context", style="cyan") + Text(" <name>  Load message history from file"))
+    help_lines.append(Text("/set", style="cyan") + Text("                  Set puppy config key-values (e.g., /set yolo_mode true, /set compaction_strategy truncation)"))
+    help_lines.append(Text("/tools", style="cyan") + Text("                Show available tools and capabilities"))
+    help_lines.append(Text("/<unknown>", style="cyan") + Text("            Show unknown command warning"))
+    
+    # Skip the for loop since we manually added all commands
+    
+    for cmd, desc in commands:
+        if len(cmd.split()) > 1 or not desc.startswith(" "):
+            # Command with no parameters or description doesn't start with space
+            help_lines.append(Text(f"{cmd:<25} {desc}"))
+        else:
+            # Command with parameters - style only the command part
+            help_lines.append(Text(cmd, style="cyan") + Text(f"{desc:<{25-len(cmd)}}"))
+    
+    # Combine all lines
+    final_text = Text()
+    for i, line in enumerate(help_lines):
+        if i > 0:
+            final_text.append("\n")
+        final_text.append_text(line)
+    
+    return final_text
 
 
 def handle_command(command: str):
@@ -325,7 +352,10 @@ def handle_command(command: str):
         handler = MCPCommandHandler()
         return handler.handle_mcp_command(command)
     if command in ("/help", "/h"):
-        emit_info(COMMANDS_HELP)
+        import uuid
+        group_id = str(uuid.uuid4())
+        help_text = get_commands_help()
+        emit_info(help_text, message_group_id=group_id)
         return True
 
     if command.startswith("/generate-pr-description"):
