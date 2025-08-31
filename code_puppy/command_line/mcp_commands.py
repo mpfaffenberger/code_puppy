@@ -78,7 +78,7 @@ class MCPCommandHandler:
             try:
                 args = shlex.split(args_str)
             except ValueError as e:
-                emit_error(f"Invalid command syntax: {e}", message_group_id=group_id)
+                emit_info(f"[red]Invalid command syntax: {e}[/red]", message_group=group_id)
                 return True
             
             if not args:
@@ -111,13 +111,13 @@ class MCPCommandHandler:
                 handler(sub_args)
                 return True
             else:
-                emit_warning(f"Unknown MCP subcommand: {subcommand}", message_group_id=group_id)
-                emit_info("Type '/mcp help' for available commands", message_group_id=group_id)
+                emit_info(f"[yellow]Unknown MCP subcommand: {subcommand}[/yellow]", message_group=group_id)
+                emit_info("Type '/mcp help' for available commands", message_group=group_id)
                 return True
         
         except Exception as e:
             logger.error(f"Error handling MCP command '{command}': {e}")
-            emit_error(f"Error executing MCP command: {e}", message_group_id=group_id)
+            emit_error(f"Error executing MCP command: {e}", message_group=group_id)
             return True
     
     def cmd_list(self, args: List[str], group_id: str = None) -> None:
@@ -136,7 +136,7 @@ class MCPCommandHandler:
             servers = self.manager.list_servers()
             
             if not servers:
-                emit_info("No MCP servers registered", message_group_id=group_id)
+                emit_info("No MCP servers registered", message_group=group_id)
                 return
             
             # Create table for server list
@@ -173,16 +173,16 @@ class MCPCommandHandler:
                     status_display
                 )
             
-            emit_info(table, message_group_id=group_id)
+            emit_info(table, message_group=group_id)
             
             # Show summary
             total = len(servers)
             running = sum(1 for s in servers if s.state == ServerState.RUNNING and s.enabled)
-            emit_info(f"\n📊 Summary: {running}/{total} servers running", message_group_id=group_id)
+            emit_info(f"\n📊 Summary: {running}/{total} servers running", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error listing MCP servers: {e}")
-            emit_error(f"Failed to list servers: {e}", message_group_id=group_id)
+            emit_error(f"Failed to list servers: {e}", message_group=group_id)
     
     def cmd_start(self, args: List[str]) -> None:
         """
@@ -195,7 +195,7 @@ class MCPCommandHandler:
         group_id = str(uuid.uuid4())
         
         if not args:
-            emit_warning("Usage: /mcp start <server_name>", message_group_id=group_id)
+            emit_info("[yellow]Usage: /mcp start <server_name>[/yellow]", message_group=group_id)
             return
         
         server_name = args[0]
@@ -204,7 +204,7 @@ class MCPCommandHandler:
             # Find server by name
             server_id = self._find_server_id_by_name(server_name)
             if not server_id:
-                emit_error(f"Server '{server_name}' not found", message_group_id=group_id)
+                emit_info(f"[red]Server '{server_name}' not found[/red]", message_group=group_id)
                 self._suggest_similar_servers(server_name, group_id=group_id)
                 return
             
@@ -212,7 +212,7 @@ class MCPCommandHandler:
             success = self.manager.start_server_sync(server_id)
             
             if success:
-                emit_success(f"✓ Started server: {server_name}", message_group_id=group_id)
+                emit_info(f"[green]✓ Started server: {server_name}[/green]", message_group=group_id)
                 
                 # Give async tasks a moment to complete
                 import asyncio
@@ -229,15 +229,15 @@ class MCPCommandHandler:
                     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
-                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group_id=group_id)
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group=group_id)
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
             else:
-                emit_error(f"✗ Failed to start server: {server_name}", message_group_id=group_id)
+                emit_info(f"[red]✗ Failed to start server: {server_name}[/red]", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error starting server '{server_name}': {e}")
-            emit_error(f"Failed to start server: {e}", message_group_id=group_id)
+            emit_info(f"[red]Failed to start server: {e}[/red]", message_group=group_id)
     
     def cmd_start_all(self, args: List[str]) -> None:
         """
@@ -253,14 +253,14 @@ class MCPCommandHandler:
             servers = self.manager.list_servers()
             
             if not servers:
-                emit_warning("No servers registered", message_group_id=group_id)
+                emit_info("[yellow]No servers registered[/yellow]", message_group=group_id)
                 return
             
             started_count = 0
             failed_count = 0
             already_running = 0
             
-            emit_info(f"Starting {len(servers)} servers...", message_group_id=group_id)
+            emit_info(f"Starting {len(servers)} servers...", message_group=group_id)
             
             for server_info in servers:
                 server_id = server_info.id
@@ -269,7 +269,7 @@ class MCPCommandHandler:
                 # Skip if already running
                 if server_info.state == ServerState.RUNNING:
                     already_running += 1
-                    emit_info(f"  • {server_name}: already running", message_group_id=group_id)
+                    emit_info(f"  • {server_name}: already running", message_group=group_id)
                     continue
                 
                 # Try to start the server
@@ -277,19 +277,19 @@ class MCPCommandHandler:
                 
                 if success:
                     started_count += 1
-                    emit_success(f"  ✓ Started: {server_name}", message_group_id=group_id)
+                    emit_info(f"  [green]✓ Started: {server_name}[/green]", message_group=group_id)
                 else:
                     failed_count += 1
-                    emit_error(f"  ✗ Failed: {server_name}", message_group_id=group_id)
+                    emit_info(f"  [red]✗ Failed: {server_name}[/red]", message_group=group_id)
             
             # Summary
-            emit_info("", message_group_id=group_id)
+            emit_info("", message_group=group_id)
             if started_count > 0:
-                emit_success(f"Started {started_count} server(s)", message_group_id=group_id)
+                emit_info(f"[green]Started {started_count} server(s)[/green]", message_group=group_id)
             if already_running > 0:
-                emit_info(f"{already_running} server(s) already running", message_group_id=group_id)
+                emit_info(f"{already_running} server(s) already running", message_group=group_id)
             if failed_count > 0:
-                emit_warning(f"Failed to start {failed_count} server(s)", message_group_id=group_id)
+                emit_info(f"[yellow]Failed to start {failed_count} server(s)[/yellow]", message_group=group_id)
             
             # Reload agent if any servers were started
             if started_count > 0:
@@ -307,13 +307,13 @@ class MCPCommandHandler:
                     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
-                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group_id=group_id)
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group=group_id)
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
         
         except Exception as e:
             logger.error(f"Error starting all servers: {e}")
-            emit_error(f"Failed to start servers: {e}", message_group_id=group_id)
+            emit_info(f"[red]Failed to start servers: {e}[/red]", message_group=group_id)
     
     def cmd_stop(self, args: List[str]) -> None:
         """
@@ -326,7 +326,7 @@ class MCPCommandHandler:
         group_id = str(uuid.uuid4())
         
         if not args:
-            emit_warning("Usage: /mcp stop <server_name>", message_group_id=group_id)
+            emit_info("[yellow]Usage: /mcp stop <server_name>[/yellow]", message_group=group_id)
             return
         
         server_name = args[0]
@@ -335,7 +335,7 @@ class MCPCommandHandler:
             # Find server by name
             server_id = self._find_server_id_by_name(server_name)
             if not server_id:
-                emit_error(f"Server '{server_name}' not found", message_group_id=group_id)
+                emit_error(f"Server '{server_name}' not found", message_group=group_id)
                 self._suggest_similar_servers(server_name, group_id=group_id)
                 return
             
@@ -343,22 +343,22 @@ class MCPCommandHandler:
             success = self.manager.stop_server_sync(server_id)
             
             if success:
-                emit_success(f"✓ Stopped server: {server_name}", message_group_id=group_id)
+                emit_success(f"✓ Stopped server: {server_name}", message_group=group_id)
                 
                 # Reload the agent to remove the disabled server
                 try:
                     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
-                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group_id=group_id)
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group=group_id)
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
             else:
-                emit_error(f"✗ Failed to stop server: {server_name}", message_group_id=group_id)
+                emit_error(f"✗ Failed to stop server: {server_name}", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error stopping server '{server_name}': {e}")
-            emit_error(f"Failed to stop server: {e}", message_group_id=group_id)
+            emit_error(f"Failed to stop server: {e}", message_group=group_id)
     
     def cmd_stop_all(self, args: List[str]) -> None:
         """
@@ -881,7 +881,7 @@ class MCPCommandHandler:
         
         import uuid
         group_id = str(uuid.uuid4())
-        emit_info(final_text, message_group_id=group_id)
+        emit_info(final_text, message_group=group_id)
     
     def cmd_search(self, args: List[str]) -> None:
         """
@@ -1100,7 +1100,7 @@ class MCPCommandHandler:
         try:
             servers = self.manager.list_servers()
             if not servers:
-                emit_info("No servers are registered", message_group_id=group_id)
+                emit_info("No servers are registered", message_group=group_id)
                 return
             
             # Simple suggestion based on partial matching
@@ -1112,10 +1112,10 @@ class MCPCommandHandler:
                     suggestions.append(server.name)
             
             if suggestions:
-                emit_info(f"Did you mean: {', '.join(suggestions)}", message_group_id=group_id)
+                emit_info(f"Did you mean: {', '.join(suggestions)}", message_group=group_id)
             else:
                 server_names = [s.name for s in servers]
-                emit_info(f"Available servers: {', '.join(server_names)}", message_group_id=group_id)
+                emit_info(f"Available servers: {', '.join(server_names)}", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error suggesting similar servers: {e}")
