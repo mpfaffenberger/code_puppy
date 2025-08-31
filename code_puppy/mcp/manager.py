@@ -387,10 +387,39 @@ class MCPManager:
         """
         try:
             loop = asyncio.get_running_loop()
-            # We're in an async context, create a task
-            task = asyncio.create_task(self.start_server(server_id))
-            # Return True optimistically
-            return True
+            # We're in an async context, but we need to wait for completion
+            # Create a future and schedule the coroutine
+            import concurrent.futures
+            
+            # Use run_in_executor to run the async function synchronously
+            async def run_async():
+                return await self.start_server(server_id)
+            
+            # Schedule the task and wait briefly for it to complete
+            task = asyncio.create_task(run_async())
+            
+            # Give it a moment to complete - this fixes the race condition
+            import time
+            time.sleep(0.1)  # Small delay to let async tasks progress
+            
+            # Check if task completed, if not, fall back to sync enable
+            if task.done():
+                try:
+                    result = task.result()
+                    return result
+                except Exception:
+                    pass
+            
+            # If async didn't complete, enable synchronously
+            managed_server = self._managed_servers.get(server_id)
+            if managed_server:
+                managed_server.enable()
+                self.status_tracker.set_status(server_id, ServerState.RUNNING)
+                self.status_tracker.record_start_time(server_id)
+                logger.info(f"Enabled server synchronously: {server_id}")
+                return True
+            return False
+            
         except RuntimeError:
             # No async loop, just enable the server
             managed_server = self._managed_servers.get(server_id)
@@ -398,7 +427,7 @@ class MCPManager:
                 managed_server.enable()
                 self.status_tracker.set_status(server_id, ServerState.RUNNING)
                 self.status_tracker.record_start_time(server_id)
-                logger.info(f"Enabled server (will start when async available): {server_id}")
+                logger.info(f"Enabled server (no async context): {server_id}")
                 return True
             return False
     
@@ -473,10 +502,35 @@ class MCPManager:
         """
         try:
             loop = asyncio.get_running_loop()
-            # We're in an async context, create a task
-            task = asyncio.create_task(self.stop_server(server_id))
-            # Return True optimistically
-            return True
+            # We're in an async context, but we need to wait for completion
+            async def run_async():
+                return await self.stop_server(server_id)
+            
+            # Schedule the task and wait briefly for it to complete
+            task = asyncio.create_task(run_async())
+            
+            # Give it a moment to complete - this fixes the race condition
+            import time
+            time.sleep(0.1)  # Small delay to let async tasks progress
+            
+            # Check if task completed, if not, fall back to sync disable
+            if task.done():
+                try:
+                    result = task.result()
+                    return result
+                except Exception:
+                    pass
+            
+            # If async didn't complete, disable synchronously
+            managed_server = self._managed_servers.get(server_id)
+            if managed_server:
+                managed_server.disable()
+                self.status_tracker.set_status(server_id, ServerState.STOPPED)
+                self.status_tracker.record_stop_time(server_id)
+                logger.info(f"Disabled server synchronously: {server_id}")
+                return True
+            return False
+            
         except RuntimeError:
             # No async loop, just disable the server
             managed_server = self._managed_servers.get(server_id)
@@ -484,7 +538,7 @@ class MCPManager:
                 managed_server.disable()
                 self.status_tracker.set_status(server_id, ServerState.STOPPED)
                 self.status_tracker.record_stop_time(server_id)
-                logger.info(f"Disabled server: {server_id}")
+                logger.info(f"Disabled server (no async context): {server_id}")
                 return True
             return False
     
