@@ -1,0 +1,1003 @@
+"""
+MCP Command Handler - Command line interface for managing MCP servers.
+
+This module provides the MCPCommandHandler class that implements the /mcp command
+interface for managing MCP servers at runtime. It provides commands for listing,
+starting, stopping, configuring, and monitoring MCP servers.
+"""
+
+import logging
+import shlex
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+from rich.table import Table
+from rich.console import Console
+from rich.text import Text
+from rich.panel import Panel
+from rich.columns import Columns
+
+from code_puppy.mcp.manager import get_mcp_manager, ServerInfo
+from code_puppy.mcp.managed_server import ServerConfig, ServerState
+from code_puppy.messaging import emit_info, emit_success, emit_warning, emit_error
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+
+class MCPCommandHandler:
+    """
+    Command handler for MCP server management operations.
+    
+    Provides the /mcp command interface that allows users to manage MCP servers
+    at runtime through commands like list, start, stop, restart, status, etc.
+    Uses Rich library for formatted output with tables, colors, and status indicators.
+    
+    Example usage:
+        handler = MCPCommandHandler()
+        handler.handle_mcp_command("/mcp list")
+        handler.handle_mcp_command("/mcp start filesystem")
+        handler.handle_mcp_command("/mcp status filesystem")
+    """
+    
+    def __init__(self):
+        """Initialize the MCP command handler."""
+        self.console = Console()
+        self.manager = get_mcp_manager()
+        logger.info("MCPCommandHandler initialized")
+    
+    def handle_mcp_command(self, command: str) -> bool:
+        """
+        Handle MCP commands and route to appropriate handler.
+        
+        Args:
+            command: The full command string (e.g., "/mcp list", "/mcp start server")
+            
+        Returns:
+            True if command was handled successfully, False otherwise
+        """
+        try:
+            # Remove /mcp prefix and parse arguments
+            command = command.strip()
+            if not command.startswith("/mcp"):
+                return False
+            
+            # Remove the /mcp prefix
+            args_str = command[4:].strip()
+            
+            # If no subcommand, show status dashboard
+            if not args_str:
+                self.cmd_list([])
+                return True
+            
+            # Parse arguments using shlex for proper handling of quoted strings
+            try:
+                args = shlex.split(args_str)
+            except ValueError as e:
+                emit_error(f"Invalid command syntax: {e}")
+                return True
+            
+            if not args:
+                self.cmd_list([])
+                return True
+            
+            subcommand = args[0].lower()
+            sub_args = args[1:] if len(args) > 1 else []
+            
+            # Route to appropriate command handler
+            command_map = {
+                'list': self.cmd_list,
+                'start': self.cmd_start,
+                'stop': self.cmd_stop,
+                'restart': self.cmd_restart,
+                'status': self.cmd_status,
+                'test': self.cmd_test,
+                'add': self.cmd_add,
+                'remove': self.cmd_remove,
+                'logs': self.cmd_logs,
+                'search': self.cmd_search,
+                'install': self.cmd_install,
+                'help': self.cmd_help,
+            }
+            
+            handler = command_map.get(subcommand)
+            if handler:
+                handler(sub_args)
+                return True
+            else:
+                emit_warning(f"Unknown MCP subcommand: {subcommand}")
+                emit_info("Type '/mcp help' for available commands")
+                return True
+        
+        except Exception as e:
+            logger.error(f"Error handling MCP command '{command}': {e}")
+            emit_error(f"Error executing MCP command: {e}")
+            return True
+    
+    def cmd_list(self, args: List[str]) -> None:
+        """
+        List all registered MCP servers in a formatted table.
+        
+        Args:
+            args: Command arguments (unused for list command)
+        """
+        try:
+            servers = self.manager.list_servers()
+            
+            if not servers:
+                emit_info("No MCP servers registered")
+                return
+            
+            # Create table for server list
+            table = Table(title="🔌 MCP Server Status Dashboard")
+            table.add_column("Name", style="cyan", no_wrap=True)
+            table.add_column("Type", style="dim", no_wrap=True)
+            table.add_column("State", justify="center")
+            table.add_column("Enabled", justify="center")
+            table.add_column("Uptime", style="dim")
+            table.add_column("Status", style="dim")
+            
+            for server in servers:
+                # Format state with appropriate color and icon
+                state_display = self._format_state_indicator(server.state)
+                
+                # Format enabled status
+                enabled_display = "✓" if server.enabled else "✗"
+                enabled_style = "green" if server.enabled else "red"
+                
+                # Format uptime
+                uptime_display = self._format_uptime(server.uptime_seconds)
+                
+                # Format status message
+                status_display = server.error_message or "OK"
+                if server.quarantined:
+                    status_display = "Quarantined"
+                
+                table.add_row(
+                    server.name,
+                    server.type.upper(),
+                    state_display,
+                    Text(enabled_display, style=enabled_style),
+                    uptime_display,
+                    status_display
+                )
+            
+            emit_info(table)
+            
+            # Show summary
+            total = len(servers)
+            running = sum(1 for s in servers if s.state == ServerState.RUNNING and s.enabled)
+            emit_info(f"\n📊 Summary: {running}/{total} servers running")
+        
+        except Exception as e:
+            logger.error(f"Error listing MCP servers: {e}")
+            emit_error(f"Failed to list servers: {e}")
+    
+    def cmd_start(self, args: List[str]) -> None:
+        """
+        Start a specific MCP server.
+        
+        Args:
+            args: Command arguments, expects [server_name]
+        """
+        if not args:
+            emit_warning("Usage: /mcp start <server_name>")
+            return
+        
+        server_name = args[0]
+        
+        try:
+            # Find server by name
+            server_id = self._find_server_id_by_name(server_name)
+            if not server_id:
+                emit_error(f"Server '{server_name}' not found")
+                self._suggest_similar_servers(server_name)
+                return
+            
+            # Enable the server
+            success = self.manager.enable_server(server_id)
+            
+            if success:
+                emit_success(f"✓ Started server: {server_name}")
+            else:
+                emit_error(f"✗ Failed to start server: {server_name}")
+        
+        except Exception as e:
+            logger.error(f"Error starting server '{server_name}': {e}")
+            emit_error(f"Failed to start server: {e}")
+    
+    def cmd_stop(self, args: List[str]) -> None:
+        """
+        Stop a specific MCP server.
+        
+        Args:
+            args: Command arguments, expects [server_name]
+        """
+        if not args:
+            emit_warning("Usage: /mcp stop <server_name>")
+            return
+        
+        server_name = args[0]
+        
+        try:
+            # Find server by name
+            server_id = self._find_server_id_by_name(server_name)
+            if not server_id:
+                emit_error(f"Server '{server_name}' not found")
+                self._suggest_similar_servers(server_name)
+                return
+            
+            # Disable the server
+            success = self.manager.disable_server(server_id)
+            
+            if success:
+                emit_success(f"✓ Stopped server: {server_name}")
+            else:
+                emit_error(f"✗ Failed to stop server: {server_name}")
+        
+        except Exception as e:
+            logger.error(f"Error stopping server '{server_name}': {e}")
+            emit_error(f"Failed to stop server: {e}")
+    
+    def cmd_restart(self, args: List[str]) -> None:
+        """
+        Restart a specific MCP server.
+        
+        Args:
+            args: Command arguments, expects [server_name]
+        """
+        if not args:
+            emit_warning("Usage: /mcp restart <server_name>")
+            return
+        
+        server_name = args[0]
+        
+        try:
+            # Find server by name
+            server_id = self._find_server_id_by_name(server_name)
+            if not server_id:
+                emit_error(f"Server '{server_name}' not found")
+                self._suggest_similar_servers(server_name)
+                return
+            
+            # Reload the server (this recreates it with fresh config)
+            success = self.manager.reload_server(server_id)
+            
+            if success:
+                emit_success(f"✓ Restarted server: {server_name}")
+            else:
+                emit_error(f"✗ Failed to restart server: {server_name}")
+        
+        except Exception as e:
+            logger.error(f"Error restarting server '{server_name}': {e}")
+            emit_error(f"Failed to restart server: {e}")
+    
+    def cmd_status(self, args: List[str]) -> None:
+        """
+        Show detailed status for a specific server or all servers.
+        
+        Args:
+            args: Command arguments, expects [server_name] (optional)
+        """
+        try:
+            if args:
+                # Show detailed status for specific server
+                server_name = args[0]
+                server_id = self._find_server_id_by_name(server_name)
+                
+                if not server_id:
+                    emit_error(f"Server '{server_name}' not found")
+                    self._suggest_similar_servers(server_name)
+                    return
+                
+                self._show_detailed_server_status(server_id, server_name)
+            else:
+                # Show brief status for all servers
+                self.cmd_list([])
+        
+        except Exception as e:
+            logger.error(f"Error showing server status: {e}")
+            emit_error(f"Failed to get server status: {e}")
+    
+    def cmd_test(self, args: List[str]) -> None:
+        """
+        Test connectivity to a specific MCP server.
+        
+        Args:
+            args: Command arguments, expects [server_name]
+        """
+        if not args:
+            emit_warning("Usage: /mcp test <server_name>")
+            return
+        
+        server_name = args[0]
+        
+        try:
+            # Find server by name
+            server_id = self._find_server_id_by_name(server_name)
+            if not server_id:
+                emit_error(f"Server '{server_name}' not found")
+                self._suggest_similar_servers(server_name)
+                return
+            
+            # Get managed server
+            managed_server = self.manager.get_server(server_id)
+            if not managed_server:
+                emit_error(f"Server '{server_name}' not accessible")
+                return
+            
+            emit_info(f"🔍 Testing connectivity to server: {server_name}")
+            
+            # Basic connectivity test - try to get the pydantic server
+            try:
+                pydantic_server = managed_server.get_pydantic_server()
+                emit_success(f"✓ Server instance created successfully")
+                
+                # Try to get server info if available
+                emit_info(f"  • Server type: {managed_server.config.type}")
+                emit_info(f"  • Server enabled: {managed_server.is_enabled()}")
+                emit_info(f"  • Server quarantined: {managed_server.is_quarantined()}")
+                
+                if not managed_server.is_enabled():
+                    emit_warning("  • Server is disabled - enable it with '/mcp start'")
+                
+                if managed_server.is_quarantined():
+                    emit_warning("  • Server is quarantined - may have recent errors")
+                
+                emit_success(f"✓ Connectivity test passed for: {server_name}")
+                
+            except Exception as test_error:
+                emit_error(f"✗ Connectivity test failed: {test_error}")
+        
+        except Exception as e:
+            logger.error(f"Error testing server '{server_name}': {e}")
+            emit_error(f"Failed to test server: {e}")
+    
+    def cmd_add(self, args: List[str]) -> None:
+        """
+        Add a new MCP server from JSON configuration or launch wizard.
+        
+        Usage:
+            /mcp add                    - Launch interactive wizard
+            /mcp add <json>             - Add server from JSON config
+            
+        Example JSON:
+            /mcp add {"name": "test", "type": "stdio", "command": "echo", "args": ["hello"]}
+        
+        Args:
+            args: Command arguments - JSON config or empty for wizard
+        """
+        try:
+            if args:
+                # Parse JSON from arguments
+                import json
+                json_str = ' '.join(args)
+                
+                try:
+                    config_dict = json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    emit_error(f"Invalid JSON: {e}")
+                    emit_info("Usage: /mcp add <json> or /mcp add (for wizard)")
+                    emit_info('Example: /mcp add {"name": "test", "type": "stdio", "command": "echo"}')
+                    return
+                
+                # Validate required fields
+                if 'name' not in config_dict:
+                    emit_error("Missing required field: 'name'")
+                    return
+                if 'type' not in config_dict:
+                    emit_error("Missing required field: 'type'")
+                    return
+                
+                # Create ServerConfig
+                from code_puppy.mcp import ServerConfig
+                
+                name = config_dict.pop('name')
+                server_type = config_dict.pop('type')
+                enabled = config_dict.pop('enabled', True)
+                
+                # Everything else goes into config
+                server_config = ServerConfig(
+                    id=f"{name}_{hash(name)}",
+                    name=name,
+                    type=server_type,
+                    enabled=enabled,
+                    config=config_dict  # Remaining fields are server-specific config
+                )
+                
+                # Register the server
+                server_id = self.manager.register_server(server_config)
+                
+                if server_id:
+                    emit_success(f"✅ Added server '{name}' (ID: {server_id})")
+                    
+                    # Save to mcp_servers.json for persistence
+                    from code_puppy.config import MCP_SERVERS_FILE
+                    import os
+                    
+                    # Load existing configs
+                    if os.path.exists(MCP_SERVERS_FILE):
+                        with open(MCP_SERVERS_FILE, 'r') as f:
+                            data = json.load(f)
+                            servers = data.get("mcp_servers", {})
+                    else:
+                        servers = {}
+                        data = {"mcp_servers": servers}
+                    
+                    # Add new server
+                    servers[name] = config_dict
+                    servers[name]['type'] = server_type
+                    
+                    # Save back
+                    os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
+                    with open(MCP_SERVERS_FILE, 'w') as f:
+                        json.dump(data, f, indent=2)
+                    
+                    # Reload MCP servers
+                    from code_puppy.agent import reload_mcp_servers
+                    reload_mcp_servers()
+                    
+                    emit_info("Use '/mcp list' to see all servers")
+                else:
+                    emit_error(f"Failed to add server '{name}'")
+                    
+            else:
+                # No arguments - launch interactive wizard
+                from code_puppy.mcp.config_wizard import run_add_wizard
+                
+                success = run_add_wizard()
+                
+                if success:
+                    # Reload the agent to pick up new server
+                    from code_puppy.agent import reload_mcp_servers
+                    reload_mcp_servers()
+                
+        except ImportError as e:
+            logger.error(f"Failed to import: {e}")
+            emit_error("Required module not available")
+        except Exception as e:
+            logger.error(f"Error adding server: {e}")
+            emit_error(f"Failed to add server: {e}")
+    
+    def cmd_remove(self, args: List[str]) -> None:
+        """
+        Remove an MCP server.
+        
+        Args:
+            args: Command arguments, expects [server_name]
+        """
+        if not args:
+            emit_warning("Usage: /mcp remove <server_name>")
+            return
+        
+        server_name = args[0]
+        
+        try:
+            # Find server by name
+            server_id = self._find_server_id_by_name(server_name)
+            if not server_id:
+                emit_error(f"Server '{server_name}' not found")
+                self._suggest_similar_servers(server_name)
+                return
+            
+            # Actually remove the server
+            success = self.manager.remove_server(server_id)
+            
+            if success:
+                emit_success(f"✓ Removed server: {server_name}")
+                
+                # Also remove from mcp_servers.json
+                from code_puppy.config import MCP_SERVERS_FILE
+                import json
+                import os
+                
+                if os.path.exists(MCP_SERVERS_FILE):
+                    try:
+                        with open(MCP_SERVERS_FILE, 'r') as f:
+                            data = json.load(f)
+                            servers = data.get("mcp_servers", {})
+                        
+                        # Remove the server if it exists
+                        if server_name in servers:
+                            del servers[server_name]
+                            
+                            # Save back
+                            with open(MCP_SERVERS_FILE, 'w') as f:
+                                json.dump(data, f, indent=2)
+                    except Exception as e:
+                        logger.warning(f"Could not update mcp_servers.json: {e}")
+            else:
+                emit_error(f"✗ Failed to remove server: {server_name}")
+        
+        except Exception as e:
+            logger.error(f"Error removing server '{server_name}': {e}")
+            emit_error(f"Failed to remove server: {e}")
+    
+    def cmd_logs(self, args: List[str]) -> None:
+        """
+        Show recent events/logs for a server.
+        
+        Args:
+            args: Command arguments, expects [server_name] and optional [limit]
+        """
+        if not args:
+            emit_warning("Usage: /mcp logs <server_name> [limit]")
+            return
+        
+        server_name = args[0]
+        limit = 10  # Default limit
+        
+        if len(args) > 1:
+            try:
+                limit = int(args[1])
+                if limit <= 0 or limit > 100:
+                    emit_warning("Limit must be between 1 and 100, using default: 10")
+                    limit = 10
+            except ValueError:
+                emit_warning(f"Invalid limit '{args[1]}', using default: 10")
+        
+        try:
+            # Find server by name
+            server_id = self._find_server_id_by_name(server_name)
+            if not server_id:
+                emit_error(f"Server '{server_name}' not found")
+                self._suggest_similar_servers(server_name)
+                return
+            
+            # Get server status which includes recent events
+            status = self.manager.get_server_status(server_id)
+            
+            if not status.get("exists", True):
+                emit_error(f"Server '{server_name}' status not available")
+                return
+            
+            recent_events = status.get("recent_events", [])
+            
+            if not recent_events:
+                emit_info(f"No recent events for server: {server_name}")
+                return
+            
+            # Show events in a table
+            table = Table(title=f"📋 Recent Events for {server_name} (last {limit})")
+            table.add_column("Time", style="dim", no_wrap=True)
+            table.add_column("Event", style="cyan")
+            table.add_column("Details", style="dim")
+            
+            # Take only the requested number of events
+            events_to_show = recent_events[-limit:] if len(recent_events) > limit else recent_events
+            
+            for event in reversed(events_to_show):  # Show newest first
+                timestamp = datetime.fromisoformat(event["timestamp"])
+                time_str = timestamp.strftime("%H:%M:%S")
+                event_type = event["event_type"]
+                
+                # Format details
+                details = event.get("details", {})
+                details_str = details.get("message", "")
+                if not details_str and "error" in details:
+                    details_str = str(details["error"])
+                
+                # Color code event types
+                event_style = "cyan"
+                if "error" in event_type.lower():
+                    event_style = "red"
+                elif event_type in ["started", "enabled", "registered"]:
+                    event_style = "green"
+                elif event_type in ["stopped", "disabled"]:
+                    event_style = "yellow"
+                
+                table.add_row(
+                    time_str,
+                    Text(event_type, style=event_style),
+                    details_str or "-"
+                )
+            
+            emit_info(table)
+        
+        except Exception as e:
+            logger.error(f"Error getting logs for server '{server_name}': {e}")
+            emit_error(f"Failed to get server logs: {e}")
+    
+    def cmd_help(self, args: List[str]) -> None:
+        """
+        Show help for MCP commands.
+        
+        Args:
+            args: Command arguments (unused)
+        """
+        help_text = """[bold magenta]MCP Server Management Commands[/bold magenta]
+
+[bold cyan]Registry Commands:[/bold cyan]
+[cyan]/mcp search [query][/cyan]     Search 30+ pre-configured servers
+[cyan]/mcp install <id>[/cyan]       Install server from registry
+
+[bold cyan]Core Commands:[/bold cyan]
+[cyan]/mcp[/cyan]                    Show server status dashboard
+[cyan]/mcp list[/cyan]               List all registered servers
+[cyan]/mcp start <name>[/cyan]       Start a specific server
+[cyan]/mcp stop <name>[/cyan]        Stop a specific server  
+[cyan]/mcp restart <name>[/cyan]     Restart a specific server
+
+[bold cyan]Management Commands:[/bold cyan]
+[cyan]/mcp status [name][/cyan]      Show detailed status (all servers or specific)
+[cyan]/mcp test <name>[/cyan]        Test connectivity to a server
+[cyan]/mcp logs <name> [limit][/cyan] Show recent events (default limit: 10)
+[cyan]/mcp add [json][/cyan]         Add new server (JSON or wizard)
+[cyan]/mcp remove <name>[/cyan]      Remove/disable a server
+[cyan]/mcp help[/cyan]               Show this help message
+
+[bold]Status Indicators:[/bold]
+✓ Running    ✗ Stopped    ⚠ Error    ⏸ Quarantined    ⭐ Popular
+
+[bold]Examples:[/bold]
+[dim]/mcp search database     # Find database servers
+/mcp install postgres    # Install PostgreSQL server
+/mcp start filesystem    # Start a server
+/mcp add {"name": "test", "type": "stdio", "command": "echo"}[/dim]
+"""
+        emit_info(help_text)
+    
+    def cmd_search(self, args: List[str]) -> None:
+        """
+        Search for pre-configured MCP servers in the registry.
+        
+        Args:
+            args: Search query terms
+        """
+        try:
+            from code_puppy.mcp.server_registry_catalog import catalog
+            from rich.table import Table
+            
+            if not args:
+                # Show popular servers if no query
+                emit_info("[bold cyan]Popular MCP Servers:[/bold cyan]\n")
+                servers = catalog.get_popular(15)
+            else:
+                query = ' '.join(args)
+                emit_info(f"[bold cyan]Searching for: {query}[/bold cyan]\n")
+                servers = catalog.search(query)
+            
+            if not servers:
+                emit_warning("No servers found matching your search")
+                emit_info("Try: /mcp search database, /mcp search file, /mcp search git")
+                return
+            
+            # Create results table
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("ID", style="cyan", width=20)
+            table.add_column("Name", style="green")
+            table.add_column("Category", style="yellow")
+            table.add_column("Description", style="white")
+            table.add_column("Tags", style="dim")
+            
+            for server in servers[:20]:  # Limit to 20 results
+                tags = ', '.join(server.tags[:3])  # Show first 3 tags
+                if len(server.tags) > 3:
+                    tags += '...'
+                
+                # Add verified/popular indicators
+                indicators = []
+                if server.verified:
+                    indicators.append("✓")
+                if server.popular:
+                    indicators.append("⭐")
+                name_display = server.display_name
+                if indicators:
+                    name_display += f" {''.join(indicators)}"
+                
+                table.add_row(
+                    server.id,
+                    name_display,
+                    server.category,
+                    server.description[:50] + "..." if len(server.description) > 50 else server.description,
+                    tags
+                )
+            
+            emit_info(table)
+            emit_info("\n[dim]✓ = Verified  ⭐ = Popular[/dim]")
+            emit_info("[yellow]To install:[/yellow] /mcp install <id>")
+            emit_info("[yellow]For details:[/yellow] /mcp search <specific-term>")
+            
+        except ImportError:
+            emit_error("Server registry not available")
+        except Exception as e:
+            logger.error(f"Error searching servers: {e}")
+            emit_error(f"Search failed: {e}")
+    
+    def cmd_install(self, args: List[str]) -> None:
+        """
+        Install a pre-configured MCP server from the registry.
+        
+        Args:
+            args: Server ID and optional custom name
+        """
+        try:
+            from code_puppy.mcp.server_registry_catalog import catalog
+            from code_puppy.mcp import ServerConfig
+            import json
+            
+            if not args:
+                emit_warning("Usage: /mcp install <server-id> [custom-name]")
+                emit_info("Use '/mcp search' to find available servers")
+                return
+            
+            server_id = args[0]
+            custom_name = args[1] if len(args) > 1 else None
+            
+            # Find server in registry
+            template = catalog.get_by_id(server_id)
+            if not template:
+                emit_error(f"Server '{server_id}' not found in registry")
+                
+                # Suggest similar servers
+                suggestions = catalog.search(server_id)
+                if suggestions:
+                    emit_info("Did you mean one of these?")
+                    for s in suggestions[:5]:
+                        emit_info(f"  • {s.id} - {s.display_name}")
+                return
+            
+            # Show server details
+            emit_info(f"[bold cyan]Installing: {template.display_name}[/bold cyan]")
+            emit_info(f"[dim]{template.description}[/dim]")
+            
+            # Check requirements
+            if template.requires:
+                emit_info(f"[yellow]Requirements:[/yellow] {', '.join(template.requires)}")
+            
+            # Use custom name or generate one
+            if not custom_name:
+                # Check if default name exists
+                existing = self.manager.registry.get_by_name(template.name)
+                if existing:
+                    # Generate unique name
+                    import time
+                    custom_name = f"{template.name}-{int(time.time()) % 10000}"
+                    emit_info(f"[dim]Using name: {custom_name} (original already exists)[/dim]")
+                else:
+                    custom_name = template.name
+            
+            # Convert template to server config
+            config_dict = template.to_server_config(custom_name)
+            
+            # Create ServerConfig
+            server_config = ServerConfig(
+                id=f"{custom_name}_{hash(custom_name)}",
+                name=custom_name,
+                type=config_dict.pop('type'),
+                enabled=True,
+                config=config_dict
+            )
+            
+            # Register the server
+            server_id = self.manager.register_server(server_config)
+            
+            if server_id:
+                emit_success(f"✅ Installed '{custom_name}' from {template.display_name}")
+                
+                # Save to mcp_servers.json
+                from code_puppy.config import MCP_SERVERS_FILE
+                import os
+                
+                if os.path.exists(MCP_SERVERS_FILE):
+                    with open(MCP_SERVERS_FILE, 'r') as f:
+                        data = json.load(f)
+                        servers = data.get("mcp_servers", {})
+                else:
+                    servers = {}
+                    data = {"mcp_servers": servers}
+                
+                servers[custom_name] = config_dict
+                servers[custom_name]['type'] = server_config.type
+                
+                os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
+                with open(MCP_SERVERS_FILE, 'w') as f:
+                    json.dump(data, f, indent=2)
+                
+                # Show next steps
+                if template.example_usage:
+                    emit_info(f"[yellow]Example:[/yellow] {template.example_usage}")
+                
+                # Check for environment variables
+                env_vars = []
+                if 'env' in config_dict:
+                    for key, value in config_dict['env'].items():
+                        if value.startswith('$'):
+                            env_vars.append(value[1:])
+                
+                if env_vars:
+                    emit_warning(f"[yellow]Required environment variables:[/yellow] {', '.join(env_vars)}")
+                    emit_info("Set these before starting the server")
+                
+                emit_info(f"Use '/mcp start {custom_name}' to start the server")
+                
+                # Reload MCP servers
+                from code_puppy.agent import reload_mcp_servers
+                reload_mcp_servers()
+            else:
+                emit_error(f"Failed to install server")
+                
+        except ImportError:
+            emit_error("Server registry not available")
+        except Exception as e:
+            logger.error(f"Error installing server: {e}")
+            emit_error(f"Installation failed: {e}")
+    
+    def _find_server_id_by_name(self, server_name: str) -> Optional[str]:
+        """
+        Find a server ID by its name.
+        
+        Args:
+            server_name: Name of the server to find
+            
+        Returns:
+            Server ID if found, None otherwise
+        """
+        try:
+            servers = self.manager.list_servers()
+            for server in servers:
+                if server.name.lower() == server_name.lower():
+                    return server.id
+            return None
+        except Exception as e:
+            logger.error(f"Error finding server by name '{server_name}': {e}")
+            return None
+    
+    def _suggest_similar_servers(self, server_name: str) -> None:
+        """
+        Suggest similar server names when a server is not found.
+        
+        Args:
+            server_name: The server name that was not found
+        """
+        try:
+            servers = self.manager.list_servers()
+            if not servers:
+                emit_info("No servers are registered")
+                return
+            
+            # Simple suggestion based on partial matching
+            suggestions = []
+            server_name_lower = server_name.lower()
+            
+            for server in servers:
+                if server_name_lower in server.name.lower():
+                    suggestions.append(server.name)
+            
+            if suggestions:
+                emit_info(f"Did you mean: {', '.join(suggestions)}")
+            else:
+                server_names = [s.name for s in servers]
+                emit_info(f"Available servers: {', '.join(server_names)}")
+        
+        except Exception as e:
+            logger.error(f"Error suggesting similar servers: {e}")
+    
+    def _format_state_indicator(self, state: ServerState) -> Text:
+        """
+        Format a server state with appropriate color and icon.
+        
+        Args:
+            state: Server state to format
+            
+        Returns:
+            Rich Text object with colored state indicator
+        """
+        state_map = {
+            ServerState.RUNNING: ("✓ Run", "green"),
+            ServerState.STOPPED: ("✗ Stop", "red"),
+            ServerState.STARTING: ("↗ Start", "yellow"),
+            ServerState.STOPPING: ("↙ Stop", "yellow"),
+            ServerState.ERROR: ("⚠ Err", "red"),
+            ServerState.QUARANTINED: ("⏸ Quar", "yellow"),
+        }
+        
+        display, color = state_map.get(state, ("? Unk", "dim"))
+        return Text(display, style=color)
+    
+    def _format_uptime(self, uptime_seconds: Optional[float]) -> str:
+        """
+        Format uptime in a human-readable format.
+        
+        Args:
+            uptime_seconds: Uptime in seconds, or None
+            
+        Returns:
+            Formatted uptime string
+        """
+        if uptime_seconds is None or uptime_seconds <= 0:
+            return "-"
+        
+        # Convert to readable format
+        if uptime_seconds < 60:
+            return f"{int(uptime_seconds)}s"
+        elif uptime_seconds < 3600:
+            minutes = int(uptime_seconds // 60)
+            seconds = int(uptime_seconds % 60)
+            return f"{minutes}m {seconds}s"
+        else:
+            hours = int(uptime_seconds // 3600)
+            minutes = int((uptime_seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
+    
+    def _show_detailed_server_status(self, server_id: str, server_name: str) -> None:
+        """
+        Show comprehensive status information for a specific server.
+        
+        Args:
+            server_id: ID of the server
+            server_name: Name of the server
+        """
+        try:
+            status = self.manager.get_server_status(server_id)
+            
+            if not status.get("exists", True):
+                emit_error(f"Server '{server_name}' not found or not accessible")
+                return
+            
+            # Create detailed status panel
+            status_lines = []
+            
+            # Basic information
+            status_lines.append(f"[bold]Server:[/bold] {server_name}")
+            status_lines.append(f"[bold]ID:[/bold] {server_id}")
+            status_lines.append(f"[bold]Type:[/bold] {status.get('type', 'unknown').upper()}")
+            
+            # State and status
+            state = status.get('state', 'unknown')
+            state_display = self._format_state_indicator(ServerState(state) if state in [s.value for s in ServerState] else ServerState.STOPPED)
+            status_lines.append(f"[bold]State:[/bold] {state_display}")
+            
+            enabled = status.get('enabled', False)
+            status_lines.append(f"[bold]Enabled:[/bold] {'✓ Yes' if enabled else '✗ No'}")
+            
+            quarantined = status.get('quarantined', False)
+            if quarantined:
+                status_lines.append(f"[bold]Quarantined:[/bold] [yellow]⚠ Yes[/yellow]")
+            
+            # Timing information
+            uptime = status.get('tracker_uptime')
+            if uptime:
+                uptime_str = self._format_uptime(uptime.total_seconds() if hasattr(uptime, 'total_seconds') else uptime)
+                status_lines.append(f"[bold]Uptime:[/bold] {uptime_str}")
+            
+            # Error information
+            error_msg = status.get('error_message')
+            if error_msg:
+                status_lines.append(f"[bold]Error:[/bold] [red]{error_msg}[/red]")
+            
+            # Event information
+            event_count = status.get('recent_events_count', 0)
+            status_lines.append(f"[bold]Recent Events:[/bold] {event_count}")
+            
+            # Metadata
+            metadata = status.get('tracker_metadata', {})
+            if metadata:
+                status_lines.append(f"[bold]Metadata:[/bold] {len(metadata)} keys")
+            
+            # Create and show the panel
+            panel_content = "\n".join(status_lines)
+            panel = Panel(
+                panel_content,
+                title=f"🔌 {server_name} Status",
+                border_style="cyan"
+            )
+            
+            emit_info(panel)
+            
+            # Show recent events if available
+            recent_events = status.get('recent_events', [])
+            if recent_events:
+                emit_info("\n📋 Recent Events:")
+                for event in recent_events[-5:]:  # Show last 5 events
+                    timestamp = datetime.fromisoformat(event["timestamp"])
+                    time_str = timestamp.strftime("%H:%M:%S")
+                    event_type = event["event_type"]
+                    details = event.get("details", {})
+                    message = details.get("message", "")
+                    
+                    emit_info(f"  [dim]{time_str}[/dim] [cyan]{event_type}[/cyan] {message}")
+        
+        except Exception as e:
+            logger.error(f"Error showing detailed status for server '{server_name}': {e}")
+            emit_error(f"Failed to get detailed status: {e}")

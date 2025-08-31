@@ -42,7 +42,9 @@ _code_generation_agent = None
 
 
 def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
+    """Load MCP servers using the new manager while maintaining backward compatibility."""
     from code_puppy.config import get_value, load_mcp_server_configs
+    from code_puppy.mcp import get_mcp_manager, ServerConfig
 
     # Check if MCP servers are disabled
     mcp_disabled = get_value("disable_mcp_servers")
@@ -50,82 +52,70 @@ def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
         emit_system_message("[dim]MCP servers disabled via config[/dim]")
         return []
 
+    # Get the MCP manager singleton
+    manager = get_mcp_manager()
+    
+    # Load configurations from legacy file for backward compatibility
     configs = load_mcp_server_configs()
     if not configs:
-        emit_system_message("[dim]No MCP servers configured[/dim]")
-        return []
-    servers = []
-    for name, conf in configs.items():
-        server_type = conf.get("type", "sse")
-        url = conf.get("url")
-        timeout = conf.get("timeout", 30)
-        server_headers = {}
-        if extra_headers:
-            server_headers.update(extra_headers)
-        user_headers = conf.get("headers") or {}
-        if isinstance(user_headers, dict) and user_headers:
+        # Check if manager already has servers (could be from new system)
+        existing_servers = manager.list_servers()
+        if not existing_servers:
+            emit_system_message("[dim]No MCP servers configured[/dim]")
+            return []
+    else:
+        # Register servers from legacy config with manager
+        for name, conf in configs.items():
             try:
-                user_headers = resolve_env_var_in_header(user_headers)
-            except Exception:
-                pass
-            server_headers.update(user_headers)
-        http_client = None
-
-        try:
-            if server_type == "http" and url:
-                emit_system_message(
-                    f"Registering MCP Server (HTTP) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
+                # Convert legacy format to new ServerConfig
+                server_config = ServerConfig(
+                    id=conf.get("id", f"{name}_{hash(name)}"),
+                    name=name,
+                    type=conf.get("type", "sse"),
+                    enabled=conf.get("enabled", True),
+                    config=conf
                 )
-                http_client = create_reopenable_async_client(
-                    timeout=timeout, headers=server_headers or None, verify=False
-                )
-                servers.append(
-                    MCPServerStreamableHTTP(url=url, http_client=http_client)
-                )
-            elif (
-                server_type == "stdio"
-            ):  # Fixed: was "stdios" (plural), should be "stdio" (singular)
-                command = conf.get("command")
-                args = conf.get("args", [])
-                timeout = conf.get(
-                    "timeout", 30
-                )  # Default 30 seconds for stdio servers (npm downloads can be slow)
-                if command:
-                    emit_system_message(
-                        f"Registering MCP Server (Stdio) - {command} {args} (timeout: {timeout}s)"
-                    )
-                    servers.append(MCPServerStdio(command, args=args, timeout=timeout))
+                
+                # Check if server already registered
+                existing = manager.get_server_by_name(name)
+                if not existing:
+                    # Register new server
+                    manager.register_server(server_config)
+                    emit_system_message(f"[dim]Registered MCP server: {name}[/dim]")
                 else:
-                    emit_error(f"MCP Server '{name}' missing required 'command' field")
-            elif server_type == "sse" and url:
-                emit_system_message(
-                    f"Registering MCP Server (SSE) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
-                )
-                # For SSE, allow long reads; only bound connect timeout
-                http_client = create_reopenable_async_client(
-                    timeout=30, headers=server_headers or None, verify=False
-                )
-                servers.append(MCPServerSSE(url=url, http_client=http_client))
-            else:
-                emit_error(
-                    f"Invalid type '{server_type}' or missing URL for MCP server '{name}'"
-                )
-        except Exception as e:
-            emit_error(f"Failed to register MCP server '{name}': {str(e)}")
-            emit_info(f"Skipping server '{name}' and continuing with other servers...")
-            # Continue with other servers instead of crashing
-            continue
-
+                    # Update existing server config if needed
+                    if existing.config != server_config.config:
+                        manager.update_server(existing.id, server_config)
+                        emit_system_message(f"[dim]Updated MCP server: {name}[/dim]")
+                        
+            except Exception as e:
+                emit_error(f"Failed to register MCP server '{name}': {str(e)}")
+                continue
+    
+    # Get pydantic-ai compatible servers from manager
+    servers = manager.get_servers_for_agent()
+    
     if servers:
         emit_system_message(
-            f"[green]Successfully registered {len(servers)} MCP server(s)[/green]"
+            f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
         )
     else:
         emit_system_message(
-            "[yellow]No MCP servers were successfully registered[/yellow]"
+            "[yellow]No MCP servers available (check if servers are enabled)[/yellow]"
         )
-
+    
     return servers
+
+
+def reload_mcp_servers():
+    """Reload MCP servers without restarting the agent."""
+    from code_puppy.mcp import get_mcp_manager
+    
+    manager = get_mcp_manager()
+    # Reload configurations
+    _load_mcp_servers()
+    # Return updated servers
+    return manager.get_servers_for_agent()
 
 
 def reload_code_generation_agent():

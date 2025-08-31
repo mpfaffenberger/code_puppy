@@ -16,7 +16,8 @@ COMMANDS_HELP = """
 /agent <name>         Switch to a different agent or show available agents
 /exit, /quit          Exit interactive mode
 /generate-pr-description [@dir]  Generate comprehensive PR description
-/m <model>            Set active model
+/model <model>        Set active model
+/mcp                  Manage MCP servers (list, start, stop, status, etc.)
 /motd                 Show the latest message of the day (MOTD)
 /show                 Show puppy config key-values
 /compact              Summarize and compact current chat history
@@ -297,9 +298,11 @@ def handle_command(command: str):
             emit_warning("Usage: /agent [agent-name]")
             return True
 
-    if command.startswith("/m"):
+    if command.startswith("/model"):
         # Try setting model and show confirmation
-        new_input = update_model_in_input(command)
+        # Handle both /model and /m for backward compatibility
+        model_command = command.replace("/model", "/m") if command.startswith("/model") else command
+        new_input = update_model_in_input(model_command)
         if new_input is not None:
             from code_puppy.agent import get_code_generation_agent
             from code_puppy.command_line.model_picker_completion import get_active_model
@@ -311,9 +314,14 @@ def handle_command(command: str):
             return True
         # If no model matched, show available models
         model_names = load_model_names()
-        emit_warning("Usage: /m <model-name>")
+        emit_warning("Usage: /model <model-name>")
         emit_warning(f"Available models: {', '.join(model_names)}")
         return True
+    
+    if command.startswith("/mcp"):
+        from code_puppy.command_line.mcp_commands import MCPCommandHandler
+        handler = MCPCommandHandler()
+        return handler.handle_mcp_command(command)
     if command in ("/help", "/h"):
         emit_info(COMMANDS_HELP)
         return True
