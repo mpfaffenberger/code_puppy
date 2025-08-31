@@ -183,8 +183,45 @@ def get_code_generation_agent(force_reload=False):
 
 def get_custom_usage_limits():
     """
-    Returns custom usage limits with increased request limit of 100 requests per minute.
-    This centralizes the configuration of rate limiting for the agent.
-    Default pydantic-ai limit is 50, this increases it to 100.
+    Build UsageLimits based on the active model's configuration.
+
+    Supports the following optional per-model fields in models.json:
+    - max_requests_per_minute -> maps to UsageLimits.request_limit
+    - max_token_limit_per_minute -> maps to UsageLimits.request_tokens_limit and total_tokens_limit
+
+    Fallbacks:
+    - request_limit defaults to 100 (doubling pydantic-ai's default of 50)
+    - token limits remain unlimited if not specified
     """
-    return UsageLimits(request_limit=100)
+    # Defaults
+    request_limit = 100
+    request_tokens_limit = None
+    total_tokens_limit = None
+
+    try:
+        # Determine the active model and read its config
+        from code_puppy.config import get_model_name
+        model_name = get_model_name()
+        models_config = ModelFactory.load_config()
+        model_cfg = models_config.get(model_name) or {}
+
+        # Apply per-model overrides if specified
+        if isinstance(model_cfg, dict):
+            rpm = model_cfg.get("max_requests_per_minute")
+            if isinstance(rpm, int) and rpm > 0:
+                request_limit = rpm
+
+            tpm = model_cfg.get("max_token_limit_per_minute")
+            if isinstance(tpm, int) and tpm > 0:
+                # Apply to request tokens and total tokens to be conservative
+                request_tokens_limit = tpm
+                total_tokens_limit = tpm
+    except Exception:
+        # On any error, fall back to defaults silently
+        pass
+
+    return UsageLimits(
+        request_limit=request_limit,
+        request_tokens_limit=request_tokens_limit,
+        total_tokens_limit=total_tokens_limit,
+    )

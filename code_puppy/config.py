@@ -137,8 +137,7 @@ def _default_model_from_models_json():
         # Local import to avoid potential circular dependency on module import
         from code_puppy.model_factory import ModelFactory
 
-        models_config_path = os.path.join(CONFIG_DIR, "models.json")
-        models_config = ModelFactory.load_config(models_config_path)
+        models_config = ModelFactory.load_config()
         first_key = next(iter(models_config))  # Raises StopIteration if empty
         _default_model_cache = first_key
         return first_key
@@ -159,8 +158,7 @@ def _validate_model_exists(model_name: str) -> bool:
     try:
         from code_puppy.model_factory import ModelFactory
 
-        models_config_path = os.path.join(CONFIG_DIR, "models.json")
-        models_config = ModelFactory.load_config(models_config_path)
+        models_config = ModelFactory.load_config()
         exists = model_name in models_config
 
         # Cache the result
