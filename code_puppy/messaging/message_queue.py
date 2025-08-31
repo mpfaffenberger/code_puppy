@@ -71,9 +71,6 @@ class MessageQueue:
         self._startup_buffer = []  # Buffer messages before any renderer starts
         self._has_active_renderer = False
         self._event_loop = None  # Store reference to the event loop
-        # Smart grouping state
-        self._last_group_id = None  # Track the most recent group ID
-        self._last_was_explicit_group = False  # Track if last message had explicit group ID
 
     def start(self):
         """Start the queue processing."""
@@ -127,34 +124,6 @@ class MessageQueue:
 
     def emit_simple(self, message_type: MessageType, content: Any, **metadata):
         """Emit a simple message with just type and content."""
-        # Implement smart grouping logic
-        message_group = metadata.get('message_group')
-        
-        if message_group:
-            # Message has explicit group ID
-            self._last_group_id = message_group
-            self._last_was_explicit_group = True
-        else:
-            # Message has no explicit group ID - apply smart grouping
-            if self._last_group_id is not None and not self._last_was_explicit_group:
-                # Previous message was auto-grouped, continue the chain
-                metadata['message_group'] = self._last_group_id
-            elif self._last_group_id is not None and self._last_was_explicit_group:
-                # Previous message was explicitly grouped, don't auto-group to it
-                # Generate a new group ID for this ungrouped message
-                import uuid
-                new_group_id = str(uuid.uuid4())
-                metadata['message_group'] = new_group_id
-                self._last_group_id = new_group_id
-                self._last_was_explicit_group = False
-            else:
-                # No previous group ID, start a new auto-group
-                import uuid
-                new_group_id = str(uuid.uuid4())
-                metadata['message_group'] = new_group_id
-                self._last_group_id = new_group_id
-                self._last_was_explicit_group = False
-        
         msg = UIMessage(type=message_type, content=content, metadata=metadata)
         self.emit(msg)
 

@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -118,8 +119,10 @@ def reload_mcp_servers():
     return manager.get_servers_for_agent()
 
 
-def reload_code_generation_agent():
+def reload_code_generation_agent(message_group: str | None):
     """Force-reload the agent, usually after a model change."""
+    if message_group is None:
+        message_group = str(uuid.uuid4())
     global _code_generation_agent, _LAST_MODEL_NAME
     from code_puppy.config import clear_model_cache, get_model_name
     from code_puppy.agents import clear_agent_cache
@@ -129,14 +132,15 @@ def reload_code_generation_agent():
     clear_agent_cache()
 
     model_name = get_model_name()
-    emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
+    emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]", message_group=message_group)
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
 
     # Get agent-specific system prompt
     agent_config = get_current_agent_config()
     emit_info(
-        f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]"
+        f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]",
+        message_group=message_group
     )
 
     instructions = agent_config.get_system_prompt()
@@ -173,17 +177,19 @@ def reload_code_generation_agent():
     return _code_generation_agent
 
 
-def get_code_generation_agent(force_reload=False):
+def get_code_generation_agent(force_reload=False, message_group: str | None = None):
     """
     Retrieve the agent with the currently configured model.
     Forces a reload if the model has changed, or if force_reload is passed.
     """
     global _code_generation_agent, _LAST_MODEL_NAME
+    if message_group is None:
+        message_group = str(uuid.uuid4())
     from code_puppy.config import get_model_name
 
     model_name = get_model_name()
     if _code_generation_agent is None or _LAST_MODEL_NAME != model_name or force_reload:
-        return reload_code_generation_agent()
+        return reload_code_generation_agent(message_group)
     return _code_generation_agent
 
 
