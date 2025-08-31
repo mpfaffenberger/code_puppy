@@ -7,6 +7,7 @@ all references to the agent are properly updated when it's reloaded.
 
 import asyncio
 import signal
+import uuid
 from typing import Optional, Any
 from pydantic_ai import Agent
 from pydantic_ai.usage import UsageLimits
@@ -28,7 +29,7 @@ class RuntimeAgentManager:
         self._agent: Optional[Agent] = None
         self._last_model_name: Optional[str] = None
         
-    def get_agent(self, force_reload: bool = False) -> Agent:
+    def get_agent(self, force_reload: bool = False, message_group: str = "") -> Agent:
         """
         Get the current agent instance.
         
@@ -44,7 +45,7 @@ class RuntimeAgentManager:
         from code_puppy.agent import get_code_generation_agent
         
         # Always get the current singleton - this ensures we have the latest
-        current_agent = get_code_generation_agent(force_reload=force_reload)
+        current_agent = get_code_generation_agent(force_reload=force_reload, message_group=message_group)
         self._agent = current_agent
         
         return self._agent
@@ -58,8 +59,9 @@ class RuntimeAgentManager:
         Returns:
             The newly loaded agent instance
         """
-        emit_info("[bold cyan]Reloading agent with updated configuration...[/bold cyan]")
-        return self.get_agent(force_reload=True)
+        message_group = uuid.uuid4()
+        emit_info("[bold cyan]Reloading agent with updated configuration...[/bold cyan]", message_group=message_group)
+        return self.get_agent(force_reload=True, message_group=message_group)
     
     async def run_with_mcp(self, prompt: str, usage_limits: Optional[UsageLimits] = None, **kwargs) -> Any:
         """

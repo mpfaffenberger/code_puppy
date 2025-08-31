@@ -19,7 +19,7 @@ from rich.columns import Columns
 
 from code_puppy.mcp.manager import get_mcp_manager, ServerInfo
 from code_puppy.mcp.managed_server import ServerConfig, ServerState
-from code_puppy.messaging import emit_info, emit_success, emit_warning, emit_error
+from code_puppy.messaging import emit_info
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ class MCPCommandHandler:
         
         except Exception as e:
             logger.error(f"Error handling MCP command '{command}': {e}")
-            emit_error(f"Error executing MCP command: {e}", message_group=group_id)
+            emit_info(f"Error executing MCP command: {e}", message_group=group_id)
             return True
     
     def cmd_list(self, args: List[str], group_id: str = None) -> None:
@@ -182,7 +182,7 @@ class MCPCommandHandler:
         
         except Exception as e:
             logger.error(f"Error listing MCP servers: {e}")
-            emit_error(f"Failed to list servers: {e}", message_group=group_id)
+            emit_info(f"Failed to list servers: {e}", message_group=group_id)
     
     def cmd_start(self, args: List[str]) -> None:
         """
@@ -213,7 +213,7 @@ class MCPCommandHandler:
             
             if success:
                 # This and subsequent messages will auto-group with the first message
-                emit_info(f"[green]✓ Started server: {server_name}[/green]")
+                emit_info(f"[green]✓ Started server: {server_name}[/green]", message_group=group_id)
                 
                 # Give async tasks a moment to complete
                 import asyncio
@@ -230,15 +230,15 @@ class MCPCommandHandler:
                     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
-                    emit_info("[dim]Agent reloaded with updated servers[/dim]")
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group=group_id)
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
             else:
-                emit_info(f"[red]✗ Failed to start server: {server_name}[/red]")
+                emit_info(f"[red]✗ Failed to start server: {server_name}[/red]", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error starting server '{server_name}': {e}")
-            emit_info(f"[red]Failed to start server: {e}[/red]")
+            emit_info(f"[red]Failed to start server: {e}[/red]", message_group=group_id)
     
     def cmd_start_all(self, args: List[str]) -> None:
         """
@@ -336,7 +336,7 @@ class MCPCommandHandler:
             # Find server by name
             server_id = self._find_server_id_by_name(server_name)
             if not server_id:
-                emit_error(f"Server '{server_name}' not found", message_group=group_id)
+                emit_info(f"Server '{server_name}' not found", message_group=group_id)
                 self._suggest_similar_servers(server_name, group_id=group_id)
                 return
             
@@ -344,7 +344,7 @@ class MCPCommandHandler:
             success = self.manager.stop_server_sync(server_id)
             
             if success:
-                emit_success(f"✓ Stopped server: {server_name}", message_group=group_id)
+                emit_info(f"✓ Stopped server: {server_name}", message_group=group_id)
                 
                 # Reload the agent to remove the disabled server
                 try:
@@ -355,13 +355,13 @@ class MCPCommandHandler:
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
             else:
-                emit_error(f"✗ Failed to stop server: {server_name}", message_group=group_id)
+                emit_info(f"✗ Failed to stop server: {server_name}", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error stopping server '{server_name}': {e}")
-            emit_error(f"Failed to stop server: {e}", message_group=group_id)
+            emit_info(f"Failed to stop server: {e}", message_group=group_id)
     
-    def cmd_stop_all(self, args: List[str]) -> None:
+    def cmd_stop_all(self, args: List[str], group_id) -> None:
         """
         Stop all running MCP servers.
         
@@ -372,7 +372,7 @@ class MCPCommandHandler:
             servers = self.manager.list_servers()
             
             if not servers:
-                emit_warning("No servers registered")
+                emit_info("No servers registered", message_group=group_id)
                 return
             
             stopped_count = 0
@@ -383,10 +383,10 @@ class MCPCommandHandler:
             running_servers = [s for s in servers if s.state == ServerState.RUNNING]
             
             if not running_servers:
-                emit_info("No servers are currently running")
+                emit_info("No servers are currently running", message_group=group_id)
                 return
             
-            emit_info(f"Stopping {len(running_servers)} running server(s)...")
+            emit_info(f"Stopping {len(running_servers)} running server(s)...", message_group=group_id)
             
             for server_info in running_servers:
                 server_id = server_info.id
@@ -397,17 +397,17 @@ class MCPCommandHandler:
                 
                 if success:
                     stopped_count += 1
-                    emit_success(f"  ✓ Stopped: {server_name}")
+                    emit_info(f"  ✓ Stopped: {server_name}", message_group=group_id)
                 else:
                     failed_count += 1
-                    emit_error(f"  ✗ Failed: {server_name}")
+                    emit_info(f"  ✗ Failed: {server_name}", message_group=group_id)
             
             # Summary
-            emit_info("")
+            emit_info("", message_group=group_id)
             if stopped_count > 0:
-                emit_success(f"Stopped {stopped_count} server(s)")
+                emit_info(f"Stopped {stopped_count} server(s)", message_group=group_id)
             if failed_count > 0:
-                emit_warning(f"Failed to stop {failed_count} server(s)")
+                emit_info(f"Failed to stop {failed_count} server(s)", message_group=group_id)
             
             # Reload agent if any servers were stopped
             if stopped_count > 0:
@@ -425,13 +425,13 @@ class MCPCommandHandler:
                     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
-                    emit_info("[dim]Agent reloaded with updated servers[/dim]")
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group=group_id)
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
         
         except Exception as e:
             logger.error(f"Error stopping all servers: {e}")
-            emit_error(f"Failed to stop servers: {e}")
+            emit_info(f"Failed to stop servers: {e}", message_group=group_id)
     
     def cmd_restart(self, args: List[str]) -> None:
         """
@@ -440,8 +440,11 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name]
         """
+        import uuid
+        group_id = str(uuid.uuid4())
+        
         if not args:
-            emit_warning("Usage: /mcp restart <server_name>")
+            emit_info("Usage: /mcp restart <server_name>", message_group=group_id)
             return
         
         server_name = args[0]
@@ -450,40 +453,40 @@ class MCPCommandHandler:
             # Find server by name
             server_id = self._find_server_id_by_name(server_name)
             if not server_id:
-                emit_error(f"Server '{server_name}' not found")
+                emit_info(f"Server '{server_name}' not found", message_group=group_id)
                 self._suggest_similar_servers(server_name)
                 return
             
             # Stop the server first
-            emit_info(f"Stopping server: {server_name}")
+            emit_info(f"Stopping server: {server_name}", message_group=group_id)
             self.manager.stop_server_sync(server_id)
             
             # Then reload and start it
-            emit_info(f"Reloading configuration...")
+            emit_info(f"Reloading configuration...", message_group=group_id)
             reload_success = self.manager.reload_server(server_id)
             
             if reload_success:
-                emit_info(f"Starting server: {server_name}")
+                emit_info(f"Starting server: {server_name}", message_group=group_id)
                 start_success = self.manager.start_server_sync(server_id)
                 
                 if start_success:
-                    emit_success(f"✓ Restarted server: {server_name}")
+                    emit_info(f"✓ Restarted server: {server_name}", message_group=group_id)
                     
                     # Reload the agent to pick up the server changes
                     try:
                         from code_puppy.agent import get_code_generation_agent
                         get_code_generation_agent(force_reload=True)
-                        emit_info("[dim]Agent reloaded with updated servers[/dim]")
+                        emit_info("[dim]Agent reloaded with updated servers[/dim]", message_group=group_id)
                     except Exception as e:
                         logger.warning(f"Could not reload agent: {e}")
                 else:
-                    emit_error(f"✗ Failed to start server after reload: {server_name}")
+                    emit_info(f"✗ Failed to start server after reload: {server_name}", message_group=group_id)
             else:
-                emit_error(f"✗ Failed to reload server configuration: {server_name}")
+                emit_info(f"✗ Failed to reload server configuration: {server_name}", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error restarting server '{server_name}': {e}")
-            emit_error(f"Failed to restart server: {e}")
+            emit_info(f"Failed to restart server: {e}", message_group=group_id)
     
     def cmd_status(self, args: List[str]) -> None:
         """
@@ -492,6 +495,9 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name] (optional)
         """
+        import uuid
+        group_id = str(uuid.uuid4())
+        
         try:
             if args:
                 # Show detailed status for specific server
@@ -499,18 +505,18 @@ class MCPCommandHandler:
                 server_id = self._find_server_id_by_name(server_name)
                 
                 if not server_id:
-                    emit_error(f"Server '{server_name}' not found")
+                    emit_info(f"Server '{server_name}' not found", message_group=group_id)
                     self._suggest_similar_servers(server_name)
                     return
                 
-                self._show_detailed_server_status(server_id, server_name)
+                self._show_detailed_server_status(server_id, server_name, group_id)
             else:
                 # Show brief status for all servers
                 self.cmd_list([])
         
         except Exception as e:
             logger.error(f"Error showing server status: {e}")
-            emit_error(f"Failed to get server status: {e}")
+            emit_info(f"Failed to get server status: {e}", message_group=group_id)
     
     def cmd_test(self, args: List[str]) -> None:
         """
@@ -519,8 +525,11 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name]
         """
+        import uuid
+        group_id = str(uuid.uuid4())
+        
         if not args:
-            emit_warning("Usage: /mcp test <server_name>")
+            emit_info("Usage: /mcp test <server_name>", message_group=group_id)
             return
         
         server_name = args[0]
@@ -529,42 +538,42 @@ class MCPCommandHandler:
             # Find server by name
             server_id = self._find_server_id_by_name(server_name)
             if not server_id:
-                emit_error(f"Server '{server_name}' not found")
+                emit_info(f"Server '{server_name}' not found", message_group=group_id)
                 self._suggest_similar_servers(server_name)
                 return
             
             # Get managed server
             managed_server = self.manager.get_server(server_id)
             if not managed_server:
-                emit_error(f"Server '{server_name}' not accessible")
+                emit_info(f"Server '{server_name}' not accessible", message_group=group_id)
                 return
             
-            emit_info(f"🔍 Testing connectivity to server: {server_name}")
+            emit_info(f"🔍 Testing connectivity to server: {server_name}", message_group=group_id)
             
             # Basic connectivity test - try to get the pydantic server
             try:
                 pydantic_server = managed_server.get_pydantic_server()
-                emit_success(f"✓ Server instance created successfully")
+                emit_info(f"✓ Server instance created successfully", message_group=group_id)
                 
                 # Try to get server info if available
-                emit_info(f"  • Server type: {managed_server.config.type}")
-                emit_info(f"  • Server enabled: {managed_server.is_enabled()}")
-                emit_info(f"  • Server quarantined: {managed_server.is_quarantined()}")
+                emit_info(f"  • Server type: {managed_server.config.type}", message_group=group_id)
+                emit_info(f"  • Server enabled: {managed_server.is_enabled()}", message_group=group_id)
+                emit_info(f"  • Server quarantined: {managed_server.is_quarantined()}", message_group=group_id)
                 
                 if not managed_server.is_enabled():
-                    emit_warning("  • Server is disabled - enable it with '/mcp start'")
+                    emit_info("  • Server is disabled - enable it with '/mcp start'", message_group=group_id)
                 
                 if managed_server.is_quarantined():
-                    emit_warning("  • Server is quarantined - may have recent errors")
+                    emit_info("  • Server is quarantined - may have recent errors", message_group=group_id)
                 
-                emit_success(f"✓ Connectivity test passed for: {server_name}")
+                emit_info(f"✓ Connectivity test passed for: {server_name}", message_group=group_id)
                 
             except Exception as test_error:
-                emit_error(f"✗ Connectivity test failed: {test_error}")
+                emit_info(f"✗ Connectivity test failed: {test_error}", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error testing server '{server_name}': {e}")
-            emit_error(f"Failed to test server: {e}")
+            emit_info(f"Failed to test server: {e}", message_group=group_id)
     
     def cmd_add(self, args: List[str]) -> None:
         """
@@ -580,6 +589,9 @@ class MCPCommandHandler:
         Args:
             args: Command arguments - JSON config or empty for wizard
         """
+        import uuid
+        group_id = str(uuid.uuid4())
+        
         try:
             if args:
                 # Parse JSON from arguments
@@ -589,17 +601,17 @@ class MCPCommandHandler:
                 try:
                     config_dict = json.loads(json_str)
                 except json.JSONDecodeError as e:
-                    emit_error(f"Invalid JSON: {e}")
-                    emit_info("Usage: /mcp add <json> or /mcp add (for wizard)")
-                    emit_info('Example: /mcp add {"name": "test", "type": "stdio", "command": "echo"}')
+                    emit_info(f"Invalid JSON: {e}", message_group=group_id)
+                    emit_info("Usage: /mcp add <json> or /mcp add (for wizard)", message_group=group_id)
+                    emit_info('Example: /mcp add {"name": "test", "type": "stdio", "command": "echo"}', message_group=group_id)
                     return
                 
                 # Validate required fields
                 if 'name' not in config_dict:
-                    emit_error("Missing required field: 'name'")
+                    emit_info("Missing required field: 'name'", message_group=group_id)
                     return
                 if 'type' not in config_dict:
-                    emit_error("Missing required field: 'type'")
+                    emit_info("Missing required field: 'type'", message_group=group_id)
                     return
                 
                 # Create ServerConfig
@@ -622,7 +634,7 @@ class MCPCommandHandler:
                 server_id = self.manager.register_server(server_config)
                 
                 if server_id:
-                    emit_success(f"✅ Added server '{name}' (ID: {server_id})")
+                    emit_info(f"✅ Added server '{name}' (ID: {server_id})", message_group=group_id)
                     
                     # Save to mcp_servers.json for persistence
                     from code_puppy.config import MCP_SERVERS_FILE
@@ -650,9 +662,9 @@ class MCPCommandHandler:
                     from code_puppy.agent import reload_mcp_servers
                     reload_mcp_servers()
                     
-                    emit_info("Use '/mcp list' to see all servers")
+                    emit_info("Use '/mcp list' to see all servers", message_group=group_id)
                 else:
-                    emit_error(f"Failed to add server '{name}'")
+                    emit_info(f"Failed to add server '{name}'", message_group=group_id)
                     
             else:
                 # No arguments - launch interactive wizard
@@ -667,10 +679,10 @@ class MCPCommandHandler:
                 
         except ImportError as e:
             logger.error(f"Failed to import: {e}")
-            emit_error("Required module not available")
+            emit_info("Required module not available", message_group=group_id)
         except Exception as e:
             logger.error(f"Error adding server: {e}")
-            emit_error(f"Failed to add server: {e}")
+            emit_info(f"Failed to add server: {e}", message_group=group_id)
     
     def cmd_remove(self, args: List[str]) -> None:
         """
@@ -679,8 +691,11 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name]
         """
+        import uuid
+        group_id = str(uuid.uuid4())
+        
         if not args:
-            emit_warning("Usage: /mcp remove <server_name>")
+            emit_info("Usage: /mcp remove <server_name>", message_group=group_id)
             return
         
         server_name = args[0]
@@ -689,7 +704,7 @@ class MCPCommandHandler:
             # Find server by name
             server_id = self._find_server_id_by_name(server_name)
             if not server_id:
-                emit_error(f"Server '{server_name}' not found")
+                emit_info(f"Server '{server_name}' not found", message_group=group_id)
                 self._suggest_similar_servers(server_name)
                 return
             
@@ -697,7 +712,7 @@ class MCPCommandHandler:
             success = self.manager.remove_server(server_id)
             
             if success:
-                emit_success(f"✓ Removed server: {server_name}")
+                emit_info(f"✓ Removed server: {server_name}", message_group=group_id)
                 
                 # Also remove from mcp_servers.json
                 from code_puppy.config import MCP_SERVERS_FILE
@@ -720,11 +735,11 @@ class MCPCommandHandler:
                     except Exception as e:
                         logger.warning(f"Could not update mcp_servers.json: {e}")
             else:
-                emit_error(f"✗ Failed to remove server: {server_name}")
+                emit_info(f"✗ Failed to remove server: {server_name}", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error removing server '{server_name}': {e}")
-            emit_error(f"Failed to remove server: {e}")
+            emit_info(f"Failed to remove server: {e}", message_group=group_id)
     
     def cmd_logs(self, args: List[str]) -> None:
         """
@@ -733,8 +748,11 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name] and optional [limit]
         """
+        import uuid
+        group_id = str(uuid.uuid4())
+        
         if not args:
-            emit_warning("Usage: /mcp logs <server_name> [limit]")
+            emit_info("Usage: /mcp logs <server_name> [limit]", message_group=group_id)
             return
         
         server_name = args[0]
@@ -744,16 +762,16 @@ class MCPCommandHandler:
             try:
                 limit = int(args[1])
                 if limit <= 0 or limit > 100:
-                    emit_warning("Limit must be between 1 and 100, using default: 10")
+                    emit_info("Limit must be between 1 and 100, using default: 10", message_group=group_id)
                     limit = 10
             except ValueError:
-                emit_warning(f"Invalid limit '{args[1]}', using default: 10")
+                emit_info(f"Invalid limit '{args[1]}', using default: 10", message_group=group_id)
         
         try:
             # Find server by name
             server_id = self._find_server_id_by_name(server_name)
             if not server_id:
-                emit_error(f"Server '{server_name}' not found")
+                emit_info(f"Server '{server_name}' not found", message_group=group_id)
                 self._suggest_similar_servers(server_name)
                 return
             
@@ -761,13 +779,13 @@ class MCPCommandHandler:
             status = self.manager.get_server_status(server_id)
             
             if not status.get("exists", True):
-                emit_error(f"Server '{server_name}' status not available")
+                emit_info(f"Server '{server_name}' status not available", message_group=group_id)
                 return
             
             recent_events = status.get("recent_events", [])
             
             if not recent_events:
-                emit_info(f"No recent events for server: {server_name}")
+                emit_info(f"No recent events for server: {server_name}", message_group=group_id)
                 return
             
             # Show events in a table
@@ -804,12 +822,11 @@ class MCPCommandHandler:
                     Text(event_type, style=event_style),
                     details_str or "-"
                 )
-            
-            emit_info(table)
+            emit_info(table, message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error getting logs for server '{server_name}': {e}")
-            emit_error(f"Failed to get server logs: {e}")
+            emit_info(f"Failed to get server logs: {e}", message_group=group_id)
     
     def cmd_help(self, args: List[str]) -> None:
         """
@@ -884,29 +901,34 @@ class MCPCommandHandler:
         group_id = str(uuid.uuid4())
         emit_info(final_text, message_group=group_id)
     
-    def cmd_search(self, args: List[str]) -> None:
+    def cmd_search(self, args: List[str], group_id: str = None) -> None:
         """
         Search for pre-configured MCP servers in the registry.
         
         Args:
             args: Search query terms
+            group_id: Optional message group ID for grouping related messages
         """
+        if group_id is None:
+            import uuid
+            group_id = str(uuid.uuid4())
+            
         try:
             from code_puppy.mcp.server_registry_catalog import catalog
             from rich.table import Table
             
             if not args:
                 # Show popular servers if no query
-                emit_info("[bold cyan]Popular MCP Servers:[/bold cyan]\n")
+                emit_info("[bold cyan]Popular MCP Servers:[/bold cyan]\n", message_group=group_id)
                 servers = catalog.get_popular(15)
             else:
                 query = ' '.join(args)
-                emit_info(f"[bold cyan]Searching for: {query}[/bold cyan]\n")
+                emit_info(f"[bold cyan]Searching for: {query}[/bold cyan]\n", message_group=group_id)
                 servers = catalog.search(query)
             
             if not servers:
-                emit_warning("No servers found matching your search")
-                emit_info("Try: /mcp search database, /mcp search file, /mcp search git")
+                emit_info("[yellow]No servers found matching your search[/yellow]", message_group=group_id)
+                emit_info("Try: /mcp search database, /mcp search file, /mcp search git", message_group=group_id)
                 return
             
             # Create results table
@@ -940,32 +962,37 @@ class MCPCommandHandler:
                     tags
                 )
             
-            emit_info(table)
-            emit_info("\n[dim]✓ = Verified  ⭐ = Popular[/dim]")
-            emit_info("[yellow]To install:[/yellow] /mcp install <id>")
-            emit_info("[yellow]For details:[/yellow] /mcp search <specific-term>")
+            # The first message established the group, subsequent messages will auto-group
+            emit_info(table, message_group=group_id)
+            emit_info("\n[dim]✓ = Verified  ⭐ = Popular[/dim]", message_group=group_id)
+            emit_info("[yellow]To install:[/yellow] /mcp install <id>", message_group=group_id)
+            emit_info("[yellow]For details:[/yellow] /mcp search <specific-term>", message_group=group_id)
             
         except ImportError:
-            emit_error("Server registry not available")
+            emit_info("[red]Server registry not available[/red]", message_group=group_id)
         except Exception as e:
             logger.error(f"Error searching servers: {e}")
-            emit_error(f"Search failed: {e}")
+            emit_info(f"[red]Search failed: {e}[/red]", message_group=group_id)
     
-    def cmd_install(self, args: List[str]) -> None:
+    def cmd_install(self, args: List[str], group_id: str = None) -> None:
         """
         Install a pre-configured MCP server from the registry.
         
         Args:
             args: Server ID and optional custom name
         """
+        if group_id is None:
+            import uuid
+            group_id = str(uuid.uuid4())
+        
         try:
             from code_puppy.mcp.server_registry_catalog import catalog
             from code_puppy.mcp import ServerConfig
             import json
             
             if not args:
-                emit_warning("Usage: /mcp install <server-id> [custom-name]")
-                emit_info("Use '/mcp search' to find available servers")
+                emit_info("Usage: /mcp install <server-id> [custom-name]", message_group=group_id)
+                emit_info("Use '/mcp search' to find available servers", message_group=group_id)
                 return
             
             server_id = args[0]
@@ -974,23 +1001,23 @@ class MCPCommandHandler:
             # Find server in registry
             template = catalog.get_by_id(server_id)
             if not template:
-                emit_error(f"Server '{server_id}' not found in registry")
+                emit_info(f"Server '{server_id}' not found in registry", message_group=group_id)
                 
                 # Suggest similar servers
                 suggestions = catalog.search(server_id)
                 if suggestions:
-                    emit_info("Did you mean one of these?")
+                    emit_info("Did you mean one of these?", message_group=group_id)
                     for s in suggestions[:5]:
-                        emit_info(f"  • {s.id} - {s.display_name}")
+                        emit_info(f"  • {s.id} - {s.display_name}", message_group=group_id)
                 return
             
             # Show server details
-            emit_info(f"[bold cyan]Installing: {template.display_name}[/bold cyan]")
-            emit_info(f"[dim]{template.description}[/dim]")
+            emit_info(f"[bold cyan]Installing: {template.display_name}[/bold cyan]", message_group=group_id)
+            emit_info(f"[dim]{template.description}[/dim]", message_group=group_id)
             
             # Check requirements
             if template.requires:
-                emit_info(f"[yellow]Requirements:[/yellow] {', '.join(template.requires)}")
+                emit_info(f"[yellow]Requirements:[/yellow] {', '.join(template.requires)}", message_group=group_id)
             
             # Use custom name or generate one
             if not custom_name:
@@ -1000,7 +1027,7 @@ class MCPCommandHandler:
                     # Generate unique name
                     import time
                     custom_name = f"{template.name}-{int(time.time()) % 10000}"
-                    emit_info(f"[dim]Using name: {custom_name} (original already exists)[/dim]")
+                    emit_info(f"[dim]Using name: {custom_name} (original already exists)[/dim]", message_group=group_id)
                 else:
                     custom_name = template.name
             
@@ -1020,7 +1047,7 @@ class MCPCommandHandler:
             server_id = self.manager.register_server(server_config)
             
             if server_id:
-                emit_success(f"✅ Installed '{custom_name}' from {template.display_name}")
+                emit_info(f"✅ Installed '{custom_name}' from {template.display_name}", message_group=group_id)
                 
                 # Save to mcp_servers.json
                 from code_puppy.config import MCP_SERVERS_FILE
@@ -1043,7 +1070,7 @@ class MCPCommandHandler:
                 
                 # Show next steps
                 if template.example_usage:
-                    emit_info(f"[yellow]Example:[/yellow] {template.example_usage}")
+                    emit_info(f"[yellow]Example:[/yellow] {template.example_usage}", message_group=group_id)
                 
                 # Check for environment variables
                 env_vars = []
@@ -1053,22 +1080,22 @@ class MCPCommandHandler:
                             env_vars.append(value[1:])
                 
                 if env_vars:
-                    emit_warning(f"[yellow]Required environment variables:[/yellow] {', '.join(env_vars)}")
-                    emit_info("Set these before starting the server")
+                    emit_info(f"[yellow]Required environment variables:[/yellow] {', '.join(env_vars)}", message_group=group_id)
+                    emit_info("Set these before starting the server", message_group=group_id)
                 
-                emit_info(f"Use '/mcp start {custom_name}' to start the server")
+                emit_info(f"Use '/mcp start {custom_name}' to start the server", message_group=group_id)
                 
                 # Reload MCP servers
                 from code_puppy.agent import reload_mcp_servers
                 reload_mcp_servers()
             else:
-                emit_error(f"Failed to install server")
+                emit_info(f"Failed to install server", message_group=group_id)
                 
         except ImportError:
-            emit_error("Server registry not available")
+            emit_info("Server registry not available", message_group=group_id)
         except Exception as e:
             logger.error(f"Error installing server: {e}")
-            emit_error(f"Installation failed: {e}")
+            emit_info(f"Installation failed: {e}", message_group=group_id)
     
     def _find_server_id_by_name(self, server_name: str) -> Optional[str]:
         """
@@ -1168,19 +1195,24 @@ class MCPCommandHandler:
             minutes = int((uptime_seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
     
-    def _show_detailed_server_status(self, server_id: str, server_name: str) -> None:
+    def _show_detailed_server_status(self, server_id: str, server_name: str, group_id: str = None) -> None:
         """
         Show comprehensive status information for a specific server.
         
         Args:
             server_id: ID of the server
             server_name: Name of the server
+            group_id: Optional message group ID
         """
+        if group_id is None:
+            import uuid
+            group_id = str(uuid.uuid4())
+        
         try:
             status = self.manager.get_server_status(server_id)
             
             if not status.get("exists", True):
-                emit_error(f"Server '{server_name}' not found or not accessible")
+                emit_info(f"Server '{server_name}' not found or not accessible", message_group=group_id)
                 return
             
             # Create detailed status panel
@@ -1242,12 +1274,12 @@ class MCPCommandHandler:
                 border_style="cyan"
             )
             
-            emit_info(panel)
+            emit_info(panel, message_group=group_id)
             
             # Show recent events if available
             recent_events = status.get('recent_events', [])
             if recent_events:
-                emit_info("\n📋 Recent Events:")
+                emit_info("\n📋 Recent Events:", message_group=group_id)
                 for event in recent_events[-5:]:  # Show last 5 events
                     timestamp = datetime.fromisoformat(event["timestamp"])
                     time_str = timestamp.strftime("%H:%M:%S")
@@ -1255,8 +1287,8 @@ class MCPCommandHandler:
                     details = event.get("details", {})
                     message = details.get("message", "")
                     
-                    emit_info(f"  [dim]{time_str}[/dim] [cyan]{event_type}[/cyan] {message}")
+                    emit_info(f"  [dim]{time_str}[/dim] [cyan]{event_type}[/cyan] {message}", message_group=group_id)
         
         except Exception as e:
             logger.error(f"Error showing detailed status for server '{server_name}': {e}")
-            emit_error(f"Failed to get detailed status: {e}")
+            emit_info(f"Failed to get detailed status: {e}", message_group=group_id)

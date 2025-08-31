@@ -251,9 +251,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
     )
-    from code_puppy.command_line.command_handler import COMMANDS_HELP
+    from code_puppy.command_line.command_handler import get_commands_help
 
-    emit_system_message(COMMANDS_HELP)
+    help_text = get_commands_help()
+    emit_system_message(help_text)
     try:
         from code_puppy.command_line.motd import print_motd
 
