@@ -40,6 +40,21 @@
     },
     "context_length": 65536
   },
+  "Cerebras-Qwen3-Coder-480b-Pro": {
+    "type": "custom_openai",
+    "name": "qwen-3-coder-480b",
+    "max_requests_per_minute": 15,
+    "max_token_limit_per_minute": 165000,
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY",
+      "stream_options": {
+        "include_usage": true
+      }
+    },
+    "context_length": 131072,
+    "stream_usage": true
+  },
   "o3": {
     "type": "openai",
     "name": "o3",

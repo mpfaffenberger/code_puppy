@@ -84,12 +84,33 @@ class ModelFactory:
         else:
             from code_puppy.config import MODELS_FILE
 
-            if not pathlib.Path(MODELS_FILE).exists():
-                with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
-                    with open(pathlib.Path(MODELS_FILE), "w") as target:
-                        target.write(src.read())
+            # Allow override via environment variable
+            env_models_path = os.environ.get("MODELS_JSON_PATH")
+            models_path = None
 
-            with open(MODELS_FILE, "r") as f:
+            if env_models_path:
+                try:
+                    env_path_obj = pathlib.Path(env_models_path).expanduser()
+                    if env_path_obj.exists():
+                        models_path = env_path_obj
+                    else:
+                        logging.getLogger(__name__).warning(
+                            f"MODELS_JSON_PATH is set to '{env_models_path}' but the file does not exist. Falling back to default."
+                        )
+                except Exception as e:
+                    logging.getLogger(__name__).warning(
+                        f"Failed to read MODELS_JSON_PATH ('{env_models_path}'): {e}. Falling back to default."
+                    )
+
+            # Fall back to ~/.code_puppy/models.json, creating it from package default if missing
+            if models_path is None:
+                models_path = pathlib.Path(MODELS_FILE)
+                if not models_path.exists():
+                    with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
+                        with open(models_path, "w") as target:
+                            target.write(src.read())
+
+            with open(models_path, "r") as f:
                 config = json.load(f)
         if pathlib.Path(EXTRA_MODELS_FILE).exists():
             with open(EXTRA_MODELS_FILE, "r") as f:

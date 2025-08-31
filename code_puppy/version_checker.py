@@ -19,7 +19,7 @@ def fetch_latest_version(package_name):
         response.raise_for_status()  # Raise an error for bad responses
         data = response.json()
         return data["info"]["version"]
-    except Exception as e:
+    except httpx.RequestError as e:
         print(f"Error fetching version: {e}")
         return None
 
