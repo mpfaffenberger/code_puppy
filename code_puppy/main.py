@@ -509,39 +509,24 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
 
     try:
-        # Get the agent
-        # Get agent through runtime manager for consistency
+        # Get agent through runtime manager and use its run_with_mcp method
         agent_manager = get_runtime_agent_manager()
-        agent = agent_manager.get_agent()
-
-        # Use our custom spinner for better compatibility with user input
-        from code_puppy.messaging.spinner import ConsoleSpinner
-
-        display_console = message_renderer.console
-        with ConsoleSpinner(console=display_console):
-            try:
-                async with agent.run_mcp_servers():
-                    response = await agent.run(
-                        prompt, usage_limits=get_custom_usage_limits()
-                    )
-            except Exception as mcp_error:
-                from code_puppy.messaging import emit_warning
-
-                emit_warning(f"MCP server error: {str(mcp_error)}")
-                emit_warning("Running without MCP servers...")
-                # Run without MCP servers as fallback
-                response = await agent.run(
-                    prompt, usage_limits=get_custom_usage_limits()
-                )
+        
+        response = await agent_manager.run_with_mcp(
+            prompt, 
+            usage_limits=get_custom_usage_limits()
+        )
 
         agent_response = response.output
         emit_system_message(
             f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
         )
 
+    except asyncio.CancelledError:
+        from code_puppy.messaging import emit_warning
+        emit_warning("Execution cancelled by user")
     except Exception as e:
         from code_puppy.messaging import emit_error
-
         emit_error(f"Error executing prompt: {str(e)}")
 
 
