@@ -11,12 +11,14 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional, Union, Any
+import asyncio
 
 from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
 
 from .managed_server import ManagedMCPServer, ServerConfig, ServerState
 from .registry import ServerRegistry
 from .status_tracker import ServerStatusTracker
+from .async_lifecycle import get_lifecycle_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -310,83 +312,180 @@ class MCPManager:
         
         return server_infos
     
-    def enable_server(self, server_id: str) -> bool:
+    async def start_server(self, server_id: str) -> bool:
         """
-        Enable a server.
+        Start a server (enable it and start the subprocess/connection).
+        
+        This both enables the server for agent use AND starts the actual process.
+        For stdio servers, this starts the subprocess.
+        For SSE/HTTP servers, this establishes the connection.
         
         Args:
-            server_id: ID of server to enable
+            server_id: ID of server to start
             
         Returns:
-            True if server was enabled, False if not found
+            True if server was started, False if not found or failed
         """
         managed_server = self._managed_servers.get(server_id)
         if managed_server is None:
-            logger.warning(f"Attempted to enable non-existent server: {server_id}")
+            logger.warning(f"Attempted to start non-existent server: {server_id}")
             return False
         
         try:
+            # First enable the server
             managed_server.enable()
             self.status_tracker.set_status(server_id, ServerState.RUNNING)
             self.status_tracker.record_start_time(server_id)
             
-            # Record enable event
-            self.status_tracker.record_event(
-                server_id,
-                "enabled",
-                {"message": "Server enabled"}
-            )
+            # Try to actually start it if we have an async context
+            try:
+                # Get the pydantic-ai server instance
+                pydantic_server = managed_server.get_pydantic_server()
+                
+                # Start the server using the async lifecycle manager
+                lifecycle_mgr = get_lifecycle_manager()
+                started = await lifecycle_mgr.start_server(server_id, pydantic_server)
+                
+                if started:
+                    logger.info(f"Started server process: {managed_server.config.name} (ID: {server_id})")
+                    self.status_tracker.record_event(
+                        server_id,
+                        "started",
+                        {"message": "Server started and process running"}
+                    )
+                else:
+                    logger.warning(f"Could not start process for server {server_id}, but it's enabled")
+                    self.status_tracker.record_event(
+                        server_id,
+                        "enabled",
+                        {"message": "Server enabled (process will start when used)"}
+                    )
+            except Exception as e:
+                # Process start failed, but server is still enabled
+                logger.warning(f"Could not start process for server {server_id}: {e}")
+                self.status_tracker.record_event(
+                    server_id,
+                    "enabled",
+                    {"message": "Server enabled (process will start when used)"}
+                )
             
-            logger.info(f"Enabled server: {managed_server.config.name} (ID: {server_id})")
             return True
         
         except Exception as e:
-            logger.error(f"Failed to enable server {server_id}: {e}")
+            logger.error(f"Failed to start server {server_id}: {e}")
             self.status_tracker.set_status(server_id, ServerState.ERROR)
             self.status_tracker.record_event(
                 server_id,
-                "enable_error",
-                {"error": str(e), "message": f"Error enabling server: {e}"}
+                "start_error",
+                {"error": str(e), "message": f"Error starting server: {e}"}
             )
             return False
     
-    def disable_server(self, server_id: str) -> bool:
+    def start_server_sync(self, server_id: str) -> bool:
         """
-        Disable a server.
+        Synchronous wrapper for start_server.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, create a task
+            task = asyncio.create_task(self.start_server(server_id))
+            # Return True optimistically
+            return True
+        except RuntimeError:
+            # No async loop, just enable the server
+            managed_server = self._managed_servers.get(server_id)
+            if managed_server:
+                managed_server.enable()
+                self.status_tracker.set_status(server_id, ServerState.RUNNING)
+                self.status_tracker.record_start_time(server_id)
+                logger.info(f"Enabled server (will start when async available): {server_id}")
+                return True
+            return False
+    
+    async def stop_server(self, server_id: str) -> bool:
+        """
+        Stop a server (disable it and stop the subprocess/connection).
+        
+        This both disables the server AND stops any running process.
+        For stdio servers, this stops the subprocess.
+        For SSE/HTTP servers, this closes the connection.
         
         Args:
-            server_id: ID of server to disable
+            server_id: ID of server to stop
             
         Returns:
-            True if server was disabled, False if not found
+            True if server was stopped, False if not found
         """
         managed_server = self._managed_servers.get(server_id)
         if managed_server is None:
-            logger.warning(f"Attempted to disable non-existent server: {server_id}")
+            logger.warning(f"Attempted to stop non-existent server: {server_id}")
             return False
         
         try:
+            # First disable the server
             managed_server.disable()
             self.status_tracker.set_status(server_id, ServerState.STOPPED)
             self.status_tracker.record_stop_time(server_id)
             
-            # Record disable event
-            self.status_tracker.record_event(
-                server_id,
-                "disabled",
-                {"message": "Server disabled"}
-            )
+            # Try to actually stop it if we have an async context
+            try:
+                # Stop the server using the async lifecycle manager
+                lifecycle_mgr = get_lifecycle_manager()
+                stopped = await lifecycle_mgr.stop_server(server_id)
+                
+                if stopped:
+                    logger.info(f"Stopped server process: {managed_server.config.name} (ID: {server_id})")
+                    self.status_tracker.record_event(
+                        server_id,
+                        "stopped",
+                        {"message": "Server stopped and process terminated"}
+                    )
+                else:
+                    logger.info(f"Server {server_id} disabled (no process was running)")
+                    self.status_tracker.record_event(
+                        server_id,
+                        "disabled",
+                        {"message": "Server disabled"}
+                    )
+            except Exception as e:
+                # Process stop failed, but server is still disabled
+                logger.warning(f"Could not stop process for server {server_id}: {e}")
+                self.status_tracker.record_event(
+                    server_id,
+                    "disabled",
+                    {"message": "Server disabled"}
+                )
             
-            logger.info(f"Disabled server: {managed_server.config.name} (ID: {server_id})")
             return True
         
         except Exception as e:
-            logger.error(f"Failed to disable server {server_id}: {e}")
+            logger.error(f"Failed to stop server {server_id}: {e}")
             self.status_tracker.record_event(
                 server_id,
-                "disable_error",
-                {"error": str(e), "message": f"Error disabling server: {e}"}
+                "stop_error",
+                {"error": str(e), "message": f"Error stopping server: {e}"}
             )
+            return False
+    
+    def stop_server_sync(self, server_id: str) -> bool:
+        """
+        Synchronous wrapper for stop_server.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, create a task
+            task = asyncio.create_task(self.stop_server(server_id))
+            # Return True optimistically
+            return True
+        except RuntimeError:
+            # No async loop, just disable the server
+            managed_server = self._managed_servers.get(server_id)
+            if managed_server:
+                managed_server.disable()
+                self.status_tracker.set_status(server_id, ServerState.STOPPED)
+                self.status_tracker.record_stop_time(server_id)
+                logger.info(f"Disabled server: {server_id}")
+                return True
             return False
     
     def reload_server(self, server_id: str) -> bool:

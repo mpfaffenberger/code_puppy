@@ -194,8 +194,8 @@ class MCPCommandHandler:
                 self._suggest_similar_servers(server_name)
                 return
             
-            # Enable the server
-            success = self.manager.enable_server(server_id)
+            # Start the server (enable and start process)
+            success = self.manager.start_server_sync(server_id)
             
             if success:
                 emit_success(f"✓ Started server: {server_name}")
@@ -227,8 +227,8 @@ class MCPCommandHandler:
                 self._suggest_similar_servers(server_name)
                 return
             
-            # Disable the server
-            success = self.manager.disable_server(server_id)
+            # Stop the server (disable and stop process)
+            success = self.manager.stop_server_sync(server_id)
             
             if success:
                 emit_success(f"✓ Stopped server: {server_name}")
@@ -260,13 +260,24 @@ class MCPCommandHandler:
                 self._suggest_similar_servers(server_name)
                 return
             
-            # Reload the server (this recreates it with fresh config)
-            success = self.manager.reload_server(server_id)
+            # Stop the server first
+            emit_info(f"Stopping server: {server_name}")
+            self.manager.stop_server_sync(server_id)
             
-            if success:
-                emit_success(f"✓ Restarted server: {server_name}")
+            # Then reload and start it
+            emit_info(f"Reloading configuration...")
+            reload_success = self.manager.reload_server(server_id)
+            
+            if reload_success:
+                emit_info(f"Starting server: {server_name}")
+                start_success = self.manager.start_server_sync(server_id)
+                
+                if start_success:
+                    emit_success(f"✓ Restarted server: {server_name}")
+                else:
+                    emit_error(f"✗ Failed to start server after reload: {server_name}")
             else:
-                emit_error(f"✗ Failed to restart server: {server_name}")
+                emit_error(f"✗ Failed to reload server configuration: {server_name}")
         
         except Exception as e:
             logger.error(f"Error restarting server '{server_name}': {e}")
@@ -950,6 +961,17 @@ class MCPCommandHandler:
             
             enabled = status.get('enabled', False)
             status_lines.append(f"[bold]Enabled:[/bold] {'✓ Yes' if enabled else '✗ No'}")
+            
+            # Check async lifecycle manager status if available
+            try:
+                from code_puppy.mcp.async_lifecycle import get_lifecycle_manager
+                lifecycle_mgr = get_lifecycle_manager()
+                if lifecycle_mgr.is_running(server_id):
+                    status_lines.append(f"[bold]Process:[/bold] [green]✓ Active (subprocess/connection running)[/green]")
+                else:
+                    status_lines.append(f"[bold]Process:[/bold] [dim]Not active[/dim]")
+            except Exception:
+                pass  # Lifecycle manager not available
             
             quarantined = status.get('quarantined', False)
             if quarantined:
