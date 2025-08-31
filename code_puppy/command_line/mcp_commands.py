@@ -88,7 +88,9 @@ class MCPCommandHandler:
             command_map = {
                 'list': self.cmd_list,
                 'start': self.cmd_start,
+                'start-all': self.cmd_start_all,
                 'stop': self.cmd_stop,
+                'stop-all': self.cmd_stop_all,
                 'restart': self.cmd_restart,
                 'status': self.cmd_status,
                 'test': self.cmd_test,
@@ -199,12 +201,94 @@ class MCPCommandHandler:
             
             if success:
                 emit_success(f"✓ Started server: {server_name}")
+                
+                # Give async tasks a moment to complete
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If we're in async context, wait a bit for server to start
+                    import time
+                    time.sleep(0.5)  # Small delay to let async tasks progress
+                except RuntimeError:
+                    pass  # No async loop, server will start when agent uses it
+                
+                # Reload the agent to pick up the newly enabled server
+                try:
+                    from code_puppy.agents.runtime_manager import get_runtime_agent_manager
+                    manager = get_runtime_agent_manager()
+                    manager.reload_agent()
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]")
+                except Exception as e:
+                    logger.warning(f"Could not reload agent: {e}")
             else:
                 emit_error(f"✗ Failed to start server: {server_name}")
         
         except Exception as e:
             logger.error(f"Error starting server '{server_name}': {e}")
             emit_error(f"Failed to start server: {e}")
+    
+    def cmd_start_all(self, args: List[str]) -> None:
+        """
+        Start all registered MCP servers.
+        
+        Args:
+            args: Command arguments (unused)
+        """
+        try:
+            servers = self.manager.list_servers()
+            
+            if not servers:
+                emit_warning("No servers registered")
+                return
+            
+            started_count = 0
+            failed_count = 0
+            already_running = 0
+            
+            emit_info(f"Starting {len(servers)} servers...")
+            
+            for server_info in servers:
+                server_id = server_info.id
+                server_name = server_info.name
+                
+                # Skip if already running
+                if server_info.state == ServerState.RUNNING:
+                    already_running += 1
+                    emit_info(f"  • {server_name}: already running")
+                    continue
+                
+                # Try to start the server
+                success = self.manager.start_server_sync(server_id)
+                
+                if success:
+                    started_count += 1
+                    emit_success(f"  ✓ Started: {server_name}")
+                else:
+                    failed_count += 1
+                    emit_error(f"  ✗ Failed: {server_name}")
+            
+            # Summary
+            emit_info("")
+            if started_count > 0:
+                emit_success(f"Started {started_count} server(s)")
+            if already_running > 0:
+                emit_info(f"{already_running} server(s) already running")
+            if failed_count > 0:
+                emit_warning(f"Failed to start {failed_count} server(s)")
+            
+            # Reload agent if any servers were started
+            if started_count > 0:
+                try:
+                    from code_puppy.agents.runtime_manager import get_runtime_agent_manager
+                    manager = get_runtime_agent_manager()
+                    manager.reload_agent()
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]")
+                except Exception as e:
+                    logger.warning(f"Could not reload agent: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error starting all servers: {e}")
+            emit_error(f"Failed to start servers: {e}")
     
     def cmd_stop(self, args: List[str]) -> None:
         """
@@ -232,12 +316,83 @@ class MCPCommandHandler:
             
             if success:
                 emit_success(f"✓ Stopped server: {server_name}")
+                
+                # Reload the agent to remove the disabled server
+                try:
+                    from code_puppy.agents.runtime_manager import get_runtime_agent_manager
+                    manager = get_runtime_agent_manager()
+                    manager.reload_agent()
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]")
+                except Exception as e:
+                    logger.warning(f"Could not reload agent: {e}")
             else:
                 emit_error(f"✗ Failed to stop server: {server_name}")
         
         except Exception as e:
             logger.error(f"Error stopping server '{server_name}': {e}")
             emit_error(f"Failed to stop server: {e}")
+    
+    def cmd_stop_all(self, args: List[str]) -> None:
+        """
+        Stop all running MCP servers.
+        
+        Args:
+            args: Command arguments (unused)
+        """
+        try:
+            servers = self.manager.list_servers()
+            
+            if not servers:
+                emit_warning("No servers registered")
+                return
+            
+            stopped_count = 0
+            failed_count = 0
+            already_stopped = 0
+            
+            # Count running servers
+            running_servers = [s for s in servers if s.state == ServerState.RUNNING]
+            
+            if not running_servers:
+                emit_info("No servers are currently running")
+                return
+            
+            emit_info(f"Stopping {len(running_servers)} running server(s)...")
+            
+            for server_info in running_servers:
+                server_id = server_info.id
+                server_name = server_info.name
+                
+                # Try to stop the server
+                success = self.manager.stop_server_sync(server_id)
+                
+                if success:
+                    stopped_count += 1
+                    emit_success(f"  ✓ Stopped: {server_name}")
+                else:
+                    failed_count += 1
+                    emit_error(f"  ✗ Failed: {server_name}")
+            
+            # Summary
+            emit_info("")
+            if stopped_count > 0:
+                emit_success(f"Stopped {stopped_count} server(s)")
+            if failed_count > 0:
+                emit_warning(f"Failed to stop {failed_count} server(s)")
+            
+            # Reload agent if any servers were stopped
+            if stopped_count > 0:
+                try:
+                    from code_puppy.agents.runtime_manager import get_runtime_agent_manager
+                    manager = get_runtime_agent_manager()
+                    manager.reload_agent()
+                    emit_info("[dim]Agent reloaded with updated servers[/dim]")
+                except Exception as e:
+                    logger.warning(f"Could not reload agent: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error stopping all servers: {e}")
+            emit_error(f"Failed to stop servers: {e}")
     
     def cmd_restart(self, args: List[str]) -> None:
         """
@@ -274,6 +429,14 @@ class MCPCommandHandler:
                 
                 if start_success:
                     emit_success(f"✓ Restarted server: {server_name}")
+                    
+                    # Reload the agent to pick up the server changes
+                    try:
+                        from code_puppy.agent import get_code_generation_agent
+                        get_code_generation_agent(force_reload=True)
+                        emit_info("[dim]Agent reloaded with updated servers[/dim]")
+                    except Exception as e:
+                        logger.warning(f"Could not reload agent: {e}")
                 else:
                     emit_error(f"✗ Failed to start server after reload: {server_name}")
             else:
@@ -626,7 +789,9 @@ class MCPCommandHandler:
 [cyan]/mcp[/cyan]                    Show server status dashboard
 [cyan]/mcp list[/cyan]               List all registered servers
 [cyan]/mcp start <name>[/cyan]       Start a specific server
-[cyan]/mcp stop <name>[/cyan]        Stop a specific server  
+[cyan]/mcp start-all[/cyan]          Start all servers
+[cyan]/mcp stop <name>[/cyan]        Stop a specific server
+[cyan]/mcp stop-all[/cyan]           Stop all running servers
 [cyan]/mcp restart <name>[/cyan]     Restart a specific server
 
 [bold cyan]Management Commands:[/bold cyan]
@@ -643,7 +808,9 @@ class MCPCommandHandler:
 [bold]Examples:[/bold]
 [dim]/mcp search database     # Find database servers
 /mcp install postgres    # Install PostgreSQL server
-/mcp start filesystem    # Start a server
+/mcp start filesystem    # Start a specific server
+/mcp start-all           # Start all servers at once
+/mcp stop-all            # Stop all running servers
 /mcp add {"name": "test", "type": "stdio", "command": "echo"}[/dim]
 """
         emit_info(help_text)

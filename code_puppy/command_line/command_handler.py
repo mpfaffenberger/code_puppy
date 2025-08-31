@@ -221,7 +221,7 @@ def handle_command(command: str):
             set_current_agent,
             get_agent_descriptions,
         )
-        from code_puppy.agent import get_code_generation_agent
+        from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 
         tokens = command.split()
 
@@ -273,7 +273,8 @@ def handle_command(command: str):
 
             if set_current_agent(agent_name):
                 # Reload the agent with new configuration
-                get_code_generation_agent(force_reload=True)
+                manager = get_runtime_agent_manager()
+                manager.reload_agent()
                 new_agent = get_current_agent_config()
                 emit_success(
                     f"Switched to agent: {new_agent.display_name}",
@@ -304,12 +305,13 @@ def handle_command(command: str):
         model_command = command.replace("/model", "/m") if command.startswith("/model") else command
         new_input = update_model_in_input(model_command)
         if new_input is not None:
-            from code_puppy.agent import get_code_generation_agent
+            from code_puppy.agents.runtime_manager import get_runtime_agent_manager
             from code_puppy.command_line.model_picker_completion import get_active_model
 
             model = get_active_model()
             # Make sure this is called for the test
-            get_code_generation_agent(force_reload=True)
+            manager = get_runtime_agent_manager()
+            manager.reload_agent()
             emit_success(f"Active model set and loaded: {model}")
             return True
         # If no model matched, show available models

@@ -68,7 +68,8 @@ class ManagedMCPServer:
         self.config = server_config
         self._pydantic_server: Optional[Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]] = None
         self._state = ServerState.STOPPED
-        self._enabled = server_config.enabled
+        # Always start disabled - servers must be explicitly started with /mcp start
+        self._enabled = False
         self._quarantine_until: Optional[datetime] = None
         self._start_time: Optional[datetime] = None
         self._stop_time: Optional[datetime] = None

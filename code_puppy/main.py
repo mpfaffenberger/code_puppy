@@ -12,7 +12,8 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy import __version__, callbacks, plugins, state_management
-from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
+from code_puppy.agent import get_custom_usage_limits
+from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
@@ -262,9 +263,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         emit_warning(f"MOTD error: {e}")
     from code_puppy.messaging import emit_info
+    from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
-    get_code_generation_agent()
+    # Initialize the runtime agent manager
+    agent_manager = get_runtime_agent_manager()
+    agent_manager.get_agent()
     if initial_command:
         from code_puppy.messaging import emit_info, emit_system_message
 
@@ -273,9 +277,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         )
 
         try:
-            # Get the agent (already loaded above)
-            agent = get_code_generation_agent()
-
             # Check if any tool is waiting for user input before showing spinner
             try:
                 from code_puppy.tools.command_runner import is_awaiting_user_input
@@ -286,44 +287,22 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             # Run with or without spinner based on whether we're awaiting input
             if awaiting_input:
-                # No spinner - just run the agent
-                try:
-                    async with agent.run_mcp_servers():
-                        response = await agent.run(
-                            initial_command, usage_limits=get_custom_usage_limits()
-                        )
-                except Exception as mcp_error:
-                    from code_puppy.messaging import emit_warning
-
-                    emit_warning(f"MCP server error: {str(mcp_error)}")
-                    emit_warning("Running without MCP servers...")
-                    # Run without MCP servers as fallback
-                    response = await agent.run(
-                        initial_command, usage_limits=get_custom_usage_limits()
-                    )
+                # No spinner - use agent_manager's run_with_mcp method
+                response = await agent_manager.run_with_mcp(
+                    initial_command, usage_limits=get_custom_usage_limits()
+                )
             else:
                 # Use our custom spinner for better compatibility with user input
                 from code_puppy.messaging.spinner import ConsoleSpinner
 
                 with ConsoleSpinner(console=display_console):
-                    try:
-                        async with agent.run_mcp_servers():
-                            response = await agent.run(
-                                initial_command, usage_limits=get_custom_usage_limits()
-                            )
-                    except Exception as mcp_error:
-                        from code_puppy.messaging import emit_warning
-
-                        emit_warning(f"MCP server error: {str(mcp_error)}")
-                        emit_warning("Running without MCP servers...")
-                        # Run without MCP servers as fallback
-                        response = await agent.run(
-                            initial_command, usage_limits=get_custom_usage_limits()
-                        )
-                    finally:
-                        set_message_history(
-                            prune_interrupted_tool_calls(get_message_history())
-                        )
+                    # Use agent_manager's run_with_mcp method
+                    response = await agent_manager.run_with_mcp(
+                        initial_command, usage_limits=get_custom_usage_limits()
+                    )
+                    set_message_history(
+                        prune_interrupted_tool_calls(get_message_history())
+                    )
 
             agent_response = response.output
 
@@ -438,11 +417,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             try:
                 prettier_code_blocks()
 
-                # Store agent's full response
-                agent_response = None
-
-                # Get the agent (uses cached version from early initialization)
-                agent = get_code_generation_agent()
+                # No need to get agent directly - use manager's run methods
 
                 # Use our custom spinner for better compatibility with user input
                 from code_puppy.messaging import emit_warning
@@ -456,18 +431,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # Use a separate asyncio task that we can cancel
                     async def run_agent_task():
                         try:
-                            async with agent.run_mcp_servers():
-                                return await agent.run(
-                                    task,
-                                    message_history=get_message_history(),
-                                    usage_limits=get_custom_usage_limits(),
-                                )
-                        except Exception as mcp_error:
-                            # Handle MCP server errors
-                            emit_warning(f"MCP server error: {str(mcp_error)}")
-                            emit_warning("Running without MCP servers...")
-                            # Run without MCP servers as fallback
-                            return await agent.run(
+                            # Use agent_manager's run_with_mcp to handle MCP servers properly
+                            return await agent_manager.run_with_mcp(
                                 task,
                                 message_history=get_message_history(),
                                 usage_limits=get_custom_usage_limits(),
@@ -606,7 +571,9 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 
     try:
         # Get the agent
-        agent = get_code_generation_agent()
+        # Get agent through runtime manager for consistency
+        agent_manager = get_runtime_agent_manager()
+        agent = agent_manager.get_agent()
 
         # Use our custom spinner for better compatibility with user input
         from code_puppy.messaging.spinner import ConsoleSpinner

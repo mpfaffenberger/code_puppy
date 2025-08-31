@@ -117,11 +117,12 @@ def handle_meta_command(command: str, console: Console) -> bool:
         new_input = update_model_in_input(command)
         if new_input is not None:
             from code_puppy.command_line.model_picker_completion import get_active_model
-            from code_puppy.agent import get_code_generation_agent
+            from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 
             model = get_active_model()
             # Make sure this is called for the test
-            get_code_generation_agent(force_reload=True)
+            manager = get_runtime_agent_manager()
+            manager.reload_agent()
             console.print(
                 f"[bold green]Active model set and loaded:[/bold green] [cyan]{model}[/cyan]"
             )
