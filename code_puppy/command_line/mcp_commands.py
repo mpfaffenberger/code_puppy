@@ -1084,20 +1084,29 @@ class MCPCommandHandler:
                             env_vars.append(value[1:])
                 
                 import os
+                from code_puppy.state_management import is_tui_mode
                 from code_puppy.messaging import emit_prompt
+                
                 if env_vars:
-                    for var in env_vars:
-                        if var not in os.environ:
-                            try:
-                                value = emit_prompt(f"Enter {var}: ")
-                                if value.strip():  # Only set if user provided a value
-                                    os.environ[var] = value.strip()
-                                    emit_info(f"[green]Set {var}[/green]", message_group=group_id)
-                                else:
-                                    emit_info(f"[yellow]Skipped {var} (empty value)[/yellow]", message_group=group_id)
-                            except Exception as e:
-                                emit_info(f"[yellow]Failed to get {var}: {e}[/yellow]", message_group=group_id)
-                    emit_info("Environment variables configured.", message_group=group_id)
+                    if is_tui_mode():
+                        # In TUI mode, show helpful message about using the wizard
+                        emit_info(f"[yellow]This server requires environment variables: {', '.join(env_vars)}[/yellow]", message_group=group_id)
+                        emit_info("[cyan]💡 Tip: Use Ctrl+T to open the MCP Install Wizard with full environment variable support![/cyan]", message_group=group_id)
+                        emit_info("For now, server installed without environment variables.", message_group=group_id)
+                    else:
+                        # Interactive mode - use prompts as before
+                        for var in env_vars:
+                            if var not in os.environ:
+                                try:
+                                    value = emit_prompt(f"Enter {var}: ")
+                                    if value.strip():  # Only set if user provided a value
+                                        os.environ[var] = value.strip()
+                                        emit_info(f"[green]Set {var}[/green]", message_group=group_id)
+                                    else:
+                                        emit_info(f"[yellow]Skipped {var} (empty value)[/yellow]", message_group=group_id)
+                                except Exception as e:
+                                    emit_info(f"[yellow]Failed to get {var}: {e}[/yellow]", message_group=group_id)
+                        emit_info("Environment variables configured.", message_group=group_id)
                 
                 emit_info(f"Use '/mcp start {custom_name}' to start the server", message_group=group_id)
                 

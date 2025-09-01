@@ -490,7 +490,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         config={
             "timeout": 30,
             "command": "npx",
-            "args": ["-y", "@upstash/context7-mcp","--api-key", "ctx7sk-c884daad-4169-47ca-b44a-bd30ba77c4db"]
+            "args": ["-y", "@upstash/context7-mcp","--api-key", "$CONTEXT7_API_KEY"]
         },
         verified=True,
         popular=True,
