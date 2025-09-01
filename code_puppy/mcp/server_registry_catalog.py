@@ -124,17 +124,60 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         requires=["node", "npm"]
     ),
     
+    # Enhanced server with comprehensive requirements
     MCPServerTemplate(
         id="gdrive",
         name="gdrive",
         display_name="Google Drive",
-        description="Access and manage Google Drive files",
+        description="Access and manage Google Drive files with OAuth2 authentication",
         category="Storage",
-        tags=["google", "drive", "cloud", "storage", "sync"],
+        tags=["google", "drive", "cloud", "storage", "sync", "oauth"],
         type="stdio",
         config={
             "command": "npx",
             "args": ["-y", "@modelcontextprotocol/server-gdrive"],
+            "env": {
+                "GOOGLE_CLIENT_ID": "$GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET": "$GOOGLE_CLIENT_SECRET"
+            }
+        },
+        requires=MCPServerRequirements(
+            environment_vars=["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+            command_line_args=[
+                {
+                    "name": "port", 
+                    "prompt": "OAuth redirect port", 
+                    "default": "3000", 
+                    "required": False
+                },
+                {
+                    "name": "scope",
+                    "prompt": "Google Drive API scope",
+                    "default": "https://www.googleapis.com/auth/drive.readonly",
+                    "required": False
+                }
+            ],
+            required_tools=["node", "npx", "npm"],
+            package_dependencies=["@modelcontextprotocol/server-gdrive"],
+            system_requirements=["Internet connection for OAuth"]
+        ),
+        verified=True,
+        popular=True,
+        example_usage="List files: 'Show me my Google Drive files'"
+    ),
+    
+    # Regular server (backward compatible)
+    MCPServerTemplate(
+        id="filesystem-simple",
+        name="filesystem-simple",
+        display_name="Simple Filesystem",
+        description="Basic filesystem access",
+        category="Storage", 
+        tags=["files", "basic"],
+        type="stdio",
+        config={
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
             "timeout": 30
         },
         verified=True,
