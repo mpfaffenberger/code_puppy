@@ -11,7 +11,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 from textual import on
 from textual.containers import Vertical, VerticalScroll
-from textual.widgets import Static
+from textual.widgets import Static, Collapsible
 
 from ..models import ChatMessage, MessageType
 from .copy_button import CopyButton
@@ -30,14 +30,16 @@ class ChatView(VerticalScroll):
     }
 
     .user-message {
-        background: transparent;
+        background: $primary-darken-3;
         color: #ffffff;
         margin: 0 0 1 0;
         margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        padding: 1;
+        padding-top: 1;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
+        border-left: thick $accent;
+        text-style: bold;
     }
 
     .agent-message {
@@ -48,7 +50,7 @@ class ChatView(VerticalScroll):
         padding: 0;
         padding-top: 0;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .system-message {
@@ -60,7 +62,7 @@ class ChatView(VerticalScroll):
         padding-top: 0;
         text-style: italic;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .error-message {
@@ -71,7 +73,7 @@ class ChatView(VerticalScroll):
         padding: 0;
         padding-top: 0;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .agent_reasoning-message {
@@ -83,7 +85,7 @@ class ChatView(VerticalScroll):
         padding-top: 0;
         text-wrap: wrap;
         text-style: italic;
-        border: round $primary;
+        border: none;
     }
 
     .planned_next_steps-message {
@@ -95,7 +97,7 @@ class ChatView(VerticalScroll):
         padding-top: 0;
         text-wrap: wrap;
         text-style: italic;
-        border: round $primary;
+        border: none;
     }
 
     .agent_response-message {
@@ -106,7 +108,7 @@ class ChatView(VerticalScroll):
         padding: 0;
         padding-top: 0;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .info-message {
@@ -117,7 +119,7 @@ class ChatView(VerticalScroll):
         padding: 0;
         padding-top: 0;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .success-message {
@@ -128,7 +130,7 @@ class ChatView(VerticalScroll):
         padding: 0;
         padding-top: 0;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .warning-message {
@@ -139,7 +141,7 @@ class ChatView(VerticalScroll):
         padding: 0;
         padding-top: 0;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .tool_output-message {
@@ -150,7 +152,7 @@ class ChatView(VerticalScroll):
         padding: 0;
         padding-top: 0;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .command_output-message {
@@ -161,7 +163,7 @@ class ChatView(VerticalScroll):
         padding: 0;
         padding-top: 0;
         text-wrap: wrap;
-        border: round $primary;
+        border: none;
     }
 
     .message-container {
@@ -339,8 +341,21 @@ class ChatView(VerticalScroll):
         css_class = f"{message.type.value}-message"
 
         if message.type == MessageType.USER:
-            content = f"{message.content}"
-            message_widget = Static(Text(content), classes=css_class)
+            # Add user indicator and make it stand out
+            content_lines = message.content.split('\n')
+            if len(content_lines) > 1:
+                # Multi-line user message
+                formatted_content = f"╔══ USER ══╗\n{message.content}\n╚══════════╝"
+            else:
+                # Single line user message
+                formatted_content = f"▶ USER: {message.content}"
+            
+            message_widget = Static(Text(formatted_content), classes=css_class)
+            # User messages are not collapsible - mount directly
+            self.mount(message_widget)
+            # Auto-scroll to bottom
+            self._schedule_scroll()
+            return
         elif message.type == MessageType.AGENT:
             prefix = "AGENT: "
             content = f"{message.content}"
