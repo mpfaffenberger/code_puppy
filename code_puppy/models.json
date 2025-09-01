@@ -5,7 +5,7 @@
     "context_length": 400000
   },
   "Cerebras-Qwen3-Coder-480b": {
-    "type": "custom_openai",
+    "type": "cerebras",
     "name": "qwen-3-coder-480b",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
@@ -14,7 +14,7 @@
     "context_length": 131072
   },
   "Cerebras-Qwen3-235b-a22b-instruct-2507": {
-    "type": "custom_openai",
+    "type": "cerebras",
     "name": "qwen-3-235b-a22b-instruct-2507",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
@@ -23,7 +23,7 @@
     "context_length": 64000
   },
   "Cerebras-gpt-oss-120b": {
-    "type": "custom_openai",
+    "type": "cerebras",
     "name": "gpt-oss-120b",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
@@ -32,7 +32,7 @@
     "context_length": 131072
   },
   "Cerebras-Qwen-3-32b": {
-    "type": "custom_openai",
+    "type": "cerebras",
     "name": "qwen-3-32b",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
