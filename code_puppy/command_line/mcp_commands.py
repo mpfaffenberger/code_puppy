@@ -15,8 +15,9 @@ from rich.table import Table
 from rich.console import Console
 from rich.text import Text
 from rich.panel import Panel
-from rich.columns import Columns
 
+from code_puppy.state_management import is_tui_mode
+from code_puppy.messaging import emit_prompt
 from code_puppy.mcp.manager import get_mcp_manager, ServerInfo
 from code_puppy.mcp.managed_server import ServerConfig, ServerState
 from code_puppy.messaging import emit_info, emit_system_message
@@ -1024,6 +1025,15 @@ class MCPCommandHandler:
             # Get server config with command line argument overrides
             config_dict = selected_server.to_server_config(server_name, **cmd_args)
             
+            # Update the config with actual environment variable values
+            if 'env' in config_dict:
+                for env_key, env_value in config_dict['env'].items():
+                    # If it's a placeholder like $GITHUB_TOKEN, replace with actual value
+                    if env_value.startswith('$'):
+                        var_name = env_value[1:]  # Remove the $
+                        if var_name in env_vars:
+                            config_dict['env'][env_key] = env_vars[var_name]
+            
             # Create and register the server
             from code_puppy.mcp import ServerConfig
             
@@ -1371,146 +1381,193 @@ class MCPCommandHandler:
             group_id = str(uuid.uuid4())
         
         try:
-            from code_puppy.mcp.server_registry_catalog import catalog
-            from code_puppy.mcp import ServerConfig
-            import json
+            # If in TUI mode, show message to use Ctrl+T
+            if is_tui_mode():
+                emit_info("In TUI mode, use Ctrl+T to open the MCP Install Wizard", message_group=group_id)
+                return
             
+            # In interactive mode, use the new comprehensive installer
             if not args:
-                emit_info("Usage: /mcp install <server-id> [custom-name]", message_group=group_id)
-                emit_info("Use '/mcp search' to find available servers", message_group=group_id)
+                # No args - launch interactive wizard
+                success = self._run_interactive_install_wizard(group_id)
+                if success:
+                    from code_puppy.agent import reload_mcp_servers
+                    reload_mcp_servers()
                 return
             
+            # Has args - install directly from catalog
             server_id = args[0]
-            custom_name = args[1] if len(args) > 1 else None
-            
-            # Find server in registry
-            template = catalog.get_by_id(server_id)
-            if not template:
-                emit_info(f"Server '{server_id}' not found in registry", message_group=group_id)
-                
-                # Suggest similar servers
-                suggestions = catalog.search(server_id)
-                if suggestions:
-                    emit_info("Did you mean one of these?", message_group=group_id)
-                    for s in suggestions[:5]:
-                        emit_info(f"  • {s.id} - {s.display_name}", message_group=group_id)
-                return
-            
-            # Show server details
-            emit_info(f"[bold cyan]Installing: {template.display_name}[/bold cyan]", message_group=group_id)
-            emit_info(f"[dim]{template.description}[/dim]", message_group=group_id)
-            
-            # Check requirements
-            if template.requires:
-                emit_info(f"[yellow]Requirements:[/yellow] {', '.join(template.requires)}", message_group=group_id)
-            
-            # Use custom name or generate one
-            if not custom_name:
-                # Check if default name exists
-                existing = self.manager.registry.get_by_name(template.name)
-                if existing:
-                    # Generate unique name
-                    import time
-                    custom_name = f"{template.name}-{int(time.time()) % 10000}"
-                    emit_info(f"[dim]Using name: {custom_name} (original already exists)[/dim]", message_group=group_id)
-                else:
-                    custom_name = template.name
-            
-            # Get any config overrides from interactive prompts (if applicable)
-            config_overrides = {}
-            if not is_tui_mode():
-                config_overrides = self._handle_interactive_requirements(template, custom_name, group_id)
-            
-            # Convert template to server config with overrides
-            config_dict = template.to_server_config(custom_name, **config_overrides)
-            
-            # Create ServerConfig
-            server_config = ServerConfig(
-                id=f"{custom_name}_{hash(custom_name)}",
-                name=custom_name,
-                type=config_dict.pop('type'),
-                enabled=True,
-                config=config_dict
-            )
-            
-            # Register the server
-            server_id = self.manager.register_server(server_config)
-            
-            if server_id:
-                emit_info(f"✅ Installed '{custom_name}' from {template.display_name}", message_group=group_id)
-                
-                # Save to mcp_servers.json
-                from code_puppy.config import MCP_SERVERS_FILE
-                import os
-                
-                if os.path.exists(MCP_SERVERS_FILE):
-                    with open(MCP_SERVERS_FILE, 'r') as f:
-                        data = json.load(f)
-                        servers = data.get("mcp_servers", {})
-                else:
-                    servers = {}
-                    data = {"mcp_servers": servers}
-                
-                servers[custom_name] = config_dict
-                servers[custom_name]['type'] = server_config.type
-                
-                os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
-                with open(MCP_SERVERS_FILE, 'w') as f:
-                    json.dump(data, f, indent=2)
-                
-                # Show next steps
-                if template.example_usage:
-                    emit_info(f"[yellow]Example:[/yellow] {template.example_usage}", message_group=group_id)
-                
-                # Check for environment variables
-                env_vars = []
-                if 'env' in config_dict:
-                    for key, value in config_dict['env'].items():
-                        if value.startswith('$'):
-                            env_vars.append(value[1:])
-                
-                import os
-                from code_puppy.state_management import is_tui_mode
-                from code_puppy.messaging import emit_prompt
-                
-                # Handle comprehensive requirements
-                if is_tui_mode():
-                    # In TUI mode, show helpful message about using the wizard
-                    requirements = template.get_requirements()
-                    
-                    config_needed = []
-                    if requirements.environment_vars:
-                        config_needed.append(f"Environment variables: {', '.join(requirements.environment_vars)}")
-                    if requirements.command_line_args:
-                        arg_names = [arg.get('name', 'arg') for arg in requirements.command_line_args]
-                        config_needed.append(f"Command line arguments: {', '.join(arg_names)}")
-                    if requirements.required_tools:
-                        config_needed.append(f"Required tools: {', '.join(requirements.required_tools)}")
-                    
-                    if config_needed:
-                        emit_info(f"[yellow]This server requires configuration:[/yellow]", message_group=group_id)
-                        for requirement in config_needed:
-                            emit_info(f"  • {requirement}", message_group=group_id)
-                        emit_info("[cyan]💡 Tip: Use Ctrl+T to open the MCP Install Wizard with full configuration support![/cyan]", message_group=group_id)
-                        emit_info("For now, server installed with basic configuration.", message_group=group_id)
-                else:
-                    # Interactive mode - comprehensive prompts
-                    self._handle_interactive_requirements(template, custom_name, group_id)
-                
-                emit_info(f"Use '/mcp start {custom_name}' to start the server", message_group=group_id)
-                
-                # Reload MCP servers
+            success = self._install_from_catalog(server_id, group_id)
+            if success:
                 from code_puppy.agent import reload_mcp_servers
                 reload_mcp_servers()
-            else:
-                emit_info(f"Failed to install server", message_group=group_id)
-                
+            return
+            
         except ImportError:
             emit_info("Server registry not available", message_group=group_id)
         except Exception as e:
             logger.error(f"Error installing server: {e}")
             emit_info(f"Installation failed: {e}", message_group=group_id)
     
+    def _install_from_catalog(self, server_name_or_id: str, group_id: str) -> bool:
+        """Install a server directly from the catalog by name or ID."""
+        try:
+            from code_puppy.mcp.server_registry_catalog import catalog
+            
+            # Try to find server by ID first, then by name/search
+            selected_server = catalog.get_by_id(server_name_or_id)
+            
+            if not selected_server:
+                # Try searching by name
+                results = catalog.search(server_name_or_id)
+                if not results:
+                    emit_info(f"❌ No server found matching '{server_name_or_id}'", message_group=group_id)
+                    emit_info("Try '/mcp add' to browse available servers", message_group=group_id)
+                    return False
+                elif len(results) == 1:
+                    selected_server = results[0]
+                else:
+                    # Multiple matches, show them
+                    emit_info(f"🔍 Multiple servers found matching '{server_name_or_id}':", message_group=group_id)
+                    for i, server in enumerate(results[:5]):
+                        indicators = []
+                        if server.verified:
+                            indicators.append("✓")
+                        if server.popular:
+                            indicators.append("⭐")
+                        
+                        indicator_str = ''
+                        if indicators:
+                            indicator_str = ' ' + ''.join(indicators)
+                        
+                        emit_info(f"  {i+1}. {server.display_name}{indicator_str}", message_group=group_id)
+                        emit_info(f"     ID: {server.id}", message_group=group_id)
+                    
+                    emit_info(f"Please use the exact server ID: '/mcp add <server_id>'", message_group=group_id)
+                    return False
+            
+            # Show what we're installing
+            emit_info(f"📦 Installing: {selected_server.display_name}", message_group=group_id)
+            description = selected_server.description if selected_server.description else "No description available"
+            emit_info(f"Description: {description}", message_group=group_id)
+            emit_info("", message_group=group_id)
+            
+            # Get custom name (default to server name)
+            from code_puppy.messaging import emit_prompt
+            server_name = emit_prompt(f"Enter custom name for this server [{selected_server.name}]: ").strip()
+            if not server_name:
+                server_name = selected_server.name
+            
+            # Check if name already exists
+            existing_server = self._find_server_id_by_name(server_name)
+            if existing_server:
+                override = emit_prompt(f"Server '{server_name}' already exists. Override it? [y/N]: ")
+                if not override.lower().startswith('y'):
+                    emit_info("Installation cancelled", message_group=group_id)
+                    return False
+            
+            # Configure the server with requirements
+            requirements = selected_server.get_requirements()
+            
+            # Check system requirements
+            if not self._interactive_check_system_requirements(requirements, group_id):
+                return False
+            
+            # Collect environment variables
+            env_vars = self._interactive_collect_env_vars(requirements, group_id)
+            
+            # Collect command line arguments  
+            cmd_args = self._interactive_collect_cmd_args(requirements, group_id)
+            
+            # Show summary and confirm
+            if not self._interactive_confirm_installation(selected_server, server_name, env_vars, cmd_args, group_id):
+                return False
+            
+            # Install the server
+            return self._interactive_install_server(selected_server, server_name, env_vars, cmd_args, group_id)
+            
+        except ImportError:
+            emit_info("Server catalog not available", message_group=group_id)
+            return False
+        except Exception as e:
+            import traceback
+            emit_info(f"❌ Installation failed: {str(e)}", message_group=group_id)
+            emit_info(f"[dim]Error details: {traceback.format_exc()}[/dim]", message_group=group_id)
+            return False
+    
+    def _find_server_id_by_name(self, server_name: str) -> Optional[str]:
+        """
+        Find a server ID by its name.
+        
+        Args:
+            server_name: Name of the server to find
+            
+        Returns:
+            Server ID if found, None otherwise
+        """
+        try:
+            servers = self.manager.list_servers()
+            for server in servers:
+                if server.name.lower() == server_name.lower():
+                    return server.id
+            return None
+        except Exception as e:
+            logger.error(f"Error finding server by name '{server_name}': {e}")
+            return None
+    
+    def _suggest_similar_servers(self, server_name: str, group_id: str = None) -> None:
+        """
+        Suggest similar server names when a server is not found.
+        
+        Args:
+            server_name: The server name that was not found
+            group_id: Optional message group ID for grouping related messages
+        """
+        try:
+            servers = self.manager.list_servers()
+            if not servers:
+                emit_info("No servers are registered", message_group=group_id)
+                return
+            
+            # Simple suggestion based on partial matching
+            suggestions = []
+            server_name_lower = server_name.lower()
+            
+            for server in servers:
+                if server_name_lower in server.name.lower():
+                    suggestions.append(server.name)
+            
+            if suggestions:
+                emit_info(f"Did you mean: {', '.join(suggestions)}", message_group=group_id)
+            else:
+                server_names = [s.name for s in servers]
+                emit_info(f"Available servers: {', '.join(server_names)}", message_group=group_id)
+        
+        except Exception as e:
+            logger.error(f"Error suggesting similar servers: {e}")
+    
+    def _format_state_indicator(self, state: ServerState) -> Text:
+        """
+        Format a server state with appropriate color and icon.
+        
+        Args:
+            state: Server state to format
+            
+        Returns:
+            Rich Text object with colored state indicator
+        """
+        state_map = {
+            ServerState.RUNNING: ("✓ Run", "green"),
+            ServerState.STOPPED: ("✗ Stop", "red"),
+            ServerState.STARTING: ("↗ Start", "yellow"),
+            ServerState.STOPPING: ("↙ Stop", "yellow"),
+            ServerState.ERROR: ("⚠ Err", "red"),
+            ServerState.QUARANTINED: ("⏸ Quar", "yellow"),
+        }
+        
+        display, color = state_map.get(state, ("? Unk", "dim"))
+        return Text(display, style=color)
+        
     def _find_server_id_by_name(self, server_name: str) -> Optional[str]:
         """
         Find a server ID by its name.
