@@ -90,7 +90,7 @@ def create_reopenable_async_client(
     timeout: int = 180,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
-) -> Union["ReopenableAsyncClient", httpx.AsyncClient]:
+) -> Union[ReopenableAsyncClient, httpx.AsyncClient]:
     if verify is None:
         verify = get_cert_bundle_path()
 
