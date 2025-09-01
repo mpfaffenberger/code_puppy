@@ -80,7 +80,7 @@ class TextualSpinner(Static):
             self._paused = True
             self._timer.pause()
             # Store current state but don't clear it completely
-            self._previous_state = self.text
+            self._previous_state = self.renderable
             self.update("")
 
     def resume(self):
@@ -94,4 +94,8 @@ class TextualSpinner(Static):
         if self._is_spinning and self._timer and self._paused:
             self._paused = False
             self._timer.resume()
-            self.update_frame_display()
+            # Restore previous state instead of immediately updating display
+            if self._previous_state:
+                self.update(self._previous_state)
+            else:
+                self.update_frame_display()
