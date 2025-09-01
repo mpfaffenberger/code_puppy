@@ -37,6 +37,9 @@ class MessageType(Enum):
     AGENT_RESPONSE = "agent_response"
     AGENT_STATUS = "agent_status"
 
+    # Human interaction types
+    HUMAN_INPUT_REQUEST = "human_input_request"
+
     # System types
     SYSTEM = "system"
     DEBUG = "debug"
@@ -71,6 +74,8 @@ class MessageQueue:
         self._startup_buffer = []  # Buffer messages before any renderer starts
         self._has_active_renderer = False
         self._event_loop = None  # Store reference to the event loop
+        self._prompt_responses = {}  # Store responses to human input requests
+        self._prompt_id_counter = 0  # Counter for unique prompt IDs
 
     def start(self):
         """Start the queue processing."""
@@ -192,6 +197,53 @@ class MessageQueue:
         """Mark that no renderer is currently active."""
         self._has_active_renderer = False
 
+    def create_prompt_request(self, prompt_text: str) -> str:
+        """Create a human input request and return its unique ID."""
+        self._prompt_id_counter += 1
+        prompt_id = f"prompt_{self._prompt_id_counter}"
+        
+        # Emit the human input request message
+        message = UIMessage(
+            type=MessageType.HUMAN_INPUT_REQUEST,
+            content=prompt_text,
+            metadata={"prompt_id": prompt_id}
+        )
+        self.emit(message)
+        
+        return prompt_id
+
+    def wait_for_prompt_response(self, prompt_id: str, timeout: float = None) -> str:
+        """Wait for a response to a human input request."""
+        import time
+        start_time = time.time()
+        
+        # Check if we're in TUI mode - if so, try to yield control to the event loop
+        from code_puppy.state_management import is_tui_mode
+        sleep_interval = 0.05 if is_tui_mode() else 0.1
+        
+        # Debug logging for TUI mode
+        if is_tui_mode():
+            print(f"[DEBUG] Waiting for prompt response: {prompt_id}")
+        
+        while True:
+            if prompt_id in self._prompt_responses:
+                response = self._prompt_responses.pop(prompt_id)
+                if is_tui_mode():
+                    print(f"[DEBUG] Got response for {prompt_id}: {response[:20]}...")
+                return response
+            
+            if timeout and (time.time() - start_time) > timeout:
+                raise TimeoutError(f"No response received for prompt {prompt_id} within {timeout} seconds")
+            
+            time.sleep(sleep_interval)
+
+    def provide_prompt_response(self, prompt_id: str, response: str):
+        """Provide a response to a human input request."""
+        from code_puppy.state_management import is_tui_mode
+        if is_tui_mode():
+            print(f"[DEBUG] Providing response for {prompt_id}: {response[:20]}...")
+        self._prompt_responses[prompt_id] = response
+
 
 # Global message queue instance
 _global_queue: Optional[MessageQueue] = None
@@ -286,3 +338,16 @@ def emit_divider(content: str = "[dim]" + "─" * 100 + "\n" + "[/dim]", **metad
         emit_message(MessageType.DIVIDER, content, **metadata)
     else:
         pass
+
+
+def emit_prompt(prompt_text: str, timeout: float = None) -> str:
+    """Emit a human input request and wait for response."""
+    queue = get_global_queue()
+    prompt_id = queue.create_prompt_request(prompt_text)
+    return queue.wait_for_prompt_response(prompt_id, timeout)
+
+
+def provide_prompt_response(prompt_id: str, response: str):
+    """Provide a response to a human input request."""
+    queue = get_global_queue()
+    queue.provide_prompt_response(prompt_id, response)

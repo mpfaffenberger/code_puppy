@@ -674,7 +674,7 @@ class MCPCommandHandler:
                 # No arguments - launch interactive wizard
                 from code_puppy.mcp.config_wizard import run_add_wizard
                 
-                success = run_add_wizard()
+                success = run_add_wizard(group_id)
                 
                 if success:
                     # Reload the agent to pick up new server
@@ -1083,9 +1083,21 @@ class MCPCommandHandler:
                         if value.startswith('$'):
                             env_vars.append(value[1:])
                 
+                import os
+                from code_puppy.messaging import emit_prompt
                 if env_vars:
-                    emit_info(f"[yellow]Required environment variables:[/yellow] {', '.join(env_vars)}", message_group=group_id)
-                    emit_info("Set these before starting the server", message_group=group_id)
+                    for var in env_vars:
+                        if var not in os.environ:
+                            try:
+                                value = emit_prompt(f"Enter {var}: ")
+                                if value.strip():  # Only set if user provided a value
+                                    os.environ[var] = value.strip()
+                                    emit_info(f"[green]Set {var}[/green]", message_group=group_id)
+                                else:
+                                    emit_info(f"[yellow]Skipped {var} (empty value)[/yellow]", message_group=group_id)
+                            except Exception as e:
+                                emit_info(f"[yellow]Failed to get {var}: {e}[/yellow]", message_group=group_id)
+                    emit_info("Environment variables configured.", message_group=group_id)
                 
                 emit_info(f"Use '/mcp start {custom_name}' to start the server", message_group=group_id)
                 

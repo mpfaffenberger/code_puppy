@@ -81,6 +81,11 @@ class InteractiveRenderer(MessageRenderer):
 
     async def render_message(self, message: UIMessage):
         """Render a message using Rich console."""
+        # Handle human input requests
+        if message.type == MessageType.HUMAN_INPUT_REQUEST:
+            await self._handle_human_input_request(message)
+            return
+
         # Convert message type to appropriate Rich styling
         if message.type == MessageType.ERROR:
             style = "bold red"
@@ -125,6 +130,15 @@ class InteractiveRenderer(MessageRenderer):
         if hasattr(self.console.file, "flush"):
             self.console.file.flush()
 
+    async def _handle_human_input_request(self, message: UIMessage):
+        """Handle a human input request in async mode."""
+        # This renderer is not currently used in practice, but if it were:
+        # We would need async input handling here
+        # For now, just render as a system message
+        self.console.print(f"[bold cyan]INPUT REQUESTED:[/bold cyan] {message.content}")
+        if hasattr(self.console.file, "flush"):
+            self.console.file.flush()
+
 
 class TUIRenderer(MessageRenderer):
     """Renderer for TUI mode that adds messages to the chat view."""
@@ -140,6 +154,11 @@ class TUIRenderer(MessageRenderer):
     async def render_message(self, message: UIMessage):
         """Render a message in the TUI chat view."""
         if not self.tui_app:
+            return
+
+        # Handle human input requests
+        if message.type == MessageType.HUMAN_INPUT_REQUEST:
+            await self._handle_human_input_request(message)
             return
 
         # Extract group_id from message metadata (fixing the key name)
@@ -198,6 +217,48 @@ class TUIRenderer(MessageRenderer):
         else:
             # Default to system message
             self.tui_app.add_system_message(content_str, message_group=group_id)
+
+    async def _handle_human_input_request(self, message: UIMessage):
+        """Handle a human input request in TUI mode."""
+        try:
+            print(f"[DEBUG] TUI renderer handling human input request")
+            
+            # Check if tui_app is available
+            if not self.tui_app:
+                print(f"[DEBUG] No tui_app available, falling back to error response")
+                prompt_id = message.metadata.get("prompt_id") if message.metadata else None
+                if prompt_id:
+                    from code_puppy.messaging import provide_prompt_response
+                    provide_prompt_response(prompt_id, "")
+                return
+            
+            prompt_id = message.metadata.get("prompt_id") if message.metadata else None
+            if not prompt_id:
+                print(f"[DEBUG] No prompt_id in message metadata")
+                self.tui_app.add_error_message("Error: Invalid human input request")
+                return
+
+            # For now, use a simple fallback instead of modal to avoid crashes
+            print(f"[DEBUG] Using fallback approach - showing prompt as message")
+            self.tui_app.add_system_message(f"[yellow]INPUT NEEDED:[/yellow] {str(message.content)}")
+            self.tui_app.add_system_message("[dim]This would normally show a modal, but using fallback to prevent crashes[/dim]")
+            
+            # Provide empty response for now to unblock the waiting thread
+            from code_puppy.messaging import provide_prompt_response
+            provide_prompt_response(prompt_id, "")
+                
+        except Exception as e:
+            print(f"[DEBUG] Top-level exception in _handle_human_input_request: {e}")
+            import traceback
+            traceback.print_exc()
+            # Last resort - provide empty response to prevent hanging
+            try:
+                prompt_id = message.metadata.get("prompt_id") if message.metadata else None
+                if prompt_id:
+                    from code_puppy.messaging import provide_prompt_response
+                    provide_prompt_response(prompt_id, "")
+            except Exception:
+                pass  # Can't do anything more
 
 
 class SynchronousInteractiveRenderer:
@@ -262,6 +323,11 @@ class SynchronousInteractiveRenderer:
 
     def _render_message(self, message: UIMessage):
         """Render a message using Rich console."""
+        # Handle human input requests
+        if message.type == MessageType.HUMAN_INPUT_REQUEST:
+            self._handle_human_input_request(message)
+            return
+
         # Convert message type to appropriate Rich styling
         if message.type == MessageType.ERROR:
             style = "bold red"
@@ -303,3 +369,31 @@ class SynchronousInteractiveRenderer:
         # This fixes the issue where messages don't appear until user input
         if hasattr(self.console.file, "flush"):
             self.console.file.flush()
+
+    def _handle_human_input_request(self, message: UIMessage):
+        """Handle a human input request in interactive mode."""
+        prompt_id = message.metadata.get("prompt_id") if message.metadata else None
+        if not prompt_id:
+            self.console.print("[bold red]Error: Invalid human input request[/bold red]")
+            return
+
+        # Display the prompt
+        self.console.print(f"[bold cyan]{message.content}[/bold cyan]")
+        if hasattr(self.console.file, "flush"):
+            self.console.file.flush()
+
+        # Get user input
+        try:
+            # Use basic input for now - could be enhanced with prompt_toolkit later
+            response = input(">>> ")
+            
+            # Provide the response back to the queue
+            from .message_queue import provide_prompt_response
+            provide_prompt_response(prompt_id, response)
+            
+        except (EOFError, KeyboardInterrupt):
+            # Handle Ctrl+C or Ctrl+D
+            provide_prompt_response(prompt_id, "")
+        except Exception as e:
+            self.console.print(f"[bold red]Error getting input: {e}[/bold red]")
+            provide_prompt_response(prompt_id, "")
