@@ -327,41 +327,151 @@ class MCPInstallWizardScreen(ModalScreen):
 [yellow]Category:[/yellow] {self.selected_server.category}
 [yellow]Type:[/yellow] {getattr(self.selected_server, 'type', 'stdio')}"""
         
-        if self.selected_server.requires:
-            info_text += f"\n[yellow]Requirements:[/yellow] {', '.join(self.selected_server.requires)}"
+        # Show requirements summary
+        requirements = self.selected_server.get_requirements()
+        req_items = []
+        if requirements.required_tools:
+            req_items.append(f"Tools: {', '.join(requirements.required_tools)}")
+        if requirements.environment_vars:
+            req_items.append(f"Env vars: {len(requirements.environment_vars)}")
+        if requirements.command_line_args:
+            req_items.append(f"Config args: {len(requirements.command_line_args)}")
+        
+        if req_items:
+            info_text += f"\n[yellow]Requirements:[/yellow] {' | '.join(req_items)}"
         
         server_info.mount(Static(info_text))
         
-        # Setup environment variables
-        env_container = self.query_one("#env-vars-container", Container)
-        env_container.remove_children()
-        env_container.mount(Static("[bold]Environment Variables:[/bold]"))
+        # Setup configuration requirements
+        config_container = self.query_one("#env-vars-container", Container)
+        config_container.remove_children()
+        config_container.mount(Static("[bold]Server Configuration:[/bold]"))
         
-        # Get server config to find env vars
         try:
-            config_dict = self.selected_server.to_server_config("temp")
-            env_vars = []
+            # Check system requirements first
+            self._setup_system_requirements(config_container)
             
-            if 'env' in config_dict:
-                for key, value in config_dict['env'].items():
-                    if value.startswith('$'):
-                        env_vars.append(value[1:])
+            # Setup environment variables
+            self._setup_environment_variables(config_container)
             
-            if env_vars:
-                for var in env_vars:
-                    # Create a horizontal container for each env var row
-                    row_container = Horizontal(classes="env-var-row")
-                    # Mount the row container first
-                    env_container.mount(row_container)
-                    # Then mount children to the row container
-                    row_container.mount(Static(f"{var}:", classes="env-var-label"))
-                    env_input = Input(placeholder=f"Enter {var} value...", classes="env-var-input", id=f"env-{var}")
-                    row_container.mount(env_input)
-            else:
-                env_container.mount(Static("[dim]No environment variables required[/dim]"))
+            # Setup command line arguments
+            self._setup_command_line_args(config_container)
+            
+            # Show package dependencies info
+            self._setup_package_dependencies(config_container)
                 
         except Exception as e:
-            env_container.mount(Static(f"[red]Error loading configuration: {e}[/red]"))
+            config_container.mount(Static(f"[red]Error loading configuration: {e}[/red]"))
+
+    def _setup_system_requirements(self, parent: Container) -> None:
+        """Setup system requirements validation."""
+        required_tools = self.selected_server.get_required_tools()
+        
+        if not required_tools:
+            return
+        
+        parent.mount(Static("\n[bold cyan]System Tools:[/bold cyan]"))
+        
+        # Import here to avoid circular imports
+        from code_puppy.mcp.system_tools import detector
+        
+        tool_status = detector.detect_tools(required_tools)
+        
+        for tool_name, tool_info in tool_status.items():
+            if tool_info.available:
+                status_text = f"✅ {tool_name}"
+                if tool_info.version:
+                    status_text += f" ({tool_info.version})"
+                parent.mount(Static(status_text))
+            else:
+                status_text = f"❌ {tool_name} - {tool_info.error or 'Not found'}"
+                parent.mount(Static(f"[red]{status_text}[/red]"))
+                
+                # Show installation suggestions
+                suggestions = detector.get_installation_suggestions(tool_name)
+                if suggestions:
+                    parent.mount(Static(f"[dim]   Install: {suggestions[0]}[/dim]"))
+
+    def _setup_environment_variables(self, parent: Container) -> None:
+        """Setup environment variables inputs."""
+        env_vars = self.selected_server.get_environment_vars()
+        
+        if not env_vars:
+            return
+        
+        parent.mount(Static("\n[bold yellow]Environment Variables:[/bold yellow]"))
+        
+        for var in env_vars:
+            # Check if already set
+            import os
+            current_value = os.environ.get(var, "")
+            
+            row_container = Horizontal(classes="env-var-row")
+            parent.mount(row_container)
+            
+            status_indicator = "✅" if current_value else "📝"
+            row_container.mount(Static(f"{status_indicator} {var}:", classes="env-var-label"))
+            
+            env_input = Input(
+                placeholder=f"Enter {var} value..." if not current_value else "Already set",
+                value=current_value,
+                classes="env-var-input", 
+                id=f"env-{var}"
+            )
+            row_container.mount(env_input)
+
+    def _setup_command_line_args(self, parent: Container) -> None:
+        """Setup command line arguments inputs."""
+        cmd_args = self.selected_server.get_command_line_args()
+        
+        if not cmd_args:
+            return
+        
+        parent.mount(Static("\n[bold green]Command Line Arguments:[/bold green]"))
+        
+        for arg_config in cmd_args:
+            name = arg_config.get("name", "")
+            prompt = arg_config.get("prompt", name)
+            default = arg_config.get("default", "")
+            required = arg_config.get("required", True)
+            
+            row_container = Horizontal(classes="env-var-row")
+            parent.mount(row_container)
+            
+            indicator = "⚡" if required else "🔧"
+            label_text = f"{indicator} {prompt}:"
+            if not required:
+                label_text += " (optional)"
+            
+            row_container.mount(Static(label_text, classes="env-var-label"))
+            
+            arg_input = Input(
+                placeholder=f"Default: {default}" if default else f"Enter {name}...",
+                value=default,
+                classes="env-var-input",
+                id=f"arg-{name}"
+            )
+            row_container.mount(arg_input)
+
+    def _setup_package_dependencies(self, parent: Container) -> None:
+        """Setup package dependencies information."""
+        packages = self.selected_server.get_package_dependencies()
+        
+        if not packages:
+            return
+        
+        parent.mount(Static("\n[bold magenta]Package Dependencies:[/bold magenta]"))
+        
+        # Import here to avoid circular imports
+        from code_puppy.mcp.system_tools import detector
+        
+        package_status = detector.check_package_dependencies(packages)
+        
+        for package, available in package_status.items():
+            if available:
+                parent.mount(Static(f"✅ {package} (installed)"))
+            else:
+                parent.mount(Static(f"[yellow]📦 {package} (will be installed automatically)[/yellow]"))
 
     def _install_server(self) -> None:
         """Install the selected server with configuration."""
@@ -371,14 +481,21 @@ class MCPInstallWizardScreen(ModalScreen):
         try:
             # Collect environment variables
             env_vars = {}
-            env_inputs = self.query(Input)
+            cmd_args = {}
             
-            for input_widget in env_inputs:
+            all_inputs = self.query(Input)
+            
+            for input_widget in all_inputs:
                 if input_widget.id and input_widget.id.startswith("env-"):
                     var_name = input_widget.id[4:]  # Remove "env-" prefix
                     value = input_widget.value.strip()
                     if value:
                         env_vars[var_name] = value
+                elif input_widget.id and input_widget.id.startswith("arg-"):
+                    arg_name = input_widget.id[4:]  # Remove "arg-" prefix
+                    value = input_widget.value.strip()
+                    if value:
+                        cmd_args[arg_name] = value
             
             # Set environment variables
             for var, value in env_vars.items():
@@ -388,8 +505,8 @@ class MCPInstallWizardScreen(ModalScreen):
             import time
             server_name = f"{self.selected_server.name}-{int(time.time()) % 10000}"
             
-            # Get server config
-            config_dict = self.selected_server.to_server_config(server_name)
+            # Get server config with command line argument overrides
+            config_dict = self.selected_server.to_server_config(server_name, **cmd_args)
             
             # Create and register the server
             from code_puppy.mcp import ServerConfig
