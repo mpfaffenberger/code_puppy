@@ -3,13 +3,6 @@ from unittest.mock import MagicMock, patch
 import code_puppy.agent as agent_module
 
 
-def test_session_memory_singleton():
-    # Skip this test since session_memory is no longer a module-level function
-    # Should always return the same instance
-    # Skip this test since session_memory is no longer a module-level function
-    pass
-
-
 def disabled_test_reload_code_generation_agent_loads_model(monkeypatch):
     # Patch all dependencies
     fake_agent = MagicMock()

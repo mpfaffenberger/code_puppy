@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "code-puppy"
 version = "0.0.128"
 description = "Code generation agent"
-repository = "https://github.com/mpfaffenberger/code_puppy"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -53,6 +52,11 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Code Generators",
 ]
+
+[project.urls]
+repository = "https://github.com/mpfaffenberger/code_puppy"
+HomePage = "https://github.com/mpfaffenberger/code_puppy"
+
 
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
