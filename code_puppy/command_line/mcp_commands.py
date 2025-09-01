@@ -671,10 +671,8 @@ class MCPCommandHandler:
                     emit_info(f"Failed to add server '{name}'", message_group=group_id)
                     
             else:
-                # No arguments - launch interactive wizard
-                from code_puppy.mcp.config_wizard import run_add_wizard
-                
-                success = run_add_wizard(group_id)
+                # No arguments - launch interactive wizard with server templates
+                success = self._run_interactive_install_wizard(group_id)
                 
                 if success:
                     # Reload the agent to pick up new server
@@ -687,6 +685,389 @@ class MCPCommandHandler:
         except Exception as e:
             logger.error(f"Error adding server: {e}")
             emit_info(f"Failed to add server: {e}", message_group=group_id)
+    
+    def _run_interactive_install_wizard(self, group_id: str) -> bool:
+        """Run the interactive MCP server installation wizard using server templates."""
+        try:
+            from code_puppy.mcp.server_registry_catalog import catalog
+            from code_puppy.mcp.system_tools import detector
+            from code_puppy.messaging import emit_prompt
+            import os
+            import json
+            
+            emit_info("🧙 Interactive MCP Server Installation Wizard", message_group=group_id)
+            emit_info("", message_group=group_id)
+            
+            # Step 1: Browse and select server
+            selected_server = self._interactive_server_selection(group_id)
+            if not selected_server:
+                return False
+            
+            # Step 2: Get custom server name
+            server_name = self._interactive_get_server_name(selected_server, group_id)
+            if not server_name:
+                return False
+            
+            # Step 3: Handle requirements and configuration
+            success = self._interactive_configure_server(selected_server, server_name, group_id)
+            return success
+            
+        except ImportError:
+            emit_info("Server catalog not available, falling back to basic wizard", message_group=group_id)
+            # Fall back to the old wizard
+            from code_puppy.mcp.config_wizard import run_add_wizard
+            return run_add_wizard(group_id)
+        except Exception as e:
+            emit_info(f"Installation wizard failed: {e}", message_group=group_id)
+            return False
+    
+    def _interactive_server_selection(self, group_id: str):
+        """Interactive server selection from catalog."""
+        from code_puppy.mcp.server_registry_catalog import catalog
+        from code_puppy.messaging import emit_prompt
+        
+        while True:
+            emit_info("📦 Available MCP Servers:", message_group=group_id)
+            emit_info("", message_group=group_id)
+            
+            # Show popular servers first
+            popular = catalog.get_popular(5)
+            if popular:
+                emit_info("[bold]Popular Servers:[/bold]", message_group=group_id)
+                for i, server in enumerate(popular):
+                    indicators = []
+                    if server.verified:
+                        indicators.append("✓")
+                    if server.popular:
+                        indicators.append("⭐")
+                    
+                    emit_info(f"  {i+1}. {server.display_name} {''.join(indicators)}", message_group=group_id)
+                    emit_info(f"     {server.description[:80]}...", message_group=group_id)
+                emit_info("", message_group=group_id)
+            
+            # Prompt for selection
+            choice = emit_prompt("Enter server number (1-5), 'search <term>' to search, or 'list' to see all categories: ")
+            
+            if not choice.strip():
+                if emit_prompt("Cancel installation? [y/N]: ").lower().startswith('y'):
+                    return None
+                continue
+            
+            choice = choice.strip()
+            
+            # Handle numeric selection
+            if choice.isdigit():
+                try:
+                    index = int(choice) - 1
+                    if 0 <= index < len(popular):
+                        return popular[index]
+                    else:
+                        emit_info("Invalid selection. Please try again.", message_group=group_id)
+                        continue
+                except ValueError:
+                    pass
+            
+            # Handle search
+            if choice.lower().startswith('search '):
+                search_term = choice[7:].strip()
+                results = catalog.search(search_term)
+                if results:
+                    emit_info(f"\n🔍 Search results for '{search_term}':", message_group=group_id)
+                    for i, server in enumerate(results[:10]):
+                        indicators = []
+                        if server.verified:
+                            indicators.append("✓")
+                        if server.popular:
+                            indicators.append("⭐")
+                        emit_info(f"  {i+1}. {server.display_name} {''.join(indicators)}", message_group=group_id)
+                        emit_info(f"     {server.description[:80]}...", message_group=group_id)
+                    
+                    selection = emit_prompt(f"\nSelect server (1-{min(len(results), 10)}): ")
+                    if selection.isdigit():
+                        try:
+                            index = int(selection) - 1
+                            if 0 <= index < len(results):
+                                return results[index]
+                        except ValueError:
+                            pass
+                else:
+                    emit_info(f"No servers found for '{search_term}'", message_group=group_id)
+                continue
+            
+            # Handle list categories
+            if choice.lower() == 'list':
+                categories = catalog.list_categories()
+                emit_info("\n📂 Categories:", message_group=group_id)
+                for i, category in enumerate(categories):
+                    servers_count = len(catalog.get_by_category(category))
+                    emit_info(f"  {i+1}. {category} ({servers_count} servers)", message_group=group_id)
+                
+                cat_choice = emit_prompt(f"\nSelect category (1-{len(categories)}): ")
+                if cat_choice.isdigit():
+                    try:
+                        index = int(cat_choice) - 1
+                        if 0 <= index < len(categories):
+                            category_servers = catalog.get_by_category(categories[index])
+                            emit_info(f"\n📦 {categories[index]} Servers:", message_group=group_id)
+                            for i, server in enumerate(category_servers):
+                                indicators = []
+                                if server.verified:
+                                    indicators.append("✓")
+                                if server.popular:
+                                    indicators.append("⭐")
+                                emit_info(f"  {i+1}. {server.display_name} {''.join(indicators)}", message_group=group_id)
+                                emit_info(f"     {server.description[:80]}...", message_group=group_id)
+                            
+                            server_choice = emit_prompt(f"\nSelect server (1-{len(category_servers)}): ")
+                            if server_choice.isdigit():
+                                try:
+                                    index = int(server_choice) - 1
+                                    if 0 <= index < len(category_servers):
+                                        return category_servers[index]
+                                except ValueError:
+                                    pass
+                    except ValueError:
+                        pass
+                continue
+            
+            emit_info("Invalid choice. Please try again.", message_group=group_id)
+    
+    def _interactive_get_server_name(self, selected_server, group_id: str) -> str:
+        """Get custom server name from user."""
+        from code_puppy.messaging import emit_prompt
+        
+        emit_info(f"\n🏷️  Server: {selected_server.display_name}", message_group=group_id)
+        emit_info(f"Description: {selected_server.description}", message_group=group_id)
+        emit_info("", message_group=group_id)
+        
+        while True:
+            name = emit_prompt(f"Enter custom name for this server [{selected_server.name}]: ").strip()
+            
+            if not name:
+                name = selected_server.name
+            
+            # Validate name
+            if not name.replace('-', '').replace('_', '').replace('.', '').isalnum():
+                emit_info("Name must contain only letters, numbers, hyphens, underscores, and dots", message_group=group_id)
+                continue
+            
+            # Check if name already exists
+            existing_server = self._find_server_id_by_name(name)
+            if existing_server:
+                override = emit_prompt(f"Server '{name}' already exists. Override it? [y/N]: ")
+                if not override.lower().startswith('y'):
+                    continue
+            
+            return name
+    
+    def _interactive_configure_server(self, selected_server, server_name: str, group_id: str) -> bool:
+        """Configure the server with requirements validation."""
+        from code_puppy.mcp.system_tools import detector
+        from code_puppy.messaging import emit_prompt
+        import os
+        import json
+        
+        requirements = selected_server.get_requirements()
+        
+        emit_info(f"\n⚙️  Configuring server: {server_name}", message_group=group_id)
+        emit_info("", message_group=group_id)
+        
+        # Step 1: Check system requirements
+        if not self._interactive_check_system_requirements(requirements, group_id):
+            return False
+        
+        # Step 2: Collect environment variables
+        env_vars = self._interactive_collect_env_vars(requirements, group_id)
+        
+        # Step 3: Collect command line arguments
+        cmd_args = self._interactive_collect_cmd_args(requirements, group_id)
+        
+        # Step 4: Show summary and confirm
+        if not self._interactive_confirm_installation(selected_server, server_name, env_vars, cmd_args, group_id):
+            return False
+        
+        # Step 5: Install the server
+        return self._interactive_install_server(selected_server, server_name, env_vars, cmd_args, group_id)
+    
+    def _interactive_check_system_requirements(self, requirements, group_id: str) -> bool:
+        """Check and validate system requirements."""
+        from code_puppy.mcp.system_tools import detector
+        
+        required_tools = requirements.required_tools
+        if not required_tools:
+            return True
+        
+        emit_info("🔧 Checking system requirements...", message_group=group_id)
+        
+        tool_status = detector.detect_tools(required_tools)
+        all_good = True
+        
+        for tool_name, tool_info in tool_status.items():
+            if tool_info.available:
+                status_text = f"✅ {tool_name}"
+                if tool_info.version:
+                    status_text += f" ({tool_info.version})"
+                emit_info(status_text, message_group=group_id)
+            else:
+                status_text = f"❌ {tool_name} - {tool_info.error or 'Not found'}"
+                emit_info(status_text, message_group=group_id)
+                
+                # Show installation suggestions
+                suggestions = detector.get_installation_suggestions(tool_name)
+                if suggestions:
+                    emit_info(f"   Install: {suggestions[0]}", message_group=group_id)
+                all_good = False
+        
+        if not all_good:
+            emit_info("", message_group=group_id)
+            cont = emit_prompt("Some tools are missing. Continue anyway? [y/N]: ")
+            if not cont.lower().startswith('y'):
+                emit_info("Installation cancelled", message_group=group_id)
+                return False
+        
+        emit_info("", message_group=group_id)
+        return True
+    
+    def _interactive_collect_env_vars(self, requirements, group_id: str) -> dict:
+        """Collect environment variables from user."""
+        from code_puppy.messaging import emit_prompt
+        import os
+        
+        env_vars = {}
+        required_env_vars = requirements.environment_vars
+        
+        if not required_env_vars:
+            return env_vars
+        
+        emit_info("🔐 Environment Variables:", message_group=group_id)
+        
+        for var in required_env_vars:
+            # Check if already set
+            current_value = os.environ.get(var, "")
+            
+            if current_value:
+                emit_info(f"✅ {var} (already set)", message_group=group_id)
+                env_vars[var] = current_value
+            else:
+                value = emit_prompt(f"📝 Enter value for {var}: ").strip()
+                if value:
+                    env_vars[var] = value
+                    # Set in current environment too
+                    os.environ[var] = value
+                else:
+                    emit_info(f"⚠️  {var} left empty", message_group=group_id)
+        
+        emit_info("", message_group=group_id)
+        return env_vars
+    
+    def _interactive_collect_cmd_args(self, requirements, group_id: str) -> dict:
+        """Collect command line arguments from user."""
+        from code_puppy.messaging import emit_prompt
+        
+        cmd_args = {}
+        required_args = requirements.command_line_args
+        
+        if not required_args:
+            return cmd_args
+        
+        emit_info("⚡ Command Line Arguments:", message_group=group_id)
+        
+        for arg_config in required_args:
+            name = arg_config.get("name", "")
+            prompt_text = arg_config.get("prompt", name)
+            default = arg_config.get("default", "")
+            required = arg_config.get("required", True)
+            
+            indicator = "⚡" if required else "🔧"
+            label = f"{indicator} {prompt_text}"
+            if not required:
+                label += " (optional)"
+            if default:
+                label += f" [{default}]"
+            
+            value = emit_prompt(f"{label}: ").strip()
+            
+            if not value and default:
+                value = default
+            
+            if value:
+                cmd_args[name] = value
+            elif required:
+                emit_info(f"⚠️  Required argument '{name}' left empty", message_group=group_id)
+        
+        emit_info("", message_group=group_id)
+        return cmd_args
+    
+    def _interactive_confirm_installation(self, selected_server, server_name: str, env_vars: dict, cmd_args: dict, group_id: str) -> bool:
+        """Show summary and confirm installation."""
+        from code_puppy.messaging import emit_prompt
+        
+        emit_info("📋 Installation Summary:", message_group=group_id)
+        emit_info(f"  Server: {selected_server.display_name}", message_group=group_id)
+        emit_info(f"  Name: {server_name}", message_group=group_id)
+        emit_info(f"  Type: {selected_server.type}", message_group=group_id)
+        
+        if env_vars:
+            emit_info(f"  Environment variables: {len(env_vars)} set", message_group=group_id)
+        
+        if cmd_args:
+            emit_info(f"  Command arguments: {len(cmd_args)} configured", message_group=group_id)
+        
+        emit_info("", message_group=group_id)
+        
+        confirm = emit_prompt("Install this server configuration? [Y/n]: ")
+        return not confirm.lower().startswith('n')
+    
+    def _interactive_install_server(self, selected_server, server_name: str, env_vars: dict, cmd_args: dict, group_id: str) -> bool:
+        """Actually install and register the server."""
+        try:
+            # Get server config with command line argument overrides
+            config_dict = selected_server.to_server_config(server_name, **cmd_args)
+            
+            # Create and register the server
+            from code_puppy.mcp import ServerConfig
+            
+            server_config = ServerConfig(
+                id=server_name,
+                name=server_name,
+                type=config_dict.pop('type'),
+                enabled=True,
+                config=config_dict
+            )
+            
+            server_id = self.manager.register_server(server_config)
+            
+            if server_id:
+                # Save to mcp_servers.json for persistence
+                from code_puppy.config import MCP_SERVERS_FILE
+                import json
+                import os
+                
+                if os.path.exists(MCP_SERVERS_FILE):
+                    with open(MCP_SERVERS_FILE, 'r') as f:
+                        data = json.load(f)
+                        servers = data.get("mcp_servers", {})
+                else:
+                    servers = {}
+                    data = {"mcp_servers": servers}
+                
+                servers[server_name] = config_dict
+                servers[server_name]['type'] = server_config.type
+                
+                os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
+                with open(MCP_SERVERS_FILE, 'w') as f:
+                    json.dump(data, f, indent=2)
+                
+                emit_info(f"✅ Successfully installed '{server_name}' from {selected_server.display_name}!", message_group=group_id)
+                emit_info(f"Use '/mcp start {server_name}' to start the server", message_group=group_id)
+                return True
+            else:
+                emit_info(f"❌ Failed to register server", message_group=group_id)
+                return False
+                
+        except Exception as e:
+            emit_info(f"❌ Installation failed: {str(e)}", message_group=group_id)
+            return False
     
     def cmd_remove(self, args: List[str]) -> None:
         """

@@ -348,6 +348,19 @@ class MCPInstallWizardScreen(ModalScreen):
         config_container.remove_children()
         config_container.mount(Static("[bold]Server Configuration:[/bold]"))
         
+        # Add server name input
+        config_container.mount(Static("\n[bold blue]Server Name:[/bold blue]"))
+        name_row = Horizontal(classes="env-var-row")
+        config_container.mount(name_row)
+        name_row.mount(Static("🏷️ Custom name:", classes="env-var-label"))
+        name_input = Input(
+            placeholder=f"Default: {self.selected_server.name}",
+            value=self.selected_server.name,
+            classes="env-var-input",
+            id="server-name-input"
+        )
+        name_row.mount(name_input)
+        
         try:
             # Check system requirements first
             self._setup_system_requirements(config_container)
@@ -480,14 +493,19 @@ class MCPInstallWizardScreen(ModalScreen):
             return
         
         try:
-            # Collect environment variables
+            # Collect configuration inputs
             env_vars = {}
             cmd_args = {}
+            server_name = self.selected_server.name  # Default fallback
             
             all_inputs = self.query(Input)
             
             for input_widget in all_inputs:
-                if input_widget.id and input_widget.id.startswith("env-"):
+                if input_widget.id == "server-name-input":
+                    custom_name = input_widget.value.strip()
+                    if custom_name:
+                        server_name = custom_name
+                elif input_widget.id and input_widget.id.startswith("env-"):
                     var_name = input_widget.id[4:]  # Remove "env-" prefix
                     value = input_widget.value.strip()
                     if value:
@@ -501,9 +519,6 @@ class MCPInstallWizardScreen(ModalScreen):
             # Set environment variables
             for var, value in env_vars.items():
                 os.environ[var] = value
-            
-            # Use the original server name (no timestamp/hash suffixes)
-            server_name = self.selected_server.name
             
             # Get server config with command line argument overrides
             config_dict = self.selected_server.to_server_config(server_name, **cmd_args)
