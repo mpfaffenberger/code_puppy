@@ -46,7 +46,7 @@ from .. import state_management
 # Import shared message classes
 from .messages import CommandSelected, HistoryEntrySelected
 from .models import ChatMessage, MessageType
-from .screens import HelpScreen, SettingsScreen, ToolsScreen
+from .screens import HelpScreen, SettingsScreen, ToolsScreen, MCPInstallWizardScreen
 
 
 class CodePuppyTUI(App):
@@ -82,6 +82,7 @@ class CodePuppyTUI(App):
         Binding("ctrl+4", "show_tools", "Tools"),
         Binding("ctrl+5", "focus_input", "Focus Prompt"),
         Binding("ctrl+6", "focus_chat", "Focus Response"),
+        Binding("ctrl+t", "open_mcp_wizard", "MCP Install Wizard"),
     ]
 
     # Reactive variables for app state
@@ -628,6 +629,28 @@ class CodePuppyTUI(App):
                 self.add_error_message(result.get("message", "Settings update failed"))
 
         self.push_screen(SettingsScreen(), handle_settings_result)
+
+    def action_open_mcp_wizard(self) -> None:
+        """Open the MCP Install Wizard."""
+        
+        def handle_wizard_result(result):
+            if result and result.get("success"):
+                # Show success message
+                self.add_system_message(result.get("message", "MCP server installed successfully"))
+                
+                # If a server was installed, suggest starting it
+                if result.get("server_name"):
+                    server_name = result["server_name"]
+                    self.add_system_message(f"💡 Use '/mcp start {server_name}' to start the server")
+            elif (
+                result
+                and not result.get("success")
+                and "cancelled" not in result.get("message", "").lower()
+            ):
+                # Show error message (but not for cancellation)
+                self.add_error_message(result.get("message", "MCP installation failed"))
+        
+        self.push_screen(MCPInstallWizardScreen(), handle_wizard_result)
 
     def process_initial_command(self) -> None:
         """Process the initial command provided when starting the TUI."""
