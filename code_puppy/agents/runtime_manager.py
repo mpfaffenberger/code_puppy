@@ -9,6 +9,8 @@ import asyncio
 import signal
 import uuid
 from typing import Optional, Any
+
+import mcp
 from pydantic_ai import Agent
 from pydantic_ai.usage import UsageLimits
 
@@ -82,17 +84,27 @@ class RuntimeAgentManager:
             asyncio.CancelledError: When execution is cancelled by user
         """
         agent = self.get_agent()
-        
+        group_id = str(uuid.uuid4())
         # Function to run agent with MCP
         async def run_agent_task():
             try:
-                async with agent.run_mcp_servers():
+                async with agent:
                     return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
-            except Exception as mcp_error:
-                emit_warning(f"MCP server error: {str(mcp_error)}")
-                emit_warning("Running without MCP servers...")
-                # Run without MCP servers as fallback
-                return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
+            except* mcp.shared.exceptions.McpError as mcp_error:
+                emit_warning(f"MCP server error: {str(mcp_error)}", group_id=group_id)
+                emit_warning(f"{str(mcp_error)}", group_id=group_id)
+                emit_warning(f"Try disabling any malfunctioning MCP servers", group_id=group_id)
+            except* InterruptedError as ie:
+                emit_warning(f"Interrupted: {str(ie)}")
+            except* Exception as other_error:
+                def log_exceptions(exc):
+                    if isinstance(exc, ExceptionGroup):
+                        for sub_exc in exc.exceptions:
+                            log_exceptions(sub_exc)
+                    else:
+                        emit_warning(f"Unexpected error: {str(exc)}", group_id=group_id)
+                        emit_warning(f"{str(exc.args)}", group_id=group_id)
+                log_exceptions(other_error)
         
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())

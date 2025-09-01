@@ -361,13 +361,17 @@ class MCPCommandHandler:
             logger.error(f"Error stopping server '{server_name}': {e}")
             emit_info(f"Failed to stop server: {e}", message_group=group_id)
     
-    def cmd_stop_all(self, args: List[str], group_id) -> None:
+    def cmd_stop_all(self, args: List[str]) -> None:
         """
         Stop all running MCP servers.
         
         Args:
-            args: Command arguments (unused)
+            args: [group_id] - optional group ID for message grouping
         """
+        group_id = args[0] if args else None
+        if group_id is None:
+            import uuid
+            group_id = str(uuid.uuid4())
         try:
             servers = self.manager.list_servers()
             
@@ -861,7 +865,7 @@ class MCPCommandHandler:
         help_lines.append(Text("/mcp start", style="cyan") + Text(" <name>       Start a specific server"))
         help_lines.append(Text("/mcp start-all", style="cyan") + Text("          Start all servers"))
         help_lines.append(Text("/mcp stop", style="cyan") + Text(" <name>        Stop a specific server"))
-        help_lines.append(Text("/mcp stop-all", style="cyan") + Text("           Stop all running servers"))
+        help_lines.append(Text("/mcp stop-all", style="cyan") + Text(" [group_id]  Stop all running servers"))
         help_lines.append(Text("/mcp restart", style="cyan") + Text(" <name>     Restart a specific server"))
         help_lines.append(Text(""))
         
