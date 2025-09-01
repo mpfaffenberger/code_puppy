@@ -132,9 +132,7 @@ class RuntimeAgentManager:
             original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
             
             # Wait for the task to complete or be cancelled
-            from code_puppy.messaging.spinner import ConsoleSpinner
-            with ConsoleSpinner():
-                result = await agent_task
+            result = await agent_task
             return result
         except asyncio.CancelledError:
             # Task was cancelled by our handler

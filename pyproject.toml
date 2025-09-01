@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "code-puppy"
 version = "0.0.127"
 description = "Code generation agent"
+repository = "https://github.com/mpfaffenberger/code_puppy"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -46,7 +47,6 @@ authors = [
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "License :: OSI Approved :: MIT License",

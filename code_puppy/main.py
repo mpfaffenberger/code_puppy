@@ -424,14 +424,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging import emit_warning
                 from code_puppy.messaging.spinner import ConsoleSpinner
 
-                # Run WITHOUT spinner to avoid interference
+                # Use ConsoleSpinner for better user experience
                 try:
-                    # The manager handles all cancellation logic internally
-                    result = await agent_manager.run_with_mcp(
-                        task,
-                        message_history=get_message_history(),
-                        usage_limits=get_custom_usage_limits(),
-                    )
+                    with ConsoleSpinner(console=display_console):
+                        # The manager handles all cancellation logic internally
+                        result = await agent_manager.run_with_mcp(
+                            task,
+                            message_history=get_message_history(),
+                            usage_limits=get_custom_usage_limits(),
+                        )
                 except asyncio.CancelledError:
                     # Agent was cancelled by user
                     result = None
@@ -513,10 +514,12 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         # Get agent through runtime manager and use its run_with_mcp method
         agent_manager = get_runtime_agent_manager()
         
-        response = await agent_manager.run_with_mcp(
-            prompt, 
-            usage_limits=get_custom_usage_limits()
-        )
+        from code_puppy.messaging.spinner import ConsoleSpinner
+        with ConsoleSpinner(console=message_renderer.console):
+            response = await agent_manager.run_with_mcp(
+                prompt, 
+                usage_limits=get_custom_usage_limits()
+            )
 
         agent_response = response.output
         emit_system_message(
