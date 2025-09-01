@@ -3,8 +3,17 @@ MCP Server Registry Catalog - Pre-configured MCP servers.
 A curated collection of MCP servers that can be easily searched and installed.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from dataclasses import dataclass, field
+
+@dataclass
+class MCPServerRequirements:
+    """Comprehensive requirements for an MCP server installation."""
+    environment_vars: List[str] = field(default_factory=list)  # ["GITHUB_TOKEN", "API_KEY"]
+    command_line_args: List[Dict[str, Union[str, bool]]] = field(default_factory=list)  # [{"name": "port", "prompt": "Port number", "default": "3000", "required": False}]
+    required_tools: List[str] = field(default_factory=list)  # ["node", "python", "npm", "npx"]
+    package_dependencies: List[str] = field(default_factory=list)  # ["jupyter", "@modelcontextprotocol/server-discord"]
+    system_requirements: List[str] = field(default_factory=list)  # ["Docker installed", "Git configured"]
 
 @dataclass
 class MCPServerTemplate:
@@ -20,16 +29,58 @@ class MCPServerTemplate:
     author: str = "Community"
     verified: bool = False
     popular: bool = False
-    requires: List[str] = field(default_factory=list)  # Required tools/dependencies
+    requires: Union[List[str], MCPServerRequirements] = field(default_factory=list)  # Backward compatible
     example_usage: str = ""
     
-    def to_server_config(self, custom_name: Optional[str] = None) -> Dict:
-        """Convert template to server configuration."""
+    def get_requirements(self) -> MCPServerRequirements:
+        """Get requirements as MCPServerRequirements object."""
+        if isinstance(self.requires, list):
+            # Backward compatibility - treat as required_tools
+            return MCPServerRequirements(required_tools=self.requires)
+        return self.requires
+    
+    def get_environment_vars(self) -> List[str]:
+        """Get list of required environment variables."""
+        requirements = self.get_requirements()
+        env_vars = requirements.environment_vars.copy()
+        
+        # Also check config for env vars (existing logic)
+        if 'env' in self.config:
+            for key, value in self.config['env'].items():
+                if isinstance(value, str) and value.startswith('$'):
+                    var_name = value[1:]
+                    if var_name not in env_vars:
+                        env_vars.append(var_name)
+        
+        return env_vars
+    
+    def get_command_line_args(self) -> List[Dict]:
+        """Get list of configurable command line arguments."""
+        return self.get_requirements().command_line_args
+    
+    def get_required_tools(self) -> List[str]:
+        """Get list of required system tools."""
+        return self.get_requirements().required_tools
+    
+    def get_package_dependencies(self) -> List[str]:
+        """Get list of package dependencies."""
+        return self.get_requirements().package_dependencies
+    
+    def get_system_requirements(self) -> List[str]:
+        """Get list of system requirements."""
+        return self.get_requirements().system_requirements
+
+    def to_server_config(self, custom_name: Optional[str] = None, **overrides) -> Dict:
+        """Convert template to server configuration with optional overrides."""
         config = {
             "name": custom_name or self.name,
             "type": self.type,
             **self.config
         }
+        
+        # Apply any overrides (for command line args, etc.)
+        config.update(overrides)
+        
         return config
 
 
