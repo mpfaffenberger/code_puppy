@@ -70,23 +70,68 @@ class MCPServerTemplate:
         """Get list of system requirements."""
         return self.get_requirements().system_requirements
 
-    def to_server_config(self, custom_name: Optional[str] = None, **overrides) -> Dict:
-        """Convert template to server configuration with optional overrides."""
+    def to_server_config(self, custom_name: Optional[str] = None, **cmd_args) -> Dict:
+        """Convert template to server configuration with optional overrides.
+        
+        Replaces placeholders in the config with actual values.
+        Placeholders are in the format ${ARG_NAME} in args array.
+        """
+        import copy
         config = {
             "name": custom_name or self.name,
             "type": self.type,
-            **self.config
+            **copy.deepcopy(self.config)
         }
         
-        # Apply any overrides (for command line args, etc.)
-        config.update(overrides)
+        # Apply command line argument substitutions
+        if cmd_args and 'args' in config:
+            new_args = []
+            for arg in config['args']:
+                # Check if this arg contains a placeholder like ${db_path}
+                if isinstance(arg, str) and '${' in arg:
+                    # Replace all placeholders in this arg
+                    new_arg = arg
+                    for key, value in cmd_args.items():
+                        placeholder = f"${{{key}}}"
+                        if placeholder in new_arg:
+                            new_arg = new_arg.replace(placeholder, str(value))
+                    new_args.append(new_arg)
+                else:
+                    new_args.append(arg)
+            config['args'] = new_args
+        
+        # Also handle environment variable placeholders
+        if 'env' in config:
+            for env_key, env_value in config['env'].items():
+                if isinstance(env_value, str) and '${' in env_value:
+                    # Replace placeholders in env values
+                    for key, value in cmd_args.items():
+                        placeholder = f"${{{key}}}"
+                        if placeholder in env_value:
+                            config['env'][env_key] = env_value.replace(placeholder, str(value))
         
         return config
 
 
 # Pre-configured MCP Server Registry
 MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
-    
+    MCPServerTemplate(
+        id="serena",
+        name="serena",
+        display_name="Serena",
+        description="Code Generation MCP Tooling",
+        tags=["Agentic", "Code", "SDK", "AI"],
+        category="Code",
+        type="stdio",
+        config={
+            "command": "uvx",
+            "args": ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server"]
+        },
+        verified=True,
+        popular=True,
+        example_usage="Agentic AI for writing programs",
+        requires=["uvx"]
+    ),
     # ========== File System & Storage ==========
     MCPServerTemplate(
         id="filesystem",
@@ -203,7 +248,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         type="stdio",
         config={
             "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"],
+            "args": ["-y", "@modelcontextprotocol/server-postgres", "${connection_string}"],
             "timeout": 30
         },
         verified=True,
@@ -230,7 +275,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         type="stdio",
         config={
             "command": "npx",
-            "args": ["-y", "mcp-sqlite", "path/to/database.db"],
+            "args": ["-y", "mcp-sqlite", "${db_path}"],
             "timeout": 30
         },
         verified=True,
@@ -254,7 +299,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         type="stdio",
         config={
             "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-mysql", "mysql://localhost/mydb"],
+            "args": ["-y", "@modelcontextprotocol/server-mysql", "${connection_string}"],
             "timeout": 30
         },
         verified=True,
@@ -279,7 +324,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         type="stdio",
         config={
             "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-mongodb", "mongodb://localhost:27017/mydb"],
+            "args": ["-y", "@modelcontextprotocol/server-mongodb", "${connection_string}"],
             "timeout": 30
         },
         verified=True,
@@ -836,7 +881,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         type="stdio",
         config={
             "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-prometheus", "http://localhost:9090"],
+            "args": ["-y", "@modelcontextprotocol/server-prometheus", "${prometheus_url}"],
             "timeout": 30
         },
         verified=True,

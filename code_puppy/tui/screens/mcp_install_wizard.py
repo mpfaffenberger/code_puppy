@@ -516,12 +516,21 @@ class MCPInstallWizardScreen(ModalScreen):
                     if value:
                         cmd_args[arg_name] = value
             
-            # Set environment variables
+            # Set environment variables in the current environment
             for var, value in env_vars.items():
                 os.environ[var] = value
             
             # Get server config with command line argument overrides
             config_dict = self.selected_server.to_server_config(server_name, **cmd_args)
+            
+            # Update the config with actual environment variable values
+            if 'env' in config_dict:
+                for env_key, env_value in config_dict['env'].items():
+                    # If it's a placeholder like $GITHUB_TOKEN, replace with actual value
+                    if env_value.startswith('$'):
+                        var_name = env_value[1:]  # Remove the $
+                        if var_name in env_vars:
+                            config_dict['env'][env_key] = env_vars[var_name]
             
             # Create and register the server
             from code_puppy.mcp import ServerConfig

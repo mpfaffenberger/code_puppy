@@ -342,6 +342,27 @@ def emit_divider(content: str = "[dim]" + "─" * 100 + "\n" + "[/dim]", **metad
 
 def emit_prompt(prompt_text: str, timeout: float = None) -> str:
     """Emit a human input request and wait for response."""
+    from code_puppy.state_management import is_tui_mode
+    
+    # In interactive mode, use direct input instead of the queue system
+    if not is_tui_mode():
+        # Emit the prompt as a message for display
+        from code_puppy.messaging import emit_info
+        emit_info(f"[yellow]{prompt_text}[/yellow]")
+        
+        # Get input directly
+        try:
+            # Try to use rich console for better formatting
+            from rich.console import Console
+            console = Console()
+            response = console.input("[cyan]>>> [/cyan]")
+            return response
+        except:
+            # Fallback to basic input
+            response = input(">>> ")
+            return response
+    
+    # In TUI mode, use the queue system
     queue = get_global_queue()
     prompt_id = queue.create_prompt_request(prompt_text)
     return queue.wait_for_prompt_response(prompt_id, timeout)
