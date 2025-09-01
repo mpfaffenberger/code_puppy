@@ -9,10 +9,11 @@ from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI  # For Azure OpenAI client
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.cerebras import CerebrasProvider
 
 from . import callbacks
 from .config import EXTRA_MODELS_FILE
@@ -116,7 +117,7 @@ class ModelFactory:
         elif model_type == "openai":
             provider = OpenAIProvider(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
-            model = OpenAIModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
 
@@ -191,7 +192,7 @@ class ModelFactory:
                 max_retries=azure_max_retries,
             )
             provider = OpenAIProvider(openai_client=azure_client)
-            model = OpenAIModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
 
@@ -206,7 +207,7 @@ class ModelFactory:
                 provider_args["api_key"] = api_key
             provider = OpenAIProvider(**provider_args)
 
-            model = OpenAIModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
 
@@ -230,6 +231,20 @@ class ModelFactory:
 
             google_gla = CustomGoogleGLAProvider(api_key=api_key)
             model = GeminiModel(model_name=model_config["name"], provider=google_gla)
+            return model
+        elif model_type == "cerebras":
+            url, headers, verify, api_key = get_custom_config(model_config)
+            client = create_async_client(headers=headers, verify=verify)
+            provider_args = dict(
+                api_key=api_key,
+                http_client=client,
+            )
+            if api_key:
+                provider_args["api_key"] = api_key
+            provider = CerebrasProvider(**provider_args)
+
+            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            setattr(model, "provider", provider)
             return model
         else:
             raise ValueError(f"Unsupported model type: {model_type}")

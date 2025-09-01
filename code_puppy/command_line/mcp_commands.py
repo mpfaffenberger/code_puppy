@@ -19,7 +19,7 @@ from rich.columns import Columns
 
 from code_puppy.mcp.manager import get_mcp_manager, ServerInfo
 from code_puppy.mcp.managed_server import ServerConfig, ServerState
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_info, emit_system_message
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -963,7 +963,7 @@ class MCPCommandHandler:
                 )
             
             # The first message established the group, subsequent messages will auto-group
-            emit_info(table, message_group=group_id)
+            emit_system_message(table, message_group=group_id)
             emit_info("\n[dim]✓ = Verified  ⭐ = Popular[/dim]", message_group=group_id)
             emit_info("[yellow]To install:[/yellow] /mcp install <id>", message_group=group_id)
             emit_info("[yellow]For details:[/yellow] /mcp search <specific-term>", message_group=group_id)

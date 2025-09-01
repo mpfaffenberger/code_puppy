@@ -12,7 +12,7 @@ from textual.events import Resize
 from textual.reactive import reactive
 from textual.widgets import Footer, ListView
 
-from code_puppy.agent import get_custom_usage_limits
+from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.config import (
@@ -139,6 +139,10 @@ class CodePuppyTUI(App):
         self.add_system_message(
             "Welcome to Code Puppy 🐶!\n💨 YOLO mode is enabled in TUI: commands will execute without confirmation."
         )
+
+        # Get current agent and display info
+        get_code_generation_agent()
+        self.add_system_message(f"🐕 Loaded agent '{self.puppy_name}' with model '{self.current_model}'")
 
         # Start the message renderer EARLY to catch startup messages
         # Using call_after_refresh to start it as soon as possible after mount

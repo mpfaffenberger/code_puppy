@@ -6,14 +6,19 @@ that adds management capabilities while maintaining 100% compatibility.
 """
 
 import asyncio
+import json
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, Union, Optional, Any
 import httpx
+from pydantic_ai import RunContext
 
-from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
+from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP, CallToolFunc, ToolResult
+
+from code_puppy.messaging import emit_info
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -37,6 +42,29 @@ class ServerConfig:
     type: str  # "sse", "stdio", or "http"
     enabled: bool = True
     config: Dict = field(default_factory=dict)  # Raw config from JSON
+
+
+async def process_tool_call(
+    ctx: RunContext[Any],
+    call_tool: CallToolFunc,
+    name: str,
+    tool_args: dict[str, Any],
+) -> ToolResult:
+    """A tool call processor that passes along the deps."""
+    group_id = uuid.uuid4()
+    emit_info(
+        f"\n[bold white on purple] MCP Tool Call - {name}[/bold white on purple]",
+        message_group=group_id,
+    )
+    emit_info(
+        "\nArgs:",
+        message_group=group_id
+    )
+    emit_info(
+        json.dumps(tool_args, indent=2),
+        message_group=group_id
+    )
+    return await call_tool(name, tool_args, {'deps': ctx.deps})
 
 
 class ManagedMCPServer:
@@ -140,7 +168,7 @@ class ManagedMCPServer:
                     # Create HTTP client if headers are provided but no client specified
                     sse_kwargs["http_client"] = self._get_http_client()
                 
-                self._pydantic_server = MCPServerSSE(**sse_kwargs)
+                self._pydantic_server = MCPServerSSE(**sse_kwargs, process_tool_call=process_tool_call)
             
             elif server_type == "stdio":
                 if "command" not in config:
@@ -169,7 +197,7 @@ class ManagedMCPServer:
                 if "read_timeout" in config:
                     stdio_kwargs["read_timeout"] = config["read_timeout"]
                 
-                self._pydantic_server = MCPServerStdio(**stdio_kwargs)
+                self._pydantic_server = MCPServerStdio(**stdio_kwargs, process_tool_call=process_tool_call)
             
             elif server_type == "http":
                 if "url" not in config:
@@ -193,7 +221,7 @@ class ManagedMCPServer:
                     # Create HTTP client if headers are provided but no client specified
                     http_kwargs["http_client"] = self._get_http_client()
                 
-                self._pydantic_server = MCPServerStreamableHTTP(**http_kwargs)
+                self._pydantic_server = MCPServerStreamableHTTP(**http_kwargs, process_tool_call=process_tool_call)
             
             else:
                 raise ValueError(f"Unsupported server type: {server_type}")
