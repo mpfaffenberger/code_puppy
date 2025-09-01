@@ -100,6 +100,7 @@ class MCPInstallWizardScreen(ModalScreen):
         border: solid $warning;
         padding: 1;
         margin-bottom: 1;
+        overflow-y: scroll;
     }
 
     #env-var-input {
@@ -501,9 +502,8 @@ class MCPInstallWizardScreen(ModalScreen):
             for var, value in env_vars.items():
                 os.environ[var] = value
             
-            # Generate server name
-            import time
-            server_name = f"{self.selected_server.name}-{int(time.time()) % 10000}"
+            # Use the original server name (no timestamp/hash suffixes)
+            server_name = self.selected_server.name
             
             # Get server config with command line argument overrides
             config_dict = self.selected_server.to_server_config(server_name, **cmd_args)
@@ -513,7 +513,7 @@ class MCPInstallWizardScreen(ModalScreen):
             from code_puppy.mcp.manager import get_mcp_manager
             
             server_config = ServerConfig(
-                id=f"{server_name}_{hash(server_name)}",
+                id=server_name,
                 name=server_name,
                 type=config_dict.pop('type'),
                 enabled=True,
