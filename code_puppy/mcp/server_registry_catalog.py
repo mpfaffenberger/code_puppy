@@ -230,7 +230,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         type="stdio",
         config={
             "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-sqlite", "path/to/database.db"],
+            "args": ["-y", "mcp-sqlite", "path/to/database.db"],
             "timeout": 30
         },
         verified=True,
