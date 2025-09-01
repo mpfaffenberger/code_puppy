@@ -1035,8 +1035,13 @@ class MCPCommandHandler:
                 else:
                     custom_name = template.name
             
-            # Convert template to server config
-            config_dict = template.to_server_config(custom_name)
+            # Get any config overrides from interactive prompts (if applicable)
+            config_overrides = {}
+            if not is_tui_mode():
+                config_overrides = self._handle_interactive_requirements(template, custom_name, group_id)
+            
+            # Convert template to server config with overrides
+            config_dict = template.to_server_config(custom_name, **config_overrides)
             
             # Create ServerConfig
             server_config = ServerConfig(
@@ -1087,26 +1092,29 @@ class MCPCommandHandler:
                 from code_puppy.state_management import is_tui_mode
                 from code_puppy.messaging import emit_prompt
                 
-                if env_vars:
-                    if is_tui_mode():
-                        # In TUI mode, show helpful message about using the wizard
-                        emit_info(f"[yellow]This server requires environment variables: {', '.join(env_vars)}[/yellow]", message_group=group_id)
-                        emit_info("[cyan]💡 Tip: Use Ctrl+T to open the MCP Install Wizard with full environment variable support![/cyan]", message_group=group_id)
-                        emit_info("For now, server installed without environment variables.", message_group=group_id)
-                    else:
-                        # Interactive mode - use prompts as before
-                        for var in env_vars:
-                            if var not in os.environ:
-                                try:
-                                    value = emit_prompt(f"Enter {var}: ")
-                                    if value.strip():  # Only set if user provided a value
-                                        os.environ[var] = value.strip()
-                                        emit_info(f"[green]Set {var}[/green]", message_group=group_id)
-                                    else:
-                                        emit_info(f"[yellow]Skipped {var} (empty value)[/yellow]", message_group=group_id)
-                                except Exception as e:
-                                    emit_info(f"[yellow]Failed to get {var}: {e}[/yellow]", message_group=group_id)
-                        emit_info("Environment variables configured.", message_group=group_id)
+                # Handle comprehensive requirements
+                if is_tui_mode():
+                    # In TUI mode, show helpful message about using the wizard
+                    requirements = template.get_requirements()
+                    
+                    config_needed = []
+                    if requirements.environment_vars:
+                        config_needed.append(f"Environment variables: {', '.join(requirements.environment_vars)}")
+                    if requirements.command_line_args:
+                        arg_names = [arg.get('name', 'arg') for arg in requirements.command_line_args]
+                        config_needed.append(f"Command line arguments: {', '.join(arg_names)}")
+                    if requirements.required_tools:
+                        config_needed.append(f"Required tools: {', '.join(requirements.required_tools)}")
+                    
+                    if config_needed:
+                        emit_info(f"[yellow]This server requires configuration:[/yellow]", message_group=group_id)
+                        for requirement in config_needed:
+                            emit_info(f"  • {requirement}", message_group=group_id)
+                        emit_info("[cyan]💡 Tip: Use Ctrl+T to open the MCP Install Wizard with full configuration support![/cyan]", message_group=group_id)
+                        emit_info("For now, server installed with basic configuration.", message_group=group_id)
+                else:
+                    # Interactive mode - comprehensive prompts
+                    self._handle_interactive_requirements(template, custom_name, group_id)
                 
                 emit_info(f"Use '/mcp start {custom_name}' to start the server", message_group=group_id)
                 
@@ -1317,3 +1325,94 @@ class MCPCommandHandler:
         except Exception as e:
             logger.error(f"Error showing detailed status for server '{server_name}': {e}")
             emit_info(f"Failed to get detailed status: {e}", message_group=group_id)
+    
+    def _handle_interactive_requirements(self, template, custom_name: str, group_id: str) -> Dict:
+        """Handle comprehensive requirements in interactive mode."""
+        from code_puppy.messaging import emit_prompt
+        
+        requirements = template.get_requirements()
+        config_overrides = {}
+        
+        # 1. Check system requirements
+        if requirements.required_tools:
+            emit_info("[bold cyan]Checking system requirements...[/bold cyan]", message_group=group_id)
+            from code_puppy.mcp.system_tools import detector
+            
+            tool_status = detector.detect_tools(requirements.required_tools)
+            missing_tools = []
+            
+            for tool_name, tool_info in tool_status.items():
+                if tool_info.available:
+                    emit_info(f"✅ {tool_name} ({tool_info.version or 'found'})", message_group=group_id)
+                else:
+                    emit_info(f"❌ {tool_name} - {tool_info.error}", message_group=group_id)
+                    missing_tools.append(tool_name)
+            
+            if missing_tools:
+                emit_info(f"[red]Missing required tools: {', '.join(missing_tools)}[/red]", message_group=group_id)
+                
+                # Show installation suggestions
+                for tool in missing_tools:
+                    suggestions = detector.get_installation_suggestions(tool)
+                    emit_info(f"Install {tool}: {suggestions[0]}", message_group=group_id)
+                
+                proceed = emit_prompt("Continue installation anyway? (y/N): ")
+                if proceed.lower() not in ['y', 'yes']:
+                    raise Exception("Installation cancelled due to missing requirements")
+        
+        # 2. Environment variables
+        env_vars = template.get_environment_vars()
+        if env_vars:
+            emit_info("[bold yellow]Environment Variables:[/bold yellow]", message_group=group_id)
+            
+            for var in env_vars:
+                import os
+                if var in os.environ:
+                    emit_info(f"✅ {var} (already set)", message_group=group_id)
+                else:
+                    try:
+                        value = emit_prompt(f"Enter {var}: ")
+                        if value.strip():
+                            os.environ[var] = value.strip()
+                            emit_info(f"[green]Set {var}[/green]", message_group=group_id)
+                        else:
+                            emit_info(f"[yellow]Skipped {var} (empty value)[/yellow]", message_group=group_id)
+                    except Exception as e:
+                        emit_info(f"[yellow]Failed to get {var}: {e}[/yellow]", message_group=group_id)
+        
+        # 3. Command line arguments
+        cmd_args = requirements.command_line_args
+        if cmd_args:
+            emit_info("[bold green]Command Line Arguments:[/bold green]", message_group=group_id)
+            
+            for arg_config in cmd_args:
+                name = arg_config.get("name", "")
+                prompt_text = arg_config.get("prompt", name)
+                default = arg_config.get("default", "")
+                required = arg_config.get("required", True)
+                
+                try:
+                    if default:
+                        value = emit_prompt(f"{prompt_text} (default: {default}): ")
+                        value = value.strip() or default
+                    else:
+                        value = emit_prompt(f"{prompt_text}: ")
+                        value = value.strip()
+                    
+                    if value:
+                        config_overrides[name] = value
+                        emit_info(f"[green]Set {name}={value}[/green]", message_group=group_id)
+                    elif required:
+                        emit_info(f"[yellow]Required argument {name} not provided[/yellow]", message_group=group_id)
+                    
+                except Exception as e:
+                    emit_info(f"[yellow]Failed to get {name}: {e}[/yellow]", message_group=group_id)
+        
+        # 4. Package dependencies (informational)
+        packages = requirements.package_dependencies
+        if packages:
+            emit_info("[bold magenta]Package Dependencies:[/bold magenta]", message_group=group_id)
+            emit_info(f"This server requires: {', '.join(packages)}", message_group=group_id)
+            emit_info("These will be installed automatically when the server starts.", message_group=group_id)
+        
+        return config_overrides
