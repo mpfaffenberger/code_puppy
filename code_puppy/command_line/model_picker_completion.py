@@ -70,7 +70,7 @@ class ModelNameCompleter(Completer):
 
 
 def update_model_in_input(text: str) -> Optional[str]:
-    # If input starts with /model or /m and a model name, set model and strip it out
+    # If input starts with /model and a model name, set model and strip it out
     content = text.strip()
     
     # Check for /model command
@@ -83,17 +83,6 @@ def update_model_in_input(text: str) -> Optional[str]:
                 idx = text.find("/model" + model)
                 if idx != -1:
                     new_text = (text[:idx] + text[idx + len("/model" + model) :]).strip()
-                    return new_text
-    # Also check for legacy /m command for backward compatibility
-    elif content.startswith("/m"):
-        rest = content[2:].strip()  # Remove '/m'
-        for model in load_model_names():
-            if rest == model:
-                set_active_model(model)
-                # Remove /m from the input
-                idx = text.find("/m" + model)
-                if idx != -1:
-                    new_text = (text[:idx] + text[idx + len("/m" + model) :]).strip()
                     return new_text
     return None
 
