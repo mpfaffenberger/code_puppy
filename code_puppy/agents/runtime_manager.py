@@ -97,14 +97,33 @@ class RuntimeAgentManager:
             except* InterruptedError as ie:
                 emit_warning(f"Interrupted: {str(ie)}")
             except* Exception as other_error:
-                def log_exceptions(exc):
+                # Filter out CancelledError from the exception group - let it propagate
+                remaining_exceptions = []
+                def collect_non_cancelled_exceptions(exc):
                     if isinstance(exc, ExceptionGroup):
                         for sub_exc in exc.exceptions:
-                            log_exceptions(sub_exc)
-                    else:
+                            collect_non_cancelled_exceptions(sub_exc)
+                    elif not isinstance(exc, asyncio.CancelledError):
+                        remaining_exceptions.append(exc)
                         emit_warning(f"Unexpected error: {str(exc)}", group_id=group_id)
                         emit_warning(f"{str(exc.args)}", group_id=group_id)
-                log_exceptions(other_error)
+                
+                collect_non_cancelled_exceptions(other_error)
+                
+                # If there are CancelledError exceptions in the group, re-raise them
+                cancelled_exceptions = []
+                def collect_cancelled_exceptions(exc):
+                    if isinstance(exc, ExceptionGroup):
+                        for sub_exc in exc.exceptions:
+                            collect_cancelled_exceptions(sub_exc)
+                    elif isinstance(exc, asyncio.CancelledError):
+                        cancelled_exceptions.append(exc)
+                
+                collect_cancelled_exceptions(other_error)
+                
+                if cancelled_exceptions:
+                    # Re-raise the first CancelledError to propagate cancellation
+                    raise cancelled_exceptions[0]
         
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())

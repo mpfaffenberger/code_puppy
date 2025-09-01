@@ -424,30 +424,76 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging import emit_warning
                 from code_puppy.messaging.spinner import ConsoleSpinner
 
+                # Create a task that mimics TUI behavior - avoid signal handler conflicts
+                current_task = None
+                signal_handled = False  # Prevent multiple signal handler calls (reset per task)
+                
+                async def run_task():
+                    # Use the simpler run() method instead of run_with_mcp() to avoid signal handler
+                    agent = agent_manager.get_agent()
+                    async with agent:
+                        return await agent.run(
+                            task,
+                            message_history=get_message_history(), 
+                            usage_limits=get_custom_usage_limits(),
+                        )
+
+                def handle_keyboard_interrupt():
+                    """Handle Ctrl+C like TUI does - kill processes but only cancel task if no processes killed"""
+                    nonlocal signal_handled
+                    if signal_handled:
+                        return
+                    signal_handled = True
+                    
+                    from code_puppy.tools.command_runner import kill_all_running_shell_processes
+                    
+                    killed = kill_all_running_shell_processes()
+                    if killed:
+                        emit_warning(f"🔥 Cancelled {killed} running shell process(es)")
+                        # Don't cancel the agent task - let it continue processing
+                        # Shell processes killed, but agent continues running
+                    else:
+                        # Only cancel the agent task if NO processes were killed  
+                        if current_task and not current_task.done():
+                            current_task.cancel()
+                            emit_warning("⚠️  Processing cancelled by user")
+
+                # Set up proper signal handling to override asyncio's default behavior
+                import signal
+                
+                def signal_handler(sig, frame):
+                    """Handle Ctrl+C by killing processes and cancelling the current task"""
+                    handle_keyboard_interrupt()
+                
+                # Replace asyncio's SIGINT handler with our own
+                original_handler = signal.signal(signal.SIGINT, signal_handler)
+
                 # Use ConsoleSpinner for better user experience
                 try:
                     with ConsoleSpinner(console=display_console):
-                        # The manager handles all cancellation logic internally
-                        result = await agent_manager.run_with_mcp(
-                            task,
-                            message_history=get_message_history(),
-                            usage_limits=get_custom_usage_limits(),
-                        )
+                        current_task = asyncio.create_task(run_task())
+                        result = await current_task
                 except asyncio.CancelledError:
-                    # Agent was cancelled by user
+                    # Agent was cancelled by our signal handler
                     result = None
                 except KeyboardInterrupt:
-                    # Keyboard interrupt
-                    emit_warning("\n⚠️ Caught KeyboardInterrupt in main")
+                    # Fallback - handle Ctrl+C if it gets through as KeyboardInterrupt
+                    emit_warning("\n⚠️ Caught KeyboardInterrupt")
+                    handle_keyboard_interrupt()
                     result = None
                 finally:
+                    # Restore original signal handler
+                    if 'original_handler' in locals():
+                        signal.signal(signal.SIGINT, original_handler)
                     set_message_history(
                         prune_interrupted_tool_calls(get_message_history())
                     )
 
-                # Check if the task was cancelled
+                # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
-                    emit_warning("\n⚠️ Processing cancelled by user (Ctrl+C)")
+                    # Only show cancellation message if we actually cancelled the agent task
+                    # If we just killed shell processes, the agent should continue normally
+                    pass  # Don't always show this message
                     # Skip the rest of this loop iteration
                     continue
                 # Get the structured response
