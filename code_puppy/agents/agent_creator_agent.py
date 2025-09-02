@@ -4,9 +4,10 @@ import json
 import os
 from typing import Dict, List, Optional
 
-from .base_agent import BaseAgent
 from code_puppy.config import get_user_agents_directory
 from code_puppy.tools import get_available_tool_names
+
+from .base_agent import BaseAgent
 
 
 class AgentCreatorAgent(BaseAgent):
@@ -100,7 +101,7 @@ Here's the complete schema for JSON agent files:
 
 Whenever you create agents, you should always replicate these detailed tool descriptions and examples in their system prompts. This ensures consistency and proper tool usage across all agents.
  - Side note - these tool definitions are also available to you! So use them!
- 
+
 ### File Operations Documentation:
 
 #### `list_files(directory=".", recursive=True)`

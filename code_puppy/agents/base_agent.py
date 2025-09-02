@@ -1,8 +1,8 @@
 """Base agent configuration class for defining agent properties."""
 
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
-import uuid
 
 
 class BaseAgent(ABC):

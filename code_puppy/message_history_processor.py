@@ -6,10 +6,10 @@ import pydantic
 from pydantic_ai.messages import ModelMessage, ModelRequest, TextPart, ToolCallPart
 
 from code_puppy.config import (
+    get_compaction_strategy,
+    get_compaction_threshold,
     get_model_name,
     get_protected_token_count,
-    get_compaction_threshold,
-    get_compaction_strategy,
 )
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory

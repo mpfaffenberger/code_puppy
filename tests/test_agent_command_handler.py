@@ -1,6 +1,6 @@
 """Tests for the /agent command in command handler."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from code_puppy.command_line.command_handler import handle_command
 

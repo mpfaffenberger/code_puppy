@@ -10,12 +10,14 @@ from .message_queue import (
     emit_info,
     emit_message,
     emit_planned_next_steps,
+    emit_prompt,
     emit_success,
     emit_system_message,
     emit_tool_output,
     emit_warning,
     get_buffered_startup_messages,
     get_global_queue,
+    provide_prompt_response,
 )
 from .queue_console import QueueConsole, get_queue_console
 from .renderers import InteractiveRenderer, SynchronousInteractiveRenderer, TUIRenderer
@@ -37,6 +39,8 @@ __all__ = [
     "emit_planned_next_steps",
     "emit_agent_response",
     "emit_system_message",
+    "emit_prompt",
+    "provide_prompt_response",
     "get_buffered_startup_messages",
     "InteractiveRenderer",
     "TUIRenderer",

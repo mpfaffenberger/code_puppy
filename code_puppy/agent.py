@@ -1,16 +1,12 @@
+import uuid
 from pathlib import Path
 from typing import Dict, Optional
 
 from pydantic_ai import Agent
-from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agents import get_current_agent_config
-from code_puppy.http_utils import (
-    create_reopenable_async_client,
-    resolve_env_var_in_header,
-)
 from code_puppy.message_history_processor import (
     get_model_context_length,
     message_history_accumulator,
@@ -42,7 +38,9 @@ _code_generation_agent = None
 
 
 def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
+    """Load MCP servers using the new manager while maintaining backward compatibility."""
     from code_puppy.config import get_value, load_mcp_server_configs
+    from code_puppy.mcp import ServerConfig, get_mcp_manager
 
     # Check if MCP servers are disabled
     mcp_disabled = get_value("disable_mcp_servers")
@@ -50,103 +48,97 @@ def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
         emit_system_message("[dim]MCP servers disabled via config[/dim]")
         return []
 
+    # Get the MCP manager singleton
+    manager = get_mcp_manager()
+
+    # Load configurations from legacy file for backward compatibility
     configs = load_mcp_server_configs()
     if not configs:
-        emit_system_message("[dim]No MCP servers configured[/dim]")
-        return []
-    servers = []
-    for name, conf in configs.items():
-        server_type = conf.get("type", "sse")
-        url = conf.get("url")
-        timeout = conf.get("timeout", 30)
-        server_headers = {}
-        if extra_headers:
-            server_headers.update(extra_headers)
-        user_headers = conf.get("headers") or {}
-        if isinstance(user_headers, dict) and user_headers:
+        # Check if manager already has servers (could be from new system)
+        existing_servers = manager.list_servers()
+        if not existing_servers:
+            emit_system_message("[dim]No MCP servers configured[/dim]")
+            return []
+    else:
+        # Register servers from legacy config with manager
+        for name, conf in configs.items():
             try:
-                user_headers = resolve_env_var_in_header(user_headers)
-            except Exception:
-                pass
-            server_headers.update(user_headers)
-        http_client = None
+                # Convert legacy format to new ServerConfig
+                server_config = ServerConfig(
+                    id=conf.get("id", f"{name}_{hash(name)}"),
+                    name=name,
+                    type=conf.get("type", "sse"),
+                    enabled=conf.get("enabled", True),
+                    config=conf,
+                )
 
-        try:
-            if server_type == "http" and url:
-                emit_system_message(
-                    f"Registering MCP Server (HTTP) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
-                )
-                http_client = create_reopenable_async_client(
-                    timeout=timeout, headers=server_headers or None, verify=False
-                )
-                servers.append(
-                    MCPServerStreamableHTTP(url=url, http_client=http_client)
-                )
-            elif (
-                server_type == "stdio"
-            ):  # Fixed: was "stdios" (plural), should be "stdio" (singular)
-                command = conf.get("command")
-                args = conf.get("args", [])
-                timeout = conf.get(
-                    "timeout", 30
-                )  # Default 30 seconds for stdio servers (npm downloads can be slow)
-                if command:
-                    emit_system_message(
-                        f"Registering MCP Server (Stdio) - {command} {args} (timeout: {timeout}s)"
-                    )
-                    servers.append(MCPServerStdio(command, args=args, timeout=timeout))
+                # Check if server already registered
+                existing = manager.get_server_by_name(name)
+                if not existing:
+                    # Register new server
+                    manager.register_server(server_config)
+                    emit_system_message(f"[dim]Registered MCP server: {name}[/dim]")
                 else:
-                    emit_error(f"MCP Server '{name}' missing required 'command' field")
-            elif server_type == "sse" and url:
-                emit_system_message(
-                    f"Registering MCP Server (SSE) - {url} (timeout: {timeout}s, headers: {bool(server_headers)})"
-                )
-                # For SSE, allow long reads; only bound connect timeout
-                http_client = create_reopenable_async_client(
-                    timeout=30, headers=server_headers or None, verify=False
-                )
-                servers.append(MCPServerSSE(url=url, http_client=http_client))
-            else:
-                emit_error(
-                    f"Invalid type '{server_type}' or missing URL for MCP server '{name}'"
-                )
-        except Exception as e:
-            emit_error(f"Failed to register MCP server '{name}': {str(e)}")
-            emit_info(f"Skipping server '{name}' and continuing with other servers...")
-            # Continue with other servers instead of crashing
-            continue
+                    # Update existing server config if needed
+                    if existing.config != server_config.config:
+                        manager.update_server(existing.id, server_config)
+                        emit_system_message(f"[dim]Updated MCP server: {name}[/dim]")
+
+            except Exception as e:
+                emit_error(f"Failed to register MCP server '{name}': {str(e)}")
+                continue
+
+    # Get pydantic-ai compatible servers from manager
+    servers = manager.get_servers_for_agent()
 
     if servers:
         emit_system_message(
-            f"[green]Successfully registered {len(servers)} MCP server(s)[/green]"
+            f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
         )
     else:
         emit_system_message(
-            "[yellow]No MCP servers were successfully registered[/yellow]"
+            "[yellow]No MCP servers available (check if servers are enabled)[/yellow]"
         )
 
     return servers
 
 
-def reload_code_generation_agent():
+def reload_mcp_servers():
+    """Reload MCP servers without restarting the agent."""
+    from code_puppy.mcp import get_mcp_manager
+
+    manager = get_mcp_manager()
+    # Reload configurations
+    _load_mcp_servers()
+    # Return updated servers
+    return manager.get_servers_for_agent()
+
+
+def reload_code_generation_agent(message_group: str | None):
     """Force-reload the agent, usually after a model change."""
+    if message_group is None:
+        message_group = str(uuid.uuid4())
     global _code_generation_agent, _LAST_MODEL_NAME
-    from code_puppy.config import clear_model_cache, get_model_name
     from code_puppy.agents import clear_agent_cache
+    from code_puppy.config import clear_model_cache, get_model_name
 
     # Clear both ModelFactory cache and config cache when force reloading
     clear_model_cache()
     clear_agent_cache()
 
     model_name = get_model_name()
-    emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]")
+    emit_info(
+        f"[bold cyan]Loading Model: {model_name}[/bold cyan]",
+        message_group=message_group,
+    )
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
 
     # Get agent-specific system prompt
     agent_config = get_current_agent_config()
     emit_info(
-        f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]"
+        f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]",
+        message_group=message_group,
     )
 
     instructions = agent_config.get_system_prompt()
@@ -183,17 +175,19 @@ def reload_code_generation_agent():
     return _code_generation_agent
 
 
-def get_code_generation_agent(force_reload=False):
+def get_code_generation_agent(force_reload=False, message_group: str | None = None):
     """
     Retrieve the agent with the currently configured model.
     Forces a reload if the model has changed, or if force_reload is passed.
     """
     global _code_generation_agent, _LAST_MODEL_NAME
+    if message_group is None:
+        message_group = str(uuid.uuid4())
     from code_puppy.config import get_model_name
 
     model_name = get_model_name()
     if _code_generation_agent is None or _LAST_MODEL_NAME != model_name or force_reload:
-        return reload_code_generation_agent()
+        return reload_code_generation_agent(message_group)
     return _code_generation_agent
 
 

@@ -3,13 +3,12 @@ from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
 )
-from code_puppy.tools.file_modifications import register_edit_file, register_delete_file
+from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
 from code_puppy.tools.file_operations import (
+    register_grep,
     register_list_files,
     register_read_file,
-    register_grep,
 )
-
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {

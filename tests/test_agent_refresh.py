@@ -4,11 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-
-from code_puppy.agents import (
-    get_available_agents,
-    refresh_agents,
-)
+from code_puppy.agents import get_available_agents, refresh_agents
 
 
 def test_refresh_agents_function():

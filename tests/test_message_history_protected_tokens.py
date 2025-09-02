@@ -1,6 +1,7 @@
+from unittest.mock import patch
+
 import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
-from unittest.mock import patch
 
 from code_puppy.config import get_protected_token_count
 from code_puppy.message_history_processor import (

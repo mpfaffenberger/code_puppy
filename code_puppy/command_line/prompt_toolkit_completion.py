@@ -163,7 +163,7 @@ async def get_input_with_combined_completion(
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),
-            ModelNameCompleter(trigger="/m"),
+            ModelNameCompleter(trigger="/model"),
             CDCompleter(trigger="/cd"),
             SetCompleter(trigger="/set"),
             LoadContextCompleter(trigger="/load_context"),
@@ -226,7 +226,7 @@ async def get_input_with_combined_completion(
 
 
 if __name__ == "__main__":
-    print("Type '@' for path-completion or '/m' to pick a model. Ctrl+D to exit.")
+    print("Type '@' for path-completion or '/model' to pick a model. Ctrl+D to exit.")
 
     async def main():
         while True:

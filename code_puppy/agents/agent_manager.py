@@ -6,10 +6,11 @@ import uuid
 from typing import Dict, Optional, Type, Union
 
 from code_puppy.config import get_value, set_config_value
-from .base_agent import BaseAgent
-from .json_agent import JSONAgent, discover_json_agents
+
 from ..callbacks import on_agent_reload
 from ..messaging import emit_warning
+from .base_agent import BaseAgent
+from .json_agent import JSONAgent, discover_json_agents
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}

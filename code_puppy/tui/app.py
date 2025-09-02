@@ -13,6 +13,7 @@ from textual.reactive import reactive
 from textual.widgets import Footer, ListView
 
 from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
+from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.config import (
     get_model_name,
@@ -45,7 +46,7 @@ from .. import state_management
 # Import shared message classes
 from .messages import CommandSelected, HistoryEntrySelected
 from .models import ChatMessage, MessageType
-from .screens import HelpScreen, SettingsScreen, ToolsScreen
+from .screens import HelpScreen, MCPInstallWizardScreen, SettingsScreen, ToolsScreen
 
 
 class CodePuppyTUI(App):
@@ -81,6 +82,7 @@ class CodePuppyTUI(App):
         Binding("ctrl+4", "show_tools", "Tools"),
         Binding("ctrl+5", "focus_input", "Focus Prompt"),
         Binding("ctrl+6", "focus_chat", "Focus Response"),
+        Binding("ctrl+t", "open_mcp_wizard", "MCP Install Wizard"),
     ]
 
     # Reactive variables for app state
@@ -95,7 +97,7 @@ class CodePuppyTUI(App):
 
     def __init__(self, initial_command: str = None, **kwargs):
         super().__init__(**kwargs)
-        self.agent = None
+        self.agent_manager = None
         self._current_worker = None
         self.initial_command = initial_command
 
@@ -125,7 +127,8 @@ class CodePuppyTUI(App):
         self.current_model = get_model_name()
         self.puppy_name = get_puppy_name()
 
-        self.agent = get_code_generation_agent()
+        # Use runtime manager to ensure we always have the current agent
+        self.agent_manager = get_runtime_agent_manager()
 
         # Update status bar
         status_bar = self.query_one(StatusBar)
@@ -136,6 +139,12 @@ class CodePuppyTUI(App):
         # Add welcome message with YOLO mode notification
         self.add_system_message(
             "Welcome to Code Puppy 🐶!\n💨 YOLO mode is enabled in TUI: commands will execute without confirmation."
+        )
+
+        # Get current agent and display info
+        get_code_generation_agent()
+        self.add_system_message(
+            f"🐕 Loaded agent '{self.puppy_name}' with model '{self.current_model}'"
         )
 
         # Start the message renderer EARLY to catch startup messages
@@ -413,8 +422,7 @@ class CodePuppyTUI(App):
                 if message.strip().startswith("/agent"):
                     # The command handler will emit messages directly to our messaging system
                     handle_command(message.strip())
-                    # Refresh our agent instance after potential change
-                    self.agent = get_code_generation_agent()
+                    # Agent manager will automatically use the latest agent
                     return
 
                 # Handle exit commands
@@ -435,31 +443,18 @@ class CodePuppyTUI(App):
                 return
 
             # Process with agent
-            if self.agent:
+            if self.agent_manager:
                 try:
                     self.update_agent_progress("Processing", 25)
 
-                    # Handle MCP servers with specific TaskGroup exception handling
+                    # Use agent_manager's run_with_mcp to handle MCP servers properly
                     try:
-                        try:
-                            async with self.agent.run_mcp_servers():
-                                self.update_agent_progress("Processing", 50)
-                                result = await self.agent.run(
-                                    message,
-                                    message_history=get_message_history(),
-                                    usage_limits=get_custom_usage_limits(),
-                                )
-                        except Exception as mcp_error:
-                            # Log MCP error and fall back to running without MCP servers
-                            self.log(f"MCP server error: {str(mcp_error)}")
-                            self.add_system_message(
-                                "⚠️ MCP server error, running without MCP servers"
-                            )
-                            result = await self.agent.run(
-                                message,
-                                message_history=get_message_history(),
-                                usage_limits=get_custom_usage_limits(),
-                            )
+                        self.update_agent_progress("Processing", 50)
+                        result = await self.agent_manager.run_with_mcp(
+                            message,
+                            message_history=get_message_history(),
+                            usage_limits=get_custom_usage_limits(),
+                        )
 
                         if not result or not hasattr(result, "output"):
                             self.add_error_message("Invalid response format from agent")
@@ -496,7 +491,7 @@ class CodePuppyTUI(App):
                         f"Agent processing failed: {str(agent_error)}"
                     )
             else:
-                self.add_error_message("Agent not initialized")
+                self.add_error_message("Agent manager not initialized")
 
         except Exception as e:
             self.add_error_message(f"Error processing message: {str(e)}")
@@ -618,7 +613,7 @@ class CodePuppyTUI(App):
                     new_model = get_model_name()
                     self.current_model = new_model
                     # Reinitialize agent with new model
-                    self.agent = get_code_generation_agent()
+                    self.agent_manager.reload_agent()
 
                 # Update status bar
                 status_bar = self.query_one(StatusBar)
@@ -636,6 +631,32 @@ class CodePuppyTUI(App):
                 self.add_error_message(result.get("message", "Settings update failed"))
 
         self.push_screen(SettingsScreen(), handle_settings_result)
+
+    def action_open_mcp_wizard(self) -> None:
+        """Open the MCP Install Wizard."""
+
+        def handle_wizard_result(result):
+            if result and result.get("success"):
+                # Show success message
+                self.add_system_message(
+                    result.get("message", "MCP server installed successfully")
+                )
+
+                # If a server was installed, suggest starting it
+                if result.get("server_name"):
+                    server_name = result["server_name"]
+                    self.add_system_message(
+                        f"💡 Use '/mcp start {server_name}' to start the server"
+                    )
+            elif (
+                result
+                and not result.get("success")
+                and "cancelled" not in result.get("message", "").lower()
+            ):
+                # Show error message (but not for cancellation)
+                self.add_error_message(result.get("message", "MCP installation failed"))
+
+        self.push_screen(MCPInstallWizardScreen(), handle_wizard_result)
 
     def process_initial_command(self) -> None:
         """Process the initial command provided when starting the TUI."""
