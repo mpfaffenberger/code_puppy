@@ -23,6 +23,7 @@ from pydantic_ai.mcp import (
     ToolResult,
 )
 
+from code_puppy.http_utils import create_async_client
 from code_puppy.mcp.blocking_startup import BlockingMCPServerStdio
 from code_puppy.messaging import emit_info
 
@@ -263,8 +264,8 @@ class ManagedMCPServer:
         """
         headers = self.config.config.get("headers", {})
         timeout = self.config.config.get("timeout", 30)
-
-        return httpx.AsyncClient(headers=headers, timeout=timeout)
+        client = create_async_client(headers=headers, timeout=timeout)
+        return client
 
     def enable(self) -> None:
         """Enable server availability."""
