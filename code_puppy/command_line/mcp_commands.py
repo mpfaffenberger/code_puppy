@@ -6,13 +6,8 @@ interface for managing MCP servers at runtime. It provides commands for listing,
 starting, stopping, configuring, and monitoring MCP servers.
 """
 
-import asyncio
-import json
 import logging
-import os
 import shlex
-import time
-import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -21,14 +16,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from code_puppy.agent import get_code_generation_agent, reload_mcp_servers
-from code_puppy.agents.runtime_manager import get_runtime_agent_manager
-from code_puppy.config import MCP_SERVERS_FILE
-from code_puppy.mcp.async_lifecycle import get_lifecycle_manager
-from code_puppy.mcp.managed_server import ServerConfig, ServerState
+from code_puppy.mcp.managed_server import ServerState
 from code_puppy.mcp.manager import get_mcp_manager
-from code_puppy.mcp.server_registry_catalog import catalog
-from code_puppy.mcp.system_tools import detector
 from code_puppy.messaging import emit_info, emit_prompt, emit_system_message
 from code_puppy.state_management import is_tui_mode
 
@@ -67,6 +56,7 @@ class MCPCommandHandler:
         Returns:
             True if command was handled successfully, False otherwise
         """
+        import uuid
 
         # Generate a group ID for this entire MCP command session
         group_id = str(uuid.uuid4())
@@ -147,6 +137,8 @@ class MCPCommandHandler:
             group_id: Optional message group ID for grouping related messages
         """
         if group_id is None:
+            import uuid
+
             group_id = str(uuid.uuid4())
 
         try:
@@ -213,6 +205,8 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name]
         """
+        import uuid
+
         group_id = str(uuid.uuid4())
 
         if not args:
@@ -246,16 +240,23 @@ class MCPCommandHandler:
                 )
 
                 # Give async tasks a moment to complete
+                import asyncio
 
                 try:
                     asyncio.get_running_loop()
                     # If we're in async context, wait a bit for server to start
+                    import time
+
                     time.sleep(0.5)  # Small delay to let async tasks progress
                 except RuntimeError:
                     pass  # No async loop, server will start when agent uses it
 
                 # Reload the agent to pick up the newly enabled server
                 try:
+                    from code_puppy.agents.runtime_manager import (
+                        get_runtime_agent_manager,
+                    )
+
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
                     emit_info(
@@ -281,6 +282,8 @@ class MCPCommandHandler:
         Args:
             args: Command arguments (unused)
         """
+        import uuid
+
         group_id = str(uuid.uuid4())
 
         try:
@@ -346,15 +349,22 @@ class MCPCommandHandler:
             # Reload agent if any servers were started
             if started_count > 0:
                 # Give async tasks a moment to complete before reloading agent
+                import asyncio
 
                 try:
                     asyncio.get_running_loop()
                     # If we're in async context, wait a bit for servers to start
+                    import time
+
                     time.sleep(0.5)  # Small delay to let async tasks progress
                 except RuntimeError:
                     pass  # No async loop, servers will start when agent uses them
 
                 try:
+                    from code_puppy.agents.runtime_manager import (
+                        get_runtime_agent_manager,
+                    )
+
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
                     emit_info(
@@ -377,6 +387,8 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name]
         """
+        import uuid
+
         group_id = str(uuid.uuid4())
 
         if not args:
@@ -404,6 +416,10 @@ class MCPCommandHandler:
 
                 # Reload the agent to remove the disabled server
                 try:
+                    from code_puppy.agents.runtime_manager import (
+                        get_runtime_agent_manager,
+                    )
+
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
                     emit_info(
@@ -430,6 +446,8 @@ class MCPCommandHandler:
         """
         group_id = args[0] if args else None
         if group_id is None:
+            import uuid
+
             group_id = str(uuid.uuid4())
         try:
             servers = self.manager.list_servers()
@@ -479,14 +497,22 @@ class MCPCommandHandler:
             # Reload agent if any servers were stopped
             if stopped_count > 0:
                 # Give async tasks a moment to complete before reloading agent
+                import asyncio
+
                 try:
                     asyncio.get_running_loop()
                     # If we're in async context, wait a bit for servers to stop
+                    import time
+
                     time.sleep(0.5)  # Small delay to let async tasks progress
                 except RuntimeError:
                     pass  # No async loop, servers will stop when needed
 
                 try:
+                    from code_puppy.agents.runtime_manager import (
+                        get_runtime_agent_manager,
+                    )
+
                     manager = get_runtime_agent_manager()
                     manager.reload_agent()
                     emit_info(
@@ -507,6 +533,8 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name]
         """
+        import uuid
+
         group_id = str(uuid.uuid4())
 
         if not args:
@@ -542,6 +570,8 @@ class MCPCommandHandler:
 
                     # Reload the agent to pick up the server changes
                     try:
+                        from code_puppy.agent import get_code_generation_agent
+
                         get_code_generation_agent(force_reload=True)
                         emit_info(
                             "[dim]Agent reloaded with updated servers[/dim]",
@@ -571,6 +601,8 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name] (optional)
         """
+        import uuid
+
         group_id = str(uuid.uuid4())
 
         try:
@@ -602,6 +634,8 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name]
         """
+        import uuid
+
         group_id = str(uuid.uuid4())
 
         if not args:
@@ -692,10 +726,15 @@ class MCPCommandHandler:
         Args:
             args: Command arguments - JSON config or empty for wizard
         """
+        import uuid
+
         group_id = str(uuid.uuid4())
 
         try:
             if args:
+                # Parse JSON from arguments
+                import json
+
                 json_str = " ".join(args)
 
                 try:
@@ -720,6 +759,9 @@ class MCPCommandHandler:
                     emit_info("Missing required field: 'type'", message_group=group_id)
                     return
 
+                # Create ServerConfig
+                from code_puppy.mcp import ServerConfig
+
                 name = config_dict.pop("name")
                 server_type = config_dict.pop("type")
                 enabled = config_dict.pop("enabled", True)
@@ -742,6 +784,11 @@ class MCPCommandHandler:
                         message_group=group_id,
                     )
 
+                    # Save to mcp_servers.json for persistence
+                    import os
+
+                    from code_puppy.config import MCP_SERVERS_FILE
+
                     # Load existing configs
                     if os.path.exists(MCP_SERVERS_FILE):
                         with open(MCP_SERVERS_FILE, "r") as f:
@@ -761,6 +808,7 @@ class MCPCommandHandler:
                         json.dump(data, f, indent=2)
 
                     # Reload MCP servers
+                    from code_puppy.agent import reload_mcp_servers
 
                     reload_mcp_servers()
 
@@ -776,6 +824,7 @@ class MCPCommandHandler:
 
                 if success:
                     # Reload the agent to pick up new server
+                    from code_puppy.agent import reload_mcp_servers
 
                     reload_mcp_servers()
 
@@ -825,6 +874,8 @@ class MCPCommandHandler:
 
     def _interactive_server_selection(self, group_id: str):
         """Interactive server selection from catalog."""
+        from code_puppy.mcp.server_registry_catalog import catalog
+        from code_puppy.messaging import emit_prompt
 
         while True:
             emit_info("📦 Available MCP Servers:", message_group=group_id)
@@ -1290,6 +1341,10 @@ class MCPCommandHandler:
                 emit_info(f"✓ Removed server: {server_name}", message_group=group_id)
 
                 # Also remove from mcp_servers.json
+                import json
+                import os
+
+                from code_puppy.config import MCP_SERVERS_FILE
 
                 if os.path.exists(MCP_SERVERS_FILE):
                     try:
@@ -1322,6 +1377,7 @@ class MCPCommandHandler:
         Args:
             args: Command arguments, expects [server_name] and optional [limit]
         """
+        import uuid
 
         group_id = str(uuid.uuid4())
 
@@ -2029,6 +2085,8 @@ class MCPCommandHandler:
 
             # Check async lifecycle manager status if available
             try:
+                from code_puppy.mcp.async_lifecycle import get_lifecycle_manager
+
                 lifecycle_mgr = get_lifecycle_manager()
                 if lifecycle_mgr.is_running(server_id):
                     status_lines.append(
@@ -2101,6 +2159,7 @@ class MCPCommandHandler:
         self, template, custom_name: str, group_id: str
     ) -> Dict:
         """Handle comprehensive requirements in interactive mode."""
+        from code_puppy.messaging import emit_prompt
 
         requirements = template.get_requirements()
         config_overrides = {}
@@ -2111,6 +2170,8 @@ class MCPCommandHandler:
                 "[bold cyan]Checking system requirements...[/bold cyan]",
                 message_group=group_id,
             )
+            from code_puppy.mcp.system_tools import detector
+
             tool_status = detector.detect_tools(requirements.required_tools)
             missing_tools = []
 
@@ -2154,6 +2215,8 @@ class MCPCommandHandler:
             )
 
             for var in env_vars:
+                import os
+
                 if var in os.environ:
                     emit_info(f"✅ {var} (already set)", message_group=group_id)
                 else:
