@@ -19,6 +19,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP, CallToolFunc, ToolResult
 
 from code_puppy.messaging import emit_info
+from code_puppy.mcp.blocking_startup import BlockingMCPServerStdio
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -197,7 +198,16 @@ class ManagedMCPServer:
                 if "read_timeout" in config:
                     stdio_kwargs["read_timeout"] = config["read_timeout"]
                 
-                self._pydantic_server = MCPServerStdio(**stdio_kwargs, process_tool_call=process_tool_call)
+                # Use BlockingMCPServerStdio for proper initialization blocking and stderr capture
+                # Create a unique message group for this server
+                message_group = uuid.uuid4()
+                self._pydantic_server = BlockingMCPServerStdio(
+                    **stdio_kwargs, 
+                    process_tool_call=process_tool_call, 
+                    tool_prefix=config["name"],
+                    emit_stderr=True,  # Always emit stderr for now
+                    message_group=message_group
+                )
             
             elif server_type == "http":
                 if "url" not in config:
@@ -307,6 +317,50 @@ class ManagedMCPServer:
             return False
         
         return True
+    
+    def get_captured_stderr(self) -> list[str]:
+        """
+        Get captured stderr output if this is a stdio server.
+        
+        Returns:
+            List of captured stderr lines, or empty list if not applicable
+        """
+        if isinstance(self._pydantic_server, BlockingMCPServerStdio):
+            return self._pydantic_server.get_captured_stderr()
+        return []
+    
+    async def wait_until_ready(self, timeout: float = 30.0) -> bool:
+        """
+        Wait until the server is ready.
+        
+        Args:
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            True if server is ready, False otherwise
+        """
+        if isinstance(self._pydantic_server, BlockingMCPServerStdio):
+            try:
+                await self._pydantic_server.wait_until_ready(timeout)
+                return True
+            except Exception:
+                return False
+        # Non-stdio servers are considered ready immediately
+        return True
+    
+    async def ensure_ready(self, timeout: float = 30.0):
+        """
+        Ensure server is ready, raising exception if not.
+        
+        Args:
+            timeout: Maximum time to wait in seconds
+            
+        Raises:
+            TimeoutError: If server doesn't initialize within timeout
+            Exception: If server initialization failed
+        """
+        if isinstance(self._pydantic_server, BlockingMCPServerStdio):
+            await self._pydantic_server.ensure_ready(timeout)
     
     def get_status(self) -> Dict[str, Any]:
         """
