@@ -197,7 +197,7 @@ class ManagedMCPServer:
                 if "read_timeout" in config:
                     stdio_kwargs["read_timeout"] = config["read_timeout"]
                 
-                self._pydantic_server = MCPServerStdio(**stdio_kwargs, process_tool_call=process_tool_call)
+                self._pydantic_server = MCPServerStdio(**stdio_kwargs, process_tool_call=process_tool_call, tool_prefix=config["name"])
             
             elif server_type == "http":
                 if "url" not in config:
