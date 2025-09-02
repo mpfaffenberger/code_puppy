@@ -29,7 +29,11 @@ from code_puppy.tools.file_modifications import EditFilePayload
 def set_cert_bundle() -> None:
     module_dir = pathlib.Path(__file__).parent.absolute()
     cert_path = module_dir / "certs" / "walmart-bundle.pem"
-    os.environ["SSL_CERT_FILE"] = str(cert_path)
+    if "SSL_CERT_FILE" not in os.environ:
+        os.environ["SSL_CERT_FILE"] = str(cert_path)
+    emit_system_message(
+        "[dim yellow]Warning: Existing SSL_CERT_FILE environment variable - NOT OVERRIDING WITH PACKAGED WALMART CERT[/dim yellow]"
+    )
 
 
 session_id = str(uuid.uuid4())
