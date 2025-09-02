@@ -174,7 +174,9 @@ class ManagedMCPServer:
                     sse_kwargs["http_client"] = self._get_http_client()
 
                 self._pydantic_server = MCPServerSSE(
-                    **sse_kwargs, process_tool_call=process_tool_call
+                    **sse_kwargs,
+                    process_tool_call=process_tool_call,
+                    tool_prefix="mcp_",
                 )
 
             elif server_type == "stdio":
@@ -202,7 +204,9 @@ class ManagedMCPServer:
                     stdio_kwargs["read_timeout"] = config["read_timeout"]
 
                 self._pydantic_server = MCPServerStdio(
-                    **stdio_kwargs, process_tool_call=process_tool_call
+                    **stdio_kwargs,
+                    process_tool_call=process_tool_call,
+                    tool_prefix="mcp_",
                 )
 
             elif server_type == "http":
@@ -228,7 +232,9 @@ class ManagedMCPServer:
                     http_kwargs["http_client"] = self._get_http_client()
 
                 self._pydantic_server = MCPServerStreamableHTTP(
-                    **http_kwargs, process_tool_call=process_tool_call
+                    **http_kwargs,
+                    process_tool_call=process_tool_call,
+                    tool_prefix="mcp_",
                 )
 
             else:
