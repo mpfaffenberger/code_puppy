@@ -2,6 +2,7 @@ import asyncio
 import atexit
 import os
 import pathlib
+import sys
 import uuid
 from typing import Any, Dict, Union
 
@@ -31,8 +32,10 @@ def set_cert_bundle() -> None:
     cert_path = module_dir / "certs" / "walmart-bundle.pem"
     if "SSL_CERT_FILE" not in os.environ:
         os.environ["SSL_CERT_FILE"] = str(cert_path)
-    emit_system_message(
-        "[dim yellow]Warning: Existing SSL_CERT_FILE environment variable - NOT OVERRIDING WITH PACKAGED WALMART CERT[/dim yellow]"
+        return
+    print(
+        "Warning: Existing SSL_CERT_FILE environment variable - NOT OVERRIDING WITH PACKAGED WALMART CERT",
+        file=sys.stderr,
     )
 
 
