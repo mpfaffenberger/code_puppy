@@ -9,41 +9,85 @@ from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import get_config_keys
 from code_puppy.tools.tools_content import tools_content
 
+
 def get_commands_help():
     """Generate commands help using Rich Text objects to avoid markup conflicts."""
     from rich.text import Text
-    
+
     # Build help text programmatically
     help_lines = []
-    
+
     # Title
     help_lines.append(Text("Commands Help", style="bold magenta"))
-    
-    # Commands - build each line programmatically  
-    help_lines.append(Text("/help, /h", style="cyan") + Text("             Show this help message"))
-    help_lines.append(Text("/cd", style="cyan") + Text(" <dir>             Change directory or show directories"))
-    help_lines.append(Text("/agent", style="cyan") + Text(" <name>         Switch to a different agent or show available agents"))
-    help_lines.append(Text("/exit, /quit", style="cyan") + Text("          Exit interactive mode"))
-    help_lines.append(Text("/generate-pr-description", style="cyan") + Text(" [@dir]  Generate comprehensive PR description"))
-    help_lines.append(Text("/model", style="cyan") + Text(" <model>        Set active model"))
-    help_lines.append(Text("/mcp", style="cyan") + Text("                  Manage MCP servers (list, start, stop, status, etc.)"))
-    help_lines.append(Text("/motd", style="cyan") + Text("                 Show the latest message of the day (MOTD)"))
-    help_lines.append(Text("/show", style="cyan") + Text("                 Show puppy config key-values"))
-    help_lines.append(Text("/compact", style="cyan") + Text("              Summarize and compact current chat history"))
-    help_lines.append(Text("/dump_context", style="cyan") + Text(" <name>  Save current message history to file"))
-    help_lines.append(Text("/load_context", style="cyan") + Text(" <name>  Load message history from file"))
-    help_lines.append(Text("/set", style="cyan") + Text("                  Set puppy config key-values (e.g., /set yolo_mode true, /set compaction_strategy truncation)"))
-    help_lines.append(Text("/tools", style="cyan") + Text("                Show available tools and capabilities"))
-    help_lines.append(Text("/<unknown>", style="cyan") + Text("            Show unknown command warning"))
-    
-    
+
+    # Commands - build each line programmatically
+    help_lines.append(
+        Text("/help, /h", style="cyan") + Text("             Show this help message")
+    )
+    help_lines.append(
+        Text("/cd", style="cyan")
+        + Text(" <dir>             Change directory or show directories")
+    )
+    help_lines.append(
+        Text("/agent", style="cyan")
+        + Text(" <name>         Switch to a different agent or show available agents")
+    )
+    help_lines.append(
+        Text("/exit, /quit", style="cyan") + Text("          Exit interactive mode")
+    )
+    help_lines.append(
+        Text("/generate-pr-description", style="cyan")
+        + Text(" [@dir]  Generate comprehensive PR description")
+    )
+    help_lines.append(
+        Text("/model", style="cyan") + Text(" <model>        Set active model")
+    )
+    help_lines.append(
+        Text("/mcp", style="cyan")
+        + Text("                  Manage MCP servers (list, start, stop, status, etc.)")
+    )
+    help_lines.append(
+        Text("/motd", style="cyan")
+        + Text("                 Show the latest message of the day (MOTD)")
+    )
+    help_lines.append(
+        Text("/show", style="cyan")
+        + Text("                 Show puppy config key-values")
+    )
+    help_lines.append(
+        Text("/compact", style="cyan")
+        + Text("              Summarize and compact current chat history")
+    )
+    help_lines.append(
+        Text("/dump_context", style="cyan")
+        + Text(" <name>  Save current message history to file")
+    )
+    help_lines.append(
+        Text("/load_context", style="cyan")
+        + Text(" <name>  Load message history from file")
+    )
+    help_lines.append(
+        Text("/set", style="cyan")
+        + Text(
+            "                  Set puppy config key-values (e.g., /set yolo_mode true, /set compaction_strategy truncation)"
+        )
+    )
+    help_lines.append(
+        Text("/tools", style="cyan")
+        + Text("                Show available tools and capabilities")
+    )
+    help_lines.append(
+        Text("/<unknown>", style="cyan")
+        + Text("            Show unknown command warning")
+    )
+
     # Combine all lines
     final_text = Text()
     for i, line in enumerate(help_lines):
         if i > 0:
             final_text.append("\n")
         final_text.append_text(line)
-    
+
     return final_text
 
 
@@ -69,9 +113,9 @@ def handle_command(command: str):
         from code_puppy.config import get_compaction_strategy
         from code_puppy.message_history_processor import (
             estimate_tokens_for_message,
+            get_protected_token_count,
             summarize_messages,
             truncation,
-            get_protected_token_count,
         )
         from code_puppy.messaging import (
             emit_error,
@@ -152,17 +196,16 @@ def handle_command(command: str):
             return True
 
     if command.strip().startswith("/show"):
+        from code_puppy.agents import get_current_agent_config
         from code_puppy.command_line.model_picker_completion import get_active_model
         from code_puppy.config import (
+            get_compaction_strategy,
+            get_compaction_threshold,
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
-            get_compaction_threshold,
             get_yolo_mode,
         )
-        from code_puppy.agents import get_current_agent_config
-
-        from code_puppy.config import get_compaction_strategy
 
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
@@ -234,10 +277,10 @@ def handle_command(command: str):
     if command.startswith("/agent"):
         # Handle agent switching
         from code_puppy.agents import (
+            get_agent_descriptions,
             get_available_agents,
             get_current_agent_config,
             set_current_agent,
-            get_agent_descriptions,
         )
         from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 
@@ -320,7 +363,9 @@ def handle_command(command: str):
     if command.startswith("/model"):
         # Try setting model and show confirmation
         # Handle both /model and /m for backward compatibility
-        model_command = command.replace("/model", "/m") if command.startswith("/model") else command
+        model_command = (
+            command.replace("/model", "/m") if command.startswith("/model") else command
+        )
         new_input = update_model_in_input(model_command)
         if new_input is not None:
             from code_puppy.agents.runtime_manager import get_runtime_agent_manager
@@ -337,13 +382,15 @@ def handle_command(command: str):
         emit_warning("Usage: /model <model-name>")
         emit_warning(f"Available models: {', '.join(model_names)}")
         return True
-    
+
     if command.startswith("/mcp"):
-        from code_puppy.command_line.mcp_commands import MCPCommandHandler
+        from code_puppy.command_line.mcp import MCPCommandHandler
+
         handler = MCPCommandHandler()
         return handler.handle_mcp_command(command)
     if command in ("/help", "/h"):
         import uuid
+
         group_id = str(uuid.uuid4())
         help_text = get_commands_help()
         emit_info(help_text, message_group_id=group_id)
