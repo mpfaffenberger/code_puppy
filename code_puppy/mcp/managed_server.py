@@ -158,8 +158,6 @@ class ManagedMCPServer:
                 }
                 
                 # Add optional parameters if provided
-                if "headers" in config:
-                    sse_kwargs["headers"] = config["headers"]
                 if "timeout" in config:
                     sse_kwargs["timeout"] = config["timeout"]
                 if "read_timeout" in config:
@@ -220,8 +218,6 @@ class ManagedMCPServer:
                 }
                 
                 # Add optional parameters if provided
-                if "headers" in config:
-                    http_kwargs["headers"] = config["headers"]
                 if "timeout" in config:
                     http_kwargs["timeout"] = config["timeout"]
                 if "read_timeout" in config:
