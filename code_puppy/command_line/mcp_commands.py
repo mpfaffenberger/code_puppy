@@ -1568,6 +1568,31 @@ class MCPCommandHandler:
         display, color = state_map.get(state, ("? Unk", "dim"))
         return Text(display, style=color)
 
+    def _format_uptime(self, uptime_seconds: Optional[float]) -> str:
+        """
+        Format uptime in a human-readable format.
+
+        Args:
+            uptime_seconds: Uptime in seconds, or None
+
+        Returns:
+            Formatted uptime string
+        """
+        if uptime_seconds is None or uptime_seconds <= 0:
+            return "-"
+
+        # Convert to readable format
+        if uptime_seconds < 60:
+            return f"{int(uptime_seconds)}s"
+        elif uptime_seconds < 3600:
+            minutes = int(uptime_seconds // 60)
+            seconds = int(uptime_seconds % 60)
+            return f"{minutes}m {seconds}s"
+        else:
+            hours = int(uptime_seconds // 3600)
+            minutes = int((uptime_seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
+
     def _show_detailed_server_status(self, server_id: str, server_name: str, group_id: str = None) -> None:
         """
         Show comprehensive status information for a specific server.
