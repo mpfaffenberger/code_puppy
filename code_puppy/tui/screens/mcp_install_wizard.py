@@ -31,8 +31,9 @@ class MCPInstallWizardScreen(ModalScreen):
         super().__init__(**kwargs)
         self.selected_server = None
         self.env_vars = {}
-        self.step = "search"  # search -> configure -> install
+        self.step = "search"  # search -> configure -> install -> custom_json
         self.search_counter = 0  # Counter to ensure unique IDs
+        self.custom_json_mode = False  # Track if we're in custom JSON mode
 
     DEFAULT_CSS = """
     MCPInstallWizardScreen {
@@ -139,6 +140,43 @@ class MCPInstallWizardScreen(ModalScreen):
         width: 2fr;
         border: solid $primary;
     }
+    
+    #custom-json-container {
+        width: 100%;
+        height: 1fr;
+        layout: vertical;
+        display: none;
+        padding: 1;
+    }
+    
+    #custom-json-header {
+        width: 100%;
+        height: 2;
+        text-align: left;
+        color: $warning;
+        margin-bottom: 1;
+    }
+    
+    #custom-name-input {
+        width: 100%;
+        margin-bottom: 1;
+        border: solid $primary;
+    }
+    
+    #custom-json-input {
+        width: 100%;
+        height: 1fr;
+        border: solid $primary;
+        margin-bottom: 1;
+        background: $surface-darken-1;
+    }
+    
+    #custom-json-button {
+        width: auto;
+        height: 3;
+        margin: 0 1;
+        min-width: 14;
+    }
     """
 
     def compose(self) -> ComposeResult:
@@ -157,10 +195,17 @@ class MCPInstallWizardScreen(ModalScreen):
                 yield Container(id="server-info")
                 yield Container(id="env-vars-container")
             
+            # Step 3: Custom JSON configuration (hidden initially)
+            with Container(id="custom-json-container"):
+                yield Static("📝 Custom JSON Configuration", id="custom-json-header")
+                yield Input(placeholder="Server name (e.g. 'my-sqlite-db')", id="custom-name-input")
+                yield TextArea(id="custom-json-input")
+            
             # Navigation buttons
             with Horizontal(id="button-container"):
                 yield Button("Cancel", id="cancel-button", variant="default")
                 yield Button("Back", id="back-button", variant="default")
+                yield Button("Custom JSON", id="custom-json-button", variant="warning")
                 yield Button("Next", id="next-button", variant="primary")
                 yield Button("Install", id="install-button", variant="success")
 
@@ -176,40 +221,78 @@ class MCPInstallWizardScreen(ModalScreen):
     def _show_search_step(self) -> None:
         """Show the search step."""
         self.step = "search"
+        self.custom_json_mode = False
         self.query_one("#search-container").display = True
         self.query_one("#config-container").display = False
+        self.query_one("#custom-json-container").display = False
         
         self.query_one("#back-button").display = False
+        self.query_one("#custom-json-button").display = True
         self.query_one("#next-button").display = True
         self.query_one("#install-button").display = False
 
     def _show_config_step(self) -> None:
         """Show the configuration step."""
         self.step = "configure"
+        self.custom_json_mode = False
         self.query_one("#search-container").display = False
         self.query_one("#config-container").display = True
+        self.query_one("#custom-json-container").display = False
         
         self.query_one("#back-button").display = True
+        self.query_one("#custom-json-button").display = False
         self.query_one("#next-button").display = False
         self.query_one("#install-button").display = True
         
         self._setup_server_config()
+    
+    def _show_custom_json_step(self) -> None:
+        """Show the custom JSON configuration step."""
+        self.step = "custom_json"
+        self.custom_json_mode = True
+        self.query_one("#search-container").display = False
+        self.query_one("#config-container").display = False
+        self.query_one("#custom-json-container").display = True
+        
+        self.query_one("#back-button").display = True
+        self.query_one("#custom-json-button").display = False
+        self.query_one("#next-button").display = False
+        self.query_one("#install-button").display = True
+        
+        # Pre-populate with SQLite example
+        name_input = self.query_one("#custom-name-input", Input)
+        name_input.value = "my-sqlite-db"
+        
+        json_input = self.query_one("#custom-json-input", TextArea)
+        json_input.text = """{
+  "type": "stdio",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-sqlite", "./database.db"],
+  "timeout": 30
+}"""
+        
+        # Focus the name input
+        name_input.focus()
 
     def _load_popular_servers(self) -> None:
-        """Load popular servers into the list."""
+        """Load all available servers into the list."""
         self.search_counter += 1
         counter = self.search_counter
         
         try:
             from code_puppy.mcp.server_registry_catalog import catalog
-            servers = catalog.get_popular(10)
+            # Load ALL servers instead of just popular ones
+            servers = catalog.servers
             
             results_list = self.query_one("#results-list", ListView)
             # Force clear by removing all children
             results_list.remove_children()
             
             if servers:
-                for i, server in enumerate(servers):
+                # Sort servers to show popular and verified first
+                sorted_servers = sorted(servers, key=lambda s: (not s.popular, not s.verified, s.display_name))
+                
+                for i, server in enumerate(sorted_servers):
                     indicators = []
                     if server.verified:
                         indicators.append("✓")
@@ -240,7 +323,7 @@ class MCPInstallWizardScreen(ModalScreen):
         query = event.value.strip()
         
         if not query:
-            self._load_popular_servers()
+            self._load_popular_servers()  # This now loads all servers
             return
         
         self.search_counter += 1
@@ -301,12 +384,21 @@ class MCPInstallWizardScreen(ModalScreen):
         """Handle back button click."""
         if self.step == "configure":
             self._show_search_step()
+        elif self.step == "custom_json":
+            self._show_search_step()
 
+    @on(Button.Pressed, "#custom-json-button")
+    def on_custom_json_clicked(self) -> None:
+        """Handle custom JSON button click."""
+        self._show_custom_json_step()
+    
     @on(Button.Pressed, "#install-button")
     def on_install_clicked(self) -> None:
         """Handle install button click."""
         if self.step == "configure" and self.selected_server:
             self._install_server()
+        elif self.step == "custom_json":
+            self._install_custom_json()
 
     @on(Button.Pressed, "#cancel-button")
     def on_cancel_clicked(self) -> None:
@@ -587,6 +679,95 @@ class MCPInstallWizardScreen(ModalScreen):
                 "message": f"Installation failed: {str(e)}"
             })
 
+    def _install_custom_json(self) -> None:
+        """Install server from custom JSON configuration."""
+        try:
+            name_input = self.query_one("#custom-name-input", Input)
+            json_input = self.query_one("#custom-json-input", TextArea)
+            
+            server_name = name_input.value.strip()
+            json_text = json_input.text.strip()
+            
+            if not server_name:
+                # Show error - need a name
+                return
+            
+            if not json_text:
+                # Show error - need JSON config
+                return
+            
+            # Parse JSON
+            try:
+                config_dict = json.loads(json_text)
+            except json.JSONDecodeError as e:
+                # Show error - invalid JSON
+                return
+            
+            # Validate required fields
+            if 'type' not in config_dict:
+                # Show error - missing type
+                return
+            
+            # Extract type and create server config
+            server_type = config_dict.pop('type')
+            
+            # Create and register the server
+            from code_puppy.mcp import ServerConfig
+            from code_puppy.mcp.manager import get_mcp_manager
+            
+            server_config = ServerConfig(
+                id=server_name,
+                name=server_name,
+                type=server_type,
+                enabled=True,
+                config=config_dict
+            )
+            
+            manager = get_mcp_manager()
+            server_id = manager.register_server(server_config)
+            
+            if server_id:
+                # Save to mcp_servers.json
+                from code_puppy.config import MCP_SERVERS_FILE
+                
+                if os.path.exists(MCP_SERVERS_FILE):
+                    with open(MCP_SERVERS_FILE, 'r') as f:
+                        data = json.load(f)
+                        servers = data.get("mcp_servers", {})
+                else:
+                    servers = {}
+                    data = {"mcp_servers": servers}
+                
+                # Add the full config including type
+                full_config = config_dict.copy()
+                full_config['type'] = server_type
+                servers[server_name] = full_config
+                
+                os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
+                with open(MCP_SERVERS_FILE, 'w') as f:
+                    json.dump(data, f, indent=2)
+                
+                # Reload MCP servers
+                from code_puppy.agent import reload_mcp_servers
+                reload_mcp_servers()
+                
+                self.dismiss({
+                    "success": True,
+                    "message": f"Successfully installed custom server '{server_name}'",
+                    "server_name": server_name
+                })
+            else:
+                self.dismiss({
+                    "success": False,
+                    "message": "Failed to register custom server"
+                })
+                
+        except Exception as e:
+            self.dismiss({
+                "success": False,
+                "message": f"Installation failed: {str(e)}"
+            })
+    
     def on_key(self, event) -> None:
         """Handle key events."""
         if event.key == "escape":
