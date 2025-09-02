@@ -8,39 +8,60 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-08-29"
+MOTD_VERSION = "2025-09-02"
 MOTD_MESSAGE = """```
-# 🐶🎉🚀 WOOF WOOF BARK BARK! AUGUST 29th! 🚀🎉🐶
-# 🐕‍🦺 PUPPY POWER RELEASE 0.0.128 TO THE MOON! 🚀🌙🐕
+# 🐶🎆🔌 WOOF WOOF BARK BARK! SEPTEMBER 02 MCP MEGA OVERHAUL! 🔌🎆🐶
+# 🐕‍🦺 MASSIVE MCP INFRASTRUCTURE REVOLUTION! 🚀🌙🐕
 
-🎉🎊🚀 MEGA ULTRA SUPER DUPER PUPPY FEATURE ALERT! 🚀🎊🎉
-🐶🤖🐕‍🦺 CREATE YOUR OWN AGENT!! By the legendary Andrew Tilson!!! 🏆🐶🚀
+🎉🎊🔌 EPIC MCP (Model Context Protocol) OVERHAUL ALERT! 🔌🎊🎉
+🐶🔧🐕‍🦺 ENTERPRISE-GRADE MCP SERVER MANAGEMENT IS HERE!!! 🏆🐶🚀
 
-🐾 Type `/agents` to list all your puppy friends! 🐕‍🦺🐶
-🚀 Use `/agents agent-creator` to birth a new digital puppy! 🐣🤖🐶
-🎨 Use the agent creator to craft your own coding companion:
-    🏗️ Create a puppy_architect that plans features and saves them in `.md` files! 📋🐕
-    🎯 Make a test_puppy that writes unit tests like a good boy! 🧪🐶
-    🎭 Build a refactor_pup that cleans up messy code! 🧹🐕‍🦺
-🔄 Use `/agents puppy_architect` to switch to your new digital friend! 🐶💝
-🏠 Use `/agents code-puppy` to come back home to default mode! 🏡🐕
+🔌 THE NEW `/mcp` COMMAND UNIVERSE:
+🚀 `/mcp` or `/mcp list` - Show beautiful server status dashboard! 📊🐕‍🦺
+🟢 `/mcp start <server>` - Start any MCP server like a good boy! ▶️🐶
+🔴 `/mcp stop <server>` - Stop servers when they're naughty! ⏹️🐕
+🔄 `/mcp restart <server>` - Give servers a fresh puppy restart! 🔄🐶
+🌟 `/mcp start-all` - Wake up ALL the server puppies! 🐕‍🦺🚀
+🛑 `/mcp stop-all` - Put all servers down for nap time! 😴🐶
+💾 `/mcp status <server>` - Detailed health checkup for your server! 🩺🐕
+🧪 `/mcp test <server>` - Test if your server is being a good puppy! ✅🐶
+📋 `/mcp logs <server>` - Read server diary entries! 📖🐕‍🦺
+🔍 `/mcp search <term>` - Find servers in the registry catalog! 🕵️🐶
+➕ `/mcp add` - Interactive wizard to adopt new server puppies! 🎭🐕
+🗑️ `/mcp remove <server>` - Say goodbye to server (with confirmation)! 👋🐶
+📦 `/mcp install <server>` - One-command server installation magic! ✨🐕‍🦺
+❓ `/mcp help` - Learn all the MCP tricks! 📚🐶
 
+🏗️ ENTERPRISE-GRADE INFRASTRUCTURE:
+🔧 **Server Lifecycle Management** - Full start/stop/restart control! 🐕‍🦺
+📊 **Rich Status Dashboard** - Beautiful tables with uptime & health! 📈🐶
+🛡️ **Circuit Breaker Pattern** - Auto-quarantine misbehaving servers! ⚡🐕
+🔄 **Retry Manager** - Smart retry logic with exponential backoff! 🧠🐶
+🩺 **Health Monitor** - Continuous server health tracking! ❤️🐕‍🦺
+🏥 **Error Isolation** - Contains server failures like a smart puppy! 🚧🐶
+📦 **Server Registry Catalog** - 40+ pre-configured servers ready to adopt! 🐕‍🦺📚
+🎭 **Interactive Install Wizard** - Guides you through server setup! 🧙‍♂️🐶
+🛠️ **System Requirements Detection** - Checks if tools are installed! 🔍🐕
+🌐 **Environment Variable Management** - Handles secrets securely! 🔐🐶
+💼 **Command Line Arguments** - Flexible server configuration! ⚙️🐕‍🦺
+🔄 **Auto Agent Reload** - Servers integrate instantly! ⚡🐶
 
-🎾 ADDITIONAL NEW PUPPY TRICKS (Features):
-🐶🚀 Adds plugin hooks for `edit_file`, `delete_file`, `run_shell_command` (SO FETCH!) 🦴
-🐕 Adds a new config option for truncation strategy (Smart puppy!) 🧠🐶
-🎾 Renamed summarization_threshold to truncation threshold (Fancy words!) 📚🐕‍🦺
-🚀 Added emergency filtration to compaction where enormous messages (>50000 tokens) are clipped (Big bites!) 🍖🐕
-⚖️ Enforced compaction threshold cannot be less than 0.8 (Good puppy boundaries!) 🐶🚧
-🛡️ `protected_tokens` cannot be greater than 75% of model context (Safety first, puppy!) 🦺🐕‍🦺
+🎾 ADDITIONAL SMART PUPPY FEATURES:
+🔌 **Managed Server Classes** - Object-oriented server management! 🏗️🐕
+⏱️ **Uptime Tracking** - Know how long servers have been good boys! ⏰🐶
+📝 **Event Logging** - Detailed audit trail of all server activities! 📋🐕‍🦺
+🎯 **Async Lifecycle** - Non-blocking server operations! 🚀🐶
+🖥️ **TUI Integration** - Use Ctrl+T for graphical install wizard! 🎨🐕
+📊 **Status Indicators** - Color-coded server states with emojis! 🌈🐶
 
-🐛🔧 Flea Extermination Squad:
-🚀 Fixed flea that caused stack trace in non-interactive mode (Squished that bug!) 🐾💥
-🐛 Fixed a flea where sometimes summarization failed due to tool_call isolates (No more itchy bugs!) 🚿🐶
+🐛🔧 Bug Squashing Squad:
+🚀 Rock-solid MCP server management with enterprise reliability! 💪🐕‍🦺
+🛡️ Bulletproof error handling and graceful degradation! 🛡️🐶
+⚡ Lightning-fast server operations with async goodness! ⚡🐕
 
-🚀🐶 WOOF WOOF! Happy coding, human! 🐕‍🦺🎾🦴
-🐾 Remember: Good code is like a well-trained puppy - clean, reliable, and brings joy! 🐶💖
-``
+🚀🐶 WOOF WOOF! Your MCP servers are now SUPER MANAGEABLE! 🐕‍🦺🎾🦴
+🔌 Go forth and `/mcp` like the coding champion you are! 🏆🐶💖
+``"
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 
