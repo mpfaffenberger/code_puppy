@@ -6,10 +6,11 @@ import uuid
 from typing import Dict, Optional, Type, Union
 
 from code_puppy.config import get_value, set_config_value
-from .base_agent import BaseAgent
-from .json_agent import JSONAgent, discover_json_agents
+
 from ..callbacks import on_agent_reload
 from ..messaging import emit_warning
+from .base_agent import BaseAgent
+from .json_agent import JSONAgent, discover_json_agents
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -134,7 +135,8 @@ def get_current_agent_config() -> BaseAgent:
     """
     global _CURRENT_AGENT_CONFIG
 
-    _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
+    if _CURRENT_AGENT_CONFIG is None:
+        _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
 
     return _CURRENT_AGENT_CONFIG
 
@@ -209,3 +211,70 @@ def refresh_agents():
     # Generate a message group ID for agent refreshing
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
+
+
+# Agent-aware message history functions
+def get_current_agent_message_history():
+    """Get the message history for the currently active agent.
+
+    Returns:
+        List of messages from the current agent's conversation history.
+    """
+    current_agent = get_current_agent_config()
+    return current_agent.get_message_history()
+
+
+def set_current_agent_message_history(history):
+    """Set the message history for the currently active agent.
+
+    Args:
+        history: List of messages to set as the current agent's conversation history.
+    """
+    current_agent = get_current_agent_config()
+    current_agent.set_message_history(history)
+
+
+def clear_current_agent_message_history():
+    """Clear the message history for the currently active agent."""
+    current_agent = get_current_agent_config()
+    current_agent.clear_message_history()
+
+
+def append_to_current_agent_message_history(message):
+    """Append a message to the currently active agent's history.
+
+    Args:
+        message: Message to append to the current agent's conversation history.
+    """
+    current_agent = get_current_agent_config()
+    current_agent.append_to_message_history(message)
+
+
+def extend_current_agent_message_history(history):
+    """Extend the currently active agent's message history with multiple messages.
+
+    Args:
+        history: List of messages to append to the current agent's conversation history.
+    """
+    current_agent = get_current_agent_config()
+    current_agent.extend_message_history(history)
+
+
+def get_current_agent_compacted_message_hashes():
+    """Get the set of compacted message hashes for the currently active agent.
+
+    Returns:
+        Set of hashes for messages that have been compacted/summarized.
+    """
+    current_agent = get_current_agent_config()
+    return current_agent.get_compacted_message_hashes()
+
+
+def add_current_agent_compacted_message_hash(message_hash: str):
+    """Add a message hash to the current agent's set of compacted message hashes.
+
+    Args:
+        message_hash: Hash of a message that has been compacted/summarized.
+    """
+    current_agent = get_current_agent_config()
+    current_agent.add_compacted_message_hash(message_hash)
