@@ -11,7 +11,7 @@ from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from code_puppy import __version__, callbacks, plugins, state_management
+from code_puppy import __version__, callbacks, plugins
 from code_puppy.agent import get_custom_usage_limits
 from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 from code_puppy.command_line.prompt_toolkit_completion import (
@@ -29,7 +29,7 @@ from code_puppy.message_history_processor import (
     message_history_accumulator,
     prune_interrupted_tool_calls,
 )
-from code_puppy.state_management import is_tui_mode, set_tui_mode, set_message_history
+from code_puppy.state_management import is_tui_mode, set_message_history, set_tui_mode
 from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
 
@@ -263,8 +263,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
-    from code_puppy.messaging import emit_info
     from code_puppy.agents.runtime_manager import get_runtime_agent_manager
+    from code_puppy.messaging import emit_info
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
     # Initialize the runtime agent manager
@@ -352,8 +352,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_warning("Falling back to basic input without tab completion")
 
     while True:
-        from code_puppy.messaging import emit_info
         from code_puppy.agents.agent_manager import get_current_agent_config
+        from code_puppy.messaging import emit_info
 
         # Get the custom prompt from the current agent, or use default
         current_agent = get_current_agent_config()
@@ -426,15 +426,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # Create a task that mimics TUI behavior - avoid signal handler conflicts
                 current_task = None
-                signal_handled = False  # Prevent multiple signal handler calls (reset per task)
-                
+                signal_handled = (
+                    False  # Prevent multiple signal handler calls (reset per task)
+                )
+
                 async def run_task():
                     # Use the simpler run() method instead of run_with_mcp() to avoid signal handler
                     agent = agent_manager.get_agent()
                     async with agent:
                         return await agent.run(
                             task,
-                            message_history=get_message_history(), 
+                            message_history=get_message_history(),
                             usage_limits=get_custom_usage_limits(),
                         )
 
@@ -444,27 +446,29 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     if signal_handled:
                         return
                     signal_handled = True
-                    
-                    from code_puppy.tools.command_runner import kill_all_running_shell_processes
-                    
+
+                    from code_puppy.tools.command_runner import (
+                        kill_all_running_shell_processes,
+                    )
+
                     killed = kill_all_running_shell_processes()
                     if killed:
                         emit_warning(f"🔥 Cancelled {killed} running shell process(es)")
                         # Don't cancel the agent task - let it continue processing
                         # Shell processes killed, but agent continues running
                     else:
-                        # Only cancel the agent task if NO processes were killed  
+                        # Only cancel the agent task if NO processes were killed
                         if current_task and not current_task.done():
                             current_task.cancel()
                             emit_warning("⚠️  Processing cancelled by user")
 
                 # Set up proper signal handling to override asyncio's default behavior
                 import signal
-                
+
                 def signal_handler(sig, frame):
                     """Handle Ctrl+C by killing processes and cancelling the current task"""
                     handle_keyboard_interrupt()
-                
+
                 # Replace asyncio's SIGINT handler with our own
                 original_handler = signal.signal(signal.SIGINT, signal_handler)
 
@@ -483,7 +487,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     result = None
                 finally:
                     # Restore original signal handler
-                    if 'original_handler' in locals():
+                    if "original_handler" in locals():
                         signal.signal(signal.SIGINT, original_handler)
                     set_message_history(
                         prune_interrupted_tool_calls(get_message_history())
@@ -559,12 +563,12 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     try:
         # Get agent through runtime manager and use its run_with_mcp method
         agent_manager = get_runtime_agent_manager()
-        
+
         from code_puppy.messaging.spinner import ConsoleSpinner
+
         with ConsoleSpinner(console=message_renderer.console):
             response = await agent_manager.run_with_mcp(
-                prompt, 
-                usage_limits=get_custom_usage_limits()
+                prompt, usage_limits=get_custom_usage_limits()
             )
 
         agent_response = response.output
@@ -574,9 +578,11 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 
     except asyncio.CancelledError:
         from code_puppy.messaging import emit_warning
+
         emit_warning("Execution cancelled by user")
     except Exception as e:
         from code_puppy.messaging import emit_error
+
         emit_error(f"Error executing prompt: {str(e)}")
 
 

@@ -11,7 +11,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 from textual import on
 from textual.containers import Vertical, VerticalScroll
-from textual.widgets import Static, Collapsible
+from textual.widgets import Static
 
 from ..models import ChatMessage, MessageType
 from .copy_button import CopyButton
@@ -342,14 +342,14 @@ class ChatView(VerticalScroll):
 
         if message.type == MessageType.USER:
             # Add user indicator and make it stand out
-            content_lines = message.content.split('\n')
+            content_lines = message.content.split("\n")
             if len(content_lines) > 1:
                 # Multi-line user message
                 formatted_content = f"╔══ USER ══╗\n{message.content}\n╚══════════╝"
             else:
                 # Single line user message
                 formatted_content = f"▶ USER: {message.content}"
-            
+
             message_widget = Static(Text(formatted_content), classes=css_class)
             # User messages are not collapsible - mount directly
             self.mount(message_widget)

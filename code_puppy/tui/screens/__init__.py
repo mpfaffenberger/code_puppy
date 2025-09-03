@@ -3,13 +3,13 @@ TUI screens package.
 """
 
 from .help import HelpScreen
+from .mcp_install_wizard import MCPInstallWizardScreen
 from .settings import SettingsScreen
 from .tools import ToolsScreen
-from .mcp_install_wizard import MCPInstallWizardScreen
 
 __all__ = [
     "HelpScreen",
-    "SettingsScreen", 
+    "SettingsScreen",
     "ToolsScreen",
     "MCPInstallWizardScreen",
 ]

@@ -221,41 +221,53 @@ class TUIRenderer(MessageRenderer):
     async def _handle_human_input_request(self, message: UIMessage):
         """Handle a human input request in TUI mode."""
         try:
-            print(f"[DEBUG] TUI renderer handling human input request")
-            
+            print("[DEBUG] TUI renderer handling human input request")
+
             # Check if tui_app is available
             if not self.tui_app:
-                print(f"[DEBUG] No tui_app available, falling back to error response")
-                prompt_id = message.metadata.get("prompt_id") if message.metadata else None
+                print("[DEBUG] No tui_app available, falling back to error response")
+                prompt_id = (
+                    message.metadata.get("prompt_id") if message.metadata else None
+                )
                 if prompt_id:
                     from code_puppy.messaging import provide_prompt_response
+
                     provide_prompt_response(prompt_id, "")
                 return
-            
+
             prompt_id = message.metadata.get("prompt_id") if message.metadata else None
             if not prompt_id:
-                print(f"[DEBUG] No prompt_id in message metadata")
+                print("[DEBUG] No prompt_id in message metadata")
                 self.tui_app.add_error_message("Error: Invalid human input request")
                 return
 
             # For now, use a simple fallback instead of modal to avoid crashes
-            print(f"[DEBUG] Using fallback approach - showing prompt as message")
-            self.tui_app.add_system_message(f"[yellow]INPUT NEEDED:[/yellow] {str(message.content)}")
-            self.tui_app.add_system_message("[dim]This would normally show a modal, but using fallback to prevent crashes[/dim]")
-            
+            print("[DEBUG] Using fallback approach - showing prompt as message")
+            self.tui_app.add_system_message(
+                f"[yellow]INPUT NEEDED:[/yellow] {str(message.content)}"
+            )
+            self.tui_app.add_system_message(
+                "[dim]This would normally show a modal, but using fallback to prevent crashes[/dim]"
+            )
+
             # Provide empty response for now to unblock the waiting thread
             from code_puppy.messaging import provide_prompt_response
+
             provide_prompt_response(prompt_id, "")
-                
+
         except Exception as e:
             print(f"[DEBUG] Top-level exception in _handle_human_input_request: {e}")
             import traceback
+
             traceback.print_exc()
             # Last resort - provide empty response to prevent hanging
             try:
-                prompt_id = message.metadata.get("prompt_id") if message.metadata else None
+                prompt_id = (
+                    message.metadata.get("prompt_id") if message.metadata else None
+                )
                 if prompt_id:
                     from code_puppy.messaging import provide_prompt_response
+
                     provide_prompt_response(prompt_id, "")
             except Exception:
                 pass  # Can't do anything more
@@ -374,7 +386,9 @@ class SynchronousInteractiveRenderer:
         """Handle a human input request in interactive mode."""
         prompt_id = message.metadata.get("prompt_id") if message.metadata else None
         if not prompt_id:
-            self.console.print("[bold red]Error: Invalid human input request[/bold red]")
+            self.console.print(
+                "[bold red]Error: Invalid human input request[/bold red]"
+            )
             return
 
         # Display the prompt
@@ -386,11 +400,12 @@ class SynchronousInteractiveRenderer:
         try:
             # Use basic input for now - could be enhanced with prompt_toolkit later
             response = input(">>> ")
-            
+
             # Provide the response back to the queue
             from .message_queue import provide_prompt_response
+
             provide_prompt_response(prompt_id, response)
-            
+
         except (EOFError, KeyboardInterrupt):
             # Handle Ctrl+C or Ctrl+D
             provide_prompt_response(prompt_id, "")

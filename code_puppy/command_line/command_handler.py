@@ -40,7 +40,7 @@ def get_commands_help():
         + Text(" [@dir]  Generate comprehensive PR description")
     )
     help_lines.append(
-        Text("/model", style="cyan") + Text(" <model>        Set active model")
+        Text("/model, /m", style="cyan") + Text(" <model>   Set active model")
     )
     help_lines.append(
         Text("/mcp", style="cyan")
@@ -360,12 +360,14 @@ def handle_command(command: str):
             emit_warning("Usage: /agent [agent-name]")
             return True
 
-    if command.startswith("/model"):
+    if command.startswith("/model") or command.startswith("/m "):
         # Try setting model and show confirmation
         # Handle both /model and /m for backward compatibility
-        model_command = (
-            command.replace("/model", "/m") if command.startswith("/model") else command
-        )
+        model_command = command
+        if command.startswith("/model"):
+            # Convert /model to /m for internal processing
+            model_command = command.replace("/model", "/m", 1)
+
         new_input = update_model_in_input(model_command)
         if new_input is not None:
             from code_puppy.agents.runtime_manager import get_runtime_agent_manager
@@ -379,7 +381,7 @@ def handle_command(command: str):
             return True
         # If no model matched, show available models
         model_names = load_model_names()
-        emit_warning("Usage: /model <model-name>")
+        emit_warning("Usage: /model <model-name> or /m <model-name>")
         emit_warning(f"Available models: {', '.join(model_names)}")
         return True
 
