@@ -105,11 +105,10 @@ class TestAgentHistoryPersistence(unittest.TestCase):
 
     @patch("code_puppy.agents.agent_manager.load_agent_config")
     @patch("code_puppy.agents.agent_manager.on_agent_reload")
-    @patch("code_puppy.agents.agent_manager.set_config_value")
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.agents.agent_manager._CURRENT_AGENT_CONFIG", None)
     def test_agent_switching_preserves_history(
-        self, mock_discover, mock_set_config, mock_on_reload, mock_load_agent
+        self, mock_discover, mock_on_reload, mock_load_agent
     ):
         """Test that switching agents preserves each agent's history."""
         # Create mock agents
