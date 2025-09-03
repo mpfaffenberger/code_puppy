@@ -163,7 +163,6 @@ def _default_model_from_models_json():
         _default_model_cache = first_key
         return first_key
     except Exception as e:
-        print(e)
         # Any problem (network, file missing, empty dict, etc.) => fall back
         _default_model_cache = "gpt-5"
         return "gpt-5"
