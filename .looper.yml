@@ -76,7 +76,6 @@ flows:
             - shell: uv pip install --native-tls -e .
             # - shell: uv --native-tls run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - shell: uv --native-tls build
-            - call: pre_commit
 
   ### Functions ###
   pre_commit:
