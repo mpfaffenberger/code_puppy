@@ -16,6 +16,40 @@ from .json_agent import JSONAgent, discover_json_agents
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
 _CURRENT_AGENT_CONFIG: Optional[BaseAgent] = None
 
+# Persistent storage for agent message histories
+_AGENT_HISTORIES: Dict[str, Dict[str, any]] = {}
+# Structure: {agent_name: {"message_history": [...], "compacted_hashes": set(...)}}
+
+
+def _save_agent_history(agent_name: str, agent: BaseAgent) -> None:
+    """Save an agent's message history to persistent storage.
+
+    Args:
+        agent_name: The name of the agent
+        agent: The agent instance to save history from
+    """
+    global _AGENT_HISTORIES
+    _AGENT_HISTORIES[agent_name] = {
+        "message_history": agent.get_message_history().copy(),
+        "compacted_hashes": agent.get_compacted_message_hashes().copy(),
+    }
+
+
+def _restore_agent_history(agent_name: str, agent: BaseAgent) -> None:
+    """Restore an agent's message history from persistent storage.
+
+    Args:
+        agent_name: The name of the agent
+        agent: The agent instance to restore history to
+    """
+    global _AGENT_HISTORIES
+    if agent_name in _AGENT_HISTORIES:
+        stored_data = _AGENT_HISTORIES[agent_name]
+        agent.set_message_history(stored_data["message_history"])
+        # Restore compacted hashes
+        for hash_val in stored_data["compacted_hashes"]:
+            agent.add_compacted_message_hash(hash_val)
+
 
 def _discover_agents(message_group_id: Optional[str] = None):
     """Dynamically discover all agent classes and JSON agents."""
@@ -118,10 +152,19 @@ def set_current_agent(agent_name: str) -> bool:
     # Generate a message group ID for agent switching
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
-    # Clear the cached config when switching agents
+
+    # Save current agent's history before switching
     global _CURRENT_AGENT_CONFIG
+    if _CURRENT_AGENT_CONFIG is not None:
+        _save_agent_history(_CURRENT_AGENT_CONFIG.name, _CURRENT_AGENT_CONFIG)
+
+    # Clear the cached config when switching agents
     _CURRENT_AGENT_CONFIG = None
     agent_obj = load_agent_config(agent_name)
+
+    # Restore the agent's history if it exists
+    _restore_agent_history(agent_name, agent_obj)
+
     on_agent_reload(agent_obj.id, agent_name)
     set_config_value("current_agent", agent_name)
     return True
@@ -136,7 +179,10 @@ def get_current_agent_config() -> BaseAgent:
     global _CURRENT_AGENT_CONFIG
 
     if _CURRENT_AGENT_CONFIG is None:
-        _CURRENT_AGENT_CONFIG = load_agent_config(get_current_agent_name())
+        agent_name = get_current_agent_name()
+        _CURRENT_AGENT_CONFIG = load_agent_config(agent_name)
+        # Restore the agent's history if it exists
+        _restore_agent_history(agent_name, _CURRENT_AGENT_CONFIG)
 
     return _CURRENT_AGENT_CONFIG
 
@@ -213,6 +259,18 @@ def refresh_agents():
     _discover_agents(message_group_id=message_group_id)
 
 
+def clear_all_agent_histories():
+    """Clear all agent message histories from persistent storage.
+
+    This is useful for debugging or when you want a fresh start.
+    """
+    global _AGENT_HISTORIES
+    _AGENT_HISTORIES.clear()
+    # Also clear the current agent's history
+    if _CURRENT_AGENT_CONFIG is not None:
+        _CURRENT_AGENT_CONFIG.clear_message_history()
+
+
 # Agent-aware message history functions
 def get_current_agent_message_history():
     """Get the message history for the currently active agent.
@@ -232,12 +290,21 @@ def set_current_agent_message_history(history):
     """
     current_agent = get_current_agent_config()
     current_agent.set_message_history(history)
+    # Also update persistent storage
+    _save_agent_history(current_agent.name, current_agent)
 
 
 def clear_current_agent_message_history():
     """Clear the message history for the currently active agent."""
     current_agent = get_current_agent_config()
     current_agent.clear_message_history()
+    # Also clear from persistent storage
+    global _AGENT_HISTORIES
+    if current_agent.name in _AGENT_HISTORIES:
+        _AGENT_HISTORIES[current_agent.name] = {
+            "message_history": [],
+            "compacted_hashes": set(),
+        }
 
 
 def append_to_current_agent_message_history(message):
@@ -248,6 +315,8 @@ def append_to_current_agent_message_history(message):
     """
     current_agent = get_current_agent_config()
     current_agent.append_to_message_history(message)
+    # Also update persistent storage
+    _save_agent_history(current_agent.name, current_agent)
 
 
 def extend_current_agent_message_history(history):
@@ -258,6 +327,8 @@ def extend_current_agent_message_history(history):
     """
     current_agent = get_current_agent_config()
     current_agent.extend_message_history(history)
+    # Also update persistent storage
+    _save_agent_history(current_agent.name, current_agent)
 
 
 def get_current_agent_compacted_message_hashes():
@@ -278,3 +349,5 @@ def add_current_agent_compacted_message_hash(message_hash: str):
     """
     current_agent = get_current_agent_config()
     current_agent.add_compacted_message_hash(message_hash)
+    # Also update persistent storage
+    _save_agent_history(current_agent.name, current_agent)

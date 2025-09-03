@@ -1,6 +1,6 @@
 """Tests for the /agent command in command handler."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from code_puppy.command_line.command_handler import handle_command
 
@@ -71,7 +71,11 @@ class TestAgentCommand:
 
         assert result is True
         mock_set_agent.assert_called_once_with("code-puppy")
-        mock_get_agent.assert_called_once_with(force_reload=True)
+        # Check that mock_get_agent was called with force_reload=True and any message_group
+        mock_get_agent.assert_called_once()
+        call_args = mock_get_agent.call_args
+        assert call_args.kwargs.get("force_reload") is True
+        assert "message_group" in call_args.kwargs
         mock_success.assert_called_once()
 
     @patch("code_puppy.messaging.emit_error")
