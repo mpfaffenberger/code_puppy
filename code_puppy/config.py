@@ -158,15 +158,15 @@ def _default_model_from_models_json():
         # Local import to avoid potential circular dependency on module import
         from code_puppy.model_factory import ModelFactory
 
-        models_config_path = os.path.join(CONFIG_DIR, "models.json")
-        models_config = ModelFactory.load_config(models_config_path)
+        models_config = ModelFactory.load_config()
         first_key = next(iter(models_config))  # Raises StopIteration if empty
         _default_model_cache = first_key
         return first_key
-    except Exception:
+    except Exception as e:
+        print(e)
         # Any problem (network, file missing, empty dict, etc.) => fall back
-        _default_model_cache = "claude-4-0-sonnet"
-        return "claude-4-0-sonnet"
+        _default_model_cache = "gpt-5"
+        return "gpt-5"
 
 
 def _validate_model_exists(model_name: str) -> bool:
