@@ -1,4 +1,9 @@
-"""MCP (Model Context Protocol) management system for Code Puppy."""
+"""MCP (Model Context Protocol) management system for Code Puppy.
+
+Note: Be careful not to create circular imports with config_wizard.py. 
+config_wizard.py imports ServerConfig and get_mcp_manager directly from 
+.manager to avoid circular dependencies with this package __init__.py
+"""
 
 from .circuit_breaker import CircuitBreaker, CircuitOpenError, CircuitState
 from .config_wizard import MCPConfigWizard, run_add_wizard
