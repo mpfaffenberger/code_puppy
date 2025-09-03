@@ -46,7 +46,7 @@ from .. import state_management
 # Import shared message classes
 from .messages import CommandSelected, HistoryEntrySelected
 from .models import ChatMessage, MessageType
-from .screens import HelpScreen, SettingsScreen, ToolsScreen, MCPInstallWizardScreen
+from .screens import HelpScreen, MCPInstallWizardScreen, SettingsScreen, ToolsScreen
 
 
 class CodePuppyTUI(App):
@@ -88,12 +88,42 @@ class CodePuppyTUI(App):
     # Reactive variables for app state
     current_model = reactive("")
     puppy_name = reactive("")
+    current_agent = reactive("")
     agent_busy = reactive(False)
 
     def watch_agent_busy(self) -> None:
         """Watch for changes to agent_busy state."""
         # Update the submit/cancel button state when agent_busy changes
         self._update_submit_cancel_button(self.agent_busy)
+
+    def watch_current_agent(self) -> None:
+        """Watch for changes to current_agent and update title."""
+        self._update_title()
+
+    def _update_title(self) -> None:
+        """Update the application title to include current agent."""
+        if self.current_agent:
+            self.title = f"Code Puppy - {self.current_agent}"
+            self.sub_title = "TUI Mode"
+        else:
+            self.title = "Code Puppy - AI Code Assistant"
+            self.sub_title = "TUI Mode"
+
+    def _on_agent_reload(self, agent_id: str, agent_name: str) -> None:
+        """Callback for when agent is reloaded/changed."""
+        # Get the updated agent configuration
+        from code_puppy.agents.agent_manager import get_current_agent_config
+
+        current_agent_config = get_current_agent_config()
+        new_agent_display = (
+            current_agent_config.display_name if current_agent_config else "code-puppy"
+        )
+
+        # Update the reactive variable (this will trigger watch_current_agent)
+        self.current_agent = new_agent_display
+
+        # Add a system message to notify the user
+        self.add_system_message(f"🔄 Switched to agent: {new_agent_display}")
 
     def __init__(self, initial_command: str = None, **kwargs):
         super().__init__(**kwargs)
@@ -123,9 +153,25 @@ class CodePuppyTUI(App):
 
         set_tui_app_instance(self)
 
+        # Register callback for agent reload events
+        from code_puppy.callbacks import register_callback
+
+        register_callback("agent_reload", self._on_agent_reload)
+
         # Load configuration
         self.current_model = get_model_name()
         self.puppy_name = get_puppy_name()
+
+        # Get current agent information
+        from code_puppy.agents.agent_manager import get_current_agent_config
+
+        current_agent_config = get_current_agent_config()
+        self.current_agent = (
+            current_agent_config.display_name if current_agent_config else "code-puppy"
+        )
+
+        # Initial title update
+        self._update_title()
 
         # Use runtime manager to ensure we always have the current agent
         self.agent_manager = get_runtime_agent_manager()
@@ -143,7 +189,9 @@ class CodePuppyTUI(App):
 
         # Get current agent and display info
         get_code_generation_agent()
-        self.add_system_message(f"🐕 Loaded agent '{self.puppy_name}' with model '{self.current_model}'")
+        self.add_system_message(
+            f"🐕 Loaded agent '{self.puppy_name}' with model '{self.current_model}'"
+        )
 
         # Start the message renderer EARLY to catch startup messages
         # Using call_after_refresh to start it as soon as possible after mount
@@ -632,16 +680,20 @@ class CodePuppyTUI(App):
 
     def action_open_mcp_wizard(self) -> None:
         """Open the MCP Install Wizard."""
-        
+
         def handle_wizard_result(result):
             if result and result.get("success"):
                 # Show success message
-                self.add_system_message(result.get("message", "MCP server installed successfully"))
-                
+                self.add_system_message(
+                    result.get("message", "MCP server installed successfully")
+                )
+
                 # If a server was installed, suggest starting it
                 if result.get("server_name"):
                     server_name = result["server_name"]
-                    self.add_system_message(f"💡 Use '/mcp start {server_name}' to start the server")
+                    self.add_system_message(
+                        f"💡 Use '/mcp start {server_name}' to start the server"
+                    )
             elif (
                 result
                 and not result.get("success")
@@ -649,7 +701,7 @@ class CodePuppyTUI(App):
             ):
                 # Show error message (but not for cancellation)
                 self.add_error_message(result.get("message", "MCP installation failed"))
-        
+
         self.push_screen(MCPInstallWizardScreen(), handle_wizard_result)
 
     def process_initial_command(self) -> None:
@@ -905,6 +957,11 @@ class CodePuppyTUI(App):
     async def on_unmount(self):
         """Clean up when the app is unmounted."""
         try:
+            # Unregister the agent reload callback
+            from code_puppy.callbacks import unregister_callback
+
+            unregister_callback("agent_reload", self._on_agent_reload)
+
             await self.stop_message_renderer()
         except Exception as e:
             # Log unmount errors but don't crash during cleanup

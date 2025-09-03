@@ -70,9 +70,9 @@ class ModelNameCompleter(Completer):
 
 
 def update_model_in_input(text: str) -> Optional[str]:
-    # If input starts with /model and a model name, set model and strip it out
+    # If input starts with /model or /m and a model name, set model and strip it out
     content = text.strip()
-    
+
     # Check for /model command
     if content.startswith("/model"):
         rest = content[6:].strip()  # Remove '/model'
@@ -82,13 +82,30 @@ def update_model_in_input(text: str) -> Optional[str]:
                 # Remove /model from the input
                 idx = text.find("/model" + model)
                 if idx != -1:
-                    new_text = (text[:idx] + text[idx + len("/model" + model) :]).strip()
+                    new_text = (
+                        text[:idx] + text[idx + len("/model" + model) :]
+                    ).strip()
                     return new_text
+
+    # Check for /m command
+    elif content.startswith("/m "):
+        rest = content[3:].strip()  # Remove '/m '
+        for model in load_model_names():
+            if rest == model:
+                set_active_model(model)
+                # Remove /m from the input
+                idx = text.find("/m " + model)
+                if idx != -1:
+                    new_text = (text[:idx] + text[idx + len("/m " + model) :]).strip()
+                    return new_text
+
     return None
 
 
 async def get_input_with_model_completion(
-    prompt_str: str = ">>> ", trigger: str = "/model", history_file: Optional[str] = None
+    prompt_str: str = ">>> ",
+    trigger: str = "/model",
+    history_file: Optional[str] = None,
 ) -> str:
     history = FileHistory(os.path.expanduser(history_file)) if history_file else None
     session = PromptSession(

@@ -136,8 +136,15 @@ class CDCompleter(Completer):
 
 
 def get_prompt_with_active_model(base: str = ">>> "):
+    from code_puppy.agents.agent_manager import get_current_agent_config
+
     puppy = get_puppy_name()
     model = get_active_model() or "(default)"
+
+    # Get current agent information
+    current_agent = get_current_agent_config()
+    agent_display = current_agent.display_name if current_agent else "code-puppy"
+
     cwd = os.getcwd()
     home = os.path.expanduser("~")
     if cwd.startswith(home):
@@ -149,6 +156,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
             ("bold", "🐶 "),
             ("class:puppy", f"{puppy}"),
             ("", " "),
+            ("class:agent", f"[{agent_display}] "),
             ("class:model", "[" + str(model) + "] "),
             ("class:cwd", "(" + str(cwd_display) + ") "),
             ("class:arrow", str(base)),
@@ -213,6 +221,7 @@ async def get_input_with_combined_completion(
             # tagging tokens in `FormattedText`. See prompt_toolkit docs.
             "puppy": "bold magenta",
             "owner": "bold white",
+            "agent": "bold blue",
             "model": "bold cyan",
             "cwd": "bold green",
             "arrow": "bold yellow",

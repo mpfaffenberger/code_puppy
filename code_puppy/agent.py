@@ -3,15 +3,10 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from pydantic_ai import Agent
-from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.agents import get_current_agent_config
-from code_puppy.http_utils import (
-    create_reopenable_async_client,
-    resolve_env_var_in_header,
-)
 from code_puppy.message_history_processor import (
     get_model_context_length,
     message_history_accumulator,
@@ -45,7 +40,7 @@ _code_generation_agent = None
 def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
     """Load MCP servers using the new manager while maintaining backward compatibility."""
     from code_puppy.config import get_value, load_mcp_server_configs
-    from code_puppy.mcp import get_mcp_manager, ServerConfig
+    from code_puppy.mcp import ServerConfig, get_mcp_manager
 
     # Check if MCP servers are disabled
     mcp_disabled = get_value("disable_mcp_servers")
@@ -55,7 +50,7 @@ def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
 
     # Get the MCP manager singleton
     manager = get_mcp_manager()
-    
+
     # Load configurations from legacy file for backward compatibility
     configs = load_mcp_server_configs()
     if not configs:
@@ -74,9 +69,9 @@ def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
                     name=name,
                     type=conf.get("type", "sse"),
                     enabled=conf.get("enabled", True),
-                    config=conf
+                    config=conf,
                 )
-                
+
                 # Check if server already registered
                 existing = manager.get_server_by_name(name)
                 if not existing:
@@ -88,14 +83,14 @@ def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
                     if existing.config != server_config.config:
                         manager.update_server(existing.id, server_config)
                         emit_system_message(f"[dim]Updated MCP server: {name}[/dim]")
-                        
+
             except Exception as e:
                 emit_error(f"Failed to register MCP server '{name}': {str(e)}")
                 continue
-    
+
     # Get pydantic-ai compatible servers from manager
     servers = manager.get_servers_for_agent()
-    
+
     if servers:
         emit_system_message(
             f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
@@ -104,14 +99,14 @@ def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
         emit_system_message(
             "[yellow]No MCP servers available (check if servers are enabled)[/yellow]"
         )
-    
+
     return servers
 
 
 def reload_mcp_servers():
     """Reload MCP servers without restarting the agent."""
     from code_puppy.mcp import get_mcp_manager
-    
+
     manager = get_mcp_manager()
     # Reload configurations
     _load_mcp_servers()
@@ -124,15 +119,18 @@ def reload_code_generation_agent(message_group: str | None):
     if message_group is None:
         message_group = str(uuid.uuid4())
     global _code_generation_agent, _LAST_MODEL_NAME
-    from code_puppy.config import clear_model_cache, get_model_name
     from code_puppy.agents import clear_agent_cache
+    from code_puppy.config import clear_model_cache, get_model_name
 
     # Clear both ModelFactory cache and config cache when force reloading
     clear_model_cache()
     clear_agent_cache()
 
     model_name = get_model_name()
-    emit_info(f"[bold cyan]Loading Model: {model_name}[/bold cyan]", message_group=message_group)
+    emit_info(
+        f"[bold cyan]Loading Model: {model_name}[/bold cyan]",
+        message_group=message_group,
+    )
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
 
@@ -140,7 +138,7 @@ def reload_code_generation_agent(message_group: str | None):
     agent_config = get_current_agent_config()
     emit_info(
         f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]",
-        message_group=message_group
+        message_group=message_group,
     )
 
     instructions = agent_config.get_system_prompt()

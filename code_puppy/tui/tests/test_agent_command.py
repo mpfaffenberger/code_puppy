@@ -1,6 +1,6 @@
 """Tests for the /agent command handling in TUI mode."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from code_puppy.tui.app import CodePuppyTUI
 
@@ -59,11 +59,11 @@ class TestTUIAgentCommand:
         mock_manager = MagicMock()
         initial_agent = MagicMock()
         new_agent = MagicMock()
-        
+
         # Set initial agent
         app.agent = initial_agent
         app.agent_manager = mock_manager
-        
+
         # Mock manager to return a new agent instance
         mock_manager.get_agent.return_value = new_agent
         mock_get_manager.return_value = mock_manager

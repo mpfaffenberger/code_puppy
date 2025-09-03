@@ -201,45 +201,50 @@ class MessageQueue:
         """Create a human input request and return its unique ID."""
         self._prompt_id_counter += 1
         prompt_id = f"prompt_{self._prompt_id_counter}"
-        
+
         # Emit the human input request message
         message = UIMessage(
             type=MessageType.HUMAN_INPUT_REQUEST,
             content=prompt_text,
-            metadata={"prompt_id": prompt_id}
+            metadata={"prompt_id": prompt_id},
         )
         self.emit(message)
-        
+
         return prompt_id
 
     def wait_for_prompt_response(self, prompt_id: str, timeout: float = None) -> str:
         """Wait for a response to a human input request."""
         import time
+
         start_time = time.time()
-        
+
         # Check if we're in TUI mode - if so, try to yield control to the event loop
         from code_puppy.state_management import is_tui_mode
+
         sleep_interval = 0.05 if is_tui_mode() else 0.1
-        
+
         # Debug logging for TUI mode
         if is_tui_mode():
             print(f"[DEBUG] Waiting for prompt response: {prompt_id}")
-        
+
         while True:
             if prompt_id in self._prompt_responses:
                 response = self._prompt_responses.pop(prompt_id)
                 if is_tui_mode():
                     print(f"[DEBUG] Got response for {prompt_id}: {response[:20]}...")
                 return response
-            
+
             if timeout and (time.time() - start_time) > timeout:
-                raise TimeoutError(f"No response received for prompt {prompt_id} within {timeout} seconds")
-            
+                raise TimeoutError(
+                    f"No response received for prompt {prompt_id} within {timeout} seconds"
+                )
+
             time.sleep(sleep_interval)
 
     def provide_prompt_response(self, prompt_id: str, response: str):
         """Provide a response to a human input request."""
         from code_puppy.state_management import is_tui_mode
+
         if is_tui_mode():
             print(f"[DEBUG] Providing response for {prompt_id}: {response[:20]}...")
         self._prompt_responses[prompt_id] = response
@@ -343,25 +348,27 @@ def emit_divider(content: str = "[dim]" + "─" * 100 + "\n" + "[/dim]", **metad
 def emit_prompt(prompt_text: str, timeout: float = None) -> str:
     """Emit a human input request and wait for response."""
     from code_puppy.state_management import is_tui_mode
-    
+
     # In interactive mode, use direct input instead of the queue system
     if not is_tui_mode():
         # Emit the prompt as a message for display
         from code_puppy.messaging import emit_info
+
         emit_info(f"[yellow]{prompt_text}[/yellow]")
-        
+
         # Get input directly
         try:
             # Try to use rich console for better formatting
             from rich.console import Console
+
             console = Console()
             response = console.input("[cyan]>>> [/cyan]")
             return response
-        except:
+        except Exception:
             # Fallback to basic input
             response = input(">>> ")
             return response
-    
+
     # In TUI mode, use the queue system
     queue = get_global_queue()
     prompt_id = queue.create_prompt_request(prompt_text)

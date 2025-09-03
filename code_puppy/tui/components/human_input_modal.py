@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.events import Key
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Static, TextArea
+from textual.widgets import Button, Static, TextArea
 
 try:
     from .custom_widgets import CustomTextArea
@@ -109,13 +109,14 @@ class HumanInputModal(ModalScreen):
     def on_mount(self) -> None:
         """Focus the input field when modal opens."""
         try:
-            print(f"[DEBUG] Modal on_mount called")
+            print("[DEBUG] Modal on_mount called")
             input_field = self.query_one("#response-input", CustomTextArea)
             input_field.focus()
-            print(f"[DEBUG] Modal input field focused")
+            print("[DEBUG] Modal input field focused")
         except Exception as e:
             print(f"[DEBUG] Modal on_mount exception: {e}")
             import traceback
+
             traceback.print_exc()
 
     @on(Button.Pressed, "#submit-button")
@@ -123,7 +124,7 @@ class HumanInputModal(ModalScreen):
         """Handle submit button click."""
         self._submit_response()
 
-    @on(Button.Pressed, "#cancel-button") 
+    @on(Button.Pressed, "#cancel-button")
     def on_cancel_clicked(self) -> None:
         """Handle cancel button click."""
         self._cancel_response()
@@ -149,23 +150,26 @@ class HumanInputModal(ModalScreen):
             input_field = self.query_one("#response-input", CustomTextArea)
             self.response = input_field.text.strip()
             print(f"[DEBUG] Modal submitting response: {self.response[:20]}...")
-            
+
             # Provide the response back to the message queue
             from code_puppy.messaging import provide_prompt_response
+
             provide_prompt_response(self.prompt_id, self.response)
-            
+
             # Close the modal using the same method as other modals
             self.app.pop_screen()
         except Exception as e:
             print(f"[DEBUG] Modal error during submit: {e}")
             # If something goes wrong, provide empty response
             from code_puppy.messaging import provide_prompt_response
+
             provide_prompt_response(self.prompt_id, "")
             self.app.pop_screen()
 
     def _cancel_response(self) -> None:
         """Cancel the input request."""
-        print(f"[DEBUG] Modal cancelling response")
+        print("[DEBUG] Modal cancelling response")
         from code_puppy.messaging import provide_prompt_response
+
         provide_prompt_response(self.prompt_id, "")
         self.app.pop_screen()
