@@ -129,7 +129,8 @@ def test_m_unrecognized_model_lists_options():
             # Check that emit_warning was called with appropriate messages
             mock_emit_warning.assert_called()
             assert any(
-                "Usage:" in str(call) for call in mock_emit_warning.call_args_list
+                "Usage: /model <model-name> or /m <model-name>" in str(call)
+                for call in mock_emit_warning.call_args_list
             )
             assert any(
                 "Available models" in str(call)

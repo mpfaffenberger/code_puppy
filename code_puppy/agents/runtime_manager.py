@@ -7,8 +7,20 @@ all references to the agent are properly updated when it's reloaded.
 
 import asyncio
 import signal
+import sys
 import uuid
 from typing import Any, Optional
+
+# ExceptionGroup is available in Python 3.11+
+if sys.version_info >= (3, 11):
+    from builtins import ExceptionGroup
+else:
+    # For Python 3.10 and below, we can define a simple fallback
+    class ExceptionGroup(Exception):
+        def __init__(self, message, exceptions):
+            super().__init__(message)
+            self.exceptions = exceptions
+
 
 import mcp
 from pydantic_ai import Agent

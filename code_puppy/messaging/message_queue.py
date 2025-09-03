@@ -365,6 +365,7 @@ def emit_prompt(prompt_text: str, timeout: float = None) -> str:
             response = console.input("[cyan]>>> [/cyan]")
             return response
         except Exception:
+            # Fallback to basic input
             response = input(">>> ")
             return response
 

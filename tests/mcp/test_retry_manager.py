@@ -145,6 +145,7 @@ class TestRetryManager:
         ]
 
         # Base delay for attempt 3 should be 4.0
+        # base_delay = 4.0  # Not used in this test
 
         # All delays should be within jitter range (±25%)
         for delay in delays:

@@ -83,7 +83,7 @@ def disabled_test_reload_code_generation_agent_logs_exception(monkeypatch):
 def test_get_code_generation_agent_force_reload(monkeypatch):
     # Always reload
     monkeypatch.setattr(
-        agent_module, "reload_code_generation_agent", lambda: "RELOADED"
+        agent_module, "reload_code_generation_agent", lambda message_group: "RELOADED"
     )
     agent_module._code_generation_agent = None
     agent_module._LAST_MODEL_NAME = None
@@ -94,7 +94,7 @@ def test_get_code_generation_agent_force_reload(monkeypatch):
 
 def test_get_code_generation_agent_model_change(monkeypatch):
     monkeypatch.setattr(
-        agent_module, "reload_code_generation_agent", lambda: "RELOADED"
+        agent_module, "reload_code_generation_agent", lambda message_group: "RELOADED"
     )
     agent_module._code_generation_agent = "OLD"
     agent_module._LAST_MODEL_NAME = "old-model"
@@ -105,7 +105,7 @@ def test_get_code_generation_agent_model_change(monkeypatch):
 
 def test_get_code_generation_agent_cached(monkeypatch):
     monkeypatch.setattr(
-        agent_module, "reload_code_generation_agent", lambda: "RELOADED"
+        agent_module, "reload_code_generation_agent", lambda message_group: "RELOADED"
     )
     agent_module._code_generation_agent = "CACHED"
     agent_module._LAST_MODEL_NAME = "gpt-4o"
