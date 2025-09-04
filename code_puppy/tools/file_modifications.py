@@ -138,6 +138,9 @@ def _delete_snippet_from_file(
             "path": file_path,
             "message": "Snippet deleted from file.",
             "changed": True,
+            "change_type": "modify",
+            "before_content": original,
+            "after_content": modified,
             "diff": diff_text,
         }
     except Exception as exc:
@@ -214,6 +217,9 @@ def _replace_in_file(
         "path": file_path,
         "message": "Replacements applied.",
         "changed": True,
+        "change_type": "modify",
+        "before_content": original,
+        "after_content": modified,
         "diff": diff_text,
     }
 
@@ -237,9 +243,13 @@ def _write_to_file(
                 "changed": False,
                 "diff": "",
             }
-
+        # Read original content if file exists to compute accurate diff
+        original = None
+        if exists:
+            with open(file_path, "r", encoding="utf-8") as f:
+                original = f.read()
         diff_lines = difflib.unified_diff(
-            [] if not exists else [""],
+            [] if not exists else original.splitlines(keepends=True),
             content.splitlines(keepends=True),
             fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
             tofile=f"b/{os.path.basename(file_path)}",
@@ -257,6 +267,9 @@ def _write_to_file(
             "path": file_path,
             "message": f"File '{file_path}' {action} successfully.",
             "changed": True,
+            "change_type": "modify" if exists else "create",
+            "before_content": original,
+            "after_content": content,
             "diff": diff_text,
         }
 
@@ -439,6 +452,9 @@ def _delete_file(
                 "path": file_path,
                 "message": f"File '{file_path}' deleted successfully.",
                 "changed": True,
+                "change_type": "delete",
+                "before_content": original,
+                "after_content": None,
                 "diff": diff_text,
             }
     except Exception as exc:
@@ -719,6 +735,11 @@ def register_edit_file(agent):
 
         # Call _edit_file which will extract file_path from payload and handle group_id generation
         result = _edit_file(context, payload)
+        # Trigger callbacks to allow versioning to record changes
+        try:
+            on_edit_file(result)
+        except Exception:
+            pass
         if "diff" in result:
             del result["diff"]
         return result
@@ -768,6 +789,11 @@ def register_delete_file(agent):
         # Generate group_id for delete_file tool execution
         group_id = generate_group_id("delete_file", file_path)
         result = _delete_file(context, file_path, message_group=group_id)
+        # Trigger callbacks to allow versioning to record changes
+        try:
+            on_delete_file(result)
+        except Exception:
+            pass
         if "diff" in result:
             del result["diff"]
         return result

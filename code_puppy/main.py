@@ -587,6 +587,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging.queue_console import get_queue_console
 
                 get_queue_console().print_exception()
+            finally:
+                # Finalize versioned change capture for this interactive task
+                try:
+                    finalize_changes(response_id)
+                except Exception:
+                    # Never let finalize issues break the interactive loop
+                    pass
 
 
 def prettier_code_blocks():

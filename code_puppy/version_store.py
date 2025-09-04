@@ -4,6 +4,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional
 import contextvars
+import threading
 
 from code_puppy.config import CONFIG_DIR
 
@@ -18,6 +19,10 @@ _resolved_db_path: Optional[str] = None
 _pending_changes: contextvars.ContextVar[Optional[List[Dict[str, Optional[str]]]]] = (
     contextvars.ContextVar("pending_changes", default=None)
 )
+
+# Global fallback buffer for threads where contextvars do not propagate
+_global_pending_changes: Optional[List[Dict[str, Optional[str]]]] = None
+_buffer_lock = threading.Lock()
 
 
 def _now_iso() -> str:
@@ -292,8 +297,16 @@ def get_response_by_id(response_id: int) -> Optional[Dict[str, str]]:
 
 
 def start_change_capture() -> None:
-    """Begin a new capture session for file changes."""
+    """Begin a new capture session for file changes.
+
+    Tools may execute in worker threads where contextvars don't propagate.
+    Maintain both a context-local buffer and a global fallback so any thread
+    can record changes reliably during the session.
+    """
     _pending_changes.set([])
+    global _global_pending_changes
+    with _buffer_lock:
+        _global_pending_changes = []
 
 
 def record_change(
@@ -305,8 +318,13 @@ def record_change(
 ) -> None:
     buf = _pending_changes.get()
     if buf is None:
-        # Not capturing right now; ignore
-        return
+        # Fallback to global buffer (covers worker threads)
+        global _global_pending_changes
+        with _buffer_lock:
+            if _global_pending_changes is None:
+                # Not capturing right now; ignore
+                return
+            buf = _global_pending_changes
     buf.append(
         {
             "file_path": file_path,
@@ -320,14 +338,25 @@ def record_change(
 
 
 def finalize_changes(response_id: int) -> None:
-    buf = _pending_changes.get()
-    # Clear buffer early to avoid duplicate writes on re-entry
+    # Collect both context-local and global buffers
+    ctx_buf = _pending_changes.get()
     _pending_changes.set(None)
-    if not buf:
+    global _global_pending_changes
+    with _buffer_lock:
+        glob_buf = _global_pending_changes
+        _global_pending_changes = None
+
+    # Merge preserving order: context first, then global
+    merged: List[Dict[str, Optional[str]]] = []
+    if ctx_buf:
+        merged.extend(ctx_buf)
+    if glob_buf:
+        merged.extend(glob_buf)
+    if not merged:
         return
     with get_db_connection() as conn:
         cur = conn.cursor()
-        for rec in buf:
+        for rec in merged:
             cur.execute(
                 """
                 INSERT INTO changes(
