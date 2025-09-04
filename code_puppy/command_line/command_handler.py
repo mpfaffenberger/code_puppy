@@ -59,10 +59,11 @@ def handle_command(command: str):
         return True
 
     if command.strip().startswith("/compact"):
-        from code_puppy.config import get_compaction_strategy
+        from code_puppy.config import get_compaction_strategy, get_protected_token_count
         from code_puppy.message_history_processor import (
             estimate_tokens_for_message,
             summarize_messages,
+            truncation,
         )
         from code_puppy.state_management import get_message_history, set_message_history
 
@@ -76,7 +77,7 @@ def handle_command(command: str):
 
             before_tokens = sum(estimate_tokens_for_message(m) for m in history)
             compaction_strategy = get_compaction_strategy()
-            emit_info(
+            messaging.emit_info(
                 f"🤔 Compacting {len(history)} messages using {compaction_strategy} strategy... (~{before_tokens} tokens)"
             )
 
@@ -91,7 +92,7 @@ def handle_command(command: str):
                 )
 
             if not compacted:
-                emit_error("Compaction failed. History unchanged.")
+                messaging.emit_error("Compaction failed. History unchanged.")
                 return True
 
             set_message_history(compacted)
@@ -550,23 +551,77 @@ def handle_command(command: str):
             return True
 
         try:
+            from code_puppy.version_store import (
+                add_version,
+                start_change_capture,
+                record_change,
+                finalize_changes,
+                update_response_output,
+            )
+
             snapshot = compute_snapshot_as_of_response_id(response_id)
+
+            # Create a system response entry to capture this undo operation
+            sys_prompt = f"[system] undo to prompt version {prev_version_data[1]}"
+            version_num, sys_response_id = add_version(sys_prompt, "")
+            start_change_capture()
+
             restored_files = 0
             for file_record in snapshot:
                 file_path = file_record["file_path"]
                 content = file_record["content"]
 
-                # Restore file content
+                # Determine before/after and change type
+                before_content = None
+                if os.path.exists(file_path):
+                    try:
+                        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                            before_content = f.read()
+                    except Exception:
+                        before_content = None
+
+                after_content = content
                 if content is None:
-                    # File should not exist, remove it if present
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
+                    if before_content is not None:
+                        change_type = "delete"
+                        # Apply deletion
+                        try:
+                            os.remove(file_path)
+                        except FileNotFoundError:
+                            pass
                         restored_files += 1
+                    else:
+                        # Nothing to do and nothing to record
+                        continue
                 else:
-                    # Write the content to the file
-                    with open(file_path, "w") as f:
+                    change_type = "create" if before_content is None else "modify"
+                    # Apply write
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
                         f.write(content)
                     restored_files += 1
+
+                # Record the change
+                try:
+                    record_change(
+                        file_path=file_path,
+                        change_type=change_type,
+                        before_content=before_content,
+                        after_content=after_content,
+                        diff="",
+                    )
+                except Exception:
+                    pass
+
+            # Finalize and update response output text
+            finalize_changes(sys_response_id)
+            try:
+                update_response_output(
+                    sys_response_id,
+                    f"Undo applied to version {prev_version_data[1]}: {restored_files} files restored",
+                )
+            except Exception:
+                pass
 
             messaging.emit_success(
                 f"[bold green]✅ Undone to version {prev_version_data[1]}[/bold green]"
@@ -664,23 +719,72 @@ def handle_command(command: str):
             return True
 
         try:
+            from code_puppy.version_store import (
+                add_version,
+                start_change_capture,
+                record_change,
+                finalize_changes,
+                update_response_output,
+            )
+
             snapshot = compute_snapshot_as_of_response_id(response_id)
+
+            # Create a system response entry to capture this redo operation
+            sys_prompt = f"[system] redo to prompt version {next_version[1]}"
+            version_num, sys_response_id = add_version(sys_prompt, "")
+            start_change_capture()
+
             restored_files = 0
             for file_record in snapshot:
                 file_path = file_record["file_path"]
                 content = file_record["content"]
 
-                # Restore file content
+                # Determine before/after and change type
+                before_content = None
+                if os.path.exists(file_path):
+                    try:
+                        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                            before_content = f.read()
+                    except Exception:
+                        before_content = None
+
+                after_content = content
                 if content is None:
-                    # File should not exist, remove it if present
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
+                    if before_content is not None:
+                        change_type = "delete"
+                        try:
+                            os.remove(file_path)
+                        except FileNotFoundError:
+                            pass
                         restored_files += 1
+                    else:
+                        continue
                 else:
-                    # Write the content to the file
-                    with open(file_path, "w") as f:
+                    change_type = "create" if before_content is None else "modify"
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
                         f.write(content)
                     restored_files += 1
+
+                try:
+                    record_change(
+                        file_path=file_path,
+                        change_type=change_type,
+                        before_content=before_content,
+                        after_content=after_content,
+                        diff="",
+                    )
+                except Exception:
+                    pass
+
+            finalize_changes(sys_response_id)
+            try:
+                update_response_output(
+                    sys_response_id,
+                    f"Redo applied to version {next_version[1]}: {restored_files} files restored",
+                )
+            except Exception:
+                pass
 
             # Update tracked version
             _current_version_track[last_prompt] = next_version[1]
@@ -748,20 +852,71 @@ def handle_command(command: str):
                 return True
 
             try:
+                from code_puppy.version_store import (
+                    add_version,
+                    start_change_capture,
+                    record_change,
+                    finalize_changes,
+                    update_response_output,
+                )
+
                 snapshot = compute_snapshot_as_of_response_id(response_id)
+
+                # Create a system response entry to capture this checkout operation
+                sys_prompt = f"[system] checkout prompt version {version_num}"
+                version_created, sys_response_id = add_version(sys_prompt, "")
+                start_change_capture()
+
                 restored_files = 0
                 for file_record in snapshot:
                     file_path = file_record["file_path"]
                     content = file_record["content"]
 
+                    before_content = None
+                    if os.path.exists(file_path):
+                        try:
+                            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                                before_content = f.read()
+                        except Exception:
+                            before_content = None
+
+                    after_content = content
                     if content is None:
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
+                        if before_content is not None:
+                            change_type = "delete"
+                            try:
+                                os.remove(file_path)
+                            except FileNotFoundError:
+                                pass
                             restored_files += 1
+                        else:
+                            continue
                     else:
-                        with open(file_path, "w") as f:
+                        change_type = "create" if before_content is None else "modify"
+                        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                        with open(file_path, "w", encoding="utf-8") as f:
                             f.write(content)
                         restored_files += 1
+
+                    try:
+                        record_change(
+                            file_path=file_path,
+                            change_type=change_type,
+                            before_content=before_content,
+                            after_content=after_content,
+                            diff="",
+                        )
+                    except Exception:
+                        pass
+
+                finalize_changes(sys_response_id)
+                try:
+                    update_response_output(
+                        sys_response_id,
+                        f"Checkout applied to prompt version {version_num}: {restored_files} files restored",
+                    )
+                except Exception:
+                    pass
 
                 _current_version_track[last_prompt] = version_num
 
@@ -790,27 +945,69 @@ def handle_command(command: str):
             return True
 
         # First, try interpreting the number as a global response ID from /versions
+        response = None
         try:
             response = get_response_by_id(number)
         except Exception:
-            # If version store isn't available or errors, fall back to legacy path
             response = None
         if response:
             try:
+                from code_puppy.version_store import (
+                    add_version,
+                    start_change_capture,
+                    record_change,
+                    finalize_changes,
+                    update_response_output,
+                )
+
                 snapshot = compute_snapshot_as_of_response_id(number)
+
+                # Create a system response entry to capture this checkout operation
+                sys_prompt = f"[system] checkout response #{number}"
+                version_created, sys_response_id = add_version(sys_prompt, "")
+                start_change_capture()
+
                 restored_files = 0
                 for file_record in snapshot:
                     file_path = file_record["file_path"]
                     content = file_record["content"]
 
+                    before_content = None
+                    if os.path.exists(file_path):
+                        try:
+                            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                                before_content = f.read()
+                        except Exception:
+                            before_content = None
+
+                    after_content = content
                     if content is None:
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
+                        if before_content is not None:
+                            change_type = "delete"
+                            try:
+                                os.remove(file_path)
+                            except FileNotFoundError:
+                                pass
                             restored_files += 1
+                        else:
+                            continue
                     else:
-                        with open(file_path, "w") as f:
+                        change_type = "create" if before_content is None else "modify"
+                        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                        with open(file_path, "w", encoding="utf-8") as f:
                             f.write(content)
                         restored_files += 1
+
+                    try:
+                        record_change(
+                            file_path=file_path,
+                            change_type=change_type,
+                            before_content=before_content,
+                            after_content=after_content,
+                            diff="",
+                        )
+                    except Exception:
+                        pass
 
                 # Track version for this prompt to enable redo within session
                 prompt_text = response.get("prompt_text", "")
@@ -818,8 +1015,17 @@ def handle_command(command: str):
                 if prompt_text and isinstance(version_num, int):
                     _current_version_track[prompt_text] = version_num
 
+                finalize_changes(sys_response_id)
+                try:
+                    update_response_output(
+                        sys_response_id,
+                        f"Checkout applied to response #{number}: {restored_files} files restored",
+                    )
+                except Exception:
+                    pass
+
                 messaging.emit_success(
-                    f"[bold green]✅ Checked out response id {number} (v{response['version']})[/bold green]"
+                    f"[bold green]✅ Checked out response #{number}[/bold green]"
                 )
                 messaging.emit_info(f"[blue]Restored {restored_files} files[/blue]")
                 messaging.emit_info(f"Response:\n{response['output_text']}")
