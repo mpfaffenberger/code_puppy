@@ -245,6 +245,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         add_version,
         start_change_capture,
         finalize_changes,
+        update_response_output,
     )
 
     """Run the agent in interactive mode."""
@@ -383,6 +384,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             # Finalize version tracking after execution
             finalize_changes(response_id)
+
+            # Persist the agent's response text in the responses table
+            try:
+                update_response_output(response_id, str(agent_response))
+            except Exception:
+                pass
 
             emit_system_message("\n" + "=" * 50)
             emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
@@ -563,6 +570,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
 
+                # Save output text for this version
+                try:
+                    update_response_output(response_id, str(agent_response))
+                except Exception:
+                    pass
+
                 # Update message history - the agent's history processor will handle truncation
                 new_msgs = result.all_messages()
                 message_history_accumulator(new_msgs)
@@ -672,6 +685,7 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         add_version,
         start_change_capture,
         finalize_changes,
+        update_response_output,
     )
 
     emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
@@ -729,6 +743,12 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         emit_system_message(
             f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
         )
+
+        # Persist the agent's response text in the responses table
+        try:
+            update_response_output(response_id, str(agent_response))
+        except Exception:
+            pass
 
     except Exception as e:
         from code_puppy.messaging import emit_error
