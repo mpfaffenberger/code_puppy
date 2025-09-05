@@ -74,12 +74,12 @@ def _handle_update(current_version):
 
     try:
         if sys.platform == "win32":
-            # Windows update command - must use PowerShell explicitly for iwr/iex cmdlets
-            powershell_script = "iwr -useb https://puppy.stg.walmart.com/api/releases/setup_windows | iex"
-            update_command = ["powershell.exe", "-Command", powershell_script]
-            emit_system_message(f"[dim]Running PowerShell: {powershell_script}[/dim]")
+            # Windows update command
+            update_command = "iwr -useb https://puppy.stg.walmart.com/api/releases/setup_windows | iex"
+            emit_system_message(f"[dim]Running: {update_command}[/dim]")
             result = subprocess.run(
                 update_command,
+                shell=True,
                 timeout=120,
                 capture_output=True,
                 text=True,
@@ -93,6 +93,9 @@ def _handle_update(current_version):
             else:
                 error_msg = f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
                 emit_system_message(f"[bold red]{error_msg}[/bold red]")
+                emit_system_message(
+                    "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
+                )
 
         else:
             # macOS and Linux update
@@ -120,16 +123,38 @@ def _handle_update(current_version):
                 else:
                     error_msg = f"❌ Update script failed with exit code: {bash_result.returncode}"
                     emit_system_message(f"[bold red]{error_msg}[/bold red]")
+                    emit_system_message(
+                        "[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]"
+                    )
             else:
                 error_msg = f"❌ Failed to download update script: {result.stderr}"
                 emit_system_message(f"[bold red]{error_msg}[/bold red]")
+                emit_system_message(
+                    "[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]"
+                )
 
     except subprocess.TimeoutExpired:
         timeout_msg = "❌ Update timed out"
         emit_system_message(f"[bold red]{timeout_msg}[/bold red]")
+        if sys.platform == "win32":
+            emit_system_message(
+                "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
+            )
+        else:
+            emit_system_message(
+                "[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]"
+            )
     except Exception as e:
         error_msg = f"❌ An unexpected error occurred during update: {str(e)}"
         emit_system_message(f"[bold red]{error_msg}[/bold red]")
+        if sys.platform == "win32":
+            emit_system_message(
+                "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
+            )
+        else:
+            emit_system_message(
+                "[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]"
+            )
 
     continue_msg = "Continuing with current version..."
     emit_system_message(f"[yellow]{continue_msg}[/yellow]")
