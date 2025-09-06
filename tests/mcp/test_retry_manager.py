@@ -60,12 +60,12 @@ class TestRetryManager:
         assert result == "success"
         assert mock_func.call_count == 3
 
-        # Check retry stats
+        # Check retry stats - stats are recorded after retries are attempted
         stats = await self.retry_manager.get_retry_stats("test-server")
         assert stats.total_retries == 1
         assert stats.successful_retries == 1
         assert stats.failed_retries == 0
-        assert stats.average_attempts == 3.0
+        assert stats.average_attempts == 3.0  # All 3 attempts were made before failure
 
     @pytest.mark.asyncio
     async def test_retry_exhaustion(self):
@@ -82,12 +82,12 @@ class TestRetryManager:
 
         assert mock_func.call_count == 3
 
-        # Check retry stats
+        # Check retry stats - stats are recorded after retries are attempted
         stats = await self.retry_manager.get_retry_stats("test-server")
         assert stats.total_retries == 1
         assert stats.successful_retries == 0
         assert stats.failed_retries == 1
-        assert stats.average_attempts == 3.0
+        assert stats.average_attempts == 3.0  # All 3 attempts were made before failure
 
     @pytest.mark.asyncio
     async def test_non_retryable_error(self):
@@ -111,12 +111,12 @@ class TestRetryManager:
 
         assert mock_func.call_count == 1
 
-        # Check retry stats
+        # Check retry stats - stats are recorded after retries are attempted
         stats = await self.retry_manager.get_retry_stats("test-server")
         assert stats.total_retries == 1
         assert stats.successful_retries == 0
         assert stats.failed_retries == 1
-        assert stats.average_attempts == 1.0
+        assert stats.average_attempts == 1.0  # Only 1 attempt was made before giving up
 
     def test_calculate_backoff_fixed(self):
         """Test fixed backoff strategy."""
@@ -187,6 +187,19 @@ class TestRetryManager:
         )
         assert self.retry_manager.should_retry(http_error_429)
 
+        # Rate limit (429) with JSON error info
+        response_429_json = Mock()
+        response_429_json.status_code = 429
+        response_429_json.json.return_value = {
+            "error": {"message": "Rate limit exceeded. Please try again later."}
+        }
+        http_error_429_json = httpx.HTTPStatusError(
+            "Rate limit",
+            request=Mock(),
+            response=response_429_json,
+        )
+        assert self.retry_manager.should_retry(http_error_429_json)
+
         # Timeout (408)
         response_408 = Mock()
         response_408.status_code = 408
@@ -255,7 +268,7 @@ class TestRetryManager:
         assert stats.total_retries == 2
         assert stats.successful_retries == 1
         assert stats.failed_retries == 1
-        assert stats.average_attempts == 2.5
+        assert stats.average_attempts == 2.5  # Average of 2 and 3 attempts
         assert stats.last_retry is not None
 
         # Get stats for server-2

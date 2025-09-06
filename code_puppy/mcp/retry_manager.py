@@ -31,8 +31,9 @@ class RetryStats:
     def calculate_average(self, new_attempts: int) -> None:
         """Update the average attempts calculation."""
         if self.total_retries == 0:
-            self.average_attempts = new_attempts
+            self.average_attempts = float(new_attempts)
         else:
+            # Calculate new average: (old_average * old_count + new_value) / new_count
             total_attempts = (self.average_attempts * self.total_retries) + new_attempts
             self.average_attempts = total_attempts / (self.total_retries + 1)
 
@@ -214,7 +215,6 @@ class RetryManager:
         """
         async with self._lock:
             stats = self._stats[server_id]
-            stats.total_retries += 1
             stats.last_retry = datetime.now()
 
             if success:
@@ -223,6 +223,7 @@ class RetryManager:
                 stats.failed_retries += 1
 
             stats.calculate_average(attempts)
+            stats.total_retries += 1
 
     async def get_retry_stats(self, server_id: str) -> RetryStats:
         """
