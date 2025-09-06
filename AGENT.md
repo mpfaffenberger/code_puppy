@@ -25,7 +25,6 @@ code_puppy
     - __init__.py - package version detection and exposure
     - model_factory.py - constructs models from configuration mapping
     - models.json - available models and metadata registry
-    - session_memory.py - persists session history and preferences
     - state_management.py - global message history state helpers
     - summarization_agent.py - specialized agent for history summarization
     - version_checker.py - fetches latest PyPI package version

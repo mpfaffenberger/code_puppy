@@ -150,7 +150,7 @@ def reload_code_generation_agent(message_group: str | None):
 
     # Configure model settings with max_tokens if set
     model_settings_dict = {"seed": 42}
-    output_tokens = min(int(0.05 * get_model_context_length()) - 1024, 16384)
+    output_tokens = max(2048, min(int(0.05 * get_model_context_length()) - 1024, 16384))
     console.print(f"Max output tokens per message: {output_tokens}")
     model_settings_dict["max_tokens"] = output_tokens
 
