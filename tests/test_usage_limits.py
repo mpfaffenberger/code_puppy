@@ -120,14 +120,12 @@ class TestUsageLimits:
             patch("code_puppy.agent.get_system_prompt", return_value="test prompt"),
             patch("code_puppy.agent.register_all_tools"),
             patch("code_puppy.agent._load_mcp_servers", return_value=[]),
-            patch("code_puppy.agent.session_memory") as mock_session,
             patch("code_puppy.agent.emit_info"),
             patch("code_puppy.agent.emit_system_message"),
             patch("code_puppy.agent.Agent") as mock_agent_class,
         ):
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
-            mock_session.return_value.log_task = MagicMock()
             mock_agent_instance = MagicMock()
             mock_agent_class.return_value = mock_agent_instance
 

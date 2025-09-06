@@ -24,6 +24,7 @@ else:
 
 import mcp
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
 from code_puppy.messaging.message_queue import emit_info, emit_warning
@@ -110,26 +111,31 @@ class RuntimeAgentManager:
             try:
                 async with agent:
                     return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
+            except* UsageLimitExceeded as ule:
+                emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
+                emit_info("The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.", group_id=group_id)
             except* mcp.shared.exceptions.McpError as mcp_error:
-                emit_warning(f"MCP server error: {str(mcp_error)}", group_id=group_id)
-                emit_warning(f"{str(mcp_error)}", group_id=group_id)
-                emit_warning(
+                emit_info(f"MCP server error: {str(mcp_error)}", group_id=group_id)
+                emit_info(f"{str(mcp_error)}", group_id=group_id)
+                emit_info(
                     "Try disabling any malfunctioning MCP servers", group_id=group_id
                 )
+            except* asyncio.exceptions.CancelledError:
+                emit_info("Cancelled")
             except* InterruptedError as ie:
-                emit_warning(f"Interrupted: {str(ie)}")
+                emit_info(f"Interrupted: {str(ie)}")
             except* Exception as other_error:
-                # Filter out CancelledError from the exception group - let it propagate
+                # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
                 remaining_exceptions = []
 
                 def collect_non_cancelled_exceptions(exc):
                     if isinstance(exc, ExceptionGroup):
                         for sub_exc in exc.exceptions:
                             collect_non_cancelled_exceptions(sub_exc)
-                    elif not isinstance(exc, asyncio.CancelledError):
+                    elif not isinstance(exc, (asyncio.CancelledError, UsageLimitExceeded)):
                         remaining_exceptions.append(exc)
-                        emit_warning(f"Unexpected error: {str(exc)}", group_id=group_id)
-                        emit_warning(f"{str(exc.args)}", group_id=group_id)
+                        emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
+                        emit_info(f"{str(exc.args)}", group_id=group_id)
 
                 collect_non_cancelled_exceptions(other_error)
 
@@ -156,26 +162,20 @@ class RuntimeAgentManager:
         from code_puppy.tools.command_runner import kill_all_running_shell_processes
 
         # Ensure the interrupt handler only acts once per task
-        handled = False
-
         def keyboard_interrupt_handler(sig, frame):
             """Signal handler for Ctrl+C - replicating exact original logic"""
-            nonlocal handled
-            if handled:
-                return
-            handled = True
 
             # First, nuke any running shell processes triggered by tools
             try:
                 killed = kill_all_running_shell_processes()
                 if killed:
-                    emit_warning(f"Cancelled {killed} running shell process(es).")
+                    emit_info(f"Cancelled {killed} running shell process(es).")
                 else:
                     # Only cancel the agent task if no shell processes were killed
                     if not agent_task.done():
                         agent_task.cancel()
             except Exception as e:
-                emit_warning(f"Shell kill error: {e}")
+                emit_info(f"Shell kill error: {e}")
                 # If shell kill failed, still try to cancel the agent task
                 if not agent_task.done():
                     agent_task.cancel()
@@ -221,7 +221,14 @@ class RuntimeAgentManager:
             The agent's response
         """
         agent = self.get_agent()
-        return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
+        try:
+            return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
+        except UsageLimitExceeded as ule:
+            group_id = str(uuid.uuid4())
+            emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
+            emit_info("The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.", group_id=group_id)
+            # Return None or some default value to indicate the limit was reached
+            return None
 
     def __getattr__(self, name: str) -> Any:
         """
