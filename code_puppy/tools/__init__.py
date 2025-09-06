@@ -1,4 +1,8 @@
 from code_puppy.messaging import emit_warning
+from code_puppy.tools.agent_tools import (
+    register_list_agents,
+    register_invoke_agent,
+)
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -13,6 +17,9 @@ from code_puppy.tools.file_operations import (
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
+    # Agent Tools
+    "list_agents": register_list_agents,
+    "invoke_agent": register_invoke_agent,
     # File Operations
     "list_files": register_list_files,
     "read_file": register_read_file,
