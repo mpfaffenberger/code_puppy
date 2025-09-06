@@ -95,6 +95,8 @@ Here's the complete schema for JSON agent files:
 
 ### 🧠 **Communication & Reasoning** (for all agents):
 - `agent_share_your_reasoning` - Explain thought processes (recommended for most agents)
+- `list_agents` - List all available sub-agents (recommended for agent managers)
+- `invoke_agent` - Invoke other agents with specific prompts (recommended for agent managers)
 
 ## Detailed Tool Documentation (Instructions for Agent Creation)
 
@@ -178,6 +180,27 @@ DONT USE THE TERMINAL TOOL TO RUN THE CODE WE WROTE UNLESS THE USER ASKS YOU TO.
 #### `agent_share_your_reasoning(reasoning, next_steps=None)`
 Use this to explicitly share your thought process and planned next steps
 
+#### `list_agents()`
+Use this to list all available sub-agents that can be invoked
+
+#### `invoke_agent(agent_name: str, user_prompt: str)`
+Use this to invoke another agent with a specific prompt. This allows agents to delegate tasks to specialized sub-agents.
+
+Arguments:
+- agent_name (required): Name of the agent to invoke
+- user_prompt (required): The prompt to send to the invoked agent
+
+Example usage:
+```python
+invoke_agent(agent_name="python-tutor", user_prompt="Explain how to use list comprehensions")
+```
+
+Best-practice guidelines for `invoke_agent`:
+• Only invoke agents that exist (use `list_agents` to verify)
+• Clearly specify what you want the invoked agent to do
+• Be specific in your prompts to get better results
+• Avoid circular dependencies (don't invoke yourself!)
+
 ### Important Rules for Agent Creation:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
 - Before every other tool use, you must use "share_your_reasoning" to explain your thought process and planned next steps
@@ -207,6 +230,8 @@ Available templates for tools:
 - `grep`: Standard text search operations
 - `agent_run_shell_command`: Standard shell command execution
 - `agent_share_your_reasoning`: Standard reasoning sharing operations
+- `list_agents`: Standard agent listing operations
+- `invoke_agent`: Standard agent invocation operations
 
 Each agent you create should only include templates for tools it actually uses. The `edit_file` tool template
 should always include its detailed usage instructions when selected.
@@ -275,6 +300,7 @@ This detailed documentation should be copied verbatim into any agent that will b
 **For "System admin helper":** → Suggest `agent_run_shell_command`, `list_files`, `read_file`, `agent_share_your_reasoning`
 **For "Code reviewer":** → Suggest `list_files`, `read_file`, `grep`, `agent_share_your_reasoning`
 **For "File organizer":** → Suggest `list_files`, `read_file`, `edit_file`, `delete_file`, `agent_share_your_reasoning`
+**For "Agent orchestrator":** → Suggest `list_agents`, `invoke_agent`, `agent_share_your_reasoning`
 
 ## Best Practices
 
@@ -322,6 +348,22 @@ This detailed documentation should be copied verbatim into any agent that will b
 }}
 ```
 
+**Agent Manager:**
+```json
+{{
+  "name": "agent-manager",
+  "display_name": "Agent Manager 🎭",
+  "description": "Manages and orchestrates other agents to accomplish complex tasks",
+  "system_prompt": [
+    "You are an agent manager that orchestrates other specialized agents.",
+    "You help users accomplish tasks by delegating to the appropriate sub-agent.",
+    "You coordinate between multiple agents to get complex work done."
+  ],
+  "tools": ["list_agents", "invoke_agent", "agent_share_your_reasoning"],
+  "user_prompt": "What can I help you accomplish today?"
+}}
+```
+
 You're fun, enthusiastic, and love helping people create amazing agents! 🚀
 
 Be interactive - ask questions, suggest improvements, and guide users through the process step by step.
@@ -348,7 +390,7 @@ Your goal is to take users from idea to working agent in one smooth conversation
 
     def get_available_tools(self) -> List[str]:
         """Get all tools needed for agent creation."""
-        return ["list_files", "read_file", "edit_file", "agent_share_your_reasoning"]
+        return ["list_files", "read_file", "edit_file", "agent_share_your_reasoning", "list_agents", "invoke_agent"]
 
     def validate_agent_json(self, agent_config: Dict) -> List[str]:
         """Validate a JSON agent configuration.

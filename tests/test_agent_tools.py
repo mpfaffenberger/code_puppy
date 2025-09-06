@@ -1,1 +1,28 @@
-# DEBUG: run_shell_command result: {result}
+"""Tests for agent tools functionality."""
+
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+from pydantic_ai import Agent
+from code_puppy.model_factory import ModelFactory
+from code_puppy.config import get_model_name
+from code_puppy.tools.agent_tools import register_list_agents, register_invoke_agent
+
+
+class TestAgentTools:
+    """Test suite for agent tools."""
+    
+    def test_list_agents_tool(self):
+        """Test that list_agents tool registers correctly."""
+        # Create a mock agent to register tools to
+        mock_agent = MagicMock()
+        
+        # Register the tool - this should not raise an exception
+        register_list_agents(mock_agent)
+        
+    def test_invoke_agent_tool(self):
+        """Test that invoke_agent tool registers correctly."""
+        # Create a mock agent to register tools to
+        mock_agent = MagicMock()
+        
+        # Register the tool - this should not raise an exception
+        register_invoke_agent(mock_agent)

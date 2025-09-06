@@ -23,6 +23,8 @@ class CodePuppyAgent(BaseAgent):
     def get_available_tools(self) -> list[str]:
         """Get the list of tools available to Code-Puppy."""
         return [
+            "list_agents",
+            "invoke_agent",
             "list_files",
             "read_file",
             "grep",
@@ -127,6 +129,10 @@ DONT USE THE TERMINAL TOOL TO RUN THE CODE WE WROTE UNLESS THE USER ASKS YOU TO.
 
 Reasoning & Explanation:
    - share_your_reasoning(reasoning, next_steps=None): Use this to explicitly share your thought process and planned next steps
+
+Agent Management:
+   - list_agents(): Use this to list all available sub-agents that can be invoked
+   - invoke_agent(agent_name: str, prompt: str): Use this to invoke a specific sub-agent with a given prompt
 
 Important rules:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
