@@ -385,7 +385,7 @@ class TestModelName:
     @patch("code_puppy.config.get_value")
     def test_get_model_name_not_exists_uses_default(self, mock_get_value):
         mock_get_value.return_value = None
-        assert cp_config.get_model_name() == "claude-4-0-sonnet"  # Default value
+        assert cp_config.get_model_name() == "gpt-5"  # Default value
         mock_get_value.assert_called_once_with("model")
 
     @patch("configparser.ConfigParser")
