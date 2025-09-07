@@ -43,6 +43,10 @@ def get_commands_help():
         Text("/model, /m", style="cyan") + Text(" <model>   Set active model")
     )
     help_lines.append(
+        Text("/pin_model", style="cyan")
+        + Text(" <agent> <model>  Pin a specific model to an agent")
+    )
+    help_lines.append(
         Text("/mcp", style="cyan")
         + Text("                  Manage MCP servers (list, start, stop, status, etc.)")
     )
@@ -397,6 +401,85 @@ def handle_command(command: str):
         help_text = get_commands_help()
         emit_info(help_text, message_group_id=group_id)
         return True
+
+    if command.startswith("/pin_model"):
+        # Handle agent model pinning
+        from code_puppy.agents.json_agent import discover_json_agents
+        from code_puppy.command_line.model_picker_completion import load_model_names
+        import json
+        
+        tokens = command.split()
+        
+        if len(tokens) != 3:
+            emit_warning("Usage: /pin_model <agent-name> <model-name>")
+            
+            # Show available models and JSON agents
+            available_models = load_model_names()
+            json_agents = discover_json_agents()
+            
+            emit_info("Available models:")
+            for model in available_models:
+                emit_info(f"  [cyan]{model}[/cyan]")
+                
+            if json_agents:
+                emit_info("\nAvailable JSON agents:")
+                for agent_name, agent_path in json_agents.items():
+                    emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
+            return True
+            
+        agent_name = tokens[1].lower()
+        model_name = tokens[2]
+        
+        # Check if model exists
+        available_models = load_model_names()
+        if model_name not in available_models:
+            emit_error(f"Model '{model_name}' not found")
+            emit_warning(f"Available models: {', '.join(available_models)}")
+            return True
+            
+        # Check that we're modifying a JSON agent (not a built-in Python agent)
+        json_agents = discover_json_agents()
+        if agent_name not in json_agents:
+            emit_error(f"JSON agent '{agent_name}' not found")
+            
+            # Show available JSON agents
+            if json_agents:
+                emit_info("Available JSON agents:")
+                for name, path in json_agents.items():
+                    emit_info(f"  [cyan]{name}[/cyan] ({path})")
+            return True
+            
+        agent_file_path = json_agents[agent_name]
+        
+        # Load, modify, and save the agent configuration
+        try:
+            with open(agent_file_path, "r", encoding="utf-8") as f:
+                agent_config = json.load(f)
+                
+            # Set the model
+            agent_config["model"] = model_name
+            
+            # Save the updated configuration
+            with open(agent_file_path, "w", encoding="utf-8") as f:
+                json.dump(agent_config, f, indent=2, ensure_ascii=False)
+                
+            emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
+            
+            # If this is the current agent, reload it to use the new model
+            from code_puppy.agents import get_current_agent_config
+            from code_puppy.agents.runtime_manager import get_runtime_agent_manager
+            
+            current_agent = get_current_agent_config()
+            if current_agent.name == agent_name:
+                manager = get_runtime_agent_manager()
+                manager.reload_agent()
+                emit_info(f"Active agent reloaded with pinned model '{model_name}'")
+            
+            return True
+            
+        except Exception as e:
+            emit_error(f"Failed to pin model to agent '{agent_name}': {e}")
+            return True
 
     if command.startswith("/generate-pr-description"):
         # Parse directory argument (e.g., /generate-pr-description @some/dir)
