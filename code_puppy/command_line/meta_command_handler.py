@@ -17,7 +17,7 @@ META_COMMANDS_HELP = """
 ~m <model>            Set active model
 ~motd                 Show the latest message of the day (MOTD)
 ~show                 Show puppy config key-values
-~set                  Set puppy config key-values (message_limit, protected_token_count, compaction_threshold, etc.)
+~set                  Set puppy config key-values (message_limit, protected_token_count, compaction_threshold, allow_recursion, etc.)
 ~<unknown>            Show unknown meta command warning
 """
 

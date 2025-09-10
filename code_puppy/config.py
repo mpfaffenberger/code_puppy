@@ -69,6 +69,17 @@ def get_owner_name():
 # using get_protected_token_count() and get_summarization_threshold()
 
 
+def get_allow_recursion() -> bool:
+    """
+    Get the allow_recursion configuration value.
+    Returns True if recursion is allowed, False otherwise.
+    """
+    val = get_value("allow_recursion")
+    if val is None:
+        return False  # Default to False for safety
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
 def get_model_context_length() -> int:
     """
     Get the context length for the currently configured model from models.json
@@ -93,9 +104,9 @@ def get_model_context_length() -> int:
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit").
+    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
     """
-    default_keys = ["yolo_mode", "model", "compaction_strategy", "message_limit"]
+    default_keys = ["yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion"]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -351,7 +362,7 @@ def initialize_command_history_file():
 def get_yolo_mode():
     """
     Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
-    Defaults to False if not set.
+    Defaults to True if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     """
     true_vals = {"1", "true", "yes", "on"}
@@ -360,7 +371,7 @@ def get_yolo_mode():
         if str(cfg_val).strip().lower() in true_vals:
             return True
         return False
-    return False
+    return True
 
 
 def get_mcp_disabled():
