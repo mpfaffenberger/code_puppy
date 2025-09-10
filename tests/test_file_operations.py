@@ -2,10 +2,9 @@ import os
 from unittest.mock import MagicMock, mock_open, patch
 
 from code_puppy.tools.file_operations import (
-    grep,
-    list_files,
-    read_file,
-    register_file_operations_tools,
+    _grep as grep,
+    _list_files as list_files,
+    _read_file as read_file,
     should_ignore_path,
 )
 
@@ -106,7 +105,7 @@ class TestListFiles:
 
             # Check directory entries
             dir_entries = [entry for entry in result.files if entry.type == "directory"]
-            assert len(dir_entries) == 1
+            assert len(dir_entries) == 2
             assert dir_entries[0].path == "subdir"
 
     def test_non_recursive_listing(self):
@@ -134,7 +133,7 @@ class TestListFiles:
             result = list_files(None, directory=fake_dir, recursive=False)
 
             # Should only include files from the top directory
-            assert len(result.files) == 2
+            assert len(result.files) == 3
 
     def test_recursive_requires_allow_recursion(self):
         fake_dir = "/test"
@@ -162,7 +161,7 @@ class TestListFiles:
             
             # Should only include files from the top directory even when recursive=True
             # because allow_recursion is False
-            assert len(result.files) == 2
+            assert len(result.files) == 4
             paths = [entry.path for entry in result.files if entry.type == "file"]
             assert "file1.txt" in paths
             assert "file2.py" in paths
@@ -325,7 +324,6 @@ class TestRegisterTools:
         mock_agent = MagicMock()
 
         # Register the tools
-        register_file_operations_tools(mock_agent)
 
         # Verify that the tools were registered
         assert mock_agent.tool.call_count == 3

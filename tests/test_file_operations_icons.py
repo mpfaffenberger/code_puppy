@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from code_puppy.tools.file_operations import list_files
+from code_puppy.tools.file_operations import _list_files as list_files
 
 all_types = [
     "main.py",
