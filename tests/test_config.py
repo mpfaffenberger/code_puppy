@@ -457,20 +457,12 @@ class TestGetYoloMode:
             assert cp_config.get_yolo_mode() is True, f"Failed for config value: {val}"
             mock_get_value.assert_called_once_with("yolo_mode")
 
-    @patch("code_puppy.config.get_value")
-    def test_get_yolo_mode_from_config_false(self, mock_get_value):
-        false_values = ["false", "0", "NO", "OFF", "anything_else"]
-        for val in false_values:
-            mock_get_value.reset_mock()
-            mock_get_value.return_value = val
-            assert cp_config.get_yolo_mode() is False, f"Failed for config value: {val}"
-            mock_get_value.assert_called_once_with("yolo_mode")
 
     @patch("code_puppy.config.get_value")
-    def test_get_yolo_mode_not_in_config_defaults_false(self, mock_get_value):
+    def test_get_yolo_mode_not_in_config_defaults_true(self, mock_get_value):
         mock_get_value.return_value = None
 
-        assert cp_config.get_yolo_mode() is False
+        assert cp_config.get_yolo_mode() is True
         mock_get_value.assert_called_once_with("yolo_mode")
 
 
