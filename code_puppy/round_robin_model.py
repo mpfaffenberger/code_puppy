@@ -1,9 +1,22 @@
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable, AsyncIterator, List
-from contextlib import asynccontextmanager, suppress
+
 from pydantic_ai.models import Model, ModelMessage, ModelSettings, ModelRequestParameters, ModelResponse, StreamedResponse
 from pydantic_ai.models.fallback import KnownModelName, infer_model, merge_model_settings
 from pydantic_ai.result import RunContext
+
+try:
+    from opentelemetry.context import get_current_span
+except ImportError:
+    # If opentelemetry is not installed, provide a dummy implementation
+    def get_current_span():
+        class DummySpan:
+            def is_recording(self):
+                return False
+            def set_attributes(self, attributes):
+                pass
+        return DummySpan()
 
 @dataclass(init=False)
 class RoundRobinModel(Model):

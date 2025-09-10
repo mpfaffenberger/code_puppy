@@ -148,6 +148,68 @@ If you need to run more exotic setups or connect to remote MCPs, just update you
 
 ---
 
+## Round Robin Model Distribution
+
+Code Puppy supports **Round Robin model distribution** to help you overcome rate limits and distribute load across multiple AI models. This feature automatically cycles through configured models with each request, maximizing your API usage while staying within rate limits.
+
+### Configuration
+Add a round-robin model configuration to your `extra_models.json` file:
+
+```bash
+export CEREBRAS_API_KEY1=csk-...
+export CEREBRAS_API_KEY2=csk-...
+export CEREBRAS_API_KEY3=csk-...
+
+```
+
+```json
+{
+  "qwen1": {
+    "type": "cerebras",
+    "name": "qwen-3-coder-480b",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY1"
+    },
+    "context_length": 131072
+  },
+  "qwen2": {
+    "type": "cerebras",
+    "name": "qwen-3-coder-480b",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY2"
+    },
+    "context_length": 131072
+  },
+  "qwen3": {
+    "type": "cerebras",
+    "name": "qwen-3-coder-480b",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY3"
+    },
+    "context_length": 131072
+  },
+  "cerebras_round_robin": {
+    "type": "round_robin",
+    "models": ["qwen1", "qwen2", "qwen3"]
+  }
+}
+```
+
+Then just use /model and tab to select your round-robin model!
+
+### Benefits
+- **Rate Limit Protection**: Automatically distribute requests across multiple models
+- **Load Balancing**: Share workload between different model providers
+- **Fallback Resilience**: Continue working even if one model has temporary issues
+- **Cost Optimization**: Use different models for different types of tasks
+
+**NOTE:** Unlike fallback models, round-robin models distribute load but don't automatically retry with another model on failure. If a request fails, it will raise the exception directly.
+
+---
+
 ## Create your own Agent!!!
 
 Code Puppy features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The system supports both built-in Python agents and custom JSON agents that you can create yourself.
