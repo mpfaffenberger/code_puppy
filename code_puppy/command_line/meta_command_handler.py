@@ -17,7 +17,7 @@ META_COMMANDS_HELP = """
 ~m <model>            Set active model
 ~motd                 Show the latest message of the day (MOTD)
 ~show                 Show puppy config key-values
-~set                  Set puppy config key-values
+~set                  Set puppy config key-values (message_limit, protected_token_count, compaction_threshold, etc.)
 ~<unknown>            Show unknown meta command warning
 """
 
@@ -62,21 +62,21 @@ def handle_meta_command(command: str, console: Console) -> bool:
             get_owner_name,
             get_puppy_name,
             get_yolo_mode,
-            get_message_history_limit,
+            get_message_limit,
         )
 
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         model = get_active_model()
         yolo_mode = get_yolo_mode()
-        msg_limit = get_message_history_limit()
+        msg_limit = get_message_limit()
         console.print(f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
 [bold]puppy_name:[/bold]     [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]     [cyan]{owner_name}[/cyan]
 [bold]model:[/bold]          [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]      {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
-[bold]message_history_limit:[/bold]   Keeping last [cyan]{msg_limit}[/cyan] messages in context
+[bold]message_limit:[/bold]   [cyan]{msg_limit}[/cyan] requests per minute
 """)
         return True
 

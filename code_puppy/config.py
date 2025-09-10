@@ -93,9 +93,9 @@ def get_model_context_length() -> int:
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy").
+    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit").
     """
-    default_keys = ["yolo_mode", "model", "compaction_strategy"]
+    default_keys = ["yolo_mode", "model", "compaction_strategy", "message_limit"]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -433,6 +433,20 @@ def get_compaction_strategy() -> str:
         return val.lower()
     # Default to summarization
     return "truncation"
+
+
+def get_message_limit(default: int = 100) -> int:
+    """
+    Returns the user-configured message/request limit for the agent.
+    This controls how many steps/requests the agent can take.
+    Defaults to 100 if unset or misconfigured.
+    Configurable by 'message_limit' key.
+    """
+    val = get_value("message_limit")
+    try:
+        return int(val) if val else default
+    except (ValueError, TypeError):
+        return default
 
 
 def save_command_to_history(command: str):
