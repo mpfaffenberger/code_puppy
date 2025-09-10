@@ -8,6 +8,7 @@ import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI  # For Azure OpenAI client
 from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.models.fallback import infer_model
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -18,6 +19,7 @@ from pydantic_ai.providers.cerebras import CerebrasProvider
 from . import callbacks
 from .config import EXTRA_MODELS_FILE
 from .http_utils import create_async_client
+from .round_robin_model import RoundRobinModel
 
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
@@ -246,5 +248,22 @@ class ModelFactory:
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
+        
+        elif model_type == "round_robin":
+            # Get the list of model names to use in the round-robin
+            model_names = model_config.get("models")
+            if not model_names or not isinstance(model_names, list):
+                raise ValueError(f"Round-robin model '{model_name}' requires a 'models' list in its configuration.")
+            
+            # Resolve each model name to an actual model instance
+            models = []
+            for name in model_names:
+                # Recursively get each model using the factory
+                model = ModelFactory.get_model(name, config)
+                models.append(model)
+            
+            # Create and return the round-robin model
+            return RoundRobinModel(*models)
+        
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
