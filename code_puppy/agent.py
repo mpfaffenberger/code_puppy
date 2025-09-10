@@ -193,8 +193,9 @@ def get_code_generation_agent(force_reload=False, message_group: str | None = No
 
 def get_custom_usage_limits():
     """
-    Returns custom usage limits with increased request limit of 100 requests per minute.
+    Returns custom usage limits with configurable request limit.
     This centralizes the configuration of rate limiting for the agent.
-    Default pydantic-ai limit is 50, this increases it to 100.
+    Default pydantic-ai limit is 50, this increases it to the configured value (default 100).
     """
-    return UsageLimits(request_limit=100)
+    from code_puppy.config import get_message_limit
+    return UsageLimits(request_limit=get_message_limit())

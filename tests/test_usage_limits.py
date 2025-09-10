@@ -11,20 +11,34 @@ import pytest
 from pydantic_ai.usage import UsageLimits
 
 import code_puppy.agent as agent_module
+import code_puppy.config as config_module
 
 
 class TestUsageLimits:
     """Test suite for usage limits functionality."""
 
     def test_get_custom_usage_limits_returns_correct_limit(self):
-        """Test that get_custom_usage_limits returns UsageLimits with request_limit=100."""
+        """Test that get_custom_usage_limits returns UsageLimits with configurable request_limit."""
         usage_limits = agent_module.get_custom_usage_limits()
 
         assert isinstance(usage_limits, UsageLimits)
-        assert usage_limits.request_limit == 100
+        assert usage_limits.request_limit == 100  # Default value
         assert usage_limits.request_tokens_limit is None  # Default
         assert usage_limits.response_tokens_limit is None  # Default
         assert usage_limits.total_tokens_limit is None  # Default
+
+    @patch("code_puppy.config.get_message_limit")
+    def test_get_custom_usage_limits_uses_configured_limit(self, mock_get_message_limit):
+        """Test that get_custom_usage_limits uses the configured message limit."""
+        mock_get_message_limit.return_value = 200
+        usage_limits = agent_module.get_custom_usage_limits()
+
+        assert isinstance(usage_limits, UsageLimits)
+        assert usage_limits.request_limit == 200
+        mock_get_message_limit.return_value = 50
+        usage_limits = agent_module.get_custom_usage_limits()
+
+        assert usage_limits.request_limit == 50
 
     def test_get_custom_usage_limits_consistency(self):
         """Test that multiple calls return equivalent objects."""
