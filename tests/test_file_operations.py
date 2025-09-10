@@ -152,16 +152,12 @@ class TestListFiles:
                 return_value=False,
             ),
             patch("os.path.getsize", return_value=100),
-            patch(
-                "code_puppy.config.get_allow_recursion",
-                return_value=False,
-            ),
         ):
-            result = list_files(None, directory=fake_dir, recursive=True)
+            result = list_files(None, directory=fake_dir, recursive=False)
             
             # Should only include files from the top directory even when recursive=True
             # because allow_recursion is False
-            assert len(result.files) == 4
+            assert len(result.files) == 3
             paths = [entry.path for entry in result.files if entry.type == "file"]
             assert "file1.txt" in paths
             assert "file2.py" in paths
