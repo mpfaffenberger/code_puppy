@@ -255,6 +255,9 @@ class ModelFactory:
             if not model_names or not isinstance(model_names, list):
                 raise ValueError(f"Round-robin model '{model_name}' requires a 'models' list in its configuration.")
             
+            # Get the rotate_every parameter (default: 1)
+            rotate_every = model_config.get("rotate_every", 1)
+            
             # Resolve each model name to an actual model instance
             models = []
             for name in model_names:
@@ -263,7 +266,7 @@ class ModelFactory:
                 models.append(model)
             
             # Create and return the round-robin model
-            return RoundRobinModel(*models)
+            return RoundRobinModel(*models, rotate_every=rotate_every)
         
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
