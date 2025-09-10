@@ -6,13 +6,21 @@ from code_puppy.round_robin_model import RoundRobinModel
 
 class MockModel:
     """A simple mock model that implements the required interface."""
-    def __init__(self, name):
+    def __init__(self, name, settings=None):
         self._name = name
+        self._settings = settings
         self.request = AsyncMock(return_value=f"response_from_{name}")
         
     @property
     def model_name(self):
         return self._name
+    
+    @property
+    def settings(self):
+        return self._settings
+    
+    def customize_request_parameters(self, model_request_parameters):
+        return model_request_parameters
 
 
 @pytest.mark.asyncio
