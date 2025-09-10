@@ -193,12 +193,15 @@ export CEREBRAS_API_KEY3=csk-...
   },
   "cerebras_round_robin": {
     "type": "round_robin",
-    "models": ["qwen1", "qwen2", "qwen3"]
+    "models": ["qwen1", "qwen2", "qwen3"],
+    "rotate_every": 5
   }
 }
 ```
 
 Then just use /model and tab to select your round-robin model!
+
+The `rotate_every` parameter controls how many requests are made to each model before rotating to the next one. In this example, the round-robin model will use each Qwen model for 5 consecutive requests before moving to the next model in the sequence.
 
 ### Benefits
 - **Rate Limit Protection**: Automatically distribute requests across multiple models

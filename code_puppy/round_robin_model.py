@@ -1,3 +1,4 @@
+
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable, AsyncIterator, List
@@ -29,26 +30,39 @@ class RoundRobinModel(Model):
     models: List[Model]
     _current_index: int = field(default=0, repr=False)
     _model_name: str = field(repr=False)
+    _rotate_every: int = field(default=1, repr=False)
+    _request_count: int = field(default=0, repr=False)
 
     def __init__(
         self,
-        *models: Model | KnownModelName | str,
+        *models: Model,
+        rotate_every: int = 1,
+        settings: ModelSettings | None = None
     ):
         """Initialize a round-robin model instance.
         
         Args:
-            models: The names or instances of models to cycle through.
+            models: The model instances to cycle through.
+            rotate_every: Number of requests before rotating to the next model (default: 1).
+            settings: Model settings that will be used as defaults for this model.
         """
-        super().__init__()
+        super().__init__(settings=settings)
         if not models:
             raise ValueError("At least one model must be provided")
-        self.models = [infer_model(m) for m in models]
+        if rotate_every < 1:
+            raise ValueError("rotate_every must be at least 1")
+        self.models = list(models)
         self._current_index = 0
+        self._request_count = 0
+        self._rotate_every = rotate_every
 
     @property
     def model_name(self) -> str:
         """The model name showing this is a round-robin model with its candidates."""
-        return f'round_robin:{",".join(model.model_name for model in self.models)}'
+        base_name = f'round_robin:{",".join(model.model_name for model in self.models)}'
+        if self._rotate_every != 1:
+            return f'{base_name}:rotate_every={self._rotate_every}'
+        return base_name
 
     @property
     def system(self) -> str:
@@ -63,7 +77,10 @@ class RoundRobinModel(Model):
     def _get_next_model(self) -> Model:
         """Get the next model in the round-robin sequence and update the index."""
         model = self.models[self._current_index]
-        self._current_index = (self._current_index + 1) % len(self.models)
+        self._request_count += 1
+        if self._request_count >= self._rotate_every:
+            self._current_index = (self._current_index + 1) % len(self.models)
+            self._request_count = 0
         return model
 
     async def request(
@@ -74,6 +91,7 @@ class RoundRobinModel(Model):
     ) -> ModelResponse:
         """Make a request using the next model in the round-robin sequence."""
         current_model = self._get_next_model()
+        # Use the current model's settings as base, then merge with provided settings
         merged_settings = merge_model_settings(current_model.settings, model_settings)
         customized_model_request_parameters = current_model.customize_request_parameters(model_request_parameters)
         
@@ -96,6 +114,7 @@ class RoundRobinModel(Model):
     ) -> AsyncIterator[StreamedResponse]:
         """Make a streaming request using the next model in the round-robin sequence."""
         current_model = self._get_next_model()
+        # Use the current model's settings as base, then merge with provided settings
         merged_settings = merge_model_settings(current_model.settings, model_settings)
         customized_model_request_parameters = current_model.customize_request_parameters(model_request_parameters)
         
