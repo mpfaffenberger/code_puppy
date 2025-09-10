@@ -24,11 +24,19 @@ from code_puppy.tools.common import console
 
 def load_puppy_rules():
     global PUPPY_RULES
-    puppy_rules_path = Path("AGENT.md")
-    if puppy_rules_path.exists():
-        with open(puppy_rules_path, "r") as f:
-            puppy_rules = f.read()
-            return puppy_rules
+    
+    # Check for all 4 combinations of the rules file
+    possible_paths = ["AGENTS.md", "AGENT.md", "agents.md", "agent.md"]
+    
+    for path_str in possible_paths:
+        puppy_rules_path = Path(path_str)
+        if puppy_rules_path.exists():
+            with open(puppy_rules_path, "r") as f:
+                puppy_rules = f.read()
+                return puppy_rules
+    
+    # If none of the files exist, return None
+    return None
 
 
 # Load at import
