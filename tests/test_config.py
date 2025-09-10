@@ -277,7 +277,7 @@ class TestGetConfigKeys:
 
         mock_parser_instance.read.assert_called_once_with(mock_cfg_file)
         assert keys == sorted(
-            ["compaction_strategy", "key1", "key2", "message_limit", "model", "yolo_mode"]
+            ["allow_recursion", "compaction_strategy", "key1", "key2", "message_limit", "model", "yolo_mode"]
         )
 
     @patch("configparser.ConfigParser")
@@ -290,7 +290,8 @@ class TestGetConfigKeys:
         mock_config_parser_class.return_value = mock_parser_instance
 
         keys = cp_config.get_config_keys()
-        assert keys == sorted(["compaction_strategy", "message_limit", "model", "yolo_mode"])
+        assert keys == sorted(["allow_recursion", "compaction_strategy", "message_limit", "model", "yolo_mode"])
+
 
 
 

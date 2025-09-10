@@ -84,10 +84,14 @@ class TestListFiles:
             patch("os.path.abspath", return_value=fake_dir),
             patch("os.path.relpath", side_effect=mock_relpath),
             patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
+                "code_puppy.config.get_allow_recursion",
+                return_value=True,
             ),
             patch("os.path.getsize", return_value=100),
+            patch(
+                "code_puppy.config.get_allow_recursion",
+                return_value=True,
+            ),
         ):
             result = list_files(None, directory=fake_dir)
 
@@ -122,10 +126,42 @@ class TestListFiles:
                 return_value=False,
             ),
             patch("os.path.getsize", return_value=100),
+            patch(
+                "code_puppy.config.get_allow_recursion",
+                return_value=True,
+            ),
         ):
             result = list_files(None, directory=fake_dir, recursive=False)
 
             # Should only include files from the top directory
+            assert len(result.files) == 2
+
+    def test_recursive_requires_allow_recursion(self):
+        fake_dir = "/test"
+        fake_entries = [
+            (fake_dir, ["subdir"], ["file1.txt", "file2.py"]),
+            (os.path.join(fake_dir, "subdir"), [], ["file3.js"]),
+        ]
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.path.isdir", return_value=True),
+            patch("os.walk", return_value=fake_entries),
+            patch("os.path.abspath", return_value=fake_dir),
+            patch(
+                "code_puppy.tools.file_operations.should_ignore_path",
+                return_value=False,
+            ),
+            patch("os.path.getsize", return_value=100),
+            patch(
+                "code_puppy.config.get_allow_recursion",
+                return_value=False,
+            ),
+        ):
+            result = list_files(None, directory=fake_dir, recursive=True)
+            
+            # Should only include files from the top directory even when recursive=True
+            # because allow_recursion is False
             assert len(result.files) == 2
             paths = [entry.path for entry in result.files if entry.type == "file"]
             assert "file1.txt" in paths
