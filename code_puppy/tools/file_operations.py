@@ -640,9 +640,13 @@ def register_list_files(agent):
             warning = "Recursion disabled globally for list_files - returning non-recursive results"
             recursive = False
         result = _list_files(context, directory, recursive)
+        
+        # Emit the content directly to ensure it's displayed to the user
+        emit_info(result.content, message_group=generate_group_id("list_files", directory))
+        
         if warning:
             result.error = warning
-        return  result
+        return result
 
 
 def register_read_file(agent):
