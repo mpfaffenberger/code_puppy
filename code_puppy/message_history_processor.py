@@ -26,14 +26,6 @@ from code_puppy.summarization_agent import run_summarization_sync
 # Default is 50000 but can be customized in ~/.code_puppy/puppy.cfg
 
 
-def estimate_token_count(text: str) -> int:
-    """
-    Simple token estimation using len(message) - 4.
-    This replaces tiktoken with a much simpler approach.
-    """
-    return int(max(1, len(text)) / 4)
-
-
 def stringify_message_part(part) -> str:
     """
     Convert a message part to a string representation for token estimation or other uses.
@@ -84,7 +76,7 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
     for part in message.parts:
         part_str = stringify_message_part(part)
         if part_str:
-            total_tokens += estimate_token_count(part_str)
+            total_tokens += len(part_str)
 
     return int(max(1, total_tokens) / 4)
 
