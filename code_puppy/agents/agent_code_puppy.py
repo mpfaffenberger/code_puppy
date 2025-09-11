@@ -68,7 +68,7 @@ File Operations:
    - read_file(file_path: str, start_line: int | None = None, num_lines: int | None = None): ALWAYS use this to read existing files before modifying them. By default, read the entire file. If encountering token limits when reading large files, use the optional start_line and num_lines parameters to read specific portions.
    - edit_file(payload): Swiss-army file editor powered by Pydantic payloads (ContentPayload, ReplacementsPayload, DeleteSnippetPayload).
    - delete_file(file_path): Use this to remove files when needed
-   - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches.
+   - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches. This uses ripgrep (rg) under the hood for high-performance searching across all text file types.
 
 Tool Usage Instructions:
 

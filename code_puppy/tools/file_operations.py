@@ -636,16 +636,22 @@ def register_grep(agent):
     def grep(
         context: RunContext, search_string: str = "", directory: str = "."
     ) -> GrepOutput:
-        """Recursively search for text patterns across files using ripgrep.
+        """Recursively search for text patterns across files using ripgrep (rg).
 
         This tool leverages the high-performance ripgrep utility for fast text 
         searching across directory trees. It searches across all recognized text file
-        types while automatically filtering binary files and limiting results for performance.
+        types (Python, JavaScript, HTML, CSS, Markdown, etc.) while automatically 
+        filtering binary files and limiting results for performance.
+
+        The search_string parameter supports ripgrep's full flag syntax, allowing
+        advanced searches including regex patterns, case-insensitive matching,
+        and other ripgrep features.
 
         Args:
             context (RunContext): The PydanticAI runtime context for the agent.
-            search_string (str): The text pattern to search for. Performs exact
-                string matching (not regex). Cannot be empty.
+            search_string (str): The text pattern to search for. Can include ripgrep
+                flags like '--ignore-case', '-w' (word boundaries), etc.
+                Cannot be empty.
             directory (str, optional): Root directory to start the recursive search.
                 Can be relative or absolute. Defaults to "." (current directory).
 
@@ -658,23 +664,23 @@ def register_grep(agent):
                   - line_content (str | None): Full line content containing the match
 
         Examples:
-            >>> # Search for function definitions
+            >>> # Simple text search
             >>> result = grep(ctx, "def my_function")
             >>> for match in result.matches:
             ...     print(f"{match.file_path}:{match.line_number}: {match.line_content}")
 
-            >>> # Search in specific directory
-            >>> result = grep(ctx, "TODO", "/path/to/project/src")
+            >>> # Case-insensitive search
+            >>> result = grep(ctx, "--ignore-case TODO", "/path/to/project/src")
             >>> print(f"Found {len(result.matches)} TODO items")
 
-            >>> # Search for imports
-            >>> result = grep(ctx, "import pandas")
-            >>> files_using_pandas = {match.file_path for match in result.matches}
+            >>> # Word boundary search (regex)
+            >>> result = grep(ctx, "-w \\w+State\\b")
+            >>> files_with_state = {match.file_path for match in result.matches}
 
         Best Practices:
             - Use specific search terms to avoid too many results
-            - Search is case-sensitive; try variations if needed
-            - ripgrep is much faster than the previous implementation
-            - For case-insensitive search, add the --ignore-case flag to search_string
+            - Leverage ripgrep's powerful regex and flag features for advanced searches
+            - ripgrep is much faster than naive implementations
+            - Results are capped at 50 matches for performance
         """
         return _grep(context, search_string, directory)
