@@ -125,7 +125,11 @@ def is_project_directory(directory):
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-        
+    import subprocess
+    import tempfile
+    import shutil
+    import sys
+
     results = []
     directory = os.path.abspath(directory)
 
@@ -141,6 +145,7 @@ def _list_files(
         message_group=group_id,
     )
     emit_divider(message_group=group_id)
+    
     if not os.path.exists(directory):
         emit_error(f"Directory '{directory}' does not exist", message_group=group_id)
         emit_divider(message_group=group_id)
@@ -167,74 +172,120 @@ def _list_files(
                 message_group=group_id,
             )
             recursive = False
-    folder_structure = {}
-    file_list = []
-    for root, dirs, files in os.walk(directory):
-        # Filter out ignored directories
-        dirs[:] = [d for d in dirs if not should_ignore_path(os.path.join(root, d))]
+            
+    # Create a temporary ignore file with our ignore patterns
+    ignore_file = None
+    try:
+        # Find ripgrep executable - first check system PATH, then virtual environment
+        rg_path = shutil.which("rg")
+        if not rg_path:
+            # Try to find it in the virtual environment
+            # Use sys.executable to determine the Python environment path
+            python_dir = os.path.dirname(sys.executable)
+            # Check both 'bin' (Unix) and 'Scripts' (Windows) directories
+            for rg_dir in ["bin", "Scripts"]:
+                venv_rg_path = os.path.join(python_dir, "rg")
+                if os.path.exists(venv_rg_path):
+                    rg_path = venv_rg_path
+                    break
+                # Also check with .exe extension for Windows
+                venv_rg_exe_path = os.path.join(python_dir, "rg.exe")
+                if os.path.exists(venv_rg_exe_path):
+                    rg_path = venv_rg_exe_path
+                    break
         
-        rel_path = os.path.relpath(root, directory)
-        depth = 0 if rel_path == "." else rel_path.count(os.sep) + 1
-        if rel_path == ".":
-            rel_path = ""
+        if not rg_path:
+            emit_error(f"ripgrep (rg) not found. Please install ripgrep to use this tool.", message_group=group_id)
+            return ListFileOutput(files=[])
+            
+        # Build command for ripgrep --files
+        cmd = [rg_path, "--files"]
         
-        # Add directory entry for subdirectories (except root)
-        if rel_path:
-            dir_path = os.path.join(directory, rel_path)
-            results.append(
-                ListedFile(
-                    path=rel_path,
-                    type="directory",
-                    size=0,
-                    full_path=dir_path,
-                    depth=depth,
-                )
-            )
-            folder_structure[rel_path] = {
-                "path": rel_path,
-                "depth": depth,
-                "full_path": dir_path,
-            }
-        else:  # Root directory - add both directories and files
-            # Add directories
-            for d in dirs:
-                dir_path = os.path.join(root, d)
+        # For non-recursive mode, we'll limit depth after getting results
+        if not recursive:
+            cmd.extend(["--max-depth", "1"])
+            
+        # Add ignore patterns to the command via a temporary file
+        from code_puppy.tools.common import IGNORE_PATTERNS
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ignore') as f:
+            ignore_file = f.name
+            for pattern in IGNORE_PATTERNS:
+                f.write(f"{pattern}\n")
+        
+        cmd.extend(["--ignore-file", ignore_file])
+        cmd.append(directory)
+        
+        # Run ripgrep to get file listing
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Process the output lines
+        files = result.stdout.strip().split('\n') if result.stdout.strip() else []
+        
+        # Create ListedFile objects with metadata
+        for file_path in files:
+            if not file_path:  # Skip empty lines
+                continue
+                
+            full_path = os.path.join(directory, file_path)
+            
+            # Skip if file doesn't exist (though it should)
+            if not os.path.exists(full_path):
+                continue
+                
+            # For non-recursive mode, skip files in subdirectories
+            if not recursive and os.sep in file_path:
+                continue
+                
+            try:
+                # Get file stats
+                stat_info = os.stat(full_path)
+                size = stat_info.st_size
+                
+                # Calculate depth
+                depth = file_path.count(os.sep)
+                
+                # Add directory entries if needed
+                dir_path = os.path.dirname(file_path)
+                if dir_path:
+                    # Add directory path components if they don't exist
+                    path_parts = dir_path.split(os.sep)
+                    for i in range(len(path_parts)):
+                        partial_path = os.sep.join(path_parts[:i+1])
+                        # Check if we already added this directory
+                        if not any(f.path == partial_path and f.type == "directory" for f in results):
+                            results.append(
+                                ListedFile(
+                                    path=partial_path,
+                                    type="directory",
+                                    size=0,
+                                    full_path=partial_path,
+                                    depth=i+1,
+                                )
+                            )
+                
+                # Add file entry
                 results.append(
                     ListedFile(
-                        path=d,
-                        type="directory",
-                        size=0,
-                        full_path=dir_path,
-                        depth=depth,
+                        path=file_path,
+                        type="file",
+                        size=size,
+                        full_path=file_path,
+                        depth=depth+1 if os.sep in file_path else 0,
                     )
                 )
-                folder_structure[d] = {
-                    "path": d,
-                    "depth": depth,
-                    "full_path": dir_path,
-                }
-        
-        # Add files to results
-        for file in files:
-            file_path = os.path.join(root, file)
-            if should_ignore_path(file_path):
+            except (FileNotFoundError, PermissionError, OSError):
+                # Skip files we can't access
                 continue
-            rel_file_path = os.path.join(rel_path, file) if rel_path else file
-            try:
-                size = os.path.getsize(file_path)
-                file_info = {
-                    "path": rel_file_path,
-                    "type": "file",
-                    "size": size,
-                    "full_path": file_path,
-                    "depth": depth,
-                }
-                results.append(ListedFile(**file_info))
-                file_list.append(file_info)
-            except (FileNotFoundError, PermissionError):
-                continue
-        if not recursive:
-            break
+    except subprocess.TimeoutExpired:
+        emit_error(f"List files command timed out after 30 seconds", message_group=group_id)
+        return ListFileOutput(files=[])
+    except Exception as e:
+        emit_error(f"Error during list files operation: {e}", message_group=group_id)
+        return ListFileOutput(files=[])
+    finally:
+        # Clean up the temporary ignore file
+        if ignore_file and os.path.exists(ignore_file):
+            os.unlink(ignore_file)
 
     def format_size(size_bytes):
         if size_bytes < 1024:
@@ -536,7 +587,7 @@ def register_list_files(agent):
                   - path (str | None): Relative path from the listing directory
                   - type (str | None): "file" or "directory"
                   - size (int): File size in bytes (0 for directories)
-                  - full_path (str | None): Absolute path to the item
+                  - full_path (str | None): Relative path from the listing directory
                   - depth (int | None): Nesting depth from the root directory
                 - error (str | None): Error message if listing failed
 
