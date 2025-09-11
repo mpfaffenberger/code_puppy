@@ -1,4 +1,5 @@
 import os
+import subprocess
 from unittest.mock import MagicMock, mock_open, patch
 
 from code_puppy.tools.file_operations import (
@@ -228,76 +229,8 @@ class TestReadFile:
             assert "FILE NOT FOUND" in result.error
 
 
-class TestGrep:
-    def test_grep_no_matches(self):
-        fake_dir = "/test"
-        file_content = "This is a test file\nwith multiple lines\nbut no matches"
-
-        with (
-            patch("os.path.abspath", return_value=fake_dir),
-            patch("os.walk", return_value=[(fake_dir, [], ["test.txt"])]),
-            patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
-            ),
-            patch("builtins.open", mock_open(read_data=file_content)),
-        ):
-            result = grep(None, "nonexistent", fake_dir)
-            assert len(result.matches) == 0
-
-    def test_grep_limit_matches(self):
-        fake_dir = "/test"
-        # Create content with many matches (>200)
-        file_content = "\n".join([f"match {i}" for i in range(250)])
-
-        with (
-            patch("os.path.abspath", return_value=fake_dir),
-            patch("os.walk", return_value=[(fake_dir, [], ["test.txt"])]),
-            patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
-            ),
-            patch("builtins.open", mock_open(read_data=file_content)),
-        ):
-            result = grep(None, "match", fake_dir)
-            assert len(result.matches) == 50
-
-    def test_grep_with_matches(self):
-        fake_dir = "/test"
-        file_content = "This is a test file\nwith multiple lines\nand a match here"
-
-        with (
-            patch("os.path.abspath", return_value=fake_dir),
-            patch("os.walk", return_value=[(fake_dir, [], ["test.txt"])]),
-            patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
-            ),
-            patch("builtins.open", mock_open(read_data=file_content)),
-        ):
-            result = grep(None, "match", fake_dir)
-
-            assert len(result.matches) == 1
-            assert result.matches[0].file_path == os.path.join(fake_dir, "test.txt")
-            assert result.matches[0].line_number == 3
-
-    def test_grep_handle_errors(self):
-        fake_dir = "/test"
-
-        # Test file not found error
-        with (
-            patch("os.path.abspath", return_value=fake_dir),
-            patch("os.walk", return_value=[(fake_dir, [], ["test.txt"])]),
-            patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
-            ),
-            patch("builtins.open", side_effect=FileNotFoundError()),
-        ):
-            result = grep(None, "match", fake_dir)
-            assert len(result.matches) == 0
-
         # Test Unicode decode error
+        fake_dir = os.path.join(os.getcwd(), "fake_test_dir")
         with (
             patch("os.path.abspath", return_value=fake_dir),
             patch("os.walk", return_value=[(fake_dir, [], ["binary.bin"])]),
@@ -430,3 +363,95 @@ class TestFileIcon:
         assert get_file_icon("image.png") == "\U0001f5bc"  # Image (frame emoji)
         assert get_file_icon("document.md") == "\U0001f4c4"  # Markdown (document emoji)
         assert get_file_icon("unknown.xyz") == "\U0001f4c4"  # Default (document emoji)
+
+
+class TestGrep:
+    def test_grep_no_matches(self):
+        fake_dir = "/test"
+        # Mock ripgrep output with no matches
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "nonexistent", fake_dir)
+            assert len(result.matches) == 0
+
+    def test_grep_limit_matches(self):
+        fake_dir = "/test"
+        # Create mock JSON output with many matches
+        matches = [
+            '{"type":"match","data":{"path":{"text":"/test/test.txt"},"lines":{"text":"match line"},"line_number":1}}\n'
+            for i in range(60)  # More than 50 matches
+        ]
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "".join(matches)
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            # Should be limited to 50 matches
+            assert len(result.matches) == 50
+
+    def test_grep_with_matches(self):
+        fake_dir = "/test"
+        # Mock ripgrep output with matches
+        mock_output = (
+            '{"type":"match","data":{"path":{"text":"/test/test.txt"},"lines":{"text":"and a match here"},"line_number":3}}\n'
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = mock_output
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            assert len(result.matches) == 1
+            assert result.matches[0].file_path == "/test/test.txt"
+            assert result.matches[0].line_number == 3
+            assert result.matches[0].line_content == "and a match here"
+
+    def test_grep_handle_errors(self):
+        fake_dir = "/test"
+        # Mock ripgrep subprocess error
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = "Error occurred"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            assert len(result.matches) == 0
+
+    def test_grep_non_json_output(self):
+        fake_dir = "/test"
+        # Mock ripgrep output that isn't JSON
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "non-json output"
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            assert len(result.matches) == 0
+
+    def test_grep_empty_json_objects(self):
+        fake_dir = "/test"
+        # Mock ripgrep output with empty JSON objects
+        mock_output = (
+            '{"type":"begin","data":{"path":{"text":"/test/test.txt"}}}\n'
+            '{"type":"match","data":{"path":{"text":"/test/test.txt"},"lines":{"text":"match here"},"line_number":1}}\n'
+            '{"type":"end","data":{"path":{"text":"/test/test.txt"},"binary_offset":null}}\n'
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = mock_output
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            assert len(result.matches) == 1
+            assert result.matches[0].file_path == "/test/test.txt"
+
