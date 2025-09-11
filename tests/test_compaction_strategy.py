@@ -12,11 +12,11 @@ from code_puppy.config import (
 
 
 def test_default_compaction_strategy():
-    """Test that the default compaction strategy is summarization"""
+    """Test that the default compaction strategy is truncation"""
     with patch("code_puppy.config.get_value") as mock_get_value:
         mock_get_value.return_value = None
         strategy = get_compaction_strategy()
-        assert strategy == "summarization"
+        assert strategy == "truncation"
 
 
 def test_set_compaction_strategy_truncation():
@@ -82,7 +82,7 @@ def test_set_compaction_strategy_summarization():
 
 
 def test_set_compaction_strategy_invalid():
-    """Test that an invalid compaction strategy defaults to summarization"""
+    """Test that an invalid compaction strategy defaults to truncation"""
     # Create a temporary config directory and file
     with tempfile.TemporaryDirectory() as temp_dir:
         original_config_dir = CONFIG_DIR
@@ -103,9 +103,9 @@ def test_set_compaction_strategy_invalid():
         with open(code_puppy.config.CONFIG_FILE, "w") as f:
             config.write(f)
 
-        # Test that the strategy defaults to summarization
+        # Test that the strategy defaults to truncation
         strategy = get_compaction_strategy()
-        assert strategy == "summarization"
+        assert strategy == "truncation"
 
         # Reset the config directory
         code_puppy.config.CONFIG_DIR = original_config_dir

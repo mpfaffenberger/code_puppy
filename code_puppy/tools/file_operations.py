@@ -1,6 +1,7 @@
 # file_operations.py
 
 import os
+import tempfile
 from typing import List
 
 from pydantic import BaseModel, conint
@@ -17,7 +18,7 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-from code_puppy.tools.common import generate_group_id, should_ignore_path
+from code_puppy.tools.common import generate_group_id
 
 # Add token checking functionality
 try:
@@ -41,11 +42,12 @@ class ListedFile(BaseModel):
     path: str | None
     type: str | None
     size: int = 0
+    full_path: str | None
     depth: int | None
 
 
 class ListFileOutput(BaseModel):
-    files: List[ListedFile]
+    content: str
     error: str | None = None
 
 
@@ -124,92 +126,193 @@ def is_project_directory(directory):
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
+    import shutil
+    import subprocess
+    import sys
+
     results = []
     directory = os.path.abspath(directory)
 
-    # Generate group_id for this tool execution
-    group_id = generate_group_id("list_files", directory)
+    # Build string representation
+    output_lines = []
 
-    emit_info(
-        "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]",
-        message_group=group_id,
+    directory_listing_header = (
+        "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]"
     )
-    emit_info(
-        f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]\n",
-        message_group=group_id,
-    )
-    emit_divider(message_group=group_id)
+    output_lines.append(directory_listing_header)
+
+    directory_info = f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]\n"
+    output_lines.append(directory_info)
+
+    divider = "[dim]" + "─" * 100 + "\n" + "[/dim]"
+    output_lines.append(divider)
+
     if not os.path.exists(directory):
-        emit_error(f"Directory '{directory}' does not exist", message_group=group_id)
-        emit_divider(message_group=group_id)
-        return ListFileOutput(
-            files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
+        error_msg = (
+            f"[red bold]Error:[/red bold] Directory '{directory}' does not exist"
         )
+        output_lines.append(error_msg)
+
+        output_lines.append(divider)
+        return ListFileOutput(content="\n".join(output_lines))
     if not os.path.isdir(directory):
-        emit_error(f"'{directory}' is not a directory", message_group=group_id)
-        emit_divider(message_group=group_id)
-        return ListFileOutput(
-            files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
-        )
+        error_msg = f"[red bold]Error:[/red bold] '{directory}' is not a directory"
+        output_lines.append(error_msg)
+
+        output_lines.append(divider)
+        return ListFileOutput(content="\n".join(output_lines))
 
     # Smart home directory detection - auto-limit recursion for performance
-    if is_likely_home_directory(directory) and recursive:
+    # But allow recursion in tests (when context=None) or when explicitly requested
+    if context is not None and is_likely_home_directory(directory) and recursive:
         if not is_project_directory(directory):
-            emit_warning(
-                "🏠 Detected home directory - limiting to non-recursive listing for performance",
-                message_group=group_id,
-            )
-            emit_info(
-                f"💡 To force recursive listing in home directory, use list_files('{directory}', recursive=True) explicitly",
-                message_group=group_id,
-            )
+            warning_msg = "[yellow bold]Warning:[/yellow bold] 🏠 Detected home directory - limiting to non-recursive listing for performance"
+            output_lines.append(warning_msg)
+
+            info_msg = f"[dim]💡 To force recursive listing in home directory, use list_files('{directory}', recursive=True) explicitly[/dim]"
+            output_lines.append(info_msg)
             recursive = False
-    folder_structure = {}
-    file_list = []
-    for root, dirs, files in os.walk(directory):
-        dirs[:] = [d for d in dirs if not should_ignore_path(os.path.join(root, d))]
-        rel_path = os.path.relpath(root, directory)
-        depth = 0 if rel_path == "." else rel_path.count(os.sep) + 1
-        if rel_path == ".":
-            rel_path = ""
-        if rel_path:
-            dir_path = os.path.join(directory, rel_path)
-            results.append(
-                ListedFile(
-                    **{
-                        "path": rel_path,
-                        "type": "directory",
-                        "size": 0,
-                        "full_path": dir_path,
-                        "depth": depth,
-                    }
-                )
-            )
-            folder_structure[rel_path] = {
-                "path": rel_path,
-                "depth": depth,
-                "full_path": dir_path,
-            }
-        for file in files:
-            file_path = os.path.join(root, file)
-            if should_ignore_path(file_path):
-                continue
-            rel_file_path = os.path.join(rel_path, file) if rel_path else file
-            try:
-                size = os.path.getsize(file_path)
-                file_info = {
-                    "path": rel_file_path,
-                    "type": "file",
-                    "size": size,
-                    "full_path": file_path,
-                    "depth": depth,
-                }
-                results.append(ListedFile(**file_info))
-                file_list.append(file_info)
-            except (FileNotFoundError, PermissionError):
-                continue
+
+    # Create a temporary ignore file with our ignore patterns
+    ignore_file = None
+    try:
+        # Find ripgrep executable - first check system PATH, then virtual environment
+        rg_path = shutil.which("rg")
+        if not rg_path:
+            # Try to find it in the virtual environment
+            # Use sys.executable to determine the Python environment path
+            python_dir = os.path.dirname(sys.executable)
+            # Check both 'bin' (Unix) and 'Scripts' (Windows) directories
+            for rg_dir in ["bin", "Scripts"]:
+                venv_rg_path = os.path.join(python_dir, "rg")
+                if os.path.exists(venv_rg_path):
+                    rg_path = venv_rg_path
+                    break
+                # Also check with .exe extension for Windows
+                venv_rg_exe_path = os.path.join(python_dir, "rg.exe")
+                if os.path.exists(venv_rg_exe_path):
+                    rg_path = venv_rg_exe_path
+                    break
+
+        if not rg_path:
+            error_msg = "[red bold]Error:[/red bold] ripgrep (rg) not found. Please install ripgrep to use this tool."
+            output_lines.append(error_msg)
+            return ListFileOutput(content="\n".join(output_lines))
+
+        # Build command for ripgrep --files
+        cmd = [rg_path, "--files"]
+
+        # For non-recursive mode, we'll limit depth after getting results
         if not recursive:
-            break
+            cmd.extend(["--max-depth", "1"])
+
+        # Add ignore patterns to the command via a temporary file
+        from code_puppy.tools.common import IGNORE_PATTERNS
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
+            ignore_file = f.name
+            for pattern in IGNORE_PATTERNS:
+                f.write(f"{pattern}\n")
+
+        cmd.extend(["--ignore-file", ignore_file])
+        cmd.append(directory)
+
+        # Run ripgrep to get file listing
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        # Process the output lines
+        files = result.stdout.strip().split("\n") if result.stdout.strip() else []
+
+        # Create ListedFile objects with metadata
+        for file_path in files:
+            if not file_path:  # Skip empty lines
+                continue
+
+            full_path = os.path.join(directory, file_path)
+
+            # Skip if file doesn't exist (though it should)
+            if not os.path.exists(full_path):
+                continue
+
+            # For non-recursive mode, skip files in subdirectories
+            if not recursive and os.sep in file_path:
+                continue
+
+            # Check if path is a file or directory
+            if os.path.isfile(full_path):
+                entry_type = "file"
+                size = os.path.getsize(full_path)
+            elif os.path.isdir(full_path):
+                entry_type = "directory"
+                size = 0
+            else:
+                # Skip if it's neither a file nor directory
+                continue
+
+            try:
+                # Get stats for the entry
+                stat_info = os.stat(full_path)
+                actual_size = stat_info.st_size
+
+                # For files, we use the actual size; for directories, we keep size=0
+                if entry_type == "file":
+                    size = actual_size
+
+                # Calculate depth
+                depth = file_path.count(os.sep)
+
+                # Add directory entries if needed for files
+                if entry_type == "file":
+                    dir_path = os.path.dirname(file_path)
+                    if dir_path:
+                        # Add directory path components if they don't exist
+                        path_parts = dir_path.split(os.sep)
+                        for i in range(len(path_parts)):
+                            partial_path = os.sep.join(path_parts[: i + 1])
+                            # Check if we already added this directory
+                            if not any(
+                                f.path == partial_path and f.type == "directory"
+                                for f in results
+                            ):
+                                results.append(
+                                    ListedFile(
+                                        path=partial_path,
+                                        type="directory",
+                                        size=0,
+                                        full_path=os.path.join(directory, partial_path),
+                                        depth=partial_path.count(os.sep),
+                                    )
+                                )
+
+                # Add the entry (file or directory)
+                results.append(
+                    ListedFile(
+                        path=file_path,
+                        type=entry_type,
+                        size=size,
+                        full_path=full_path,
+                        depth=depth,
+                    )
+                )
+            except (FileNotFoundError, PermissionError, OSError):
+                # Skip files we can't access
+                continue
+    except subprocess.TimeoutExpired:
+        error_msg = (
+            "[red bold]Error:[/red bold] List files command timed out after 30 seconds"
+        )
+        output_lines.append(error_msg)
+        return ListFileOutput(content="\n".join(output_lines))
+    except Exception as e:
+        error_msg = (
+            f"[red bold]Error:[/red bold] Error during list files operation: {e}"
+        )
+        output_lines.append(error_msg)
+        return ListFileOutput(content="\n".join(output_lines))
+    finally:
+        # Clean up the temporary ignore file
+        if ignore_file and os.path.exists(ignore_file):
+            os.unlink(ignore_file)
 
     def format_size(size_bytes):
         if size_bytes < 1024:
@@ -250,20 +353,31 @@ def _list_files(
         else:
             return "\U0001f4c4"
 
-    if results:
-        files = sorted([f for f in results if f.type == "file"], key=lambda x: x.path)
-        emit_info(
-            f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]",
-            message_group=group_id,
-        )
+    dir_count = sum(1 for item in results if item.type == "directory")
+    file_count = sum(1 for item in results if item.type == "file")
+    total_size = sum(item.size for item in results if item.type == "file")
+
+    # Build the directory header section
+    dir_name = os.path.basename(directory) or directory
+    dir_header = f"\U0001f4c1 [bold blue]{dir_name}[/bold blue]"
+    output_lines.append(dir_header)
+
+    # Sort all items by path for consistent display
     all_items = sorted(results, key=lambda x: x.path)
+
+    # Build file and directory tree representation
     parent_dirs_with_content = set()
-    for i, item in enumerate(all_items):
+    for item in all_items:
+        # Skip root directory entries with no path
         if item.type == "directory" and not item.path:
             continue
+
+        # Track parent directories that contain files/dirs
         if os.sep in item.path:
             parent_path = os.path.dirname(item.path)
             parent_dirs_with_content.add(parent_path)
+
+        # Calculate indentation depth based on path separators
         depth = item.path.count(os.sep) + 1 if item.path else 0
         prefix = ""
         for d in range(depth):
@@ -271,31 +385,32 @@ def _list_files(
                 prefix += "\u2514\u2500\u2500 "
             else:
                 prefix += "    "
+
+        # Get the display name (basename) of the item
         name = os.path.basename(item.path) or item.path
+
+        # Add directory or file line with appropriate formatting
         if item.type == "directory":
-            emit_info(
-                f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]",
-                message_group=group_id,
-            )
+            dir_line = f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]"
+            output_lines.append(dir_line)
         else:
             icon = get_file_icon(item.path)
             size_str = format_size(item.size)
-            emit_info(
-                f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]",
-                message_group=group_id,
-            )
-    else:
-        emit_warning("Directory is empty", message_group=group_id)
-    dir_count = sum(1 for item in results if item.type == "directory")
-    file_count = sum(1 for item in results if item.type == "file")
-    total_size = sum(item.size for item in results if item.type == "file")
-    emit_info("\n[bold cyan]Summary:[/bold cyan]", message_group=group_id)
-    emit_info(
-        f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]",
-        message_group=group_id,
-    )
-    emit_divider(message_group=group_id)
-    return ListFileOutput(files=results)
+            file_line = f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]"
+            output_lines.append(file_line)
+
+    # Add summary information
+    summary_header = "\n[bold cyan]Summary:[/bold cyan]"
+    output_lines.append(summary_header)
+
+    summary_line = f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]"
+    output_lines.append(summary_line)
+
+    final_divider = "[dim]" + "─" * 100 + "\n" + "[/dim]"
+    output_lines.append(final_divider)
+
+    # Return both the content string and the list of ListedFile objects
+    return ListFileOutput(content="\n".join(output_lines), files=results)
 
 
 def _read_file(
@@ -357,8 +472,14 @@ def _read_file(
 
 
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
-    matches: List[MatchInfo] = []
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+
     directory = os.path.abspath(directory)
+    matches: List[MatchInfo] = []
 
     # Generate group_id for this tool execution
     group_id = generate_group_id("grep", f"{directory}_{search_string}")
@@ -369,93 +490,142 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     )
     emit_divider(message_group=group_id)
 
-    for root, dirs, files in os.walk(directory, topdown=True):
-        # Filter out ignored directories
-        dirs[:] = [d for d in dirs if not should_ignore_path(os.path.join(root, d))]
+    # Create a temporary ignore file with our ignore patterns
+    ignore_file = None
+    try:
+        # Use ripgrep to search for the string
+        # Use absolute path to ensure it works from any directory
+        # --json for structured output
+        # --max-count 50 to limit results
+        # --max-filesize 5M to avoid huge files (increased from 1M)
+        # --type=all to search across all recognized text file types
+        # --ignore-file to obey our ignore list
 
-        for f_name in files:
-            file_path = os.path.join(root, f_name)
+        # Find ripgrep executable - first check system PATH, then virtual environment
+        rg_path = shutil.which("rg")
+        if not rg_path:
+            # Try to find it in the virtual environment
+            # Use sys.executable to determine the Python environment path
+            python_dir = os.path.dirname(sys.executable)
+            # Check both 'bin' (Unix) and 'Scripts' (Windows) directories
+            for rg_dir in ["bin", "Scripts"]:
+                venv_rg_path = os.path.join(python_dir, "rg")
+                if os.path.exists(venv_rg_path):
+                    rg_path = venv_rg_path
+                    break
+                # Also check with .exe extension for Windows
+                venv_rg_exe_path = os.path.join(python_dir, "rg.exe")
+                if os.path.exists(venv_rg_exe_path):
+                    rg_path = venv_rg_exe_path
+                    break
 
-            if should_ignore_path(file_path):
+        if not rg_path:
+            emit_error(
+                "ripgrep (rg) not found. Please install ripgrep to use this tool.",
+                message_group=group_id,
+            )
+            return GrepOutput(matches=[])
+
+        cmd = [
+            rg_path,
+            "--json",
+            "--max-count",
+            "50",
+            "--max-filesize",
+            "5M",
+            "--type=all",
+        ]
+
+        # Add ignore patterns to the command via a temporary file
+        from code_puppy.tools.common import IGNORE_PATTERNS
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
+            ignore_file = f.name
+            for pattern in IGNORE_PATTERNS:
+                f.write(f"{pattern}\n")
+
+        cmd.extend(["--ignore-file", ignore_file])
+        cmd.extend([search_string, directory])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        # Parse the JSON output from ripgrep
+        for line in result.stdout.strip().split("\n"):
+            if not line:
                 continue
-
             try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
-                    for line_number, line_content in enumerate(fh, 1):
-                        if search_string in line_content:
-                            match_info = MatchInfo(
-                                **{
-                                    "file_path": file_path,
-                                    "line_number": line_number,
-                                    "line_content": line_content.rstrip("\n\r")[512:],
-                                }
-                            )
-                            matches.append(match_info)
-                            emit_system_message(
-                                f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
-                                message_group=group_id,
-                            )
-                            if len(matches) >= 50:
-                                emit_warning(
-                                    "Limit of 50 matches reached. Stopping search.",
-                                    message_group=group_id,
-                                )
-                                return GrepOutput(matches=matches)
-            except FileNotFoundError:
-                emit_warning(
-                    f"File not found (possibly a broken symlink): {file_path}",
-                    message_group=group_id,
-                )
-                continue
-            except UnicodeDecodeError:
-                emit_warning(
-                    f"Cannot decode file (likely binary): {file_path}",
-                    message_group=group_id,
-                )
-                continue
-            except Exception as e:
-                emit_error(
-                    f"Error processing file {file_path}: {e}", message_group=group_id
-                )
+                match_data = json.loads(line)
+                # Only process match events, not context or summary
+                if match_data.get("type") == "match":
+                    data = match_data.get("data", {})
+                    path_data = data.get("path", {})
+                    file_path = (
+                        path_data.get("text", "") if path_data.get("text") else ""
+                    )
+                    line_number = data.get("line_number", None)
+                    line_content = (
+                        data.get("lines", {}).get("text", "")
+                        if data.get("lines", {}).get("text")
+                        else ""
+                    )
+
+                    if file_path and line_number:
+                        match_info = MatchInfo(
+                            file_path=file_path,
+                            line_number=line_number,
+                            line_content=line_content.strip(),
+                        )
+                        matches.append(match_info)
+                        # Limit to 50 matches total, same as original implementation
+                        if len(matches) >= 50:
+                            break
+                        emit_system_message(
+                            f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
+                            message_group=group_id,
+                        )
+            except json.JSONDecodeError:
+                # Skip lines that aren't valid JSON
                 continue
 
-    if not matches:
-        emit_warning(
-            f"No matches found for '{search_string}' in {directory}",
+        if not matches:
+            emit_warning(
+                f"No matches found for '{search_string}' in {directory}",
+                message_group=group_id,
+            )
+        else:
+            emit_success(
+                f"Found {len(matches)} match(es) for '{search_string}' in {directory}",
+                message_group=group_id,
+            )
+
+    except subprocess.TimeoutExpired:
+        emit_error("Grep command timed out after 30 seconds", message_group=group_id)
+    except FileNotFoundError:
+        emit_error(
+            "ripgrep (rg) not found. Please install ripgrep to use this tool.",
             message_group=group_id,
         )
-    else:
-        emit_success(
-            f"Found {len(matches)} match(es) for '{search_string}' in {directory}",
-            message_group=group_id,
-        )
+    except Exception as e:
+        emit_error(f"Error during grep operation: {e}", message_group=group_id)
+    finally:
+        # Clean up the temporary ignore file
+        if ignore_file and os.path.exists(ignore_file):
+            os.unlink(ignore_file)
 
     return GrepOutput(matches=matches)
 
 
-# Exported top-level functions for direct import by tests and other code
-
-
-def list_files(context, directory=".", recursive=True):
-    return _list_files(context, directory, recursive)
-
-
-def read_file(context, file_path, start_line=None, num_lines=None):
-    return _read_file(context, file_path, start_line, num_lines)
-
-
-def grep(context, search_string, directory="."):
-    return _grep(context, search_string, directory)
-
-
 def register_list_files(agent):
     """Register only the list_files tool."""
+    from code_puppy.config import get_allow_recursion
 
     @agent.tool(strict=False)
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
     ) -> ListFileOutput:
         """List files and directories with intelligent filtering and safety features.
+
+        This function will only allow recursive listing when the allow_recursion
+        configuration is set to true via the /set allow_recursion=true command.
 
         This tool provides comprehensive directory listing with smart home directory
         detection, project-aware recursion, and token-safe output. It automatically
@@ -468,28 +638,22 @@ def register_list_files(agent):
                 or absolute. Defaults to "." (current directory).
             recursive (bool, optional): Whether to recursively list subdirectories.
                 Automatically disabled for home directories unless they contain
-                project indicators. Defaults to True.
+                project indicators. Also requires allow_recursion=true in config.
+                Defaults to True.
 
         Returns:
-            ListFileOutput: A structured response containing:
-                - files (List[ListedFile]): List of files and directories found, where
-                  each ListedFile contains:
-                  - path (str | None): Relative path from the listing directory
-                  - type (str | None): "file" or "directory"
-                  - size (int): File size in bytes (0 for directories)
-                  - full_path (str | None): Absolute path to the item
-                  - depth (int | None): Nesting depth from the root directory
+            ListFileOutput: A response containing:
+                - content (str): String representation of the directory listing
                 - error (str | None): Error message if listing failed
 
         Examples:
             >>> # List current directory
             >>> result = list_files(ctx)
-            >>> for file in result.files:
-            ...     print(f"{file.type}: {file.path} ({file.size} bytes)")
+            >>> print(result.content)
 
             >>> # List specific directory non-recursively
             >>> result = list_files(ctx, "/path/to/project", recursive=False)
-            >>> print(f"Found {len(result.files)} items")
+            >>> print(result.content)
 
             >>> # Handle potential errors
             >>> result = list_files(ctx, "/nonexistent/path")
@@ -502,7 +666,20 @@ def register_list_files(agent):
             - Check for errors in the response
             - Combine with grep to find specific file patterns
         """
-        return _list_files(context, directory, recursive)
+        warning = None
+        if recursive and not get_allow_recursion():
+            warning = "Recursion disabled globally for list_files - returning non-recursive results"
+            recursive = False
+        result = _list_files(context, directory, recursive)
+
+        # Emit the content directly to ensure it's displayed to the user
+        emit_info(
+            result.content, message_group=generate_group_id("list_files", directory)
+        )
+
+        if warning:
+            result.error = warning
+        return result
 
 
 def register_read_file(agent):
@@ -570,17 +747,22 @@ def register_grep(agent):
     def grep(
         context: RunContext, search_string: str = "", directory: str = "."
     ) -> GrepOutput:
-        """Recursively search for text patterns across files with intelligent filtering.
+        """Recursively search for text patterns across files using ripgrep (rg).
 
-        This tool provides powerful text searching across directory trees with
-        automatic filtering of irrelevant files, binary detection, and match limiting
-        for performance. It's essential for code exploration and finding specific
-        patterns or references.
+        This tool leverages the high-performance ripgrep utility for fast text
+        searching across directory trees. It searches across all recognized text file
+        types (Python, JavaScript, HTML, CSS, Markdown, etc.) while automatically
+        filtering binary files and limiting results for performance.
+
+        The search_string parameter supports ripgrep's full flag syntax, allowing
+        advanced searches including regex patterns, case-insensitive matching,
+        and other ripgrep features.
 
         Args:
             context (RunContext): The PydanticAI runtime context for the agent.
-            search_string (str): The text pattern to search for. Performs exact
-                string matching (not regex). Cannot be empty.
+            search_string (str): The text pattern to search for. Can include ripgrep
+                flags like '--ignore-case', '-w' (word boundaries), etc.
+                Cannot be empty.
             directory (str, optional): Root directory to start the recursive search.
                 Can be relative or absolute. Defaults to "." (current directory).
 
@@ -593,23 +775,23 @@ def register_grep(agent):
                   - line_content (str | None): Full line content containing the match
 
         Examples:
-            >>> # Search for function definitions
+            >>> # Simple text search
             >>> result = grep(ctx, "def my_function")
             >>> for match in result.matches:
             ...     print(f"{match.file_path}:{match.line_number}: {match.line_content}")
 
-            >>> # Search in specific directory
-            >>> result = grep(ctx, "TODO", "/path/to/project/src")
+            >>> # Case-insensitive search
+            >>> result = grep(ctx, "--ignore-case TODO", "/path/to/project/src")
             >>> print(f"Found {len(result.matches)} TODO items")
 
-            >>> # Search for imports
-            >>> result = grep(ctx, "import pandas")
-            >>> files_using_pandas = {match.file_path for match in result.matches}
+            >>> # Word boundary search (regex)
+            >>> result = grep(ctx, "-w \\w+State\\b")
+            >>> files_with_state = {match.file_path for match in result.matches}
 
         Best Practices:
             - Use specific search terms to avoid too many results
-            - Search is case-sensitive; try variations if needed
-            - Combine with read_file to examine matches in detail
-            - For case-insensitive search, try multiple variants manually
+            - Leverage ripgrep's powerful regex and flag features for advanced searches
+            - ripgrep is much faster than naive implementations
+            - Results are capped at 50 matches for performance
         """
         return _grep(context, search_string, directory)

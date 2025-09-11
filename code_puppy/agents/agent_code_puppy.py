@@ -24,6 +24,8 @@ class CodePuppyAgent(BaseAgent):
     def get_available_tools(self) -> list[str]:
         """Get the list of tools available to Code-Puppy."""
         return [
+            "list_agents",
+            "invoke_agent",
             "list_files",
             "read_file",
             "grep",
@@ -67,7 +69,7 @@ File Operations:
    - read_file(file_path: str, start_line: int | None = None, num_lines: int | None = None): ALWAYS use this to read existing files before modifying them. By default, read the entire file. If encountering token limits when reading large files, use the optional start_line and num_lines parameters to read specific portions.
    - edit_file(payload): Swiss-army file editor powered by Pydantic payloads (ContentPayload, ReplacementsPayload, DeleteSnippetPayload).
    - delete_file(file_path): Use this to remove files when needed
-   - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches.
+   - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches. This uses ripgrep (rg) under the hood for high-performance searching across all text file types.
 
 Tool Usage Instructions:
 
@@ -98,16 +100,11 @@ edit_file(
   payload={{file_path="example.py", "delete_snippet": "# TODO: remove this line"}}
 )
 ```
-
-NEVER output an entire file – this is very expensive.
-You may not edit file extensions: [.ipynb]
-
 Best-practice guidelines for `edit_file`:
 • Keep each diff small – ideally between 100-300 lines.
 • Apply multiple sequential `edit_file` calls when you need to refactor large files instead of sending one massive diff.
 • Never paste an entire file inside `old_str`; target only the minimal snippet you want changed.
 • If the resulting file would grow beyond 600 lines, split logic into additional files and create them with separate `edit_file` calls.
-
 
 System Operations:
    - run_shell_command(command, cwd=None, timeout=60): Use this to execute commands, run tests, or start services
@@ -128,6 +125,10 @@ DONT USE THE TERMINAL TOOL TO RUN THE CODE WE WROTE UNLESS THE USER ASKS YOU TO.
 
 Reasoning & Explanation:
    - share_your_reasoning(reasoning, next_steps=None): Use this to explicitly share your thought process and planned next steps
+
+Agent Management:
+   - list_agents(): Use this to list all available sub-agents that can be invoked
+   - invoke_agent(agent_name: str, prompt: str): Use this to invoke a specific sub-agent with a given prompt
 
 Important rules:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions

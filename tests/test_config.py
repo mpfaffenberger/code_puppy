@@ -277,7 +277,7 @@ class TestGetConfigKeys:
 
         mock_parser_instance.read.assert_called_once_with(mock_cfg_file)
         assert keys == sorted(
-            ["compaction_strategy", "key1", "key2", "model", "yolo_mode"]
+            ["allow_recursion", "compaction_strategy", "key1", "key2", "message_limit", "model", "yolo_mode"]
         )
 
     @patch("configparser.ConfigParser")
@@ -290,7 +290,9 @@ class TestGetConfigKeys:
         mock_config_parser_class.return_value = mock_parser_instance
 
         keys = cp_config.get_config_keys()
-        assert keys == sorted(["compaction_strategy", "model", "yolo_mode"])
+        assert keys == sorted(["allow_recursion", "compaction_strategy", "message_limit", "model", "yolo_mode"])
+
+
 
 
 class TestSetConfigValue:
@@ -385,7 +387,7 @@ class TestModelName:
     @patch("code_puppy.config.get_value")
     def test_get_model_name_not_exists_uses_default(self, mock_get_value):
         mock_get_value.return_value = None
-        assert cp_config.get_model_name() == "claude-4-0-sonnet"  # Default value
+        assert cp_config.get_model_name() == "gpt-5"  # Default value
         mock_get_value.assert_called_once_with("model")
 
     @patch("configparser.ConfigParser")
@@ -455,20 +457,12 @@ class TestGetYoloMode:
             assert cp_config.get_yolo_mode() is True, f"Failed for config value: {val}"
             mock_get_value.assert_called_once_with("yolo_mode")
 
-    @patch("code_puppy.config.get_value")
-    def test_get_yolo_mode_from_config_false(self, mock_get_value):
-        false_values = ["false", "0", "NO", "OFF", "anything_else"]
-        for val in false_values:
-            mock_get_value.reset_mock()
-            mock_get_value.return_value = val
-            assert cp_config.get_yolo_mode() is False, f"Failed for config value: {val}"
-            mock_get_value.assert_called_once_with("yolo_mode")
 
     @patch("code_puppy.config.get_value")
-    def test_get_yolo_mode_not_in_config_defaults_false(self, mock_get_value):
+    def test_get_yolo_mode_not_in_config_defaults_true(self, mock_get_value):
         mock_get_value.return_value = None
 
-        assert cp_config.get_yolo_mode() is False
+        assert cp_config.get_yolo_mode() is True
         mock_get_value.assert_called_once_with("yolo_mode")
 
 

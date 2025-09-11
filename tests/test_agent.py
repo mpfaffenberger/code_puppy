@@ -20,9 +20,6 @@ def disabled_test_reload_code_generation_agent_loads_model(monkeypatch):
     monkeypatch.setattr(agent_module, "PUPPY_RULES", None)
     monkeypatch.setattr(agent_module, "emit_info", MagicMock())
     monkeypatch.setattr(agent_module, "emit_system_message", MagicMock())
-    monkeypatch.setattr(
-        agent_module, "_mock_session_memory", lambda: MagicMock(log_task=MagicMock())
-    )
     with patch("code_puppy.config.get_model_name", return_value="gpt-4o"):
         agent = agent_module.reload_code_generation_agent()
     assert agent is fake_agent
@@ -44,9 +41,6 @@ def disabled_test_reload_code_generation_agent_appends_rules(monkeypatch):
     monkeypatch.setattr(agent_module, "PUPPY_RULES", "RULES")
     monkeypatch.setattr(agent_module, "emit_info", MagicMock())
     monkeypatch.setattr(agent_module, "emit_system_message", MagicMock())
-    monkeypatch.setattr(
-        agent_module, "_mock_session_memory", lambda: MagicMock(log_task=MagicMock())
-    )
     with patch("code_puppy.config.get_model_name", return_value="gpt-4o"):
         agent = agent_module.reload_code_generation_agent()
     # Should append rules to prompt
@@ -69,12 +63,7 @@ def disabled_test_reload_code_generation_agent_logs_exception(monkeypatch):
     monkeypatch.setattr(agent_module, "PUPPY_RULES", None)
     monkeypatch.setattr(agent_module, "emit_info", MagicMock())
     monkeypatch.setattr(agent_module, "emit_system_message", MagicMock())
-    # session_memory().log_task will raise
-    monkeypatch.setattr(
-        agent_module,
-        "session_memory",
-        lambda: MagicMock(log_task=MagicMock(side_effect=Exception("fail"))),
-    )
+    # Removed session_memory reference as it doesn't exist
     with patch("code_puppy.config.get_model_name", return_value="gpt-4o"):
         agent = agent_module.reload_code_generation_agent()
     assert agent is fake_agent

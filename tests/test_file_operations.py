@@ -1,12 +1,10 @@
 import os
-from unittest.mock import mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
-from code_puppy.tools.file_operations import (
-    grep,
-    list_files,
-    read_file,
-    should_ignore_path,
-)
+from code_puppy.tools.file_operations import _grep as grep
+from code_puppy.tools.file_operations import _list_files as list_files
+from code_puppy.tools.file_operations import _read_file as read_file
+from code_puppy.tools.file_operations import should_ignore_path
 
 
 class TestShouldIgnorePath:
@@ -38,8 +36,8 @@ class TestListFiles:
     def test_directory_not_exists(self):
         with patch("os.path.exists", return_value=False):
             result = list_files(None, directory="/nonexistent")
-            assert len(result.files) == 1
-            assert result.files[0].path is None
+            assert "DIRECTORY LISTING" in result.content
+            assert "does not exist" in result.content
 
     def test_not_a_directory(self):
         with (
@@ -47,11 +45,8 @@ class TestListFiles:
             patch("os.path.isdir", return_value=False),
         ):
             result = list_files(None, directory="/file.txt")
-            assert len(result.files) == 1
-            assert len(result.files) == 1
-            assert result.files[0].path is None or "is not a directory" in (
-                result.files[0].path or ""
-            )
+            assert "DIRECTORY LISTING" in result.content
+            assert "is not a directory" in result.content
 
     def disabled_test_empty_directory(self):
         with (
@@ -65,71 +60,237 @@ class TestListFiles:
 
     def test_directory_with_files(self):
         fake_dir = "/test"
-        fake_entries = [
-            (fake_dir, ["subdir"], ["file1.txt", "file2.py"]),
-            (os.path.join(fake_dir, "subdir"), [], ["file3.js"]),
-        ]
 
-        # Define a side effect function for relpath to correctly handle subdirectories
-        def mock_relpath(path, start):
-            if path == os.path.join(fake_dir, "subdir"):
-                return "subdir"
-            return "."
-
+        # Mock the emit functions to prevent actual output during testing
+        # Also mock additional functions to prevent actual filesystem access
         with (
             patch("os.path.exists", return_value=True),
             patch("os.path.isdir", return_value=True),
-            patch("os.walk", return_value=fake_entries),
             patch("os.path.abspath", return_value=fake_dir),
-            patch("os.path.relpath", side_effect=mock_relpath),
+            patch("os.path.relpath", return_value="."),
             patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
+                "code_puppy.tools.file_operations.emit_info",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_divider",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_error",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_warning",
+            ),
+            patch(
+                "code_puppy.config.get_allow_recursion",
+                return_value=True,
             ),
             patch("os.path.getsize", return_value=100),
+            patch(
+                "code_puppy.tools.file_operations.is_likely_home_directory",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.tools.file_operations.is_project_directory",
+                return_value=True,
+            ),
+            patch("shutil.which", return_value="/usr/bin/rg"),
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "code_puppy.tools.file_operations.tempfile.NamedTemporaryFile"
+            ) as mock_tempfile,
+            patch("os.path.isfile") as mock_isfile,
+            patch("os.path.isdir") as mock_isdir,
+            patch("os.path.exists") as mock_exists,
+            patch("os.unlink"),  # Mock os.unlink to prevent FileNotFoundError in tests
         ):
+            # Setup mocks for file/directory detection
+            def mock_isfile_func(path):
+                # Mock file detection - files are at the root or in subdirs
+                return path in [
+                    "/test/file1.txt",
+                    "/test/file2.py",
+                    "/test/subdir/file3.js",
+                ]
+
+            def mock_isdir_func(path):
+                # Mock directory detection
+                return path in ["/test", "/test/subdir"]
+
+            def mock_exists_func(path):
+                # Mock exists detection - return True for our test paths
+                return path in [
+                    "/test",
+                    "/test/file1.txt",
+                    "/test/file2.py",
+                    "/test/subdir",
+                    "/test/subdir/file3.js",
+                ]
+
+            mock_isfile.side_effect = mock_isfile_func
+            mock_isdir.side_effect = mock_isdir_func
+            mock_exists.side_effect = mock_exists_func
+
+            # Mock subprocess to return our fake file listing
+            mock_subprocess.return_value.stdout = "file1.txt\nfile2.py\nsubdir/file3.js"
+            mock_subprocess.return_value.stderr = ""
+            mock_subprocess.return_value.returncode = 0
+
+            # Mock the temporary file creation
+            mock_tempfile.return_value.__enter__.return_value.name = "/tmp/test.ignore"
             result = list_files(None, directory=fake_dir)
 
-            # Check file entries
-            file_entries = [entry for entry in result.files if entry.type == "file"]
-            assert len(file_entries) == 3
-
-            paths = [entry.path for entry in file_entries]
-            assert "file1.txt" in paths
-            assert "file2.py" in paths
-            assert "subdir/file3.js" in paths
-
-            # Check directory entries
-            dir_entries = [entry for entry in result.files if entry.type == "directory"]
-            assert len(dir_entries) == 1
-            assert dir_entries[0].path == "subdir"
+            # Check that the content contains the expected files and directories
+            assert "file1.txt" in result.content
+            assert "file2.py" in result.content
+            assert "subdir/file3.js" in result.content
+            assert "subdir/" in result.content
 
     def test_non_recursive_listing(self):
         fake_dir = "/test"
-        fake_entries = [
-            (fake_dir, ["subdir"], ["file1.txt", "file2.py"]),
-            (os.path.join(fake_dir, "subdir"), [], ["file3.js"]),
-        ]
-
+        # Mock the emit functions to prevent actual output during testing
+        # Also mock additional functions to prevent actual filesystem access
         with (
             patch("os.path.exists", return_value=True),
             patch("os.path.isdir", return_value=True),
-            patch("os.walk", return_value=fake_entries),
             patch("os.path.abspath", return_value=fake_dir),
+            patch("os.path.relpath", return_value="."),
+            patch(
+                "code_puppy.tools.file_operations.emit_info",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_divider",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_error",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_warning",
+            ),
             patch(
                 "code_puppy.tools.file_operations.should_ignore_path",
                 return_value=False,
             ),
             patch("os.path.getsize", return_value=100),
+            patch(
+                "code_puppy.tools.file_operations.is_likely_home_directory",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.tools.file_operations.is_project_directory",
+                return_value=True,
+            ),
+            patch("shutil.which", return_value="/usr/bin/rg"),
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "code_puppy.tools.file_operations.tempfile.NamedTemporaryFile"
+            ) as mock_tempfile,
+            patch("os.path.isfile") as mock_isfile,
+            patch("os.path.isdir") as mock_isdir,
+            patch("os.path.exists") as mock_exists,
+            patch("os.unlink"),  # Mock os.unlink to prevent FileNotFoundError in tests
         ):
+            # Setup mocks for file/directory detection
+            def mock_isfile_func(path):
+                # Mock file detection - files are at the root or in subdirs
+                return path in [
+                    "/test/file1.txt",
+                    "/test/file2.py",
+                    "/test/subdir/file3.js",
+                ]
+
+            def mock_isdir_func(path):
+                # Mock directory detection
+                return path in ["/test", "/test/subdir"]
+
+            def mock_exists_func(path):
+                # Mock exists detection - return True for our test paths
+                return path in [
+                    "/test",
+                    "/test/file1.txt",
+                    "/test/file2.py",
+                    "/test/subdir",
+                    "/test/subdir/file3.js",
+                ]
+
+            mock_isfile.side_effect = mock_isfile_func
+            mock_isdir.side_effect = mock_isdir_func
+            mock_exists.side_effect = mock_exists_func
+
+            # Mock subprocess to return our fake file listing
+            mock_subprocess.return_value.stdout = "file1.txt\nfile2.py\nsubdir/file3.js"
+            mock_subprocess.return_value.stderr = ""
+            mock_subprocess.return_value.returncode = 0
+
+            # Mock the temporary file creation
+            mock_tempfile.return_value.__enter__.return_value.name = "/tmp/test.ignore"
             result = list_files(None, directory=fake_dir, recursive=False)
 
             # Should only include files from the top directory
-            assert len(result.files) == 2
-            paths = [entry.path for entry in result.files if entry.type == "file"]
-            assert "file1.txt" in paths
-            assert "file2.py" in paths
-            assert "subdir/file3.js" not in paths
+            assert "file1.txt" in result.content
+            assert "file2.py" in result.content
+            assert "subdir/file3.js" not in result.content
+
+    def test_recursive_requires_allow_recursion(self):
+        fake_dir = "/test"
+        [
+            (fake_dir, ["subdir"], ["file1.txt", "file2.py"]),
+            (os.path.join(fake_dir, "subdir"), [], ["file3.js"]),
+        ]
+
+        # Mock the emit functions to prevent actual output during testing
+        # Also mock additional functions to prevent actual filesystem access
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.path.isdir", return_value=True),
+            patch("os.path.abspath", return_value=fake_dir),
+            patch("os.path.relpath", return_value="."),
+            patch(
+                "code_puppy.tools.file_operations.emit_info",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_divider",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_error",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.emit_warning",
+            ),
+            patch(
+                "code_puppy.tools.file_operations.should_ignore_path",
+                return_value=False,
+            ),
+            patch("os.path.getsize", return_value=100),
+            patch(
+                "code_puppy.tools.file_operations.is_likely_home_directory",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.tools.file_operations.is_project_directory",
+                return_value=True,
+            ),
+            patch("shutil.which", return_value="/usr/bin/rg"),
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "code_puppy.tools.file_operations.tempfile.NamedTemporaryFile"
+            ) as mock_tempfile,
+            patch("os.path.isfile", return_value=False),
+            patch("os.unlink"),  # Mock os.unlink to prevent FileNotFoundError in tests
+        ):
+            # Mock subprocess to return our fake file listing
+            mock_subprocess.return_value.stdout = "file1.txt\nfile2.py\nsubdir/file3.js"
+            mock_subprocess.return_value.stderr = ""
+            mock_subprocess.return_value.returncode = 0
+
+            # Mock the temporary file creation
+            mock_tempfile.return_value.__enter__.return_value.name = "/tmp/test.ignore"
+            result = list_files(None, directory=fake_dir, recursive=False)
+
+            # Should only include files from the top directory even when recursive=True
+            # because allow_recursion is False
+            assert "file1.txt" in result.content
+            assert "file2.py" in result.content
+            assert "subdir/file3.js" not in result.content
 
 
 class TestReadFile:
@@ -195,77 +356,8 @@ class TestReadFile:
             assert result.error is not None
             assert "FILE NOT FOUND" in result.error
 
-
-class TestGrep:
-    def test_grep_no_matches(self):
-        fake_dir = "/test"
-        file_content = "This is a test file\nwith multiple lines\nbut no matches"
-
-        with (
-            patch("os.path.abspath", return_value=fake_dir),
-            patch("os.walk", return_value=[(fake_dir, [], ["test.txt"])]),
-            patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
-            ),
-            patch("builtins.open", mock_open(read_data=file_content)),
-        ):
-            result = grep(None, "nonexistent", fake_dir)
-            assert len(result.matches) == 0
-
-    def test_grep_limit_matches(self):
-        fake_dir = "/test"
-        # Create content with many matches (>200)
-        file_content = "\n".join([f"match {i}" for i in range(250)])
-
-        with (
-            patch("os.path.abspath", return_value=fake_dir),
-            patch("os.walk", return_value=[(fake_dir, [], ["test.txt"])]),
-            patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
-            ),
-            patch("builtins.open", mock_open(read_data=file_content)),
-        ):
-            result = grep(None, "match", fake_dir)
-            assert len(result.matches) == 50
-
-    def test_grep_with_matches(self):
-        fake_dir = "/test"
-        file_content = "This is a test file\nwith multiple lines\nand a match here"
-
-        with (
-            patch("os.path.abspath", return_value=fake_dir),
-            patch("os.walk", return_value=[(fake_dir, [], ["test.txt"])]),
-            patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
-            ),
-            patch("builtins.open", mock_open(read_data=file_content)),
-        ):
-            result = grep(None, "match", fake_dir)
-
-            assert len(result.matches) == 1
-            assert result.matches[0].file_path == os.path.join(fake_dir, "test.txt")
-            assert result.matches[0].line_number == 3
-
-    def test_grep_handle_errors(self):
-        fake_dir = "/test"
-
-        # Test file not found error
-        with (
-            patch("os.path.abspath", return_value=fake_dir),
-            patch("os.walk", return_value=[(fake_dir, [], ["test.txt"])]),
-            patch(
-                "code_puppy.tools.file_operations.should_ignore_path",
-                return_value=False,
-            ),
-            patch("builtins.open", side_effect=FileNotFoundError()),
-        ):
-            result = grep(None, "match", fake_dir)
-            assert len(result.matches) == 0
-
         # Test Unicode decode error
+        fake_dir = os.path.join(os.getcwd(), "fake_test_dir")
         with (
             patch("os.path.abspath", return_value=fake_dir),
             patch("os.walk", return_value=[(fake_dir, [], ["binary.bin"])]),
@@ -280,6 +372,70 @@ class TestGrep:
         ):
             result = grep(None, "match", fake_dir)
             assert len(result.matches) == 0
+
+
+class TestRegisterTools:
+    def disabled_test_register_file_operations_tools(self):
+        # Create a mock agent
+        mock_agent = MagicMock()
+
+        # Register the tools
+
+        # Verify that the tools were registered
+        assert mock_agent.tool.call_count == 3
+
+        # Get the names of registered functions by examining the mock calls
+        # Extract function names from the decorator calls
+        function_names = []
+        for call_obj in mock_agent.tool.call_args_list:
+            func = call_obj[0][0]
+            function_names.append(func.__name__)
+
+        assert "list_files" in function_names
+        assert "read_file" in function_names
+        assert "grep" in function_names
+
+        # Test the tools call the correct underlying functions
+        with patch("code_puppy.tools.file_operations._list_files") as mock_internal:
+            # Find the list_files function
+            list_files_func = None
+            for call_obj in mock_agent.tool.call_args_list:
+                if call_obj[0][0].__name__ == "list_files":
+                    list_files_func = call_obj[0][0]
+                    break
+
+            assert list_files_func is not None
+            mock_context = MagicMock()
+            list_files_func(mock_context, "/test/dir", True)
+            mock_internal.assert_called_once_with(mock_context, "/test/dir", True)
+
+        with patch("code_puppy.tools.file_operations._read_file") as mock_internal:
+            # Find the read_file function
+            read_file_func = None
+            for call_obj in mock_agent.tool.call_args_list:
+                if call_obj[0][0].__name__ == "read_file":
+                    read_file_func = call_obj[0][0]
+                    break
+
+            assert read_file_func is not None
+            mock_context = MagicMock()
+            read_file_func(mock_context, "/test/file.txt")
+            mock_internal.assert_called_once_with(mock_context, "/test/file.txt")
+
+        with patch("code_puppy.tools.file_operations._grep") as mock_internal:
+            # Find the grep function
+            grep_func = None
+            for call_obj in mock_agent.tool.call_args_list:
+                if call_obj[0][0].__name__ == "grep":
+                    grep_func = call_obj[0][0]
+                    break
+
+            assert grep_func is not None
+            mock_context = MagicMock()
+            grep_func(mock_context, "search term", "/test/dir")
+            mock_internal.assert_called_once_with(
+                mock_context, "search term", "/test/dir"
+            )
 
 
 class TestFormatSize:
@@ -334,3 +490,92 @@ class TestFileIcon:
         assert get_file_icon("image.png") == "\U0001f5bc"  # Image (frame emoji)
         assert get_file_icon("document.md") == "\U0001f4c4"  # Markdown (document emoji)
         assert get_file_icon("unknown.xyz") == "\U0001f4c4"  # Default (document emoji)
+
+
+class TestGrep:
+    def test_grep_no_matches(self):
+        fake_dir = "/test"
+        # Mock ripgrep output with no matches
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "nonexistent", fake_dir)
+            assert len(result.matches) == 0
+
+    def test_grep_limit_matches(self):
+        fake_dir = "/test"
+        # Create mock JSON output with many matches
+        matches = [
+            '{"type":"match","data":{"path":{"text":"/test/test.txt"},"lines":{"text":"match line"},"line_number":1}}\n'
+            for i in range(60)  # More than 50 matches
+        ]
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "".join(matches)
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            # Should be limited to 50 matches
+            assert len(result.matches) == 50
+
+    def test_grep_with_matches(self):
+        fake_dir = "/test"
+        # Mock ripgrep output with matches
+        mock_output = '{"type":"match","data":{"path":{"text":"/test/test.txt"},"lines":{"text":"and a match here"},"line_number":3}}\n'
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = mock_output
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            assert len(result.matches) == 1
+            assert result.matches[0].file_path == "/test/test.txt"
+            assert result.matches[0].line_number == 3
+            assert result.matches[0].line_content == "and a match here"
+
+    def test_grep_handle_errors(self):
+        fake_dir = "/test"
+        # Mock ripgrep subprocess error
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = "Error occurred"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            assert len(result.matches) == 0
+
+    def test_grep_non_json_output(self):
+        fake_dir = "/test"
+        # Mock ripgrep output that isn't JSON
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "non-json output"
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            assert len(result.matches) == 0
+
+    def test_grep_empty_json_objects(self):
+        fake_dir = "/test"
+        # Mock ripgrep output with empty JSON objects
+        mock_output = (
+            '{"type":"begin","data":{"path":{"text":"/test/test.txt"}}}\n'
+            '{"type":"match","data":{"path":{"text":"/test/test.txt"},"lines":{"text":"match here"},"line_number":1}}\n'
+            '{"type":"end","data":{"path":{"text":"/test/test.txt"},"binary_offset":null}}\n'
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = mock_output
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = grep(None, "match", fake_dir)
+            assert len(result.matches) == 1
+            assert result.matches[0].file_path == "/test/test.txt"

@@ -24,11 +24,19 @@ from code_puppy.tools.common import console
 
 def load_puppy_rules():
     global PUPPY_RULES
-    puppy_rules_path = Path("AGENT.md")
-    if puppy_rules_path.exists():
-        with open(puppy_rules_path, "r") as f:
-            puppy_rules = f.read()
-            return puppy_rules
+    
+    # Check for all 4 combinations of the rules file
+    possible_paths = ["AGENTS.md", "AGENT.md", "agents.md", "agent.md"]
+    
+    for path_str in possible_paths:
+        puppy_rules_path = Path(path_str)
+        if puppy_rules_path.exists():
+            with open(puppy_rules_path, "r") as f:
+                puppy_rules = f.read()
+                return puppy_rules
+    
+    # If none of the files exist, return None
+    return None
 
 
 # Load at import
@@ -150,7 +158,7 @@ def reload_code_generation_agent(message_group: str | None):
 
     # Configure model settings with max_tokens if set
     model_settings_dict = {"seed": 42}
-    output_tokens = min(int(0.05 * get_model_context_length()) - 1024, 16384)
+    output_tokens = max(2048, min(int(0.05 * get_model_context_length()) - 1024, 16384))
     console.print(f"Max output tokens per message: {output_tokens}")
     model_settings_dict["max_tokens"] = output_tokens
 
@@ -193,8 +201,9 @@ def get_code_generation_agent(force_reload=False, message_group: str | None = No
 
 def get_custom_usage_limits():
     """
-    Returns custom usage limits with increased request limit of 100 requests per minute.
+    Returns custom usage limits with configurable request limit.
     This centralizes the configuration of rate limiting for the agent.
-    Default pydantic-ai limit is 50, this increases it to 100.
+    Default pydantic-ai limit is 50, this increases it to the configured value (default 100).
     """
-    return UsageLimits(request_limit=100)
+    from code_puppy.config import get_message_limit
+    return UsageLimits(request_limit=get_message_limit())

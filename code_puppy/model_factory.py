@@ -18,6 +18,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from . import callbacks
 from .config import EXTRA_MODELS_FILE
 from .http_utils import create_async_client
+from .round_robin_model import RoundRobinModel
 
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
@@ -246,5 +247,27 @@ class ModelFactory:
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
+
+        elif model_type == "round_robin":
+            # Get the list of model names to use in the round-robin
+            model_names = model_config.get("models")
+            if not model_names or not isinstance(model_names, list):
+                raise ValueError(
+                    f"Round-robin model '{model_name}' requires a 'models' list in its configuration."
+                )
+
+            # Get the rotate_every parameter (default: 1)
+            rotate_every = model_config.get("rotate_every", 1)
+
+            # Resolve each model name to an actual model instance
+            models = []
+            for name in model_names:
+                # Recursively get each model using the factory
+                model = ModelFactory.get_model(name, config)
+                models.append(model)
+
+            # Create and return the round-robin model
+            return RoundRobinModel(*models, rotate_every=rotate_every)
+
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
