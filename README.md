@@ -91,7 +91,7 @@ Watch this video for examples! https://www.youtube.com/watch?v=1t1zEetOqlo
 Code Puppy supports **Round Robin model distribution** to help you overcome rate limits and distribute load across multiple AI models. This feature automatically cycles through configured models with each request, maximizing your API usage while staying within rate limits.
 
 ### Configuration
-Add a round-robin model configuration to your `extra_models.json` file:
+Add a round-robin model configuration to your `~/.code_puppy/extra_models.json` file:
 
 ```bash
 export CEREBRAS_API_KEY1=csk-...
