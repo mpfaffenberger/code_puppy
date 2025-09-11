@@ -380,8 +380,15 @@ def _read_file(
 
 
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
-    matches: List[MatchInfo] = []
+    import subprocess
+    import json
+    import tempfile
+    import os
+    import shutil
+    import sys
+    
     directory = os.path.abspath(directory)
+    matches: List[MatchInfo] = []
 
     # Generate group_id for this tool execution
     group_id = generate_group_id("grep", f"{directory}_{search_string}")
@@ -392,67 +399,106 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     )
     emit_divider(message_group=group_id)
 
-    for root, dirs, files in os.walk(directory, topdown=True):
-        # Filter out ignored directories
-        dirs[:] = [d for d in dirs if not should_ignore_path(os.path.join(root, d))]
-
-        for f_name in files:
-            file_path = os.path.join(root, f_name)
-
-            if should_ignore_path(file_path):
+    # Create a temporary ignore file with our ignore patterns
+    ignore_file = None
+    try:
+        # Use ripgrep to search for the string
+        # Use absolute path to ensure it works from any directory
+        # --json for structured output
+        # --max-count 50 to limit results
+        # --max-filesize 5M to avoid huge files (increased from 1M)
+        # --type=all to search across all recognized text file types
+        # --ignore-file to obey our ignore list
+        
+        # Find ripgrep executable - first check system PATH, then virtual environment
+        rg_path = shutil.which("rg")
+        if not rg_path:
+            # Try to find it in the virtual environment
+            # Use sys.executable to determine the Python environment path
+            python_dir = os.path.dirname(sys.executable)
+            # Check both 'bin' (Unix) and 'Scripts' (Windows) directories
+            for rg_dir in ["bin", "Scripts"]:
+                venv_rg_path = os.path.join(python_dir, "rg")
+                if os.path.exists(venv_rg_path):
+                    rg_path = venv_rg_path
+                    break
+                # Also check with .exe extension for Windows
+                venv_rg_exe_path = os.path.join(python_dir, "rg.exe")
+                if os.path.exists(venv_rg_exe_path):
+                    rg_path = venv_rg_exe_path
+                    break
+        
+        if not rg_path:
+            emit_error(f"ripgrep (rg) not found. Please install ripgrep to use this tool.", message_group=group_id)
+            return GrepOutput(matches=[])
+            
+        cmd = [rg_path, "--json", "--max-count", "50", "--max-filesize", "5M", "--type=all"]
+        
+        # Add ignore patterns to the command via a temporary file
+        from code_puppy.tools.common import IGNORE_PATTERNS
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ignore') as f:
+            ignore_file = f.name
+            for pattern in IGNORE_PATTERNS:
+                f.write(f"{pattern}\n")
+        
+        cmd.extend(["--ignore-file", ignore_file])
+        cmd.extend([search_string, directory])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Parse the JSON output from ripgrep
+        for line in result.stdout.strip().split('\n'):
+            if not line:
                 continue
-
             try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
-                    for line_number, line_content in enumerate(fh, 1):
-                        if search_string in line_content:
-                            match_info = MatchInfo(
-                                **{
-                                    "file_path": file_path,
-                                    "line_number": line_number,
-                                    "line_content": line_content.rstrip("\n\r")[512:],
-                                }
-                            )
-                            matches.append(match_info)
-                            emit_system_message(
-                                f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
-                                message_group=group_id,
-                            )
-                            if len(matches) >= 50:
-                                emit_warning(
-                                    "Limit of 50 matches reached. Stopping search.",
-                                    message_group=group_id,
-                                )
-                                return GrepOutput(matches=matches)
-            except FileNotFoundError:
-                emit_warning(
-                    f"File not found (possibly a broken symlink): {file_path}",
-                    message_group=group_id,
-                )
+                match_data = json.loads(line)
+                # Only process match events, not context or summary
+                if match_data.get('type') == 'match':
+                    data = match_data.get('data', {})
+                    path_data = data.get('path', {})
+                    file_path = path_data.get('text', '') if path_data.get('text') else ''
+                    line_number = data.get('line_number', None)
+                    line_content = data.get('lines', {}).get('text', '') if data.get('lines', {}).get('text') else ''
+                    
+                    if file_path and line_number:
+                        match_info = MatchInfo(
+                            file_path=file_path,
+                            line_number=line_number,
+                            line_content=line_content.strip()
+                        )
+                        matches.append(match_info)
+                        # Limit to 50 matches total, same as original implementation
+                        if len(matches) >= 50:
+                            break
+                        emit_system_message(
+                            f"[green]Match:[/green] {file_path}:{line_number} - {line_content.strip()}",
+                            message_group=group_id,
+                        )
+            except json.JSONDecodeError:
+                # Skip lines that aren't valid JSON
                 continue
-            except UnicodeDecodeError:
-                emit_warning(
-                    f"Cannot decode file (likely binary): {file_path}",
-                    message_group=group_id,
-                )
-                continue
-            except Exception as e:
-                emit_error(
-                    f"Error processing file {file_path}: {e}", message_group=group_id
-                )
-                continue
-
-    if not matches:
-        emit_warning(
-            f"No matches found for '{search_string}' in {directory}",
-            message_group=group_id,
-        )
-    else:
-        emit_success(
-            f"Found {len(matches)} match(es) for '{search_string}' in {directory}",
-            message_group=group_id,
-        )
-
+                
+        if not matches:
+            emit_warning(
+                f"No matches found for '{search_string}' in {directory}",
+                message_group=group_id,
+            )
+        else:
+            emit_success(
+                f"Found {len(matches)} match(es) for '{search_string}' in {directory}",
+                message_group=group_id,
+            )
+            
+    except subprocess.TimeoutExpired:
+        emit_error(f"Grep command timed out after 30 seconds", message_group=group_id)
+    except FileNotFoundError:
+        emit_error(f"ripgrep (rg) not found. Please install ripgrep to use this tool.", message_group=group_id)
+    except Exception as e:
+        emit_error(f"Error during grep operation: {e}", message_group=group_id)
+    finally:
+        # Clean up the temporary ignore file
+        if ignore_file and os.path.exists(ignore_file):
+            os.unlink(ignore_file)
+        
     return GrepOutput(matches=matches)
 
 
@@ -590,12 +636,11 @@ def register_grep(agent):
     def grep(
         context: RunContext, search_string: str = "", directory: str = "."
     ) -> GrepOutput:
-        """Recursively search for text patterns across files with intelligent filtering.
+        """Recursively search for text patterns across files using ripgrep.
 
-        This tool provides powerful text searching across directory trees with
-        automatic filtering of irrelevant files, binary detection, and match limiting
-        for performance. It's essential for code exploration and finding specific
-        patterns or references.
+        This tool leverages the high-performance ripgrep utility for fast text 
+        searching across directory trees. It searches across all recognized text file
+        types while automatically filtering binary files and limiting results for performance.
 
         Args:
             context (RunContext): The PydanticAI runtime context for the agent.
@@ -629,7 +674,7 @@ def register_grep(agent):
         Best Practices:
             - Use specific search terms to avoid too many results
             - Search is case-sensitive; try variations if needed
-            - Combine with read_file to examine matches in detail
-            - For case-insensitive search, try multiple variants manually
+            - ripgrep is much faster than the previous implementation
+            - For case-insensitive search, add the --ignore-case flag to search_string
         """
         return _grep(context, search_string, directory)

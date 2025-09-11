@@ -32,7 +32,7 @@ dependencies = [
     "termcolor>=3.1.0",
     "textual-dev>=1.7.0",
     "openai>=1.99.1",
-
+    "ripgrep>=14.1.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
