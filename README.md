@@ -51,37 +51,6 @@ export AZURE_OPENAI_ENDPOINT=...
 
 code-puppy --interactive
 ```
-Running in a super weird corporate environment? 
-
-Try this:
-```bash
-export MODEL_NAME=my-custom-model
-export YOLO_MODE=true
-export MODELS_JSON_PATH=/path/to/custom/models.json
-```
-
-```json
-{
-    "my-custom-model": {
-        "type": "custom_openai",
-        "name": "o4-mini-high",
-        "max_requests_per_minute": 100,
-        "max_retries": 3,
-        "retry_base_delay": 10,
-        "custom_endpoint": {
-            "url": "https://my.custom.endpoint:8080",
-            "headers": {
-                "X-Api-Key": "<Your_API_Key>",
-                "Some-Other-Header": "<Some_Value>"
-            },
-            "ca_certs_path": "/path/to/cert.pem"
-        }
-    }
-}
-```
-Note that the `OPENAI_API_KEY` or `CEREBRAS_API_KEY` env variable must be set when using `custom_openai` endpoints.
-
-Open an issue if your environment is somehow weirder than mine.
 
 Run specific tasks or engage in interactive mode:
 
@@ -92,7 +61,7 @@ code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it 
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.11+
 - OpenAI API key (for GPT models)
 - Gemini API key (for Google's Gemini models)
 - Cerebras API key (for Cerebras models)
@@ -110,43 +79,12 @@ For examples and more information about agent rules, visit [https://agent.md](ht
 
 ## Using MCP Servers for External Tools
 
-Code Puppy supports **MCP (Model Context Protocol) servers** to give you access to external code tools and advanced features like code search, documentation lookups, and more—including Context7 (https://context7.com/) integration for deep docs and search!
+Use the `/mcp` command to manage MCP (list, start, stop, status, etc.)
 
-### What is an MCP Server?
-An MCP server is a standalone process (can be local or remote) that offers specialized functionality (plugins, doc search, code analysis, etc.). Code Puppy can connect to one or more MCP servers at startup, unlocking these extra commands inside your coding agent.
+In the TUI you can click on MCP settings on the footer and interact with a mini-marketplace.
 
-### Configuration
-Create a config file at `~/.code_puppy/mcp_servers.json`. Here’s an example that connects to a local Context7 MCP server:
+Watch this video for examples! https://www.youtube.com/watch?v=1t1zEetOqlo
 
-```json
-{
-  "mcp_servers": {
-     "context7": { 
-        "url": "https://mcp.context7.com/sse"
-     }
-  }
-}
-```
-
-You can list multiple objects (one per server).
-
-### How to Use
-- Drop the config file in `~/.code_puppy/mcp_servers.json`.
-- Start your MCP (like context7, or anything compatible).
-- Run Code Puppy as usual. It’ll discover and use all configured MCP servers.
-
-#### Example usage
-```bash
-code-puppy --interactive
-# Then ask: Use context7 to look up FastAPI docs!
-```
-
-That’s it!
-If you need to run more exotic setups or connect to remote MCPs, just update your `mcp_servers.json` accordingly.
-
-**NOTE:** Want to add your own server or tool? Just follow the config pattern above—no code changes needed!
-
----
 
 ## Round Robin Model Distribution
 
@@ -202,14 +140,6 @@ export CEREBRAS_API_KEY3=csk-...
 Then just use /model and tab to select your round-robin model!
 
 The `rotate_every` parameter controls how many requests are made to each model before rotating to the next one. In this example, the round-robin model will use each Qwen model for 5 consecutive requests before moving to the next model in the sequence.
-
-### Benefits
-- **Rate Limit Protection**: Automatically distribute requests across multiple models
-- **Load Balancing**: Share workload between different model providers
-- **Fallback Resilience**: Continue working even if one model has temporary issues
-- **Cost Optimization**: Use different models for different types of tasks
-
-**NOTE:** Unlike fallback models, round-robin models distribute load but don't automatically retry with another model on failure. If a request fails, it will raise the exception directly.
 
 ---
 
