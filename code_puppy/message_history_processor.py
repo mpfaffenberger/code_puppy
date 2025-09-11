@@ -31,7 +31,7 @@ def estimate_token_count(text: str) -> int:
     Simple token estimation using len(message) - 4.
     This replaces tiktoken with a much simpler approach.
     """
-    return max(1, len(text) - 4)
+    return int(max(1, len(text)) / 4)
 
 
 def stringify_message_part(part) -> str:
@@ -86,7 +86,7 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
         if part_str:
             total_tokens += estimate_token_count(part_str)
 
-    return max(1, total_tokens)
+    return int(max(1, total_tokens) / 4)
 
 
 def filter_huge_messages(messages: List[ModelMessage]) -> List[ModelMessage]:

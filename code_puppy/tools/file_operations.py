@@ -1,6 +1,7 @@
 # file_operations.py
 
 import os
+import tempfile
 from typing import List
 
 from pydantic import BaseModel, conint
@@ -46,7 +47,7 @@ class ListedFile(BaseModel):
 
 
 class ListFileOutput(BaseModel):
-    files: List[ListedFile]
+    content: str
     error: str | None = None
 
 
@@ -133,44 +134,40 @@ def _list_files(
     results = []
     directory = os.path.abspath(directory)
 
-    # Generate group_id for this tool execution
-    group_id = generate_group_id("list_files", directory)
-
-    emit_info(
-        "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]",
-        message_group=group_id,
-    )
-    emit_info(
-        f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]\n",
-        message_group=group_id,
-    )
-    emit_divider(message_group=group_id)
+    # Build string representation
+    output_lines = []
+    
+    directory_listing_header = "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]"
+    output_lines.append(directory_listing_header)
+    
+    directory_info = f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]\n"
+    output_lines.append(directory_info)
+    
+    divider = "[dim]" + "─" * 100 + "\n" + "[/dim]"
+    output_lines.append(divider)
     
     if not os.path.exists(directory):
-        emit_error(f"Directory '{directory}' does not exist", message_group=group_id)
-        emit_divider(message_group=group_id)
-        return ListFileOutput(
-            files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
-        )
+        error_msg = f"[red bold]Error:[/red bold] Directory '{directory}' does not exist"
+        output_lines.append(error_msg)
+        
+        output_lines.append(divider)
+        return ListFileOutput(content="\n".join(output_lines))
     if not os.path.isdir(directory):
-        emit_error(f"'{directory}' is not a directory", message_group=group_id)
-        emit_divider(message_group=group_id)
-        return ListFileOutput(
-            files=[ListedFile(path=None, type=None, full_path=None, depth=None)]
-        )
+        error_msg = f"[red bold]Error:[/red bold] '{directory}' is not a directory"
+        output_lines.append(error_msg)
+        
+        output_lines.append(divider)
+        return ListFileOutput(content="\n".join(output_lines))
 
     # Smart home directory detection - auto-limit recursion for performance
     # But allow recursion in tests (when context=None) or when explicitly requested
     if context is not None and is_likely_home_directory(directory) and recursive:
         if not is_project_directory(directory):
-            emit_warning(
-                "🏠 Detected home directory - limiting to non-recursive listing for performance",
-                message_group=group_id,
-            )
-            emit_info(
-                f"💡 To force recursive listing in home directory, use list_files('{directory}', recursive=True) explicitly",
-                message_group=group_id,
-            )
+            warning_msg = "[yellow bold]Warning:[/yellow bold] 🏠 Detected home directory - limiting to non-recursive listing for performance"
+            output_lines.append(warning_msg)
+            
+            info_msg = f"[dim]💡 To force recursive listing in home directory, use list_files('{directory}', recursive=True) explicitly[/dim]"
+            output_lines.append(info_msg)
             recursive = False
             
     # Create a temporary ignore file with our ignore patterns
@@ -195,8 +192,9 @@ def _list_files(
                     break
         
         if not rg_path:
-            emit_error(f"ripgrep (rg) not found. Please install ripgrep to use this tool.", message_group=group_id)
-            return ListFileOutput(files=[])
+            error_msg = f"[red bold]Error:[/red bold] ripgrep (rg) not found. Please install ripgrep to use this tool."
+            output_lines.append(error_msg)
+            return ListFileOutput(content="\n".join(output_lines))
             
         # Build command for ripgrep --files
         cmd = [rg_path, "--files"]
@@ -236,52 +234,70 @@ def _list_files(
             if not recursive and os.sep in file_path:
                 continue
                 
+            # Check if path is a file or directory
+            if os.path.isfile(full_path):
+                entry_type = "file"
+                size = os.path.getsize(full_path)
+            elif os.path.isdir(full_path):
+                entry_type = "directory"
+                size = 0
+            else:
+                # Skip if it's neither a file nor directory
+                continue
+                
             try:
-                # Get file stats
+                # Get stats for the entry
                 stat_info = os.stat(full_path)
-                size = stat_info.st_size
+                actual_size = stat_info.st_size
+                
+                # For files, we use the actual size; for directories, we keep size=0
+                if entry_type == "file":
+                    size = actual_size
                 
                 # Calculate depth
                 depth = file_path.count(os.sep)
                 
-                # Add directory entries if needed
-                dir_path = os.path.dirname(file_path)
-                if dir_path:
-                    # Add directory path components if they don't exist
-                    path_parts = dir_path.split(os.sep)
-                    for i in range(len(path_parts)):
-                        partial_path = os.sep.join(path_parts[:i+1])
-                        # Check if we already added this directory
-                        if not any(f.path == partial_path and f.type == "directory" for f in results):
-                            results.append(
-                                ListedFile(
-                                    path=partial_path,
-                                    type="directory",
-                                    size=0,
-                                    full_path=partial_path,
-                                    depth=i+1,
+                # Add directory entries if needed for files
+                if entry_type == "file":
+                    dir_path = os.path.dirname(file_path)
+                    if dir_path:
+                        # Add directory path components if they don't exist
+                        path_parts = dir_path.split(os.sep)
+                        for i in range(len(path_parts)):
+                            partial_path = os.sep.join(path_parts[:i+1])
+                            # Check if we already added this directory
+                            if not any(f.path == partial_path and f.type == "directory" for f in results):
+                                results.append(
+                                    ListedFile(
+                                        path=partial_path,
+                                        type="directory",
+                                        size=0,
+                                        full_path=os.path.join(directory, partial_path),
+                                        depth=partial_path.count(os.sep),
+                                    )
                                 )
-                            )
                 
-                # Add file entry
+                # Add the entry (file or directory)
                 results.append(
                     ListedFile(
                         path=file_path,
-                        type="file",
+                        type=entry_type,
                         size=size,
-                        full_path=file_path,
-                        depth=depth+1 if os.sep in file_path else 0,
+                        full_path=full_path,
+                        depth=depth,
                     )
                 )
             except (FileNotFoundError, PermissionError, OSError):
                 # Skip files we can't access
                 continue
     except subprocess.TimeoutExpired:
-        emit_error(f"List files command timed out after 30 seconds", message_group=group_id)
-        return ListFileOutput(files=[])
+        error_msg = f"[red bold]Error:[/red bold] List files command timed out after 30 seconds"
+        output_lines.append(error_msg)
+        return ListFileOutput(content="\n".join(output_lines))
     except Exception as e:
-        emit_error(f"Error during list files operation: {e}", message_group=group_id)
-        return ListFileOutput(files=[])
+        error_msg = f"[red bold]Error:[/red bold] Error during list files operation: {e}"
+        output_lines.append(error_msg)
+        return ListFileOutput(content="\n".join(output_lines))
     finally:
         # Clean up the temporary ignore file
         if ignore_file and os.path.exists(ignore_file):
@@ -326,20 +342,31 @@ def _list_files(
         else:
             return "\U0001f4c4"
 
-    if results:
-        files = sorted([f for f in results if f.type == "file"], key=lambda x: x.path)
-        emit_info(
-            f"\U0001f4c1 [bold blue]{os.path.basename(directory) or directory}[/bold blue]",
-            message_group=group_id,
-        )
+    dir_count = sum(1 for item in results if item.type == "directory")
+    file_count = sum(1 for item in results if item.type == "file")
+    total_size = sum(item.size for item in results if item.type == "file")
+    
+    # Build the directory header section
+    dir_name = os.path.basename(directory) or directory
+    dir_header = f"\U0001f4c1 [bold blue]{dir_name}[/bold blue]"
+    output_lines.append(dir_header)
+    
+    # Sort all items by path for consistent display
     all_items = sorted(results, key=lambda x: x.path)
+    
+    # Build file and directory tree representation
     parent_dirs_with_content = set()
-    for i, item in enumerate(all_items):
+    for item in all_items:
+        # Skip root directory entries with no path
         if item.type == "directory" and not item.path:
             continue
+        
+        # Track parent directories that contain files/dirs
         if os.sep in item.path:
             parent_path = os.path.dirname(item.path)
             parent_dirs_with_content.add(parent_path)
+            
+        # Calculate indentation depth based on path separators
         depth = item.path.count(os.sep) + 1 if item.path else 0
         prefix = ""
         for d in range(depth):
@@ -347,29 +374,32 @@ def _list_files(
                 prefix += "\u2514\u2500\u2500 "
             else:
                 prefix += "    "
+                
+        # Get the display name (basename) of the item
         name = os.path.basename(item.path) or item.path
+        
+        # Add directory or file line with appropriate formatting
         if item.type == "directory":
-            emit_info(
-                f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]",
-                message_group=group_id,
-            )
+            dir_line = f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]"
+            output_lines.append(dir_line)
         else:
             icon = get_file_icon(item.path)
             size_str = format_size(item.size)
-            emit_info(
-                f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]",
-                message_group=group_id,
-            )
-    dir_count = sum(1 for item in results if item.type == "directory")
-    file_count = sum(1 for item in results if item.type == "file")
-    total_size = sum(item.size for item in results if item.type == "file")
-    emit_info("\n[bold cyan]Summary:[/bold cyan]", message_group=group_id)
-    emit_info(
-        f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]",
-        message_group=group_id,
-    )
-    emit_divider(message_group=group_id)
-    return ListFileOutput(files=results)
+            file_line = f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]"
+            output_lines.append(file_line)
+    
+    # Add summary information
+    summary_header = "\n[bold cyan]Summary:[/bold cyan]"
+    output_lines.append(summary_header)
+    
+    summary_line = f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]"
+    output_lines.append(summary_line)
+    
+    final_divider = "[dim]" + "─" * 100 + "\n" + "[/dim]"
+    output_lines.append(final_divider)
+    
+    # Return both the content string and the list of ListedFile objects
+    return ListFileOutput(content="\n".join(output_lines), files=results)
 
 
 def _read_file(
@@ -581,25 +611,18 @@ def register_list_files(agent):
                 Defaults to True.
 
         Returns:
-            ListFileOutput: A structured response containing:
-                - files (List[ListedFile]): List of files and directories found, where
-                  each ListedFile contains:
-                  - path (str | None): Relative path from the listing directory
-                  - type (str | None): "file" or "directory"
-                  - size (int): File size in bytes (0 for directories)
-                  - full_path (str | None): Relative path from the listing directory
-                  - depth (int | None): Nesting depth from the root directory
+            ListFileOutput: A response containing:
+                - content (str): String representation of the directory listing
                 - error (str | None): Error message if listing failed
 
         Examples:
             >>> # List current directory
             >>> result = list_files(ctx)
-            >>> for file in result.files:
-            ...     print(f"{file.type}: {file.path} ({file.size} bytes)")
+            >>> print(result.content)
 
             >>> # List specific directory non-recursively
             >>> result = list_files(ctx, "/path/to/project", recursive=False)
-            >>> print(f"Found {len(result.files)} items")
+            >>> print(result.content)
 
             >>> # Handle potential errors
             >>> result = list_files(ctx, "/nonexistent/path")
