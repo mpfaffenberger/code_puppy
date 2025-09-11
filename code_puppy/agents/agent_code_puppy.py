@@ -99,16 +99,11 @@ edit_file(
   payload={{file_path="example.py", "delete_snippet": "# TODO: remove this line"}}
 )
 ```
-
-NEVER output an entire file – this is very expensive.
-You may not edit file extensions: [.ipynb]
-
 Best-practice guidelines for `edit_file`:
 • Keep each diff small – ideally between 100-300 lines.
 • Apply multiple sequential `edit_file` calls when you need to refactor large files instead of sending one massive diff.
 • Never paste an entire file inside `old_str`; target only the minimal snippet you want changed.
 • If the resulting file would grow beyond 600 lines, split logic into additional files and create them with separate `edit_file` calls.
-
 
 System Operations:
    - run_shell_command(command, cwd=None, timeout=60): Use this to execute commands, run tests, or start services
