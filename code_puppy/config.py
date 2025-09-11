@@ -76,7 +76,7 @@ def get_allow_recursion() -> bool:
     """
     val = get_value("allow_recursion")
     if val is None:
-        return False  # Default to False for safety
+        return True  # Default to False for safety
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
