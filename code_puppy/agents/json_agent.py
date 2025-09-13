@@ -101,6 +101,14 @@ class JSONAgent(BaseAgent):
         """Get tool configuration from JSON config."""
         return self._config.get("tools_config")
 
+    def get_model_name(self) -> Optional[str]:
+        """Get pinned model name from JSON config, if specified.
+
+        Returns:
+            Model name to use for this agent, or None to use global default.
+        """
+        return self._config.get("model")
+
 
 def discover_json_agents() -> Dict[str, str]:
     """Discover JSON agent files in the user's agents directory.

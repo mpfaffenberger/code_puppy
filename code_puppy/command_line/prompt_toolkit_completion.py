@@ -139,11 +139,27 @@ def get_prompt_with_active_model(base: str = ">>> "):
     from code_puppy.agents.agent_manager import get_current_agent_config
 
     puppy = get_puppy_name()
-    model = get_active_model() or "(default)"
+    global_model = get_active_model() or "(default)"
 
     # Get current agent information
     current_agent = get_current_agent_config()
     agent_display = current_agent.display_name if current_agent else "code-puppy"
+
+    # Check if current agent has a pinned model
+    agent_model = None
+    if current_agent and hasattr(current_agent, 'get_model_name'):
+        agent_model = current_agent.get_model_name()
+    
+    # Determine which model to display
+    if agent_model and agent_model != global_model:
+        # Show both models when they differ
+        model_display = f"[{global_model} → {agent_model}]"
+    elif agent_model:
+        # Show only the agent model when pinned
+        model_display = f"[{agent_model}]"
+    else:
+        # Show only the global model when no agent model is pinned
+        model_display = f"[{global_model}]"
 
     cwd = os.getcwd()
     home = os.path.expanduser("~")
@@ -157,7 +173,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
             ("class:puppy", f"{puppy}"),
             ("", " "),
             ("class:agent", f"[{agent_display}] "),
-            ("class:model", "[" + str(model) + "] "),
+            ("class:model", model_display + " "),
             ("class:cwd", "(" + str(cwd_display) + ") "),
             ("class:arrow", str(base)),
         ]

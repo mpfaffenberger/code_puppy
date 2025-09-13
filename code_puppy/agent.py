@@ -134,7 +134,15 @@ def reload_code_generation_agent(message_group: str | None):
     clear_model_cache()
     clear_agent_cache()
 
-    model_name = get_model_name()
+    # Check if current agent has a pinned model
+    from code_puppy.agents import get_current_agent_config
+    agent_config = get_current_agent_config()
+    agent_model_name = None
+    if hasattr(agent_config, 'get_model_name'):
+        agent_model_name = agent_config.get_model_name()
+    
+    # Use agent-specific model if pinned, otherwise use global model
+    model_name = agent_model_name if agent_model_name else get_model_name()
     emit_info(
         f"[bold cyan]Loading Model: {model_name}[/bold cyan]",
         message_group=message_group,
@@ -193,7 +201,19 @@ def get_code_generation_agent(force_reload=False, message_group: str | None = No
         message_group = str(uuid.uuid4())
     from code_puppy.config import get_model_name
 
-    model_name = get_model_name()
+    # Get the global model name
+    global_model_name = get_model_name()
+    
+    # Check if current agent has a pinned model
+    from code_puppy.agents import get_current_agent_config
+    agent_config = get_current_agent_config()
+    agent_model_name = None
+    if hasattr(agent_config, 'get_model_name'):
+        agent_model_name = agent_config.get_model_name()
+    
+    # Use agent-specific model if pinned, otherwise use global model
+    model_name = agent_model_name if agent_model_name else global_model_name
+    
     if _code_generation_agent is None or _LAST_MODEL_NAME != model_name or force_reload:
         return reload_code_generation_agent(message_group)
     return _code_generation_agent
