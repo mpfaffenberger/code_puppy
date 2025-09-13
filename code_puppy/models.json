@@ -87,12 +87,6 @@
     },
     "context_length": 64000
   },
-  "openrouter": {
-    "type": "openrouter",
-    "name": "meta-llama/llama-4-maverick:free",
-    "api_key": "$OPENROUTER_API_KEY",
-    "context_length": 131072
-  },
   "azure-gpt-4.1": {
     "type": "azure_openai",
     "name": "gpt-4.1",
