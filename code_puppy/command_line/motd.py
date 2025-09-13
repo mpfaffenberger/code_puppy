@@ -14,6 +14,7 @@ MOTD_MESSAGE = """
 
 - `/mcp install` now works correctly in --interactive mode
 - Fixed a flea where sometimes an orphaned tool call would interrupt an agentic flow
+- Fixed a flea where swapping models was resetting conversation history
 - The list_files tool will now truncate its result after the first 50,000 tokens as well as include a warning message back to the LLM instructing it to non-recursively list
 - The grep tool now truncates each result after the first 512 characters
 
@@ -23,8 +24,12 @@ Both of the latter two changes are meant to protect the context from getting ove
     - An architect or planner agent could invoke a specialized agent to handle a specific task
 - Added a new tool allowing an agent to list available sub-agent
     - So that agents know what other agents are available to invoke
-
 - Increased the speed of the <puppy is thinking> spinner by 100%
+- Added the ability to pin a model to a sub agent
+    - example: `/pin_model java-architect gpt-5`
+    - This will make the java-architect always use gpt-5 even if the global model is set to something else
+    - You will see a prompt that has [global-model → pinned-model] in the prompt when a pinned model is overriding the global one
+        - 🐶 Biscuit [Java Architect ☕] [claude-4-0-sonnet → gpt-5] (~/code/code-puppy) >>>
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 
