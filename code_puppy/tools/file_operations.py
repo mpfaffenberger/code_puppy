@@ -20,22 +20,6 @@ from code_puppy.messaging import (
 )
 from code_puppy.tools.common import generate_group_id
 
-# Add token checking functionality
-try:
-    from code_puppy.token_utils import get_tokenizer
-    from code_puppy.tools.token_check import token_guard
-except ImportError:
-    # Fallback for when token checking modules aren't available
-    def get_tokenizer():
-        # Simple token estimation - no longer using tiktoken
-        return None
-
-    def token_guard(num_tokens):
-        if num_tokens > 10000:
-            raise ValueError(
-                f"Token count {num_tokens} exceeds safety limit of 10,000 tokens"
-            )
-
 
 # Pydantic models for tool return types
 class ListedFile(BaseModel):
