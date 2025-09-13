@@ -14,6 +14,7 @@ from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from . import callbacks
 from .config import EXTRA_MODELS_FILE
@@ -243,6 +244,34 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = CerebrasProvider(**provider_args)
+
+            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            setattr(model, "provider", provider)
+            return model
+
+        elif model_type == "openrouter":
+            # Get API key from config, which can be an environment variable reference or raw value
+            api_key_config = model_config.get("api_key")
+            api_key = None
+
+            if api_key_config:
+                if api_key_config.startswith("$"):
+                    # It's an environment variable reference
+                    env_var_name = api_key_config[1:]  # Remove the $ prefix
+                    api_key = os.environ.get(env_var_name)
+                    if api_key is None:
+                        raise ValueError(
+                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty. "
+                            f"Please set the environment variable: export {env_var_name}=your_value"
+                        )
+                else:
+                    # It's a raw API key value
+                    api_key = api_key_config
+            else:
+                # No API key in config, try to get it from the default environment variable
+                api_key = os.environ.get("OPENROUTER_API_KEY")
+
+            provider = OpenRouterProvider(api_key=api_key)
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)

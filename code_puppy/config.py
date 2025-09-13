@@ -110,6 +110,8 @@ def get_config_keys():
         "yolo_mode",
         "model",
         "compaction_strategy",
+        "protected_token_count",
+        "compaction_threshold",
         "message_limit",
         "allow_recursion",
     ]
