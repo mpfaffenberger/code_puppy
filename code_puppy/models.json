@@ -1,4 +1,30 @@
 {
+  "openrouter-sonoma-dusk-alpha": {
+    "type": "custom_openai",
+    "name": "openrouter/sonoma-dusk-alpha",
+    "custom_endpoint": {
+      "url": "https://openrouter.ai/api/v1",
+      "api_key": "$OPENROUTER_API_KEY",
+      "headers": {
+        "HTTP-Referer": "https://github.com/mpfaffenberger/code_puppy",
+        "X-Title": "Code Puppy"
+      }
+    },
+    "context_length": 2000000
+  },
+  "openrouter-sonoma-sky-alpha": {
+    "type": "custom_openai",
+    "name": "openrouter/sonoma-sky-alpha",
+    "custom_endpoint": {
+      "url": "https://openrouter.ai/api/v1",
+      "api_key": "$OPENROUTER_API_KEY",
+      "headers": {
+        "HTTP-Referer": "https://github.com/mpfaffenberger/code_puppy",
+        "X-Title": "Code Puppy"
+      }
+    },
+    "context_length": 2000000
+  },
   "gpt-5": {
     "type": "openai",
     "name": "gpt-5",

@@ -27,7 +27,7 @@ from pydantic_ai import Agent
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
-from code_puppy.messaging.message_queue import emit_info, emit_warning
+from code_puppy.messaging.message_queue import emit_info
 
 
 class RuntimeAgentManager:
@@ -113,7 +113,10 @@ class RuntimeAgentManager:
                     return await agent.run(prompt, usage_limits=usage_limits, **kwargs)
             except* UsageLimitExceeded as ule:
                 emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
-                emit_info("The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.", group_id=group_id)
+                emit_info(
+                    "The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.",
+                    group_id=group_id,
+                )
             except* mcp.shared.exceptions.McpError as mcp_error:
                 emit_info(f"MCP server error: {str(mcp_error)}", group_id=group_id)
                 emit_info(f"{str(mcp_error)}", group_id=group_id)
@@ -132,7 +135,9 @@ class RuntimeAgentManager:
                     if isinstance(exc, ExceptionGroup):
                         for sub_exc in exc.exceptions:
                             collect_non_cancelled_exceptions(sub_exc)
-                    elif not isinstance(exc, (asyncio.CancelledError, UsageLimitExceeded)):
+                    elif not isinstance(
+                        exc, (asyncio.CancelledError, UsageLimitExceeded)
+                    ):
                         remaining_exceptions.append(exc)
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
                         emit_info(f"{str(exc.args)}", group_id=group_id)
@@ -226,7 +231,10 @@ class RuntimeAgentManager:
         except UsageLimitExceeded as ule:
             group_id = str(uuid.uuid4())
             emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
-            emit_info("The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.", group_id=group_id)
+            emit_info(
+                "The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.",
+                group_id=group_id,
+            )
             # Return None or some default value to indicate the limit was reached
             return None
 
