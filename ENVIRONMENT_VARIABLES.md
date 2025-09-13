@@ -12,12 +12,6 @@ This document lists all environment variables that can be used to configure Code
 | `OPENAI_API_KEY` | API key for OpenAI models. | None | model_factory.py |
 | `CEREBRAS_API_KEY` | API key for Cerebras models. | None | model_factory.py |
 
-## Command Execution
-
-| Variable | Description | Default | Used In |
-|----------|-------------|---------|---------|
-| `YOLO_MODE` | When set to "true" (case-insensitive), bypasses the safety confirmation prompt when running shell commands. This allows commands to execute without user intervention. | `false` | tools/command_runner.py |
-
 ## Custom Endpoints
 
 When using custom endpoints (type: "custom_openai" in models.json), environment variables can be referenced in header values by prefixing with $ in models.json.

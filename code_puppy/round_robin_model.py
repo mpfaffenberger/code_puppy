@@ -1,10 +1,18 @@
-
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
-from typing import Any, Callable, AsyncIterator, List
+from typing import Any, AsyncIterator, List
 
-from pydantic_ai.models import Model, ModelMessage, ModelSettings, ModelRequestParameters, ModelResponse, StreamedResponse
-from pydantic_ai.models.fallback import KnownModelName, infer_model, merge_model_settings
+from pydantic_ai.models import (
+    Model,
+    ModelMessage,
+    ModelSettings,
+    ModelRequestParameters,
+    ModelResponse,
+    StreamedResponse,
+)
+from pydantic_ai.models.fallback import (
+    merge_model_settings,
+)
 from pydantic_ai.result import RunContext
 
 try:
@@ -15,18 +23,21 @@ except ImportError:
         class DummySpan:
             def is_recording(self):
                 return False
+
             def set_attributes(self, attributes):
                 pass
+
         return DummySpan()
+
 
 @dataclass(init=False)
 class RoundRobinModel(Model):
     """A model that cycles through multiple models in a round-robin fashion.
-    
+
     This model distributes requests across multiple candidate models to help
     overcome rate limits or distribute load.
     """
-    
+
     models: List[Model]
     _current_index: int = field(default=0, repr=False)
     _model_name: str = field(repr=False)
@@ -37,10 +48,10 @@ class RoundRobinModel(Model):
         self,
         *models: Model,
         rotate_every: int = 1,
-        settings: ModelSettings | None = None
+        settings: ModelSettings | None = None,
     ):
         """Initialize a round-robin model instance.
-        
+
         Args:
             models: The model instances to cycle through.
             rotate_every: Number of requests before rotating to the next model (default: 1).
@@ -59,9 +70,9 @@ class RoundRobinModel(Model):
     @property
     def model_name(self) -> str:
         """The model name showing this is a round-robin model with its candidates."""
-        base_name = f'round_robin:{",".join(model.model_name for model in self.models)}'
+        base_name = f"round_robin:{','.join(model.model_name for model in self.models)}"
         if self._rotate_every != 1:
-            return f'{base_name}:rotate_every={self._rotate_every}'
+            return f"{base_name}:rotate_every={self._rotate_every}"
         return base_name
 
     @property
@@ -93,10 +104,14 @@ class RoundRobinModel(Model):
         current_model = self._get_next_model()
         # Use the current model's settings as base, then merge with provided settings
         merged_settings = merge_model_settings(current_model.settings, model_settings)
-        customized_model_request_parameters = current_model.customize_request_parameters(model_request_parameters)
-        
+        customized_model_request_parameters = (
+            current_model.customize_request_parameters(model_request_parameters)
+        )
+
         try:
-            response = await current_model.request(messages, merged_settings, customized_model_request_parameters)
+            response = await current_model.request(
+                messages, merged_settings, customized_model_request_parameters
+            )
             self._set_span_attributes(current_model)
             return response
         except Exception as exc:
@@ -116,8 +131,10 @@ class RoundRobinModel(Model):
         current_model = self._get_next_model()
         # Use the current model's settings as base, then merge with provided settings
         merged_settings = merge_model_settings(current_model.settings, model_settings)
-        customized_model_request_parameters = current_model.customize_request_parameters(model_request_parameters)
-        
+        customized_model_request_parameters = (
+            current_model.customize_request_parameters(model_request_parameters)
+        )
+
         async with current_model.request_stream(
             messages, merged_settings, customized_model_request_parameters, run_context
         ) as response:
@@ -129,6 +146,6 @@ class RoundRobinModel(Model):
         with suppress(Exception):
             span = get_current_span()
             if span.is_recording():
-                attributes = getattr(span, 'attributes', {})
-                if attributes.get('gen_ai.request.model') == self.model_name:
+                attributes = getattr(span, "attributes", {})
+                if attributes.get("gen_ai.request.model") == self.model_name:
                     span.set_attributes(model.model_attributes(model))

@@ -1,7 +1,7 @@
 """
 MCP Configuration Wizard - Interactive setup for MCP servers.
 
-Note: This module imports ServerConfig and get_mcp_manager directly from 
+Note: This module imports ServerConfig and get_mcp_manager directly from
 .code_puppy.mcp.manager to avoid circular imports with the package __init__.py
 """
 

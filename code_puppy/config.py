@@ -106,7 +106,13 @@ def get_config_keys():
     Returns the list of all config keys currently in puppy.cfg,
     plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
     """
-    default_keys = ["yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion"]
+    default_keys = [
+        "yolo_mode",
+        "model",
+        "compaction_strategy",
+        "message_limit",
+        "allow_recursion",
+    ]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -173,7 +179,7 @@ def _default_model_from_models_json():
         first_key = next(iter(models_config))  # Raises StopIteration if empty
         _default_model_cache = first_key
         return first_key
-    except Exception as e:
+    except Exception:
         # Any problem (network, file missing, empty dict, etc.) => fall back
         _default_model_cache = "gpt-5"
         return "gpt-5"
