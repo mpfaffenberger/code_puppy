@@ -24,17 +24,17 @@ from code_puppy.tools.common import console
 
 def load_puppy_rules():
     global PUPPY_RULES
-    
+
     # Check for all 4 combinations of the rules file
     possible_paths = ["AGENTS.md", "AGENT.md", "agents.md", "agent.md"]
-    
+
     for path_str in possible_paths:
         puppy_rules_path = Path(path_str)
         if puppy_rules_path.exists():
             with open(puppy_rules_path, "r") as f:
                 puppy_rules = f.read()
                 return puppy_rules
-    
+
     # If none of the files exist, return None
     return None
 
@@ -206,4 +206,5 @@ def get_custom_usage_limits():
     Default pydantic-ai limit is 50, this increases it to the configured value (default 100).
     """
     from code_puppy.config import get_message_limit
+
     return UsageLimits(request_limit=get_message_limit())

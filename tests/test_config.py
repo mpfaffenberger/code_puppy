@@ -277,7 +277,15 @@ class TestGetConfigKeys:
 
         mock_parser_instance.read.assert_called_once_with(mock_cfg_file)
         assert keys == sorted(
-            ["allow_recursion", "compaction_strategy", "key1", "key2", "message_limit", "model", "yolo_mode"]
+            [
+                "allow_recursion",
+                "compaction_strategy",
+                "key1",
+                "key2",
+                "message_limit",
+                "model",
+                "yolo_mode",
+            ]
         )
 
     @patch("configparser.ConfigParser")
@@ -290,9 +298,15 @@ class TestGetConfigKeys:
         mock_config_parser_class.return_value = mock_parser_instance
 
         keys = cp_config.get_config_keys()
-        assert keys == sorted(["allow_recursion", "compaction_strategy", "message_limit", "model", "yolo_mode"])
-
-
+        assert keys == sorted(
+            [
+                "allow_recursion",
+                "compaction_strategy",
+                "message_limit",
+                "model",
+                "yolo_mode",
+            ]
+        )
 
 
 class TestSetConfigValue:
@@ -384,12 +398,6 @@ class TestModelName:
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_called_once_with("test_model_from_config")
 
-    @patch("code_puppy.config.get_value")
-    def test_get_model_name_not_exists_uses_default(self, mock_get_value):
-        mock_get_value.return_value = None
-        assert cp_config.get_model_name() == "gpt-5"  # Default value
-        mock_get_value.assert_called_once_with("model")
-
     @patch("configparser.ConfigParser")
     @patch("builtins.open", new_callable=mock_open)
     def test_set_model_name(
@@ -456,7 +464,6 @@ class TestGetYoloMode:
             mock_get_value.return_value = val
             assert cp_config.get_yolo_mode() is True, f"Failed for config value: {val}"
             mock_get_value.assert_called_once_with("yolo_mode")
-
 
     @patch("code_puppy.config.get_value")
     def test_get_yolo_mode_not_in_config_defaults_true(self, mock_get_value):

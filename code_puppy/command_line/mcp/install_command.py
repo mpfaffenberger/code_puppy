@@ -158,9 +158,58 @@ class InstallCommand(MCPCommandBase):
                     emit_info("Installation cancelled", message_group=group_id)
                     return False
 
-            # Install with default configuration (simplified)
+            # Collect environment variables and command line arguments
             env_vars = {}
             cmd_args = {}
+
+            # Get environment variables
+            required_env_vars = selected_server.get_environment_vars()
+            if required_env_vars:
+                emit_info(
+                    "\n[yellow]Required Environment Variables:[/yellow]",
+                    message_group=group_id,
+                )
+                for var in required_env_vars:
+                    # Check if already set in environment
+                    import os
+
+                    current_value = os.environ.get(var, "")
+                    if current_value:
+                        emit_info(
+                            f"  {var}: [green]Already set[/green]",
+                            message_group=group_id,
+                        )
+                        env_vars[var] = current_value
+                    else:
+                        value = emit_prompt(f"  Enter value for {var}: ").strip()
+                        if value:
+                            env_vars[var] = value
+
+            # Get command line arguments
+            required_cmd_args = selected_server.get_command_line_args()
+            if required_cmd_args:
+                emit_info(
+                    "\n[yellow]Command Line Arguments:[/yellow]", message_group=group_id
+                )
+                for arg_config in required_cmd_args:
+                    name = arg_config.get("name", "")
+                    prompt = arg_config.get("prompt", name)
+                    default = arg_config.get("default", "")
+                    required = arg_config.get("required", True)
+
+                    # If required or has default, prompt user
+                    if required or default:
+                        arg_prompt = f"  {prompt}"
+                        if default:
+                            arg_prompt += f" [{default}]"
+                        if not required:
+                            arg_prompt += " (optional)"
+
+                        value = emit_prompt(f"{arg_prompt}: ").strip()
+                        if value:
+                            cmd_args[name] = value
+                        elif default:
+                            cmd_args[name] = default
 
             # Install the server
             return install_server_from_catalog(

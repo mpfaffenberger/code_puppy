@@ -125,7 +125,7 @@ class ConsoleSpinner(SpinnerBase):
                     self._live.refresh()
 
                 # Short sleep to control animation speed
-                time.sleep(0.1)
+                time.sleep(0.05)
         except Exception as e:
             print(f"\nSpinner error: {e}")
             self._is_spinning = False

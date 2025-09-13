@@ -290,7 +290,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             if awaiting_input:
                 # No spinner - use agent_manager's run_with_mcp method
                 response = await agent_manager.run_with_mcp(
-                    initial_command, usage_limits=get_custom_usage_limits()
+                    initial_command,
+                    message_history=get_message_history(),
+                    usage_limits=get_custom_usage_limits(),
                 )
             else:
                 # Use our custom spinner for better compatibility with user input
@@ -299,7 +301,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 with ConsoleSpinner(console=display_console):
                     # Use agent_manager's run_with_mcp method
                     response = await agent_manager.run_with_mcp(
-                        initial_command, usage_limits=get_custom_usage_limits()
+                        initial_command,
+                        message_history=prune_interrupted_tool_calls(
+                            get_message_history()
+                        ),
+                        usage_limits=get_custom_usage_limits(),
                     )
                     set_message_history(
                         prune_interrupted_tool_calls(get_message_history())
@@ -426,7 +432,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 runtime_manager = get_runtime_agent_manager()
                 with ConsoleSpinner(console=message_renderer.console):
-                    result = await runtime_manager.run_with_mcp(task, get_custom_usage_limits())
+                    result = await runtime_manager.run_with_mcp(
+                        task,
+                        get_custom_usage_limits(),
+                        message_history=prune_interrupted_tool_calls(
+                            get_message_history()
+                        ),
+                    )
                 # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
                     continue
@@ -495,7 +507,8 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 
         with ConsoleSpinner(console=message_renderer.console):
             response = await agent_manager.run_with_mcp(
-                prompt, usage_limits=get_custom_usage_limits()
+                prompt,
+                usage_limits=get_custom_usage_limits(),
             )
 
         agent_response = response.output

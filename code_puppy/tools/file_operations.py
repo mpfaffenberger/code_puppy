@@ -20,22 +20,6 @@ from code_puppy.messaging import (
 )
 from code_puppy.tools.common import generate_group_id
 
-# Add token checking functionality
-try:
-    from code_puppy.token_utils import get_tokenizer
-    from code_puppy.tools.token_check import token_guard
-except ImportError:
-    # Fallback for when token checking modules aren't available
-    def get_tokenizer():
-        # Simple token estimation - no longer using tiktoken
-        return None
-
-    def token_guard(num_tokens):
-        if num_tokens > 10000:
-            raise ValueError(
-                f"Token count {num_tokens} exceeds safety limit of 10,000 tokens"
-            )
-
 
 # Pydantic models for tool return types
 class ListedFile(BaseModel):
@@ -567,7 +551,8 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                         if data.get("lines", {}).get("text")
                         else ""
                     )
-
+                    if len(line_content.strip()) > 512:
+                        line_content = line_content.strip()[0:512]
                     if file_path and line_number:
                         match_info = MatchInfo(
                             file_path=file_path,
@@ -676,9 +661,11 @@ def register_list_files(agent):
         emit_info(
             result.content, message_group=generate_group_id("list_files", directory)
         )
-
         if warning:
             result.error = warning
+        if (len(result.content)) > 200000:
+            result.content = result.content[0:200000]
+            result.error = "Results truncated. This is a massive directory tree, recommend non-recursive calls to list_files"
         return result
 
 

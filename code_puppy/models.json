@@ -1,5 +1,5 @@
 {
-  "claude-4-0-sonnet": {
+  "claude-sonnet-4": {
     "custom_endpoint": {
       "api_key": "$puppy_token",
       "headers": {

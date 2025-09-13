@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 import httpx
 from anthropic import AsyncAnthropic
-from openai import AsyncAzureOpenAI  # For Azure OpenAI client
+from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -86,13 +86,13 @@ class ModelFactory:
         else:
             from code_puppy.config import MODELS_FILE
 
-            if not pathlib.Path(MODELS_FILE).exists():
-                with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
-                    with open(pathlib.Path(MODELS_FILE), "w") as target:
-                        target.write(src.read())
+            with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
+                with open(pathlib.Path(MODELS_FILE), "w") as target:
+                    target.write(src.read())
 
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
+
         if pathlib.Path(EXTRA_MODELS_FILE).exists():
             with open(EXTRA_MODELS_FILE, "r") as f:
                 extra_config = json.load(f)

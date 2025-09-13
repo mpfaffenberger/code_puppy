@@ -53,9 +53,7 @@ def run_summarization_sync(prompt: str, message_history: List) -> List:
 def reload_summarization_agent():
     """Create a specialized agent for summarizing messages when context limit is reached."""
     models_config = ModelFactory.load_config()
-    model_name = "gemini-2.5-pro"
-    if model_name not in models_config:
-        model_name = get_model_name()
+    model_name = get_model_name()
     model = ModelFactory.get_model(model_name, models_config)
 
     # Specialized instructions for summarization
