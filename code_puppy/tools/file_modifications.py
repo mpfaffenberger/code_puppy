@@ -525,23 +525,31 @@ def register_file_modifications_tools(agent):
         """
         # Generate group_id for edit_file tool execution
         if isinstance(payload, str):
-            # Fallback for weird models that just can't help but send json strings...
-            payload = json.loads(json_repair.repair_json(payload))
-            if "replacements" in payload:
-                payload = ReplacementsPayload(**payload)
-            elif "delete_snippet" in payload:
-                payload = DeleteSnippetPayload(**payload)
-            elif "content" in payload:
-                payload = ContentPayload(**payload)
-            else:
-                file_path = "Unknown"
-                if "file_path" in payload:
-                    file_path = payload["file_path"]
+            try:
+                # Fallback for weird models that just can't help but send json strings...
+                payload = json.loads(json_repair.repair_json(payload))
+                if "replacements" in payload:
+                    payload = ReplacementsPayload(**payload)
+                elif "delete_snippet" in payload:
+                    payload = DeleteSnippetPayload(**payload)
+                elif "content" in payload:
+                    payload = ContentPayload(**payload)
+                else:
+                    file_path = "Unknown"
+                    if "file_path" in payload:
+                        file_path = payload["file_path"]
+                    return {
+                        "success": False,
+                        "path": file_path,
+                        "message": "One of 'content', 'replacements', or 'delete_snippet' must be provided in payload.",
+                        "changed": False,
+                    }
+            except Exception as e:
                 return {
                     "success": False,
                     "path": file_path,
-                    "message": "One of 'content', 'replacements', or 'delete_snippet' must be provided in payload.",
-                    "changed": False,
+                    "message": f"edit_file call failed: {str(e)}",
+                    "changed": False
                 }
         group_id = generate_group_id("edit_file", payload.file_path)
         result = _edit_file(context, payload, group_id)
