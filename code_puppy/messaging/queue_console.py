@@ -58,9 +58,10 @@ class QueueConsole:
                     from rich.console import Console
 
                     string_io = StringIO()
-                    # Use markup=False to prevent interpretation of square brackets as markup
+                    # Use markup=True to properly process rich styling
+                    # Use a reasonable width to prevent wrapping issues
                     temp_console = Console(
-                        file=string_io, width=80, legacy_windows=False, markup=False
+                        file=string_io, width=80, legacy_windows=False, markup=True
                     )
                     temp_console.print(v)
                     processed_values.append(string_io.getvalue().rstrip("\n"))
