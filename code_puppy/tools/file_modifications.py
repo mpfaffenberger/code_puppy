@@ -542,7 +542,7 @@ def register_edit_file(agent):
             except Exception as e:
                 return {
                     "success": False,
-                    "path": file_path,
+                    "path": 'Not retrievable in Payload',
                     "message": f"edit_file call failed: {str(e)}",
                     "changed": False
                 }
