@@ -1,9 +1,6 @@
 import os
 
-from code_puppy.command_line.model_picker_completion import (
-    load_model_names,
-    update_model_in_input,
-)
+from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import get_config_keys
@@ -60,7 +57,7 @@ def get_commands_help():
     )
     help_lines.append(
         Text("/compact", style="cyan")
-        + Text("              Summarize and compact current chat history")
+        + Text("              Summarize and compact current chat history (uses compaction_strategy config)")
     )
     help_lines.append(
         Text("/dump_context", style="cyan")
@@ -137,18 +134,18 @@ def handle_command(command: str):
 
             before_tokens = sum(estimate_tokens_for_message(m) for m in history)
             compaction_strategy = get_compaction_strategy()
+            protected_tokens = get_protected_token_count()
             emit_info(
                 f"🤔 Compacting {len(history)} messages using {compaction_strategy} strategy... (~{before_tokens} tokens)"
             )
 
             if compaction_strategy == "truncation":
-                protected_tokens = get_protected_token_count()
                 compacted = truncation(history, protected_tokens)
                 summarized_messages = []  # No summarization in truncation mode
             else:
                 # Default to summarization
                 compacted, summarized_messages = summarize_messages(
-                    history, with_protection=False
+                    history, with_protection=True
                 )
 
             if not compacted:
@@ -372,6 +369,9 @@ def handle_command(command: str):
             # Convert /model to /m for internal processing
             model_command = command.replace("/model", "/m", 1)
 
+        # If no model matched, show available models
+        from code_puppy.command_line.model_picker_completion import load_model_names
+        
         new_input = update_model_in_input(model_command)
         if new_input is not None:
             from code_puppy.agents.runtime_manager import get_runtime_agent_manager
@@ -383,7 +383,6 @@ def handle_command(command: str):
             manager.reload_agent()
             emit_success(f"Active model set and loaded: {model}")
             return True
-        # If no model matched, show available models
         model_names = load_model_names()
         emit_warning("Usage: /model <model-name> or /m <model-name>")
         emit_warning(f"Available models: {', '.join(model_names)}")

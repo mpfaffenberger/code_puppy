@@ -261,8 +261,35 @@ class ChatView(VerticalScroll):
         else:
             separator = "\n"
 
-        # Update the message content
-        last_message.content += separator + message.content
+        # Handle content concatenation carefully to preserve Rich objects
+        if hasattr(last_message.content, "__rich_console__") or hasattr(message.content, "__rich_console__"):
+            # If either content is a Rich object, convert both to text and concatenate
+            from io import StringIO
+            from rich.console import Console
+            
+            # Convert existing content to string
+            if hasattr(last_message.content, "__rich_console__"):
+                string_io = StringIO()
+                temp_console = Console(file=string_io, width=80, legacy_windows=False, markup=False)
+                temp_console.print(last_message.content)
+                existing_content = string_io.getvalue().rstrip("\n")
+            else:
+                existing_content = str(last_message.content)
+            
+            # Convert new content to string
+            if hasattr(message.content, "__rich_console__"):
+                string_io = StringIO()
+                temp_console = Console(file=string_io, width=80, legacy_windows=False, markup=False)
+                temp_console.print(message.content)
+                new_content = string_io.getvalue().rstrip("\n")
+            else:
+                new_content = str(message.content)
+            
+            # Combine as plain text
+            last_message.content = existing_content + separator + new_content
+        else:
+            # Both are strings, safe to concatenate
+            last_message.content += separator + message.content
 
         # Update the widget based on message type
         if last_message.type == MessageType.AGENT_RESPONSE:
@@ -282,25 +309,15 @@ class ChatView(VerticalScroll):
                 copy_button.update_text_to_copy(last_message.content)
         else:
             # Handle other message types
-            content = last_message.content
-
-            # Apply the same rendering logic as in add_message
-            if (
-                "[" in content
-                and "]" in content
-                and (
-                    content.strip().startswith("$ ")
-                    or content.strip().startswith("git ")
-                )
-            ):
-                # Treat as literal text
-                last_widget.update(Text(content))
-            else:
-                # Try to render markup
-                try:
-                    last_widget.update(Text.from_markup(content))
-                except Exception:
-                    last_widget.update(Text(content))
+            # After the content concatenation above, content is always a string
+            # Try to parse markup when safe to do so
+            try:
+                # Try to parse as markup first - this handles rich styling correctly
+                last_widget.update(Text.from_markup(last_message.content))
+            except Exception:
+                # If markup parsing fails, fall back to plain text
+                # This handles cases where content contains literal square brackets
+                last_widget.update(Text(last_message.content))
 
         # Add the new message to our tracking lists
         self.messages.append(message)
