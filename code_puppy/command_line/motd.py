@@ -30,6 +30,12 @@ Both of the latter two changes are meant to protect the context from getting ove
     - This will make the java-architect always use gpt-5 even if the global model is set to something else
     - You will see a prompt that has [global-model → pinned-model] in the prompt when a pinned model is overriding the global one
         - 🐶 Biscuit [Java Architect ☕] [claude-4-0-sonnet → gpt-5] (~/code/code-puppy) >>>
+
+Known fleas:
+- There is a visual flea where MCP servers will assert that they have been successfully launched several times
+- The Code Puppy installer as well as the update will fail in Windows if a Code Puppy is running (even in another command window)
+    - If this happens, close the running copy of Code Puppy and run the installer on https://puppy.walmart.com
+- Gemini 2.5 Pro appears to be broken on the provider side of things (Not fixable in Code Puppy)
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 
