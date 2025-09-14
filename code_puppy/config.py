@@ -164,7 +164,7 @@ _default_model_cache = None
 def _default_model_from_models_json():
     """Attempt to load the first model name from models.json.
 
-    Falls back to the hard-coded default (``claude-4-0-sonnet``) if the file
+    Falls back to the hard-coded default (``gpt-5``) if the file
     cannot be read for any reason or is empty.
     """
     global _default_model_cache
@@ -178,11 +178,17 @@ def _default_model_from_models_json():
         from code_puppy.model_factory import ModelFactory
 
         models_config = ModelFactory.load_config()
-        first_key = next(iter(models_config))  # Raises StopIteration if empty
-        _default_model_cache = first_key
-        return first_key
+        if models_config:
+            # Get the first key from the models config
+            first_key = next(iter(models_config))
+            _default_model_cache = first_key
+            return first_key
+        else:
+            # If models_config is empty, fall back to gpt-5
+            _default_model_cache = "gpt-5"
+            return "gpt-5"
     except Exception:
-        # Any problem (network, file missing, empty dict, etc.) => fall back
+        # Any problem (network, file missing, empty dict, etc.) => fall back to gpt-5
         _default_model_cache = "gpt-5"
         return "gpt-5"
 
@@ -198,8 +204,7 @@ def _validate_model_exists(model_name: str) -> bool:
     try:
         from code_puppy.model_factory import ModelFactory
 
-        models_config_path = os.path.join(CONFIG_DIR, "models.json")
-        models_config = ModelFactory.load_config(models_config_path)
+        models_config = ModelFactory.load_config()
         exists = model_name in models_config
 
         # Cache the result

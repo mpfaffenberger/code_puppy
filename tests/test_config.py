@@ -280,10 +280,12 @@ class TestGetConfigKeys:
             [
                 "allow_recursion",
                 "compaction_strategy",
+                "compaction_threshold",
                 "key1",
                 "key2",
                 "message_limit",
                 "model",
+                "protected_token_count",
                 "yolo_mode",
             ]
         )
@@ -302,8 +304,10 @@ class TestGetConfigKeys:
             [
                 "allow_recursion",
                 "compaction_strategy",
+                "compaction_threshold",
                 "message_limit",
                 "model",
+                "protected_token_count",
                 "yolo_mode",
             ]
         )
@@ -573,3 +577,100 @@ class TestCommandHistory:
 
         # Assert
         mock_console_instance.print.assert_called_once()
+
+
+class TestDefaultModelSelection:
+    def setup_method(self):
+        # Clear the cache before each test to ensure consistent behavior
+        cp_config.clear_model_cache()
+    
+    @patch("code_puppy.config.get_value")
+    @patch("code_puppy.config._validate_model_exists")
+    @patch("code_puppy.config._default_model_from_models_json")
+    def test_get_model_name_no_stored_model(
+        self, mock_default_model, mock_validate_model_exists, mock_get_value
+    ):
+        # When no model is stored in config, get_model_name should return the default model
+        mock_get_value.return_value = None
+        mock_default_model.return_value = "gpt-5"
+        
+        result = cp_config.get_model_name()
+        
+        assert result == "gpt-5"
+        mock_get_value.assert_called_once_with("model")
+        mock_validate_model_exists.assert_not_called()
+        mock_default_model.assert_called_once()
+
+    @patch("code_puppy.config.get_value")
+    @patch("code_puppy.config._validate_model_exists")
+    @patch("code_puppy.config._default_model_from_models_json")
+    def test_get_model_name_invalid_model(
+        self, mock_default_model, mock_validate_model_exists, mock_get_value
+    ):
+        # When stored model doesn't exist in models.json, should return default model
+        mock_get_value.return_value = "invalid-model"
+        mock_validate_model_exists.return_value = False
+        mock_default_model.return_value = "gpt-5"
+        
+        result = cp_config.get_model_name()
+        
+        assert result == "gpt-5"
+        mock_get_value.assert_called_once_with("model")
+        mock_validate_model_exists.assert_called_once_with("invalid-model")
+        mock_default_model.assert_called_once()
+
+    @patch("code_puppy.model_factory.ModelFactory.load_config")
+    def test_default_model_from_models_json_with_valid_config(self, mock_load_config):
+        # Test that the first model from models.json is selected when config is valid
+        mock_load_config.return_value = {
+            "test-model-1": {"type": "openai", "name": "test-model-1"},
+            "test-model-2": {"type": "anthropic", "name": "test-model-2"},
+            "test-model-3": {"type": "gemini", "name": "test-model-3"},
+        }
+        
+        result = cp_config._default_model_from_models_json()
+        
+        assert result == "test-model-1"
+        mock_load_config.assert_called_once()
+
+    @patch("code_puppy.model_factory.ModelFactory.load_config")
+    def test_default_model_from_models_json_empty_config(self, mock_load_config):
+        # Test that gpt-5 is returned when models.json is empty
+        mock_load_config.return_value = {}
+        
+        result = cp_config._default_model_from_models_json()
+        
+        assert result == "gpt-5"
+        mock_load_config.assert_called_once()
+
+    @patch("code_puppy.model_factory.ModelFactory.load_config")
+    def test_default_model_from_models_json_exception_handling(self, mock_load_config):
+        # Test that gpt-5 is returned when there's an exception loading models.json
+        mock_load_config.side_effect = Exception("Config load failed")
+        
+        result = cp_config._default_model_from_models_json()
+        
+        assert result == "gpt-5"
+        mock_load_config.assert_called_once()
+
+    def test_default_model_from_models_json_actual_file(self):
+        # Test that the actual first model from models.json is returned
+        # This test uses the real models.json file to verify correct behavior
+        result = cp_config._default_model_from_models_json()
+        
+        # The first model in models.json should be selected
+        assert result == "gpt-5"
+
+    @patch("code_puppy.config.get_value")
+    def test_get_model_name_with_nonexistent_model_uses_first_from_models_json(self, mock_get_value):
+        # Test the exact scenario: when a model doesn't exist in the config, 
+        # the first model from models.json is selected
+        mock_get_value.return_value = "non-existent-model"
+        
+        # This will use the real models.json file through the ModelFactory
+        result = cp_config.get_model_name()
+        
+        # Since "non-existent-model" doesn't exist in models.json, 
+        # it should fall back to the first model in models.json ("gpt-5")
+        assert result == "gpt-5"
+        mock_get_value.assert_called_once_with("model")
