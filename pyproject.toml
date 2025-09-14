@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.163"
+version = "0.0.164"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11"
