@@ -448,176 +448,6 @@ def _delete_file(
     return res
 
 
-def register_file_modifications_tools(agent):
-    """Attach file-editing tools to *agent* with mandatory diff rendering."""
-
-    @agent.tool(retries=5)
-    def edit_file(context: RunContext, payload: EditFilePayload) -> Dict[str, Any]:
-        """Comprehensive file editing tool supporting multiple modification strategies.
-
-        This is the primary file modification tool that supports three distinct editing
-        approaches: full content replacement, targeted text replacements, and snippet
-        deletion. It provides robust diff generation, error handling, and automatic
-        retry capabilities for reliable file operations.
-
-        Args:
-            context (RunContext): The PydanticAI runtime context for the agent.
-            payload (EditFilePayload): One of three payload types:
-
-                ContentPayload:
-                    - content (str): Full file content to write
-                    - overwrite (bool, optional): Whether to overwrite existing files.
-                      Defaults to False (safe mode).
-
-                ReplacementsPayload:
-                    - replacements (List[Replacement]): List of text replacements where
-                      each Replacement contains:
-                      - old_str (str): Exact text to find and replace
-                      - new_str (str): Replacement text
-
-                DeleteSnippetPayload:
-                    - delete_snippet (str): Exact text snippet to remove from file
-
-                file_path (str): Path to the target file. Can be relative or absolute.
-                    File will be created if it doesn't exist (for ContentPayload).
-
-        Returns:
-            Dict[str, Any]: Operation result containing:
-                - success (bool): True if operation completed successfully
-                - path (str): Absolute path to the modified file
-                - message (str): Human-readable description of what occurred
-                - changed (bool): True if file content was actually modified
-                - error (str, optional): Error message if operation failed
-
-        Note:
-            - Automatic retry (up to 5 attempts) for transient failures
-            - Unified diff is generated and displayed for all operations
-            - Fuzzy matching (Jaro-Winkler) used for replacements when exact match fails
-            - Minimum similarity threshold of 0.95 for fuzzy replacements
-            - Creates parent directories automatically when needed
-            - UTF-8 encoding enforced for all file operations
-
-        Examples:
-            >>> # Create new file
-            >>> payload = ContentPayload(file_path="foo.py", content="print('Hello World')")
-            >>> result = edit_file(context, payload)
-
-            >>> # Replace specific text
-            >>> replacements = [Replacement(old_str="foo", new_str="bar")]
-            >>> payload = ReplacementsPayload(file_path="foo.py", replacements=replacements)
-            >>> result = edit_file(context, payload)
-
-            >>> # Delete code block
-            >>> payload = DeleteSnippetPayload(file_path="foo.py", delete_snippet="# TODO: remove this")
-            >>> result = edit_file(context, payload)
-
-        Warning:
-            - Always verify file contents after modification
-            - Use overwrite=False by default to prevent accidental data loss
-            - Large files may be slow due to diff generation
-            - Exact string matching required for reliable replacements
-
-        Best Practice:
-            - Use ReplacementsPayload for targeted changes to preserve file structure
-            - Read file first to understand current content before modifications
-            - Keep replacement strings specific and unique to avoid unintended matches
-            - Test modifications on non-critical files first
-        """
-        # Generate group_id for edit_file tool execution
-        if isinstance(payload, str):
-            try:
-                # Fallback for weird models that just can't help but send json strings...
-                payload = json.loads(json_repair.repair_json(payload))
-                if "replacements" in payload:
-                    payload = ReplacementsPayload(**payload)
-                elif "delete_snippet" in payload:
-                    payload = DeleteSnippetPayload(**payload)
-                elif "content" in payload:
-                    payload = ContentPayload(**payload)
-                else:
-                    file_path = "Unknown"
-                    if "file_path" in payload:
-                        file_path = payload["file_path"]
-                    return {
-                        "success": False,
-                        "path": file_path,
-                        "message": "One of 'content', 'replacements', or 'delete_snippet' must be provided in payload.",
-                        "changed": False,
-                    }
-            except Exception as e:
-                return {
-                    "success": False,
-                    "path": file_path,
-                    "message": f"edit_file call failed: {str(e)}",
-                    "changed": False
-                }
-        group_id = generate_group_id("edit_file", payload.file_path)
-        result = _edit_file(context, payload, group_id)
-        on_edit_file(result)
-        if "diff" in result:
-            del result["diff"]
-        return result
-
-    @agent.tool(retries=5)
-    def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
-        """Safely delete files with comprehensive logging and diff generation.
-
-        This tool provides safe file deletion with automatic diff generation to show
-        exactly what content was removed. It includes proper error handling and
-        automatic retry capabilities for reliable operation.
-
-        Args:
-            context (RunContext): The PydanticAI runtime context for the agent.
-            file_path (str): Path to the file to delete. Can be relative or absolute.
-                Must be an existing regular file (not a directory).
-
-        Returns:
-            Dict[str, Any]: Operation result containing:
-                - success (bool): True if file was successfully deleted
-                - path (str): Absolute path to the deleted file
-                - message (str): Human-readable description of the operation
-                - changed (bool): True if file was actually removed
-                - error (str, optional): Error message if deletion failed
-
-        Note:
-            - Automatic retry (up to 5 attempts) for transient failures
-            - Complete file content is captured and shown in diff before deletion
-            - Only deletes regular files, not directories or special files
-            - Generates unified diff showing all removed content
-            - Error if file doesn't exist or is not accessible
-
-        Examples:
-            >>> # Delete temporary file
-            >>> result = delete_file(ctx, "temp_output.txt")
-            >>> if result['success']:
-            ...     print(f"Successfully deleted {result['path']}")
-
-            >>> # Delete with error handling
-            >>> result = delete_file(ctx, "config.bak")
-            >>> if 'error' in result:
-            ...     print(f"Deletion failed: {result['error']}")
-
-        Warning:
-            - File deletion is irreversible - ensure you have backups if needed
-            - Will not delete directories (use appropriate directory removal tools)
-            - No "trash" or "recycle bin" - files are permanently removed
-            - Check file importance before deletion
-
-        Best Practice:
-            - Always verify file path before deletion
-            - Review the generated diff to confirm deletion scope
-            - Consider moving files to backup location instead of deleting
-            - Use in combination with list_files to verify target
-        """
-        # Generate group_id for delete_file tool execution
-        group_id = generate_group_id("delete_file", file_path)
-        result = _delete_file(context, file_path, message_group=group_id)
-        on_delete_file(result)
-        if "diff" in result:
-            del result["diff"]
-        return result
-
-
 def register_edit_file(agent):
     """Register only the edit_file tool."""
 
@@ -690,39 +520,31 @@ def register_edit_file(agent):
         """
         # Handle string payload parsing (for models that send JSON strings)
         if isinstance(payload, str):
-            # Fallback for weird models that just can't help but send json strings...
-            payload = json.loads(json_repair.repair_json(payload))
-            if "replacements" in payload and "file_path" in payload:
-                payload = ReplacementsPayload(**payload)
-            elif "delete_snippet" in payload and "file_path" in payload:
-                payload = DeleteSnippetPayload(**payload)
-            elif "content" in payload and "file_path" in payload:
-                payload = ContentPayload(**payload)
-            else:
-                file_path = "Unknown"
-                if "file_path" in payload:
-                    file_path = payload["file_path"]
-                # Diagnose what's missing
-                missing = []
-                if "file_path" not in payload:
-                    missing.append("file_path")
-
-                payload_type = "unknown"
-                if "content" in payload:
-                    payload_type = "content"
-                elif "replacements" in payload:
-                    payload_type = "replacements"
+            try:
+                # Fallback for weird models that just can't help but send json strings...
+                payload = json.loads(json_repair.repair_json(payload))
+                if "replacements" in payload:
+                    payload = ReplacementsPayload(**payload)
                 elif "delete_snippet" in payload:
-                    payload_type = "delete_snippet"
+                    payload = DeleteSnippetPayload(**payload)
+                elif "content" in payload:
+                    payload = ContentPayload(**payload)
                 else:
-                    missing.append("content/replacements/delete_snippet")
-
-                missing_str = ", ".join(missing) if missing else "none"
+                    file_path = "Unknown"
+                    if "file_path" in payload:
+                        file_path = payload["file_path"]
+                    return {
+                        "success": False,
+                        "path": file_path,
+                        "message": "One of 'content', 'replacements', or 'delete_snippet' must be provided in payload.",
+                        "changed": False,
+                    }
+            except Exception as e:
                 return {
                     "success": False,
                     "path": file_path,
-                    "message": f"Invalid payload for {payload_type} operation. Missing required fields: {missing_str}. Payload keys: {list(payload.keys())}",
-                    "changed": False,
+                    "message": f"edit_file call failed: {str(e)}",
+                    "changed": False
                 }
 
         # Call _edit_file which will extract file_path from payload and handle group_id generation

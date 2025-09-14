@@ -227,28 +227,6 @@ class TestRegisterFileModificationsTools:
             f"Tool function '{tool_name}' not found in captured tools: {self.captured_tools_details}"
         )
 
-    def test_registers_all_tools(self):
-        self.setUp()  # Initialize self.mock_agent and self.captured_tools_details
-        file_modifications.register_file_modifications_tools(self.mock_agent)
-
-        expected_tool_registrations = {
-            "edit_file": {"retries": 5},
-            "delete_file": {"retries": 5},
-        }
-
-        assert len(self.captured_tools_details) == len(expected_tool_registrations), (
-            f"Expected {len(expected_tool_registrations)} tools to be registered, but found {len(self.captured_tools_details)}"
-        )
-
-        for tool_detail in self.captured_tools_details:
-            name = tool_detail["name"]
-            assert name in expected_tool_registrations, (
-                f"Unexpected tool '{name}' registered."
-            )
-            assert tool_detail["decorator_args"] == expected_tool_registrations[name], (
-                f"Tool '{name}' decorator args mismatch. Expected {expected_tool_registrations[name]}, got {tool_detail['decorator_args']}."
-            )
-            assert callable(tool_detail["func"])
 
     @patch(f"{file_modifications.__name__}._write_to_file")
     @patch(f"{file_modifications.__name__}._print_diff")
