@@ -451,7 +451,7 @@ def _delete_file(
 def register_edit_file(agent):
     """Register only the edit_file tool."""
 
-    @agent.tool(strict=False)
+    @agent.tool
     def edit_file(
         context: RunContext,
         payload: EditFilePayload | str = "",
@@ -468,17 +468,20 @@ def register_edit_file(agent):
             payload: One of three payload types:
 
                 ContentPayload:
+                    - file_path (str): Path to file
                     - content (str): Full file content to write
                     - overwrite (bool, optional): Whether to overwrite existing files.
                       Defaults to False (safe mode).
 
                 ReplacementsPayload:
+                    - file_path (str): Path to file
                     - replacements (List[Replacement]): List of text replacements where
                       each Replacement contains:
                       - old_str (str): Exact text to find and replace
                       - new_str (str): Replacement text
 
                 DeleteSnippetPayload:
+                    - file_path (str): Path to file
                     - delete_snippet (str): Exact text snippet to remove from file
 
         Returns:
@@ -492,7 +495,7 @@ def register_edit_file(agent):
 
         Examples:
             >>> # Create new file with content
-            >>> payload = {"file_path": "hello.py", "content": "print('Hello!')"}
+            >>> payload = {"file_path": "hello.py", "content": "print('Hello!')", "overwrite": true}
             >>> result = edit_file(ctx, payload)
 
             >>> # Replace text in existing file
@@ -519,6 +522,28 @@ def register_edit_file(agent):
             - Use delete_snippet for removing specific code blocks
         """
         # Handle string payload parsing (for models that send JSON strings)
+
+        parse_error_message = """Examples:
+            >>> # Create new file with content
+            >>> payload = {"file_path": "hello.py", "content": "print('Hello!')", "overwrite": true}
+            >>> result = edit_file(ctx, payload)
+
+            >>> # Replace text in existing file
+            >>> payload = {
+            ...     "file_path": "config.py",
+            ...     "replacements": [
+            ...         {"old_str": "debug = False", "new_str": "debug = True"}
+            ...     ]
+            ... }
+            >>> result = edit_file(ctx, payload)
+
+            >>> # Delete snippet from file
+            >>> payload = {
+            ...     "file_path": "main.py",
+            ...     "delete_snippet": "# TODO: remove this comment"
+            ... }
+            >>> result = edit_file(ctx, payload)"""
+
         if isinstance(payload, str):
             try:
                 # Fallback for weird models that just can't help but send json strings...
@@ -536,14 +561,14 @@ def register_edit_file(agent):
                     return {
                         "success": False,
                         "path": file_path,
-                        "message": "One of 'content', 'replacements', or 'delete_snippet' must be provided in payload.",
+                        "message": f"One of 'content', 'replacements', or 'delete_snippet' must be provided in payload. Refer to the following examples: {parse_error_message}",
                         "changed": False,
                     }
             except Exception as e:
                 return {
                     "success": False,
                     "path": 'Not retrievable in Payload',
-                    "message": f"edit_file call failed: {str(e)}",
+                    "message": f"edit_file call failed: {str(e)} - this means the tool failed to parse your inputs. Refer to the following examples: {parse_error_message}",
                     "changed": False
                 }
 
@@ -557,7 +582,7 @@ def register_edit_file(agent):
 def register_delete_file(agent):
     """Register only the delete_file tool."""
 
-    @agent.tool(strict=False)
+    @agent.tool
     def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
         """Safely delete files with comprehensive logging and diff generation.
 
