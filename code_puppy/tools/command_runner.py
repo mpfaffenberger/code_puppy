@@ -12,7 +12,6 @@ from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.text import Text
 
-from code_puppy.callbacks import on_run_shell_command
 from code_puppy.messaging import (
     emit_divider,
     emit_error,

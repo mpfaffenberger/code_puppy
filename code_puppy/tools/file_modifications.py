@@ -20,7 +20,6 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from code_puppy.callbacks import on_delete_file, on_edit_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
 
@@ -567,9 +566,9 @@ def register_edit_file(agent):
             except Exception as e:
                 return {
                     "success": False,
-                    "path": 'Not retrievable in Payload',
+                    "path": "Not retrievable in Payload",
                     "message": f"edit_file call failed: {str(e)} - this means the tool failed to parse your inputs. Refer to the following examples: {parse_error_message}",
-                    "changed": False
+                    "changed": False,
                 }
 
         # Call _edit_file which will extract file_path from payload and handle group_id generation

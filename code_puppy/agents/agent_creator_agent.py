@@ -28,15 +28,17 @@ class AgentCreatorAgent(BaseAgent):
     def get_system_prompt(self) -> str:
         available_tools = get_available_tool_names()
         agents_dir = get_user_agents_directory()
-        
+
         # Load available models dynamically
         models_config = ModelFactory.load_config()
         model_descriptions = []
         for model_name, model_info in models_config.items():
-            model_type = model_info.get('type', 'Unknown')
-            context_length = model_info.get('context_length', 'Unknown')
-            model_descriptions.append(f"- **{model_name}**: {model_type} model with {context_length} context")
-        
+            model_type = model_info.get("type", "Unknown")
+            context_length = model_info.get("context_length", "Unknown")
+            model_descriptions.append(
+                f"- **{model_name}**: {model_type} model with {context_length} context"
+            )
+
         available_models_str = "\n".join(model_descriptions)
 
         return f"""You are the Agent Creator! 🏗️ Your mission is to help users create awesome JSON agent files through an interactive process.

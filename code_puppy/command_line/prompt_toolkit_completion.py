@@ -147,9 +147,9 @@ def get_prompt_with_active_model(base: str = ">>> "):
 
     # Check if current agent has a pinned model
     agent_model = None
-    if current_agent and hasattr(current_agent, 'get_model_name'):
+    if current_agent and hasattr(current_agent, "get_model_name"):
         agent_model = current_agent.get_model_name()
-    
+
     # Determine which model to display
     if agent_model and agent_model != global_model:
         # Show both models when they differ
