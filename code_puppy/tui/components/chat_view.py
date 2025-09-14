@@ -262,29 +262,35 @@ class ChatView(VerticalScroll):
             separator = "\n"
 
         # Handle content concatenation carefully to preserve Rich objects
-        if hasattr(last_message.content, "__rich_console__") or hasattr(message.content, "__rich_console__"):
+        if hasattr(last_message.content, "__rich_console__") or hasattr(
+            message.content, "__rich_console__"
+        ):
             # If either content is a Rich object, convert both to text and concatenate
             from io import StringIO
             from rich.console import Console
-            
+
             # Convert existing content to string
             if hasattr(last_message.content, "__rich_console__"):
                 string_io = StringIO()
-                temp_console = Console(file=string_io, width=80, legacy_windows=False, markup=False)
+                temp_console = Console(
+                    file=string_io, width=80, legacy_windows=False, markup=False
+                )
                 temp_console.print(last_message.content)
                 existing_content = string_io.getvalue().rstrip("\n")
             else:
                 existing_content = str(last_message.content)
-            
+
             # Convert new content to string
             if hasattr(message.content, "__rich_console__"):
                 string_io = StringIO()
-                temp_console = Console(file=string_io, width=80, legacy_windows=False, markup=False)
+                temp_console = Console(
+                    file=string_io, width=80, legacy_windows=False, markup=False
+                )
                 temp_console.print(message.content)
                 new_content = string_io.getvalue().rstrip("\n")
             else:
                 new_content = str(message.content)
-            
+
             # Combine as plain text
             last_message.content = existing_content + separator + new_content
         else:

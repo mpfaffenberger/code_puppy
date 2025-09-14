@@ -227,7 +227,6 @@ class TestRegisterFileModificationsTools:
             f"Tool function '{tool_name}' not found in captured tools: {self.captured_tools_details}"
         )
 
-
     @patch(f"{file_modifications.__name__}._write_to_file")
     @patch(f"{file_modifications.__name__}._print_diff")
     def test_registered_write_to_file_tool(
