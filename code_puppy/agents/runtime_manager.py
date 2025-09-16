@@ -11,6 +11,8 @@ import sys
 import uuid
 from typing import Any, Optional
 
+from mcp.shared.exceptions import McpError
+
 # ExceptionGroup is available in Python 3.11+
 if sys.version_info >= (3, 11):
     from builtins import ExceptionGroup
@@ -22,7 +24,6 @@ else:
             self.exceptions = exceptions
 
 
-import mcp
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
@@ -117,7 +118,7 @@ class RuntimeAgentManager:
                     "The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.",
                     group_id=group_id,
                 )
-            except* mcp.shared.exceptions.McpError as mcp_error:
+            except* McpError as mcp_error:
                 emit_info(f"MCP server error: {str(mcp_error)}", group_id=group_id)
                 emit_info(f"{str(mcp_error)}", group_id=group_id)
                 emit_info(

@@ -8,7 +8,7 @@ from typing import List, Optional
 from rich.table import Table
 from rich.text import Text
 
-from code_puppy.mcp.managed_server import ServerState
+from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_info
 
 from .base import MCPCommandBase

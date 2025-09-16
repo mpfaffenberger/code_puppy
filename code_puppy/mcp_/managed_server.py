@@ -24,7 +24,7 @@ from pydantic_ai.mcp import (
 )
 
 from code_puppy.http_utils import create_async_client
-from code_puppy.mcp.blocking_startup import BlockingMCPServerStdio
+from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
 from code_puppy.messaging import emit_info
 
 # Configure logging
@@ -101,7 +101,7 @@ class ManagedMCPServer:
             Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]
         ] = None
         self._state = ServerState.STOPPED
-        # Always start disabled - servers must be explicitly started with /mcp start
+        # Always start disabled - servers must be explicitly started with /mcp_ start
         self._enabled = False
         self._quarantine_until: Optional[datetime] = None
         self._start_time: Optional[datetime] = None

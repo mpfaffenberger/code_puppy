@@ -6,7 +6,6 @@ from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
-from code_puppy.agents import get_current_agent_config
 from code_puppy.message_history_processor import (
     get_model_context_length,
     message_history_accumulator,
@@ -48,7 +47,7 @@ _code_generation_agent = None
 def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
     """Load MCP servers using the new manager while maintaining backward compatibility."""
     from code_puppy.config import get_value, load_mcp_server_configs
-    from code_puppy.mcp import ServerConfig, get_mcp_manager
+    from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 
     # Check if MCP servers are disabled
     mcp_disabled = get_value("disable_mcp_servers")
@@ -113,7 +112,7 @@ def _load_mcp_servers(extra_headers: Optional[Dict[str, str]] = None):
 
 def reload_mcp_servers():
     """Reload MCP servers without restarting the agent."""
-    from code_puppy.mcp import get_mcp_manager
+    from code_puppy.mcp_ import get_mcp_manager
 
     manager = get_mcp_manager()
     # Reload configurations
@@ -136,11 +135,12 @@ def reload_code_generation_agent(message_group: str | None):
 
     # Check if current agent has a pinned model
     from code_puppy.agents import get_current_agent_config
+
     agent_config = get_current_agent_config()
     agent_model_name = None
-    if hasattr(agent_config, 'get_model_name'):
+    if hasattr(agent_config, "get_model_name"):
         agent_model_name = agent_config.get_model_name()
-    
+
     # Use agent-specific model if pinned, otherwise use global model
     model_name = agent_model_name if agent_model_name else get_model_name()
     emit_info(
@@ -203,17 +203,18 @@ def get_code_generation_agent(force_reload=False, message_group: str | None = No
 
     # Get the global model name
     global_model_name = get_model_name()
-    
+
     # Check if current agent has a pinned model
     from code_puppy.agents import get_current_agent_config
+
     agent_config = get_current_agent_config()
     agent_model_name = None
-    if hasattr(agent_config, 'get_model_name'):
+    if hasattr(agent_config, "get_model_name"):
         agent_model_name = agent_config.get_model_name()
-    
+
     # Use agent-specific model if pinned, otherwise use global model
     model_name = agent_model_name if agent_model_name else global_model_name
-    
+
     if _code_generation_agent is None or _LAST_MODEL_NAME != model_name or force_reload:
         return reload_code_generation_agent(message_group)
     return _code_generation_agent

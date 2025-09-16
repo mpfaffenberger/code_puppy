@@ -94,7 +94,7 @@ class MCPManager:
                 self._managed_servers[config.id] = managed_server
 
                 # Update status tracker - always start as STOPPED
-                # Servers must be explicitly started with /mcp start
+                # Servers must be explicitly started with /mcp_ start
                 self.status_tracker.set_status(config.id, ServerState.STOPPED)
 
                 initialized_count += 1
@@ -137,7 +137,7 @@ class MCPManager:
             self._managed_servers[server_id] = managed_server
 
             # Update status tracker - always start as STOPPED
-            # Servers must be explicitly started with /mcp start
+            # Servers must be explicitly started with /mcp_ start
             self.status_tracker.set_status(server_id, ServerState.STOPPED)
 
             # Record registration event
@@ -589,7 +589,7 @@ class MCPManager:
             self._managed_servers[server_id] = managed_server
 
             # Update status tracker - always start as STOPPED
-            # Servers must be explicitly started with /mcp start
+            # Servers must be explicitly started with /mcp_ start
             self.status_tracker.set_status(server_id, ServerState.STOPPED)
 
             # Record reload event
