@@ -48,20 +48,70 @@ def get_terminal_session_id() -> str:
 
 
 def _is_process_alive(pid: int) -> bool:
-    """Check if a process with the given PID is still alive.
+    """Cross-platform check whether a PID is alive without killing it.
 
-    Args:
-        pid: Process ID to check
-
-    Returns:
-        bool: True if process exists, False otherwise
+    On POSIX: use os.kill(pid, 0) and errno checks.
+    On Windows: use kernel32 OpenProcess + GetExitCodeProcess.
     """
+    if pid <= 0:
+        return False
+
     try:
-        # On Unix: os.kill(pid, 0) raises OSError if process doesn't exist
-        # On Windows: This also works with signal 0
-        os.kill(pid, 0)
-        return True
-    except (OSError, ProcessLookupError):
+        if os.name == "nt":  # Windows
+            import ctypes
+            from ctypes import wintypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            OpenProcess = kernel32.OpenProcess
+            OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            OpenProcess.restype = wintypes.HANDLE
+
+            GetExitCodeProcess = kernel32.GetExitCodeProcess
+            GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            GetExitCodeProcess.restype = wintypes.BOOL
+
+            CloseHandle = kernel32.CloseHandle
+            CloseHandle.argtypes = [wintypes.HANDLE]
+            CloseHandle.restype = wintypes.BOOL
+
+            STILL_ACTIVE = 259  # per WinAPI
+
+            handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                # Could be access denied (system process) or no such process
+                # Treat access denied as alive to avoid false negatives
+                error = ctypes.get_last_error()
+                ACCESS_DENIED = 5
+                return error == ACCESS_DENIED
+
+            try:
+                exit_code = wintypes.DWORD()
+                if not GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    # If we can't query, assume not alive
+                    return False
+                return exit_code.value == STILL_ACTIVE
+            finally:
+                CloseHandle(handle)
+        else:
+            # POSIX
+            import errno
+
+            try:
+                os.kill(pid, 0)
+            except OSError as e:
+                if e.errno in (errno.ESRCH,):
+                    return False  # No such process
+                if e.errno in (errno.EPERM, errno.EACCES):
+                    return True  # Process exists but no permission
+                return False
+            except ProcessLookupError:
+                return False
+            else:
+                return True
+    except Exception:
+        # On any unexpected error, avoid crashing; assume not alive
         return False
 
 
@@ -130,8 +180,28 @@ def _save_session_data(sessions: dict[str, str]) -> None:
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(cleaned_sessions, f, indent=2)
 
-        # Atomic rename (works on all platforms)
-        temp_file.replace(session_file)
+        # Atomic rename; on Windows replace() is best-effort if target exists
+        try:
+            temp_file.replace(session_file)
+        except Exception:
+            try:
+                if session_file.exists():
+                    session_file.unlink(missing_ok=True)  # Python 3.8+: ignore if missing
+            except Exception:
+                pass
+            try:
+                temp_file.replace(session_file)
+            except Exception:
+                # As a last resort, copy contents
+                try:
+                    with open(temp_file, "r", encoding="utf-8") as rf, open(
+                        session_file, "w", encoding="utf-8"
+                    ) as wf:
+                        wf.write(rf.read())
+                    temp_file.unlink(missing_ok=True)
+                except Exception:
+                    # Give up silently; session persistence isn't critical
+                    pass
 
     except (IOError, OSError):
         # File permission issues, etc. - just continue without persistence
