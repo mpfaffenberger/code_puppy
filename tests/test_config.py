@@ -652,3 +652,23 @@ class TestDefaultModelSelection:
 
         assert result == "gpt-5"
         mock_load_config.assert_called_once()
+
+        result = cp_config._default_model_from_models_json()
+
+        # The first model in models.json should be selected
+        assert result == "gpt-5"
+
+    @patch("code_puppy.config.get_value")
+    def test_get_model_name_with_nonexistent_model_uses_first_from_models_json(
+        self, mock_get_value
+    ):
+        # Test the exact scenario: when a model doesn't exist in the config,
+        # the first model from models.json is selected
+        mock_get_value.return_value = "non-existent-model"
+
+        # This will use the real models.json file through the ModelFactory
+        result = cp_config.get_model_name()
+
+        # Since "non-existent-model" doesn't exist in models.json,
+        # it should fall back to the first model in models.json ("gpt-5")
+        assert result == "claude-sonnet-4"

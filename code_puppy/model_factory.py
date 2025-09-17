@@ -95,9 +95,20 @@ class ModelFactory:
                 config = json.load(f)
 
         if pathlib.Path(EXTRA_MODELS_FILE).exists():
-            with open(EXTRA_MODELS_FILE, "r") as f:
-                extra_config = json.load(f)
-                config.update(extra_config)
+            try:
+                with open(EXTRA_MODELS_FILE, "r") as f:
+                    extra_config = json.load(f)
+                    config.update(extra_config)
+            except json.JSONDecodeError as e:
+                logging.getLogger(__name__).warning(
+                    f"Failed to load extra models config from {EXTRA_MODELS_FILE}: Invalid JSON - {e}\n"
+                    f"Please check your extra_models.json file for syntax errors."
+                )
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    f"Failed to load extra models config from {EXTRA_MODELS_FILE}: {e}\n"
+                    f"The extra models configuration will be ignored."
+                )
         return config
 
     @staticmethod
