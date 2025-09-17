@@ -1,15 +1,15 @@
 import json
 import queue
-from typing import Any, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 import pydantic
 from pydantic_ai.messages import ModelMessage, ModelRequest, TextPart, ToolCallPart
 
 from code_puppy.config import (
+    get_compaction_strategy,
+    get_compaction_threshold,
     get_model_name,
     get_protected_token_count,
-    get_compaction_threshold,
-    get_compaction_strategy,
 )
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory
@@ -82,7 +82,9 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
 
 
 def filter_huge_messages(messages: List[ModelMessage]) -> List[ModelMessage]:
-    filtered = [m for m in messages if estimate_tokens_for_message(m) < 50000]
+    # First deduplicate tool returns to clean up any duplicates
+    deduplicated = deduplicate_tool_returns(messages)
+    filtered = [m for m in deduplicated if estimate_tokens_for_message(m) < 50000]
     pruned = prune_interrupted_tool_calls(filtered)
     return pruned
 
@@ -234,21 +236,100 @@ def get_model_context_length() -> int:
     return int(context_length)
 
 
+def deduplicate_tool_returns(messages: List[ModelMessage]) -> List[ModelMessage]:
+    """
+    Remove duplicate tool returns while preserving the first occurrence for each tool_call_id.
+
+    This function identifies tool-return parts that share the same tool_call_id and
+    removes duplicates, keeping only the first return for each id. This prevents
+    conversation corruption from duplicate tool_result blocks.
+    """
+    if not messages:
+        return messages
+
+    seen_tool_returns: Set[str] = set()
+    deduplicated: List[ModelMessage] = []
+    removed_count = 0
+
+    for msg in messages:
+        # Check if this message has any parts we need to filter
+        if not hasattr(msg, "parts") or not msg.parts:
+            deduplicated.append(msg)
+            continue
+
+        # Filter parts within this message
+        filtered_parts = []
+        msg_had_duplicates = False
+
+        for part in msg.parts:
+            tool_call_id = getattr(part, "tool_call_id", None)
+            part_kind = getattr(part, "part_kind", None)
+
+            # Check if this is a tool-return part
+            if tool_call_id and part_kind in {
+                "tool-return",
+                "tool-result",
+                "tool_result",
+            }:
+                if tool_call_id in seen_tool_returns:
+                    # This is a duplicate return, skip it
+                    msg_had_duplicates = True
+                    removed_count += 1
+                    continue
+                else:
+                    # First occurrence of this return, keep it
+                    seen_tool_returns.add(tool_call_id)
+                    filtered_parts.append(part)
+            else:
+                # Not a tool return, always keep
+                filtered_parts.append(part)
+
+        # If we filtered out parts, create a new message with filtered parts
+        if msg_had_duplicates and filtered_parts:
+            # Create a new message with the same attributes but filtered parts
+            new_msg = type(msg)(parts=filtered_parts)
+            # Copy over other attributes if they exist
+            for attr_name in dir(msg):
+                if (
+                    not attr_name.startswith("_")
+                    and attr_name != "parts"
+                    and hasattr(msg, attr_name)
+                ):
+                    try:
+                        setattr(new_msg, attr_name, getattr(msg, attr_name))
+                    except (AttributeError, TypeError):
+                        # Skip attributes that can't be set
+                        pass
+            deduplicated.append(new_msg)
+        elif filtered_parts:  # No duplicates but has parts
+            deduplicated.append(msg)
+        # If no parts remain after filtering, drop the entire message
+
+    if removed_count > 0:
+        emit_warning(f"Removed {removed_count} duplicate tool-return part(s)")
+
+    return deduplicated
+
+
 def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
     """
     Remove any messages that participate in mismatched tool call sequences.
 
     A mismatched tool call id is one that appears in a ToolCall (model/tool request)
-    without a corresponding tool return, or vice versa. We preserve original order
-    and only drop messages that contain parts referencing mismatched tool_call_ids.
+    without a corresponding tool return, or vice versa. We enforce a strict 1:1 ratio
+    between tool calls and tool returns. We preserve original order and only drop
+    messages that contain parts referencing mismatched tool_call_ids.
     """
     if not messages:
         return messages
 
-    tool_call_ids: Set[str] = set()
-    tool_return_ids: Set[str] = set()
+    # First deduplicate tool returns to clean up any duplicate returns
+    messages = deduplicate_tool_returns(messages)
 
-    # First pass: collect ids for calls vs returns
+    tool_call_counts: Dict[str, int] = {}
+    tool_return_counts: Dict[str, int] = {}
+
+    # First pass: count occurrences of each tool_call_id for calls vs returns
     for msg in messages:
         for part in getattr(msg, "parts", []) or []:
             tool_call_id = getattr(part, "tool_call_id", None)
@@ -257,11 +338,25 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
             # Heuristic: if it's an explicit ToolCallPart or has a tool_name/args,
             # consider it a call; otherwise it's a return/result.
             if part.part_kind == "tool-call":
-                tool_call_ids.add(tool_call_id)
+                tool_call_counts[tool_call_id] = (
+                    tool_call_counts.get(tool_call_id, 0) + 1
+                )
             else:
-                tool_return_ids.add(tool_call_id)
+                tool_return_counts[tool_call_id] = (
+                    tool_return_counts.get(tool_call_id, 0) + 1
+                )
 
-    mismatched: Set[str] = tool_call_ids.symmetric_difference(tool_return_ids)
+    # Find mismatched tool_call_ids (not exactly 1:1 ratio)
+    all_tool_ids = set(tool_call_counts.keys()) | set(tool_return_counts.keys())
+    mismatched: Set[str] = set()
+
+    for tool_id in all_tool_ids:
+        call_count = tool_call_counts.get(tool_id, 0)
+        return_count = tool_return_counts.get(tool_id, 0)
+        # Enforce strict 1:1 ratio - both must be exactly 1
+        if call_count != 1 or return_count != 1:
+            mismatched.add(tool_id)
+
     if not mismatched:
         return messages
 
@@ -287,7 +382,10 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
 
 
 def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
-    # First, prune any interrupted/mismatched tool-call conversations
+    # First, deduplicate tool returns to clean up any duplicates
+    messages = deduplicate_tool_returns(messages)
+
+    # Then, prune any interrupted/mismatched tool-call conversations
     total_current_tokens = sum(estimate_tokens_for_message(msg) for msg in messages)
 
     model_max = get_model_context_length()
@@ -379,6 +477,8 @@ def truncation(
     messages: List[ModelMessage], protected_tokens: int
 ) -> List[ModelMessage]:
     emit_info("Truncating message history to manage token usage")
+    # First deduplicate tool returns to clean up any duplicates
+    messages = deduplicate_tool_returns(messages)
     result = [messages[0]]  # Always keep the first message (system prompt)
     num_tokens = 0
     stack = queue.LifoQueue()
@@ -401,6 +501,10 @@ def truncation(
 
 def message_history_accumulator(messages: List[Any]):
     _message_history = get_message_history()
+
+    # Deduplicate tool returns in current history before processing new messages
+    _message_history = deduplicate_tool_returns(_message_history)
+
     message_history_hashes = set([hash_message(m) for m in _message_history])
     for msg in messages:
         if (
@@ -408,6 +512,12 @@ def message_history_accumulator(messages: List[Any]):
             and hash_message(msg) not in get_compacted_message_hashes()
         ):
             _message_history.append(msg)
+
+    # Deduplicate tool returns again after adding new messages to ensure no duplicates
+    _message_history = deduplicate_tool_returns(_message_history)
+
+    # Update the message history with deduplicated messages
+    set_message_history(_message_history)
 
     # Apply message history trimming using the main processor
     # This ensures we maintain global state while still managing context limits
