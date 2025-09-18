@@ -57,7 +57,12 @@ class AddCommand(MCPCommandBase):
         try:
             if args:
                 # Parse JSON from arguments
-                json_str = " ".join(args)
+                # If we have a single argument (from JSON), use it directly
+                # Otherwise join multiple arguments (legacy support)
+                if len(args) == 1:
+                    json_str = args[0]
+                else:
+                    json_str = " ".join(args)
 
                 try:
                     config_dict = json.loads(json_str)
