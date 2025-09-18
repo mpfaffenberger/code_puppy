@@ -96,21 +96,30 @@ class MCPCommandHandler(MCPCommandBase):
                 self._commands["list"].execute([], group_id=group_id)
                 return True
 
-            # Parse arguments using shlex for proper handling of quoted strings
-            try:
-                args = shlex.split(args_str)
-            except ValueError as e:
-                emit_info(
-                    f"[red]Invalid command syntax: {e}[/red]", message_group=group_id
-                )
-                return True
+            # Special handling for 'add' command with JSON - preserve JSON intact
+            # This fixes the issue where shlex.split() would break JSON strings containing spaces
+            # Example: "/mcp add {\"command\": \"echo hello world\"}" would be split incorrectly
+            if args_str.startswith('add ') and '{' in args_str:
+                # For 'add' command with JSON, split only on the first space
+                parts = args_str.split(' ', 1)
+                subcommand = parts[0].lower()
+                sub_args = [parts[1]] if len(parts) > 1 else []
+            else:
+                # Parse arguments using shlex for proper handling of quoted strings
+                try:
+                    args = shlex.split(args_str)
+                except ValueError as e:
+                    emit_info(
+                        f"[red]Invalid command syntax: {e}[/red]", message_group=group_id
+                    )
+                    return True
 
-            if not args:
-                self._commands["list"].execute([], group_id=group_id)
-                return True
+                if not args:
+                    self._commands["list"].execute([], group_id=group_id)
+                    return True
 
-            subcommand = args[0].lower()
-            sub_args = args[1:] if len(args) > 1 else []
+                subcommand = args[0].lower()
+                sub_args = args[1:] if len(args) > 1 else []
 
             # Route to appropriate command handler
             command_handler = self._commands.get(subcommand)
