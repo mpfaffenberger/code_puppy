@@ -208,17 +208,22 @@ def _list_files(
         files = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
         # Create ListedFile objects with metadata
-        for file_path in files:
-            if not file_path:  # Skip empty lines
+        for full_path in files:
+            if not full_path:  # Skip empty lines
                 continue
-
-            full_path = os.path.join(directory, file_path)
 
             # Skip if file doesn't exist (though it should)
             if not os.path.exists(full_path):
                 continue
 
+            # Extract relative path from the full path
+            if full_path.startswith(directory):
+                file_path = full_path[len(directory):].lstrip(os.sep)
+            else:
+                file_path = full_path
+
             # For non-recursive mode, skip files in subdirectories
+            # Only check the relative path, not the full path
             if not recursive and os.sep in file_path:
                 continue
 
@@ -242,7 +247,7 @@ def _list_files(
                 if entry_type == "file":
                     size = actual_size
 
-                # Calculate depth
+                # Calculate depth based on the relative path
                 depth = file_path.count(os.sep)
 
                 # Add directory entries if needed for files
@@ -281,6 +286,33 @@ def _list_files(
             except (FileNotFoundError, PermissionError, OSError):
                 # Skip files we can't access
                 continue
+
+        # In non-recursive mode, we also need to explicitly list directories in the target directory
+        # ripgrep's --files option only returns files, not directories
+        if not recursive:
+            try:
+                entries = os.listdir(directory)
+                for entry in entries:
+                    full_entry_path = os.path.join(directory, entry)
+                    # Skip if it doesn't exist or if it's a file (since files are already listed by ripgrep)
+                    if not os.path.exists(full_entry_path) or os.path.isfile(full_entry_path):
+                        continue
+                    
+                    # For non-recursive mode, only include directories that are directly in the target directory
+                    if os.path.isdir(full_entry_path):
+                        # Create a ListedFile for the directory
+                        results.append(
+                            ListedFile(
+                                path=entry,
+                                type="directory",
+                                size=0,
+                                full_path=full_entry_path,
+                                depth=0,
+                            )
+                        )
+            except (FileNotFoundError, PermissionError, OSError):
+                # Skip directories we can't access
+                pass
     except subprocess.TimeoutExpired:
         error_msg = (
             "[red bold]Error:[/red bold] List files command timed out after 30 seconds"
@@ -337,9 +369,12 @@ def _list_files(
         else:
             return "\U0001f4c4"
 
+    # Count items in results
     dir_count = sum(1 for item in results if item.type == "directory")
     file_count = sum(1 for item in results if item.type == "file")
     total_size = sum(item.size for item in results if item.type == "file")
+    
+
 
     # Build the directory header section
     dir_name = os.path.basename(directory) or directory
@@ -393,8 +428,8 @@ def _list_files(
     final_divider = "[dim]" + "─" * 100 + "\n" + "[/dim]"
     output_lines.append(final_divider)
 
-    # Return both the content string and the list of ListedFile objects
-    return ListFileOutput(content="\n".join(output_lines), files=results)
+    # Return the content string
+    return ListFileOutput(content="\n".join(output_lines))
 
 
 def _read_file(

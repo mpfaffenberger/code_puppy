@@ -148,6 +148,81 @@ def split_messages_for_protected_summarization(
     return messages_to_summarize, protected_messages
 
 
+def deduplicate_tool_returns(messages: List[ModelMessage]) -> List[ModelMessage]:
+    """
+    Remove duplicate tool returns while preserving the first occurrence for each tool_call_id.
+
+    This function identifies tool-return parts that share the same tool_call_id and
+    removes duplicates, keeping only the first return for each id. This prevents
+    conversation corruption from duplicate tool_result blocks.
+    """
+    if not messages:
+        return messages
+
+    seen_tool_returns: Set[str] = set()
+    deduplicated: List[ModelMessage] = []
+    removed_count = 0
+
+    for msg in messages:
+        # Check if this message has any parts we need to filter
+        if not hasattr(msg, "parts") or not msg.parts:
+            deduplicated.append(msg)
+            continue
+
+        # Filter parts within this message
+        filtered_parts = []
+        msg_had_duplicates = False
+
+        for part in msg.parts:
+            tool_call_id = getattr(part, "tool_call_id", None)
+            part_kind = getattr(part, "part_kind", None)
+
+            # Check if this is a tool-return part
+            if tool_call_id and part_kind in {
+                "tool-return",
+                "tool-result",
+                "tool_result",
+            }:
+                if tool_call_id in seen_tool_returns:
+                    # This is a duplicate return, skip it
+                    msg_had_duplicates = True
+                    removed_count += 1
+                    continue
+                else:
+                    # First occurrence of this return, keep it
+                    seen_tool_returns.add(tool_call_id)
+                    filtered_parts.append(part)
+            else:
+                # Not a tool return, always keep
+                filtered_parts.append(part)
+
+        # If we filtered out parts, create a new message with filtered parts
+        if msg_had_duplicates and filtered_parts:
+            # Create a new message with the same attributes but filtered parts
+            new_msg = type(msg)(parts=filtered_parts)
+            # Copy over other attributes if they exist
+            for attr_name in dir(msg):
+                if (
+                    not attr_name.startswith("_")
+                    and attr_name != "parts"
+                    and hasattr(msg, attr_name)
+                ):
+                    try:
+                        setattr(new_msg, attr_name, getattr(msg, attr_name))
+                    except (AttributeError, TypeError):
+                        # Skip attributes that can't be set
+                        pass
+            deduplicated.append(new_msg)
+        elif filtered_parts:  # No duplicates but has parts
+            deduplicated.append(msg)
+        # If no parts remain after filtering, drop the entire message
+
+    if removed_count > 0:
+        emit_warning(f"Removed {removed_count} duplicate tool-return part(s)")
+
+    return deduplicated
+
+
 def summarize_messages(
     messages: List[ModelMessage], with_protection=True
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
