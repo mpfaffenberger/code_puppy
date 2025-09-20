@@ -167,6 +167,18 @@ Switches to the specified agent
 ```
 Switches to the Agent Creator for building custom agents
 
+### Truncate Message History
+```bash
+/truncate <N>
+```
+Truncates the message history to keep only the N most recent messages while protecting the first (system) message. For example:
+```bash
+/truncate 20
+```
+Would keep the system message plus the 19 most recent messages, removing older ones from the history.
+
+This is useful for managing context length when you have a long conversation history but only need the most recent interactions.
+
 ## Available Agents
 
 ### Code-Puppy 🐶 (Default)
