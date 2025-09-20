@@ -791,18 +791,17 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         description="Search and retrieve documentation from multiple sources with AI-powered context understanding",
         category="Documentation",
         tags=["documentation", "search", "context", "ai", "knowledge", "docs", "cloud"],
-        type="stdio",
+        type="http",
         config={
-            "timeout": 30,
-            "command": "npx",
-            "args": ["-y", "@upstash/context7-mcp", "--api-key", "$CONTEXT7_API_KEY"],
+            "url": "https://mcp.context7.com/mcp",
+             "headers": {
+                "Authorization": "Bearer $CONTEXT7_API_KEY"
+             }
         },
         verified=True,
         popular=True,
         requires=MCPServerRequirements(
             environment_vars=["CONTEXT7_API_KEY"],
-            required_tools=["node", "npx"],
-            package_dependencies=["@upstash/context7-mcp"],
         ),
         example_usage="Cloud-based service - no local setup required",
     ),

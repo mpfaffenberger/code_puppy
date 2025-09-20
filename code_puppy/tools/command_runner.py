@@ -22,6 +22,17 @@ from code_puppy.messaging import (
 from code_puppy.state_management import is_tui_mode
 from code_puppy.tools.common import generate_group_id
 
+# Maximum line length for shell command output to prevent massive token usage
+# This helps avoid exceeding model context limits when commands produce very long lines
+MAX_LINE_LENGTH = 256
+
+
+def _truncate_line(line: str) -> str:
+    """Truncate a line to MAX_LINE_LENGTH if it exceeds the limit."""
+    if len(line) > MAX_LINE_LENGTH:
+        return line[:MAX_LINE_LENGTH] + "... [truncated]"
+    return line
+
 _AWAITING_USER_INPUT = False
 
 _CONFIRMATION_LOCK = threading.Lock()
@@ -188,6 +199,8 @@ def run_shell_command_streaming(
             for line in iter(process.stdout.readline, ""):
                 if line:
                     line = line.rstrip("\n\r")
+                    # Limit line length to prevent massive token usage
+                    line = _truncate_line(line)
                     stdout_lines.append(line)
                     emit_system_message(line, message_group=group_id)
                     last_output_time[0] = time.time()
@@ -199,6 +212,8 @@ def run_shell_command_streaming(
             for line in iter(process.stderr.readline, ""):
                 if line:
                     line = line.rstrip("\n\r")
+                    # Limit line length to prevent massive token usage
+                    line = _truncate_line(line)
                     stderr_lines.append(line)
                     emit_system_message(line, message_group=group_id)
                     last_output_time[0] = time.time()
@@ -252,8 +267,8 @@ def run_shell_command_streaming(
             **{
                 "success": False,
                 "command": command,
-                "stdout": "\n".join(stdout_lines[-1000:]),
-                "stderr": "\n".join(stderr_lines[-1000:]),
+                "stdout": "\n".join(stdout_lines[-256:]),
+                "stderr": "\n".join(stderr_lines[-256:]),
                 "exit_code": -9,
                 "execution_time": execution_time,
                 "timeout": True,
@@ -315,23 +330,31 @@ def run_shell_command_streaming(
             )
             emit_info(f"Took {execution_time:.2f}s", message_group=group_id)
             time.sleep(1)
+            # Apply line length limits to stdout/stderr before returning
+            truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
+            truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
+                
             return ShellCommandOutput(
                 success=False,
                 command=command,
                 error="""The process didn't exit cleanly! If the user_interrupted flag is true,
                 please stop all execution and ask the user for clarification!""",
-                stdout="\n".join(stdout_lines[-1000:]),
-                stderr="\n".join(stderr_lines[-1000:]),
+                stdout="\n".join(truncated_stdout),
+                stderr="\n".join(truncated_stderr),
                 exit_code=exit_code,
                 execution_time=execution_time,
                 timeout=False,
                 user_interrupted=process.pid in _USER_KILLED_PROCESSES,
             )
+        # Apply line length limits to stdout/stderr before returning
+        truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
+        truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
+            
         return ShellCommandOutput(
             success=exit_code == 0,
             command=command,
-            stdout="\n".join(stdout_lines[-1000:]),
-            stderr="\n".join(stderr_lines[-1000:]),
+            stdout="\n".join(truncated_stdout),
+            stderr="\n".join(truncated_stderr),
             exit_code=exit_code,
             execution_time=execution_time,
             timeout=False,
@@ -453,12 +476,24 @@ def run_shell_command(
             stdout = None
         if "stderr" not in locals():
             stderr = None
+            
+        # Apply line length limits to stdout/stderr if they exist
+        truncated_stdout = None
+        if stdout:
+            stdout_lines = stdout.split("\n")
+            truncated_stdout = "\n".join([_truncate_line(line) for line in stdout_lines[-256:]])
+            
+        truncated_stderr = None
+        if stderr:
+            stderr_lines = stderr.split("\n")
+            truncated_stderr = "\n".join([_truncate_line(line) for line in stderr_lines[-256:]])
+            
         return ShellCommandOutput(
             success=False,
             command=command,
             error=f"Error executing command {str(e)}",
-            stdout="\n".join(stdout[-1000:]) if stdout else None,
-            stderr="\n".join(stderr[-1000:]) if stderr else None,
+            stdout=truncated_stdout,
+            stderr=truncated_stderr,
             exit_code=-1,
             timeout=False,
         )
@@ -520,8 +555,8 @@ def register_agent_run_shell_command(agent):
                 - success (bool): True if command executed successfully (exit code 0)
                 - command (str | None): The executed command string
                 - error (str | None): Error message if execution failed
-                - stdout (str | None): Standard output from the command (last 1000 lines)
-                - stderr (str | None): Standard error from the command (last 1000 lines)
+                - stdout (str | None): Standard output from the command (last 256 lines)
+                - stderr (str | None): Standard error from the command (last 256 lines)
                 - exit_code (int | None): Process exit code
                 - execution_time (float | None): Total execution time in seconds
                 - timeout (bool | None): True if command was terminated due to timeout
