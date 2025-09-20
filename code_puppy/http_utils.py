@@ -70,7 +70,7 @@ def create_client(
                     fallback_strategy=wait_exponential(multiplier=1, max=60),
                     max_wait=300
                 ),
-                stop=stop_after_attempt(5),
+                stop=stop_after_attempt(10),
                 reraise=True
             ),
             validate_response=should_retry_status
@@ -106,7 +106,7 @@ def create_async_client(
                     fallback_strategy=wait_exponential(multiplier=1, max=60),
                     max_wait=300
                 ),
-                stop=stop_after_attempt(5),
+                stop=stop_after_attempt(10),
                 reraise=True
             ),
             validate_response=should_retry_status
@@ -182,7 +182,7 @@ def create_reopenable_async_client(
                     fallback_strategy=wait_exponential(multiplier=1, max=60),
                     max_wait=300
                 ),
-                stop=stop_after_attempt(5),
+                stop=stop_after_attempt(10),
                 reraise=True
             ),
             validate_response=should_retry_status
