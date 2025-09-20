@@ -21,8 +21,13 @@ class CustomTextArea(TextArea):
 
     def on_key(self, event):
         """Handle key events before they reach the internal _on_key handler."""
-        # Explicitly handle escape+enter/alt+enter sequences
-        if event.key == "escape+enter" or event.key == "alt+enter":
+        # Let the binding system handle alt+enter
+        if event.key == "alt+enter":
+            # Don't prevent default - let the binding system handle it
+            return
+        
+        # Handle escape+enter manually
+        if event.key == "escape+enter":
             self.action_insert_newline()
             event.prevent_default()
             event.stop()
