@@ -6,10 +6,10 @@ import pydantic
 from pydantic_ai.messages import ModelMessage, ModelRequest, TextPart, ToolCallPart
 
 from code_puppy.config import (
+    get_compaction_strategy,
+    get_compaction_threshold,
     get_model_name,
     get_protected_token_count,
-    get_compaction_threshold,
-    get_compaction_strategy,
 )
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory
@@ -216,9 +216,6 @@ def deduplicate_tool_returns(messages: List[ModelMessage]) -> List[ModelMessage]
         elif filtered_parts:  # No duplicates but has parts
             deduplicated.append(msg)
         # If no parts remain after filtering, drop the entire message
-
-    if removed_count > 0:
-        emit_warning(f"Removed {removed_count} duplicate tool-return part(s)")
 
     return deduplicated
 
@@ -487,4 +484,4 @@ def message_history_accumulator(messages: List[Any]):
     # Apply message history trimming using the main processor
     # This ensures we maintain global state while still managing context limits
     message_history_processor(_message_history)
-    return get_message_history()
+    return deduplicate_tool_returns(get_message_history())
