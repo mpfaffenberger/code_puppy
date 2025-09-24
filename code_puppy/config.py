@@ -493,3 +493,36 @@ def save_command_to_history(command: str):
             f"❌ An unexpected error occurred while saving command history: {str(e)}"
         )
         direct_console.print(f"[bold red]{error_msg}[/bold red]")
+
+
+def get_agent_pinned_model(agent_name: str) -> str:
+    """Get the pinned model for a specific agent.
+
+    Args:
+        agent_name: Name of the agent to get the pinned model for.
+
+    Returns:
+        Pinned model name, or None if no model is pinned for this agent.
+    """
+    return get_value(f"agent_model_{agent_name}")
+
+
+def set_agent_pinned_model(agent_name: str, model_name: str):
+    """Set the pinned model for a specific agent.
+
+    Args:
+        agent_name: Name of the agent to pin the model for.
+        model_name: Model name to pin to this agent.
+    """
+    set_config_value(f"agent_model_{agent_name}", model_name)
+
+
+def clear_agent_pinned_model(agent_name: str):
+    """Clear the pinned model for a specific agent.
+
+    Args:
+        agent_name: Name of the agent to clear the pinned model for.
+    """
+    # We can't easily delete keys from configparser, so set to empty string
+    # which will be treated as None by get_agent_pinned_model
+    set_config_value(f"agent_model_{agent_name}", "")
