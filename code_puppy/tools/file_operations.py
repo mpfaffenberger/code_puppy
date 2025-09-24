@@ -110,8 +110,8 @@ def is_project_directory(directory):
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-    import subprocess
     import shutil
+    import subprocess
     import sys
 
     results = []
@@ -218,7 +218,7 @@ def _list_files(
 
             # Extract relative path from the full path
             if full_path.startswith(directory):
-                file_path = full_path[len(directory):].lstrip(os.sep)
+                file_path = full_path[len(directory) :].lstrip(os.sep)
             else:
                 file_path = full_path
 
@@ -295,9 +295,11 @@ def _list_files(
                 for entry in entries:
                     full_entry_path = os.path.join(directory, entry)
                     # Skip if it doesn't exist or if it's a file (since files are already listed by ripgrep)
-                    if not os.path.exists(full_entry_path) or os.path.isfile(full_entry_path):
+                    if not os.path.exists(full_entry_path) or os.path.isfile(
+                        full_entry_path
+                    ):
                         continue
-                    
+
                     # For non-recursive mode, only include directories that are directly in the target directory
                     if os.path.isdir(full_entry_path):
                         # Create a ListedFile for the directory
@@ -373,8 +375,6 @@ def _list_files(
     dir_count = sum(1 for item in results if item.type == "directory")
     file_count = sum(1 for item in results if item.type == "file")
     total_size = sum(item.size for item in results if item.type == "file")
-    
-
 
     # Build the directory header section
     dir_name = os.path.basename(directory) or directory
@@ -491,10 +491,10 @@ def _read_file(
 
 
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
-    import subprocess
     import json
     import os
     import shutil
+    import subprocess
     import sys
 
     directory = os.path.abspath(directory)

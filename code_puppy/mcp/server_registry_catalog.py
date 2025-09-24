@@ -794,9 +794,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         type="http",
         config={
             "url": "https://mcp.context7.com/mcp",
-             "headers": {
-                "Authorization": "Bearer $CONTEXT7_API_KEY"
-             }
+            "headers": {"Authorization": "Bearer $CONTEXT7_API_KEY"},
         },
         verified=True,
         popular=True,

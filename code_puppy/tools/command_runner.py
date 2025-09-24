@@ -33,6 +33,7 @@ def _truncate_line(line: str) -> str:
         return line[:MAX_LINE_LENGTH] + "... [truncated]"
     return line
 
+
 _AWAITING_USER_INPUT = False
 
 _CONFIRMATION_LOCK = threading.Lock()
@@ -333,7 +334,7 @@ def run_shell_command_streaming(
             # Apply line length limits to stdout/stderr before returning
             truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
             truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
-                
+
             return ShellCommandOutput(
                 success=False,
                 command=command,
@@ -349,7 +350,7 @@ def run_shell_command_streaming(
         # Apply line length limits to stdout/stderr before returning
         truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
         truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
-            
+
         return ShellCommandOutput(
             success=exit_code == 0,
             command=command,
@@ -476,18 +477,22 @@ def run_shell_command(
             stdout = None
         if "stderr" not in locals():
             stderr = None
-            
+
         # Apply line length limits to stdout/stderr if they exist
         truncated_stdout = None
         if stdout:
             stdout_lines = stdout.split("\n")
-            truncated_stdout = "\n".join([_truncate_line(line) for line in stdout_lines[-256:]])
-            
+            truncated_stdout = "\n".join(
+                [_truncate_line(line) for line in stdout_lines[-256:]]
+            )
+
         truncated_stderr = None
         if stderr:
             stderr_lines = stderr.split("\n")
-            truncated_stderr = "\n".join([_truncate_line(line) for line in stderr_lines[-256:]])
-            
+            truncated_stderr = "\n".join(
+                [_truncate_line(line) for line in stderr_lines[-256:]]
+            )
+
         return ShellCommandOutput(
             success=False,
             command=command,
