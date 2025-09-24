@@ -421,13 +421,22 @@ def handle_command(command: str):
         if len(tokens) != 3:
             emit_warning("Usage: /pin_model <agent-name> <model-name>")
 
-            # Show available models and JSON agents
+            # Show available models and agents
             available_models = load_model_names()
             json_agents = discover_json_agents()
+
+            # Get built-in agents
+            from code_puppy.agents.agent_manager import get_agent_descriptions
+            builtin_agents = get_agent_descriptions()
 
             emit_info("Available models:")
             for model in available_models:
                 emit_info(f"  [cyan]{model}[/cyan]")
+
+            if builtin_agents:
+                emit_info("\nAvailable built-in agents:")
+                for agent_name, description in builtin_agents.items():
+                    emit_info(f"  [cyan]{agent_name}[/cyan] - {description}")
 
             if json_agents:
                 emit_info("\nAvailable JSON agents:")
@@ -445,31 +454,51 @@ def handle_command(command: str):
             emit_warning(f"Available models: {', '.join(available_models)}")
             return True
 
-        # Check that we're modifying a JSON agent (not a built-in Python agent)
+        # Check if this is a JSON agent or a built-in Python agent
         json_agents = discover_json_agents()
-        if agent_name not in json_agents:
-            emit_error(f"JSON agent '{agent_name}' not found")
 
-            # Show available JSON agents
+        # Get list of available built-in agents
+        from code_puppy.agents.agent_manager import get_agent_descriptions
+        builtin_agents = get_agent_descriptions()
+
+        is_json_agent = agent_name in json_agents
+        is_builtin_agent = agent_name in builtin_agents
+
+        if not is_json_agent and not is_builtin_agent:
+            emit_error(f"Agent '{agent_name}' not found")
+
+            # Show available agents
+            if builtin_agents:
+                emit_info("Available built-in agents:")
+                for name, desc in builtin_agents.items():
+                    emit_info(f"  [cyan]{name}[/cyan] - {desc}")
+
             if json_agents:
-                emit_info("Available JSON agents:")
+                emit_info("\nAvailable JSON agents:")
                 for name, path in json_agents.items():
                     emit_info(f"  [cyan]{name}[/cyan] ({path})")
             return True
 
-        agent_file_path = json_agents[agent_name]
-
-        # Load, modify, and save the agent configuration
+        # Handle different agent types
         try:
-            with open(agent_file_path, "r", encoding="utf-8") as f:
-                agent_config = json.load(f)
+            if is_json_agent:
+                # Handle JSON agent - modify the JSON file
+                agent_file_path = json_agents[agent_name]
 
-            # Set the model
-            agent_config["model"] = model_name
+                with open(agent_file_path, "r", encoding="utf-8") as f:
+                    agent_config = json.load(f)
 
-            # Save the updated configuration
-            with open(agent_file_path, "w", encoding="utf-8") as f:
-                json.dump(agent_config, f, indent=2, ensure_ascii=False)
+                # Set the model
+                agent_config["model"] = model_name
+
+                # Save the updated configuration
+                with open(agent_file_path, "w", encoding="utf-8") as f:
+                    json.dump(agent_config, f, indent=2, ensure_ascii=False)
+
+            else:
+                # Handle built-in Python agent - store in config
+                from code_puppy.config import set_agent_pinned_model
+                set_agent_pinned_model(agent_name, model_name)
 
             emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
 

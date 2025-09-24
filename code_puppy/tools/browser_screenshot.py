@@ -10,7 +10,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_info
 from code_puppy.tools.common import generate_group_id
 
-from .unified_browser_manager import get_unified_browser_manager
+from .camoufox_manager import get_camoufox_manager
 
 
 class VisualAnalysisResult(BaseModel):
@@ -116,7 +116,7 @@ async def take_screenshot_and_analyze(
     )
     try:
         # Get the current browser page
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -199,7 +199,7 @@ async def simple_screenshot(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:

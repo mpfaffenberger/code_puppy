@@ -7,7 +7,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_info
 from code_puppy.tools.common import generate_group_id
 
-from .unified_browser_manager import get_unified_browser_manager
+from .camoufox_manager import get_camoufox_manager
 
 
 async def navigate_to_url(url: str) -> Dict[str, Any]:
@@ -18,7 +18,7 @@ async def navigate_to_url(url: str) -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -48,7 +48,7 @@ async def get_page_info() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -71,7 +71,7 @@ async def go_back() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -93,7 +93,7 @@ async def go_forward() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -115,7 +115,7 @@ async def reload_page(wait_until: str = "domcontentloaded") -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -139,7 +139,7 @@ async def wait_for_load_state(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
