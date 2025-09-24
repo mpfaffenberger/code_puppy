@@ -81,7 +81,9 @@ def get_commands_help():
     )
     help_lines.append(
         Text("/truncate", style="cyan")
-        + Text(" <N>              Truncate message history to N most recent messages (keeping system message)")
+        + Text(
+            " <N>              Truncate message history to N most recent messages (keeping system message)"
+        )
     )
     help_lines.append(
         Text("/<unknown>", style="cyan")
@@ -409,9 +411,10 @@ def handle_command(command: str):
 
     if command.startswith("/pin_model"):
         # Handle agent model pinning
+        import json
+
         from code_puppy.agents.json_agent import discover_json_agents
         from code_puppy.command_line.model_picker_completion import load_model_names
-        import json
 
         tokens = command.split()
 
@@ -622,9 +625,11 @@ def handle_command(command: str):
     if command.startswith("/truncate"):
         tokens = command.split()
         if len(tokens) != 2:
-            emit_error("Usage: /truncate <N> (where N is the number of messages to keep)")
+            emit_error(
+                "Usage: /truncate <N> (where N is the number of messages to keep)"
+            )
             return True
-        
+
         try:
             n = int(tokens[1])
             if n < 1:
@@ -633,23 +638,29 @@ def handle_command(command: str):
         except ValueError:
             emit_error("N must be a valid integer")
             return True
-        
+
         from code_puppy.state_management import get_message_history, set_message_history
-        
+
         history = get_message_history()
         if not history:
             emit_warning("No history to truncate yet. Ask me something first!")
             return True
-            
+
         if len(history) <= n:
-            emit_info(f"History already has {len(history)} messages, which is <= {n}. Nothing to truncate.")
+            emit_info(
+                f"History already has {len(history)} messages, which is <= {n}. Nothing to truncate."
+            )
             return True
-            
+
         # Always keep the first message (system message) and then keep the N-1 most recent messages
-        truncated_history = [history[0]] + history[-(n-1):] if n > 1 else [history[0]]
-        
+        truncated_history = (
+            [history[0]] + history[-(n - 1) :] if n > 1 else [history[0]]
+        )
+
         set_message_history(truncated_history)
-        emit_success(f"Truncated message history from {len(history)} to {len(truncated_history)} messages (keeping system message and {n-1} most recent)")
+        emit_success(
+            f"Truncated message history from {len(history)} to {len(truncated_history)} messages (keeping system message and {n - 1} most recent)"
+        )
         return True
 
     if command in ("/exit", "/quit"):
