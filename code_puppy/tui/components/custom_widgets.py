@@ -25,7 +25,7 @@ class CustomTextArea(TextArea):
         if event.key == "alt+enter":
             # Don't prevent default - let the binding system handle it
             return
-        
+
         # Handle escape+enter manually
         if event.key == "escape+enter":
             self.action_insert_newline()
