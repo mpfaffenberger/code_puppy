@@ -7,7 +7,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_info
 from code_puppy.tools.common import generate_group_id
 
-from .unified_browser_manager import get_unified_browser_manager
+from .camoufox_manager import get_camoufox_manager
 
 
 async def execute_javascript(
@@ -21,7 +21,7 @@ async def execute_javascript(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -56,7 +56,7 @@ async def scroll_page(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -152,7 +152,7 @@ async def scroll_to_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -186,7 +186,7 @@ async def set_viewport_size(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -217,7 +217,7 @@ async def wait_for_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -236,26 +236,7 @@ async def wait_for_element(
         return {"success": False, "error": str(e), "selector": selector, "state": state}
 
 
-async def get_page_source() -> Dict[str, Any]:
-    """Get the page's HTML source."""
-    group_id = generate_group_id("browser_get_source")
-    emit_info(
-        "[bold white on blue] BROWSER GET SOURCE [/bold white on blue] 📜",
-        message_group=group_id,
-    )
-    try:
-        browser_manager = get_unified_browser_manager()
-        page = await browser_manager.get_current_page()
 
-        if not page:
-            return {"success": False, "error": "No active browser page available"}
-
-        source = await page.content()
-
-        return {"success": True, "source": source, "length": len(source)}
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 async def highlight_element(
@@ -272,7 +253,7 @@ async def highlight_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -311,7 +292,7 @@ async def clear_highlights() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -456,20 +437,7 @@ def register_wait_for_element(agent):
         return await wait_for_element(selector, state, timeout)
 
 
-def register_get_page_source(agent):
-    """Register the get page source tool."""
 
-    @agent.tool
-    async def browser_get_source(
-        context: RunContext,
-    ) -> Dict[str, Any]:
-        """
-        Get the page's HTML source code.
-
-        Returns:
-            Dict with page source
-        """
-        return await get_page_source()
 
 
 def register_browser_highlight_element(agent):

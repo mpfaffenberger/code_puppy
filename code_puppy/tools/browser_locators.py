@@ -7,7 +7,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_info
 from code_puppy.tools.common import generate_group_id
 
-from .unified_browser_manager import get_unified_browser_manager
+from .camoufox_manager import get_camoufox_manager
 
 
 async def find_by_role(
@@ -23,7 +23,7 @@ async def find_by_role(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -75,7 +75,7 @@ async def find_by_text(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -127,7 +127,7 @@ async def find_by_label(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -190,7 +190,7 @@ async def find_by_placeholder(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -248,7 +248,7 @@ async def find_by_test_id(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -304,7 +304,7 @@ async def run_xpath_query(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -359,7 +359,7 @@ async def find_buttons(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -411,7 +411,7 @@ async def find_links(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         page = await browser_manager.get_current_page()
 
         if not page:

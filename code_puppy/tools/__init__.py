@@ -46,12 +46,17 @@ from code_puppy.tools.browser_scripts import (
     register_browser_clear_highlights,
     register_browser_highlight_element,
     register_execute_javascript,
-    register_get_page_source,
     register_scroll_page,
     register_scroll_to_element,
     register_set_viewport_size,
     register_wait_for_element,
 )
+
+# from code_puppy.tools.browser_workflows import (
+#     register_list_workflows,
+#     register_read_workflow,
+#     register_save_workflow,
+# )
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -116,12 +121,15 @@ TOOL_REGISTRY = {
     "browser_scroll_to_element": register_scroll_to_element,
     "browser_set_viewport": register_set_viewport_size,
     "browser_wait_for_element": register_wait_for_element,
-    "browser_get_source": register_get_page_source,
     "browser_highlight_element": register_browser_highlight_element,
     "browser_clear_highlights": register_browser_clear_highlights,
     # Browser Screenshots and VQA
     "browser_screenshot_analyze": register_take_screenshot_and_analyze,
     "browser_simple_screenshot": register_simple_screenshot,
+    # Browser Workflows (temporarily disabled)
+    # "browser_save_workflow": register_save_workflow,
+    # "browser_list_workflows": register_list_workflows,
+    # "browser_read_workflow": register_read_workflow,
 }
 
 

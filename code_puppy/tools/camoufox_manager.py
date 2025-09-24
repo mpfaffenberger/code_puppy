@@ -49,17 +49,16 @@ class CamoufoxManager:
         try:
             emit_info("[yellow]Initializing Camoufox (privacy Firefox)...[/yellow]")
 
-            # Launch Camoufox with privacy settings
-            self._browser = await camoufox.async_firefox(
+            # Launch Camoufox with basic privacy settings
+            # Note: Many advanced features require additional packages or are handled internally
+            camoufox_instance = camoufox.AsyncCamoufox(
                 headless=self.headless,
-                geoip=self.geoip,
+                # Only using well-supported basic options
                 block_webrtc=self.block_webrtc,
                 humanize=self.humanize,
-                # Additional privacy settings
-                os="windows",  # OS spoofing
-                safe_browsing=False,  # Disable safe browsing
-                screen="1920x1080",  # Screen resolution spoofing
+                # Let camoufox handle other privacy settings automatically
             )
+            self._browser = await camoufox_instance.start()
 
             # Create context (Camoufox handles most privacy settings automatically)
             self._context = await self._browser.new_context(

@@ -7,7 +7,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_info
 from code_puppy.tools.common import generate_group_id
 
-from .unified_browser_manager import get_unified_browser_manager
+from .camoufox_manager import get_camoufox_manager
 
 
 async def initialize_browser(
@@ -22,7 +22,7 @@ async def initialize_browser(
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
 
         # Configure browser settings
         browser_manager.headless = headless
@@ -75,7 +75,7 @@ async def close_browser() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
         await browser_manager.close()
 
         emit_info(
@@ -96,7 +96,7 @@ async def get_browser_status() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
 
         if not browser_manager._initialized:
             return {
@@ -141,7 +141,7 @@ async def create_new_page(url: Optional[str] = None) -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
 
         if not browser_manager._initialized:
             return {
@@ -172,7 +172,7 @@ async def list_pages() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_unified_browser_manager()
+        browser_manager = get_camoufox_manager()
 
         if not browser_manager._initialized:
             return {"success": False, "error": "Browser not initialized"}
