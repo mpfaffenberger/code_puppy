@@ -124,10 +124,10 @@ def test_summarize_messages_with_protection_preserves_recent():
     mhp.run_summarization_sync = mock_summarization
 
     try:
-        result = summarize_messages(messages)
+        compacted, summarized_source = summarize_messages(messages)
 
-        print(f"DEBUG: Result length: {len(result)}")
-        for i, msg in enumerate(result):
+        print(f"DEBUG: Result length: {len(compacted)}")
+        for i, msg in enumerate(compacted):
             content = (
                 msg.parts[0].content[:100] + "..."
                 if len(msg.parts[0].content) > 100
@@ -136,16 +136,17 @@ def test_summarize_messages_with_protection_preserves_recent():
             print(f"DEBUG: Message {i}: {content}")
 
         # Should have: [system, summary, recent_msg1, recent_msg2]
-        assert len(result) >= 3
-        assert result[0] == system_msg  # System message preserved
+        assert len(compacted) >= 3
+        assert compacted[0] == system_msg  # System message preserved
 
         # Last messages should be the recent ones (preserved exactly)
-        assert result[-2] == recent_msg1
-        assert result[-1] == recent_msg2
+        assert compacted[-2] == recent_msg1
+        assert compacted[-1] == recent_msg2
 
         # Second message should be the summary
-        summary_content = result[1].parts[0].content
+        summary_content = compacted[1].parts[0].content
         assert "Summary of old messages" in summary_content
+        assert summarized_source == to_summarize
 
     finally:
         # Restore original function
