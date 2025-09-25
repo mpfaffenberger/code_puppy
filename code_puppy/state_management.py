@@ -4,6 +4,8 @@ from typing import Any, List, Set
 
 import pydantic
 
+from code_puppy.messaging import emit_info
+
 _tui_mode: bool = False
 _tui_app_instance: Any = None
 
@@ -138,8 +140,8 @@ def _stringify_part(part: Any) -> str:
         attributes.append(f"content={json.dumps(content, sort_keys=True)}")
     else:
         attributes.append(f"content={repr(content)}")
-
-    return "|".join(attributes)
+    result = "|".join(attributes)
+    return result
 
 
 def hash_message(message: Any) -> int:
