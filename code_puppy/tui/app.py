@@ -430,8 +430,10 @@ class CodePuppyTUI(App):
                 else:
                     # Only cancel the agent task if NO processes were killed
                     self._current_worker.cancel()
-                    state_management._message_history = prune_interrupted_tool_calls(
-                        state_management.get_message_history()
+                    state_management.set_message_history(
+                        prune_interrupted_tool_calls(
+                            state_management.get_message_history()
+                        )
                     )
                     self.add_system_message("⚠️  Processing cancelled by user")
                     # Stop spinner and clear state only when agent is actually cancelled

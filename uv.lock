@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 
 [[package]]
@@ -357,7 +357,7 @@ requires-dist = [
     { name = "pathspec", specifier = ">=0.11.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.38" },
     { name = "pydantic", specifier = ">=2.4.0" },
-    { name = "pydantic-ai", specifier = ">=1.0.0" },
+    { name = "pydantic-ai", specifier = ">=1.0.10" },
     { name = "pyjwt", specifier = ">=2.8.0" },
     { name = "pytest-cov", specifier = ">=6.1.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
