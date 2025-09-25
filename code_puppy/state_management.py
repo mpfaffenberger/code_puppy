@@ -1,44 +1,32 @@
-from typing import Any, List
+import json
+from types import ModuleType
+from typing import Any, List, Set
 
-# Legacy global state - maintained for backward compatibility
-_message_history: List[Any] = []
-_compacted_message_hashes = set()
+import pydantic
 
-# Flag to control whether to use agent-specific history (True) or global history (False)
-_use_agent_specific_history = True
 _tui_mode: bool = False
 _tui_app_instance: Any = None
 
 
+def _require_agent_manager() -> ModuleType:
+    """Import the agent manager module, raising if it is unavailable."""
+    try:
+        from code_puppy.agents import agent_manager
+    except Exception as error:  # pragma: no cover - import errors surface immediately
+        raise RuntimeError("Agent manager module unavailable") from error
+    return agent_manager
+
+
 def add_compacted_message_hash(message_hash: str) -> None:
     """Add a message hash to the set of compacted message hashes."""
-    if _use_agent_specific_history:
-        try:
-            from code_puppy.agents.agent_manager import (
-                add_current_agent_compacted_message_hash,
-            )
-
-            add_current_agent_compacted_message_hash(message_hash)
-            return
-        except Exception:
-            # Fallback to global if agent system fails
-            pass
-    _compacted_message_hashes.add(message_hash)
+    manager = _require_agent_manager()
+    manager.add_current_agent_compacted_message_hash(message_hash)
 
 
-def get_compacted_message_hashes():
+def get_compacted_message_hashes() -> Set[str]:
     """Get the set of compacted message hashes."""
-    if _use_agent_specific_history:
-        try:
-            from code_puppy.agents.agent_manager import (
-                get_current_agent_compacted_message_hashes,
-            )
-
-            return get_current_agent_compacted_message_hashes()
-        except Exception:
-            # Fallback to global if agent system fails
-            pass
-    return _compacted_message_hashes
+    manager = _require_agent_manager()
+    return manager.get_current_agent_compacted_message_hashes()
 
 
 def set_tui_mode(enabled: bool) -> None:
@@ -89,112 +77,81 @@ def get_tui_mode() -> bool:
 
 
 def get_message_history() -> List[Any]:
-    """Get message history - uses agent-specific history if enabled, otherwise global."""
-    if _use_agent_specific_history:
-        try:
-            from code_puppy.agents.agent_manager import (
-                get_current_agent_message_history,
-            )
-
-            return get_current_agent_message_history()
-        except Exception:
-            # Fallback to global if agent system fails
-            return _message_history
-    return _message_history
+    """Get message history for the active agent."""
+    manager = _require_agent_manager()
+    return manager.get_current_agent_message_history()
 
 
 def set_message_history(history: List[Any]) -> None:
-    """Set message history - uses agent-specific history if enabled, otherwise global."""
-    if _use_agent_specific_history:
-        try:
-            from code_puppy.agents.agent_manager import (
-                set_current_agent_message_history,
-            )
-
-            set_current_agent_message_history(history)
-            return
-        except Exception:
-            # Fallback to global if agent system fails
-            pass
-    global _message_history
-    _message_history = history
+    """Replace the message history for the active agent."""
+    manager = _require_agent_manager()
+    manager.set_current_agent_message_history(history)
 
 
 def clear_message_history() -> None:
-    """Clear message history - uses agent-specific history if enabled, otherwise global."""
-    if _use_agent_specific_history:
-        try:
-            from code_puppy.agents.agent_manager import (
-                clear_current_agent_message_history,
-            )
-
-            clear_current_agent_message_history()
-            return
-        except Exception:
-            # Fallback to global if agent system fails
-            pass
-    global _message_history
-    _message_history = []
+    """Clear message history for the active agent."""
+    manager = _require_agent_manager()
+    manager.clear_current_agent_message_history()
 
 
 def append_to_message_history(message: Any) -> None:
-    """Append to message history - uses agent-specific history if enabled, otherwise global."""
-    if _use_agent_specific_history:
-        try:
-            from code_puppy.agents.agent_manager import (
-                append_to_current_agent_message_history,
-            )
-
-            append_to_current_agent_message_history(message)
-            return
-        except Exception:
-            # Fallback to global if agent system fails
-            pass
-    _message_history.append(message)
+    """Append a message to the active agent's history."""
+    manager = _require_agent_manager()
+    manager.append_to_current_agent_message_history(message)
 
 
 def extend_message_history(history: List[Any]) -> None:
-    """Extend message history - uses agent-specific history if enabled, otherwise global."""
-    if _use_agent_specific_history:
-        try:
-            from code_puppy.agents.agent_manager import (
-                extend_current_agent_message_history,
-            )
-
-            extend_current_agent_message_history(history)
-            return
-        except Exception:
-            # Fallback to global if agent system fails
-            pass
-    _message_history.extend(history)
+    """Extend the active agent's message history."""
+    manager = _require_agent_manager()
+    manager.extend_current_agent_message_history(history)
 
 
-def set_use_agent_specific_history(enabled: bool) -> None:
-    """Enable or disable agent-specific message history.
+def _stringify_part(part: Any) -> str:
+    """Create a stable string representation for a message part.
 
-    Args:
-        enabled: True to use per-agent history, False to use global history.
-    """
-    global _use_agent_specific_history
-    _use_agent_specific_history = enabled
+    We deliberately ignore timestamps so identical content hashes the same even when
+    emitted at different times. This prevents status updates from blowing up the
+    history when they are repeated with new timestamps."""
+
+    attributes: List[str] = [part.__class__.__name__]
+
+    # Role/instructions help disambiguate parts that otherwise share content
+    if hasattr(part, "role") and part.role:
+        attributes.append(f"role={part.role}")
+    if hasattr(part, "instructions") and part.instructions:
+        attributes.append(f"instructions={part.instructions}")
+
+    if hasattr(part, "tool_call_id") and part.tool_call_id:
+        attributes.append(f"tool_call_id={part.tool_call_id}")
+
+    if hasattr(part, "tool_name") and part.tool_name:
+        attributes.append(f"tool_name={part.tool_name}")
+
+    content = getattr(part, "content", None)
+    if content is None:
+        attributes.append("content=None")
+    elif isinstance(content, str):
+        attributes.append(f"content={content}")
+    elif isinstance(content, pydantic.BaseModel):
+        attributes.append(f"content={json.dumps(content.model_dump(), sort_keys=True)}")
+    elif isinstance(content, dict):
+        attributes.append(f"content={json.dumps(content, sort_keys=True)}")
+    else:
+        attributes.append(f"content={repr(content)}")
+
+    return "|".join(attributes)
 
 
-def is_using_agent_specific_history() -> bool:
-    """Check if agent-specific message history is enabled.
+def hash_message(message: Any) -> int:
+    """Create a stable hash for a model message that ignores timestamps."""
+    role = getattr(message, "role", None)
+    instructions = getattr(message, "instructions", None)
+    header_bits: List[str] = []
+    if role:
+        header_bits.append(f"role={role}")
+    if instructions:
+        header_bits.append(f"instructions={instructions}")
 
-    Returns:
-        True if using per-agent history, False if using global history.
-    """
-    return _use_agent_specific_history
-
-
-def hash_message(message):
-    hashable_entities = []
-    for part in message.parts:
-        if hasattr(part, "timestamp"):
-            hashable_entities.append(part.timestamp.isoformat())
-        elif hasattr(part, "tool_call_id"):
-            hashable_entities.append(part.tool_call_id)
-        else:
-            hashable_entities.append(part.content)
-    return hash(",".join(hashable_entities))
+    part_strings = [_stringify_part(part) for part in getattr(message, "parts", [])]
+    canonical = "||".join(header_bits + part_strings)
+    return hash(canonical)

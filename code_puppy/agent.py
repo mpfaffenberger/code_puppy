@@ -1,5 +1,6 @@
 import uuid
 from pathlib import Path
+from pydantic_ai.models.openai import OpenAIModelSettings, OpenAIResponsesModelSettings
 from typing import Dict, Optional
 
 from pydantic_ai import Agent
@@ -170,7 +171,14 @@ def reload_code_generation_agent(message_group: str | None):
     console.print(f"Max output tokens per message: {output_tokens}")
     model_settings_dict["max_tokens"] = output_tokens
 
+
     model_settings = ModelSettings(**model_settings_dict)
+    if "gpt-5" in model_name:
+        model_settings_dict["openai_reasoning_effort"] = "high"
+        model_settings_dict["extra_body"] = {
+            "verbosity": "low"
+        }
+        model_settings = OpenAIModelSettings(**model_settings_dict)
     agent = Agent(
         model=model,
         instructions=instructions,

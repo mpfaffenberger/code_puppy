@@ -3,7 +3,15 @@ import queue
 from typing import Any, List, Set, Tuple
 
 import pydantic
-from pydantic_ai.messages import ModelMessage, ModelRequest, TextPart, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    TextPart,
+    ToolCallPart,
+    ToolCallPartDelta,
+    ToolReturn,
+    ToolReturnPart,
+)
 
 from code_puppy.config import (
     get_model_name,
@@ -82,9 +90,46 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
 
 
 def filter_huge_messages(messages: List[ModelMessage]) -> List[ModelMessage]:
-    filtered = [m for m in messages if estimate_tokens_for_message(m) < 50000]
-    pruned = prune_interrupted_tool_calls(filtered)
-    return pruned
+    if not messages:
+        return []
+
+    # Never drop the system prompt, even if it is extremely large.
+    system_message, *rest = messages
+    filtered_rest = [
+        m for m in rest if estimate_tokens_for_message(m) < 50000
+    ]
+    return [system_message] + filtered_rest
+
+
+def _is_tool_call_part(part: Any) -> bool:
+    if isinstance(part, (ToolCallPart, ToolCallPartDelta)):
+        return True
+
+    part_kind = (getattr(part, "part_kind", "") or "").replace("_", "-")
+    if part_kind == "tool-call":
+        return True
+
+    has_tool_name = getattr(part, "tool_name", None) is not None
+    has_args = getattr(part, "args", None) is not None
+    has_args_delta = getattr(part, "args_delta", None) is not None
+
+    return bool(has_tool_name and (has_args or has_args_delta))
+
+
+def _is_tool_return_part(part: Any) -> bool:
+    if isinstance(part, (ToolReturnPart, ToolReturn)):
+        return True
+
+    part_kind = (getattr(part, "part_kind", "") or "").replace("_", "-")
+    if part_kind in {"tool-return", "tool-result"}:
+        return True
+
+    if getattr(part, "tool_call_id", None) is None:
+        return False
+
+    has_content = getattr(part, "content", None) is not None
+    has_content_delta = getattr(part, "content_delta", None) is not None
+    return bool(has_content or has_content_delta)
 
 
 def split_messages_for_protected_summarization(
@@ -126,19 +171,18 @@ def split_messages_for_protected_summarization(
         if protected_token_count + message_tokens > protected_tokens_limit:
             break
 
-        protected_messages.insert(0, message)  # Insert at beginning to maintain order
+        protected_messages.append(message)
         protected_token_count += message_tokens
 
-    # Add system message at the beginning of protected messages
+    # Messages that were added while scanning backwards are currently in reverse order.
+    # Reverse them to restore chronological ordering, then prepend the system prompt.
+    protected_messages.reverse()
     protected_messages.insert(0, system_message)
 
-    # Messages to summarize are everything between system message and protected zone
-    protected_start_idx = (
-        len(messages) - len(protected_messages) + 1
-    )  # +1 because system message is protected
-    messages_to_summarize = messages[
-        1:protected_start_idx
-    ]  # Start from 1 to skip system message
+    # Messages to summarize are everything between the system message and the
+    # protected tail zone we just constructed.
+    protected_start_idx = max(1, len(messages) - (len(protected_messages) - 1))
+    messages_to_summarize = messages[1:protected_start_idx]
 
     emit_info(
         f"🔒 Protecting {len(protected_messages)} recent messages ({protected_token_count} tokens, limit: {protected_tokens_limit})"
@@ -164,43 +208,28 @@ def deduplicate_tool_returns(messages: List[ModelMessage]) -> List[ModelMessage]
     removed_count = 0
 
     for msg in messages:
-        # Check if this message has any parts we need to filter
         if not hasattr(msg, "parts") or not msg.parts:
             deduplicated.append(msg)
             continue
 
-        # Filter parts within this message
         filtered_parts = []
         msg_had_duplicates = False
 
         for part in msg.parts:
             tool_call_id = getattr(part, "tool_call_id", None)
-            part_kind = getattr(part, "part_kind", None)
-
-            # Check if this is a tool-return part
-            if tool_call_id and part_kind in {
-                "tool-return",
-                "tool-result",
-                "tool_result",
-            }:
+            if tool_call_id and _is_tool_return_part(part):
                 if tool_call_id in seen_tool_returns:
-                    # This is a duplicate return, skip it
                     msg_had_duplicates = True
                     removed_count += 1
                     continue
-                else:
-                    # First occurrence of this return, keep it
-                    seen_tool_returns.add(tool_call_id)
-                    filtered_parts.append(part)
-            else:
-                # Not a tool return, always keep
-                filtered_parts.append(part)
+                seen_tool_returns.add(tool_call_id)
+            filtered_parts.append(part)
 
-        # If we filtered out parts, create a new message with filtered parts
-        if msg_had_duplicates and filtered_parts:
-            # Create a new message with the same attributes but filtered parts
+        if not filtered_parts:
+            continue
+
+        if msg_had_duplicates:
             new_msg = type(msg)(parts=filtered_parts)
-            # Copy over other attributes if they exist
             for attr_name in dir(msg):
                 if (
                     not attr_name.startswith("_")
@@ -210,12 +239,10 @@ def deduplicate_tool_returns(messages: List[ModelMessage]) -> List[ModelMessage]
                     try:
                         setattr(new_msg, attr_name, getattr(msg, attr_name))
                     except (AttributeError, TypeError):
-                        # Skip attributes that can't be set
                         pass
             deduplicated.append(new_msg)
-        elif filtered_parts:  # No duplicates but has parts
+        else:
             deduplicated.append(msg)
-        # If no parts remain after filtering, drop the entire message
 
     if removed_count > 0:
         emit_warning(f"Removed {removed_count} duplicate tool-return part(s)")
@@ -224,23 +251,35 @@ def deduplicate_tool_returns(messages: List[ModelMessage]) -> List[ModelMessage]
 
 
 def summarize_messages(
-    messages: List[ModelMessage], with_protection=True
+    messages: List[ModelMessage], with_protection: bool = True
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """
     Summarize messages while protecting recent messages up to PROTECTED_TOKENS.
 
     Returns:
-        List of messages: [system_message, summary_of_old_messages, ...protected_recent_messages]
+        Tuple of (compacted_messages, summarized_source_messages)
+        where compacted_messages always preserves the original system message
+        as the first entry.
     """
-    messages_to_summarize, protected_messages = messages, []
+    messages_to_summarize: List[ModelMessage]
+    protected_messages: List[ModelMessage]
+
     if with_protection:
         messages_to_summarize, protected_messages = (
             split_messages_for_protected_summarization(messages)
         )
+    else:
+        messages_to_summarize = messages[1:] if messages else []
+        protected_messages = messages[:1]
+
+    if not messages:
+        return [], []
+
+    system_message = messages[0]
 
     if not messages_to_summarize:
-        # Nothing to summarize, return protected messages as-is
-        return protected_messages, messages_to_summarize
+        # Nothing to summarize, so just return the original sequence
+        return prune_interrupted_tool_calls(messages), []
 
     instructions = (
         "The input will be a log of Agentic AI steps that have been taken"
@@ -257,12 +296,24 @@ def summarize_messages(
         new_messages = run_summarization_sync(
             instructions, message_history=messages_to_summarize
         )
-        # Return: [system_message, summary, ...protected_recent_messages]
-        result = new_messages + protected_messages[1:]
-        return prune_interrupted_tool_calls(result), messages_to_summarize
+
+        if not isinstance(new_messages, list):
+            emit_warning(
+                "Summarization agent returned non-list output; wrapping into message request"
+            )
+            new_messages = [ModelRequest([TextPart(str(new_messages))])]
+
+        compacted: List[ModelMessage] = [system_message] + list(new_messages)
+
+        # Drop the system message from protected_messages because we already included it
+        protected_tail = [msg for msg in protected_messages if msg is not system_message]
+
+        compacted.extend(protected_tail)
+
+        return prune_interrupted_tool_calls(compacted), messages_to_summarize
     except Exception as e:
         emit_error(f"Summarization failed during compaction: {e}")
-        return messages, messages_to_summarize  # Return original messages on failure
+        return messages, []  # Return original messages on failure
 
 
 def summarize_message(message: ModelMessage) -> ModelMessage:
@@ -329,11 +380,10 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
             tool_call_id = getattr(part, "tool_call_id", None)
             if not tool_call_id:
                 continue
-            # Heuristic: if it's an explicit ToolCallPart or has a tool_name/args,
-            # consider it a call; otherwise it's a return/result.
-            if part.part_kind == "tool-call":
+
+            if _is_tool_call_part(part) and not _is_tool_return_part(part):
                 tool_call_ids.add(tool_call_id)
-            else:
+            elif _is_tool_return_part(part):
                 tool_return_ids.add(tool_call_id)
 
     mismatched: Set[str] = tool_call_ids.symmetric_difference(tool_return_ids)
@@ -362,12 +412,17 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
 
 
 def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
-    # First, prune any interrupted/mismatched tool-call conversations
-    total_current_tokens = sum(estimate_tokens_for_message(msg) for msg in messages)
+    cleaned_history = prune_interrupted_tool_calls(
+        deduplicate_tool_returns(messages)
+    )
+
+    total_current_tokens = sum(
+        estimate_tokens_for_message(msg) for msg in cleaned_history
+    )
 
     model_max = get_model_context_length()
 
-    proportion_used = total_current_tokens / model_max
+    proportion_used = total_current_tokens / model_max if model_max else 0
 
     # Check if we're in TUI mode and can update the status bar
     from code_puppy.state_management import get_tui_app_instance, is_tui_mode
@@ -406,17 +461,15 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     compaction_strategy = get_compaction_strategy()
 
     if proportion_used > compaction_threshold:
+        filtered_history = filter_huge_messages(cleaned_history)
+
         if compaction_strategy == "truncation":
-            # Use truncation instead of summarization
             protected_tokens = get_protected_token_count()
-            result_messages = truncation(
-                filter_huge_messages(messages), protected_tokens
-            )
-            summarized_messages = []  # No summarization in truncation mode
+            result_messages = truncation(filtered_history, protected_tokens)
+            summarized_messages: List[ModelMessage] = []
         else:
-            # Default to summarization
             result_messages, summarized_messages = summarize_messages(
-                filter_huge_messages(messages)
+                filtered_history
             )
 
         final_token_count = sum(
@@ -447,7 +500,9 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
         for m in summarized_messages:
             add_compacted_message_hash(hash_message(m))
         return result_messages
-    return messages
+
+    set_message_history(cleaned_history)
+    return cleaned_history
 
 
 def truncation(
@@ -475,16 +530,17 @@ def truncation(
 
 
 def message_history_accumulator(messages: List[Any]):
-    _message_history = get_message_history()
-    message_history_hashes = set([hash_message(m) for m in _message_history])
-    for msg in messages:
-        if (
-            hash_message(msg) not in message_history_hashes
-            and hash_message(msg) not in get_compacted_message_hashes()
-        ):
-            _message_history.append(msg)
+    existing_history = list(get_message_history())
+    seen_hashes = {hash_message(message) for message in existing_history}
+    compacted_hashes = get_compacted_message_hashes()
 
-    # Apply message history trimming using the main processor
-    # This ensures we maintain global state while still managing context limits
-    message_history_processor(_message_history)
-    return get_message_history()
+    for message in messages:
+        message_hash = hash_message(message)
+        if message_hash in seen_hashes or message_hash in compacted_hashes:
+            continue
+        existing_history.append(message)
+        seen_hashes.add(message_hash)
+
+    updated_history = message_history_processor(existing_history)
+    set_message_history(updated_history)
+    return updated_history
