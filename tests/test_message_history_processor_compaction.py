@@ -16,7 +16,6 @@ from pydantic_ai.messages import (
 )
 
 from code_puppy.message_history_processor import (
-    deduplicate_tool_returns,
     filter_huge_messages,
     message_history_processor,
     prune_interrupted_tool_calls,
@@ -40,28 +39,6 @@ def make_request(text: str) -> ModelRequest:
 
 def make_response(text: str) -> ModelResponse:
     return ModelResponse(parts=[TextPart(text)])
-
-
-def collect_tool_return_parts(message: ModelMessage) -> List[ToolReturnPart]:
-    return [
-        part for part in message.parts if isinstance(part, ToolReturnPart)
-    ]
-
-
-def test_deduplicate_tool_returns_preserves_first_return_only() -> None:
-    call_id = "tool-123"
-    message = ModelResponse(
-        parts=[
-            ToolReturnPart(tool_name="runner", tool_call_id=call_id, content="first"),
-            ToolReturnPart(tool_name="runner", tool_call_id=call_id, content="duplicate"),
-        ]
-    )
-
-    deduped = deduplicate_tool_returns([message])
-    assert len(deduped) == 1
-    parts = collect_tool_return_parts(deduped[0])
-    assert len(parts) == 1
-    assert parts[0].content == "first"
 
 
 def test_prune_interrupted_tool_calls_keeps_delta_pairs() -> None:
@@ -192,10 +169,6 @@ def test_message_history_processor_cleans_without_compaction(monkeypatch: pytest
 
     assert mock_set_history.call_args[0][0] == result
     assert orphan not in result
-    deduped_return_msg = next(
-        msg for msg in result if collect_tool_return_parts(msg)
-    )
-    assert len(collect_tool_return_parts(deduped_return_msg)) == 1
     assert not mock_add_hash.call_args_list
 
 
@@ -299,14 +272,6 @@ def test_message_history_processor_integration_with_loaded_context(monkeypatch: 
     # orphan call removed, huge payload filtered prior to compaction
     assert orphan_call not in result
     assert huge_payload not in result
-
-    # deduped tool return should only contain first payload inside captured summary
-    captured_returns = [
-        msg for msg in captured_summary_input if collect_tool_return_parts(msg)
-    ]
-    if captured_returns:
-        assert len(captured_returns) == 1
-        assert len(collect_tool_return_parts(captured_returns[0])) == 1
 
     # Summaries target only the expected older messages
     summarized_ids = {id(msg) for msg in captured_summary_input}
