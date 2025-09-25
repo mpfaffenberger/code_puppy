@@ -192,64 +192,6 @@ def split_messages_for_protected_summarization(
     return messages_to_summarize, protected_messages
 
 
-def deduplicate_tool_returns(messages: List[ModelMessage]) -> List[ModelMessage]:
-    """
-    Remove duplicate tool returns while preserving the first occurrence for each tool_call_id.
-
-    This function identifies tool-return parts that share the same tool_call_id and
-    removes duplicates, keeping only the first return for each id. This prevents
-    conversation corruption from duplicate tool_result blocks.
-    """
-    if not messages:
-        return messages
-
-    seen_tool_returns: Set[str] = set()
-    deduplicated: List[ModelMessage] = []
-    removed_count = 0
-
-    for msg in messages:
-        if not hasattr(msg, "parts") or not msg.parts:
-            deduplicated.append(msg)
-            continue
-
-        filtered_parts = []
-        msg_had_duplicates = False
-
-        for part in msg.parts:
-            tool_call_id = getattr(part, "tool_call_id", None)
-            if tool_call_id and _is_tool_return_part(part):
-                if tool_call_id in seen_tool_returns:
-                    msg_had_duplicates = True
-                    removed_count += 1
-                    continue
-                seen_tool_returns.add(tool_call_id)
-            filtered_parts.append(part)
-
-        if not filtered_parts:
-            continue
-
-        if msg_had_duplicates:
-            new_msg = type(msg)(parts=filtered_parts)
-            for attr_name in dir(msg):
-                if (
-                    not attr_name.startswith("_")
-                    and attr_name != "parts"
-                    and hasattr(msg, attr_name)
-                ):
-                    try:
-                        setattr(new_msg, attr_name, getattr(msg, attr_name))
-                    except (AttributeError, TypeError):
-                        pass
-            deduplicated.append(new_msg)
-        else:
-            deduplicated.append(msg)
-
-    if removed_count > 0:
-        emit_warning(f"Removed {removed_count} duplicate tool-return part(s)")
-
-    return deduplicated
-
-
 def summarize_messages(
     messages: List[ModelMessage], with_protection: bool = True
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
@@ -412,9 +354,7 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
 
 
 def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
-    cleaned_history = prune_interrupted_tool_calls(
-        deduplicate_tool_returns(messages)
-    )
+    cleaned_history = prune_interrupted_tool_calls(messages)
 
     total_current_tokens = sum(
         estimate_tokens_for_message(msg) for msg in cleaned_history
