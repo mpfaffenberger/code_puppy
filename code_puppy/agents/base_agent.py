@@ -1,4 +1,6 @@
 """Base agent configuration class for defining agent properties."""
+import math
+
 import mcp
 import signal
 
@@ -8,7 +10,6 @@ import json
 import uuid
 from abc import ABC, abstractmethod
 from pydantic_ai import UsageLimitExceeded, UsageLimits
-from pydantic_graph import End
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pydantic
@@ -260,6 +261,14 @@ class BaseAgent(ABC):
 
         return result
 
+    def estimate_token_count(self, text: str) -> int:
+        """
+        Simple token estimation using len(message) - 4.
+        This replaces tiktoken with a much simpler approach.
+        """
+        return max(1, math.floor((len(text) / 4)))
+
+
     def estimate_tokens_for_message(self, message: ModelMessage) -> int:
         """
         Estimate the number of tokens in a message using len(message) - 4.
@@ -270,9 +279,9 @@ class BaseAgent(ABC):
         for part in message.parts:
             part_str = self.stringify_message_part(part)
             if part_str:
-                total_tokens += len(part_str)
+                total_tokens += self.estimate_token_count(part_str)
 
-        return int(max(1, total_tokens) / 4)
+        return max(1, total_tokens)
 
     def _is_tool_call_part(self, part: Any) -> bool:
         if isinstance(part, (ToolCallPart, ToolCallPartDelta)):
@@ -304,15 +313,9 @@ class BaseAgent(ABC):
         return bool(has_content or has_content_delta)
 
     def filter_huge_messages(self, messages: List[ModelMessage]) -> List[ModelMessage]:
-        if not messages:
-            return []
-
-        # Never drop the system prompt, even if it is extremely large.
-        system_message, *rest = messages
-        filtered_rest = [
-            m for m in rest if self.estimate_tokens_for_message(m) < 50000
-        ]
-        return [system_message] + filtered_rest
+        filtered = [m for m in messages if self.estimate_tokens_for_message(m) < 50000]
+        pruned = self.prune_interrupted_tool_calls(filtered)
+        return pruned
 
     def split_messages_for_protected_summarization(
         self,
@@ -475,10 +478,11 @@ class BaseAgent(ABC):
                 tool_call_id = getattr(part, "tool_call_id", None)
                 if not tool_call_id:
                     continue
-
-                if self._is_tool_call_part(part) and not self._is_tool_return_part(part):
+                # Heuristic: if it's an explicit ToolCallPart or has a tool_name/args,
+                # consider it a call; otherwise it's a return/result.
+                if part.part_kind == "tool-call":
                     tool_call_ids.add(tool_call_id)
-                elif self._is_tool_return_part(part):
+                else:
                     tool_return_ids.add(tool_call_id)
 
         mismatched: Set[str] = tool_call_ids.symmetric_difference(tool_return_ids)
@@ -499,34 +503,17 @@ class BaseAgent(ABC):
                 continue
             pruned.append(msg)
 
-        if dropped_count:
-            emit_warning(
-                f"Pruned {dropped_count} message(s) with mismatched tool_call_id pairs"
-            )
-        return pruned
-
     def message_history_processor(self, messages: List[ModelMessage]) -> List[ModelMessage]:
-        """
-        Process message history, handling token management and compaction.
-
-        Args:
-            messages: List of messages to process
-
-        Returns:
-            Processed list of messages
-        """
-
-        cleaned_history = self.prune_interrupted_tool_calls(messages)
-
-        total_current_tokens = sum(
-            self.estimate_tokens_for_message(msg) for msg in cleaned_history
-        )
+        # First, prune any interrupted/mismatched tool-call conversations
+        total_current_tokens = sum(self.estimate_tokens_for_message(msg) for msg in messages)
 
         model_max = self.get_model_context_length()
 
-        proportion_used = total_current_tokens / model_max if model_max else 0
+        proportion_used = total_current_tokens / model_max
 
         # Check if we're in TUI mode and can update the status bar
+        from code_puppy.tui_state import get_tui_app_instance, is_tui_mode
+
         if is_tui_mode():
             tui_app = get_tui_app_instance()
             if tui_app:
@@ -554,7 +541,6 @@ class BaseAgent(ABC):
             emit_info(
                 f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
             )
-        
         # Get the configured compaction threshold
         compaction_threshold = get_compaction_threshold()
 
@@ -562,22 +548,22 @@ class BaseAgent(ABC):
         compaction_strategy = get_compaction_strategy()
 
         if proportion_used > compaction_threshold:
-            filtered_history = self.filter_huge_messages(cleaned_history)
-
             if compaction_strategy == "truncation":
+                # Use truncation instead of summarization
                 protected_tokens = get_protected_token_count()
-                result_messages = self.truncation(filtered_history, protected_tokens)
-                summarized_messages: List[ModelMessage] = []
+                result_messages = self.truncation(
+                    self.filter_huge_messages(messages), protected_tokens
+                )
+                summarized_messages = []  # No summarization in truncation mode
             else:
-                # For summarization strategy, use the agent's summarize_messages method
+                # Default to summarization
                 result_messages, summarized_messages = self.summarize_messages(
-                    filtered_history
+                    self.filter_huge_messages(messages)
                 )
 
             final_token_count = sum(
                 self.estimate_tokens_for_message(msg) for msg in result_messages
             )
-            
             # Update status bar with final token count if in TUI mode
             if is_tui_mode():
                 tui_app = get_tui_app_instance()
@@ -599,14 +585,11 @@ class BaseAgent(ABC):
                     )
             else:
                 emit_info(f"Final token count after processing: {final_token_count}")
-            
             self.set_message_history(result_messages)
             for m in summarized_messages:
                 self.add_compacted_message_hash(self.hash_message(m))
             return result_messages
-
-        self.set_message_history(cleaned_history)
-        return cleaned_history
+        return messages
 
     def truncation(self, messages: List[ModelMessage], protected_tokens: int) -> List[ModelMessage]:
         """
@@ -793,32 +776,21 @@ class BaseAgent(ABC):
         """Return usage limits based on config."""
         return UsageLimits(request_limit=get_message_limit())
 
-    def message_history_accumulator(self, messages: List[Any]) -> List[Any]:
-        """
-        Accumulate messages into the agent's history, avoiding duplicates.
 
-        Args:
-            messages: List of messages to accumulate
+    def message_history_accumulator(self, messages: List[Any]):
+        _message_history = self.get_message_history()
+        message_history_hashes = set([self.hash_message(m) for m in _message_history])
+        for msg in messages:
+            if (
+                self.hash_message(msg) not in message_history_hashes
+                and self.hash_message(msg) not in self.get_compacted_message_hashes()
+            ):
+                _message_history.append(msg)
 
-        Returns:
-            Updated message history
-        """
-
-        existing_history = list(self.get_message_history())
-        seen_hashes = {self.hash_message(message) for message in existing_history}
-        compacted_hashes = self.get_compacted_message_hashes()
-
-        for message in messages:
-            message_hash = self.hash_message(message)
-            if message_hash in seen_hashes or message_hash in compacted_hashes:
-                continue
-            existing_history.append(message)
-            seen_hashes.add(message_hash)
-
-        # Convert ModelMessage list to generic list for return type compatibility
-        updated_history = self.message_history_processor(existing_history)
-        self.set_message_history(updated_history)
-        return updated_history
+        # Apply message history trimming using the main processor
+        # This ensures we maintain global state while still managing context limits
+        self.message_history_processor(_message_history)
+        return self.get_message_history()
 
 
     async def run_with_mcp(
