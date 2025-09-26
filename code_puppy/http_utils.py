@@ -10,7 +10,7 @@ from typing import Dict, Optional, Union
 
 import httpx
 import requests
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import stop_after_attempt, wait_exponential
 
 try:
     from pydantic_ai.retries import (
@@ -57,26 +57,32 @@ def create_client(
 
     # If retry components are available, create a client with retry transport
     if TenacityTransport and RetryConfig and wait_retry_after:
+
         def should_retry_status(response):
             """Raise exceptions for retryable HTTP status codes."""
             if response.status_code in retry_status_codes:
-                emit_info(f"HTTP retry: Retrying request due to status code {response.status_code}")
+                emit_info(
+                    f"HTTP retry: Retrying request due to status code {response.status_code}"
+                )
                 response.raise_for_status()
 
         transport = TenacityTransport(
             config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError) and e.response.status_code in retry_status_codes,
+                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
+                and e.response.status_code in retry_status_codes,
                 wait=wait_retry_after(
                     fallback_strategy=wait_exponential(multiplier=1, max=60),
-                    max_wait=300
+                    max_wait=300,
                 ),
                 stop=stop_after_attempt(10),
-                reraise=True
+                reraise=True,
             ),
-            validate_response=should_retry_status
+            validate_response=should_retry_status,
         )
-        
-        return httpx.Client(transport=transport, verify=verify, headers=headers or {}, timeout=timeout)
+
+        return httpx.Client(
+            transport=transport, verify=verify, headers=headers or {}, timeout=timeout
+        )
     else:
         # Fallback to regular client if retry components are not available
         return httpx.Client(verify=verify, headers=headers or {}, timeout=timeout)
@@ -93,26 +99,32 @@ def create_async_client(
 
     # If retry components are available, create a client with retry transport
     if AsyncTenacityTransport and RetryConfig and wait_retry_after:
+
         def should_retry_status(response):
             """Raise exceptions for retryable HTTP status codes."""
             if response.status_code in retry_status_codes:
-                emit_info(f"HTTP retry: Retrying request due to status code {response.status_code}")
+                emit_info(
+                    f"HTTP retry: Retrying request due to status code {response.status_code}"
+                )
                 response.raise_for_status()
 
         transport = AsyncTenacityTransport(
             config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError) and e.response.status_code in retry_status_codes,
+                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
+                and e.response.status_code in retry_status_codes,
                 wait=wait_retry_after(
                     fallback_strategy=wait_exponential(multiplier=1, max=60),
-                    max_wait=300
+                    max_wait=300,
                 ),
                 stop=stop_after_attempt(10),
-                reraise=True
+                reraise=True,
             ),
-            validate_response=should_retry_status
+            validate_response=should_retry_status,
         )
-        
-        return httpx.AsyncClient(transport=transport, verify=verify, headers=headers or {}, timeout=timeout)
+
+        return httpx.AsyncClient(
+            transport=transport, verify=verify, headers=headers or {}, timeout=timeout
+        )
     else:
         # Fallback to regular client if retry components are not available
         return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
@@ -169,32 +181,44 @@ def create_reopenable_async_client(
 
     # If retry components are available, create a client with retry transport
     if AsyncTenacityTransport and RetryConfig and wait_retry_after:
+
         def should_retry_status(response):
             """Raise exceptions for retryable HTTP status codes."""
             if response.status_code in retry_status_codes:
-                emit_info(f"HTTP retry: Retrying request due to status code {response.status_code}")
+                emit_info(
+                    f"HTTP retry: Retrying request due to status code {response.status_code}"
+                )
                 response.raise_for_status()
 
         transport = AsyncTenacityTransport(
             config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError) and e.response.status_code in retry_status_codes,
+                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
+                and e.response.status_code in retry_status_codes,
                 wait=wait_retry_after(
                     fallback_strategy=wait_exponential(multiplier=1, max=60),
-                    max_wait=300
+                    max_wait=300,
                 ),
                 stop=stop_after_attempt(10),
-                reraise=True
+                reraise=True,
             ),
-            validate_response=should_retry_status
+            validate_response=should_retry_status,
         )
-        
+
         if ReopenableAsyncClient is not None:
             return ReopenableAsyncClient(
-                transport=transport, verify=verify, headers=headers or {}, timeout=timeout
+                transport=transport,
+                verify=verify,
+                headers=headers or {},
+                timeout=timeout,
             )
         else:
             # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
-            return httpx.AsyncClient(transport=transport, verify=verify, headers=headers or {}, timeout=timeout)
+            return httpx.AsyncClient(
+                transport=transport,
+                verify=verify,
+                headers=headers or {},
+                timeout=timeout,
+            )
     else:
         # Fallback to regular clients if retry components are not available
         if ReopenableAsyncClient is not None:
@@ -203,7 +227,9 @@ def create_reopenable_async_client(
             )
         else:
             # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
-            return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
+            return httpx.AsyncClient(
+                verify=verify, headers=headers or {}, timeout=timeout
+            )
 
 
 def is_cert_bundle_available() -> bool:

@@ -17,7 +17,7 @@ from typing import Any
 project_root = Path(__file__).parents[3]
 sys.path.insert(0, str(project_root))
 
-from code_puppy.mcp.retry_manager import get_retry_manager, retry_mcp_call  # noqa: E402
+from code_puppy.mcp_.retry_manager import get_retry_manager, retry_mcp_call  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

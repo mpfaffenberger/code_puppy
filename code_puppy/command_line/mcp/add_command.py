@@ -130,7 +130,7 @@ class AddCommand(MCPCommandBase):
         """
         try:
             from code_puppy.config import MCP_SERVERS_FILE
-            from code_puppy.mcp.managed_server import ServerConfig
+            from code_puppy.mcp_.managed_server import ServerConfig
 
             # Extract required fields
             name = config_dict.pop("name")

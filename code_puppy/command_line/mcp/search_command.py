@@ -34,7 +34,7 @@ class SearchCommand(MCPCommandBase):
             group_id = self.generate_group_id()
 
         try:
-            from code_puppy.mcp.server_registry_catalog import catalog
+            from code_puppy.mcp_.server_registry_catalog import catalog
 
             if not args:
                 # Show popular servers if no query

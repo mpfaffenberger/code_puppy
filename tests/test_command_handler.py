@@ -428,8 +428,14 @@ def test_truncate_command():
 
     try:
         # Test with valid number
-        with patch("code_puppy.state_management.get_message_history") as mock_get_history, \
-             patch("code_puppy.state_management.set_message_history") as mock_set_history:
+        with (
+            patch(
+                "code_puppy.state_management.get_message_history"
+            ) as mock_get_history,
+            patch(
+                "code_puppy.state_management.set_message_history"
+            ) as mock_set_history,
+        ):
             mock_get_history.return_value = ["msg1", "msg2", "msg3", "msg4", "msg5"]
             result = handle_command("/truncate 3")
             assert result is True
@@ -453,7 +459,9 @@ def test_truncate_command_no_history():
     mock_emit_warning = mocks["emit_warning"].start()
 
     try:
-        with patch("code_puppy.state_management.get_message_history") as mock_get_history:
+        with patch(
+            "code_puppy.state_management.get_message_history"
+        ) as mock_get_history:
             mock_get_history.return_value = []
             result = handle_command("/truncate 5")
             assert result is True
@@ -469,7 +477,9 @@ def test_truncate_command_fewer_messages():
     mock_emit_info = mocks["emit_info"].start()
 
     try:
-        with patch("code_puppy.state_management.get_message_history") as mock_get_history:
+        with patch(
+            "code_puppy.state_management.get_message_history"
+        ) as mock_get_history:
             mock_get_history.return_value = ["msg1", "msg2"]
             result = handle_command("/truncate 5")
             assert result is True

@@ -8,7 +8,7 @@ import logging
 
 from rich.console import Console
 
-from code_puppy.mcp.manager import get_mcp_manager
+from code_puppy.mcp_.manager import get_mcp_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
