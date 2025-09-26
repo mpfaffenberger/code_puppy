@@ -12,6 +12,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy import __version__, callbacks, plugins
+from code_puppy.agents import get_current_agent
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
@@ -466,12 +467,11 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 
     try:
         # Get agent through runtime manager and use its run_with_mcp method
-        agent_manager = get_runtime_agent_manager()
-
+        agent = get_current_agent()
         from code_puppy.messaging.spinner import ConsoleSpinner
 
         with ConsoleSpinner(console=message_renderer.console):
-            response = await agent_manager.run_with_mcp(
+            response = await agent.run_with_mcp(
                 prompt,
             )
 
