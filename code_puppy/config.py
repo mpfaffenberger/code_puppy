@@ -94,7 +94,7 @@ def get_model_context_length() -> int:
         from code_puppy.model_factory import ModelFactory
 
         model_configs = ModelFactory.load_config()
-        model_name = get_model_name()
+        model_name = get_global_model_name()
 
         # Get context length from model config
         model_config = model_configs.get(model_name, {})
@@ -305,7 +305,7 @@ def clear_model_cache():
     _default_vqa_model_cache = None
 
 
-def get_model_name():
+def get_global_model_name():
     """Return a valid model name for Code Puppy to use.
 
     1. Look at ``model`` in *puppy.cfg*.

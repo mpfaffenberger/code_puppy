@@ -10,6 +10,7 @@ from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_info
 
 from .base import MCPCommandBase
+from ...agents import get_current_agent
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -91,12 +92,8 @@ class StopAllCommand(MCPCommandBase):
                     pass  # No async loop, servers will stop when needed
 
                 try:
-                    from code_puppy.agents.runtime_manager import (
-                        get_runtime_agent_manager,
-                    )
-
-                    manager = get_runtime_agent_manager()
-                    manager.reload_agent()
+                    agent = get_current_agent()
+                    agent.reload_code_generation_agent()
                     emit_info(
                         "[dim]Agent reloaded with updated servers[/dim]",
                         message_group=group_id,
