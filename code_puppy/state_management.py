@@ -1,8 +1,5 @@
-import json
 from types import ModuleType
 from typing import Any, List, Set
-
-import pydantic
 
 from code_puppy.messaging import emit_info
 
@@ -58,52 +55,4 @@ def extend_message_history(history: List[Any]) -> None:
     manager.extend_current_agent_message_history(history)
 
 
-def _stringify_part(part: Any) -> str:
-    """Create a stable string representation for a message part.
 
-    We deliberately ignore timestamps so identical content hashes the same even when
-    emitted at different times. This prevents status updates from blowing up the
-    history when they are repeated with new timestamps."""
-
-    attributes: List[str] = [part.__class__.__name__]
-
-    # Role/instructions help disambiguate parts that otherwise share content
-    if hasattr(part, "role") and part.role:
-        attributes.append(f"role={part.role}")
-    if hasattr(part, "instructions") and part.instructions:
-        attributes.append(f"instructions={part.instructions}")
-
-    if hasattr(part, "tool_call_id") and part.tool_call_id:
-        attributes.append(f"tool_call_id={part.tool_call_id}")
-
-    if hasattr(part, "tool_name") and part.tool_name:
-        attributes.append(f"tool_name={part.tool_name}")
-
-    content = getattr(part, "content", None)
-    if content is None:
-        attributes.append("content=None")
-    elif isinstance(content, str):
-        attributes.append(f"content={content}")
-    elif isinstance(content, pydantic.BaseModel):
-        attributes.append(f"content={json.dumps(content.model_dump(), sort_keys=True)}")
-    elif isinstance(content, dict):
-        attributes.append(f"content={json.dumps(content, sort_keys=True)}")
-    else:
-        attributes.append(f"content={repr(content)}")
-    result = "|".join(attributes)
-    return result
-
-
-def hash_message(message: Any) -> int:
-    """Create a stable hash for a model message that ignores timestamps."""
-    role = getattr(message, "role", None)
-    instructions = getattr(message, "instructions", None)
-    header_bits: List[str] = []
-    if role:
-        header_bits.append(f"role={role}")
-    if instructions:
-        header_bits.append(f"instructions={instructions}")
-
-    part_strings = [_stringify_part(part) for part in getattr(message, "parts", [])]
-    canonical = "||".join(header_bits + part_strings)
-    return hash(canonical)
