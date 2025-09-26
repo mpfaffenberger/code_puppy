@@ -6,9 +6,6 @@ import pydantic
 
 from code_puppy.messaging import emit_info
 
-_tui_mode: bool = False
-_tui_app_instance: Any = None
-
 
 def _require_agent_manager() -> ModuleType:
     """Import the agent manager module, raising if it is unavailable."""
@@ -29,53 +26,6 @@ def get_compacted_message_hashes() -> Set[str]:
     """Get the set of compacted message hashes."""
     manager = _require_agent_manager()
     return manager.get_current_agent_compacted_message_hashes()
-
-
-def set_tui_mode(enabled: bool) -> None:
-    """Set the global TUI mode state.
-
-    Args:
-        enabled: True if running in TUI mode, False otherwise
-    """
-    global _tui_mode
-    _tui_mode = enabled
-
-
-def is_tui_mode() -> bool:
-    """Check if the application is running in TUI mode.
-
-    Returns:
-        True if running in TUI mode, False otherwise
-    """
-    return _tui_mode
-
-
-def set_tui_app_instance(app_instance: Any) -> None:
-    """Set the global TUI app instance reference.
-
-    Args:
-        app_instance: The TUI app instance
-    """
-    global _tui_app_instance
-    _tui_app_instance = app_instance
-
-
-def get_tui_app_instance() -> Any:
-    """Get the current TUI app instance.
-
-    Returns:
-        The TUI app instance if available, None otherwise
-    """
-    return _tui_app_instance
-
-
-def get_tui_mode() -> bool:
-    """Get the current TUI mode state.
-
-    Returns:
-        True if running in TUI mode, False otherwise
-    """
-    return _tui_mode
 
 
 def get_message_history() -> List[Any]:

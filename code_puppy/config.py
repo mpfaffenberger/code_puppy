@@ -115,7 +115,6 @@ def get_config_keys():
     default_keys = [
         "yolo_mode",
         "model",
-        "vqa_model_name",
         "compaction_strategy",
         "protected_token_count",
         "compaction_threshold",

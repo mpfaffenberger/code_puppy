@@ -29,7 +29,8 @@ from code_puppy.message_history_processor import (
     message_history_accumulator,
     prune_interrupted_tool_calls,
 )
-from code_puppy.state_management import is_tui_mode, set_message_history, set_tui_mode
+from code_puppy.state_management import set_message_history
+from code_puppy.tui_state import is_tui_mode, set_tui_mode
 from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
 
