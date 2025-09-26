@@ -365,7 +365,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     proportion_used = total_current_tokens / model_max if model_max else 0
 
     # Check if we're in TUI mode and can update the status bar
-    from code_puppy.state_management import get_tui_app_instance, is_tui_mode
+    from code_puppy.tui_state import get_tui_app_instance, is_tui_mode
 
     if is_tui_mode():
         tui_app = get_tui_app_instance()

@@ -6,7 +6,7 @@ import logging
 from typing import List, Optional
 
 from code_puppy.messaging import emit_info
-from code_puppy.state_management import is_tui_mode
+from code_puppy.tui_state import is_tui_mode
 
 from .base import MCPCommandBase
 from .wizard_utils import run_interactive_install_wizard

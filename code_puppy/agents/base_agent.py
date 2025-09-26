@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Set
 
 class BaseAgent(ABC):
     """Base class for all agent configurations."""
-
+    
     def __init__(self):
         self.id = str(uuid.uuid4())
         self._message_history: List[Any] = []
