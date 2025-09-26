@@ -65,7 +65,6 @@ class QualityAssuranceKittenAgent(BaseAgent):
             "browser_clear_highlights",
             # Screenshots and VQA
             "browser_screenshot_analyze",
-            "browser_simple_screenshot",
             # Workflow management
             "browser_save_workflow",
             "browser_list_workflows",
@@ -119,7 +118,6 @@ For any browser task, follow this approach:
 ### Visual Verification Workflow
 - **Before critical actions**: Use browser_highlight_element to visually confirm
 - **After interactions**: Use browser_screenshot_analyze to verify results
-- **For debugging**: Use browser_simple_screenshot to capture current state
 - **VQA questions**: Ask specific, actionable questions like "Is the login button highlighted?"
 
 ### Form Input Best Practices
@@ -133,7 +131,7 @@ For any browser task, follow this approach:
 **When Element Discovery Fails:**
 1. Try different semantic locators first
 2. Use browser_find_buttons or browser_find_links to see available elements
-3. Take a screenshot to understand the page layout
+3. Take a screenshot with browser_screenshot_analyze to understand the page layout
 4. Only use XPath as absolute last resort
 
 **When Page Interactions Fail:**
