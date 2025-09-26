@@ -1,10 +1,15 @@
 """Base agent configuration class for defining agent properties."""
+import mcp
+import signal
+
+import asyncio
 
 import json
-import queue
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Set, Tuple
+from pydantic_ai import UsageLimitExceeded, UsageLimits
+from pydantic_graph import End
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pydantic
 from pydantic_ai.messages import (
@@ -17,6 +22,28 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 
+from pydantic_ai.settings import ModelSettings
+from pydantic_ai.models.openai import OpenAIModelSettings
+from pydantic_ai import Agent as PydanticAgent
+
+# Consolidated relative imports
+from code_puppy.config import (
+    get_agent_pinned_model,
+    get_compaction_strategy,
+    get_compaction_threshold,
+    get_message_limit,
+    get_global_model_name,
+    get_protected_token_count,
+    get_value,
+    load_mcp_server_configs,
+)
+from code_puppy.messaging import emit_info, emit_error, emit_warning, emit_system_message
+from code_puppy.model_factory import ModelFactory
+from code_puppy.summarization_agent import run_summarization_sync
+from code_puppy.tui_state import get_tui_app_instance, is_tui_mode
+from code_puppy.mcp_ import ServerConfig, get_mcp_manager
+from code_puppy.tools.common import console
+
 
 class BaseAgent(ABC):
     """Base class for all agent configurations."""
@@ -25,6 +52,11 @@ class BaseAgent(ABC):
         self.id = str(uuid.uuid4())
         self._message_history: List[Any] = []
         self._compacted_message_hashes: Set[str] = set()
+        # Agent construction cache
+        self._code_generation_agent = None
+        self._last_model_name: Optional[str] = None
+        # Puppy rules loaded lazily
+        self._puppy_rules: Optional[str] = None
 
     @property
     @abstractmethod
@@ -134,8 +166,10 @@ class BaseAgent(ABC):
         Returns:
             Model name to use for this agent, or None to use global default.
         """
-        from ..config import get_agent_pinned_model
-        return get_agent_pinned_model(self.name)
+        pinned = get_agent_pinned_model(self.name)
+        if pinned == "" or pinned is None:
+            return get_global_model_name()
+        return pinned
 
     # Message history processing methods (moved from state_management.py and message_history_processor.py)
     def _stringify_part(self, part: Any) -> str:
@@ -305,7 +339,6 @@ class BaseAgent(ABC):
             return [], messages
 
         # Get the configured protected token count
-        from ..config import get_protected_token_count
         protected_tokens_limit = get_protected_token_count()
 
         # Calculate tokens for messages from most recent backwards (excluding system message)
@@ -335,7 +368,6 @@ class BaseAgent(ABC):
         messages_to_summarize = messages[1:protected_start_idx]
 
         # Emit info messages
-        from ..messaging import emit_info
         emit_info(
             f"🔒 Protecting {len(protected_messages)} recent messages ({protected_token_count} tokens, limit: {protected_tokens_limit})"
         )
@@ -388,13 +420,11 @@ class BaseAgent(ABC):
         )
 
         try:
-            from ..summarization_agent import run_summarization_sync
             new_messages = run_summarization_sync(
                 instructions, message_history=messages_to_summarize
             )
 
             if not isinstance(new_messages, list):
-                from ..messaging import emit_warning
                 emit_warning(
                     "Summarization agent returned non-list output; wrapping into message request"
                 )
@@ -409,50 +439,15 @@ class BaseAgent(ABC):
 
             return self.prune_interrupted_tool_calls(compacted), messages_to_summarize
         except Exception as e:
-            from ..messaging import emit_error
             emit_error(f"Summarization failed during compaction: {e}")
             return messages, []  # Return original messages on failure
-
-    def summarize_message(self, message: ModelMessage) -> ModelMessage:
-        try:
-            # If the message looks like a system/instructions message, skip summarization
-            instructions = getattr(message, "instructions", None)
-            if instructions:
-                return message
-            # If any part is a tool call, skip summarization
-            for part in message.parts:
-                if isinstance(part, ToolCallPart) or getattr(part, "tool_name", None):
-                    return message
-            # Build prompt from textual content parts
-            content_bits: List[str] = []
-            for part in message.parts:
-                s = self.stringify_message_part(part)
-                if s:
-                    content_bits.append(s)
-            if not content_bits:
-                return message
-            prompt = "Please summarize the following user message:\n" + "\n".join(
-                content_bits
-            )
-            
-            from ..summarization_agent import run_summarization_sync
-            output_text = run_summarization_sync(prompt)
-            summarized = ModelRequest([TextPart(output_text)])
-            return summarized
-        except Exception as e:
-            from ..messaging import emit_error
-            emit_error(f"Summarization failed: {e}")
-            return message
 
     def get_model_context_length(self) -> int:
         """
         Get the context length for the currently configured model from models.json
         """
-        from ..config import get_model_name
-        from ..model_factory import ModelFactory
-
         model_configs = ModelFactory.load_config()
-        model_name = get_model_name()
+        model_name = get_global_model_name()
 
         # Get context length from model config
         model_config = model_configs.get(model_name, {})
@@ -505,8 +500,464 @@ class BaseAgent(ABC):
             pruned.append(msg)
 
         if dropped_count:
-            from ..messaging import emit_warning
             emit_warning(
                 f"Pruned {dropped_count} message(s) with mismatched tool_call_id pairs"
             )
         return pruned
+
+    def message_history_processor(self, messages: List[ModelMessage]) -> List[ModelMessage]:
+        """
+        Process message history, handling token management and compaction.
+
+        Args:
+            messages: List of messages to process
+
+        Returns:
+            Processed list of messages
+        """
+
+        cleaned_history = self.prune_interrupted_tool_calls(messages)
+
+        total_current_tokens = sum(
+            self.estimate_tokens_for_message(msg) for msg in cleaned_history
+        )
+
+        model_max = self.get_model_context_length()
+
+        proportion_used = total_current_tokens / model_max if model_max else 0
+
+        # Check if we're in TUI mode and can update the status bar
+        if is_tui_mode():
+            tui_app = get_tui_app_instance()
+            if tui_app:
+                try:
+                    # Update the status bar instead of emitting a chat message
+                    status_bar = tui_app.query_one("StatusBar")
+                    status_bar.update_token_info(
+                        total_current_tokens, model_max, proportion_used
+                    )
+                except Exception as e:
+                    emit_error(e)
+                    # Fallback to chat message if status bar update fails
+                    emit_info(
+                        f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
+                        message_group="token_context_status",
+                    )
+            else:
+                # Fallback if no TUI app instance
+                emit_info(
+                    f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
+                    message_group="token_context_status",
+                )
+        else:
+            # Non-TUI mode - emit to console as before
+            emit_info(
+                f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
+            )
+        
+        # Get the configured compaction threshold
+        compaction_threshold = get_compaction_threshold()
+
+        # Get the configured compaction strategy
+        compaction_strategy = get_compaction_strategy()
+
+        if proportion_used > compaction_threshold:
+            filtered_history = self.filter_huge_messages(cleaned_history)
+
+            if compaction_strategy == "truncation":
+                protected_tokens = get_protected_token_count()
+                result_messages = self.truncation(filtered_history, protected_tokens)
+                summarized_messages: List[ModelMessage] = []
+            else:
+                # For summarization strategy, use the agent's summarize_messages method
+                result_messages, summarized_messages = self.summarize_messages(
+                    filtered_history
+                )
+
+            final_token_count = sum(
+                self.estimate_tokens_for_message(msg) for msg in result_messages
+            )
+            
+            # Update status bar with final token count if in TUI mode
+            if is_tui_mode():
+                tui_app = get_tui_app_instance()
+                if tui_app:
+                    try:
+                        status_bar = tui_app.query_one("StatusBar")
+                        status_bar.update_token_info(
+                            final_token_count, model_max, final_token_count / model_max
+                        )
+                    except Exception:
+                        emit_info(
+                            f"Final token count after processing: {final_token_count}",
+                            message_group="token_context_status",
+                        )
+                else:
+                    emit_info(
+                        f"Final token count after processing: {final_token_count}",
+                        message_group="token_context_status",
+                    )
+            else:
+                emit_info(f"Final token count after processing: {final_token_count}")
+            
+            self.set_message_history(result_messages)
+            for m in summarized_messages:
+                self.add_compacted_message_hash(self.hash_message(m))
+            return result_messages
+
+        self.set_message_history(cleaned_history)
+        return cleaned_history
+
+    def truncation(self, messages: List[ModelMessage], protected_tokens: int) -> List[ModelMessage]:
+        """
+        Truncate message history to manage token usage.
+
+        Args:
+            messages: List of messages to truncate
+            protected_tokens: Number of tokens to protect
+
+        Returns:
+            Truncated list of messages
+        """
+        import queue
+
+        emit_info("Truncating message history to manage token usage")
+        result = [messages[0]]  # Always keep the first message (system prompt)
+        num_tokens = 0
+        stack = queue.LifoQueue()
+
+        # Put messages in reverse order (most recent first) into the stack
+        # but break when we exceed protected_tokens
+        for idx, msg in enumerate(reversed(messages[1:])):  # Skip the first message
+            num_tokens += self.estimate_tokens_for_message(msg)
+            if num_tokens > protected_tokens:
+                break
+            stack.put(msg)
+
+        # Pop messages from stack to get them in chronological order
+        while not stack.empty():
+            result.append(stack.get())
+
+        result = self.prune_interrupted_tool_calls(result)
+        return result
+
+    def run_summarization_sync(
+        self,
+        instructions: str,
+        message_history: List[ModelMessage],
+    ) -> Union[List[ModelMessage], str]:
+        """
+        Run summarization synchronously using the configured summarization agent.
+        This is exposed as a method so it can be overridden by subclasses if needed.
+
+        Args:
+            instructions: Instructions for the summarization agent
+            message_history: List of messages to summarize
+
+        Returns:
+            Summarized messages or text
+        """
+        return run_summarization_sync(instructions, message_history)
+
+    # ===== Agent wiring formerly in code_puppy/agent.py =====
+    def load_puppy_rules(self) -> Optional[str]:
+        """Load AGENT(S).md if present and cache the contents."""
+        if self._puppy_rules is not None:
+            return self._puppy_rules
+        from pathlib import Path
+        possible_paths = ["AGENTS.md", "AGENT.md", "agents.md", "agent.md"]
+        for path_str in possible_paths:
+            puppy_rules_path = Path(path_str)
+            if puppy_rules_path.exists():
+                with open(puppy_rules_path, "r") as f:
+                    self._puppy_rules = f.read()
+                    break
+        return self._puppy_rules
+
+    def load_mcp_servers(self, extra_headers: Optional[Dict[str, str]] = None):
+        """Load MCP servers through the manager and return pydantic-ai compatible servers."""
+        
+
+        mcp_disabled = get_value("disable_mcp_servers")
+        if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
+            emit_system_message("[dim]MCP servers disabled via config[/dim]")
+            return []
+
+        manager = get_mcp_manager()
+        configs = load_mcp_server_configs()
+        if not configs:
+            existing_servers = manager.list_servers()
+            if not existing_servers:
+                emit_system_message("[dim]No MCP servers configured[/dim]")
+                return []
+        else:
+            for name, conf in configs.items():
+                try:
+                    server_config = ServerConfig(
+                        id=conf.get("id", f"{name}_{hash(name)}"),
+                        name=name,
+                        type=conf.get("type", "sse"),
+                        enabled=conf.get("enabled", True),
+                        config=conf,
+                    )
+                    existing = manager.get_server_by_name(name)
+                    if not existing:
+                        manager.register_server(server_config)
+                        emit_system_message(f"[dim]Registered MCP server: {name}[/dim]")
+                    else:
+                        if existing.config != server_config.config:
+                            manager.update_server(existing.id, server_config)
+                            emit_system_message(f"[dim]Updated MCP server: {name}[/dim]")
+                except Exception as e:
+                    emit_error(f"Failed to register MCP server '{name}': {str(e)}")
+                    continue
+
+        servers = manager.get_servers_for_agent()
+        if servers:
+            emit_system_message(
+                f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
+            )
+        else:
+            emit_system_message(
+                "[yellow]No MCP servers available (check if servers are enabled)[/yellow]"
+            )
+        return servers
+
+    def reload_mcp_servers(self):
+        """Reload MCP servers and return updated servers."""
+        self.load_mcp_servers()
+        manager = get_mcp_manager()
+        return manager.get_servers_for_agent()
+
+    def reload_code_generation_agent(self, message_group: Optional[str] = None):
+        """Force-reload the pydantic-ai Agent based on current config and model."""
+        from code_puppy.tools import register_tools_for_agent
+        if message_group is None:
+            message_group = str(uuid.uuid4())
+
+        model_name = self.get_model_name()
+
+        emit_info(
+            f"[bold cyan]Loading Model: {model_name}[/bold cyan]",
+            message_group=message_group,
+        )
+        models_config = ModelFactory.load_config()
+        model = ModelFactory.get_model(model_name, models_config)
+
+        emit_info(
+            f"[bold magenta]Loading Agent: {self.name}[/bold magenta]",
+            message_group=message_group,
+        )
+
+        instructions = self.get_system_prompt()
+        puppy_rules = self.load_puppy_rules()
+        if puppy_rules:
+            instructions += f"\n{puppy_rules}"
+
+        mcp_servers = self.load_mcp_servers()
+
+        model_settings_dict: Dict[str, Any] = {"seed": 42}
+        output_tokens = max(
+            2048,
+            min(int(0.05 * self.get_model_context_length()) - 1024, 16384),
+        )
+        console.print(f"Max output tokens per message: {output_tokens}")
+        model_settings_dict["max_tokens"] = output_tokens
+
+        model_settings: ModelSettings = ModelSettings(**model_settings_dict)
+        if "gpt-5" in model_name:
+            model_settings_dict["openai_reasoning_effort"] = "off"
+            model_settings_dict["extra_body"] = {"verbosity": "low"}
+            model_settings = OpenAIModelSettings(**model_settings_dict)
+
+        p_agent = PydanticAgent(
+            model=model,
+            instructions=instructions,
+            output_type=str,
+            retries=3,
+            mcp_servers=mcp_servers,
+            history_processors=[self.message_history_accumulator],
+            model_settings=model_settings,
+        )
+
+        agent_tools = self.get_available_tools()
+        register_tools_for_agent(p_agent, agent_tools)
+
+        self._code_generation_agent = p_agent
+        self._last_model_name = model_name
+        # expose for run_with_mcp
+        self.pydantic_agent = p_agent
+        return self._code_generation_agent
+
+    def get_custom_usage_limits(self) -> UsageLimits:
+        """Return usage limits based on config."""
+        return UsageLimits(request_limit=get_message_limit())
+
+    def message_history_accumulator(self, messages: List[Any]) -> List[Any]:
+        """
+        Accumulate messages into the agent's history, avoiding duplicates.
+
+        Args:
+            messages: List of messages to accumulate
+
+        Returns:
+            Updated message history
+        """
+
+        existing_history = list(self.get_message_history())
+        seen_hashes = {self.hash_message(message) for message in existing_history}
+        compacted_hashes = self.get_compacted_message_hashes()
+
+        for message in messages:
+            message_hash = self.hash_message(message)
+            if message_hash in seen_hashes or message_hash in compacted_hashes:
+                continue
+            existing_history.append(message)
+            seen_hashes.add(message_hash)
+
+        # Convert ModelMessage list to generic list for return type compatibility
+        updated_history = self.message_history_processor(existing_history)
+        self.set_message_history(updated_history)
+        return updated_history
+
+
+    async def run_with_mcp(
+        self, prompt: str, usage_limits: Optional[UsageLimits] = None, **kwargs
+    ) -> Any:
+        """
+        Run the agent with MCP servers and full cancellation support.
+
+        This method ensures we're always using the current agent instance
+        and handles Ctrl+C interruption properly by creating a cancellable task.
+
+        Args:
+            prompt: The user prompt to process
+            usage_limits: Optional usage limits for the agent
+            **kwargs: Additional arguments to pass to agent.run (e.g., message_history)
+
+        Returns:
+            The agent's response
+
+        Raises:
+            asyncio.CancelledError: When execution is cancelled by user
+        """
+        group_id = str(uuid.uuid4())
+        pydantic_agent = self.reload_code_generation_agent()
+        # nodes = []
+        # async with pydantic_agent.iter(prompt, usage_limits=usage_limits) as agentic_steps:
+        #     node = None
+        #     while not isinstance(node, End):
+        #         try:
+        #             if node is None:
+        #                 node = agentic_steps.next_node
+        #             else:
+        #                 node = await agentic_steps.next(node)
+        #             nodes.append(node)
+        #         except Exception as e:
+        #             emit_error(e)
+        #
+        # return node.data
+
+        async def run_agent_task():
+            try:
+                result_ = await pydantic_agent.run(prompt, message_history=self.get_message_history(), usage_limits=usage_limits, **kwargs)
+                return result_
+            except* UsageLimitExceeded as ule:
+                emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
+                emit_info(
+                    "The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.",
+                    group_id=group_id,
+                )
+            except* mcp.shared.exceptions.McpError as mcp_error:
+                emit_info(f"MCP server error: {str(mcp_error)}", group_id=group_id)
+                emit_info(f"{str(mcp_error)}", group_id=group_id)
+                emit_info(
+                    "Try disabling any malfunctioning MCP servers", group_id=group_id
+                )
+            except* asyncio.exceptions.CancelledError:
+                emit_info("Cancelled")
+            except* InterruptedError as ie:
+                emit_info(f"Interrupted: {str(ie)}")
+            except* Exception as other_error:
+                # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
+                remaining_exceptions = []
+
+                def collect_non_cancelled_exceptions(exc):
+                    if isinstance(exc, ExceptionGroup):
+                        for sub_exc in exc.exceptions:
+                            collect_non_cancelled_exceptions(sub_exc)
+                    elif not isinstance(
+                        exc, (asyncio.CancelledError, UsageLimitExceeded)
+                    ):
+                        remaining_exceptions.append(exc)
+                        emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
+                        emit_info(f"{str(exc.args)}", group_id=group_id)
+
+                collect_non_cancelled_exceptions(other_error)
+
+                # If there are CancelledError exceptions in the group, re-raise them
+                cancelled_exceptions = []
+
+                def collect_cancelled_exceptions(exc):
+                    if isinstance(exc, ExceptionGroup):
+                        for sub_exc in exc.exceptions:
+                            collect_cancelled_exceptions(sub_exc)
+                    elif isinstance(exc, asyncio.CancelledError):
+                        cancelled_exceptions.append(exc)
+
+                collect_cancelled_exceptions(other_error)
+
+                if cancelled_exceptions:
+                    # Re-raise the first CancelledError to propagate cancellation
+                    raise cancelled_exceptions[0]
+
+        # Create the task FIRST
+        agent_task = asyncio.create_task(run_agent_task())
+
+        # Import shell process killer
+        from code_puppy.tools.command_runner import kill_all_running_shell_processes
+
+        # Ensure the interrupt handler only acts once per task
+        def keyboard_interrupt_handler(sig, frame):
+            """Signal handler for Ctrl+C - replicating exact original logic"""
+
+            # First, nuke any running shell processes triggered by tools
+            try:
+                killed = kill_all_running_shell_processes()
+                if killed:
+                    emit_info(f"Cancelled {killed} running shell process(es).")
+                else:
+                    # Only cancel the agent task if no shell processes were killed
+                    if not agent_task.done():
+                        agent_task.cancel()
+            except Exception as e:
+                emit_info(f"Shell kill error: {e}")
+                # If shell kill failed, still try to cancel the agent task
+                if not agent_task.done():
+                    agent_task.cancel()
+            # Don't call the original handler
+            # This prevents the application from exiting
+
+        try:
+            # Save original handler and set our custom one AFTER task is created
+            original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+
+            # Wait for the task to complete or be cancelled
+            result = await agent_task
+            return result
+        except asyncio.CancelledError:
+            # Task was cancelled by our handler
+            raise
+        except KeyboardInterrupt:
+            # Handle direct keyboard interrupt during await
+            if not agent_task.done():
+                agent_task.cancel()
+            try:
+                await agent_task
+            except asyncio.CancelledError:
+                pass
+            raise asyncio.CancelledError()
+        finally:
+            # Restore original signal handler
+            if original_handler:
+                signal.signal(signal.SIGINT, original_handler)

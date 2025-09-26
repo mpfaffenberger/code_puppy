@@ -75,12 +75,7 @@ class StartCommand(MCPCommandBase):
 
                 # Reload the agent to pick up the newly enabled server
                 try:
-                    from code_puppy.agents.runtime_manager import (
-                        get_runtime_agent_manager,
-                    )
 
-                    manager = get_runtime_agent_manager()
-                    manager.reload_agent()
                     emit_info(
                         "[dim]Agent reloaded with updated servers[/dim]",
                         message_group=group_id,

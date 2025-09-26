@@ -15,12 +15,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 
-from code_puppy.message_history_processor import (
-    filter_huge_messages,
-    message_history_processor,
-    prune_interrupted_tool_calls,
-    summarize_messages,
-)
+from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.base_agent import BaseAgent
 
 
@@ -28,7 +23,7 @@ from code_puppy.agents.base_agent import BaseAgent
 def silence_emit(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("emit_info", "emit_warning", "emit_error"):
         monkeypatch.setattr(
-            "code_puppy.message_history_processor." + name,
+            "code_puppy.messaging.message_queue." + name,
             lambda *args, **kwargs: None,
         )
 
@@ -93,8 +88,8 @@ def test_summarize_messages_wraps_non_list_output(monkeypatch: pytest.MonkeyPatc
         lambda: 10,
     )
     monkeypatch.setattr(
-        "code_puppy.message_history_processor.run_summarization_sync",
-        lambda *_args, **_kwargs: "• summary line",
+        "code_puppy.agents.base_agent.BaseAgent.run_summarization_sync",
+        lambda self, *_args, **_kwargs: "• summary line",
     )
 
     compacted, summarized_source = summarize_messages(
@@ -136,7 +131,7 @@ def test_message_history_processor_cleans_without_compaction(monkeypatch: pytest
     with ExitStack() as stack:
         stack.enter_context(
             patch(
-                "code_puppy.message_history_processor.get_model_context_length",
+                "code_puppy.agents.base_agent.BaseAgent.get_model_context_length",
                 return_value=10_000,
             )
         )
@@ -159,7 +154,7 @@ def test_message_history_processor_cleans_without_compaction(monkeypatch: pytest
             patch("code_puppy.tui_state.get_tui_app_instance", return_value=None)
         )
         mock_set_history = stack.enter_context(
-            patch("code_puppy.message_history_processor.set_message_history")
+            patch("code_puppy.state_management.set_message_history")
         )
         mock_add_hash = stack.enter_context(
             patch("code_puppy.message_history_processor.add_compacted_message_hash")
@@ -250,12 +245,12 @@ def test_message_history_processor_integration_with_loaded_context(monkeypatch: 
         )
         stack.enter_context(
             patch(
-                "code_puppy.message_history_processor.run_summarization_sync",
+                "code_puppy.agents.base_agent.BaseAgent.run_summarization_sync",
                 side_effect=fake_summarizer,
             )
         )
         mock_set_history = stack.enter_context(
-            patch("code_puppy.message_history_processor.set_message_history")
+            patch("code_puppy.state_management.set_message_history")
         )
         mock_add_hash: MagicMock = stack.enter_context(
             patch("code_puppy.message_history_processor.add_compacted_message_hash")
