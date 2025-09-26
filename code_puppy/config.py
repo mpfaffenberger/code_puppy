@@ -14,6 +14,12 @@ AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
+# Cache containers for model validation and defaults
+_model_validation_cache = {}
+_default_model_cache = None
+_default_vision_model_cache = None
+_default_vqa_model_cache = None
+
 
 def ensure_config_exists():
     """
@@ -109,6 +115,7 @@ def get_config_keys():
     default_keys = [
         "yolo_mode",
         "model",
+        "vqa_model_name",
         "compaction_strategy",
         "protected_token_count",
         "compaction_threshold",
@@ -156,9 +163,6 @@ def load_mcp_server_configs():
         return {}
 
 
-# Cache for model validation to prevent hitting ModelFactory on every call
-_model_validation_cache = {}
-_default_model_cache = None
 
 
 def _default_model_from_models_json():
@@ -169,28 +173,105 @@ def _default_model_from_models_json():
     """
     global _default_model_cache
 
-    # Return cached default if we have one
     if _default_model_cache is not None:
         return _default_model_cache
 
     try:
-        # Local import to avoid potential circular dependency on module import
         from code_puppy.model_factory import ModelFactory
 
         models_config = ModelFactory.load_config()
         if models_config:
-            # Get the first key from the models config
             first_key = next(iter(models_config))
             _default_model_cache = first_key
             return first_key
-        else:
-            # If models_config is empty, fall back to gpt-5
-            _default_model_cache = "gpt-5"
-            return "gpt-5"
-    except Exception:
-        # Any problem (network, file missing, empty dict, etc.) => fall back to gpt-5
         _default_model_cache = "gpt-5"
         return "gpt-5"
+    except Exception:
+        _default_model_cache = "gpt-5"
+        return "gpt-5"
+
+
+def _default_vision_model_from_models_json() -> str:
+    """Select a default vision-capable model from models.json with caching."""
+    global _default_vision_model_cache
+
+    if _default_vision_model_cache is not None:
+        return _default_vision_model_cache
+
+    try:
+        from code_puppy.model_factory import ModelFactory
+
+        models_config = ModelFactory.load_config()
+        if models_config:
+            # Prefer explicitly tagged vision models
+            for name, config in models_config.items():
+                if config.get("supports_vision"):
+                    _default_vision_model_cache = name
+                    return name
+
+            # Fallback heuristic: common multimodal models
+            preferred_candidates = (
+                "gpt-4.1",
+                "gpt-4.1-mini",
+                "gpt-4.1-nano",
+                "claude-4-0-sonnet",
+                "gemini-2.5-flash-preview-05-20",
+            )
+            for candidate in preferred_candidates:
+                if candidate in models_config:
+                    _default_vision_model_cache = candidate
+                    return candidate
+
+            # Last resort: use the general default model
+            _default_vision_model_cache = _default_model_from_models_json()
+            return _default_vision_model_cache
+
+        _default_vision_model_cache = "gpt-4.1"
+        return "gpt-4.1"
+    except Exception:
+        _default_vision_model_cache = "gpt-4.1"
+        return "gpt-4.1"
+
+
+def _default_vqa_model_from_models_json() -> str:
+    """Select a default VQA-capable model, preferring vision-ready options."""
+    global _default_vqa_model_cache
+
+    if _default_vqa_model_cache is not None:
+        return _default_vqa_model_cache
+
+    try:
+        from code_puppy.model_factory import ModelFactory
+
+        models_config = ModelFactory.load_config()
+        if models_config:
+            # Allow explicit VQA hints if present
+            for name, config in models_config.items():
+                if config.get("supports_vqa"):
+                    _default_vqa_model_cache = name
+                    return name
+
+            # Reuse multimodal heuristics before falling back to generic default
+            preferred_candidates = (
+                "gpt-4.1",
+                "gpt-4.1-mini",
+                "claude-4-0-sonnet",
+                "gemini-2.5-flash-preview-05-20",
+                "gpt-4.1-nano",
+            )
+            for candidate in preferred_candidates:
+                if candidate in models_config:
+                    _default_vqa_model_cache = candidate
+                    return candidate
+
+            _default_vqa_model_cache = _default_model_from_models_json()
+            return _default_vqa_model_cache
+
+        _default_vqa_model_cache = "gpt-4.1"
+        return "gpt-4.1"
+    except Exception:
+        _default_vqa_model_cache = "gpt-4.1"
+        return "gpt-4.1"
 
 
 def _validate_model_exists(model_name: str) -> bool:
@@ -218,9 +299,11 @@ def _validate_model_exists(model_name: str) -> bool:
 
 def clear_model_cache():
     """Clear the model validation cache. Call this when models.json changes."""
-    global _model_validation_cache, _default_model_cache
+    global _model_validation_cache, _default_model_cache, _default_vision_model_cache, _default_vqa_model_cache
     _model_validation_cache.clear()
     _default_model_cache = None
+    _default_vision_model_cache = None
+    _default_vqa_model_cache = None
 
 
 def get_model_name():
@@ -255,6 +338,20 @@ def set_model_name(model: str):
         config.write(f)
 
     # Clear model cache when switching models to ensure fresh validation
+    clear_model_cache()
+
+
+def get_vqa_model_name() -> str:
+    """Return the configured VQA model, falling back to an inferred default."""
+    stored_model = get_value("vqa_model_name")
+    if stored_model and _validate_model_exists(stored_model):
+        return stored_model
+    return _default_vqa_model_from_models_json()
+
+
+def set_vqa_model_name(model: str):
+    """Persist the configured VQA model name and refresh caches."""
+    set_config_value("vqa_model_name", model or "")
     clear_model_cache()
 
 

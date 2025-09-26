@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from rich.console import Console
 
-from code_puppy.mcp.manager import ServerConfig, get_mcp_manager
+from code_puppy.mcp_.manager import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
     emit_info,

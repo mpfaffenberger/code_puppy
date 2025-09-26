@@ -8,7 +8,7 @@ from typing import Optional
 
 from rich.text import Text
 
-from code_puppy.mcp.managed_server import ServerState
+from code_puppy.mcp_.managed_server import ServerState
 
 
 def format_state_indicator(state: ServerState) -> Text:
