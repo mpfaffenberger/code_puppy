@@ -12,7 +12,6 @@ from textual.events import Resize
 from textual.reactive import reactive
 from textual.widgets import Footer, ListView
 
-from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.config import (
     get_global_model_name,
@@ -119,7 +118,6 @@ class CodePuppyTUI(App):
 
     def __init__(self, initial_command: str = None, **kwargs):
         super().__init__(**kwargs)
-        self.agent_manager = None
         self._current_worker = None
         self.initial_command = initial_command
 
@@ -178,7 +176,7 @@ class CodePuppyTUI(App):
         )
 
         # Get current agent and display info
-        get_code_generation_agent()
+        agent = get_current_agent()
         self.add_system_message(
             f"🐕 Loaded agent '{self.puppy_name}' with model '{self.current_model}'"
         )
@@ -476,46 +474,44 @@ class CodePuppyTUI(App):
                 return
 
             # Process with agent
-            if self.agent_manager:
+            try:
+                self.update_agent_progress("Processing", 25)
+
+                # Use agent_manager's run_with_mcp to handle MCP servers properly
                 try:
-                    self.update_agent_progress("Processing", 25)
-
-                    # Use agent_manager's run_with_mcp to handle MCP servers properly
-                    try:
-                        self.update_agent_progress("Processing", 50)
-                        result = await self.agent_manager.run_with_mcp(
-                            message,
-                        )
-
-                        if not result or not hasattr(result, "output"):
-                            self.add_error_message("Invalid response format from agent")
-                            return
-
-                        self.update_agent_progress("Processing", 75)
-                        agent_response = result.output
-                        self.add_agent_message(agent_response)
-                        # Refresh history display to show new interaction
-                        self.refresh_history_display()
-
-                    except Exception as eg:
-                        # Handle TaskGroup and other exceptions
-                        # BaseExceptionGroup is only available in Python 3.11+
-                        if hasattr(eg, "exceptions"):
-                            # Handle TaskGroup exceptions specifically (Python 3.11+)
-                            for e in eg.exceptions:
-                                self.add_error_message(f"MCP/Agent error: {str(e)}")
-                        else:
-                            # Handle regular exceptions
-                            self.add_error_message(f"MCP/Agent error: {str(eg)}")
-                    finally:
-                        pass
-                except Exception as agent_error:
-                    # Handle any other errors in agent processing
-                    self.add_error_message(
-                        f"Agent processing failed: {str(agent_error)}"
+                    agent = get_current_agent()
+                    self.update_agent_progress("Processing", 50)
+                    result = await agent.run_with_mcp(
+                        message,
                     )
-            else:
-                self.add_error_message("Agent manager not initialized")
+
+                    if not result or not hasattr(result, "output"):
+                        self.add_error_message("Invalid response format from agent")
+                        return
+
+                    self.update_agent_progress("Processing", 75)
+                    agent_response = result.output
+                    self.add_agent_message(agent_response)
+                    # Refresh history display to show new interaction
+                    self.refresh_history_display()
+
+                except Exception as eg:
+                    # Handle TaskGroup and other exceptions
+                    # BaseExceptionGroup is only available in Python 3.11+
+                    if hasattr(eg, "exceptions"):
+                        # Handle TaskGroup exceptions specifically (Python 3.11+)
+                        for e in eg.exceptions:
+                            self.add_error_message(f"MCP/Agent error: {str(e)}")
+                    else:
+                        # Handle regular exceptions
+                        self.add_error_message(f"MCP/Agent error: {str(eg)}")
+                finally:
+                    pass
+            except Exception as agent_error:
+                # Handle any other errors in agent processing
+                self.add_error_message(
+                    f"Agent processing failed: {str(agent_error)}"
+                )
 
         except Exception as e:
             self.add_error_message(f"Error processing message: {str(e)}")

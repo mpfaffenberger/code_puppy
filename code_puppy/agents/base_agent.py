@@ -41,7 +41,6 @@ from code_puppy.config import (
 from code_puppy.messaging import emit_info, emit_error, emit_warning, emit_system_message
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
-from code_puppy.tui_state import get_tui_app_instance, is_tui_mode
 from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.tools.common import console
 
@@ -815,24 +814,13 @@ class BaseAgent(ABC):
         """
         group_id = str(uuid.uuid4())
         pydantic_agent = self.reload_code_generation_agent()
-        # nodes = []
-        # async with pydantic_agent.iter(prompt, usage_limits=usage_limits) as agentic_steps:
-        #     node = None
-        #     while not isinstance(node, End):
-        #         try:
-        #             if node is None:
-        #                 node = agentic_steps.next_node
-        #             else:
-        #                 node = await agentic_steps.next(node)
-        #             nodes.append(node)
-        #         except Exception as e:
-        #             emit_error(e)
-        #
-        # return node.data
 
         async def run_agent_task():
             try:
                 result_ = await pydantic_agent.run(prompt, message_history=self.get_message_history(), usage_limits=usage_limits, **kwargs)
+                self.set_message_history(
+                    self.prune_interrupted_tool_calls(self.get_message_history())
+                )
                 return result_
             except* UsageLimitExceeded as ule:
                 emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)

@@ -4,7 +4,6 @@ from typing import List
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from code_puppy.agents import get_available_agents
 from code_puppy.messaging import (
     emit_info,
     emit_divider,
@@ -65,6 +64,7 @@ def register_list_agents(agent):
         emit_divider(message_group=group_id)
 
         try:
+            from code_puppy.agents import get_available_agents
             # Get available agents from the agent manager
             agents_dict = get_available_agents()
 
