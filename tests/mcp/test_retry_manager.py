@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 
-from code_puppy.mcp.retry_manager import (
+from code_puppy.mcp_.retry_manager import (
     RetryManager,
     RetryStats,
     get_retry_manager,

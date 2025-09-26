@@ -2,14 +2,14 @@ from code_puppy.messaging import emit_warning
 from code_puppy.tools.agent_tools import register_invoke_agent, register_list_agents
 
 # Browser automation tools
-from code_puppy.tools.browser_control import (
+from code_puppy.tools.browser.browser_control import (
     register_close_browser,
     register_create_new_page,
     register_get_browser_status,
     register_initialize_browser,
     register_list_pages,
 )
-from code_puppy.tools.browser_interactions import (
+from code_puppy.tools.browser.browser_interactions import (
     register_browser_check,
     register_browser_uncheck,
     register_click_element,
@@ -20,7 +20,7 @@ from code_puppy.tools.browser_interactions import (
     register_select_option,
     register_set_element_text,
 )
-from code_puppy.tools.browser_locators import (
+from code_puppy.tools.browser.browser_locators import (
     register_find_buttons,
     register_find_by_label,
     register_find_by_placeholder,
@@ -30,7 +30,7 @@ from code_puppy.tools.browser_locators import (
     register_find_links,
     register_run_xpath_query,
 )
-from code_puppy.tools.browser_navigation import (
+from code_puppy.tools.browser.browser_navigation import (
     register_browser_go_back,
     register_browser_go_forward,
     register_get_page_info,
@@ -38,11 +38,10 @@ from code_puppy.tools.browser_navigation import (
     register_reload_page,
     register_wait_for_load_state,
 )
-from code_puppy.tools.browser_screenshot import (
-    register_simple_screenshot,
+from code_puppy.tools.browser.browser_screenshot import (
     register_take_screenshot_and_analyze,
 )
-from code_puppy.tools.browser_scripts import (
+from code_puppy.tools.browser.browser_scripts import (
     register_browser_clear_highlights,
     register_browser_highlight_element,
     register_execute_javascript,
@@ -51,12 +50,11 @@ from code_puppy.tools.browser_scripts import (
     register_set_viewport_size,
     register_wait_for_element,
 )
-
-# from code_puppy.tools.browser_workflows import (
-#     register_list_workflows,
-#     register_read_workflow,
-#     register_save_workflow,
-# )
+from code_puppy.tools.browser.browser_workflows import (
+    register_list_workflows,
+    register_read_workflow,
+    register_save_workflow,
+)
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -125,11 +123,10 @@ TOOL_REGISTRY = {
     "browser_clear_highlights": register_browser_clear_highlights,
     # Browser Screenshots and VQA
     "browser_screenshot_analyze": register_take_screenshot_and_analyze,
-    "browser_simple_screenshot": register_simple_screenshot,
-    # Browser Workflows (temporarily disabled)
-    # "browser_save_workflow": register_save_workflow,
-    # "browser_list_workflows": register_list_workflows,
-    # "browser_read_workflow": register_read_workflow,
+    # Browser Workflows
+    "browser_save_workflow": register_save_workflow,
+    "browser_list_workflows": register_list_workflows,
+    "browser_read_workflow": register_read_workflow,
 }
 
 
