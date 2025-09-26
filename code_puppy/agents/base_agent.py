@@ -114,3 +114,12 @@ class BaseAgent(ABC):
             message_hash: Hash of a message that has been compacted/summarized.
         """
         self._compacted_message_hashes.add(message_hash)
+
+    def get_model_name(self) -> Optional[str]:
+        """Get pinned model name for this agent, if specified.
+
+        Returns:
+            Model name to use for this agent, or None to use global default.
+        """
+        from ..config import get_agent_pinned_model
+        return get_agent_pinned_model(self.name)

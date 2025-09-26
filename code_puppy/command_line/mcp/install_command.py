@@ -76,7 +76,7 @@ class InstallCommand(MCPCommandBase):
     def _install_from_catalog(self, server_name_or_id: str, group_id: str) -> bool:
         """Install a server directly from the catalog by name or ID."""
         try:
-            from code_puppy.mcp.server_registry_catalog import catalog
+            from code_puppy.mcp_.server_registry_catalog import catalog
             from code_puppy.messaging import emit_prompt
 
             from .utils import find_server_id_by_name

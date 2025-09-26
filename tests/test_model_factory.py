@@ -188,15 +188,17 @@ def test_extra_models_json_decode_error(tmp_path, monkeypatch):
     # Create a temporary extra_models.json file with invalid JSON
     extra_models_file = tmp_path / "extra_models.json"
     extra_models_file.write_text("{ invalid json content }")
-    
+
     # Patch the EXTRA_MODELS_FILE path to point to our temporary file
     from code_puppy.model_factory import ModelFactory
-    from code_puppy.config import EXTRA_MODELS_FILE
-    monkeypatch.setattr("code_puppy.model_factory.EXTRA_MODELS_FILE", str(extra_models_file))
-    
+
+    monkeypatch.setattr(
+        "code_puppy.model_factory.EXTRA_MODELS_FILE", str(extra_models_file)
+    )
+
     # This should not raise an exception despite the invalid JSON
     config = ModelFactory.load_config()
-    
+
     # The config should still be loaded, just without the extra models
     assert isinstance(config, dict)
     assert len(config) > 0
@@ -207,18 +209,21 @@ def test_extra_models_exception_handling(tmp_path, monkeypatch, caplog):
     extra_models_file = tmp_path / "extra_models.json"
     # Create a directory with the same name to cause an OSError when trying to read it
     extra_models_file.mkdir()
-    
+
     # Patch the EXTRA_MODELS_FILE path
     from code_puppy.model_factory import ModelFactory
-    monkeypatch.setattr("code_puppy.model_factory.EXTRA_MODELS_FILE", str(extra_models_file))
-    
+
+    monkeypatch.setattr(
+        "code_puppy.model_factory.EXTRA_MODELS_FILE", str(extra_models_file)
+    )
+
     # This should not raise an exception despite the error
     with caplog.at_level("WARNING"):
         config = ModelFactory.load_config()
-    
+
     # The config should still be loaded
     assert isinstance(config, dict)
     assert len(config) > 0
-    
+
     # Check that warning was logged
     assert "Failed to load extra models config" in caplog.text
