@@ -81,7 +81,9 @@ def get_commands_help():
     )
     help_lines.append(
         Text("/truncate", style="cyan")
-        + Text(" <N>              Truncate message history to N most recent messages (keeping system message)")
+        + Text(
+            " <N>              Truncate message history to N most recent messages (keeping system message)"
+        )
     )
     help_lines.append(
         Text("/<unknown>", style="cyan")
@@ -409,22 +411,32 @@ def handle_command(command: str):
 
     if command.startswith("/pin_model"):
         # Handle agent model pinning
+        import json
+
         from code_puppy.agents.json_agent import discover_json_agents
         from code_puppy.command_line.model_picker_completion import load_model_names
-        import json
 
         tokens = command.split()
 
         if len(tokens) != 3:
             emit_warning("Usage: /pin_model <agent-name> <model-name>")
 
-            # Show available models and JSON agents
+            # Show available models and agents
             available_models = load_model_names()
             json_agents = discover_json_agents()
+
+            # Get built-in agents
+            from code_puppy.agents.agent_manager import get_agent_descriptions
+            builtin_agents = get_agent_descriptions()
 
             emit_info("Available models:")
             for model in available_models:
                 emit_info(f"  [cyan]{model}[/cyan]")
+
+            if builtin_agents:
+                emit_info("\nAvailable built-in agents:")
+                for agent_name, description in builtin_agents.items():
+                    emit_info(f"  [cyan]{agent_name}[/cyan] - {description}")
 
             if json_agents:
                 emit_info("\nAvailable JSON agents:")
@@ -442,31 +454,51 @@ def handle_command(command: str):
             emit_warning(f"Available models: {', '.join(available_models)}")
             return True
 
-        # Check that we're modifying a JSON agent (not a built-in Python agent)
+        # Check if this is a JSON agent or a built-in Python agent
         json_agents = discover_json_agents()
-        if agent_name not in json_agents:
-            emit_error(f"JSON agent '{agent_name}' not found")
 
-            # Show available JSON agents
+        # Get list of available built-in agents
+        from code_puppy.agents.agent_manager import get_agent_descriptions
+        builtin_agents = get_agent_descriptions()
+
+        is_json_agent = agent_name in json_agents
+        is_builtin_agent = agent_name in builtin_agents
+
+        if not is_json_agent and not is_builtin_agent:
+            emit_error(f"Agent '{agent_name}' not found")
+
+            # Show available agents
+            if builtin_agents:
+                emit_info("Available built-in agents:")
+                for name, desc in builtin_agents.items():
+                    emit_info(f"  [cyan]{name}[/cyan] - {desc}")
+
             if json_agents:
-                emit_info("Available JSON agents:")
+                emit_info("\nAvailable JSON agents:")
                 for name, path in json_agents.items():
                     emit_info(f"  [cyan]{name}[/cyan] ({path})")
             return True
 
-        agent_file_path = json_agents[agent_name]
-
-        # Load, modify, and save the agent configuration
+        # Handle different agent types
         try:
-            with open(agent_file_path, "r", encoding="utf-8") as f:
-                agent_config = json.load(f)
+            if is_json_agent:
+                # Handle JSON agent - modify the JSON file
+                agent_file_path = json_agents[agent_name]
 
-            # Set the model
-            agent_config["model"] = model_name
+                with open(agent_file_path, "r", encoding="utf-8") as f:
+                    agent_config = json.load(f)
 
-            # Save the updated configuration
-            with open(agent_file_path, "w", encoding="utf-8") as f:
-                json.dump(agent_config, f, indent=2, ensure_ascii=False)
+                # Set the model
+                agent_config["model"] = model_name
+
+                # Save the updated configuration
+                with open(agent_file_path, "w", encoding="utf-8") as f:
+                    json.dump(agent_config, f, indent=2, ensure_ascii=False)
+
+            else:
+                # Handle built-in Python agent - store in config
+                from code_puppy.config import set_agent_pinned_model
+                set_agent_pinned_model(agent_name, model_name)
 
             emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
 
@@ -622,9 +654,11 @@ def handle_command(command: str):
     if command.startswith("/truncate"):
         tokens = command.split()
         if len(tokens) != 2:
-            emit_error("Usage: /truncate <N> (where N is the number of messages to keep)")
+            emit_error(
+                "Usage: /truncate <N> (where N is the number of messages to keep)"
+            )
             return True
-        
+
         try:
             n = int(tokens[1])
             if n < 1:
@@ -633,23 +667,29 @@ def handle_command(command: str):
         except ValueError:
             emit_error("N must be a valid integer")
             return True
-        
+
         from code_puppy.state_management import get_message_history, set_message_history
-        
+
         history = get_message_history()
         if not history:
             emit_warning("No history to truncate yet. Ask me something first!")
             return True
-            
+
         if len(history) <= n:
-            emit_info(f"History already has {len(history)} messages, which is <= {n}. Nothing to truncate.")
+            emit_info(
+                f"History already has {len(history)} messages, which is <= {n}. Nothing to truncate."
+            )
             return True
-            
+
         # Always keep the first message (system message) and then keep the N-1 most recent messages
-        truncated_history = [history[0]] + history[-(n-1):] if n > 1 else [history[0]]
-        
+        truncated_history = (
+            [history[0]] + history[-(n - 1) :] if n > 1 else [history[0]]
+        )
+
         set_message_history(truncated_history)
-        emit_success(f"Truncated message history from {len(history)} to {len(truncated_history)} messages (keeping system message and {n-1} most recent)")
+        emit_success(
+            f"Truncated message history from {len(history)} to {len(truncated_history)} messages (keeping system message and {n - 1} most recent)"
+        )
         return True
 
     if command in ("/exit", "/quit"):

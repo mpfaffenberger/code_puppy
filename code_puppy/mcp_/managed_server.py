@@ -24,7 +24,7 @@ from pydantic_ai.mcp import (
 )
 
 from code_puppy.http_utils import create_async_client
-from code_puppy.mcp.blocking_startup import BlockingMCPServerStdio
+from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
 from code_puppy.messaging import emit_info
 
 # Configure logging

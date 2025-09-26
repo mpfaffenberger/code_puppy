@@ -274,7 +274,7 @@ class MCPInstallWizardScreen(ModalScreen):
         counter = self.search_counter
 
         try:
-            from code_puppy.mcp.server_registry_catalog import catalog
+            from code_puppy.mcp_.server_registry_catalog import catalog
 
             # Load ALL servers instead of just popular ones
             servers = catalog.servers
@@ -337,7 +337,7 @@ class MCPInstallWizardScreen(ModalScreen):
         counter = self.search_counter
 
         try:
-            from code_puppy.mcp.server_registry_catalog import catalog
+            from code_puppy.mcp_.server_registry_catalog import catalog
 
             servers = catalog.search(query)
 
@@ -499,7 +499,7 @@ class MCPInstallWizardScreen(ModalScreen):
         parent.mount(Static("\n[bold cyan]System Tools:[/bold cyan]"))
 
         # Import here to avoid circular imports
-        from code_puppy.mcp.system_tools import detector
+        from code_puppy.mcp_.system_tools import detector
 
         tool_status = detector.detect_tools(required_tools)
 
@@ -594,7 +594,7 @@ class MCPInstallWizardScreen(ModalScreen):
         parent.mount(Static("\n[bold magenta]Package Dependencies:[/bold magenta]"))
 
         # Import here to avoid circular imports
-        from code_puppy.mcp.system_tools import detector
+        from code_puppy.mcp_.system_tools import detector
 
         package_status = detector.check_package_dependencies(packages)
 
@@ -654,8 +654,8 @@ class MCPInstallWizardScreen(ModalScreen):
                             config_dict["env"][env_key] = env_vars[var_name]
 
             # Create and register the server
-            from code_puppy.mcp import ServerConfig
-            from code_puppy.mcp.manager import get_mcp_manager
+            from code_puppy.mcp_ import ServerConfig
+            from code_puppy.mcp_.manager import get_mcp_manager
 
             server_config = ServerConfig(
                 id=server_name,
@@ -740,8 +740,8 @@ class MCPInstallWizardScreen(ModalScreen):
             server_type = config_dict.pop("type")
 
             # Create and register the server
-            from code_puppy.mcp import ServerConfig
-            from code_puppy.mcp.manager import get_mcp_manager
+            from code_puppy.mcp_ import ServerConfig
+            from code_puppy.mcp_.manager import get_mcp_manager
 
             server_config = ServerConfig(
                 id=server_name,
