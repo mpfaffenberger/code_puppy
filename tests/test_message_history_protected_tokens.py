@@ -3,11 +3,8 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
 from unittest.mock import patch
 
 from code_puppy.config import get_protected_token_count
-from code_puppy.message_history_processor import (
-    estimate_tokens_for_message,
-    split_messages_for_protected_summarization,
-    summarize_messages,
-)
+# Functions have been moved to BaseAgent class
+from code_puppy.agents.agent_manager import get_current_agent
 
 
 def create_test_message(content: str, is_response: bool = False):
@@ -23,12 +20,14 @@ def test_protected_tokens_default():
     # Default value should be 50000
     with patch("code_puppy.config.get_value") as mock_get_value:
         mock_get_value.return_value = None
-        assert get_protected_token_count() == 50000
+        from code_puppy.config import get_protected_token_count
+    assert get_protected_token_count() == 50000
 
 
 def test_split_messages_empty_list():
     """Test splitting with empty message list."""
-    to_summarize, protected = split_messages_for_protected_summarization([])
+    agent = get_current_agent()
+    to_summarize, protected = agent.split_messages_for_protected_summarization([])
     assert to_summarize == []
     assert protected == []
 
@@ -51,7 +50,8 @@ def test_split_messages_small_conversation():
 
     messages = [system_msg, user_msg, assistant_msg]
 
-    to_summarize, protected = split_messages_for_protected_summarization(messages)
+    agent = get_current_agent()
+    to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
 
     # Small conversation should be entirely protected
     assert to_summarize == []

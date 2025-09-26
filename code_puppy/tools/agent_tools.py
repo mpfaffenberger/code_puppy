@@ -4,6 +4,7 @@ from typing import List
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
+from code_puppy.agents import get_available_agents
 from code_puppy.messaging import (
     emit_info,
     emit_divider,
@@ -11,12 +12,11 @@ from code_puppy.messaging import (
     emit_error,
 )
 from code_puppy.tools.common import generate_group_id
-from code_puppy.agents.agent_manager import get_available_agents, load_agent_config
 
 # Import Agent from pydantic_ai to create temporary agents for invocation
 from pydantic_ai import Agent
 from code_puppy.model_factory import ModelFactory
-from code_puppy.config import get_model_name
+from code_puppy.config import get_global_model_name
 
 
 class AgentInfo(BaseModel):
@@ -113,6 +113,7 @@ def register_invoke_agent(agent):
         Returns:
             AgentInvokeOutput: The agent's response to the prompt
         """
+        from code_puppy.agents.agent_manager import load_agent
         # Generate a group ID for this tool execution
         group_id = generate_group_id("invoke_agent", agent_name)
 
@@ -126,10 +127,10 @@ def register_invoke_agent(agent):
 
         try:
             # Load the specified agent config
-            agent_config = load_agent_config(agent_name)
+            agent_config = load_agent(agent_name)
 
             # Get the current model for creating a temporary agent
-            model_name = get_model_name()
+            model_name = get_global_model_name()
             models_config = ModelFactory.load_config()
 
             # Only proceed if we have a valid model configuration

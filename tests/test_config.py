@@ -398,7 +398,7 @@ class TestModelName:
     def test_get_model_name_exists(self, mock_validate_model_exists, mock_get_value):
         mock_get_value.return_value = "test_model_from_config"
         mock_validate_model_exists.return_value = True
-        assert cp_config.get_model_name() == "test_model_from_config"
+        assert cp_config.get_global_model_name() == "test_model_from_config"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_called_once_with("test_model_from_config")
 
@@ -594,7 +594,7 @@ class TestDefaultModelSelection:
         mock_get_value.return_value = None
         mock_default_model.return_value = "gpt-5"
 
-        result = cp_config.get_model_name()
+        result = cp_config.get_global_model_name()
 
         assert result == "gpt-5"
         mock_get_value.assert_called_once_with("model")
@@ -612,7 +612,7 @@ class TestDefaultModelSelection:
         mock_validate_model_exists.return_value = False
         mock_default_model.return_value = "gpt-5"
 
-        result = cp_config.get_model_name()
+        result = cp_config.get_global_model_name()
 
         assert result == "gpt-5"
         mock_get_value.assert_called_once_with("model")
@@ -670,7 +670,7 @@ class TestDefaultModelSelection:
         mock_get_value.return_value = "non-existent-model"
 
         # This will use the real models.json file through the ModelFactory
-        result = cp_config.get_model_name()
+        result = cp_config.get_global_model_name()
 
         # Since "non-existent-model" doesn't exist in models.json,
         # it should fall back to the first model in models.json ("gpt-5")

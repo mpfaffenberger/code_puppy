@@ -136,13 +136,13 @@ class CDCompleter(Completer):
 
 
 def get_prompt_with_active_model(base: str = ">>> "):
-    from code_puppy.agents.agent_manager import get_current_agent_config
+    from code_puppy.agents.agent_manager import get_current_agent
 
     puppy = get_puppy_name()
     global_model = get_active_model() or "(default)"
 
     # Get current agent information
-    current_agent = get_current_agent_config()
+    current_agent = get_current_agent()
     agent_display = current_agent.display_name if current_agent else "code-puppy"
 
     # Check if current agent has a pinned model

@@ -6,20 +6,18 @@ configurations, each with their own system prompts and tool sets.
 
 from .agent_manager import (
     get_available_agents,
-    get_current_agent_config,
+    get_current_agent,
     set_current_agent,
-    load_agent_config,
+    load_agent,
     get_agent_descriptions,
-    clear_agent_cache,
     refresh_agents,
 )
 
 __all__ = [
     "get_available_agents",
-    "get_current_agent_config",
+    "get_current_agent",
     "set_current_agent",
-    "load_agent_config",
+    "load_agent",
     "get_agent_descriptions",
-    "clear_agent_cache",
     "refresh_agents",
 ]

@@ -4,7 +4,7 @@ from typing import List
 
 from pydantic_ai import Agent
 
-from code_puppy.config import get_model_name
+from code_puppy.config import get_global_model_name
 from code_puppy.model_factory import ModelFactory
 
 # Keep a module-level agent reference to avoid rebuilding per call
@@ -53,7 +53,7 @@ def run_summarization_sync(prompt: str, message_history: List) -> List:
 def reload_summarization_agent():
     """Create a specialized agent for summarizing messages when context limit is reached."""
     models_config = ModelFactory.load_config()
-    model_name = get_model_name()
+    model_name = get_global_model_name()
     model = ModelFactory.get_model(model_name, models_config)
 
     # Specialized instructions for summarization

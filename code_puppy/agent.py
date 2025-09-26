@@ -125,22 +125,22 @@ def reload_code_generation_agent(message_group: str | None):
         message_group = str(uuid.uuid4())
     global _code_generation_agent, _LAST_MODEL_NAME
     from code_puppy.agents import clear_agent_cache
-    from code_puppy.config import clear_model_cache, get_model_name
+    from code_puppy.config import clear_model_cache, get_global_model_name
 
     # Clear both ModelFactory cache and config cache when force reloading
     clear_model_cache()
     clear_agent_cache()
 
     # Check if current agent has a pinned model
-    from code_puppy.agents import get_current_agent_config
+    from code_puppy.agents import get_current_agent
 
-    agent_config = get_current_agent_config()
+    agent_config = get_current_agent()
     agent_model_name = None
     if hasattr(agent_config, "get_model_name"):
         agent_model_name = agent_config.get_model_name()
 
     # Use agent-specific model if pinned, otherwise use global model
-    model_name = agent_model_name if agent_model_name else get_model_name()
+    model_name = agent_model_name if agent_model_name else get_global_model_name()
     emit_info(
         f"[bold cyan]Loading Model: {model_name}[/bold cyan]",
         message_group=message_group,
@@ -149,7 +149,7 @@ def reload_code_generation_agent(message_group: str | None):
     model = ModelFactory.get_model(model_name, models_config)
 
     # Get agent-specific system prompt
-    agent_config = get_current_agent_config()
+    agent_config = get_current_agent()
     emit_info(
         f"[bold magenta]Loading Agent: {agent_config.display_name}[/bold magenta]",
         message_group=message_group,
@@ -165,8 +165,8 @@ def reload_code_generation_agent(message_group: str | None):
     # Configure model settings with max_tokens if set
     model_settings_dict = {"seed": 42}
     # Get current agent to use its method
-    from code_puppy.agents import get_current_agent_config
-    current_agent = get_current_agent_config()
+    from code_puppy.agents import get_current_agent
+    current_agent = get_current_agent()
     output_tokens = max(2048, min(int(0.05 * current_agent.get_model_context_length()) - 1024, 16384))
     console.print(f"Max output tokens per message: {output_tokens}")
     model_settings_dict["max_tokens"] = output_tokens
@@ -207,15 +207,15 @@ def get_code_generation_agent(force_reload=False, message_group: str | None = No
     global _code_generation_agent, _LAST_MODEL_NAME
     if message_group is None:
         message_group = str(uuid.uuid4())
-    from code_puppy.config import get_model_name
+    from code_puppy.config import get_global_model_name
 
     # Get the global model name
-    global_model_name = get_model_name()
+    global_model_name = get_global_model_name()
 
     # Check if current agent has a pinned model
-    from code_puppy.agents import get_current_agent_config
+    from code_puppy.agents import get_current_agent
 
-    agent_config = get_current_agent_config()
+    agent_config = get_current_agent()
     agent_model_name = None
     if hasattr(agent_config, "get_model_name"):
         agent_model_name = agent_config.get_model_name()

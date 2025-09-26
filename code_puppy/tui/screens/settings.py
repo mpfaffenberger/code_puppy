@@ -125,7 +125,7 @@ class SettingsScreen(ModalScreen):
     def on_mount(self) -> None:
         """Load current settings when the screen mounts."""
         from code_puppy.config import (
-            get_model_name,
+            get_global_model_name,
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
@@ -155,7 +155,7 @@ class SettingsScreen(ModalScreen):
         self.load_model_options(model_select)
 
         # Set current model selection
-        current_model = get_model_name()
+        current_model = get_global_model_name()
         model_select.value = current_model
 
         # YOLO mode is always enabled in TUI mode

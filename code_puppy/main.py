@@ -12,8 +12,6 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from code_puppy import __version__, callbacks, plugins
-from code_puppy.agent import get_custom_usage_limits
-from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
@@ -25,15 +23,10 @@ from code_puppy.config import (
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
-from code_puppy.message_history_processor import (
-    message_history_accumulator,
-    prune_interrupted_tool_calls,
-)
-from code_puppy.state_management import set_message_history
+# message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
 from code_puppy.tui_state import is_tui_mode, set_tui_mode
 from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
-
 plugins.load_plugin_callbacks()
 
 
@@ -237,9 +230,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.command_line.command_handler import handle_command
 
     """Run the agent in interactive mode."""
-    from code_puppy.state_management import clear_message_history, get_message_history
 
-    clear_message_history()
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
@@ -264,16 +255,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
-    from code_puppy.agents.runtime_manager import get_runtime_agent_manager
     from code_puppy.messaging import emit_info
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
     # Initialize the runtime agent manager
-    agent_manager = get_runtime_agent_manager()
-    agent_manager.get_agent()
     if initial_command:
         from code_puppy.messaging import emit_info, emit_system_message
-
+        from code_puppy.agents import get_current_agent
+        agent = get_current_agent()
         emit_info(
             f"[bold blue]Processing initial command:[/bold blue] {initial_command}"
         )
@@ -290,10 +279,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # Run with or without spinner based on whether we're awaiting input
             if awaiting_input:
                 # No spinner - use agent_manager's run_with_mcp method
-                response = await agent_manager.run_with_mcp(
+
+                response = await agent.run_with_mcp(
                     initial_command,
-                    message_history=get_message_history(),
-                    usage_limits=get_custom_usage_limits(),
                 )
             else:
                 # Use our custom spinner for better compatibility with user input
@@ -301,15 +289,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 with ConsoleSpinner(console=display_console):
                     # Use agent_manager's run_with_mcp method
-                    response = await agent_manager.run_with_mcp(
+                    response = await agent.run_with_mcp(
                         initial_command,
-                        message_history=prune_interrupted_tool_calls(
-                            get_message_history()
-                        ),
-                        usage_limits=get_custom_usage_limits(),
-                    )
-                    set_message_history(
-                        prune_interrupted_tool_calls(get_message_history())
                     )
 
             agent_response = response.output
@@ -317,9 +298,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_system_message(
                 f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
             )
-            new_msgs = response.all_messages()
-            message_history_accumulator(new_msgs)
-            set_message_history(prune_interrupted_tool_calls(get_message_history()))
             emit_system_message("\n" + "=" * 50)
             emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
             emit_system_message(
@@ -359,11 +337,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_warning("Falling back to basic input without tab completion")
 
     while True:
-        from code_puppy.agents.agent_manager import get_current_agent_config
+        from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.messaging import emit_info
 
         # Get the custom prompt from the current agent, or use default
-        current_agent = get_current_agent_config()
+        current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
 
         emit_info(f"[bold blue]{user_prompt}[/bold blue]")
@@ -399,7 +377,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Check for clear command (supports both `clear` and `/clear`)
         if task.strip().lower() in ("clear", "/clear"):
-            clear_message_history()
             from code_puppy.messaging import emit_system_message, emit_warning
 
             emit_warning("Conversation history cleared!")
@@ -431,14 +408,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging import emit_warning
                 from code_puppy.messaging.spinner import ConsoleSpinner
 
-                runtime_manager = get_runtime_agent_manager()
                 with ConsoleSpinner(console=message_renderer.console):
-                    result = await runtime_manager.run_with_mcp(
+                    result = await current_agent.run_with_mcp(
                         task,
-                        get_custom_usage_limits(),
-                        message_history=prune_interrupted_tool_calls(
-                            get_message_history()
-                        ),
                     )
                 # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
@@ -449,14 +421,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
-                )
-
-                # Update message history - the agent's history processor will handle truncation
-                new_msgs = result.all_messages()
-                message_history_accumulator(new_msgs)
-
-                emit_system_message(
-                    f"Context: {len(get_message_history())} messages in history\n"
                 )
 
                 # Ensure console output is flushed before next prompt
@@ -509,7 +473,6 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         with ConsoleSpinner(console=message_renderer.console):
             response = await agent_manager.run_with_mcp(
                 prompt,
-                usage_limits=get_custom_usage_limits(),
             )
 
         agent_response = response.output

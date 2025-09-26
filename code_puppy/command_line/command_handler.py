@@ -1,5 +1,6 @@
 import os
 
+from code_puppy.agents import get_current_agent
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
@@ -120,39 +121,38 @@ def handle_command(command: str):
 
     if command.strip().startswith("/compact"):
         from code_puppy.config import get_compaction_strategy
-        from code_puppy.message_history_processor import (
-            estimate_tokens_for_message,
-            get_protected_token_count,
-            summarize_messages,
-            truncation,
-        )
+        # Functions have been moved to BaseAgent class
+        from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.config import get_protected_token_count
         from code_puppy.messaging import (
             emit_error,
             emit_info,
             emit_success,
             emit_warning,
         )
-        from code_puppy.state_management import get_message_history, set_message_history
 
         try:
-            history = get_message_history()
+            agent = get_current_agent()
+            history = agent.get_message_history()
             if not history:
                 emit_warning("No history to compact yet. Ask me something first!")
                 return True
 
-            before_tokens = sum(estimate_tokens_for_message(m) for m in history)
+            current_agent = get_current_agent()
+            before_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in history)
             compaction_strategy = get_compaction_strategy()
             protected_tokens = get_protected_token_count()
             emit_info(
                 f"🤔 Compacting {len(history)} messages using {compaction_strategy} strategy... (~{before_tokens} tokens)"
             )
 
+            current_agent = get_current_agent()
             if compaction_strategy == "truncation":
-                compacted = truncation(history, protected_tokens)
+                compacted = current_agent.truncation(history, protected_tokens)
                 summarized_messages = []  # No summarization in truncation mode
             else:
                 # Default to summarization
-                compacted, summarized_messages = summarize_messages(
+                compacted, summarized_messages = current_agent.summarize_messages(
                     history, with_protection=True
                 )
 
@@ -160,9 +160,10 @@ def handle_command(command: str):
                 emit_error("Compaction failed. History unchanged.")
                 return True
 
-            set_message_history(compacted)
+            agent.set_message_history(compacted)
 
-            after_tokens = sum(estimate_tokens_for_message(m) for m in compacted)
+            current_agent = get_current_agent()
+            after_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in compacted)
             reduction_pct = (
                 ((before_tokens - after_tokens) / before_tokens * 100)
                 if before_tokens > 0
@@ -205,7 +206,7 @@ def handle_command(command: str):
             return True
 
     if command.strip().startswith("/show"):
-        from code_puppy.agents import get_current_agent_config
+        from code_puppy.agents import get_current_agent
         from code_puppy.command_line.model_picker_completion import get_active_model
         from code_puppy.config import (
             get_compaction_strategy,
@@ -225,7 +226,7 @@ def handle_command(command: str):
         compaction_strategy = get_compaction_strategy()
 
         # Get current agent info
-        current_agent = get_current_agent_config()
+        current_agent = get_current_agent()
 
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
@@ -288,16 +289,15 @@ def handle_command(command: str):
         from code_puppy.agents import (
             get_agent_descriptions,
             get_available_agents,
-            get_current_agent_config,
+            get_current_agent,
             set_current_agent,
         )
-        from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 
         tokens = command.split()
 
         if len(tokens) == 1:
             # Show current agent and available agents
-            current_agent = get_current_agent_config()
+            current_agent = get_current_agent()
             available_agents = get_available_agents()
             descriptions = get_agent_descriptions()
 
@@ -343,9 +343,9 @@ def handle_command(command: str):
 
             if set_current_agent(agent_name):
                 # Reload the agent with new configuration
-                manager = get_runtime_agent_manager()
-                manager.reload_agent()
-                new_agent = get_current_agent_config()
+                agent = get_current_agent()
+                agent.reload_code_generation_agent()
+                new_agent = get_current_agent()
                 emit_success(
                     f"Switched to agent: {new_agent.display_name}",
                     message_group=group_id,
@@ -382,13 +382,10 @@ def handle_command(command: str):
 
         new_input = update_model_in_input(model_command)
         if new_input is not None:
-            from code_puppy.agents.runtime_manager import get_runtime_agent_manager
             from code_puppy.command_line.model_picker_completion import get_active_model
 
             model = get_active_model()
             # Make sure this is called for the test
-            manager = get_runtime_agent_manager()
-            manager.reload_agent()
             emit_success(f"Active model set and loaded: {model}")
             return True
         model_names = load_model_names()
@@ -503,13 +500,11 @@ def handle_command(command: str):
             emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
 
             # If this is the current agent, reload it to use the new model
-            from code_puppy.agents import get_current_agent_config
-            from code_puppy.agents.runtime_manager import get_runtime_agent_manager
+            from code_puppy.agents import get_current_agent
 
-            current_agent = get_current_agent_config()
+            current_agent = get_current_agent()
             if current_agent.name == agent_name:
-                manager = get_runtime_agent_manager()
-                manager.reload_agent()
+
                 emit_info(f"Active agent reloaded with pinned model '{model_name}'")
 
             return True
@@ -560,8 +555,8 @@ def handle_command(command: str):
         from pathlib import Path
 
         from code_puppy.config import CONFIG_DIR
-        from code_puppy.message_history_processor import estimate_tokens_for_message
-        from code_puppy.state_management import get_message_history
+        # estimate_tokens_for_message has been moved to BaseAgent class
+        from code_puppy.agents.agent_manager import get_current_agent
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -569,7 +564,8 @@ def handle_command(command: str):
             return True
 
         session_name = tokens[1]
-        history = get_message_history()
+        agent = get_current_agent()
+        history = agent.get_message_history()
 
         if not history:
             emit_warning("No message history to dump!")
@@ -587,11 +583,12 @@ def handle_command(command: str):
 
             # Also save metadata as JSON for readability
             meta_file = contexts_dir / f"{session_name}_meta.json"
+            current_agent = get_current_agent()
             metadata = {
                 "session_name": session_name,
                 "timestamp": datetime.now().isoformat(),
                 "message_count": len(history),
-                "total_tokens": sum(estimate_tokens_for_message(m) for m in history),
+                "total_tokens": sum(current_agent.estimate_tokens_for_message(m) for m in history),
                 "file_path": str(pickle_file),
             }
 
@@ -613,8 +610,8 @@ def handle_command(command: str):
         from pathlib import Path
 
         from code_puppy.config import CONFIG_DIR
-        from code_puppy.message_history_processor import estimate_tokens_for_message
-        from code_puppy.state_management import set_message_history
+        # estimate_tokens_for_message has been moved to BaseAgent class
+        from code_puppy.agents.agent_manager import get_current_agent
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -638,8 +635,10 @@ def handle_command(command: str):
             with open(pickle_file, "rb") as f:
                 history = pickle.load(f)
 
-            set_message_history(history)
-            total_tokens = sum(estimate_tokens_for_message(m) for m in history)
+            agent = get_current_agent()
+            agent.set_message_history(history)
+            current_agent = get_current_agent()
+            total_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in history)
 
             emit_success(
                 f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
@@ -652,6 +651,7 @@ def handle_command(command: str):
             return True
 
     if command.startswith("/truncate"):
+        from code_puppy.agents.agent_manager import get_current_agent
         tokens = command.split()
         if len(tokens) != 2:
             emit_error(
@@ -668,9 +668,8 @@ def handle_command(command: str):
             emit_error("N must be a valid integer")
             return True
 
-        from code_puppy.state_management import get_message_history, set_message_history
-
-        history = get_message_history()
+        agent = get_current_agent()
+        history = agent.get_message_history()
         if not history:
             emit_warning("No history to truncate yet. Ask me something first!")
             return True
@@ -686,7 +685,7 @@ def handle_command(command: str):
             [history[0]] + history[-(n - 1) :] if n > 1 else [history[0]]
         )
 
-        set_message_history(truncated_history)
+        agent.set_message_history(truncated_history)
         emit_success(
             f"Truncated message history from {len(history)} to {len(truncated_history)} messages (keeping system message and {n - 1} most recent)"
         )
