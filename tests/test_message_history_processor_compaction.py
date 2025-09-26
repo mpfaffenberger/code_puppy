@@ -153,10 +153,10 @@ def test_message_history_processor_cleans_without_compaction(monkeypatch: pytest
             )
         )
         stack.enter_context(
-            patch("code_puppy.state_management.is_tui_mode", return_value=False)
+            patch("code_puppy.tui_state.is_tui_mode", return_value=False)
         )
         stack.enter_context(
-            patch("code_puppy.state_management.get_tui_app_instance", return_value=None)
+            patch("code_puppy.tui_state.get_tui_app_instance", return_value=None)
         )
         mock_set_history = stack.enter_context(
             patch("code_puppy.message_history_processor.set_message_history")
@@ -243,10 +243,10 @@ def test_message_history_processor_integration_with_loaded_context(monkeypatch: 
             )
         )
         stack.enter_context(
-            patch("code_puppy.state_management.is_tui_mode", return_value=False)
+            patch("code_puppy.tui_state.is_tui_mode", return_value=False)
         )
         stack.enter_context(
-            patch("code_puppy.state_management.get_tui_app_instance", return_value=None)
+            patch("code_puppy.tui_state.get_tui_app_instance", return_value=None)
         )
         stack.enter_context(
             patch(

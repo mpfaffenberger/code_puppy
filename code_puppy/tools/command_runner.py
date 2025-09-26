@@ -19,7 +19,7 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-from code_puppy.state_management import is_tui_mode
+from code_puppy.tui_state import is_tui_mode
 from code_puppy.tools.common import generate_group_id
 
 # Maximum line length for shell command output to prevent massive token usage
