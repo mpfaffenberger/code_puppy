@@ -7,10 +7,7 @@ from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
-from code_puppy.message_history_processor import (
-    get_model_context_length,
-    message_history_accumulator,
-)
+from code_puppy.message_history_processor import message_history_accumulator
 from code_puppy.messaging.message_queue import (
     emit_error,
     emit_info,
@@ -167,7 +164,10 @@ def reload_code_generation_agent(message_group: str | None):
 
     # Configure model settings with max_tokens if set
     model_settings_dict = {"seed": 42}
-    output_tokens = max(2048, min(int(0.05 * get_model_context_length()) - 1024, 16384))
+    # Get current agent to use its method
+    from code_puppy.agents import get_current_agent_config
+    current_agent = get_current_agent_config()
+    output_tokens = max(2048, min(int(0.05 * current_agent.get_model_context_length()) - 1024, 16384))
     console.print(f"Max output tokens per message: {output_tokens}")
     model_settings_dict["max_tokens"] = output_tokens
 

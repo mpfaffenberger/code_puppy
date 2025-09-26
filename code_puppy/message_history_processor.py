@@ -1,6 +1,6 @@
 import json
 import queue
-from typing import Any, List, Set, Tuple
+from typing import Any, List, Set, Tuple, Union
 
 import pydantic
 from pydantic_ai.messages import (
@@ -25,7 +25,6 @@ from code_puppy.state_management import (
     add_compacted_message_hash,
     get_compacted_message_hashes,
     get_message_history,
-    hash_message,
     set_message_history,
 )
 from code_puppy.summarization_agent import run_summarization_sync
@@ -44,34 +43,10 @@ def stringify_message_part(part) -> str:
     Returns:
         String representation of the message part
     """
-    result = ""
-    if hasattr(part, "part_kind"):
-        result += part.part_kind + ": "
-    else:
-        result += str(type(part)) + ": "
-
-    # Handle content
-    if hasattr(part, "content") and part.content:
-        # Handle different content types
-        if isinstance(part.content, str):
-            result = part.content
-        elif isinstance(part.content, pydantic.BaseModel):
-            result = json.dumps(part.content.model_dump())
-        elif isinstance(part.content, dict):
-            result = json.dumps(part.content)
-        else:
-            result = str(part.content)
-
-    # Handle tool calls which may have additional token costs
-    # If part also has content, we'll process tool calls separately
-    if hasattr(part, "tool_name") and part.tool_name:
-        # Estimate tokens for tool name and parameters
-        tool_text = part.tool_name
-        if hasattr(part, "args"):
-            tool_text += f" {str(part.args)}"
-        result += tool_text
-
-    return result
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    return current_agent.stringify_message_part(part)
 
 
 def estimate_tokens_for_message(message: ModelMessage) -> int:
@@ -79,61 +54,44 @@ def estimate_tokens_for_message(message: ModelMessage) -> int:
     Estimate the number of tokens in a message using len(message) - 4.
     Simple and fast replacement for tiktoken.
     """
-    total_tokens = 0
-
-    for part in message.parts:
-        part_str = stringify_message_part(part)
-        if part_str:
-            total_tokens += len(part_str)
-
-    return int(max(1, total_tokens) / 4)
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    return current_agent.estimate_tokens_for_message(message)
 
 
 def filter_huge_messages(messages: List[ModelMessage]) -> List[ModelMessage]:
     if not messages:
         return []
 
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    
     # Never drop the system prompt, even if it is extremely large.
     system_message, *rest = messages
     filtered_rest = [
-        m for m in rest if estimate_tokens_for_message(m) < 50000
+        m for m in rest if current_agent.estimate_tokens_for_message(m) < 50000
     ]
     return [system_message] + filtered_rest
 
 
 def _is_tool_call_part(part: Any) -> bool:
-    if isinstance(part, (ToolCallPart, ToolCallPartDelta)):
-        return True
-
-    part_kind = (getattr(part, "part_kind", "") or "").replace("_", "-")
-    if part_kind == "tool-call":
-        return True
-
-    has_tool_name = getattr(part, "tool_name", None) is not None
-    has_args = getattr(part, "args", None) is not None
-    has_args_delta = getattr(part, "args_delta", None) is not None
-
-    return bool(has_tool_name and (has_args or has_args_delta))
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    return current_agent._is_tool_call_part(part)
 
 
 def _is_tool_return_part(part: Any) -> bool:
-    if isinstance(part, (ToolReturnPart, ToolReturn)):
-        return True
-
-    part_kind = (getattr(part, "part_kind", "") or "").replace("_", "-")
-    if part_kind in {"tool-return", "tool-result"}:
-        return True
-
-    if getattr(part, "tool_call_id", None) is None:
-        return False
-
-    has_content = getattr(part, "content", None) is not None
-    has_content_delta = getattr(part, "content_delta", None) is not None
-    return bool(has_content or has_content_delta)
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    return current_agent._is_tool_return_part(part)
 
 
 def split_messages_for_protected_summarization(
-    messages: List[ModelMessage],
+    messages: List[ModelMessage], with_protection: bool = True
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """
     Split messages into two groups: messages to summarize and protected recent messages.
@@ -150,7 +108,13 @@ def split_messages_for_protected_summarization(
 
     # Always protect the system message (first message)
     system_message = messages[0]
-    system_tokens = estimate_tokens_for_message(system_message)
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    system_tokens = current_agent.estimate_tokens_for_message(system_message)
+
+    if not with_protection:
+        # If not protecting, summarize everything except the system message
+        return messages[1:], [system_message]
 
     if len(messages) == 1:
         return [], messages
@@ -165,7 +129,7 @@ def split_messages_for_protected_summarization(
     # Go backwards through non-system messages to find protected zone
     for i in range(len(messages) - 1, 0, -1):  # Stop at 1, not 0 (skip system message)
         message = messages[i]
-        message_tokens = estimate_tokens_for_message(message)
+        message_tokens = current_agent.estimate_tokens_for_message(message)
 
         # If adding this message would exceed protected tokens, stop here
         if protected_token_count + message_tokens > protected_tokens_limit:
@@ -192,6 +156,18 @@ def split_messages_for_protected_summarization(
     return messages_to_summarize, protected_messages
 
 
+def run_summarization_sync(
+    instructions: str,
+    message_history: List[ModelMessage],
+) -> Union[List[ModelMessage], str]:
+    """
+    Run summarization synchronously using the configured summarization agent.
+    This is exposed as a global function so tests can mock it.
+    """
+    from code_puppy.summarization_agent import run_summarization_sync as _run_summarization_sync
+    return _run_summarization_sync(instructions, message_history)
+
+
 def summarize_messages(
     messages: List[ModelMessage], with_protection: bool = True
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
@@ -203,26 +179,22 @@ def summarize_messages(
         where compacted_messages always preserves the original system message
         as the first entry.
     """
-    messages_to_summarize: List[ModelMessage]
-    protected_messages: List[ModelMessage]
-
-    if with_protection:
-        messages_to_summarize, protected_messages = (
-            split_messages_for_protected_summarization(messages)
-        )
-    else:
-        messages_to_summarize = messages[1:] if messages else []
-        protected_messages = messages[:1]
-
     if not messages:
         return [], []
 
-    system_message = messages[0]
+    # Split messages into those to summarize and those to protect
+    messages_to_summarize, protected_messages = split_messages_for_protected_summarization(
+        messages, with_protection
+    )
 
+    # If nothing to summarize, return the original list
     if not messages_to_summarize:
-        # Nothing to summarize, so just return the original sequence
         return prune_interrupted_tool_calls(messages), []
 
+    # Get the system message (always the first message)
+    system_message = messages[0]
+
+    # Instructions for the summarization agent
     instructions = (
         "The input will be a log of Agentic AI steps that have been taken"
         " as well as user queries, etc. Summarize the contents of these steps."
@@ -235,6 +207,7 @@ def summarize_messages(
     )
 
     try:
+        # Use the global function so tests can mock it
         new_messages = run_summarization_sync(
             instructions, message_history=messages_to_summarize
         )
@@ -245,6 +218,7 @@ def summarize_messages(
             )
             new_messages = [ModelRequest([TextPart(str(new_messages))])]
 
+        # Construct compacted messages: system message + new summarized messages + protected tail
         compacted: List[ModelMessage] = [system_message] + list(new_messages)
 
         # Drop the system message from protected_messages because we already included it
@@ -259,47 +233,22 @@ def summarize_messages(
 
 
 def summarize_message(message: ModelMessage) -> ModelMessage:
-    try:
-        # If the message looks like a system/instructions message, skip summarization
-        instructions = getattr(message, "instructions", None)
-        if instructions:
-            return message
-        # If any part is a tool call, skip summarization
-        for part in message.parts:
-            if isinstance(part, ToolCallPart) or getattr(part, "tool_name", None):
-                return message
-        # Build prompt from textual content parts
-        content_bits: List[str] = []
-        for part in message.parts:
-            s = stringify_message_part(part)
-            if s:
-                content_bits.append(s)
-        if not content_bits:
-            return message
-        prompt = "Please summarize the following user message:\n" + "\n".join(
-            content_bits
-        )
-        output_text = run_summarization_sync(prompt)
-        summarized = ModelRequest([TextPart(output_text)])
-        return summarized
-    except Exception as e:
-        emit_error(f"Summarization failed: {e}")
-        return message
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    
+    return current_agent.summarize_message(message)
 
 
 def get_model_context_length() -> int:
     """
     Get the context length for the currently configured model from models.json
     """
-    model_configs = ModelFactory.load_config()
-    model_name = get_model_name()
-
-    # Get context length from model config
-    model_config = model_configs.get(model_name, {})
-    context_length = model_config.get("context_length", 128000)  # Default value
-
-    # Reserve 10% of context for response
-    return int(context_length)
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    
+    return current_agent.get_model_context_length()
 
 
 def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
@@ -310,57 +259,25 @@ def prune_interrupted_tool_calls(messages: List[ModelMessage]) -> List[ModelMess
     without a corresponding tool return, or vice versa. We preserve original order
     and only drop messages that contain parts referencing mismatched tool_call_ids.
     """
-    if not messages:
-        return messages
-
-    tool_call_ids: Set[str] = set()
-    tool_return_ids: Set[str] = set()
-
-    # First pass: collect ids for calls vs returns
-    for msg in messages:
-        for part in getattr(msg, "parts", []) or []:
-            tool_call_id = getattr(part, "tool_call_id", None)
-            if not tool_call_id:
-                continue
-
-            if _is_tool_call_part(part) and not _is_tool_return_part(part):
-                tool_call_ids.add(tool_call_id)
-            elif _is_tool_return_part(part):
-                tool_return_ids.add(tool_call_id)
-
-    mismatched: Set[str] = tool_call_ids.symmetric_difference(tool_return_ids)
-    if not mismatched:
-        return messages
-
-    pruned: List[ModelMessage] = []
-    dropped_count = 0
-    for msg in messages:
-        has_mismatched = False
-        for part in getattr(msg, "parts", []) or []:
-            tcid = getattr(part, "tool_call_id", None)
-            if tcid and tcid in mismatched:
-                has_mismatched = True
-                break
-        if has_mismatched:
-            dropped_count += 1
-            continue
-        pruned.append(msg)
-
-    if dropped_count:
-        emit_warning(
-            f"Pruned {dropped_count} message(s) with mismatched tool_call_id pairs"
-        )
-    return pruned
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    
+    return current_agent.prune_interrupted_tool_calls(messages)
 
 
 def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
-    cleaned_history = prune_interrupted_tool_calls(messages)
+    # Get current agent to use its methods
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    
+    cleaned_history = current_agent.prune_interrupted_tool_calls(messages)
 
     total_current_tokens = sum(
-        estimate_tokens_for_message(msg) for msg in cleaned_history
+        current_agent.estimate_tokens_for_message(msg) for msg in cleaned_history
     )
 
-    model_max = get_model_context_length()
+    model_max = current_agent.get_model_context_length()
 
     proportion_used = total_current_tokens / model_max if model_max else 0
 
@@ -401,7 +318,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
     compaction_strategy = get_compaction_strategy()
 
     if proportion_used > compaction_threshold:
-        filtered_history = filter_huge_messages(cleaned_history)
+        filtered_history = current_agent.filter_huge_messages(cleaned_history)
 
         if compaction_strategy == "truncation":
             protected_tokens = get_protected_token_count()
@@ -413,7 +330,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
             )
 
         final_token_count = sum(
-            estimate_tokens_for_message(msg) for msg in result_messages
+            current_agent.estimate_tokens_for_message(msg) for msg in result_messages
         )
         # Update status bar with final token count if in TUI mode
         if is_tui_mode():
@@ -438,7 +355,7 @@ def message_history_processor(messages: List[ModelMessage]) -> List[ModelMessage
             emit_info(f"Final token count after processing: {final_token_count}")
         set_message_history(result_messages)
         for m in summarized_messages:
-            add_compacted_message_hash(hash_message(m))
+            add_compacted_message_hash(current_agent.hash_message(m))
         return result_messages
 
     set_message_history(cleaned_history)
@@ -471,11 +388,16 @@ def truncation(
 
 def message_history_accumulator(messages: List[Any]):
     existing_history = list(get_message_history())
-    seen_hashes = {hash_message(message) for message in existing_history}
+    
+    # Get current agent to use its method
+    from code_puppy.agents.agent_manager import get_current_agent_config
+    current_agent = get_current_agent_config()
+    
+    seen_hashes = {current_agent.hash_message(message) for message in existing_history}
     compacted_hashes = get_compacted_message_hashes()
 
     for message in messages:
-        message_hash = hash_message(message)
+        message_hash = current_agent.hash_message(message)
         if message_hash in seen_hashes or message_hash in compacted_hashes:
             continue
         existing_history.append(message)
