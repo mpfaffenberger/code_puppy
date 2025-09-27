@@ -6,7 +6,7 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 
-from code_puppy.config import get_model_name, set_model_name
+from code_puppy.config import get_global_model_name, set_model_name
 from code_puppy.model_factory import ModelFactory
 
 
@@ -21,7 +21,7 @@ def get_active_model():
     Returns the active model from the config using get_model_name().
     This ensures consistency across the codebase by always using the config value.
     """
-    return get_model_name()
+    return get_global_model_name()
 
 
 def set_active_model(model_name: str):

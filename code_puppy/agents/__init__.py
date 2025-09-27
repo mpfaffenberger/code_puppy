@@ -8,18 +8,19 @@ from .agent_manager import (
     clear_agent_cache,
     get_agent_descriptions,
     get_available_agents,
-    get_current_agent_config,
-    load_agent_config,
+    get_current_agent,
+    set_current_agent,
+    load_agent,
+    get_agent_descriptions,
     refresh_agents,
     set_current_agent,
 )
 
 __all__ = [
     "get_available_agents",
-    "get_current_agent_config",
+    "get_current_agent",
     "set_current_agent",
-    "load_agent_config",
+    "load_agent",
     "get_agent_descriptions",
-    "clear_agent_cache",
     "refresh_agents",
 ]

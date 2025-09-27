@@ -12,27 +12,19 @@ from textual.events import Resize
 from textual.reactive import reactive
 from textual.widgets import Footer, ListView
 
-from code_puppy.agent import get_code_generation_agent, get_custom_usage_limits
-from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.config import (
-    get_model_name,
+    get_global_model_name,
     get_puppy_name,
     initialize_command_history_file,
     save_command_to_history,
 )
-from code_puppy.message_history_processor import (
-    message_history_accumulator,
-    prune_interrupted_tool_calls,
-)
+# message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
+from code_puppy.agents.agent_manager import get_current_agent
 
 # Import our message queue system
 from code_puppy.messaging import TUIRenderer, get_global_queue
-from code_puppy.state_management import (
-    clear_message_history,
-    get_message_history,
-    set_message_history,
-)
+
 from code_puppy.tui.components import (
     ChatView,
     CustomTextArea,
@@ -41,7 +33,6 @@ from code_puppy.tui.components import (
     StatusBar,
 )
 
-from .. import state_management
 
 # Import shared message classes
 from .messages import CommandSelected, HistoryEntrySelected
@@ -112,9 +103,9 @@ class CodePuppyTUI(App):
     def _on_agent_reload(self, agent_id: str, agent_name: str) -> None:
         """Callback for when agent is reloaded/changed."""
         # Get the updated agent configuration
-        from code_puppy.agents.agent_manager import get_current_agent_config
+        from code_puppy.agents.agent_manager import get_current_agent
 
-        current_agent_config = get_current_agent_config()
+        current_agent_config = get_current_agent()
         new_agent_display = (
             current_agent_config.display_name if current_agent_config else "code-puppy"
         )
@@ -127,7 +118,6 @@ class CodePuppyTUI(App):
 
     def __init__(self, initial_command: str = None, **kwargs):
         super().__init__(**kwargs)
-        self.agent_manager = None
         self._current_worker = None
         self.initial_command = initial_command
 
@@ -149,7 +139,7 @@ class CodePuppyTUI(App):
     def on_mount(self) -> None:
         """Initialize the application when mounted."""
         # Register this app instance for global access
-        from code_puppy.state_management import set_tui_app_instance
+        from code_puppy.tui_state import set_tui_app_instance
 
         set_tui_app_instance(self)
 
@@ -159,13 +149,13 @@ class CodePuppyTUI(App):
         register_callback("agent_reload", self._on_agent_reload)
 
         # Load configuration
-        self.current_model = get_model_name()
+        self.current_model = get_global_model_name()
         self.puppy_name = get_puppy_name()
 
         # Get current agent information
-        from code_puppy.agents.agent_manager import get_current_agent_config
+        from code_puppy.agents.agent_manager import get_current_agent
 
-        current_agent_config = get_current_agent_config()
+        current_agent_config = get_current_agent()
         self.current_agent = (
             current_agent_config.display_name if current_agent_config else "code-puppy"
         )
@@ -174,8 +164,6 @@ class CodePuppyTUI(App):
         self._update_title()
 
         # Use runtime manager to ensure we always have the current agent
-        self.agent_manager = get_runtime_agent_manager()
-
         # Update status bar
         status_bar = self.query_one(StatusBar)
         status_bar.current_model = self.current_model
@@ -188,7 +176,7 @@ class CodePuppyTUI(App):
         )
 
         # Get current agent and display info
-        get_code_generation_agent()
+        agent = get_current_agent()
         self.add_system_message(
             f"🐕 Loaded agent '{self.puppy_name}' with model '{self.current_model}'"
         )
@@ -430,9 +418,6 @@ class CodePuppyTUI(App):
                 else:
                     # Only cancel the agent task if NO processes were killed
                     self._current_worker.cancel()
-                    state_management._message_history = prune_interrupted_tool_calls(
-                        state_management.get_message_history()
-                    )
                     self.add_system_message("⚠️  Processing cancelled by user")
                     # Stop spinner and clear state only when agent is actually cancelled
                     self._current_worker = None
@@ -489,55 +474,44 @@ class CodePuppyTUI(App):
                 return
 
             # Process with agent
-            if self.agent_manager:
+            try:
+                self.update_agent_progress("Processing", 25)
+
+                # Use agent_manager's run_with_mcp to handle MCP servers properly
                 try:
-                    self.update_agent_progress("Processing", 25)
-
-                    # Use agent_manager's run_with_mcp to handle MCP servers properly
-                    try:
-                        self.update_agent_progress("Processing", 50)
-                        result = await self.agent_manager.run_with_mcp(
-                            message,
-                            message_history=get_message_history(),
-                            usage_limits=get_custom_usage_limits(),
-                        )
-
-                        if not result or not hasattr(result, "output"):
-                            self.add_error_message("Invalid response format from agent")
-                            return
-
-                        self.update_agent_progress("Processing", 75)
-                        agent_response = result.output
-                        self.add_agent_message(agent_response)
-
-                        # Update message history
-                        new_msgs = result.new_messages()
-                        message_history_accumulator(new_msgs)
-
-                        # Refresh history display to show new interaction
-                        self.refresh_history_display()
-
-                    except Exception as eg:
-                        # Handle TaskGroup and other exceptions
-                        # BaseExceptionGroup is only available in Python 3.11+
-                        if hasattr(eg, "exceptions"):
-                            # Handle TaskGroup exceptions specifically (Python 3.11+)
-                            for e in eg.exceptions:
-                                self.add_error_message(f"MCP/Agent error: {str(e)}")
-                        else:
-                            # Handle regular exceptions
-                            self.add_error_message(f"MCP/Agent error: {str(eg)}")
-                    finally:
-                        set_message_history(
-                            prune_interrupted_tool_calls(get_message_history())
-                        )
-                except Exception as agent_error:
-                    # Handle any other errors in agent processing
-                    self.add_error_message(
-                        f"Agent processing failed: {str(agent_error)}"
+                    agent = get_current_agent()
+                    self.update_agent_progress("Processing", 50)
+                    result = await agent.run_with_mcp(
+                        message,
                     )
-            else:
-                self.add_error_message("Agent manager not initialized")
+
+                    if not result or not hasattr(result, "output"):
+                        self.add_error_message("Invalid response format from agent")
+                        return
+
+                    self.update_agent_progress("Processing", 75)
+                    agent_response = result.output
+                    self.add_agent_message(agent_response)
+                    # Refresh history display to show new interaction
+                    self.refresh_history_display()
+
+                except Exception as eg:
+                    # Handle TaskGroup and other exceptions
+                    # BaseExceptionGroup is only available in Python 3.11+
+                    if hasattr(eg, "exceptions"):
+                        # Handle TaskGroup exceptions specifically (Python 3.11+)
+                        for e in eg.exceptions:
+                            self.add_error_message(f"MCP/Agent error: {str(e)}")
+                    else:
+                        # Handle regular exceptions
+                        self.add_error_message(f"MCP/Agent error: {str(eg)}")
+                finally:
+                    pass
+            except Exception as agent_error:
+                # Handle any other errors in agent processing
+                self.add_error_message(
+                    f"Agent processing failed: {str(agent_error)}"
+                )
 
         except Exception as e:
             self.add_error_message(f"Error processing message: {str(e)}")
@@ -551,7 +525,6 @@ class CodePuppyTUI(App):
         """Clear the chat history."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.clear_messages()
-        clear_message_history()
         self.add_system_message("Chat history cleared")
 
     def action_show_help(self) -> None:
@@ -650,13 +623,13 @@ class CodePuppyTUI(App):
         def handle_settings_result(result):
             if result and result.get("success"):
                 # Update reactive variables
-                from code_puppy.config import get_model_name, get_puppy_name
+                from code_puppy.config import get_global_model_name, get_puppy_name
 
                 self.puppy_name = get_puppy_name()
 
                 # Handle model change if needed
                 if result.get("model_changed"):
-                    new_model = get_model_name()
+                    new_model = get_global_model_name()
                     self.current_model = new_model
                     # Reinitialize agent with new model
                     self.agent_manager.reload_agent()

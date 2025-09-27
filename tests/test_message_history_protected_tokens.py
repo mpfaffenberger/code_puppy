@@ -4,11 +4,8 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
 
 from code_puppy.config import get_protected_token_count
-from code_puppy.message_history_processor import (
-    estimate_tokens_for_message,
-    split_messages_for_protected_summarization,
-    summarize_messages,
-)
+# Functions have been moved to BaseAgent class
+from code_puppy.agents.agent_manager import get_current_agent
 
 
 def create_test_message(content: str, is_response: bool = False):
@@ -24,12 +21,14 @@ def test_protected_tokens_default():
     # Default value should be 50000
     with patch("code_puppy.config.get_value") as mock_get_value:
         mock_get_value.return_value = None
-        assert get_protected_token_count() == 50000
+        from code_puppy.config import get_protected_token_count
+    assert get_protected_token_count() == 50000
 
 
 def test_split_messages_empty_list():
     """Test splitting with empty message list."""
-    to_summarize, protected = split_messages_for_protected_summarization([])
+    agent = get_current_agent()
+    to_summarize, protected = agent.split_messages_for_protected_summarization([])
     assert to_summarize == []
     assert protected == []
 
@@ -39,7 +38,8 @@ def test_split_messages_single_system_message():
     system_msg = create_test_message("You are a helpful assistant")
     messages = [system_msg]
 
-    to_summarize, protected = split_messages_for_protected_summarization(messages)
+    agent = get_current_agent()
+    to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
     assert to_summarize == []
     assert protected == [system_msg]
 
@@ -52,7 +52,8 @@ def test_split_messages_small_conversation():
 
     messages = [system_msg, user_msg, assistant_msg]
 
-    to_summarize, protected = split_messages_for_protected_summarization(messages)
+    agent = get_current_agent()
+    to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
 
     # Small conversation should be entirely protected
     assert to_summarize == []
@@ -75,7 +76,8 @@ def test_split_messages_large_conversation():
             create_test_message(f"Response {i}: {large_content}", is_response=True)
         )
 
-    to_summarize, protected = split_messages_for_protected_summarization(messages)
+    agent = get_current_agent()
+    to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
 
     # With the new default model having a large context window, we may not need to summarize
     # Check that we have some protected messages regardless
@@ -86,7 +88,7 @@ def test_split_messages_large_conversation():
     assert protected[0] == system_msg
 
     # Protected messages (excluding system) should be under token limit
-    protected_tokens = sum(estimate_tokens_for_message(msg) for msg in protected[1:])
+    protected_tokens = sum(agent.estimate_tokens_for_message(msg) for msg in protected[1:])
     assert protected_tokens <= get_protected_token_count()
 
 
@@ -103,10 +105,9 @@ def test_summarize_messages_with_protection_preserves_recent():
     messages = [system_msg, old_msg1, old_msg2, recent_msg1, recent_msg2]
 
     # First, test the split function to understand what's happening
-    to_summarize, protected = split_messages_for_protected_summarization(messages)
+    agent = get_current_agent()
+    to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
 
-    print(f"\nDEBUG: Messages to summarize: {len(to_summarize)}")
-    print(f"DEBUG: Protected messages: {len(protected)}")
 
     # Check that we actually have messages to summarize
     if len(to_summarize) == 0:
@@ -125,28 +126,21 @@ def test_summarize_messages_with_protection_preserves_recent():
     mhp.run_summarization_sync = mock_summarization
 
     try:
-        result = summarize_messages(messages)
-
-        print(f"DEBUG: Result length: {len(result)}")
-        for i, msg in enumerate(result):
-            content = (
-                msg.parts[0].content[:100] + "..."
-                if len(msg.parts[0].content) > 100
-                else msg.parts[0].content
-            )
-            print(f"DEBUG: Message {i}: {content}")
+        agent = get_current_agent()
+        compacted, summarized_source = agent.summarize_messages(messages)
 
         # Should have: [system, summary, recent_msg1, recent_msg2]
-        assert len(result) >= 3
-        assert result[0] == system_msg  # System message preserved
+        assert len(compacted) >= 3
+        assert compacted[0] == system_msg  # System message preserved
 
         # Last messages should be the recent ones (preserved exactly)
-        assert result[-2] == recent_msg1
-        assert result[-1] == recent_msg2
+        assert compacted[-2] == recent_msg1
+        assert compacted[-1] == recent_msg2
 
         # Second message should be the summary
-        summary_content = result[1].parts[0].content
+        summary_content = compacted[1].parts[0].content
         assert "Summary of old messages" in summary_content
+        assert summarized_source == to_summarize
 
     finally:
         # Restore original function
@@ -170,7 +164,8 @@ def test_protected_tokens_boundary_condition():
 
     messages = [system_msg, boundary_msg, small_msg]
 
-    to_summarize, protected = split_messages_for_protected_summarization(messages)
+    agent = get_current_agent()
+    to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
 
     # The boundary message may or may not be in to_summarize depending on context window size
     # The small message should always be protected

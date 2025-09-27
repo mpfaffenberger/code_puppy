@@ -1,5 +1,6 @@
 import os
 
+from code_puppy.agents import get_current_agent
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
@@ -80,6 +81,12 @@ def get_commands_help():
         + Text("                Show available tools and capabilities")
     )
     help_lines.append(
+        Text("/truncate", style="cyan")
+        + Text(
+            " <N>              Truncate message history to N most recent messages (keeping system message)"
+        )
+    )
+    help_lines.append(
         Text("/<unknown>", style="cyan")
         + Text("            Show unknown command warning")
     )
@@ -114,39 +121,38 @@ def handle_command(command: str):
 
     if command.strip().startswith("/compact"):
         from code_puppy.config import get_compaction_strategy
-        from code_puppy.message_history_processor import (
-            estimate_tokens_for_message,
-            get_protected_token_count,
-            summarize_messages,
-            truncation,
-        )
+        # Functions have been moved to BaseAgent class
+        from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.config import get_protected_token_count
         from code_puppy.messaging import (
             emit_error,
             emit_info,
             emit_success,
             emit_warning,
         )
-        from code_puppy.state_management import get_message_history, set_message_history
 
         try:
-            history = get_message_history()
+            agent = get_current_agent()
+            history = agent.get_message_history()
             if not history:
                 emit_warning("No history to compact yet. Ask me something first!")
                 return True
 
-            before_tokens = sum(estimate_tokens_for_message(m) for m in history)
+            current_agent = get_current_agent()
+            before_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in history)
             compaction_strategy = get_compaction_strategy()
             protected_tokens = get_protected_token_count()
             emit_info(
                 f"🤔 Compacting {len(history)} messages using {compaction_strategy} strategy... (~{before_tokens} tokens)"
             )
 
+            current_agent = get_current_agent()
             if compaction_strategy == "truncation":
-                compacted = truncation(history, protected_tokens)
+                compacted = current_agent.truncation(history, protected_tokens)
                 summarized_messages = []  # No summarization in truncation mode
             else:
                 # Default to summarization
-                compacted, summarized_messages = summarize_messages(
+                compacted, summarized_messages = current_agent.summarize_messages(
                     history, with_protection=True
                 )
 
@@ -154,9 +160,10 @@ def handle_command(command: str):
                 emit_error("Compaction failed. History unchanged.")
                 return True
 
-            set_message_history(compacted)
+            agent.set_message_history(compacted)
 
-            after_tokens = sum(estimate_tokens_for_message(m) for m in compacted)
+            current_agent = get_current_agent()
+            after_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in compacted)
             reduction_pct = (
                 ((before_tokens - after_tokens) / before_tokens * 100)
                 if before_tokens > 0
@@ -199,7 +206,7 @@ def handle_command(command: str):
             return True
 
     if command.strip().startswith("/show"):
-        from code_puppy.agents import get_current_agent_config
+        from code_puppy.agents import get_current_agent
         from code_puppy.command_line.model_picker_completion import get_active_model
         from code_puppy.config import (
             get_compaction_strategy,
@@ -219,7 +226,7 @@ def handle_command(command: str):
         compaction_strategy = get_compaction_strategy()
 
         # Get current agent info
-        current_agent = get_current_agent_config()
+        current_agent = get_current_agent()
 
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
@@ -282,16 +289,15 @@ def handle_command(command: str):
         from code_puppy.agents import (
             get_agent_descriptions,
             get_available_agents,
-            get_current_agent_config,
+            get_current_agent,
             set_current_agent,
         )
-        from code_puppy.agents.runtime_manager import get_runtime_agent_manager
 
         tokens = command.split()
 
         if len(tokens) == 1:
             # Show current agent and available agents
-            current_agent = get_current_agent_config()
+            current_agent = get_current_agent()
             available_agents = get_available_agents()
             descriptions = get_agent_descriptions()
 
@@ -337,9 +343,9 @@ def handle_command(command: str):
 
             if set_current_agent(agent_name):
                 # Reload the agent with new configuration
-                manager = get_runtime_agent_manager()
-                manager.reload_agent()
-                new_agent = get_current_agent_config()
+                agent = get_current_agent()
+                agent.reload_code_generation_agent()
+                new_agent = get_current_agent()
                 emit_success(
                     f"Switched to agent: {new_agent.display_name}",
                     message_group=group_id,
@@ -376,13 +382,10 @@ def handle_command(command: str):
 
         new_input = update_model_in_input(model_command)
         if new_input is not None:
-            from code_puppy.agents.runtime_manager import get_runtime_agent_manager
             from code_puppy.command_line.model_picker_completion import get_active_model
 
             model = get_active_model()
             # Make sure this is called for the test
-            manager = get_runtime_agent_manager()
-            manager.reload_agent()
             emit_success(f"Active model set and loaded: {model}")
             return True
         model_names = load_model_names()
@@ -405,22 +408,32 @@ def handle_command(command: str):
 
     if command.startswith("/pin_model"):
         # Handle agent model pinning
+        import json
+
         from code_puppy.agents.json_agent import discover_json_agents
         from code_puppy.command_line.model_picker_completion import load_model_names
-        import json
 
         tokens = command.split()
 
         if len(tokens) != 3:
             emit_warning("Usage: /pin_model <agent-name> <model-name>")
 
-            # Show available models and JSON agents
+            # Show available models and agents
             available_models = load_model_names()
             json_agents = discover_json_agents()
+
+            # Get built-in agents
+            from code_puppy.agents.agent_manager import get_agent_descriptions
+            builtin_agents = get_agent_descriptions()
 
             emit_info("Available models:")
             for model in available_models:
                 emit_info(f"  [cyan]{model}[/cyan]")
+
+            if builtin_agents:
+                emit_info("\nAvailable built-in agents:")
+                for agent_name, description in builtin_agents.items():
+                    emit_info(f"  [cyan]{agent_name}[/cyan] - {description}")
 
             if json_agents:
                 emit_info("\nAvailable JSON agents:")
@@ -438,42 +451,60 @@ def handle_command(command: str):
             emit_warning(f"Available models: {', '.join(available_models)}")
             return True
 
-        # Check that we're modifying a JSON agent (not a built-in Python agent)
+        # Check if this is a JSON agent or a built-in Python agent
         json_agents = discover_json_agents()
-        if agent_name not in json_agents:
-            emit_error(f"JSON agent '{agent_name}' not found")
 
-            # Show available JSON agents
+        # Get list of available built-in agents
+        from code_puppy.agents.agent_manager import get_agent_descriptions
+        builtin_agents = get_agent_descriptions()
+
+        is_json_agent = agent_name in json_agents
+        is_builtin_agent = agent_name in builtin_agents
+
+        if not is_json_agent and not is_builtin_agent:
+            emit_error(f"Agent '{agent_name}' not found")
+
+            # Show available agents
+            if builtin_agents:
+                emit_info("Available built-in agents:")
+                for name, desc in builtin_agents.items():
+                    emit_info(f"  [cyan]{name}[/cyan] - {desc}")
+
             if json_agents:
-                emit_info("Available JSON agents:")
+                emit_info("\nAvailable JSON agents:")
                 for name, path in json_agents.items():
                     emit_info(f"  [cyan]{name}[/cyan] ({path})")
             return True
 
-        agent_file_path = json_agents[agent_name]
-
-        # Load, modify, and save the agent configuration
+        # Handle different agent types
         try:
-            with open(agent_file_path, "r", encoding="utf-8") as f:
-                agent_config = json.load(f)
+            if is_json_agent:
+                # Handle JSON agent - modify the JSON file
+                agent_file_path = json_agents[agent_name]
 
-            # Set the model
-            agent_config["model"] = model_name
+                with open(agent_file_path, "r", encoding="utf-8") as f:
+                    agent_config = json.load(f)
 
-            # Save the updated configuration
-            with open(agent_file_path, "w", encoding="utf-8") as f:
-                json.dump(agent_config, f, indent=2, ensure_ascii=False)
+                # Set the model
+                agent_config["model"] = model_name
+
+                # Save the updated configuration
+                with open(agent_file_path, "w", encoding="utf-8") as f:
+                    json.dump(agent_config, f, indent=2, ensure_ascii=False)
+
+            else:
+                # Handle built-in Python agent - store in config
+                from code_puppy.config import set_agent_pinned_model
+                set_agent_pinned_model(agent_name, model_name)
 
             emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
 
             # If this is the current agent, reload it to use the new model
-            from code_puppy.agents import get_current_agent_config
-            from code_puppy.agents.runtime_manager import get_runtime_agent_manager
+            from code_puppy.agents import get_current_agent
 
-            current_agent = get_current_agent_config()
+            current_agent = get_current_agent()
             if current_agent.name == agent_name:
-                manager = get_runtime_agent_manager()
-                manager.reload_agent()
+
                 emit_info(f"Active agent reloaded with pinned model '{model_name}'")
 
             return True
@@ -524,8 +555,8 @@ def handle_command(command: str):
         from pathlib import Path
 
         from code_puppy.config import CONFIG_DIR
-        from code_puppy.message_history_processor import estimate_tokens_for_message
-        from code_puppy.state_management import get_message_history
+        # estimate_tokens_for_message has been moved to BaseAgent class
+        from code_puppy.agents.agent_manager import get_current_agent
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -533,7 +564,8 @@ def handle_command(command: str):
             return True
 
         session_name = tokens[1]
-        history = get_message_history()
+        agent = get_current_agent()
+        history = agent.get_message_history()
 
         if not history:
             emit_warning("No message history to dump!")
@@ -551,11 +583,12 @@ def handle_command(command: str):
 
             # Also save metadata as JSON for readability
             meta_file = contexts_dir / f"{session_name}_meta.json"
+            current_agent = get_current_agent()
             metadata = {
                 "session_name": session_name,
                 "timestamp": datetime.now().isoformat(),
                 "message_count": len(history),
-                "total_tokens": sum(estimate_tokens_for_message(m) for m in history),
+                "total_tokens": sum(current_agent.estimate_tokens_for_message(m) for m in history),
                 "file_path": str(pickle_file),
             }
 
@@ -577,8 +610,8 @@ def handle_command(command: str):
         from pathlib import Path
 
         from code_puppy.config import CONFIG_DIR
-        from code_puppy.message_history_processor import estimate_tokens_for_message
-        from code_puppy.state_management import set_message_history
+        # estimate_tokens_for_message has been moved to BaseAgent class
+        from code_puppy.agents.agent_manager import get_current_agent
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -602,8 +635,10 @@ def handle_command(command: str):
             with open(pickle_file, "rb") as f:
                 history = pickle.load(f)
 
-            set_message_history(history)
-            total_tokens = sum(estimate_tokens_for_message(m) for m in history)
+            agent = get_current_agent()
+            agent.set_message_history(history)
+            current_agent = get_current_agent()
+            total_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in history)
 
             emit_success(
                 f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
@@ -614,6 +649,47 @@ def handle_command(command: str):
         except Exception as e:
             emit_error(f"Failed to load context: {e}")
             return True
+
+    if command.startswith("/truncate"):
+        from code_puppy.agents.agent_manager import get_current_agent
+        tokens = command.split()
+        if len(tokens) != 2:
+            emit_error(
+                "Usage: /truncate <N> (where N is the number of messages to keep)"
+            )
+            return True
+
+        try:
+            n = int(tokens[1])
+            if n < 1:
+                emit_error("N must be a positive integer")
+                return True
+        except ValueError:
+            emit_error("N must be a valid integer")
+            return True
+
+        agent = get_current_agent()
+        history = agent.get_message_history()
+        if not history:
+            emit_warning("No history to truncate yet. Ask me something first!")
+            return True
+
+        if len(history) <= n:
+            emit_info(
+                f"History already has {len(history)} messages, which is <= {n}. Nothing to truncate."
+            )
+            return True
+
+        # Always keep the first message (system message) and then keep the N-1 most recent messages
+        truncated_history = (
+            [history[0]] + history[-(n - 1) :] if n > 1 else [history[0]]
+        )
+
+        agent.set_message_history(truncated_history)
+        emit_success(
+            f"Truncated message history from {len(history)} to {len(truncated_history)} messages (keeping system message and {n - 1} most recent)"
+        )
+        return True
 
     if command in ("/exit", "/quit"):
         emit_success("Goodbye!")

@@ -57,12 +57,8 @@ class StopCommand(MCPCommandBase):
 
                 # Reload the agent to remove the disabled server
                 try:
-                    from code_puppy.agents.runtime_manager import (
-                        get_runtime_agent_manager,
-                    )
-
-                    manager = get_runtime_agent_manager()
-                    manager.reload_agent()
+                    agent = get_current_agent()
+                    agent.reload_code_generation_agent()
                     emit_info(
                         "[dim]Agent reloaded with updated servers[/dim]",
                         message_group=group_id,

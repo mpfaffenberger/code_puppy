@@ -330,7 +330,7 @@ class TestEditFileTool:
 
     @patch(f"{file_modifications.__name__}._delete_snippet_from_file")
     @patch(f"{file_modifications.__name__}._print_diff")
-    def disabled_test_edit_file_routes_to_delete_snippet(
+    def test_edit_file_routes_to_delete_snippet(
         self, mock_print_diff_sub_tool, mock_internal_delete, tmp_path
     ):
         edit_file_tool = self.get_edit_file_tool_function()
@@ -351,7 +351,7 @@ class TestEditFileTool:
         assert result["success"]
 
     @patch(f"{file_modifications.__name__}._replace_in_file")
-    def disabled_test_edit_file_routes_to_replace_in_file(
+    def test_edit_file_routes_to_replace_in_file(
         self, mock_internal_replace, tmp_path
     ):
         edit_file_tool = self.get_edit_file_tool_function()
@@ -375,7 +375,7 @@ class TestEditFileTool:
     @patch(
         "os.path.exists", return_value=False
     )  # File does not exist for this write test path
-    def disabled_test_edit_file_routes_to_write_to_file_with_content_key(
+    def test_edit_file_routes_to_write_to_file_with_content_key(
         self, mock_os_exists, mock_internal_write, tmp_path
     ):
         mock_internal_write.return_value = {
@@ -396,7 +396,7 @@ class TestEditFileTool:
         f"{file_modifications.__name__}._write_to_file"
     )  # Mock the internal function
     @patch("os.path.exists", return_value=True)  # File exists
-    def disabled_test_edit_file_content_key_refuses_overwrite_if_false(
+    def test_edit_file_content_key_refuses_overwrite_if_false(
         self, mock_os_exists, mock_internal_write, tmp_path
     ):
         context = DummyContext()
@@ -418,7 +418,7 @@ class TestEditFileTool:
         )
         assert result["changed"] is False
 
-    def disabled_test_edit_file_handles_unparseable_json(self):
+    def test_edit_file_handles_unparseable_json(self):
         import pathlib
         from tempfile import mkdtemp
 
@@ -430,7 +430,7 @@ class TestEditFileTool:
         result = file_modifications._edit_file(context, file_path, unparseable_payload)
         assert result["success"]
 
-    def disabled_test_edit_file_handles_unknown_payload_structure(self, tmp_path):
+    def test_edit_file_handles_unknown_payload_structure(self, tmp_path):
         context = DummyContext()
         file_path = str(tmp_path / "file.txt")
         unknown_payload = json.dumps({"unknown_operation": "do_something"})
