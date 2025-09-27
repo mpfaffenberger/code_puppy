@@ -51,7 +51,7 @@ class TestListFiles:
             assert "DIRECTORY LISTING" in result.content
             assert "is not a directory" in result.content
 
-    def disabled_test_empty_directory(self):
+    def test_empty_directory(self):
         with (
             patch("os.path.exists", return_value=True),
             patch("os.path.isdir", return_value=True),
@@ -63,7 +63,7 @@ class TestListFiles:
 
 
 class TestReadFile:
-    def disabled_test_read_file_success(self):
+    def test_read_file_success(self):
         file_content = "Hello, world!\nThis is a test file."
         mock_file = mock_open(read_data=file_content)
         test_file_path = "test.txt"
@@ -151,7 +151,7 @@ class TestReadFile:
 
 
 class TestRegisterTools:
-    def disabled_test_register_file_operations_tools(self):
+    def test_register_file_operations_tools(self):
         # Create a mock agent
         mock_agent = MagicMock()
 
