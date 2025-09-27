@@ -75,7 +75,6 @@ class StartCommand(MCPCommandBase):
 
                 # Reload the agent to pick up the newly enabled server
                 try:
-
                     emit_info(
                         "[dim]Agent reloaded with updated servers[/dim]",
                         message_group=group_id,

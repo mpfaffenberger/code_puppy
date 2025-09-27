@@ -125,6 +125,8 @@ class SettingsScreen(ModalScreen):
     def on_mount(self) -> None:
         """Load current settings when the screen mounts."""
         from code_puppy.config import (
+            get_compaction_strategy,
+            get_compaction_threshold,
             get_global_model_name,
             get_owner_name,
             get_protected_token_count,

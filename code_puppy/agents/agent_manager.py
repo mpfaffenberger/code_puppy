@@ -6,13 +6,14 @@ import os
 import pkgutil
 import uuid
 from pathlib import Path
-from pydantic_ai.messages import ModelMessage
-from typing import Dict, Optional, Type, Union, List
+from typing import Dict, List, Optional, Type, Union
 
-from code_puppy.callbacks import on_agent_reload
-from code_puppy.messaging import emit_warning
+from pydantic_ai.messages import ModelMessage
+
 from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
+from code_puppy.callbacks import on_agent_reload
+from code_puppy.messaging import emit_warning
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -71,7 +72,10 @@ def _is_process_alive(pid: int) -> bool:
             OpenProcess.restype = wintypes.HANDLE
 
             GetExitCodeProcess = kernel32.GetExitCodeProcess
-            GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            GetExitCodeProcess.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(wintypes.DWORD),
+            ]
             GetExitCodeProcess.restype = wintypes.BOOL
 
             CloseHandle = kernel32.CloseHandle
@@ -188,7 +192,9 @@ def _save_session_data(sessions: dict[str, str]) -> None:
         except Exception:
             try:
                 if session_file.exists():
-                    session_file.unlink(missing_ok=True)  # Python 3.8+: ignore if missing
+                    session_file.unlink(
+                        missing_ok=True
+                    )  # Python 3.8+: ignore if missing
             except Exception:
                 pass
             try:
@@ -196,9 +202,10 @@ def _save_session_data(sessions: dict[str, str]) -> None:
             except Exception:
                 # As a last resort, copy contents
                 try:
-                    with open(temp_file, "r", encoding="utf-8") as rf, open(
-                        session_file, "w", encoding="utf-8"
-                    ) as wf:
+                    with (
+                        open(temp_file, "r", encoding="utf-8") as rf,
+                        open(session_file, "w", encoding="utf-8") as wf,
+                    ):
                         wf.write(rf.read())
                     temp_file.unlink(missing_ok=True)
                 except Exception:
@@ -216,7 +223,6 @@ def _ensure_session_cache_loaded() -> None:
     if not _SESSION_FILE_LOADED:
         _SESSION_AGENTS_CACHE.update(_load_session_data())
         _SESSION_FILE_LOADED = True
-
 
 
 def _discover_agents(message_group_id: Optional[str] = None):
@@ -321,7 +327,7 @@ def set_current_agent(agent_name: str) -> bool:
     """
     global _CURRENT_AGENT
     curr_agent = get_current_agent()
-    if curr_agent != None:
+    if curr_agent is not None:
         _AGENT_HISTORIES[curr_agent.name] = curr_agent.get_message_history()
     # Generate a message group ID for agent switching
     message_group_id = str(uuid.uuid4())

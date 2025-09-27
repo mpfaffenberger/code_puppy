@@ -267,6 +267,7 @@ class ChatView(VerticalScroll):
         ):
             # If either content is a Rich object, convert both to text and concatenate
             from io import StringIO
+
             from rich.console import Console
 
             # Convert existing content to string

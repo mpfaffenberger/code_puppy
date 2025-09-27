@@ -15,7 +15,7 @@
 
 ## 🏢 Walmart Internal Fork Notice
 
-**⚠️ This is a Walmart Inc. internal fork** of the original open-source [Code Puppy](https://github.com/mpfaffenberger/code_puppy/) project, specifically optimized for **Walmart Global Tech developer workflows**.
+*This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.*
 
 ### 📜 Licensing Information
 - **Legacy Code (Pre-July 7, 2025):** Open Source (MIT License)
@@ -23,11 +23,13 @@
 - **Original Contributors:** Michael Pfaffenberger, John Choi, Jacob Simpson
 - **See [LICENSE](code_puppy/plugins/walmart_specific/LICENSE) for complete dual licensing details**
 
-## Overview
+*Would you rather plow a field with one ox or 1024 puppies?*
+    - If you pick the ox, better slam that back button in your browser.
 
-*This enterprise fork builds upon the original open-source foundation, enhanced specifically for Walmart's global technology ecosystem.*
 
-*Optimized for massive scale: Because Walmart Global Tech doesn't just plow fields - we revolutionize retail technology worldwide.*
+Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor.
+
+## Quick start
 
 *Would you rather deploy with one monolithic system or 1024 enterprise-ready code puppies?*
     - If you pick the monolith, you're probably not ready for Walmart scale.

@@ -13,10 +13,11 @@ from code_puppy.messaging import emit_error, emit_info
 from code_puppy.tools.common import generate_group_id
 
 from .camoufox_manager import get_camoufox_manager
-from .vqa_agent import VisualAnalysisResult, run_vqa_analysis
+from .vqa_agent import run_vqa_analysis
 
-
-_TEMP_SCREENSHOT_ROOT = Path(mkdtemp(prefix="code_puppy_screenshots_", dir=gettempdir()))
+_TEMP_SCREENSHOT_ROOT = Path(
+    mkdtemp(prefix="code_puppy_screenshots_", dir=gettempdir())
+)
 
 
 def _build_screenshot_path(timestamp: str) -> Path:

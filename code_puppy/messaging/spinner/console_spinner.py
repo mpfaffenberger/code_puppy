@@ -47,7 +47,7 @@ class ConsoleSpinner(SpinnerBase):
         self._live = Live(
             self._generate_spinner_panel(),
             console=self.console,
-            refresh_per_second=10,
+            refresh_per_second=20,
             transient=True,
             auto_refresh=False,  # Don't auto-refresh to avoid wiping out user input
         )

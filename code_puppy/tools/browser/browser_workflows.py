@@ -29,18 +29,18 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         workflows_dir = get_workflows_directory()
 
         # Clean up the filename - remove spaces, special chars, etc.
-        safe_name = "".join(c for c in name if c.isalnum() or c in ('-', '_')).lower()
+        safe_name = "".join(c for c in name if c.isalnum() or c in ("-", "_")).lower()
         if not safe_name:
             safe_name = "workflow"
 
         # Ensure .md extension
-        if not safe_name.endswith('.md'):
-            safe_name += '.md'
+        if not safe_name.endswith(".md"):
+            safe_name += ".md"
 
         workflow_path = workflows_dir / safe_name
 
         # Write the workflow content
-        with open(workflow_path, 'w', encoding='utf-8') as f:
+        with open(workflow_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         emit_info(
@@ -52,7 +52,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
             "success": True,
             "path": str(workflow_path),
             "name": safe_name,
-            "size": len(content)
+            "size": len(content),
         }
 
     except Exception as e:
@@ -75,23 +75,27 @@ async def list_workflows() -> Dict[str, Any]:
         workflows_dir = get_workflows_directory()
 
         # Find all .md files in the workflows directory
-        workflow_files = list(workflows_dir.glob('*.md'))
+        workflow_files = list(workflows_dir.glob("*.md"))
 
         workflows = []
         for workflow_file in workflow_files:
             try:
                 stat = workflow_file.stat()
-                workflows.append({
-                    "name": workflow_file.name,
-                    "path": str(workflow_file),
-                    "size": stat.st_size,
-                    "modified": stat.st_mtime
-                })
+                workflows.append(
+                    {
+                        "name": workflow_file.name,
+                        "path": str(workflow_file),
+                        "size": stat.st_size,
+                        "modified": stat.st_mtime,
+                    }
+                )
             except Exception as e:
-                emit_info(f"[yellow]Warning: Could not read {workflow_file}: {e}[/yellow]")
+                emit_info(
+                    f"[yellow]Warning: Could not read {workflow_file}: {e}[/yellow]"
+                )
 
         # Sort by modification time (newest first)
-        workflows.sort(key=lambda x: x['modified'], reverse=True)
+        workflows.sort(key=lambda x: x["modified"], reverse=True)
 
         emit_info(
             f"[green]✅ Found {len(workflows)} workflow(s)[/green]",
@@ -102,7 +106,7 @@ async def list_workflows() -> Dict[str, Any]:
             "success": True,
             "workflows": workflows,
             "count": len(workflows),
-            "directory": str(workflows_dir)
+            "directory": str(workflows_dir),
         }
 
     except Exception as e:
@@ -125,8 +129,8 @@ async def read_workflow(name: str) -> Dict[str, Any]:
         workflows_dir = get_workflows_directory()
 
         # Handle both with and without .md extension
-        if not name.endswith('.md'):
-            name += '.md'
+        if not name.endswith(".md"):
+            name += ".md"
 
         workflow_path = workflows_dir / name
 
@@ -135,10 +139,14 @@ async def read_workflow(name: str) -> Dict[str, Any]:
                 f"[red]❌ Workflow not found: {name}[/red]",
                 message_group=group_id,
             )
-            return {"success": False, "error": f"Workflow '{name}' not found", "name": name}
+            return {
+                "success": False,
+                "error": f"Workflow '{name}' not found",
+                "name": name,
+            }
 
         # Read the workflow content
-        with open(workflow_path, 'r', encoding='utf-8') as f:
+        with open(workflow_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         emit_info(
@@ -151,7 +159,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
             "name": name,
             "content": content,
             "path": str(workflow_path),
-            "size": len(content)
+            "size": len(content),
         }
 
     except Exception as e:
