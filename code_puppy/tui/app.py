@@ -515,6 +515,8 @@ class CodePuppyTUI(App):
         """Clear the chat history."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.clear_messages()
+        agent = get_current_agent()
+        agent.clear_message_history()
         self.add_system_message("Chat history cleared")
 
     def action_show_help(self) -> None:
