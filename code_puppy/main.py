@@ -383,6 +383,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         if task.strip().lower() in ("clear", "/clear"):
             from code_puppy.messaging import emit_system_message, emit_warning
 
+            agent = get_current_agent()
+            agent.clear_message_history()
             emit_warning("Conversation history cleared!")
             emit_system_message("The agent will not remember previous interactions.\n")
             continue

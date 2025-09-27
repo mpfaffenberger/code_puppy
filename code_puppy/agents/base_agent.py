@@ -829,14 +829,14 @@ class BaseAgent(ABC):
 
         async def run_agent_task():
             try:
+                self.set_message_history(
+                    self.prune_interrupted_tool_calls(self.get_message_history())
+                )
                 result_ = await pydantic_agent.run(
                     prompt,
                     message_history=self.get_message_history(),
                     usage_limits=usage_limits,
                     **kwargs,
-                )
-                self.set_message_history(
-                    self.prune_interrupted_tool_calls(self.get_message_history())
                 )
                 return result_
             except* UsageLimitExceeded as ule:
@@ -883,10 +883,10 @@ class BaseAgent(ABC):
                         cancelled_exceptions.append(exc)
 
                 collect_cancelled_exceptions(other_error)
-
-                if cancelled_exceptions:
-                    # Re-raise the first CancelledError to propagate cancellation
-                    raise cancelled_exceptions[0]
+            finally:
+                self.set_message_history(
+                    self.prune_interrupted_tool_calls(self.get_message_history())
+                )
 
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())
@@ -909,7 +909,6 @@ class BaseAgent(ABC):
                         agent_task.cancel()
             except Exception as e:
                 emit_info(f"Shell kill error: {e}")
-                # If shell kill failed, still try to cancel the agent task
                 if not agent_task.done():
                     agent_task.cancel()
             # Don't call the original handler
@@ -923,8 +922,7 @@ class BaseAgent(ABC):
             result = await agent_task
             return result
         except asyncio.CancelledError:
-            # Task was cancelled by our handler
-            raise
+            agent_task.cancel()
         except KeyboardInterrupt:
             # Handle direct keyboard interrupt during await
             if not agent_task.done():
@@ -933,7 +931,6 @@ class BaseAgent(ABC):
                 await agent_task
             except asyncio.CancelledError:
                 pass
-            raise asyncio.CancelledError()
         finally:
             # Restore original signal handler
             if original_handler:
