@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Optional
 
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, BinaryContent, InstrumentationSettings
+from pydantic_ai import Agent, BinaryContent
 
 from code_puppy.config import get_vqa_model_name
 from code_puppy.model_factory import ModelFactory
@@ -25,8 +25,6 @@ def _load_vqa_agent(model_name: str) -> Agent[None, VisualAnalysisResult]:
     """Create a cached agent instance for visual analysis."""
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
-
-    instrumentation = InstrumentationSettings(include_binary_content=False)
 
     instructions = (
         "You are a visual analysis specialist. Answer the user's question about the provided image. "

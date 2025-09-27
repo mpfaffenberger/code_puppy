@@ -9,7 +9,7 @@ import asyncio
 import json
 import uuid
 from abc import ABC, abstractmethod
-from pydantic_ai import UsageLimitExceeded, UsageLimits
+from pydantic_ai import UsageLimitExceeded
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pydantic
@@ -771,10 +771,6 @@ class BaseAgent(ABC):
         self.pydantic_agent = p_agent
         return self._code_generation_agent
 
-    def get_custom_usage_limits(self) -> UsageLimits:
-        """Return usage limits based on config."""
-        return UsageLimits(request_limit=get_message_limit())
-
 
     def message_history_accumulator(self, messages: List[Any]):
         _message_history = self.get_message_history()
@@ -793,7 +789,7 @@ class BaseAgent(ABC):
 
 
     async def run_with_mcp(
-        self, prompt: str, usage_limits: Optional[UsageLimits] = None, **kwargs
+        self, prompt: str, usage_limits = None, **kwargs
     ) -> Any:
         """
         Run the agent with MCP servers and full cancellation support.
