@@ -501,6 +501,7 @@ class BaseAgent(ABC):
                 dropped_count += 1
                 continue
             pruned.append(msg)
+        return pruned
 
     def message_history_processor(self, messages: List[ModelMessage]) -> List[ModelMessage]:
         # First, prune any interrupted/mismatched tool-call conversations

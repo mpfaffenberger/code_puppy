@@ -6,7 +6,8 @@ import os
 import pkgutil
 import uuid
 from pathlib import Path
-from typing import Dict, Optional, Type, Union
+from pydantic_ai.messages import ModelMessage
+from typing import Dict, Optional, Type, Union, List
 
 from code_puppy.callbacks import on_agent_reload
 from code_puppy.messaging import emit_warning
@@ -15,6 +16,7 @@ from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
+_AGENT_HISTORIES: Dict[str, List[ModelMessage]] = {}
 _CURRENT_AGENT: Optional[BaseAgent] = None
 
 # Terminal session-based agent selection
@@ -248,7 +250,9 @@ def set_current_agent(agent_name: str) -> bool:
         True if the agent was set successfully, False if agent not found.
     """
     global _CURRENT_AGENT
-
+    curr_agent = get_current_agent()
+    if curr_agent != None:
+        _AGENT_HISTORIES[curr_agent.name] = curr_agent.get_message_history()
     # Generate a message group ID for agent switching
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
@@ -264,7 +268,8 @@ def set_current_agent(agent_name: str) -> bool:
     session_id = get_terminal_session_id()
     _SESSION_AGENTS_CACHE[session_id] = agent_name
     _save_session_data(_SESSION_AGENTS_CACHE)
-
+    if agent_obj.name in _AGENT_HISTORIES:
+        agent_obj.set_message_history(_AGENT_HISTORIES[agent_obj.name])
     on_agent_reload(agent_obj.id, agent_name)
     return True
 

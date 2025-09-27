@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import code_puppy.agent as agent_module
 
 
-def disabled_test_reload_code_generation_agent_loads_model(monkeypatch):
+def test_reload_code_generation_agent_loads_model(monkeypatch):
     # Patch all dependencies
     fake_agent = MagicMock()
     fake_model = MagicMock()
@@ -25,7 +25,7 @@ def disabled_test_reload_code_generation_agent_loads_model(monkeypatch):
     assert agent is fake_agent
 
 
-def disabled_test_reload_code_generation_agent_appends_rules(monkeypatch):
+def test_reload_code_generation_agent_appends_rules(monkeypatch):
     fake_agent = MagicMock()
     fake_model = MagicMock()
     fake_config = MagicMock()
@@ -47,7 +47,7 @@ def disabled_test_reload_code_generation_agent_appends_rules(monkeypatch):
     assert agent is fake_agent
 
 
-def disabled_test_reload_code_generation_agent_logs_exception(monkeypatch):
+def test_reload_code_generation_agent_logs_exception(monkeypatch):
     fake_agent = MagicMock()
     fake_model = MagicMock()
     fake_config = MagicMock()
