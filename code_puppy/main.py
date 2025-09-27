@@ -225,7 +225,7 @@ async def main():
     finally:
         if message_renderer:
             message_renderer.stop()
-        await callbacks.on_shutdown()
+        callbacks.on_shutdown()
 
 
 # Add the file handling functionality for interactive mode

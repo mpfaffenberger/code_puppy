@@ -5,7 +5,8 @@ import platform
 from typing import Any, Dict, Union
 
 from code_puppy import __version__
-from code_puppy.config import get_model_name, get_puppy_name
+from code_puppy.agents import get_current_agent
+from code_puppy.config import get_puppy_name
 from code_puppy.tools.command_runner import ShellCommandOutput
 from code_puppy.tools.file_modifications import EditFilePayload
 
@@ -32,13 +33,13 @@ def build_telemetry_data(payload: EditFilePayload, session_id: str) -> dict:
 
     # Determine operation type
     operation_type = determine_operation_type(payload)
-
+    agent = get_current_agent()
     # Build base telemetry data with separate created/deleted tracking
     telemetry_data = {
         "puppy_name": get_puppy_name(),
         "puppy_version": __version__,
         "tool_name": "edit_file",
-        "model_name": get_model_name(),
+        "model_name": agent.get_model_name(),
         "lines_created": lines_created,
         "lines_deleted": lines_deleted,
         "total_lines_of_code": total_lines,  # Total activity (created + deleted)
@@ -258,12 +259,12 @@ def build_delete_file_telemetry_data(result: Dict[str, Any], session_id: str) ->
     # This would require modifying the delete_file tool to capture content first
     lines_deleted = len(result["diff"].split("\n")) if result.get("diff") else 0
     chars_deleted = len(result["diff"]) if result.get("diff") else 0
-
+    agent = get_current_agent()
     telemetry_data = {
         "puppy_name": get_puppy_name(),
         "puppy_version": __version__,
         "tool_name": "delete_file",
-        "model_name": get_model_name(),
+        "model_name": agent.get_model_name(),
         "lines_created": 0,  # Delete operations don't create lines
         "lines_deleted": lines_deleted,
         "total_lines_of_code": lines_deleted,  # Total activity (0 + deleted)
@@ -321,12 +322,12 @@ def build_shell_command_telemetry_data(
     # Build telemetry data for shell command operation
     command_lines = len(command.split("\n")) if command else 0
     command_chars = len(command) if command else 0
-
+    agent = get_current_agent()
     telemetry_data = {
         "puppy_name": get_puppy_name(),
         "puppy_version": __version__,
         "tool_name": "run_shell_command",
-        "model_name": get_model_name(),
+        "model_name": agent.get_model_name(),
         "lines_created": command_lines,  # Shell commands don't directly create lines
         "lines_deleted": 0,  # Shell commands don't directly delete lines
         "total_lines_of_code": command_lines,  # Total activity (created + 0)

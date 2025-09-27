@@ -2,11 +2,8 @@
 
 from typing import Optional
 
-import camoufox
-from camoufox.addons import DefaultAddons
-from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
-from camoufox.locale import ALLOW_GEOIP, download_mmdb
-from camoufox.pkgman import CamoufoxFetcher, camoufox_path
+# Lazy imports to prevent immediate camoufox downloading on module import
+# Import camoufox modules only when actually needed
 from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy.messaging import emit_info
@@ -68,11 +65,14 @@ class CamoufoxManager:
 
     async def _initialize_camoufox(self) -> None:
         """Try to start Camoufox with the configured privacy settings."""
+        # Import camoufox only when actually starting the browser
+        import camoufox
+
         camoufox_instance = camoufox.AsyncCamoufox(
             headless=self.headless,
             block_webrtc=self.block_webrtc,
             humanize=self.humanize,
-            exclude_addons=list(DefaultAddons),
+            exclude_addons=self._get_default_addons_to_exclude(),
             addons=[],
         )
         self._browser = await camoufox_instance.start()
@@ -105,6 +105,11 @@ class CamoufoxManager:
 
     async def _prefetch_camoufox(self) -> None:
         """Prefetch Camoufox binary and dependencies."""
+        # Import camoufox modules only when actually needed
+        from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
+        from camoufox.locale import ALLOW_GEOIP, download_mmdb
+        from camoufox.pkgman import CamoufoxFetcher, camoufox_path
+
         emit_info(
             "[cyan]🔍 Ensuring Camoufox binary and dependencies are up-to-date...[/cyan]"
         )
@@ -128,6 +133,13 @@ class CamoufoxManager:
             download_mmdb()
 
         emit_info("[cyan]📦 Camoufox dependencies ready[/cyan]")
+
+    def _get_default_addons_to_exclude(self) -> list:
+        """Get default addons to exclude - imports only when camoufox starts."""
+        # Import DefaultAddons only when actually starting camoufox, not on module import
+        from camoufox.addons import DefaultAddons
+
+        return list(DefaultAddons)
 
     async def close_page(self, page: Page) -> None:
         """Close a specific page."""

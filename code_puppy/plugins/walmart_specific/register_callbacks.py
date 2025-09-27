@@ -71,17 +71,9 @@ async def auth_flow() -> None:
     # Store the HTTP server task for proper lifecycle management
     http_server_task = asyncio.create_task(run_http_server())
 
-    async def shutdown_http_server() -> None:
+    def shutdown_http_server() -> None:
         if not http_server_task.done():
             http_server_task.cancel()
-            try:
-                await http_server_task
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                emit_system_message(
-                    f"[dim red]HTTP server cleanup error: {e}[/dim red]"
-                )
 
     register_callback("shutdown", shutdown_http_server)
 

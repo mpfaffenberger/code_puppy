@@ -136,8 +136,8 @@ async def on_startup() -> List[Any]:
     return await _trigger_callbacks("startup")
 
 
-async def on_shutdown() -> List[Any]:
-    return await _trigger_callbacks("shutdown")
+def on_shutdown() -> List[Any]:
+    return _trigger_callbacks_sync("shutdown")
 
 
 async def on_invoke_agent(*args, **kwargs) -> List[Any]:
