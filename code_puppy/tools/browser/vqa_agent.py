@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Optional
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
@@ -37,7 +36,6 @@ def _load_vqa_agent(model_name: str) -> Agent[None, VisualAnalysisResult]:
         instructions=instructions,
         output_type=VisualAnalysisResult,
         retries=2,
-        instrument=instrumentation,
     )
 
 
