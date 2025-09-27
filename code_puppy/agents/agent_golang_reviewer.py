@@ -22,6 +22,7 @@ class GolangReviewerAgent(BaseAgent):
         """Reviewers only need read and reasoning helpers."""
         return [
             "agent_share_your_reasoning",
+            "agent_run_shell_command",
             "list_files",
             "read_file",
             "grep",
