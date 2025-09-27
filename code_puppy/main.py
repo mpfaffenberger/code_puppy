@@ -24,10 +24,12 @@ from code_puppy.config import (
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
+from code_puppy.tools.common import console
+
 # message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
 from code_puppy.tui_state import is_tui_mode, set_tui_mode
-from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
+
 plugins.load_plugin_callbacks()
 
 
@@ -261,8 +263,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
     # Initialize the runtime agent manager
     if initial_command:
-        from code_puppy.messaging import emit_info, emit_system_message
         from code_puppy.agents import get_current_agent
+        from code_puppy.messaging import emit_info, emit_system_message
+
         agent = get_current_agent()
         emit_info(
             f"[bold blue]Processing initial command:[/bold blue] {initial_command}"

@@ -162,8 +162,6 @@ def load_mcp_server_configs():
         return {}
 
 
-
-
 def _default_model_from_models_json():
     """Attempt to load the first model name from models.json.
 
@@ -298,7 +296,11 @@ def _validate_model_exists(model_name: str) -> bool:
 
 def clear_model_cache():
     """Clear the model validation cache. Call this when models.json changes."""
-    global _model_validation_cache, _default_model_cache, _default_vision_model_cache, _default_vqa_model_cache
+    global \
+        _model_validation_cache, \
+        _default_model_cache, \
+        _default_vision_model_cache, \
+        _default_vqa_model_cache
     _model_validation_cache.clear()
     _default_model_cache = None
     _default_vision_model_cache = None

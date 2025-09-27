@@ -11,9 +11,9 @@ from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
+from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from . import callbacks

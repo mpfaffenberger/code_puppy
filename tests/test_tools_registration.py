@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 from code_puppy.tools import (
     TOOL_REGISTRY,
     get_available_tool_names,
-    register_tools_for_agent,
     register_all_tools,
+    register_tools_for_agent,
 )
 
 

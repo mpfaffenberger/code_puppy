@@ -125,12 +125,12 @@ class SettingsScreen(ModalScreen):
     def on_mount(self) -> None:
         """Load current settings when the screen mounts."""
         from code_puppy.config import (
+            get_compaction_strategy,
+            get_compaction_threshold,
             get_global_model_name,
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
-            get_compaction_strategy,
-            get_compaction_threshold,
         )
 
         # Load current values
@@ -188,9 +188,9 @@ class SettingsScreen(ModalScreen):
     def save_settings(self) -> None:
         """Save the modified settings."""
         from code_puppy.config import (
+            get_model_context_length,
             set_config_value,
             set_model_name,
-            get_model_context_length,
         )
 
         try:

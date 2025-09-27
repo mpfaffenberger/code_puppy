@@ -6,13 +6,14 @@ import os
 import pkgutil
 import uuid
 from pathlib import Path
-from pydantic_ai.messages import ModelMessage
-from typing import Dict, Optional, Type, Union, List
+from typing import Dict, List, Optional, Type, Union
 
-from code_puppy.callbacks import on_agent_reload
-from code_puppy.messaging import emit_warning
+from pydantic_ai.messages import ModelMessage
+
 from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
+from code_puppy.callbacks import on_agent_reload
+from code_puppy.messaging import emit_warning
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -148,7 +149,6 @@ def _ensure_session_cache_loaded() -> None:
         _SESSION_FILE_LOADED = True
 
 
-
 def _discover_agents(message_group_id: Optional[str] = None):
     """Dynamically discover all agent classes and JSON agents."""
     # Always clear the registry to force refresh
@@ -251,7 +251,7 @@ def set_current_agent(agent_name: str) -> bool:
     """
     global _CURRENT_AGENT
     curr_agent = get_current_agent()
-    if curr_agent != None:
+    if curr_agent is not None:
         _AGENT_HISTORIES[curr_agent.name] = curr_agent.get_message_history()
     # Generate a message group ID for agent switching
     message_group_id = str(uuid.uuid4())

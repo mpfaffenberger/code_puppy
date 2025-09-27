@@ -9,8 +9,8 @@ from typing import List, Optional
 from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_info
 
-from .base import MCPCommandBase
 from ...agents import get_current_agent
+from .base import MCPCommandBase
 
 # Configure logging
 logger = logging.getLogger(__name__)
