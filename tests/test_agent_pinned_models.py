@@ -2,16 +2,14 @@
 
 import os
 import tempfile
-from unittest.mock import patch
 
 import pytest
 
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 from code_puppy.config import (
-    CONFIG_DIR,
-    CONFIG_FILE,
     clear_agent_pinned_model,
     get_agent_pinned_model,
+    get_global_model_name,
     set_agent_pinned_model,
 )
 
@@ -69,9 +67,9 @@ class TestAgentPinnedModels:
         agent_name = agent.name  # "code-puppy"
         model_name = "gpt-4o-mini"
 
-        # Initially no pinned model
+        # Initially no pinned model - should return global model
         result = agent.get_model_name()
-        assert result == "" or result is None
+        assert result == get_global_model_name()
 
         # Set pinned model
         set_agent_pinned_model(agent_name, model_name)

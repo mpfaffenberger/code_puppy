@@ -1,6 +1,5 @@
 import os
 
-from code_puppy.agents import get_current_agent
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
@@ -120,10 +119,9 @@ def handle_command(command: str):
         return True
 
     if command.strip().startswith("/compact"):
-        from code_puppy.config import get_compaction_strategy
         # Functions have been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.config import get_protected_token_count
+        from code_puppy.config import get_compaction_strategy, get_protected_token_count
         from code_puppy.messaging import (
             emit_error,
             emit_info,
@@ -139,7 +137,9 @@ def handle_command(command: str):
                 return True
 
             current_agent = get_current_agent()
-            before_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in history)
+            before_tokens = sum(
+                current_agent.estimate_tokens_for_message(m) for m in history
+            )
             compaction_strategy = get_compaction_strategy()
             protected_tokens = get_protected_token_count()
             emit_info(
@@ -163,7 +163,9 @@ def handle_command(command: str):
             agent.set_message_history(compacted)
 
             current_agent = get_current_agent()
-            after_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in compacted)
+            after_tokens = sum(
+                current_agent.estimate_tokens_for_message(m) for m in compacted
+            )
             reduction_pct = (
                 ((before_tokens - after_tokens) / before_tokens * 100)
                 if before_tokens > 0
@@ -424,6 +426,7 @@ def handle_command(command: str):
 
             # Get built-in agents
             from code_puppy.agents.agent_manager import get_agent_descriptions
+
             builtin_agents = get_agent_descriptions()
 
             emit_info("Available models:")
@@ -456,6 +459,7 @@ def handle_command(command: str):
 
         # Get list of available built-in agents
         from code_puppy.agents.agent_manager import get_agent_descriptions
+
         builtin_agents = get_agent_descriptions()
 
         is_json_agent = agent_name in json_agents
@@ -495,6 +499,7 @@ def handle_command(command: str):
             else:
                 # Handle built-in Python agent - store in config
                 from code_puppy.config import set_agent_pinned_model
+
                 set_agent_pinned_model(agent_name, model_name)
 
             emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
@@ -504,7 +509,6 @@ def handle_command(command: str):
 
             current_agent = get_current_agent()
             if current_agent.name == agent_name:
-
                 emit_info(f"Active agent reloaded with pinned model '{model_name}'")
 
             return True
@@ -554,9 +558,9 @@ def handle_command(command: str):
         from datetime import datetime
         from pathlib import Path
 
-        from code_puppy.config import CONFIG_DIR
         # estimate_tokens_for_message has been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.config import CONFIG_DIR
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -588,7 +592,9 @@ def handle_command(command: str):
                 "session_name": session_name,
                 "timestamp": datetime.now().isoformat(),
                 "message_count": len(history),
-                "total_tokens": sum(current_agent.estimate_tokens_for_message(m) for m in history),
+                "total_tokens": sum(
+                    current_agent.estimate_tokens_for_message(m) for m in history
+                ),
                 "file_path": str(pickle_file),
             }
 
@@ -609,9 +615,9 @@ def handle_command(command: str):
         import pickle
         from pathlib import Path
 
-        from code_puppy.config import CONFIG_DIR
         # estimate_tokens_for_message has been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.config import CONFIG_DIR
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -638,7 +644,9 @@ def handle_command(command: str):
             agent = get_current_agent()
             agent.set_message_history(history)
             current_agent = get_current_agent()
-            total_tokens = sum(current_agent.estimate_tokens_for_message(m) for m in history)
+            total_tokens = sum(
+                current_agent.estimate_tokens_for_message(m) for m in history
+            )
 
             emit_success(
                 f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
@@ -652,6 +660,7 @@ def handle_command(command: str):
 
     if command.startswith("/truncate"):
         from code_puppy.agents.agent_manager import get_current_agent
+
         tokens = command.split()
         if len(tokens) != 2:
             emit_error(

@@ -3,13 +3,13 @@
 from typing import Optional
 
 import camoufox
+from camoufox.addons import DefaultAddons
+from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
+from camoufox.locale import ALLOW_GEOIP, download_mmdb
+from camoufox.pkgman import CamoufoxFetcher, camoufox_path
 from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy.messaging import emit_info
-from camoufox.pkgman import CamoufoxFetcher, camoufox_path
-from camoufox.locale import ALLOW_GEOIP, download_mmdb
-from camoufox.addons import DefaultAddons
-from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
 
 
 class CamoufoxManager:
@@ -52,7 +52,7 @@ class CamoufoxManager:
 
         try:
             emit_info("[yellow]Initializing Camoufox (privacy Firefox)...[/yellow]")
-            
+
             # Ensure Camoufox binary and dependencies are fetched before launching
             await self._prefetch_camoufox()
 
@@ -62,7 +62,7 @@ class CamoufoxManager:
             )
             self._initialized = True
 
-        except Exception as e:
+        except Exception:
             await self._cleanup()
             raise
 
@@ -82,7 +82,6 @@ class CamoufoxManager:
         )
         page = await self._context.new_page()
         await page.goto(self.homepage)
-
 
     async def get_current_page(self) -> Optional[Page]:
         """Get the currently active page."""
@@ -106,7 +105,9 @@ class CamoufoxManager:
 
     async def _prefetch_camoufox(self) -> None:
         """Prefetch Camoufox binary and dependencies."""
-        emit_info("[cyan]🔍 Ensuring Camoufox binary and dependencies are up-to-date...[/cyan]")
+        emit_info(
+            "[cyan]🔍 Ensuring Camoufox binary and dependencies are up-to-date...[/cyan]"
+        )
 
         needs_install = False
         try:
@@ -168,7 +169,7 @@ class CamoufoxManager:
                     loop.create_task(self._cleanup())
                 else:
                     loop.run_until_complete(self._cleanup())
-            except:
+            except Exception:
                 pass  # Best effort cleanup
 
 

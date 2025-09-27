@@ -236,9 +236,6 @@ async def wait_for_element(
         return {"success": False, "error": str(e), "selector": selector, "state": state}
 
 
-
-
-
 async def highlight_element(
     selector: str,
     color: str = "red",
@@ -435,9 +432,6 @@ def register_wait_for_element(agent):
             Dict with wait results
         """
         return await wait_for_element(selector, state, timeout)
-
-
-
 
 
 def register_browser_highlight_element(agent):

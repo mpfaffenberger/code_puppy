@@ -1,15 +1,16 @@
 """Tests for JSON agent functionality."""
 
 import json
-import tempfile
 import os
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
+from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
 from code_puppy.config import get_user_agents_directory
-from code_puppy.agents.base_agent import BaseAgent
 
 
 class TestJSONAgent:

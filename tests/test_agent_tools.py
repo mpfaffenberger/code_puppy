@@ -1,7 +1,8 @@
 """Tests for agent tools functionality."""
 
 from unittest.mock import MagicMock
-from code_puppy.tools.agent_tools import register_list_agents, register_invoke_agent
+
+from code_puppy.tools.agent_tools import register_invoke_agent, register_list_agents
 
 
 class TestAgentTools:
