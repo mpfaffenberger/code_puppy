@@ -8,15 +8,15 @@
 
 ## Overview
 
-*This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.* 
+*This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.*
 
 *You could also run 50 code puppies at once if you were insane enough.*
 
-*Would you rather plow a field with one ox or 1024 puppies?* 
+*Would you rather plow a field with one ox or 1024 puppies?*
     - If you pick the ox, better slam that back button in your browser.
-    
 
-Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor. 
+
+Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor.
 
 ## Quick start
 
@@ -451,22 +451,22 @@ class MyCustomAgent(BaseAgent):
     @property
     def name(self) -> str:
         return "my-agent"
-    
+
     @property
     def display_name(self) -> str:
         return "My Custom Agent ✨"
-    
+
     @property
     def description(self) -> str:
         return "A custom agent for specialized tasks"
-    
+
     def get_system_prompt(self) -> str:
         return "Your custom system prompt here..."
-    
+
     def get_available_tools(self) -> list[str]:
         return [
             "list_files",
-            "read_file", 
+            "read_file",
             "grep",
             "edit_file",
             "delete_file",

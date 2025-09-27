@@ -12,6 +12,8 @@ from textual.events import Resize
 from textual.reactive import reactive
 from textual.widgets import Footer, ListView
 
+# message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
+from code_puppy.agents.agent_manager import get_current_agent
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.config import (
     get_global_model_name,
@@ -19,12 +21,9 @@ from code_puppy.config import (
     initialize_command_history_file,
     save_command_to_history,
 )
-# message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
-from code_puppy.agents.agent_manager import get_current_agent
 
 # Import our message queue system
 from code_puppy.messaging import TUIRenderer, get_global_queue
-
 from code_puppy.tui.components import (
     ChatView,
     CustomTextArea,
@@ -32,7 +31,6 @@ from code_puppy.tui.components import (
     Sidebar,
     StatusBar,
 )
-
 
 # Import shared message classes
 from .messages import CommandSelected, HistoryEntrySelected
@@ -173,12 +171,6 @@ class CodePuppyTUI(App):
         # Add welcome message with YOLO mode notification
         self.add_system_message(
             "Welcome to Code Puppy 🐶!\n💨 YOLO mode is enabled in TUI: commands will execute without confirmation."
-        )
-
-        # Get current agent and display info
-        agent = get_current_agent()
-        self.add_system_message(
-            f"🐕 Loaded agent '{self.puppy_name}' with model '{self.current_model}'"
         )
 
         # Start the message renderer EARLY to catch startup messages
@@ -509,9 +501,7 @@ class CodePuppyTUI(App):
                     pass
             except Exception as agent_error:
                 # Handle any other errors in agent processing
-                self.add_error_message(
-                    f"Agent processing failed: {str(agent_error)}"
-                )
+                self.add_error_message(f"Agent processing failed: {str(agent_error)}")
 
         except Exception as e:
             self.add_error_message(f"Error processing message: {str(e)}")

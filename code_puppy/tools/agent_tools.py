@@ -1,21 +1,21 @@
 # agent_tools.py
 
 from typing import List
-from pydantic import BaseModel
-from pydantic_ai import RunContext
 
-from code_puppy.messaging import (
-    emit_info,
-    emit_divider,
-    emit_system_message,
-    emit_error,
-)
-from code_puppy.tools.common import generate_group_id
+from pydantic import BaseModel
 
 # Import Agent from pydantic_ai to create temporary agents for invocation
-from pydantic_ai import Agent
-from code_puppy.model_factory import ModelFactory
+from pydantic_ai import Agent, RunContext
+
 from code_puppy.config import get_global_model_name
+from code_puppy.messaging import (
+    emit_divider,
+    emit_error,
+    emit_info,
+    emit_system_message,
+)
+from code_puppy.model_factory import ModelFactory
+from code_puppy.tools.common import generate_group_id
 
 
 class AgentInfo(BaseModel):
@@ -65,6 +65,7 @@ def register_list_agents(agent):
 
         try:
             from code_puppy.agents import get_available_agents
+
             # Get available agents from the agent manager
             agents_dict = get_available_agents()
 
@@ -114,6 +115,7 @@ def register_invoke_agent(agent):
             AgentInvokeOutput: The agent's response to the prompt
         """
         from code_puppy.agents.agent_manager import load_agent
+
         # Generate a group ID for this tool execution
         group_id = generate_group_id("invoke_agent", agent_name)
 

@@ -5,14 +5,12 @@ from typing import Any, AsyncIterator, List
 from pydantic_ai.models import (
     Model,
     ModelMessage,
-    ModelSettings,
     ModelRequestParameters,
     ModelResponse,
+    ModelSettings,
     StreamedResponse,
 )
-from pydantic_ai.models.fallback import (
-    merge_model_settings,
-)
+from pydantic_ai.models.fallback import merge_model_settings
 from pydantic_ai.result import RunContext
 
 try:

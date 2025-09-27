@@ -1,18 +1,18 @@
 """Base agent configuration class for defining agent properties."""
-import math
-
-import mcp
-import signal
 
 import asyncio
-
 import json
+import math
+import signal
 import uuid
 from abc import ABC, abstractmethod
-from pydantic_ai import UsageLimitExceeded
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+import mcp
 import pydantic
+import pydantic_ai.models
+from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai import RunContext, UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -22,32 +22,34 @@ from pydantic_ai.messages import (
     ToolReturn,
     ToolReturnPart,
 )
-
-from pydantic_ai.settings import ModelSettings
 from pydantic_ai.models.openai import OpenAIModelSettings
-from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai.settings import ModelSettings
 
 # Consolidated relative imports
 from code_puppy.config import (
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
-    get_message_limit,
     get_global_model_name,
     get_protected_token_count,
     get_value,
     load_mcp_server_configs,
 )
-from code_puppy.messaging import emit_info, emit_error, emit_warning, emit_system_message
+from code_puppy.mcp_ import ServerConfig, get_mcp_manager
+from code_puppy.messaging import (
+    emit_error,
+    emit_info,
+    emit_system_message,
+    emit_warning,
+)
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
-from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.tools.common import console
 
 
 class BaseAgent(ABC):
     """Base class for all agent configurations."""
-    
+
     def __init__(self):
         self.id = str(uuid.uuid4())
         self._message_history: List[Any] = []
@@ -57,6 +59,7 @@ class BaseAgent(ABC):
         self._last_model_name: Optional[str] = None
         # Puppy rules loaded lazily
         self._puppy_rules: Optional[str] = None
+        self.cur_model: pydantic_ai.models.Model
 
     @property
     @abstractmethod
@@ -164,7 +167,7 @@ class BaseAgent(ABC):
         """Get pinned model name for this agent, if specified.
 
         Returns:
-            Model name to use for this agent, or None to use global default.
+            Model name to use for this agent, or global default if none pinned.
         """
         pinned = get_agent_pinned_model(self.name)
         if pinned == "" or pinned is None:
@@ -199,7 +202,9 @@ class BaseAgent(ABC):
         elif isinstance(content, str):
             attributes.append(f"content={content}")
         elif isinstance(content, pydantic.BaseModel):
-            attributes.append(f"content={json.dumps(content.model_dump(), sort_keys=True)}")
+            attributes.append(
+                f"content={json.dumps(content.model_dump(), sort_keys=True)}"
+            )
         elif isinstance(content, dict):
             attributes.append(f"content={json.dumps(content, sort_keys=True)}")
         else:
@@ -217,7 +222,9 @@ class BaseAgent(ABC):
         if instructions:
             header_bits.append(f"instructions={instructions}")
 
-        part_strings = [self._stringify_part(part) for part in getattr(message, "parts", [])]
+        part_strings = [
+            self._stringify_part(part) for part in getattr(message, "parts", [])
+        ]
         canonical = "||".join(header_bits + part_strings)
         return hash(canonical)
 
@@ -262,15 +269,14 @@ class BaseAgent(ABC):
 
     def estimate_token_count(self, text: str) -> int:
         """
-        Simple token estimation using len(message) - 4.
+        Simple token estimation using len(message) / 3.
         This replaces tiktoken with a much simpler approach.
         """
-        return max(1, math.floor((len(text) / 4)))
-
+        return max(1, math.floor((len(text) / 3)))
 
     def estimate_tokens_for_message(self, message: ModelMessage) -> int:
         """
-        Estimate the number of tokens in a message using len(message) - 4.
+        Estimate the number of tokens in a message using len(message)
         Simple and fast replacement for tiktoken.
         """
         total_tokens = 0
@@ -348,7 +354,9 @@ class BaseAgent(ABC):
         protected_token_count = system_tokens  # Start with system message tokens
 
         # Go backwards through non-system messages to find protected zone
-        for i in range(len(messages) - 1, 0, -1):  # Stop at 1, not 0 (skip system message)
+        for i in range(
+            len(messages) - 1, 0, -1
+        ):  # Stop at 1, not 0 (skip system message)
             message = messages[i]
             message_tokens = self.estimate_tokens_for_message(message)
 
@@ -378,9 +386,7 @@ class BaseAgent(ABC):
         return messages_to_summarize, protected_messages
 
     def summarize_messages(
-        self,
-        messages: List[ModelMessage],
-        with_protection: bool = True
+        self, messages: List[ModelMessage], with_protection: bool = True
     ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
         """
         Summarize messages while protecting recent messages up to PROTECTED_TOKENS.
@@ -435,7 +441,9 @@ class BaseAgent(ABC):
             compacted: List[ModelMessage] = [system_message] + list(new_messages)
 
             # Drop the system message from protected_messages because we already included it
-            protected_tail = [msg for msg in protected_messages if msg is not system_message]
+            protected_tail = [
+                msg for msg in protected_messages if msg is not system_message
+            ]
 
             compacted.extend(protected_tail)
 
@@ -457,7 +465,9 @@ class BaseAgent(ABC):
 
         return int(context_length)
 
-    def prune_interrupted_tool_calls(self, messages: List[ModelMessage]) -> List[ModelMessage]:
+    def prune_interrupted_tool_calls(
+        self, messages: List[ModelMessage]
+    ) -> List[ModelMessage]:
         """
         Remove any messages that participate in mismatched tool call sequences.
 
@@ -503,12 +513,15 @@ class BaseAgent(ABC):
             pruned.append(msg)
         return pruned
 
-    def message_history_processor(self, messages: List[ModelMessage]) -> List[ModelMessage]:
+    def message_history_processor(
+        self, ctx: RunContext, messages: List[ModelMessage]
+    ) -> List[ModelMessage]:
         # First, prune any interrupted/mismatched tool-call conversations
-        total_current_tokens = sum(self.estimate_tokens_for_message(msg) for msg in messages)
-
         model_max = self.get_model_context_length()
 
+        total_current_tokens = sum(
+            self.estimate_tokens_for_message(msg) for msg in messages
+        )
         proportion_used = total_current_tokens / model_max
 
         # Check if we're in TUI mode and can update the status bar
@@ -591,7 +604,9 @@ class BaseAgent(ABC):
             return result_messages
         return messages
 
-    def truncation(self, messages: List[ModelMessage], protected_tokens: int) -> List[ModelMessage]:
+    def truncation(
+        self, messages: List[ModelMessage], protected_tokens: int
+    ) -> List[ModelMessage]:
         """
         Truncate message history to manage token usage.
 
@@ -648,6 +663,7 @@ class BaseAgent(ABC):
         if self._puppy_rules is not None:
             return self._puppy_rules
         from pathlib import Path
+
         possible_paths = ["AGENTS.md", "AGENT.md", "agents.md", "agent.md"]
         for path_str in possible_paths:
             puppy_rules_path = Path(path_str)
@@ -659,7 +675,6 @@ class BaseAgent(ABC):
 
     def load_mcp_servers(self, extra_headers: Optional[Dict[str, str]] = None):
         """Load MCP servers through the manager and return pydantic-ai compatible servers."""
-        
 
         mcp_disabled = get_value("disable_mcp_servers")
         if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
@@ -690,7 +705,9 @@ class BaseAgent(ABC):
                     else:
                         if existing.config != server_config.config:
                             manager.update_server(existing.id, server_config)
-                            emit_system_message(f"[dim]Updated MCP server: {name}[/dim]")
+                            emit_system_message(
+                                f"[dim]Updated MCP server: {name}[/dim]"
+                            )
                 except Exception as e:
                     emit_error(f"Failed to register MCP server '{name}': {str(e)}")
                     continue
@@ -715,6 +732,7 @@ class BaseAgent(ABC):
     def reload_code_generation_agent(self, message_group: Optional[str] = None):
         """Force-reload the pydantic-ai Agent based on current config and model."""
         from code_puppy.tools import register_tools_for_agent
+
         if message_group is None:
             message_group = str(uuid.uuid4())
 
@@ -753,6 +771,7 @@ class BaseAgent(ABC):
             model_settings_dict["extra_body"] = {"verbosity": "low"}
             model_settings = OpenAIModelSettings(**model_settings_dict)
 
+        self.cur_model = model
         p_agent = PydanticAgent(
             model=model,
             instructions=instructions,
@@ -772,8 +791,7 @@ class BaseAgent(ABC):
         self.pydantic_agent = p_agent
         return self._code_generation_agent
 
-
-    def message_history_accumulator(self, messages: List[Any]):
+    def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
         message_history_hashes = set([self.hash_message(m) for m in _message_history])
         for msg in messages:
@@ -785,13 +803,10 @@ class BaseAgent(ABC):
 
         # Apply message history trimming using the main processor
         # This ensures we maintain global state while still managing context limits
-        self.message_history_processor(_message_history)
+        self.message_history_processor(ctx, _message_history)
         return self.get_message_history()
 
-
-    async def run_with_mcp(
-        self, prompt: str, usage_limits = None, **kwargs
-    ) -> Any:
+    async def run_with_mcp(self, prompt: str, usage_limits=None, **kwargs) -> Any:
         """
         Run the agent with MCP servers and full cancellation support.
 
@@ -814,7 +829,12 @@ class BaseAgent(ABC):
 
         async def run_agent_task():
             try:
-                result_ = await pydantic_agent.run(prompt, message_history=self.get_message_history(), usage_limits=usage_limits, **kwargs)
+                result_ = await pydantic_agent.run(
+                    prompt,
+                    message_history=self.get_message_history(),
+                    usage_limits=usage_limits,
+                    **kwargs,
+                )
                 self.set_message_history(
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )

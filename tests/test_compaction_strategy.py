@@ -1,15 +1,14 @@
-import tempfile
-import os
 import configparser
-from code_puppy.config import (
-    get_compaction_strategy,
-    CONFIG_FILE,
-    CONFIG_DIR,
-    DEFAULT_SECTION,
-)
-
-
+import os
+import tempfile
 from unittest.mock import patch
+
+from code_puppy.config import (
+    CONFIG_DIR,
+    CONFIG_FILE,
+    DEFAULT_SECTION,
+    get_compaction_strategy,
+)
 
 
 def test_default_compaction_strategy():

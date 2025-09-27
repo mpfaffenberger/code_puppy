@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from code_puppy.messaging import emit_info
 
+from ...agents import get_current_agent
 from .base import MCPCommandBase
 from .utils import find_server_id_by_name, suggest_similar_servers
 
