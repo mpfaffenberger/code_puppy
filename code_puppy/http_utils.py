@@ -64,7 +64,7 @@ def create_client(
                 emit_info(
                     f"HTTP retry: Retrying request due to status code {response.status_code}"
                 )
-                response.raise_for_status()
+                return True
 
         transport = TenacityTransport(
             config=RetryConfig(
@@ -106,16 +106,13 @@ def create_async_client(
                 emit_info(
                     f"HTTP retry: Retrying request due to status code {response.status_code}"
                 )
-                response.raise_for_status()
+                return True
 
         transport = AsyncTenacityTransport(
             config=RetryConfig(
                 retry=lambda e: isinstance(e, httpx.HTTPStatusError)
                 and e.response.status_code in retry_status_codes,
-                wait=wait_retry_after(
-                    fallback_strategy=wait_exponential(multiplier=1, max=60),
-                    max_wait=300,
-                ),
+                wait=wait_retry_after(10),
                 stop=stop_after_attempt(10),
                 reraise=True,
             ),
@@ -188,7 +185,7 @@ def create_reopenable_async_client(
                 emit_info(
                     f"HTTP retry: Retrying request due to status code {response.status_code}"
                 )
-                response.raise_for_status()
+                return True
 
         transport = AsyncTenacityTransport(
             config=RetryConfig(
