@@ -107,7 +107,10 @@ class JSONAgent(BaseAgent):
         Returns:
             Model name to use for this agent, or None to use global default.
         """
-        return self._config.get("model")
+        result = self._config.get("model")
+        if result is None:
+            result = super().get_model_name()
+        return result
 
 
 def discover_json_agents() -> Dict[str, str]:
