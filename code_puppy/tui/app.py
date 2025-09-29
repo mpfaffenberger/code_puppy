@@ -623,8 +623,13 @@ class CodePuppyTUI(App):
                 if result.get("model_changed"):
                     new_model = get_global_model_name()
                     self.current_model = new_model
-                    # Reinitialize agent with new model
-                    self.agent_manager.reload_agent()
+                    try:
+                        current_agent = get_current_agent()
+                        current_agent.reload_code_generation_agent()
+                    except Exception as reload_error:
+                        self.add_error_message(
+                            f"Failed to reload agent after model change: {reload_error}"
+                        )
 
                 # Update status bar
                 status_bar = self.query_one(StatusBar)
