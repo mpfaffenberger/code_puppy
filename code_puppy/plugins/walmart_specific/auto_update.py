@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import time
 
 from code_puppy.http_utils import create_client
 from code_puppy.messaging import emit_system_message
@@ -75,27 +76,28 @@ def _handle_update(current_version):
     try:
         if sys.platform == "win32":
             # Windows update command
-            update_command = "curl -L https://puppy.stg.walmart.com/api/releases/setup_windows.bat -o %TEMP%\\setup.bat && %TEMP%\\setup.bat && del %TEMP%\\setup.bat"
+            emit_system_message("[bold yellow]Running Windows update...[/bold yellow]")
+            time.sleep(2)
+            proceed = input("This will stop *ALL* other running instances of Code Puppy on your computer. Proceed (y/n)? ")
+            if proceed.lower()[0] != 'y':
+                emit_system_message("[yellow]Update cancelled by user.[/yellow]")
+                return
+            with open('update.bat', 'w') as f:
+                f.write('curl -L https://puppy.stg.walmart.com/api/releases/setup_windows.bat -o %TEMP%\\setup.bat && %TEMP%\\setup.bat && del %TEMP%\\setup.bat')
+            
+            update_command = "start cmd.exe /k update.bat"
             emit_system_message(f"[dim]Running: {update_command}[/dim]")
             result = subprocess.run(
                 update_command,
-                shell=True,
-                timeout=120,
-                capture_output=True,
-                text=True,
+                shell=True
             )
-            if result.returncode == 0:
-                success_msg = "✅ Update completed successfully!"
-                restart_msg = "Restarting code-puppy..."
-                emit_system_message(f"[bold green]{success_msg}[/bold green]")
-                emit_system_message(f"[yellow]{restart_msg}[/yellow]")
-                sys.exit(0)
-            else:
-                error_msg = f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
-                emit_system_message(f"[bold red]{error_msg}[/bold red]")
-                emit_system_message(
-                    "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
-                )
+            emit_system_message("This instance of Code Puppy will close.")
+            time.sleep(20)
+            error_msg = f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
+            emit_system_message(f"[bold red]{error_msg}[/bold red]")
+            emit_system_message(
+                "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
+            )
 
         else:
             # macOS and Linux update
