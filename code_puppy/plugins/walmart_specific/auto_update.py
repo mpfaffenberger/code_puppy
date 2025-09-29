@@ -75,7 +75,7 @@ def _handle_update(current_version):
     try:
         if sys.platform == "win32":
             # Windows update command
-            update_command = "iwr -useb https://puppy.stg.walmart.com/api/releases/setup_windows | iex"
+            update_command = "curl -L https://puppy.stg.walmart.com/api/releases/setup_windows.bat -o %TEMP%\\setup.bat && %TEMP%\\setup.bat && del %TEMP%\\setup.bat"
             emit_system_message(f"[dim]Running: {update_command}[/dim]")
             result = subprocess.run(
                 update_command,
