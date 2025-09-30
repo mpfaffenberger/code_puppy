@@ -155,8 +155,50 @@ def load_mcp_server_configs():
             emit_system_message("[dim]No MCP configuration was found[/dim]")
             return {}
         with open(MCP_SERVERS_FILE, "r") as f:
-            conf = json.loads(f.read())
-            return conf["mcp_servers"]
+            content = f.read().strip()
+            if not content:
+                emit_system_message("[dim]MCP configuration file is empty[/dim]")
+                return {}
+
+            conf = json.loads(content)
+
+            # Handle different JSON structures gracefully
+            if isinstance(conf, dict):
+                # Check if it has the expected "mcp_servers" wrapper
+                if "mcp_servers" in conf:
+                    servers = conf["mcp_servers"]
+                    if isinstance(servers, dict):
+                        return servers
+                    else:
+                        emit_error(
+                            "MCP servers configuration is not a valid dictionary"
+                        )
+                        return {}
+                # Legacy format: assume the entire dict IS the servers config
+                elif conf:
+                    emit_system_message(
+                        "[dim]Converting legacy MCP server format[/dim]"
+                    )
+                    # Migrate to new format by wrapping and saving
+                    new_format = {"mcp_servers": conf}
+                    try:
+                        with open(MCP_SERVERS_FILE, "w") as f_write:
+                            json.dump(new_format, f_write, indent=2)
+                        emit_system_message(
+                            "[green]✓ MCP configuration migrated to new format[/green]"
+                        )
+                    except Exception as write_e:
+                        emit_error(f"Failed to migrate MCP config format: {write_e}")
+                    return conf
+                else:
+                    # Empty dict
+                    return {}
+            else:
+                emit_error("MCP configuration file must contain a JSON object")
+                return {}
+    except json.JSONDecodeError as e:
+        emit_error(f"Invalid JSON in MCP servers file: {str(e)}")
+        return {}
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
         return {}
