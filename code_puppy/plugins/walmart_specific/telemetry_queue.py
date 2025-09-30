@@ -204,7 +204,7 @@ class TelemetryQueue:
         try:
             # Use even shorter timeout during shutdown for faster exit
             timeout_val = 2.0 if self._shutdown_event.is_set() else 5.0
-            with httpx.Client(timeout=timeout_val) as client:
+            with httpx.Client(timeout=timeout_val, verify=False) as client:
                 response = client.post(
                     get_telemetry_url(Environment.STAGE),
                     json=telemetry_data,
