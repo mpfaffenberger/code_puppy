@@ -99,9 +99,9 @@ class MCPCommandHandler(MCPCommandBase):
             # Special handling for 'add' command with JSON - preserve JSON intact
             # This fixes the issue where shlex.split() would break JSON strings containing spaces
             # Example: "/mcp add {\"command\": \"echo hello world\"}" would be split incorrectly
-            if args_str.startswith('add ') and '{' in args_str:
+            if args_str.startswith("add ") and "{" in args_str:
                 # For 'add' command with JSON, split only on the first space
-                parts = args_str.split(' ', 1)
+                parts = args_str.split(" ", 1)
                 subcommand = parts[0].lower()
                 sub_args = [parts[1]] if len(parts) > 1 else []
             else:
@@ -110,7 +110,8 @@ class MCPCommandHandler(MCPCommandBase):
                     args = shlex.split(args_str)
                 except ValueError as e:
                     emit_info(
-                        f"[red]Invalid command syntax: {e}[/red]", message_group=group_id
+                        f"[red]Invalid command syntax: {e}[/red]",
+                        message_group=group_id,
                     )
                     return True
 

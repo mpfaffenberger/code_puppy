@@ -78,22 +78,25 @@ def _handle_update(current_version):
             # Windows update command
             emit_system_message("[bold yellow]Running Windows update...[/bold yellow]")
             time.sleep(2)
-            proceed = input("This will stop *ALL* other running instances of Code Puppy on your computer. Proceed (y/n)? ")
-            if proceed.lower()[0] != 'y':
+            proceed = input(
+                "This will stop *ALL* other running instances of Code Puppy on your computer. Proceed (y/n)? "
+            )
+            if proceed.lower()[0] != "y":
                 emit_system_message("[yellow]Update cancelled by user.[/yellow]")
                 return
-            with open('update.bat', 'w') as f:
-                f.write('curl -L https://puppy.stg.walmart.com/api/releases/setup_windows.bat -o %TEMP%\\setup.bat && %TEMP%\\setup.bat && del %TEMP%\\setup.bat')
-            
+            with open("update.bat", "w") as f:
+                f.write(
+                    "curl -L https://puppy.stg.walmart.com/api/releases/setup_windows.bat -o %TEMP%\\setup.bat && %TEMP%\\setup.bat && del %TEMP%\\setup.bat"
+                )
+
             update_command = "start cmd.exe /k update.bat"
             emit_system_message(f"[dim]Running: {update_command}[/dim]")
-            result = subprocess.run(
-                update_command,
-                shell=True
-            )
+            result = subprocess.run(update_command, shell=True)
             emit_system_message("This instance of Code Puppy will close.")
             time.sleep(20)
-            error_msg = f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
+            error_msg = (
+                f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
+            )
             emit_system_message(f"[bold red]{error_msg}[/bold red]")
             emit_system_message(
                 "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
