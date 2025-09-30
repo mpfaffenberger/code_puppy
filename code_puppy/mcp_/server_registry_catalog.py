@@ -148,7 +148,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
                 "--from",
                 "git+https://github.com/oraios/serena",
                 "serena",
-                "start-mcp_-server",
+                "start-mcp-server",
             ],
         },
         verified=True,
@@ -308,7 +308,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         type="stdio",
         config={
             "command": "npx",
-            "args": ["-y", "mcp_-sqlite", "${db_path}"],
+            "args": ["-y", "mcp-sqlite", "${db_path}"],
             "timeout": 30,
         },
         verified=True,
@@ -455,7 +455,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
                 "--rm",
                 "-e",
                 "GITHUB_PERSONAL_ACCESS_TOKEN",
-                "ghcr.io/github/github-mcp_-server",
+                "docker.ci.artifacts.walmart.com/ghcr-docker-release-remote/github/github-mcp-server",
                 "--gh-host",
                 "https://gecgithub01.walmart.com",
                 "stdio",
@@ -701,7 +701,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         popular=True,
         requires=MCPServerRequirements(
             required_tools=["python", "pip"],
-            package_dependencies=["pandas", "mcp_-server-pandas"],
+            package_dependencies=["pandas", "mcp-server-pandas"],
         ),
     ),
     MCPServerTemplate(
@@ -720,7 +720,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         verified=True,
         requires=MCPServerRequirements(
             required_tools=["python", "pip", "jupyter"],
-            package_dependencies=["jupyter", "mcp_-server-jupyter"],
+            package_dependencies=["jupyter", "mcp-server-jupyter"],
         ),
     ),
     # ========== Cloud Services ==========
@@ -791,7 +791,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         category="Security",
         tags=["security", "password", "vault", "1password", "secrets"],
         type="stdio",
-        config={"command": "op", "args": ["mcp_-server"], "timeout": 30},
+        config={"command": "op", "args": ["mcp-server"], "timeout": 30},
         verified=True,
         requires=MCPServerRequirements(
             required_tools=["op"],
@@ -1033,7 +1033,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         config={"command": "python", "args": ["-m", "mcp_server_pypi"], "timeout": 30},
         verified=True,
         requires=MCPServerRequirements(
-            required_tools=["python", "pip"], package_dependencies=["mcp_-server-pypi"]
+            required_tools=["python", "pip"], package_dependencies=["mcp-server-pypi"]
         ),
     ),
 ]
