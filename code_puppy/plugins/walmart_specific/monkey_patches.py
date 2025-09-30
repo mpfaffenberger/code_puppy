@@ -5,6 +5,7 @@ to Walmart's internal artifactory mirror for camoufox and other tools.
 """
 
 import functools
+import os
 import ssl
 import urllib.request
 from pathlib import Path
@@ -15,6 +16,21 @@ from code_puppy.messaging import emit_info
 GITHUB_BASE = "https://github.com/"
 WALMART_ARTIFACTORY_BASE = "https://generic.ci.artifacts.walmart.com/artifactory/github-releases-generic-release-remote/"
 
+# Alternative artifactory base URLs to try if primary fails
+ALTERNATIVE_ARTIFACTORY_BASES = [
+    "https://artifactory.walmart.com/artifactory/github-releases-generic-release-remote/",
+    "https://artifacts.walmart.com/artifactory/github-releases-generic-release-remote/",
+    "https://pypi.ci.artifacts.walmart.com/artifactory/github-releases-generic-release-remote/",
+]
+
+# Walmart proxy settings for DNS resolution
+WALMART_PROXY_SETTINGS = {
+    "HTTP_PROXY": "http://sysproxy.wal-mart.com:8080",
+    "HTTPS_PROXY": "http://sysproxy.wal-mart.com:8080",
+    "http_proxy": "http://sysproxy.wal-mart.com:8080",
+    "https_proxy": "http://sysproxy.wal-mart.com:8080",
+}
+
 # Walmart internal domains that should skip SSL verification
 WALMART_INTERNAL_DOMAINS = {
     "walmart.com",
@@ -22,6 +38,8 @@ WALMART_INTERNAL_DOMAINS = {
     "ci.artifacts.walmart.com",
     "pypi.ci.artifacts.walmart.com",
     "generic.ci.artifacts.walmart.com",
+    "artifactory.walmart.com",
+    "artifacts.walmart.com",
     "sysproxy.wal-mart.com",
 }
 
@@ -41,6 +59,14 @@ _patches_applied = False
 _original_functions = {}
 
 
+def set_proxy_environment():
+    """Set proxy environment variables for DNS resolution in corporate environment."""
+    for key, value in WALMART_PROXY_SETTINGS.items():
+        if key not in os.environ:
+            os.environ[key] = value
+            emit_info(f"[dim]🌐 Set proxy env {key}={value}[/dim]")
+
+
 def transform_github_url(url: str) -> str:
     """Transform GitHub release URLs to Walmart artifactory mirror.
 
@@ -58,6 +84,9 @@ def transform_github_url(url: str) -> str:
         return url
 
     if url.startswith(GITHUB_BASE):
+        # Set proxy environment for DNS resolution
+        set_proxy_environment()
+
         # Replace the base GitHub URL with Walmart artifactory
         transformed_url = url.replace(GITHUB_BASE, WALMART_ARTIFACTORY_BASE, 1)
         emit_info(f"[cyan]🔀 Redirecting GitHub download:[/cyan] {url[:60]}...")
@@ -65,6 +94,44 @@ def transform_github_url(url: str) -> str:
         return transformed_url
 
     return url
+
+
+def try_github_fallback(
+    original_github_url: str, transformed_url: str, original_function, *args, **kwargs
+):
+    """Try original GitHub URL as fallback when all artifactory mirrors fail.
+
+    Args:
+        original_github_url: The original GitHub URL before transformation
+        transformed_url: The transformed artifactory URL that failed
+        original_function: The original HTTP function to call
+        *args, **kwargs: Arguments to pass to the function
+
+    Returns:
+        Result of successful download or raises the last exception
+    """
+    if original_github_url and original_github_url.startswith(GITHUB_BASE):
+        try:
+            emit_info(
+                "[yellow]🔄 All artifactory mirrors failed, trying original GitHub URL as fallback...[/yellow]"
+            )
+            emit_info(f"[cyan]   → Fallback: {original_github_url[:60]}...[/cyan]")
+
+            # For requests-style calls where URL is first positional arg or in kwargs
+            if len(args) > 0:
+                # Replace the first argument (URL) with the original GitHub URL
+                new_args = list(args)
+                new_args[0] = original_github_url
+                return original_function(*new_args, **kwargs)
+            else:
+                # For requests-style calls where URL might be passed directly
+                return original_function(original_github_url, **kwargs)
+
+        except Exception as fallback_e:
+            emit_info(f"[red]❌ GitHub fallback also failed: {fallback_e}[/red]")
+            raise
+    else:
+        raise ValueError(f"Not a GitHub URL: {original_github_url}")
 
 
 def is_walmart_internal_url(url: str) -> bool:
@@ -179,14 +246,22 @@ def patch_urllib_urlopen():
     def patched_urlopen(url, data=None, timeout=None, *args, **kwargs):
         """Patched urlopen that transforms GitHub URLs and handles SSL for internal domains."""
         final_url = url
+        original_github_url = None
 
         if isinstance(url, str):
+            original_github_url = url if url.startswith(GITHUB_BASE) else None
             final_url = transform_github_url(url)
         elif hasattr(url, "full_url"):  # urllib.request.Request object
+            original_github_url = (
+                url.full_url if url.full_url.startswith(GITHUB_BASE) else None
+            )
             url.full_url = transform_github_url(url.full_url)
             final_url = url.full_url
         elif hasattr(url, "get_full_url"):  # urllib.request.Request object
             original_url = url.get_full_url()
+            original_github_url = (
+                original_url if original_url.startswith(GITHUB_BASE) else None
+            )
             transformed_url = transform_github_url(original_url)
             if transformed_url != original_url:
                 # Create new request with transformed URL
@@ -205,6 +280,78 @@ def patch_urllib_urlopen():
             ssl_context = get_ssl_context_for_url(final_url)
             if ssl_context:
                 kwargs["context"] = ssl_context
+
+        # Try multiple artifactory URLs if DNS resolution fails
+        if (
+            isinstance(final_url, str)
+            and "generic.ci.artifacts.walmart.com" in final_url
+        ):
+            # Try primary URL first
+            try:
+                return original_urlopen(url, data, timeout, *args, **kwargs)
+            except (OSError, urllib.error.URLError) as e:
+                if "getaddrinfo failed" in str(e) or "Name or service not known" in str(
+                    e
+                ):
+                    emit_info(
+                        "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                    )
+
+                    # Try alternative artifactory URLs
+                    for alt_base in ALTERNATIVE_ARTIFACTORY_BASES:
+                        try:
+                            alt_url = final_url.replace(
+                                WALMART_ARTIFACTORY_BASE, alt_base, 1
+                            )
+                            emit_info(
+                                f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                            )
+
+                            if isinstance(url, str):
+                                return original_urlopen(
+                                    alt_url, data, timeout, *args, **kwargs
+                                )
+                            else:
+                                # Update request object with alternative URL
+                                if hasattr(url, "full_url"):
+                                    url.full_url = alt_url
+                                else:
+                                    # Create new request with alternative URL
+                                    url = urllib.request.Request(
+                                        alt_url,
+                                        data=url.data if hasattr(url, "data") else data,
+                                        headers=url.headers
+                                        if hasattr(url, "headers")
+                                        else {},
+                                    )
+                                return original_urlopen(
+                                    url, data, timeout, *args, **kwargs
+                                )
+                        except (OSError, urllib.error.URLError) as alt_e:
+                            emit_info(f"[red]❌ Alternative failed: {alt_e}[/red]")
+                            continue
+
+                    # If all alternatives fail, try original GitHub URL as fallback
+                    if original_github_url:
+                        try:
+                            return try_github_fallback(
+                                original_github_url,
+                                final_url,
+                                original_urlopen,
+                                url,
+                                data,
+                                timeout,
+                                *args,
+                                **kwargs,
+                            )
+                        except Exception:
+                            pass  # Fall through to re-raise original exception
+
+                    # If all alternatives and fallback fail, re-raise original exception
+                    raise e
+                else:
+                    # For non-DNS errors, re-raise immediately
+                    raise
 
         return original_urlopen(url, data, timeout, *args, **kwargs)
 
@@ -232,6 +379,7 @@ def patch_requests():
     @functools.wraps(original_get)
     def patched_get(url, **kwargs):
         """Patched requests.get that transforms GitHub URLs and handles SSL for internal domains."""
+        original_github_url = url if url.startswith(GITHUB_BASE) else None
         url = transform_github_url(url)
 
         # Disable SSL verification for problematic domains if not explicitly set
@@ -241,11 +389,52 @@ def patch_requests():
                 f"[dim]🔓 Disabled SSL verification for requests.get: {url[:50]}...[/dim]"
             )
 
+        # Try multiple artifactory URLs if DNS resolution fails
+        if "generic.ci.artifacts.walmart.com" in url:
+            # Try primary URL first
+            try:
+                return original_get(url, **kwargs)
+            except Exception as e:
+                if "getaddrinfo failed" in str(e) or "Name or service not known" in str(
+                    e
+                ):
+                    emit_info(
+                        "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                    )
+
+                    # Try alternative artifactory URLs
+                    for alt_base in ALTERNATIVE_ARTIFACTORY_BASES:
+                        try:
+                            alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
+                            emit_info(
+                                f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                            )
+                            return original_get(alt_url, **kwargs)
+                        except Exception as alt_e:
+                            emit_info(f"[red]❌ Alternative failed: {alt_e}[/red]")
+                            continue
+
+                    # If all alternatives fail, try original GitHub URL as fallback
+                    if original_github_url:
+                        try:
+                            return try_github_fallback(
+                                original_github_url, url, original_get, **kwargs
+                            )
+                        except Exception:
+                            pass  # Fall through to re-raise original exception
+
+                    # If all alternatives and fallback fail, re-raise original exception
+                    raise e
+                else:
+                    # For non-DNS errors, re-raise immediately
+                    raise
+
         return original_get(url, **kwargs)
 
     @functools.wraps(original_post)
     def patched_post(url, **kwargs):
         """Patched requests.post that transforms GitHub URLs and handles SSL for internal domains."""
+        original_github_url = url if url.startswith(GITHUB_BASE) else None
         url = transform_github_url(url)
 
         # Disable SSL verification for problematic domains if not explicitly set
@@ -255,11 +444,52 @@ def patch_requests():
                 f"[dim]🔓 Disabled SSL verification for requests.post: {url[:50]}...[/dim]"
             )
 
+        # Try multiple artifactory URLs if DNS resolution fails
+        if "generic.ci.artifacts.walmart.com" in url:
+            # Try primary URL first
+            try:
+                return original_post(url, **kwargs)
+            except Exception as e:
+                if "getaddrinfo failed" in str(e) or "Name or service not known" in str(
+                    e
+                ):
+                    emit_info(
+                        "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                    )
+
+                    # Try alternative artifactory URLs
+                    for alt_base in ALTERNATIVE_ARTIFACTORY_BASES:
+                        try:
+                            alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
+                            emit_info(
+                                f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                            )
+                            return original_post(alt_url, **kwargs)
+                        except Exception as alt_e:
+                            emit_info(f"[red]❌ Alternative failed: {alt_e}[/red]")
+                            continue
+
+                    # If all alternatives fail, try original GitHub URL as fallback
+                    if original_github_url:
+                        try:
+                            return try_github_fallback(
+                                original_github_url, url, original_post, **kwargs
+                            )
+                        except Exception:
+                            pass  # Fall through to re-raise original exception
+
+                    # If all alternatives and fallback fail, re-raise original exception
+                    raise e
+                else:
+                    # For non-DNS errors, re-raise immediately
+                    raise
+
         return original_post(url, **kwargs)
 
     @functools.wraps(original_request)
     def patched_request(method, url, **kwargs):
         """Patched requests.request that transforms GitHub URLs and handles SSL for internal domains."""
+        original_github_url = url if url.startswith(GITHUB_BASE) else None
         url = transform_github_url(url)
 
         # Disable SSL verification for problematic domains if not explicitly set
@@ -268,6 +498,50 @@ def patch_requests():
             emit_info(
                 f"[dim]🔓 Disabled SSL verification for requests.{method.lower()}: {url[:50]}...[/dim]"
             )
+
+        # Try multiple artifactory URLs if DNS resolution fails
+        if "generic.ci.artifacts.walmart.com" in url:
+            # Try primary URL first
+            try:
+                return original_request(method, url, **kwargs)
+            except Exception as e:
+                if "getaddrinfo failed" in str(e) or "Name or service not known" in str(
+                    e
+                ):
+                    emit_info(
+                        "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                    )
+
+                    # Try alternative artifactory URLs
+                    for alt_base in ALTERNATIVE_ARTIFACTORY_BASES:
+                        try:
+                            alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
+                            emit_info(
+                                f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                            )
+                            return original_request(method, alt_url, **kwargs)
+                        except Exception as alt_e:
+                            emit_info(f"[red]❌ Alternative failed: {alt_e}[/red]")
+                            continue
+
+                    # If all alternatives fail, try original GitHub URL as fallback
+                    if original_github_url:
+                        try:
+                            return try_github_fallback(
+                                original_github_url,
+                                url,
+                                original_request,
+                                method,
+                                **kwargs,
+                            )
+                        except Exception:
+                            pass  # Fall through to re-raise original exception
+
+                    # If all alternatives and fallback fail, re-raise original exception
+                    raise e
+                else:
+                    # For non-DNS errors, re-raise immediately
+                    raise
 
         return original_request(method, url, **kwargs)
 
@@ -297,6 +571,7 @@ def patch_httpx():
     @functools.wraps(original_get)
     def patched_get(url, **kwargs):
         """Patched httpx.get that transforms GitHub URLs and handles SSL for internal domains."""
+        original_github_url = url if url.startswith(GITHUB_BASE) else None
         url = transform_github_url(url)
 
         # Disable SSL verification for problematic domains if not explicitly set
@@ -306,11 +581,52 @@ def patch_httpx():
                 f"[dim]🔓 Disabled SSL verification for httpx.get: {url[:50]}...[/dim]"
             )
 
+        # Try multiple artifactory URLs if DNS resolution fails
+        if "generic.ci.artifacts.walmart.com" in url:
+            # Try primary URL first
+            try:
+                return original_get(url, **kwargs)
+            except Exception as e:
+                if "getaddrinfo failed" in str(e) or "Name or service not known" in str(
+                    e
+                ):
+                    emit_info(
+                        "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                    )
+
+                    # Try alternative artifactory URLs
+                    for alt_base in ALTERNATIVE_ARTIFACTORY_BASES:
+                        try:
+                            alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
+                            emit_info(
+                                f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                            )
+                            return original_get(alt_url, **kwargs)
+                        except Exception as alt_e:
+                            emit_info(f"[red]❌ Alternative failed: {alt_e}[/red]")
+                            continue
+
+                    # If all alternatives fail, try original GitHub URL as fallback
+                    if original_github_url:
+                        try:
+                            return try_github_fallback(
+                                original_github_url, url, original_get, **kwargs
+                            )
+                        except Exception:
+                            pass  # Fall through to re-raise original exception
+
+                    # If all alternatives and fallback fail, re-raise original exception
+                    raise e
+                else:
+                    # For non-DNS errors, re-raise immediately
+                    raise
+
         return original_get(url, **kwargs)
 
     @functools.wraps(original_post)
     def patched_post(url, **kwargs):
         """Patched httpx.post that transforms GitHub URLs and handles SSL for internal domains."""
+        original_github_url = url if url.startswith(GITHUB_BASE) else None
         url = transform_github_url(url)
 
         # Disable SSL verification for problematic domains if not explicitly set
@@ -320,11 +636,52 @@ def patch_httpx():
                 f"[dim]🔓 Disabled SSL verification for httpx.post: {url[:50]}...[/dim]"
             )
 
+        # Try multiple artifactory URLs if DNS resolution fails
+        if "generic.ci.artifacts.walmart.com" in url:
+            # Try primary URL first
+            try:
+                return original_post(url, **kwargs)
+            except Exception as e:
+                if "getaddrinfo failed" in str(e) or "Name or service not known" in str(
+                    e
+                ):
+                    emit_info(
+                        "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                    )
+
+                    # Try alternative artifactory URLs
+                    for alt_base in ALTERNATIVE_ARTIFACTORY_BASES:
+                        try:
+                            alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
+                            emit_info(
+                                f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                            )
+                            return original_post(alt_url, **kwargs)
+                        except Exception as alt_e:
+                            emit_info(f"[red]❌ Alternative failed: {alt_e}[/red]")
+                            continue
+
+                    # If all alternatives fail, try original GitHub URL as fallback
+                    if original_github_url:
+                        try:
+                            return try_github_fallback(
+                                original_github_url, url, original_post, **kwargs
+                            )
+                        except Exception:
+                            pass  # Fall through to re-raise original exception
+
+                    # If all alternatives and fallback fail, re-raise original exception
+                    raise e
+                else:
+                    # For non-DNS errors, re-raise immediately
+                    raise
+
         return original_post(url, **kwargs)
 
     @functools.wraps(original_request)
     def patched_request(method, url, **kwargs):
         """Patched httpx.request that transforms GitHub URLs and handles SSL for internal domains."""
+        original_github_url = url if url.startswith(GITHUB_BASE) else None
         url = transform_github_url(url)
 
         # Disable SSL verification for problematic domains if not explicitly set
@@ -333,6 +690,50 @@ def patch_httpx():
             emit_info(
                 f"[dim]🔓 Disabled SSL verification for httpx.{method.lower()}: {url[:50]}...[/dim]"
             )
+
+        # Try multiple artifactory URLs if DNS resolution fails
+        if "generic.ci.artifacts.walmart.com" in url:
+            # Try primary URL first
+            try:
+                return original_request(method, url, **kwargs)
+            except Exception as e:
+                if "getaddrinfo failed" in str(e) or "Name or service not known" in str(
+                    e
+                ):
+                    emit_info(
+                        "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                    )
+
+                    # Try alternative artifactory URLs
+                    for alt_base in ALTERNATIVE_ARTIFACTORY_BASES:
+                        try:
+                            alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
+                            emit_info(
+                                f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                            )
+                            return original_request(method, alt_url, **kwargs)
+                        except Exception as alt_e:
+                            emit_info(f"[red]❌ Alternative failed: {alt_e}[/red]")
+                            continue
+
+                    # If all alternatives fail, try original GitHub URL as fallback
+                    if original_github_url:
+                        try:
+                            return try_github_fallback(
+                                original_github_url,
+                                url,
+                                original_request,
+                                method,
+                                **kwargs,
+                            )
+                        except Exception:
+                            pass  # Fall through to re-raise original exception
+
+                    # If all alternatives and fallback fail, re-raise original exception
+                    raise e
+                else:
+                    # For non-DNS errors, re-raise immediately
+                    raise
 
         return original_request(method, url, **kwargs)
 
