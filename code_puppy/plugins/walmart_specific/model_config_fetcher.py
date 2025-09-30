@@ -36,7 +36,7 @@ class ModelConfigFetcher:
         remote_config = None
         try:
             logger.info(f"Fetching latest model config from {remote_url}")
-            with create_client() as client:
+            with create_client(verify=False) as client:
                 response = client.get(remote_url, timeout=10)
                 response.raise_for_status()
                 remote_config = response.json()["config"]

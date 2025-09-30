@@ -10,7 +10,6 @@ from typing import Dict, Optional, Union
 
 import httpx
 import requests
-from tenacity import stop_after_attempt, wait_exponential
 
 try:
     from pydantic_ai.retries import (
@@ -41,7 +40,7 @@ except ImportError:
 
 def get_cert_bundle_path() -> str:
     # First check if SSL_CERT_FILE environment variable is set
-    ssl_cert_file = os.environ.get("SSL_CERT_FILE")
+    ssl_cert_file = os.environ.get("_SSL_CERT_FILE")
     if ssl_cert_file and os.path.exists(ssl_cert_file):
         return ssl_cert_file
 
@@ -55,37 +54,8 @@ def create_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    # If retry components are available, create a client with retry transport
-    if TenacityTransport and RetryConfig and wait_retry_after:
-
-        def should_retry_status(response):
-            """Raise exceptions for retryable HTTP status codes."""
-            if response.status_code in retry_status_codes:
-                emit_info(
-                    f"HTTP retry: Retrying request due to status code {response.status_code}"
-                )
-                return True
-
-        transport = TenacityTransport(
-            config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
-                and e.response.status_code in retry_status_codes,
-                wait=wait_retry_after(
-                    fallback_strategy=wait_exponential(multiplier=1, max=60),
-                    max_wait=300,
-                ),
-                stop=stop_after_attempt(10),
-                reraise=True,
-            ),
-            validate_response=should_retry_status,
-        )
-
-        return httpx.Client(
-            transport=transport, verify=verify, headers=headers or {}, timeout=timeout
-        )
-    else:
-        # Fallback to regular client if retry components are not available
-        return httpx.Client(verify=verify, headers=headers or {}, timeout=timeout)
+    # Simple client without retry logic
+    return httpx.Client(verify=verify, headers=headers or {}, timeout=timeout)
 
 
 def create_async_client(
@@ -97,34 +67,8 @@ def create_async_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    # If retry components are available, create a client with retry transport
-    if AsyncTenacityTransport and RetryConfig and wait_retry_after:
-
-        def should_retry_status(response):
-            """Raise exceptions for retryable HTTP status codes."""
-            if response.status_code in retry_status_codes:
-                emit_info(
-                    f"HTTP retry: Retrying request due to status code {response.status_code}"
-                )
-                return True
-
-        transport = AsyncTenacityTransport(
-            config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
-                and e.response.status_code in retry_status_codes,
-                wait=wait_retry_after(10),
-                stop=stop_after_attempt(10),
-                reraise=True,
-            ),
-            validate_response=should_retry_status,
-        )
-
-        return httpx.AsyncClient(
-            transport=transport, verify=verify, headers=headers or {}, timeout=timeout
-        )
-    else:
-        # Fallback to regular client if retry components are not available
-        return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
+    # Simple client without retry logic
+    return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
 
 
 def create_requests_session(
@@ -176,57 +120,14 @@ def create_reopenable_async_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
-    # If retry components are available, create a client with retry transport
-    if AsyncTenacityTransport and RetryConfig and wait_retry_after:
-
-        def should_retry_status(response):
-            """Raise exceptions for retryable HTTP status codes."""
-            if response.status_code in retry_status_codes:
-                emit_info(
-                    f"HTTP retry: Retrying request due to status code {response.status_code}"
-                )
-                return True
-
-        transport = AsyncTenacityTransport(
-            config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
-                and e.response.status_code in retry_status_codes,
-                wait=wait_retry_after(
-                    fallback_strategy=wait_exponential(multiplier=1, max=60),
-                    max_wait=300,
-                ),
-                stop=stop_after_attempt(10),
-                reraise=True,
-            ),
-            validate_response=should_retry_status,
+    # Simple client without retry logic
+    if ReopenableAsyncClient is not None:
+        return ReopenableAsyncClient(
+            verify=verify, headers=headers or {}, timeout=timeout
         )
-
-        if ReopenableAsyncClient is not None:
-            return ReopenableAsyncClient(
-                transport=transport,
-                verify=verify,
-                headers=headers or {},
-                timeout=timeout,
-            )
-        else:
-            # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
-            return httpx.AsyncClient(
-                transport=transport,
-                verify=verify,
-                headers=headers or {},
-                timeout=timeout,
-            )
     else:
-        # Fallback to regular clients if retry components are not available
-        if ReopenableAsyncClient is not None:
-            return ReopenableAsyncClient(
-                verify=verify, headers=headers or {}, timeout=timeout
-            )
-        else:
-            # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
-            return httpx.AsyncClient(
-                verify=verify, headers=headers or {}, timeout=timeout
-            )
+        # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
+        return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
 
 
 def is_cert_bundle_available() -> bool:
