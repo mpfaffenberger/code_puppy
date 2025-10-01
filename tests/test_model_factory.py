@@ -2,7 +2,11 @@ import os
 
 import pytest
 
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import (
+    DEFAULT_REASONING_EFFORT,
+    ModelFactory,
+    _normalize_reasoning_effort,
+)
 
 TEST_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../code_puppy/models.json")
 
@@ -190,7 +194,11 @@ def test_extra_models_json_decode_error(tmp_path, monkeypatch):
     extra_models_file.write_text("{ invalid json content }")
 
     # Patch the EXTRA_MODELS_FILE path to point to our temporary file
-    from code_puppy.model_factory import ModelFactory
+    from code_puppy.model_factory import (
+    DEFAULT_REASONING_EFFORT,
+    ModelFactory,
+    _normalize_reasoning_effort,
+)
 
     monkeypatch.setattr(
         "code_puppy.model_factory.EXTRA_MODELS_FILE", str(extra_models_file)
@@ -211,7 +219,11 @@ def test_extra_models_exception_handling(tmp_path, monkeypatch, caplog):
     extra_models_file.mkdir()
 
     # Patch the EXTRA_MODELS_FILE path
-    from code_puppy.model_factory import ModelFactory
+    from code_puppy.model_factory import (
+    DEFAULT_REASONING_EFFORT,
+    ModelFactory,
+    _normalize_reasoning_effort,
+)
 
     monkeypatch.setattr(
         "code_puppy.model_factory.EXTRA_MODELS_FILE", str(extra_models_file)
@@ -227,3 +239,13 @@ def test_extra_models_exception_handling(tmp_path, monkeypatch, caplog):
 
     # Check that warning was logged
     assert "Failed to load extra models config" in caplog.text
+
+
+def test_normalize_reasoning_effort_invalid_defaults():
+    value = _normalize_reasoning_effort("test", {"reasoning_effort": "invalid"})
+    assert value == DEFAULT_REASONING_EFFORT
+
+
+def test_normalize_reasoning_effort_coerces_case():
+    value = _normalize_reasoning_effort("test", {"reasoning_effort": " HIGH "})
+    assert value == "high"

@@ -141,6 +141,11 @@ Then just use /model and tab to select your round-robin model!
 
 The `rotate_every` parameter controls how many requests are made to each model before rotating to the next one. In this example, the round-robin model will use each Qwen model for 5 consecutive requests before moving to the next model in the sequence.
 
+### Reasoning Effort Overrides
+- Add an optional `reasoning_effort` key (`low`, `medium`, `high`) to any OpenAI-compatible model in `extra_models.json` when you need to tune thoughtful modes.
+- The loader automatically normalizes whitespace/casing and falls back to `medium` if you skip the field or pass an invalid value.
+- OpenAI, Azure OpenAI, custom OpenAI backends, and OpenRouter models receive the value; other providers ignore it.
+
 ---
 
 ## Create your own Agent!!!

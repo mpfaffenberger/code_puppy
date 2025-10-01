@@ -42,9 +42,16 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import DEFAULT_REASONING_EFFORT, ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.common import console
+
+OPENAI_COMPATIBLE_MODEL_TYPES: Set[str] = {
+    "openai",
+    "custom_openai",
+    "azure_openai",
+    "openrouter",
+}
 
 
 class BaseAgent(ABC):
@@ -729,6 +736,68 @@ class BaseAgent(ABC):
         manager = get_mcp_manager()
         return manager.get_servers_for_agent()
 
+<<<<<<< Updated upstream
+=======
+    def _load_model_with_fallback(
+        self,
+        requested_model_name: str,
+        models_config: Dict[str, Any],
+        message_group: str,
+    ) -> Tuple[Any, str, Dict[str, Any]]:
+        """Load the requested model, applying a friendly fallback when unavailable."""
+        try:
+            model = ModelFactory.get_model(requested_model_name, models_config)
+            resolved_config = models_config.get(requested_model_name, {})
+            return model, requested_model_name, resolved_config
+        except ValueError as exc:
+            available_models = list(models_config.keys())
+            available_str = (
+                ", ".join(sorted(available_models))
+                if available_models
+                else "no configured models"
+            )
+            emit_warning(
+                (
+                    f"[yellow]Model '{requested_model_name}' not found. "
+                    f"Available models: {available_str}[/yellow]"
+                ),
+                message_group=message_group,
+            )
+
+            fallback_candidates: List[str] = []
+            global_candidate = get_global_model_name()
+            if global_candidate:
+                fallback_candidates.append(global_candidate)
+
+            for candidate in available_models:
+                if candidate not in fallback_candidates:
+                    fallback_candidates.append(candidate)
+
+            for candidate in fallback_candidates:
+                if not candidate or candidate == requested_model_name:
+                    continue
+                try:
+                    model = ModelFactory.get_model(candidate, models_config)
+                    emit_info(
+                        f"[bold cyan]Using fallback model: {candidate}[/bold cyan]",
+                        message_group=message_group,
+                    )
+                    candidate_config = models_config.get(candidate, {})
+                    return model, candidate, candidate_config
+                except ValueError:
+                    continue
+
+            friendly_message = (
+                "No valid model could be loaded. Update the model configuration or set "
+                "a valid model with `config set`."
+            )
+            emit_error(
+                f"[bold red]{friendly_message}[/bold red]",
+                message_group=message_group,
+            )
+            raise ValueError(friendly_message) from exc
+
+>>>>>>> Stashed changes
     def reload_code_generation_agent(self, message_group: Optional[str] = None):
         """Force-reload the pydantic-ai Agent based on current config and model."""
         from code_puppy.tools import register_tools_for_agent
@@ -743,7 +812,24 @@ class BaseAgent(ABC):
             message_group=message_group,
         )
         models_config = ModelFactory.load_config()
+<<<<<<< Updated upstream
         model = ModelFactory.get_model(model_name, models_config)
+=======
+        (
+            model,
+            resolved_model_name,
+            resolved_model_config,
+        ) = self._load_model_with_fallback(
+            model_name,
+            models_config,
+            message_group,
+        )
+>>>>>>> Stashed changes
+
+        resolved_model_config = (
+            resolved_model_config if isinstance(resolved_model_config, dict) else {}
+        )
+        resolved_model_type = resolved_model_config.get("type")
 
         emit_info(
             f"[bold magenta]Loading Agent: {self.name}[/bold magenta]",
@@ -765,11 +851,20 @@ class BaseAgent(ABC):
         console.print(f"Max output tokens per message: {output_tokens}")
         model_settings_dict["max_tokens"] = output_tokens
 
-        model_settings: ModelSettings = ModelSettings(**model_settings_dict)
-        if "gpt-5" in model_name:
-            model_settings_dict["openai_reasoning_effort"] = "off"
-            model_settings_dict["extra_body"] = {"verbosity": "low"}
+        if "gpt-5" in str(resolved_model_name).lower():
+            model_settings_dict.setdefault("extra_body", {})
+            model_settings_dict["extra_body"].setdefault("verbosity", "low")
+
+        model_settings: ModelSettings
+        if resolved_model_type in OPENAI_COMPATIBLE_MODEL_TYPES:
+            reasoning_effort = resolved_model_config.get(
+                "reasoning_effort",
+                DEFAULT_REASONING_EFFORT,
+            )
+            model_settings_dict["openai_reasoning_effort"] = reasoning_effort
             model_settings = OpenAIModelSettings(**model_settings_dict)
+        else:
+            model_settings = ModelSettings(**model_settings_dict)
 
         self.cur_model = model
         p_agent = PydanticAgent(

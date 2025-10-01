@@ -5,6 +5,11 @@ import pathlib
 from typing import Any, Dict
 
 import httpx
+
+logger = logging.getLogger(__name__)
+
+VALID_REASONING_EFFORTS = {"low", "medium", "high"}
+DEFAULT_REASONING_EFFORT = "medium"
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -29,6 +34,24 @@ from .round_robin_model import RoundRobinModel
 # When using custom endpoints (type: "custom_openai" in models.json):
 # - Environment variables can be referenced in header values by prefixing with $ in models.json.
 #   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
+
+
+def _normalize_reasoning_effort(model_name: str, model_config: Dict[str, Any]) -> str:
+    raw_value = model_config.get("reasoning_effort", DEFAULT_REASONING_EFFORT)
+    if isinstance(raw_value, str):
+        normalized_value = raw_value.lower().strip()
+    else:
+        normalized_value = DEFAULT_REASONING_EFFORT
+
+    if normalized_value not in VALID_REASONING_EFFORTS:
+        logger.warning(
+            "Invalid reasoning_effort '%s' for model '%s'. Falling back to '%s'.",
+            raw_value,
+            model_name,
+            DEFAULT_REASONING_EFFORT,
+        )
+        return DEFAULT_REASONING_EFFORT
+    return normalized_value
 
 
 def get_custom_config(model_config):
@@ -109,6 +132,14 @@ class ModelFactory:
                     f"Failed to load extra models config from {EXTRA_MODELS_FILE}: {e}\n"
                     f"The extra models configuration will be ignored."
                 )
+
+        for model_name, model_config in config.items():
+            if not isinstance(model_config, dict):
+                continue
+            model_config["reasoning_effort"] = _normalize_reasoning_effort(
+                model_name,
+                model_config,
+            )
         return config
 
     @staticmethod
