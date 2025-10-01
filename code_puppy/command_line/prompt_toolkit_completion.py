@@ -7,6 +7,7 @@
 # YELLOW = '\033[1;33m'
 # BOLD = '\033[1m'
 import asyncio
+import atexit
 import os
 from typing import Optional
 
@@ -183,7 +184,20 @@ def get_prompt_with_active_model(base: str = ">>> "):
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:
-    history = FileHistory(history_file) if history_file else None
+    # Use our enhanced history manager for better up/down arrow support
+    history = None
+    if history_file:
+        from .history_manager import create_prompt_toolkit_history_file
+        
+        # Create a prompt_toolkit compatible history file
+        temp_history_file = create_prompt_toolkit_history_file()
+        if temp_history_file:
+            history = FileHistory(temp_history_file)
+            # Schedule cleanup of temp file
+            atexit.register(lambda: os.unlink(temp_history_file) if os.path.exists(temp_history_file) else None)
+        else:
+            # Fallback to original method if history processing fails
+            history = FileHistory(history_file)
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),

@@ -451,8 +451,9 @@ async def test_get_input_with_combined_completion_defaults(
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
 @patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
+@patch("code_puppy.command_line.history_manager.create_prompt_toolkit_history_file")
 async def test_get_input_with_combined_completion_with_history(
-    mock_update_model, mock_file_history, mock_prompt_session_cls
+    mock_create_history, mock_update_model, mock_file_history, mock_prompt_session_cls
 ):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="input with history")
@@ -460,14 +461,50 @@ async def test_get_input_with_combined_completion_with_history(
     mock_update_model.return_value = "processed history input"
     mock_history_instance = MagicMock()
     mock_file_history.return_value = mock_history_instance
+    
+    # Mock the history manager to return a temp file
+    temp_history_path = "/tmp/test_history.txt"
+    mock_create_history.return_value = temp_history_path
 
     history_path = "~/.my_test_history"
     result = await get_input_with_combined_completion(history_file=history_path)
 
-    mock_file_history.assert_called_once_with(history_path)
+    # Verify that we created a processed history file and used it
+    mock_create_history.assert_called_once()
+    mock_file_history.assert_called_once_with(temp_history_path)
     assert mock_prompt_session_cls.call_args[1]["history"] == mock_history_instance
     mock_update_model.assert_called_once_with("input with history")
     assert result == "processed history input"
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
+@patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
+@patch("code_puppy.command_line.history_manager.create_prompt_toolkit_history_file")
+async def test_get_input_with_combined_completion_empty_history(
+    mock_create_history, mock_update_model, mock_file_history, mock_prompt_session_cls
+):
+    """Test that we fallback to original file when history manager returns None."""
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="input with empty history")
+    mock_prompt_session_cls.return_value = mock_session_instance
+    mock_update_model.return_value = "processed empty history input"
+    mock_history_instance = MagicMock()
+    mock_file_history.return_value = mock_history_instance
+    
+    # Mock the history manager to return None (no history)
+    mock_create_history.return_value = None
+
+    history_path = "~/.my_test_history"
+    result = await get_input_with_combined_completion(history_file=history_path)
+
+    # Verify that we fell back to the original file
+    mock_create_history.assert_called_once()
+    mock_file_history.assert_called_once_with(history_path)
+    assert mock_prompt_session_cls.call_args[1]["history"] == mock_history_instance
+    mock_update_model.assert_called_once_with("input with empty history")
+    assert result == "processed empty history input"
 
 
 @pytest.mark.asyncio

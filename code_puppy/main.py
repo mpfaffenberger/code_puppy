@@ -404,6 +404,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         if task.strip():
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
+            
+            # Also update our enhanced history manager (for future improvements)
+            try:
+                from code_puppy.command_line.history_manager import get_history_manager
+                history_manager = get_history_manager()
+                # Note: save_command_to_history already handles the saving,
+                # this is just to keep our manager in sync if needed
+            except Exception:
+                pass  # Silently handle any import errors
 
             try:
                 prettier_code_blocks()

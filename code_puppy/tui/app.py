@@ -368,6 +368,10 @@ class CodePuppyTUI(App):
             # Save command to history file with timestamp
             try:
                 save_command_to_history(message)
+                # Refresh command history in input area
+                input_area = self.query_one("#input-field")
+                if hasattr(input_area, "load_command_history"):
+                    input_area.load_command_history()
             except Exception as e:
                 self.add_error_message(f"Failed to save command history: {str(e)}")
 
