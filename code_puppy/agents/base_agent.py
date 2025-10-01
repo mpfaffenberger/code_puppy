@@ -729,6 +729,63 @@ class BaseAgent(ABC):
         manager = get_mcp_manager()
         return manager.get_servers_for_agent()
 
+    def _load_model_with_fallback(
+        self,
+        requested_model_name: str,
+        models_config: Dict[str, Any],
+        message_group: str,
+    ) -> Tuple[Any, str]:
+        """Load the requested model, applying a friendly fallback when unavailable."""
+        try:
+            model = ModelFactory.get_model(requested_model_name, models_config)
+            return model, requested_model_name
+        except ValueError as exc:
+            available_models = list(models_config.keys())
+            available_str = (
+                ", ".join(sorted(available_models))
+                if available_models
+                else "no configured models"
+            )
+            emit_warning(
+                (
+                    f"[yellow]Model '{requested_model_name}' not found. "
+                    f"Available models: {available_str}[/yellow]"
+                ),
+                message_group=message_group,
+            )
+
+            fallback_candidates: List[str] = []
+            global_candidate = get_global_model_name()
+            if global_candidate:
+                fallback_candidates.append(global_candidate)
+
+            for candidate in available_models:
+                if candidate not in fallback_candidates:
+                    fallback_candidates.append(candidate)
+
+            for candidate in fallback_candidates:
+                if not candidate or candidate == requested_model_name:
+                    continue
+                try:
+                    model = ModelFactory.get_model(candidate, models_config)
+                    emit_info(
+                        f"[bold cyan]Using fallback model: {candidate}[/bold cyan]",
+                        message_group=message_group,
+                    )
+                    return model, candidate
+                except ValueError:
+                    continue
+
+            friendly_message = (
+                "No valid model could be loaded. Update the model configuration or set "
+                "a valid model with `config set`."
+            )
+            emit_error(
+                f"[bold red]{friendly_message}[/bold red]",
+                message_group=message_group,
+            )
+            raise ValueError(friendly_message) from exc
+
     def reload_code_generation_agent(self, message_group: Optional[str] = None):
         """Force-reload the pydantic-ai Agent based on current config and model."""
         from code_puppy.tools import register_tools_for_agent
@@ -743,7 +800,11 @@ class BaseAgent(ABC):
             message_group=message_group,
         )
         models_config = ModelFactory.load_config()
-        model = ModelFactory.get_model(model_name, models_config)
+        model, resolved_model_name = self._load_model_with_fallback(
+            model_name,
+            models_config,
+            message_group,
+        )
 
         emit_info(
             f"[bold magenta]Loading Agent: {self.name}[/bold magenta]",
@@ -786,7 +847,7 @@ class BaseAgent(ABC):
         register_tools_for_agent(p_agent, agent_tools)
 
         self._code_generation_agent = p_agent
-        self._last_model_name = model_name
+        self._last_model_name = resolved_model_name
         # expose for run_with_mcp
         self.pydantic_agent = p_agent
         return self._code_generation_agent
