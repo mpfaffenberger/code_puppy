@@ -31,6 +31,7 @@ from code_puppy.config import (
     get_compaction_strategy,
     get_compaction_threshold,
     get_global_model_name,
+    get_message_limit,
     get_protected_token_count,
     get_value,
     load_mcp_server_configs,
@@ -806,7 +807,7 @@ class BaseAgent(ABC):
         self.message_history_processor(ctx, _message_history)
         return self.get_message_history()
 
-    async def run_with_mcp(self, prompt: str, usage_limits=None, **kwargs) -> Any:
+    async def run_with_mcp(self, prompt: str, **kwargs) -> Any:
         """
         Run the agent with MCP servers and full cancellation support.
 
@@ -831,6 +832,9 @@ class BaseAgent(ABC):
             try:
                 self.set_message_history(
                     self.prune_interrupted_tool_calls(self.get_message_history())
+                )
+                usage_limits = pydantic_ai.agent._usage.UsageLimits(
+                    request_limit=get_message_limit()
                 )
                 result_ = await pydantic_agent.run(
                     prompt,
