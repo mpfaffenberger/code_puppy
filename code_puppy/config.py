@@ -543,6 +543,61 @@ def get_mcp_disabled():
     return False
 
 
+def get_safety_permission_level() -> str:
+    """
+    Get the safety permission level for shell command validation.
+
+    This determines which commands are blocked based on their risk level:
+    - "safe": Only block critical commands (most permissive)
+    - "low": Block high and critical commands
+    - "medium": Block high and critical commands (default, balanced)
+    - "high": Block medium, high, and critical commands
+    - "critical": Block low, medium, high, and critical commands (most restrictive)
+
+    Returns:
+        str: The safety permission level (defaults to "medium")
+    """
+    valid_levels = {"safe", "low", "medium", "high", "critical"}
+    cfg_val = get_value("safety_permission_level")
+
+    if cfg_val is not None:
+        level = str(cfg_val).strip().lower()
+        if level in valid_levels:
+            return level
+
+    return "medium"  # Default to medium (balanced)
+
+
+def set_safety_permission_level(level: str) -> bool:
+    """
+    Set the safety permission level for shell command validation.
+
+    Args:
+        level: One of "safe", "low", "medium", "high", "critical"
+
+    Returns:
+        bool: True if successfully set, False if invalid level
+    """
+    valid_levels = {"safe", "low", "medium", "high", "critical"}
+    level = level.strip().lower()
+
+    if level not in valid_levels:
+        return False
+
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+
+    if DEFAULT_SECTION not in config:
+        config[DEFAULT_SECTION] = {}
+
+    config[DEFAULT_SECTION]["safety_permission_level"] = level
+
+    with open(CONFIG_FILE, "w") as f:
+        config.write(f)
+
+    return True
+
+
 def get_protected_token_count():
     """
     Returns the user-configured protected token count for message history compaction.

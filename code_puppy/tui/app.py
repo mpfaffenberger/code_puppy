@@ -173,6 +173,18 @@ class CodePuppyTUI(App):
             "Welcome to Code Puppy 🐶!\n💨 YOLO mode is enabled in TUI: commands will execute without confirmation."
         )
 
+        # Display current safety permission level
+        from code_puppy.config import get_safety_permission_level
+
+        safety_level = get_safety_permission_level()
+        self.add_system_message(
+            f"\n🔒 Safety Settings\n"
+            f"Current safety permission level: {safety_level.upper()}\n"
+            f"This controls which commands can run automatically.\n"
+            f"Levels: safe < low < medium < high < critical\n"
+            f"To change: /set safety_permission_level=<level>"
+        )
+
         # Start the message renderer EARLY to catch startup messages
         # Using call_after_refresh to start it as soon as possible after mount
         self.call_after_refresh(self.start_message_renderer_sync)

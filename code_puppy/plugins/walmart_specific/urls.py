@@ -64,3 +64,15 @@ def get_telemetry_url(environment: Environment = Environment.STAGE) -> str:
         raise ValueError(f"Unsupported environment: {environment}")
     # For local development, fall back to localhost
     # return "http://localhost:8080/telemetry/code-generation"
+
+
+def get_safety_validation_url(environment: Environment = Environment.STAGE) -> str:
+    """Get the safety validation endpoint URL for shell command validation."""
+    if environment == Environment.DEV:
+        return "https://puppy-backend.dev.walmart.com/safety/validate-command"
+    elif environment == Environment.STAGE:
+        return "https://puppy-backend.stg.walmart.com/safety/validate-command"
+    elif environment == Environment.PROD:
+        return "https://puppy-backend.walmart.com/safety/validate-command"
+    else:
+        raise ValueError(f"Unsupported environment: {environment}")

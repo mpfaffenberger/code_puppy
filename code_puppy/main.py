@@ -250,6 +250,24 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     help_text = get_commands_help()
     emit_system_message(help_text)
+
+    # Display current safety permission level
+    from code_puppy.config import get_safety_permission_level
+    from code_puppy.messaging import emit_info
+
+    safety_level = get_safety_permission_level()
+    emit_info("")
+    emit_info("[bold yellow]🔒 Safety Settings[/bold yellow]")
+    emit_info(
+        f"Current safety permission level: [bold cyan]{safety_level.upper()}[/bold cyan]"
+    )
+    emit_info("This controls which commands can run automatically.")
+    emit_info("Levels: [dim]safe < low < medium < high < critical[/dim]")
+    emit_info(
+        "To change: [bold green]/set safety_permission_level=<level>[/bold green]"
+    )
+    emit_info("")
+
     try:
         from code_puppy.command_line.motd import print_motd
 
@@ -258,7 +276,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
-    from code_puppy.messaging import emit_info
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
     # Initialize the runtime agent manager
@@ -404,11 +421,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         if task.strip():
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
-            
+
             # Also update our enhanced history manager (for future improvements)
             try:
                 from code_puppy.command_line.history_manager import get_history_manager
-                history_manager = get_history_manager()
+
+                get_history_manager()
                 # Note: save_command_to_history already handles the saving,
                 # this is just to keep our manager in sync if needed
             except Exception:

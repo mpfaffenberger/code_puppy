@@ -37,6 +37,7 @@ All `/` commands are handled in **`code_puppy/command_line/command_handler.py`**
   - `/set yolo_mode=true`
   - `/set puppy_name Snoopy`
   - `/set owner_name="Best Owner"`
+  - `/set safety_permission_level=medium`
 
 As you type `/set`, tab completion pops up with available config keys so you don't have to remember them like a boring human.
 

@@ -8,34 +8,34 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-09-13"
+MOTD_VERSION = "2025-09-14"
 MOTD_MESSAGE = """
-# 🐶🎆🔌 September 13 Flea Flicking 🔌🎆🐶
+# 🛡️ New: Command Safety Validation
 
-- `/mcp install` now works correctly in --interactive mode
-- Fixed a flea where sometimes an orphaned tool call would interrupt an agentic flow
-- Fixed a flea where swapping models was resetting conversation history
-- The list_files tool will now truncate its result after the first 50,000 tokens as well as include a warning message back to the LLM instructing it to non-recursively list
-- The grep tool now truncates each result after the first 512 characters
+Code Puppy now validates shell commands before execution to prevent dangerous operations.
 
-Both of the latter two changes are meant to protect the context from getting overwhelmed
+## Risk Levels
+Commands are categorized into 4 risk levels:
+- **LOW**: Minor risks (file modifications, git operations, etc)
+- **MEDIUM**: Moderate risks (package installs, system config changes, update queries which have a where clause, etc)
+- **HIGH**: Serious risks (recursive deletes, database updates without a where clause, sudo operations, etc)
+- **CRITICAL**: Catastrophic risks (`rm -rf /`, system wipes, fork bombs, drop table/database, etc)
 
-- Added a new tool allowing an agent to invoke a sub-agent
-    - An architect or planner agent could invoke a specialized agent to handle a specific task
-- Added a new tool allowing an agent to list available sub-agent
-    - So that agents know what other agents are available to invoke
-- Increased the speed of the <puppy is thinking> spinner by 100%
-- Added the ability to pin a model to a sub agent
-    - example: `/pin_model java-architect gpt-5`
-    - This will make the java-architect always use gpt-5 even if the global model is set to something else
-    - You will see a prompt that has [global-model → pinned-model] in the prompt when a pinned model is overriding the global one
-        - 🐶 Biscuit [Java Architect ☕] [claude-4-0-sonnet → gpt-5] (~/code/code-puppy) >>>
+## Permission Levels
+Control which commands run automatically:
+- `safe` - Only allow safe commands (minimal risk)
+- `low` - Allow up to LOW risk (small risk of local data loss or corruption)
+- `medium` - Allow up to MEDIUM risk (default)
+- `high` - Allow up to HIGH risk (the agent could cause isolated irreversible damage, tread carefully)
+- `critical` - Allow all commands (Full YOLO mode)
 
-Known fleas:
-- There is a visual flea where MCP servers will assert that they have been successfully launched several times
-- The Code Puppy installer as well as the update will fail in Windows if a Code Puppy is running (even in another command window)
-    - If this happens, close the running copy of Code Puppy and run the installer on https://puppy.walmart.com
-- Gemini 2.5 Pro appears to be broken on the provider side of things (Not fixable in Code Puppy)
+## Adjust Your Safety Level
+```
+/set safety_permission_level=high
+```
+Blocked commands show exit code `-2` and explain why they were stopped.
+
+Your agent will interpret this and adjust accordingly.
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 

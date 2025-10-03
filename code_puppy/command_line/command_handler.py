@@ -216,6 +216,7 @@ def handle_command(command: str):
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
+            get_safety_permission_level,
             get_yolo_mode,
         )
 
@@ -226,6 +227,7 @@ def handle_command(command: str):
         protected_tokens = get_protected_token_count()
         compaction_threshold = get_compaction_threshold()
         compaction_strategy = get_compaction_strategy()
+        safety_level = get_safety_permission_level()
 
         # Get current agent info
         current_agent = get_current_agent()
@@ -237,6 +239,7 @@ def handle_command(command: str):
 [bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
+[bold]safety_permission_level:[/bold] [cyan]{safety_level}[/cyan] (safe < low < medium < high < critical)
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)

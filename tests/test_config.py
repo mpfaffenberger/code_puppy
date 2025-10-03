@@ -477,6 +477,53 @@ class TestGetYoloMode:
         mock_get_value.assert_called_once_with("yolo_mode")
 
 
+class TestSafetyPermissionLevel:
+    @patch("code_puppy.config.get_value")
+    def test_get_safety_permission_level_defaults_to_medium(self, mock_get_value):
+        """Test that safety_permission_level defaults to 'medium'."""
+        mock_get_value.return_value = None
+        assert cp_config.get_safety_permission_level() == "medium"
+
+    @patch("code_puppy.config.get_value")
+    def test_get_safety_permission_level_valid_values(self, mock_get_value):
+        """Test that all valid safety levels are recognized."""
+        for level in ["safe", "low", "medium", "high", "critical"]:
+            mock_get_value.return_value = level
+            assert cp_config.get_safety_permission_level() == level
+
+    @patch("code_puppy.config.get_value")
+    def test_get_safety_permission_level_case_insensitive(self, mock_get_value):
+        """Test that safety level is case-insensitive."""
+        mock_get_value.return_value = "HIGH"
+        assert cp_config.get_safety_permission_level() == "high"
+
+    @patch("code_puppy.config.get_value")
+    def test_get_safety_permission_level_invalid_defaults_to_medium(
+        self, mock_get_value
+    ):
+        """Test that invalid levels default to medium."""
+        mock_get_value.return_value = "invalid_level"
+        assert cp_config.get_safety_permission_level() == "medium"
+
+    @patch("configparser.ConfigParser")
+    @patch("builtins.open", new_callable=mock_open)
+    def test_set_safety_permission_level_valid(self, mock_file, mock_config_parser):
+        """Test setting valid safety permission levels."""
+        mock_config = MagicMock()
+        mock_config.__getitem__ = MagicMock(return_value={})
+        mock_config_parser.return_value = mock_config
+
+        for level in ["safe", "low", "medium", "high", "critical"]:
+            result = cp_config.set_safety_permission_level(level)
+            assert result is True
+
+    def test_set_safety_permission_level_invalid(self):
+        """Test that invalid safety levels return False."""
+        assert cp_config.set_safety_permission_level("invalid") is False
+        assert cp_config.set_safety_permission_level("very_high") is False
+        assert cp_config.set_safety_permission_level("") is False
+
+
 class TestCommandHistory:
     @patch("os.path.isfile")
     @patch("pathlib.Path.touch")
