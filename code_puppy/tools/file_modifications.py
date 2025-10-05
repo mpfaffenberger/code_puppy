@@ -75,7 +75,9 @@ def prompt_for_file_permission(
                 "\n[bold]Preview of changes:[/bold]",
                 message_group=message_group,
             )
-            emit_info(preview, highlight=False, message_group=message_group)
+            # Format the preview diff with the same highlighting as the final diff
+            formatted_preview = _format_diff_with_highlighting(preview)
+            emit_info(formatted_preview, highlight=False, message_group=message_group)
 
         # Set the flag to indicate we're awaiting user input
         set_awaiting_user_input(True)
@@ -146,6 +148,37 @@ class ContentPayload(BaseModel):
 EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
 
 
+def _format_diff_line(line: str) -> str:
+    """Apply diff-specific formatting to a single line."""
+    if line.startswith("+") and not line.startswith("+++"):
+        # Addition line - green with bold
+        return f"[bold green]{line}[/bold green]"
+    elif line.startswith("-") and not line.startswith("---"):
+        # Removal line - red with bold
+        return f"[bold red]{line}[/bold red]"
+    elif line.startswith("@@"):
+        # Hunk info - cyan with bold
+        return f"[bold cyan]{line}[/bold cyan]"
+    elif line.startswith("+++") or line.startswith("---"):
+        # Filename lines in diff - dim white
+        return f"[dim white]{line}[/dim white]"
+    else:
+        # Context lines - no special formatting, just return as-is
+        return line
+
+
+def _format_diff_with_highlighting(diff_text: str) -> str:
+    """Format diff text with proper highlighting for consistent display."""
+    if not diff_text or not diff_text.strip():
+        return "[dim]-- no diff available --[/dim]"
+    
+    formatted_lines = []
+    for line in diff_text.splitlines():
+        formatted_lines.append(_format_diff_line(line))
+    
+    return "\n".join(formatted_lines)
+
+
 def _print_diff(diff_text: str, message_group: str | None = None) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
 
@@ -153,42 +186,10 @@ def _print_diff(diff_text: str, message_group: str | None = None) -> None:
         "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
     )
-    if diff_text and diff_text.strip():
-        for line in diff_text.splitlines():
-            # Git-style diff coloring using markup strings for TUI compatibility
-            if line.startswith("+") and not line.startswith("+++"):
-                # Addition line - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold green]{line}[/bold green]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("-") and not line.startswith("---"):
-                # Removal line - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold red]{line}[/bold red]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("@@"):
-                # Hunk info - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold cyan]{line}[/bold cyan]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("+++") or line.startswith("---"):
-                # Filename lines in diff - use markup string instead of Rich Text
-                emit_info(
-                    f"[dim white]{line}[/dim white]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            else:
-                # Context lines - no special formatting
-                emit_info(line, highlight=False, message_group=message_group)
-    else:
-        emit_info("[dim]-- no diff available --[/dim]", message_group=message_group)
+    
+    formatted_diff = _format_diff_with_highlighting(diff_text)
+    emit_info(formatted_diff, highlight=False, message_group=message_group)
+    
     emit_info(
         "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
