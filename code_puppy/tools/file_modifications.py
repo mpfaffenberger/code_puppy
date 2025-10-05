@@ -13,6 +13,8 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import sys
+import threading
 import traceback
 from typing import Any, Dict, List, Union
 
@@ -20,8 +22,104 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
+from code_puppy.config import get_yolo_mode
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
+
+# Lock for preventing multiple simultaneous permission prompts
+_FILE_CONFIRMATION_LOCK = threading.Lock()
+
+
+def prompt_for_file_permission(
+    file_path: str,
+    operation: str,
+    preview: str | None = None,
+    message_group: str | None = None,
+) -> bool:
+    """
+    Prompt the user for permission to perform a file operation.
+
+    Args:
+        file_path: Path to the file being operated on
+        operation: Description of the operation (e.g., "write to", "delete")
+        preview: Optional diff preview of the changes
+        message_group: Optional message group for UI coordination
+
+    Returns:
+        bool: True if permission is granted, False otherwise
+    """
+
+    # Check if we're in yolo mode
+    from code_puppy.config import get_yolo_mode
+    from code_puppy.tools.command_runner import set_awaiting_user_input
+
+    yolo_mode = get_yolo_mode()
+
+    # Global lock to prevent multiple simultaneous permission prompts
+    global _FILE_CONFIRMATION_LOCK
+    confirmation_lock_acquired = False
+
+    # Only ask for confirmation if we're in an interactive TTY and not in yolo mode
+    if not yolo_mode and sys.stdin.isatty():
+        confirmation_lock_acquired = _FILE_CONFIRMATION_LOCK.acquire(blocking=False)
+        if not confirmation_lock_acquired:
+            emit_warning(
+                "Another file operation is currently awaiting confirmation",
+                message_group=message_group,
+            )
+            return False
+
+        # Show preview if available
+        if preview:
+            emit_info(
+                "\n[bold]Preview of changes:[/bold]",
+                message_group=message_group,
+            )
+            emit_info(preview, highlight=False, message_group=message_group)
+
+        # Set the flag to indicate we're awaiting user input
+        set_awaiting_user_input(True)
+
+        emit_info(
+            f"\n[bold]Are you sure you want to {operation} {file_path}? (y(es) or enter as accept/n(o)) [/bold]",
+            message_group=message_group,
+        )
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+        try:
+            user_input = input()
+            # Empty input (Enter) counts as yes, like shell commands
+            confirmed = user_input.strip().lower() in {"yes", "y", ""}
+        except (KeyboardInterrupt, EOFError):
+            emit_warning("\n Cancelled by user", message_group=message_group)
+            confirmed = False
+        finally:
+            # Clear the flag regardless of the outcome
+            set_awaiting_user_input(False)
+            if confirmation_lock_acquired:
+                _FILE_CONFIRMATION_LOCK.release()
+
+        if not confirmed:
+            emit_info(
+                "[bold red]✗ Permission denied. Operation cancelled.[/bold red]",
+                message_group=message_group,
+            )
+            return False
+        else:
+            emit_info(
+                "[bold green]✓ Permission granted. Proceeding with operation.[/bold green]",
+                message_group=message_group,
+            )
+            return True
+    else:
+        # In yolo mode or non-interactive TTY, automatically grant permission
+        if not yolo_mode and not sys.stdin.isatty():
+            emit_warning(
+                "[yellow]Non-interactive terminal detected - auto-approving file operation[/yellow]",
+                message_group=message_group,
+            )
+        return True
 
 
 class DeleteSnippetPayload(BaseModel):
@@ -48,7 +146,7 @@ class ContentPayload(BaseModel):
 EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
 
 
-def _print_diff(diff_text: str, message_group: str = None) -> None:
+def _print_diff(diff_text: str, message_group: str | None = None) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
 
     emit_info(
@@ -97,8 +195,135 @@ def _print_diff(diff_text: str, message_group: str = None) -> None:
     )
 
 
+def _preview_delete_snippet(file_path: str, snippet: str) -> str | None:
+    """Generate a preview diff for deleting a snippet without modifying the file."""
+    try:
+        file_path = os.path.abspath(file_path)
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return None
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            original = f.read()
+
+        if snippet not in original:
+            return None
+
+        modified = original.replace(snippet, "")
+        diff_text = "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                modified.splitlines(keepends=True),
+                fromfile=f"a/{os.path.basename(file_path)}",
+                tofile=f"b/{os.path.basename(file_path)}",
+                n=3,
+            )
+        )
+        return diff_text
+    except Exception:
+        return None
+
+
+def _preview_write_to_file(
+    file_path: str, content: str, overwrite: bool = False
+) -> str | None:
+    """Generate a preview diff for writing to a file without modifying it."""
+    try:
+        file_path = os.path.abspath(file_path)
+        exists = os.path.exists(file_path)
+
+        if exists and not overwrite:
+            return None
+
+        diff_lines = difflib.unified_diff(
+            [] if not exists else [""],
+            content.splitlines(keepends=True),
+            fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
+            tofile=f"b/{os.path.basename(file_path)}",
+            n=3,
+        )
+        return "".join(diff_lines)
+    except Exception:
+        return None
+
+
+def _preview_replace_in_file(
+    file_path: str, replacements: List[Dict[str, str]]
+) -> str | None:
+    """Generate a preview diff for replacing text in a file without modifying it."""
+    try:
+        file_path = os.path.abspath(file_path)
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            original = f.read()
+
+        modified = original
+        for rep in replacements:
+            old_snippet = rep.get("old_str", "")
+            new_snippet = rep.get("new_str", "")
+
+            if old_snippet and old_snippet in modified:
+                modified = modified.replace(old_snippet, new_snippet)
+                continue
+
+            # Use the same logic as _replace_in_file for fuzzy matching
+            orig_lines = modified.splitlines()
+            loc, score = _find_best_window(orig_lines, old_snippet)
+
+            if score < 0.95 or loc is None:
+                return None
+
+            start, end = loc
+            modified = (
+                "\n".join(orig_lines[:start])
+                + "\n"
+                + new_snippet.rstrip("\n")
+                + "\n"
+                + "\n".join(orig_lines[end:])
+            )
+
+        if modified == original:
+            return None
+
+        diff_text = "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                modified.splitlines(keepends=True),
+                fromfile=f"a/{os.path.basename(file_path)}",
+                tofile=f"b/{os.path.basename(file_path)}",
+                n=3,
+            )
+        )
+        return diff_text
+    except Exception:
+        return None
+
+
+def _preview_delete_file(file_path: str) -> str | None:
+    """Generate a preview diff for deleting a file without modifying it."""
+    try:
+        file_path = os.path.abspath(file_path)
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return None
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            original = f.read()
+
+        diff_text = "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                [],
+                fromfile=f"a/{os.path.basename(file_path)}",
+                tofile=f"b/{os.path.basename(file_path)}",
+                n=3,
+            )
+        )
+        return diff_text
+    except Exception:
+        return None
+
+
 def _log_error(
-    msg: str, exc: Exception | None = None, message_group: str = None
+    msg: str, exc: Exception | None = None, message_group: str | None = None
 ) -> None:
     emit_error(f"{msg}", message_group=message_group)
     if exc is not None:
@@ -106,7 +331,10 @@ def _log_error(
 
 
 def _delete_snippet_from_file(
-    context: RunContext | None, file_path: str, snippet: str, message_group: str = None
+    context: RunContext | None,
+    file_path: str,
+    snippet: str,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
     diff_text = ""
@@ -147,7 +375,7 @@ def _replace_in_file(
     context: RunContext | None,
     path: str,
     replacements: List[Dict[str, str]],
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
@@ -222,7 +450,7 @@ def _write_to_file(
     path: str,
     content: str,
     overwrite: bool = False,
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(path)
 
@@ -265,12 +493,33 @@ def _write_to_file(
 
 
 def delete_snippet_from_file(
-    context: RunContext, file_path: str, snippet: str, message_group: str = None
+    context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     emit_info(
         f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]",
         message_group=message_group,
     )
+
+    # Check for permission if not in yolo mode
+    if not get_yolo_mode():
+        # Generate preview diff without modifying the file
+        preview_diff = _preview_delete_snippet(file_path, snippet)
+        if preview_diff is None:
+            return {
+                "error": f"Failed to generate preview for deleting snippet from '{file_path}'",
+                "changed": False,
+            }
+
+        if not prompt_for_file_permission(
+            file_path, "delete snippet from", preview_diff, message_group
+        ):
+            return {
+                "success": False,
+                "path": file_path,
+                "message": "Operation cancelled by user",
+                "changed": False,
+            }
+
     res = _delete_snippet_from_file(
         context, file_path, snippet, message_group=message_group
     )
@@ -285,11 +534,30 @@ def write_to_file(
     path: str,
     content: str,
     overwrite: bool,
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     emit_info(
         f"✏️ Writing file [bold blue]{path}[/bold blue]", message_group=message_group
     )
+
+    # Check for permission if not in yolo mode
+    if not get_yolo_mode():
+        # Generate preview diff without modifying the file
+        preview_diff = _preview_write_to_file(path, content, overwrite)
+        if preview_diff is None:
+            return {
+                "error": f"Failed to generate preview for writing to '{path}'",
+                "changed": False,
+            }
+
+        if not prompt_for_file_permission(path, "write", preview_diff, message_group):
+            return {
+                "success": False,
+                "path": path,
+                "message": "Operation cancelled by user",
+                "changed": False,
+            }
+
     res = _write_to_file(
         context, path, content, overwrite=overwrite, message_group=message_group
     )
@@ -303,12 +571,33 @@ def replace_in_file(
     context: RunContext,
     path: str,
     replacements: List[Dict[str, str]],
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     emit_info(
         f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]",
         message_group=message_group,
     )
+
+    # Check for permission if not in yolo mode
+    if not get_yolo_mode():
+        # Generate preview diff without modifying the file
+        preview_diff = _preview_replace_in_file(path, replacements)
+        if preview_diff is None:
+            return {
+                "error": f"Failed to generate preview for replacing text in '{path}'",
+                "changed": False,
+            }
+
+        if not prompt_for_file_permission(
+            path, "replace text in", preview_diff, message_group
+        ):
+            return {
+                "success": False,
+                "path": path,
+                "message": "Operation cancelled by user",
+                "changed": False,
+            }
+
     res = _replace_in_file(context, path, replacements, message_group=message_group)
     diff = res.get("diff", "")
     if diff:
@@ -317,7 +606,7 @@ def replace_in_file(
 
 
 def _edit_file(
-    context: RunContext, payload: EditFilePayload, group_id: str = None
+    context: RunContext, payload: EditFilePayload, group_id: str | None = None
 ) -> Dict[str, Any]:
     """
     High-level implementation of the *edit_file* behaviour.
@@ -411,12 +700,33 @@ def _edit_file(
 
 
 def _delete_file(
-    context: RunContext, file_path: str, message_group: str = None
+    context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     emit_info(
         f"🗑️ Deleting file [bold red]{file_path}[/bold red]", message_group=message_group
     )
     file_path = os.path.abspath(file_path)
+
+    # Check for permission if not in yolo mode
+    if not get_yolo_mode():
+        # Generate preview diff without modifying the file
+        preview_diff = _preview_delete_file(file_path)
+        if preview_diff is None:
+            return {
+                "error": f"Failed to generate preview for deleting '{file_path}'",
+                "changed": False,
+            }
+
+        if not prompt_for_file_permission(
+            file_path, "delete", preview_diff, message_group
+        ):
+            return {
+                "success": False,
+                "path": file_path,
+                "message": "Operation cancelled by user",
+                "changed": False,
+            }
+
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
@@ -546,17 +856,17 @@ def register_edit_file(agent):
         if isinstance(payload, str):
             try:
                 # Fallback for weird models that just can't help but send json strings...
-                payload = json.loads(json_repair.repair_json(payload))
-                if "replacements" in payload:
-                    payload = ReplacementsPayload(**payload)
-                elif "delete_snippet" in payload:
-                    payload = DeleteSnippetPayload(**payload)
-                elif "content" in payload:
-                    payload = ContentPayload(**payload)
+                payload_dict = json.loads(json_repair.repair_json(payload))
+                if "replacements" in payload_dict:
+                    payload = ReplacementsPayload(**payload_dict)
+                elif "delete_snippet" in payload_dict:
+                    payload = DeleteSnippetPayload(**payload_dict)
+                elif "content" in payload_dict:
+                    payload = ContentPayload(**payload_dict)
                 else:
                     file_path = "Unknown"
-                    if "file_path" in payload:
-                        file_path = payload["file_path"]
+                    if "file_path" in payload_dict:
+                        file_path = payload_dict["file_path"]
                     return {
                         "success": False,
                         "path": file_path,
