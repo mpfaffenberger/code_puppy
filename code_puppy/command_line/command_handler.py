@@ -11,6 +11,9 @@ def get_commands_help():
     """Generate commands help using Rich Text objects to avoid markup conflicts."""
     from rich.text import Text
 
+    # Ensure plugins are loaded so custom help can register
+    _ensure_plugins_loaded()
+
     # Build help text programmatically
     help_lines = []
 
@@ -90,6 +93,33 @@ def get_commands_help():
         + Text("            Show unknown command warning")
     )
 
+    # Add custom commands from plugins (if any)
+    try:
+        from code_puppy import callbacks
+
+        custom_help_results = callbacks.on_custom_command_help()
+        # Flatten various returns into a list of (name, description)
+        custom_entries = []
+        for res in custom_help_results:
+            if not res:
+                continue
+            if isinstance(res, tuple) and len(res) == 2:
+                custom_entries.append(res)
+            elif isinstance(res, list):
+                for item in res:
+                    if isinstance(item, tuple) and len(item) == 2:
+                        custom_entries.append(item)
+        if custom_entries:
+            help_lines.append(Text("\n", style="dim"))
+            help_lines.append(Text("Custom Commands", style="bold magenta"))
+            for name, desc in custom_entries:
+                help_lines.append(
+                    Text(f"/{name}", style="cyan") + Text(f"  {desc}")
+                )
+    except Exception:
+        # If callbacks fail, skip custom help silently
+        pass
+
     # Combine all lines
     final_text = Text()
     for i, line in enumerate(help_lines):
@@ -100,8 +130,32 @@ def get_commands_help():
     return final_text
 
 
+_PLUGINS_LOADED = False
+
+
+def _ensure_plugins_loaded() -> None:
+    global _PLUGINS_LOADED
+    if _PLUGINS_LOADED:
+        return
+    try:
+        from code_puppy import plugins
+
+        plugins.load_plugin_callbacks()
+        _PLUGINS_LOADED = True
+    except Exception as e:
+        # If plugins fail to load, continue gracefully but note it
+        try:
+            from code_puppy.messaging import emit_warning
+
+            emit_warning(f"Plugin load error: {e}")
+        except Exception:
+            pass
+        _PLUGINS_LOADED = True
+
+
 def handle_command(command: str):
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    _ensure_plugins_loaded()
 
     """
     Handle commands prefixed with '/'.
@@ -400,6 +454,8 @@ def handle_command(command: str):
 
         handler = MCPCommandHandler()
         return handler.handle_mcp_command(command)
+
+    # Built-in help
     if command in ("/help", "/h"):
         import uuid
 
@@ -705,8 +761,30 @@ def handle_command(command: str):
         # Signal to the main app that we want to exit
         # The actual exit handling is done in main.py
         return True
+
+    # Try plugin-provided custom commands before unknown warning
     if command.startswith("/"):
+        # Extract command name without leading slash and arguments intact
         name = command[1:].split()[0] if len(command) > 1 else ""
+        try:
+            from code_puppy import callbacks
+
+            results = callbacks.on_custom_command(command=command, name=name)
+            # Iterate through callback results; treat str as handled (no model run)
+            for res in results:
+                if res is True:
+                    return True
+                if isinstance(res, str):
+                    # Display returned text to the user and treat as handled
+                    try:
+                        emit_info(res)
+                    except Exception:
+                        pass
+                    return True
+        except Exception as e:
+            # Log via emit_error but do not block default handling
+            emit_warning(f"Custom command hook error: {e}")
+
         if name:
             emit_warning(
                 f"Unknown command: {command}\n[dim]Type /help for options.[/dim]"

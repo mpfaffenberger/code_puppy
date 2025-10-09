@@ -15,6 +15,8 @@ PhaseType = Literal[
     "load_model_config",
     "load_prompt",
     "agent_reload",
+    "custom_command",
+    "custom_command_help",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -30,6 +32,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "load_model_config": [],
     "load_prompt": [],
     "agent_reload": [],
+    "custom_command": [],
+    "custom_command_help": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -174,3 +178,31 @@ def on_agent_reload(*args, **kwargs) -> Any:
 
 def on_load_prompt():
     return _trigger_callbacks_sync("load_prompt")
+
+
+def on_custom_command_help() -> List[Any]:
+    """Collect custom command help entries from plugins.
+
+    Each callback should return a list of tuples [(name, description), ...]
+    or a single tuple, or None. We'll flatten and sanitize results.
+    """
+    return _trigger_callbacks_sync("custom_command_help")
+
+
+def on_custom_command(command: str, name: str) -> List[Any]:
+    """Trigger custom command callbacks.
+
+    This allows plugins to register handlers for slash commands
+    that are not built into the core command handler.
+
+    Args:
+        command: The full command string (e.g., "/foo bar baz").
+        name: The primary command name without the leading slash (e.g., "foo").
+
+    Returns:
+        Implementations may return:
+        - True if the command was handled (and no further action is needed)
+        - A string to be processed as user input by the caller
+        - None to indicate not handled
+    """
+    return _trigger_callbacks_sync("custom_command", command, name)
