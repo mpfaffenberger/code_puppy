@@ -3,6 +3,7 @@ Base spinner implementation to be extended for different UI modes.
 """
 
 from abc import ABC, abstractmethod
+from threading import Lock
 
 from code_puppy.config import get_puppy_name
 
@@ -32,6 +33,9 @@ class SpinnerBase(ABC):
 
     # Current message - starts with thinking by default
     MESSAGE = THINKING_MESSAGE
+
+    _context_info: str = ""
+    _context_lock: Lock = Lock()
 
     def __init__(self):
         """Initialize the spinner."""
@@ -64,3 +68,30 @@ class SpinnerBase(ABC):
     def is_spinning(self):
         """Check if the spinner is currently spinning."""
         return self._is_spinning
+
+    @classmethod
+    def set_context_info(cls, info: str) -> None:
+        """Set shared context information displayed beside the spinner."""
+        with cls._context_lock:
+            cls._context_info = info
+
+    @classmethod
+    def clear_context_info(cls) -> None:
+        """Clear any context information displayed beside the spinner."""
+        cls.set_context_info("")
+
+    @classmethod
+    def get_context_info(cls) -> str:
+        """Return the current spinner context information."""
+        with cls._context_lock:
+            return cls._context_info
+
+    @staticmethod
+    def format_context_info(total_tokens: int, capacity: int, proportion: float) -> str:
+        """Create a concise context summary for spinner display."""
+        if capacity <= 0:
+            return ""
+        proportion_pct = proportion * 100
+        return (
+            f"Tokens: {total_tokens:,}/{capacity:,} ({proportion_pct:.1f}% used)"
+        )
