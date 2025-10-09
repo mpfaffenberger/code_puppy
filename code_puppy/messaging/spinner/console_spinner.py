@@ -103,6 +103,11 @@ class ConsoleSpinner(SpinnerBase):
 
         text.append(self.current_frame, style="bold cyan")
 
+        context_info = SpinnerBase.get_context_info()
+        if context_info:
+            text.append(" ")
+            text.append(context_info, style="bold white")
+
         # Return a simple Text object instead of a Panel for a cleaner look
         return text
 
