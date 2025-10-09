@@ -31,6 +31,12 @@ from .round_robin_model import RoundRobinModel
 #   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
 
 
+class ZaiChatModel(OpenAIChatModel):
+    def _process_response(self, response):
+        response.object = 'chat.completion'
+        return super()._process_response(response)
+
+
 def get_custom_config(model_config):
     custom_config = model_config.get("custom_endpoint", {})
     if not custom_config:
@@ -51,8 +57,23 @@ def get_custom_config(model_config):
                     f"Please set the environment variable: export {env_var_name}=your_value"
                 )
             value = resolved_value
+        elif "$" in value:
+            tokens = value.split(" ")
+            resolved_values = []
+            for token in tokens:
+                if token.startswith("$"):
+                    env_var = token[1:]
+                    resolved_value = os.environ.get(env_var)
+                    if resolved_value is None:
+                        raise ValueError(
+                            f"Environment variable '{env_var}' is required for custom endpoint headers but is not set. "
+                            f"Please set the environment variable: export {env_var}=your_value"
+                        )
+                    resolved_values.append(resolved_value)
+                else:
+                    resolved_values.append(token)
+            value = " ".join(resolved_values)
         headers[key] = value
-
     api_key = None
     if "api_key" in custom_config:
         if custom_config["api_key"].startswith("$"):
@@ -223,7 +244,24 @@ class ModelFactory:
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
-
+        elif model_type == "zai_coding":
+            zai_model = ZaiChatModel(
+                model_name=model_config["name"],
+                provider=OpenAIProvider(
+                    api_key=os.getenv('ZAI_API_KEY'),
+                    base_url='https://api.z.ai/api/coding/paas/v4'
+                )
+            )
+            return zai_model
+        elif model_type == "zai_api":
+            zai_model = ZaiChatModel(
+                model_name=model_config["name"],
+                provider=OpenAIProvider(
+                    api_key=os.getenv('ZAI_API_KEY'),
+                    base_url='https://api.z.ai/api/paas/v4/'
+                )
+            )
+            return zai_model
         elif model_type == "custom_gemini":
             url, headers, verify, api_key = get_custom_config(model_config)
             os.environ["GEMINI_API_KEY"] = api_key

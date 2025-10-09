@@ -44,6 +44,16 @@ def resume_all_spinners():
             pass
 
 
+def update_spinner_context(info: str) -> None:
+    """Update the shared context information displayed beside active spinners."""
+    SpinnerBase.set_context_info(info)
+
+
+def clear_spinner_context() -> None:
+    """Clear any context information displayed beside active spinners."""
+    SpinnerBase.clear_context_info()
+
+
 __all__ = [
     "SpinnerBase",
     "TextualSpinner",
@@ -52,4 +62,6 @@ __all__ = [
     "unregister_spinner",
     "pause_all_spinners",
     "resume_all_spinners",
+    "update_spinner_context",
+    "clear_spinner_context",
 ]
