@@ -42,6 +42,10 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
+from code_puppy.messaging.spinner import (
+    SpinnerBase,
+    update_spinner_context,
+)
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.common import console
@@ -527,6 +531,11 @@ class BaseAgent(ABC):
         # Check if we're in TUI mode and can update the status bar
         from code_puppy.tui_state import get_tui_app_instance, is_tui_mode
 
+        context_summary = SpinnerBase.format_context_info(
+            total_current_tokens, model_max, proportion_used
+        )
+        update_spinner_context(context_summary)
+
         if is_tui_mode():
             tui_app = get_tui_app_instance()
             if tui_app:
@@ -538,22 +547,11 @@ class BaseAgent(ABC):
                     )
                 except Exception as e:
                     emit_error(e)
-                    # Fallback to chat message if status bar update fails
-                    emit_info(
-                        f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
-                        message_group="token_context_status",
-                    )
             else:
-                # Fallback if no TUI app instance
                 emit_info(
-                    f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n",
+                    f"Final token count after processing: {total_current_tokens}",
                     message_group="token_context_status",
                 )
-        else:
-            # Non-TUI mode - emit to console as before
-            emit_info(
-                f"\n[bold white on blue] Tokens in context: {total_current_tokens}, total model capacity: {model_max}, proportion used: {proportion_used:.2f} [/bold white on blue] \n"
-            )
         # Get the configured compaction threshold
         compaction_threshold = get_compaction_threshold()
 
@@ -578,6 +576,11 @@ class BaseAgent(ABC):
                 self.estimate_tokens_for_message(msg) for msg in result_messages
             )
             # Update status bar with final token count if in TUI mode
+            final_summary = SpinnerBase.format_context_info(
+                final_token_count, model_max, final_token_count / model_max
+            )
+            update_spinner_context(final_summary)
+
             if is_tui_mode():
                 tui_app = get_tui_app_instance()
                 if tui_app:
@@ -596,8 +599,6 @@ class BaseAgent(ABC):
                         f"Final token count after processing: {final_token_count}",
                         message_group="token_context_status",
                     )
-            else:
-                emit_info(f"Final token count after processing: {final_token_count}")
             self.set_message_history(result_messages)
             for m in summarized_messages:
                 self.add_compacted_message_hash(self.hash_message(m))
