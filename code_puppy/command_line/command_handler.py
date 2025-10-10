@@ -43,6 +43,10 @@ def get_commands_help():
         Text("/model, /m", style="cyan") + Text(" <model>   Set active model")
     )
     help_lines.append(
+        Text("/reasoning", style="cyan")
+        + Text(" <low|medium|high>  Set OpenAI reasoning effort for GPT-5 models")
+    )
+    help_lines.append(
         Text("/pin_model", style="cyan")
         + Text(" <agent> <model>  Pin a specific model to an agent")
     )
@@ -267,6 +271,7 @@ def handle_command(command: str):
         from code_puppy.config import (
             get_compaction_strategy,
             get_compaction_threshold,
+            get_openai_reasoning_effort,
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
@@ -294,9 +299,38 @@ def handle_command(command: str):
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
+[bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
 
 """
         emit_info(status_msg)
+        return True
+
+    if command.startswith("/reasoning"):
+        tokens = command.split()
+        if len(tokens) != 2:
+            emit_warning("Usage: /reasoning <low|medium|high>")
+            return True
+
+        effort = tokens[1]
+        try:
+            from code_puppy.config import set_openai_reasoning_effort
+
+            set_openai_reasoning_effort(effort)
+        except ValueError as exc:
+            emit_error(str(exc))
+            return True
+
+        from code_puppy.config import get_openai_reasoning_effort
+
+        normalized_effort = get_openai_reasoning_effort()
+
+        from code_puppy.agents.agent_manager import get_current_agent
+
+        agent = get_current_agent()
+        agent.reload_code_generation_agent()
+        emit_success(
+            f"Reasoning effort set to '{normalized_effort}' and active agent reloaded"
+        )
         return True
 
     if command.startswith("/set"):
