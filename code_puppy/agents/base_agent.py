@@ -829,7 +829,7 @@ class BaseAgent(ABC):
 
         model_settings: ModelSettings = ModelSettings(**model_settings_dict)
         if "gpt-5" in model_name:
-            model_settings_dict["openai_reasoning_effort"] = "off"
+            model_settings_dict["openai_reasoning_effort"] = "medium"
             model_settings_dict["extra_body"] = {"verbosity": "low"}
             model_settings = OpenAIModelSettings(**model_settings_dict)
 
