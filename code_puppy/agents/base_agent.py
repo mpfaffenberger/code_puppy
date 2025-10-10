@@ -32,6 +32,7 @@ from code_puppy.config import (
     get_compaction_threshold,
     get_global_model_name,
     get_message_limit,
+    get_openai_reasoning_effort,
     get_protected_token_count,
     get_value,
     load_mcp_server_configs,
@@ -827,7 +828,9 @@ class BaseAgent(ABC):
 
         model_settings: ModelSettings = ModelSettings(**model_settings_dict)
         if "gpt-5" in model_name:
-            model_settings_dict["openai_reasoning_effort"] = "medium"
+            model_settings_dict["openai_reasoning_effort"] = (
+                get_openai_reasoning_effort()
+            )
             model_settings_dict["extra_body"] = {"verbosity": "low"}
             model_settings = OpenAIModelSettings(**model_settings_dict)
 
