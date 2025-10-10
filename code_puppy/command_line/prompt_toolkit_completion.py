@@ -14,6 +14,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, merge_completers
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.filters import is_searching
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
@@ -207,12 +208,9 @@ async def get_input_with_combined_completion(
         event.app.current_buffer.insert_text("\n")
 
     # Override the default enter behavior to check for shift
-    @bindings.add("enter")
+    @bindings.add("enter", filter=~is_searching)
     def _(event):
-        """Accept input or insert newline depending on shift key."""
-        # Check if shift is pressed - this comes from key press event data
-        # Using a key sequence like Alt+Enter is more reliable than detecting shift
-        # So we'll use the default behavior for Enter
+        """Accept input only when we're not in an interactive search buffer."""
         event.current_buffer.validate_and_handle()
 
     @bindings.add(Keys.Escape)
