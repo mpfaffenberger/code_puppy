@@ -7,7 +7,6 @@
 # YELLOW = '\033[1;33m'
 # BOLD = '\033[1m'
 import asyncio
-import atexit
 import os
 from typing import Optional
 
@@ -15,7 +14,6 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, merge_completers
 from prompt_toolkit.filters import is_searching
 from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
@@ -188,21 +186,20 @@ async def get_input_with_combined_completion(
     # Use our enhanced history manager for better up/down arrow support
     history = None
     if history_file:
-        from .history_manager import create_prompt_toolkit_history_file
+        from prompt_toolkit.history import InMemoryHistory
 
-        # Create a prompt_toolkit compatible history file
-        temp_history_file = create_prompt_toolkit_history_file()
-        if temp_history_file:
-            history = FileHistory(temp_history_file)
-            # Schedule cleanup of temp file
-            atexit.register(
-                lambda: os.unlink(temp_history_file)
-                if os.path.exists(temp_history_file)
-                else None
-            )
-        else:
-            # Fallback to original method if history processing fails
-            history = FileHistory(history_file)
+        from .history_manager import get_history_manager
+
+        # Load history into InMemoryHistory for each prompt
+        # This ensures we always have the latest history including commands from this session
+        history_manager = get_history_manager()
+        commands = history_manager.get_commands_for_prompt_toolkit()
+
+        if commands:
+            history = InMemoryHistory()
+            for command in commands:
+                # Add each command to the in-memory history
+                history.append_string(command)
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),

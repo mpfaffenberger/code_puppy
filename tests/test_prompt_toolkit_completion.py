@@ -451,28 +451,40 @@ async def test_get_input_with_combined_completion_defaults(
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
 @patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
-@patch("code_puppy.command_line.history_manager.create_prompt_toolkit_history_file")
+@patch("code_puppy.command_line.history_manager.get_history_manager")
 async def test_get_input_with_combined_completion_with_history(
-    mock_create_history, mock_update_model, mock_file_history, mock_prompt_session_cls
+    mock_get_history_manager,
+    mock_update_model,
+    mock_file_history,
+    mock_prompt_session_cls,
 ):
+    from prompt_toolkit.history import InMemoryHistory
+
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="input with history")
     mock_prompt_session_cls.return_value = mock_session_instance
     mock_update_model.return_value = "processed history input"
-    mock_history_instance = MagicMock()
-    mock_file_history.return_value = mock_history_instance
-    
-    # Mock the history manager to return a temp file
-    temp_history_path = "/tmp/test_history.txt"
-    mock_create_history.return_value = temp_history_path
+
+    # Mock the history manager to return commands
+    mock_history_manager = MagicMock()
+    mock_history_manager.get_commands_for_prompt_toolkit.return_value = [
+        "previous command 1",
+        "previous command 2",
+        "previous command 3",
+    ]
+    mock_get_history_manager.return_value = mock_history_manager
 
     history_path = "~/.my_test_history"
     result = await get_input_with_combined_completion(history_file=history_path)
 
-    # Verify that we created a processed history file and used it
-    mock_create_history.assert_called_once()
-    mock_file_history.assert_called_once_with(temp_history_path)
-    assert mock_prompt_session_cls.call_args[1]["history"] == mock_history_instance
+    # Verify that we used the history manager
+    mock_get_history_manager.assert_called_once()
+    mock_history_manager.get_commands_for_prompt_toolkit.assert_called_once()
+
+    # Verify InMemoryHistory was created and used
+    assert mock_prompt_session_cls.call_args[1]["history"] is not None
+    assert isinstance(mock_prompt_session_cls.call_args[1]["history"], InMemoryHistory)
+
     mock_update_model.assert_called_once_with("input with history")
     assert result == "processed history input"
 
@@ -481,28 +493,35 @@ async def test_get_input_with_combined_completion_with_history(
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
 @patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
-@patch("code_puppy.command_line.history_manager.create_prompt_toolkit_history_file")
+@patch("code_puppy.command_line.history_manager.get_history_manager")
 async def test_get_input_with_combined_completion_empty_history(
-    mock_create_history, mock_update_model, mock_file_history, mock_prompt_session_cls
+    mock_get_history_manager,
+    mock_update_model,
+    mock_file_history,
+    mock_prompt_session_cls,
 ):
-    """Test that we fallback to original file when history manager returns None."""
+    """Test that we handle empty history gracefully (no history to load)."""
     mock_session_instance = MagicMock()
-    mock_session_instance.prompt_async = AsyncMock(return_value="input with empty history")
+    mock_session_instance.prompt_async = AsyncMock(
+        return_value="input with empty history"
+    )
     mock_prompt_session_cls.return_value = mock_session_instance
     mock_update_model.return_value = "processed empty history input"
-    mock_history_instance = MagicMock()
-    mock_file_history.return_value = mock_history_instance
-    
-    # Mock the history manager to return None (no history)
-    mock_create_history.return_value = None
+
+    # Mock the history manager to return empty list (no history)
+    mock_history_manager = MagicMock()
+    mock_history_manager.get_commands_for_prompt_toolkit.return_value = []
+    mock_get_history_manager.return_value = mock_history_manager
 
     history_path = "~/.my_test_history"
     result = await get_input_with_combined_completion(history_file=history_path)
 
-    # Verify that we fell back to the original file
-    mock_create_history.assert_called_once()
-    mock_file_history.assert_called_once_with(history_path)
-    assert mock_prompt_session_cls.call_args[1]["history"] == mock_history_instance
+    # Verify that we checked for history
+    mock_get_history_manager.assert_called_once()
+    mock_history_manager.get_commands_for_prompt_toolkit.assert_called_once()
+
+    # History should be None when no commands
+    assert mock_prompt_session_cls.call_args[1]["history"] is None
     mock_update_model.assert_called_once_with("input with empty history")
     assert result == "processed empty history input"
 
