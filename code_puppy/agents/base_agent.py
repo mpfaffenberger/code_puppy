@@ -22,7 +22,7 @@ from pydantic_ai.messages import (
     ToolReturn,
     ToolReturnPart,
 )
-from pydantic_ai.models.openai import OpenAIModelSettings
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.settings import ModelSettings
 
 # Consolidated relative imports
@@ -835,7 +835,7 @@ class BaseAgent(ABC):
                 get_openai_reasoning_effort()
             )
             model_settings_dict["extra_body"] = {"verbosity": "low"}
-            model_settings = OpenAIModelSettings(**model_settings_dict)
+            model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
         self.cur_model = model
         p_agent = PydanticAgent(
