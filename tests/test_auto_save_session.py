@@ -1,9 +1,12 @@
 import os
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from code_puppy import config as cp_config
+from code_puppy.session_storage import SessionMetadata
 
 
 @pytest.fixture
@@ -12,20 +15,29 @@ def mock_config_paths(monkeypatch):
     mock_config_dir = os.path.join(mock_home, ".code_puppy")
     mock_config_file = os.path.join(mock_config_dir, "puppy.cfg")
     mock_contexts_dir = os.path.join(mock_config_dir, "contexts")
+    mock_autosave_dir = os.path.join(mock_config_dir, "autosaves")
 
     monkeypatch.setattr(cp_config, "CONFIG_DIR", mock_config_dir)
     monkeypatch.setattr(cp_config, "CONFIG_FILE", mock_config_file)
-    # Create a safe expanduser function that doesn't recurse
+    monkeypatch.setattr(cp_config, "CONTEXTS_DIR", mock_contexts_dir)
+    monkeypatch.setattr(cp_config, "AUTOSAVE_DIR", mock_autosave_dir)
+
     original_expanduser = os.path.expanduser
+
     def mock_expanduser(path):
         if path == "~":
             return mock_home
-        elif path.startswith("~" + os.sep):
+        if path.startswith("~" + os.sep):
             return mock_home + path[1:]
-        else:
-            return original_expanduser(path)
+        return original_expanduser(path)
+
     monkeypatch.setattr(os.path, "expanduser", mock_expanduser)
-    return mock_config_dir, mock_config_file, mock_contexts_dir
+    return SimpleNamespace(
+        config_dir=mock_config_dir,
+        config_file=mock_config_file,
+        contexts_dir=mock_contexts_dir,
+        autosave_dir=mock_autosave_dir,
+    )
 
 
 class TestAutoSaveSession:
@@ -117,6 +129,59 @@ class TestAutoSaveSessionFunctionality:
         assert result is False
         mock_get_auto_save.assert_called_once()
 
+    @patch("code_puppy.config._cleanup_old_sessions")
+    @patch("code_puppy.config.save_session")
+    @patch("code_puppy.config.datetime")
+    @patch("code_puppy.config.get_auto_save_session")
+    @patch("code_puppy.agents.agent_manager.get_current_agent")
+    @patch("rich.console.Console")
+    def test_auto_save_session_if_enabled_success(
+        self,
+        mock_console_class,
+        mock_get_agent,
+        mock_get_auto_save,
+        mock_datetime,
+        mock_save_session,
+        mock_cleanup,
+        mock_config_paths,
+    ):
+        mock_get_auto_save.return_value = True
+
+        history = ["hey", "listen"]
+        mock_agent = MagicMock()
+        mock_agent.get_message_history.return_value = history
+        mock_agent.estimate_tokens_for_message.return_value = 3
+        mock_get_agent.return_value = mock_agent
+
+        fake_now = MagicMock()
+        fake_now.strftime.return_value = "20240101_010101"
+        fake_now.isoformat.return_value = "2024-01-01T01:01:01"
+        mock_datetime.datetime.now.return_value = fake_now
+
+        metadata = SessionMetadata(
+            session_name="auto_session_20240101_010101",
+            timestamp="2024-01-01T01:01:01",
+            message_count=len(history),
+            total_tokens=6,
+            pickle_path=Path(mock_config_paths.autosave_dir) / "auto_session_20240101_010101.pkl",
+            metadata_path=Path(mock_config_paths.autosave_dir)
+            / "auto_session_20240101_010101_meta.json",
+        )
+        mock_save_session.return_value = metadata
+
+        mock_console = MagicMock()
+        mock_console_class.return_value = mock_console
+
+        result = cp_config.auto_save_session_if_enabled()
+
+        assert result is True
+        mock_save_session.assert_called_once()
+        kwargs = mock_save_session.call_args.kwargs
+        assert kwargs["base_dir"] == Path(mock_config_paths.autosave_dir)
+        assert kwargs["session_name"] == "auto_session_20240101_010101"
+        mock_cleanup.assert_called_once()
+        mock_console.print.assert_called_once()
+
     @patch("code_puppy.config.get_auto_save_session")
     @patch("code_puppy.agents.agent_manager.get_current_agent")
     @patch("rich.console.Console")
@@ -137,9 +202,48 @@ class TestAutoSaveSessionFunctionality:
 
 
 class TestCleanupOldSessions:
+    @patch("code_puppy.config.cleanup_sessions")
     @patch("code_puppy.config.get_max_saved_sessions")
-    def test_cleanup_old_sessions_unlimited(self, mock_get_max_sessions, mock_config_paths):
-        mock_get_max_sessions.return_value = 0  # 0 means unlimited
-        # Should not attempt cleanup when unlimited
+    def test_cleanup_old_sessions_unlimited(
+        self, mock_get_max_sessions, mock_cleanup, mock_config_paths
+    ):
+        mock_get_max_sessions.return_value = 0
+
         cp_config._cleanup_old_sessions()
+
         mock_get_max_sessions.assert_called_once()
+        mock_cleanup.assert_not_called()
+
+    @patch("code_puppy.config.cleanup_sessions")
+    @patch("code_puppy.config.get_max_saved_sessions")
+    def test_cleanup_old_sessions_no_removed(
+        self, mock_get_max_sessions, mock_cleanup, mock_config_paths
+    ):
+        mock_get_max_sessions.return_value = 5
+        mock_cleanup.return_value = []
+
+        with patch("rich.console.Console") as mock_console_class:
+            cp_config._cleanup_old_sessions()
+            mock_console_class.assert_not_called()
+
+        mock_cleanup.assert_called_once_with(Path(cp_config.AUTOSAVE_DIR), 5)
+
+    @patch("code_puppy.config.cleanup_sessions")
+    @patch("code_puppy.config.get_max_saved_sessions")
+    def test_cleanup_old_sessions_removed(
+        self, mock_get_max_sessions, mock_cleanup, mock_config_paths
+    ):
+        mock_get_max_sessions.return_value = 3
+        mock_cleanup.return_value = ["session_a", "session_b"]
+
+        with patch("rich.console.Console") as mock_console_class:
+            mock_console = MagicMock()
+            mock_console_class.return_value = mock_console
+
+            cp_config._cleanup_old_sessions()
+
+            assert mock_console.print.call_count == 2
+            mock_console.print.assert_any_call("[dim]🗑️  Removed old session: session_a.pkl[/dim]")
+            mock_console.print.assert_any_call("[dim]🗑️  Removed old session: session_b.pkl[/dim]")
+
+        mock_cleanup.assert_called_once_with(Path(cp_config.AUTOSAVE_DIR), 3)

@@ -279,12 +279,15 @@ class TestGetConfigKeys:
         assert keys == sorted(
             [
                 "allow_recursion",
+                "auto_save_session",
                 "compaction_strategy",
                 "compaction_threshold",
                 "key1",
                 "key2",
+                "max_saved_sessions",
                 "message_limit",
                 "model",
+                "openai_reasoning_effort",
                 "protected_token_count",
                 "yolo_mode",
             ]
@@ -303,10 +306,13 @@ class TestGetConfigKeys:
         assert keys == sorted(
             [
                 "allow_recursion",
+                "auto_save_session",
                 "compaction_strategy",
                 "compaction_threshold",
+                "max_saved_sessions",
                 "message_limit",
                 "model",
+                "openai_reasoning_effort",
                 "protected_token_count",
                 "yolo_mode",
             ]

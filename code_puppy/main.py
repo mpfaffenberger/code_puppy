@@ -1,10 +1,13 @@
 import argparse
 import asyncio
+import json
 import os
 import subprocess
 import sys
 import time
 import webbrowser
+from datetime import datetime
+from pathlib import Path
 
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
@@ -18,11 +21,13 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_prompt_with_active_model,
 )
 from code_puppy.config import (
+    AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
     ensure_config_exists,
     initialize_command_history_file,
     save_command_to_history,
 )
+from code_puppy.session_storage import list_sessions, load_session, restore_autosave_interactively
 from code_puppy.http_utils import find_available_port
 from code_puppy.tools.common import console
 
@@ -288,6 +293,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.messaging import emit_info
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
+
+
     # Initialize the runtime agent manager
     if initial_command:
         from code_puppy.agents import get_current_agent
@@ -366,6 +373,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             emit_error(f"Error installing prompt_toolkit: {e}")
             emit_warning("Falling back to basic input without tab completion")
+
+    await restore_autosave_interactively(Path(AUTOSAVE_DIR))
 
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
