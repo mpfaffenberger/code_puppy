@@ -120,6 +120,7 @@ def get_config_keys():
         "compaction_threshold",
         "message_limit",
         "allow_recursion",
+        "openai_reasoning_effort",
     ]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -364,6 +365,26 @@ def get_puppy_token():
 def set_puppy_token(token: str):
     """Sets the puppy_token in the persistent config file."""
     set_config_value("puppy_token", token)
+
+
+def get_openai_reasoning_effort() -> str:
+    """Return the configured OpenAI reasoning effort (low, medium, high)."""
+    allowed_values = {"low", "medium", "high"}
+    configured = (get_value("openai_reasoning_effort") or "medium").strip().lower()
+    if configured not in allowed_values:
+        return "medium"
+    return configured
+
+
+def set_openai_reasoning_effort(value: str) -> None:
+    """Persist the OpenAI reasoning effort ensuring it remains within allowed values."""
+    allowed_values = {"low", "medium", "high"}
+    normalized = (value or "").strip().lower()
+    if normalized not in allowed_values:
+        raise ValueError(
+            f"Invalid reasoning effort '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
+        )
+    set_config_value("openai_reasoning_effort", normalized)
 
 
 def normalize_command_history():

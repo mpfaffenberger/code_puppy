@@ -70,8 +70,13 @@ class TextualSpinner(Static):
                 # Show thinking message during normal processing
                 message = SpinnerBase.THINKING_MESSAGE
 
+            context_info = SpinnerBase.get_context_info()
+            context_segment = (
+                f" [bold white]{context_info}[/bold white]" if context_info else ""
+            )
+
             self.update(
-                f"[bold cyan]{message}[/bold cyan][bold cyan]{current_frame}[/bold cyan]"
+                f"[bold cyan]{message}[/bold cyan][bold cyan]{current_frame}[/bold cyan]{context_segment}"
             )
 
     def pause(self):
