@@ -121,6 +121,8 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "auto_save_session",
+        "max_saved_sessions",
     ]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -645,3 +647,166 @@ def clear_agent_pinned_model(agent_name: str):
     # We can't easily delete keys from configparser, so set to empty string
     # which will be treated as None by get_agent_pinned_model
     set_config_value(f"agent_model_{agent_name}", "")
+
+
+def get_auto_save_session() -> bool:
+    """
+    Checks puppy.cfg for 'auto_save_session' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("auto_save_session")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return True
+
+
+def set_auto_save_session(enabled: bool):
+    """Sets the auto_save_session configuration value.
+    
+    Args:
+        enabled: Whether to enable auto-saving of sessions
+    """
+    set_config_value("auto_save_session", "true" if enabled else "false")
+
+
+def get_max_saved_sessions() -> int:
+    """
+    Gets the maximum number of sessions to keep.
+    Defaults to 20 if not set.
+    """
+    cfg_val = get_value("max_saved_sessions")
+    if cfg_val is not None:
+        try:
+            val = int(cfg_val)
+            return max(0, val)  # Ensure non-negative
+        except (ValueError, TypeError):
+            pass
+    return 20
+
+
+def set_max_saved_sessions(max_sessions: int):
+    """Sets the max_saved_sessions configuration value.
+    
+    Args:
+        max_sessions: Maximum number of sessions to keep (0 for unlimited)
+    """
+    set_config_value("max_saved_sessions", str(max_sessions))
+
+
+def _cleanup_old_sessions():
+    """Remove oldest sessions if we exceed the max_saved_sessions limit."""
+    max_sessions = get_max_saved_sessions()
+    if max_sessions <= 0:  # 0 means unlimited
+        return
+        
+    from pathlib import Path
+    
+    contexts_dir = Path(CONFIG_DIR) / "contexts"
+    if not contexts_dir.exists():
+        return
+        
+    # Get all .pkl files (session files) and sort by modification time
+    session_files = []
+    for pkl_file in contexts_dir.glob("*.pkl"):
+        try:
+            session_files.append((pkl_file.stat().st_mtime, pkl_file))
+        except OSError:
+            continue
+            
+    # Sort by modification time (oldest first)
+    session_files.sort(key=lambda x: x[0])
+    
+    # If we have more than max_sessions, remove the oldest ones
+    if len(session_files) > max_sessions:
+        files_to_remove = session_files[:-max_sessions]  # All except the last max_sessions
+        
+        from rich.console import Console
+        console = Console()
+        
+        for _, old_file in files_to_remove:
+            try:
+                # Remove the .pkl file
+                old_file.unlink()
+                
+                # Also remove the corresponding _meta.json file if it exists
+                meta_file = contexts_dir / f"{old_file.stem}_meta.json"
+                if meta_file.exists():
+                    meta_file.unlink()
+                    
+                console.print(f"[dim]🗑️  Removed old session: {old_file.name}[/dim]")
+                
+            except OSError as e:
+                console.print(f"[dim]❌ Failed to remove {old_file.name}: {e}[/dim]")
+
+
+def auto_save_session_if_enabled() -> bool:
+    """Automatically save the current session if auto_save_session is enabled.
+    
+    Returns:
+        True if session was saved, False otherwise
+    """
+    if not get_auto_save_session():
+        return False
+        
+    try:
+        import datetime
+        import json
+        import pickle
+        from pathlib import Path
+        from code_puppy.agents.agent_manager import get_current_agent
+        
+        # Get current agent and message history
+        current_agent = get_current_agent()
+        history = current_agent.get_message_history()
+        
+        if not history:
+            return False  # No history to save
+            
+        # Create timestamp-based session name
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_name = f"auto_session_{timestamp}"
+        
+        # Create contexts directory if it doesn't exist
+        contexts_dir = Path(CONFIG_DIR) / "contexts"
+        contexts_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save as pickle for exact preservation
+        pickle_file = contexts_dir / f"{session_name}.pkl"
+        with open(pickle_file, "wb") as f:
+            pickle.dump(history, f)
+            
+        # Also save metadata as JSON for readability
+        meta_file = contexts_dir / f"{session_name}_meta.json"
+        metadata = {
+            "session_name": session_name,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "message_count": len(history),
+            "total_tokens": sum(
+                current_agent.estimate_tokens_for_message(m) for m in history
+            ),
+            "file_path": str(pickle_file),
+            "auto_saved": True,
+        }
+        
+        with open(meta_file, "w") as f:
+            json.dump(metadata, f, indent=2)
+            
+        from rich.console import Console
+        console = Console()
+        console.print(
+            f"🐾 [dim]Auto-saved session: {len(history)} messages ({metadata['total_tokens']} tokens)[/dim]"
+        )
+        
+        # Cleanup old sessions if limit is set
+        _cleanup_old_sessions()
+        return True
+        
+    except Exception as e:
+        from rich.console import Console
+        console = Console()
+        console.print(f"[dim]❌ Failed to auto-save session: {str(e)}[/dim]")
+        return False

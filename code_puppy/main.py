@@ -456,11 +456,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
 
+                # Auto-save session if enabled
+                from code_puppy.config import auto_save_session_if_enabled
+                auto_save_session_if_enabled()
+
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
                 display_console.file.flush() if hasattr(
                     display_console.file, "flush"
-                ) else None
+        ) else None
                 import time
 
                 time.sleep(0.1)  # Brief pause to ensure all messages are rendered
