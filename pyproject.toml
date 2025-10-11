@@ -9,7 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic-ai<=0.8",
+    "pydantic-ai==1.0.6",
     "httpx>=0.24.1",
     "rich>=13.4.2",
     "logfire>=0.7.1",
