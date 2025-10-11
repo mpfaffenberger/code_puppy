@@ -1,9 +1,12 @@
 import os
+from datetime import datetime
+from pathlib import Path
 
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
-from code_puppy.config import get_config_keys
+from code_puppy.config import CONTEXTS_DIR, get_config_keys
+from code_puppy.session_storage import list_sessions, load_session, save_session
 from code_puppy.tools.tools_content import tools_content
 
 
@@ -75,18 +78,6 @@ def get_commands_help():
     help_lines.append(
         Text("/load_context", style="cyan")
         + Text(" <name>  Load message history from file")
-    )
-    help_lines.append(
-        Text("", style="cyan")
-        + Text("Session Management:", style="bold yellow")
-    )
-    help_lines.append(
-        Text("auto_save_session", style="cyan")
-        + Text("    Auto-save session after each response (true/false)")
-    )
-    help_lines.append(
-        Text("max_saved_sessions", style="cyan")
-        + Text("    Maximum number of sessions to keep (default: 20, 0 = unlimited)")
     )
     help_lines.append(
         Text("/set", style="cyan")
@@ -367,8 +358,13 @@ def handle_command(command: str):
             config_keys = get_config_keys()
             if "compaction_strategy" not in config_keys:
                 config_keys.append("compaction_strategy")
+            session_help = (
+                "\n[yellow]Session Management[/yellow]"
+                "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
+                "\n  [cyan]max_saved_sessions[/cyan]  Cap how many auto-saves to keep (0 = unlimited)"
+            )
             emit_warning(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]"
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}"
             )
             return True
         if key:
@@ -655,14 +651,7 @@ def handle_command(command: str):
         return pr_prompt
 
     if command.startswith("/dump_context"):
-        import json
-        import pickle
-        from datetime import datetime
-        from pathlib import Path
-
-        # estimate_tokens_for_message has been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.config import CONFIG_DIR
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -677,49 +666,26 @@ def handle_command(command: str):
             emit_warning("No message history to dump!")
             return True
 
-        # Create contexts directory inside CONFIG_DIR if it doesn't exist
-        contexts_dir = Path(CONFIG_DIR) / "contexts"
-        contexts_dir.mkdir(parents=True, exist_ok=True)
-
         try:
-            # Save as pickle for exact preservation
-            pickle_file = contexts_dir / f"{session_name}.pkl"
-            with open(pickle_file, "wb") as f:
-                pickle.dump(history, f)
-
-            # Also save metadata as JSON for readability
-            meta_file = contexts_dir / f"{session_name}_meta.json"
-            current_agent = get_current_agent()
-            metadata = {
-                "session_name": session_name,
-                "timestamp": datetime.now().isoformat(),
-                "message_count": len(history),
-                "total_tokens": sum(
-                    current_agent.estimate_tokens_for_message(m) for m in history
-                ),
-                "file_path": str(pickle_file),
-            }
-
-            with open(meta_file, "w") as f:
-                json.dump(metadata, f, indent=2)
-
+            metadata = save_session(
+                history=history,
+                session_name=session_name,
+                base_dir=Path(CONTEXTS_DIR),
+                timestamp=datetime.now().isoformat(),
+                token_estimator=agent.estimate_tokens_for_message,
+            )
             emit_success(
-                f"✅ Context saved: {len(history)} messages ({metadata['total_tokens']} tokens)\n"
-                f"📁 Files: {pickle_file}, {meta_file}"
+                f"✅ Context saved: {metadata.message_count} messages ({metadata.total_tokens} tokens)\n"
+                f"📁 Files: {metadata.pickle_path}, {metadata.metadata_path}"
             )
             return True
 
-        except Exception as e:
-            emit_error(f"Failed to dump context: {e}")
+        except Exception as exc:
+            emit_error(f"Failed to dump context: {exc}")
             return True
 
     if command.startswith("/load_context"):
-        import pickle
-        from pathlib import Path
-
-        # estimate_tokens_for_message has been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.config import CONFIG_DIR
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -727,38 +693,30 @@ def handle_command(command: str):
             return True
 
         session_name = tokens[1]
-        contexts_dir = Path(CONFIG_DIR) / "contexts"
-        pickle_file = contexts_dir / f"{session_name}.pkl"
-
-        if not pickle_file.exists():
-            emit_error(f"Context file not found: {pickle_file}")
-            # List available contexts
-            available = list(contexts_dir.glob("*.pkl"))
-            if available:
-                names = [f.stem for f in available]
-                emit_info(f"Available contexts: {', '.join(names)}")
-            return True
+        contexts_dir = Path(CONTEXTS_DIR)
+        session_path = contexts_dir / f"{session_name}.pkl"
 
         try:
-            with open(pickle_file, "rb") as f:
-                history = pickle.load(f)
-
-            agent = get_current_agent()
-            agent.set_message_history(history)
-            current_agent = get_current_agent()
-            total_tokens = sum(
-                current_agent.estimate_tokens_for_message(m) for m in history
-            )
-
-            emit_success(
-                f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
-                f"📁 From: {pickle_file}"
-            )
+            history = load_session(session_name, contexts_dir)
+        except FileNotFoundError:
+            emit_error(f"Context file not found: {session_path}")
+            available = list_sessions(contexts_dir)
+            if available:
+                emit_info(f"Available contexts: {', '.join(available)}")
+            return True
+        except Exception as exc:
+            emit_error(f"Failed to load context: {exc}")
             return True
 
-        except Exception as e:
-            emit_error(f"Failed to load context: {e}")
-            return True
+        agent = get_current_agent()
+        agent.set_message_history(history)
+        total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+
+        emit_success(
+            f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
+            f"📁 From: {session_path}"
+        )
+        return True
 
     if command.startswith("/truncate"):
         from code_puppy.agents.agent_manager import get_current_agent
