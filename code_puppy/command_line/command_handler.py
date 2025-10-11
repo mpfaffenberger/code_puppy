@@ -77,9 +77,21 @@ def get_commands_help():
         + Text(" <name>  Load message history from file")
     )
     help_lines.append(
+        Text("", style="cyan")
+        + Text("Session Management:", style="bold yellow")
+    )
+    help_lines.append(
+        Text("auto_save_session", style="cyan")
+        + Text("    Auto-save session after each response (true/false)")
+    )
+    help_lines.append(
+        Text("max_saved_sessions", style="cyan")
+        + Text("    Maximum number of sessions to keep (default: 20, 0 = unlimited)")
+    )
+    help_lines.append(
         Text("/set", style="cyan")
         + Text(
-            "                  Set puppy config key-values (e.g., /set yolo_mode true, /set compaction_strategy truncation)"
+            "                  Set puppy config key-values (e.g., /set yolo_mode true, /set auto_save_session true, /set max_saved_sessions 20)"
         )
     )
     help_lines.append(
