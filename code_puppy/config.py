@@ -1,7 +1,10 @@
 import configparser
+import datetime
 import json
 import os
 import pathlib
+
+from code_puppy.session_storage import cleanup_sessions, save_session
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
@@ -10,6 +13,8 @@ COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
 MODELS_FILE = os.path.join(CONFIG_DIR, "models.json")
 EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
+CONTEXTS_DIR = os.path.join(CONFIG_DIR, "contexts")
+AUTOSAVE_DIR = os.path.join(CONFIG_DIR, "autosaves")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -698,115 +703,63 @@ def set_max_saved_sessions(max_sessions: int):
 
 
 def _cleanup_old_sessions():
-    """Remove oldest sessions if we exceed the max_saved_sessions limit."""
+    """Remove oldest auto-saved sessions if we exceed the max_saved_sessions limit."""
     max_sessions = get_max_saved_sessions()
-    if max_sessions <= 0:  # 0 means unlimited
+    if max_sessions <= 0:
         return
-        
-    from pathlib import Path
-    
-    contexts_dir = Path(CONFIG_DIR) / "contexts"
-    if not contexts_dir.exists():
+
+    autosave_dir = pathlib.Path(AUTOSAVE_DIR)
+    removed_sessions = cleanup_sessions(autosave_dir, max_sessions)
+    if not removed_sessions:
         return
-        
-    # Get all .pkl files (session files) and sort by modification time
-    session_files = []
-    for pkl_file in contexts_dir.glob("*.pkl"):
-        try:
-            session_files.append((pkl_file.stat().st_mtime, pkl_file))
-        except OSError:
-            continue
-            
-    # Sort by modification time (oldest first)
-    session_files.sort(key=lambda x: x[0])
-    
-    # If we have more than max_sessions, remove the oldest ones
-    if len(session_files) > max_sessions:
-        files_to_remove = session_files[:-max_sessions]  # All except the last max_sessions
-        
-        from rich.console import Console
-        console = Console()
-        
-        for _, old_file in files_to_remove:
-            try:
-                # Remove the .pkl file
-                old_file.unlink()
-                
-                # Also remove the corresponding _meta.json file if it exists
-                meta_file = contexts_dir / f"{old_file.stem}_meta.json"
-                if meta_file.exists():
-                    meta_file.unlink()
-                    
-                console.print(f"[dim]🗑️  Removed old session: {old_file.name}[/dim]")
-                
-            except OSError as e:
-                console.print(f"[dim]❌ Failed to remove {old_file.name}: {e}[/dim]")
+
+    from rich.console import Console
+
+    console = Console()
+    for session_name in removed_sessions:
+        console.print(f"[dim]🗑️  Removed old session: {session_name}.pkl[/dim]")
 
 
 def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled.
-    
-    Returns:
-        True if session was saved, False otherwise
-    """
+    """Automatically save the current session if auto_save_session is enabled."""
     if not get_auto_save_session():
         return False
-        
+
     try:
-        import datetime
-        import json
-        import pickle
-        from pathlib import Path
+        import pathlib
+        from rich.console import Console
+
         from code_puppy.agents.agent_manager import get_current_agent
-        
-        # Get current agent and message history
+
+        console = Console()
+
         current_agent = get_current_agent()
         history = current_agent.get_message_history()
-        
         if not history:
-            return False  # No history to save
-            
-        # Create timestamp-based session name
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_name = f"auto_session_{timestamp}"
-        
-        # Create contexts directory if it doesn't exist
-        contexts_dir = Path(CONFIG_DIR) / "contexts"
-        contexts_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save as pickle for exact preservation
-        pickle_file = contexts_dir / f"{session_name}.pkl"
-        with open(pickle_file, "wb") as f:
-            pickle.dump(history, f)
-            
-        # Also save metadata as JSON for readability
-        meta_file = contexts_dir / f"{session_name}_meta.json"
-        metadata = {
-            "session_name": session_name,
-            "timestamp": datetime.datetime.now().isoformat(),
-            "message_count": len(history),
-            "total_tokens": sum(
-                current_agent.estimate_tokens_for_message(m) for m in history
-            ),
-            "file_path": str(pickle_file),
-            "auto_saved": True,
-        }
-        
-        with open(meta_file, "w") as f:
-            json.dump(metadata, f, indent=2)
-            
-        from rich.console import Console
-        console = Console()
-        console.print(
-            f"🐾 [dim]Auto-saved session: {len(history)} messages ({metadata['total_tokens']} tokens)[/dim]"
+            return False
+
+        now = datetime.datetime.now()
+        session_name = f"auto_session_{now.strftime('%Y%m%d_%H%M%S')}"
+        autosave_dir = pathlib.Path(AUTOSAVE_DIR)
+
+        metadata = save_session(
+            history=history,
+            session_name=session_name,
+            base_dir=autosave_dir,
+            timestamp=now.isoformat(),
+            token_estimator=current_agent.estimate_tokens_for_message,
+            auto_saved=True,
         )
-        
-        # Cleanup old sessions if limit is set
+
+        console.print(
+            f"🐾 [dim]Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)[/dim]"
+        )
+
         _cleanup_old_sessions()
         return True
-        
-    except Exception as e:
+
+    except Exception as exc:  # pragma: no cover - defensive logging
         from rich.console import Console
-        console = Console()
-        console.print(f"[dim]❌ Failed to auto-save session: {str(e)}[/dim]")
+
+        Console().print(f"[dim]❌ Failed to auto-save session: {exc}[/dim]")
         return False
