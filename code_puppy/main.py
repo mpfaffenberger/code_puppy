@@ -62,6 +62,12 @@ async def main():
         help="Execute a single prompt and exit (no interactive mode)",
     )
     parser.add_argument(
+        "--agent",
+        "-a",
+        type=str,
+        help="Specify which agent to use (e.g., --agent code-puppy)",
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
@@ -161,6 +167,27 @@ async def main():
         return
 
     ensure_config_exists()
+
+    # Handle agent selection from command line
+    if args.agent:
+        from code_puppy.agents.agent_manager import set_current_agent, get_available_agents
+
+        agent_name = args.agent.lower()
+        try:
+            # First check if the agent exists by getting available agents
+            available_agents = get_available_agents()
+            if agent_name not in available_agents:
+                emit_system_message(f"[bold red]Error:[/bold red] Agent '{agent_name}' not found")
+                emit_system_message(f"Available agents: {', '.join(available_agents.keys())}")
+                sys.exit(1)
+
+            # Agent exists, set it
+            set_current_agent(agent_name)
+            emit_system_message(f"🤖 Using agent: {agent_name}")
+        except Exception as e:
+            emit_system_message(f"[bold red]Error setting agent:[/bold red] {str(e)}")
+            sys.exit(1)
+            
     current_version = __version__
 
     no_version_update = os.getenv("NO_VERSION_UPDATE", "").lower() in (
@@ -429,11 +456,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
 
+                # Auto-save session if enabled
+                from code_puppy.config import auto_save_session_if_enabled
+                auto_save_session_if_enabled()
+
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
                 display_console.file.flush() if hasattr(
                     display_console.file, "flush"
-                ) else None
+        ) else None
                 import time
 
                 time.sleep(0.1)  # Brief pause to ensure all messages are rendered
