@@ -25,6 +25,17 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 
 ## Features
 
+### Session Autosave & Contexts
+- Autosaves live in `~/.code_puppy/autosaves` and include a `.pkl` and `_meta.json` per session.
+- On startup, you’ll be prompted to optionally load a recent autosave (with message counts and timestamps).
+- Autosaves use a stable session ID per interactive run so subsequent prompts overwrite the same session (not N new files). Rotate via `/session new` when you want a fresh session.
+- Loading an autosave makes it the active autosave target (future autosaves overwrite that loaded session).
+- Loading a manual context with `/load_context <name>` automatically rotates the autosave ID to avoid overwriting anything.
+- Helpers:
+  - `/session id` shows the current autosave ID and file prefix
+  - `/session new` rotates the autosave ID
+
+
 - **Multi-language support**: Capable of generating code in various programming languages.
 - **Interactive CLI**: A command-line interface for interactive use.
 - **Detailed explanations**: Provides insights into generated code to understand its logic and structure.

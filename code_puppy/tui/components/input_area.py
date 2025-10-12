@@ -133,7 +133,7 @@ class InputArea(Container):
             yield CustomTextArea(id="input-field", show_line_numbers=False)
             yield SubmitCancelButton()
         yield Static(
-            "Enter to send • Alt+Enter for new line • Ctrl+1 for help",
+            "Enter to send • Shift+Enter for new line • Ctrl+1 for help",
             id="input-help",
         )
 
