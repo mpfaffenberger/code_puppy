@@ -11,125 +11,93 @@ from code_puppy.tools.tools_content import tools_content
 
 
 def get_commands_help():
-    """Generate commands help using Rich Text objects to avoid markup conflicts."""
+    """Generate aligned commands help using Rich Text for safe markup."""
     from rich.text import Text
 
     # Ensure plugins are loaded so custom help can register
     _ensure_plugins_loaded()
 
-    # Build help text programmatically
-    help_lines = []
+    # Collect core commands with their syntax parts and descriptions
+    # (cmd_syntax, description)
+    core_cmds = [
+        ("/help, /h", "Show this help message"),
+        ("/cd <dir>", "Change directory or show directories"),
+        (
+            "/agent <name>",
+            "Switch to a different agent or show available agents",
+        ),
+        ("/exit, /quit", "Exit interactive mode"),
+        ("/generate-pr-description [@dir]", "Generate comprehensive PR description"),
+        ("/model, /m <model>", "Set active model"),
+        ("/reasoning <low|medium|high>", "Set OpenAI reasoning effort for GPT-5 models"),
+        ("/pin_model <agent> <model>", "Pin a specific model to an agent"),
+        ("/mcp", "Manage MCP servers (list, start, stop, status, etc.)"),
+        ("/motd", "Show the latest message of the day (MOTD)"),
+        ("/show", "Show puppy config key-values"),
+        (
+            "/compact",
+            "Summarize and compact current chat history (uses compaction_strategy config)",
+        ),
+        ("/dump_context <name>", "Save current message history to file"),
+        ("/load_context <name>", "Load message history from file"),
+        (
+            "/set",
+            "Set puppy config (e.g., /set yolo_mode true, /set auto_save_session true)",
+        ),
+        ("/tools", "Show available tools and capabilities"),
+        (
+            "/truncate <N>",
+            "Truncate history to N most recent messages (keeping system message)",
+        ),
+        ("/<unknown>", "Show unknown command warning"),
+    ]
 
-    # Title
-    help_lines.append(Text("Commands Help", style="bold magenta"))
+    # Determine padding width for the left column
+    left_width = max(len(cmd) for cmd, _ in core_cmds) + 2  # add spacing
 
-    # Commands - build each line programmatically
-    help_lines.append(
-        Text("/help, /h", style="cyan") + Text("             Show this help message")
-    )
-    help_lines.append(
-        Text("/cd", style="cyan")
-        + Text(" <dir>             Change directory or show directories")
-    )
-    help_lines.append(
-        Text("/agent", style="cyan")
-        + Text(" <name>         Switch to a different agent or show available agents")
-    )
-    help_lines.append(
-        Text("/exit, /quit", style="cyan") + Text("          Exit interactive mode")
-    )
-    help_lines.append(
-        Text("/generate-pr-description", style="cyan")
-        + Text(" [@dir]  Generate comprehensive PR description")
-    )
-    help_lines.append(
-        Text("/model, /m", style="cyan") + Text(" <model>   Set active model")
-    )
-    help_lines.append(
-        Text("/reasoning", style="cyan")
-        + Text(" <low|medium|high>  Set OpenAI reasoning effort for GPT-5 models")
-    )
-    help_lines.append(
-        Text("/pin_model", style="cyan")
-        + Text(" <agent> <model>  Pin a specific model to an agent")
-    )
-    help_lines.append(
-        Text("/mcp", style="cyan")
-        + Text("                  Manage MCP servers (list, start, stop, status, etc.)")
-    )
-    help_lines.append(
-        Text("/motd", style="cyan")
-        + Text("                 Show the latest message of the day (MOTD)")
-    )
-    help_lines.append(
-        Text("/show", style="cyan")
-        + Text("                 Show puppy config key-values")
-    )
-    help_lines.append(
-        Text("/compact", style="cyan")
-        + Text(
-            "              Summarize and compact current chat history (uses compaction_strategy config)"
-        )
-    )
-    help_lines.append(
-        Text("/dump_context", style="cyan")
-        + Text(" <name>  Save current message history to file")
-    )
-    help_lines.append(
-        Text("/load_context", style="cyan")
-        + Text(" <name>  Load message history from file")
-    )
-    help_lines.append(
-        Text("/set", style="cyan")
-        + Text(
-            "                  Set puppy config key-values (e.g., /set yolo_mode true, /set auto_save_session true)"
-        )
-    )
-    help_lines.append(
-        Text("/tools", style="cyan")
-        + Text("                Show available tools and capabilities")
-    )
-    help_lines.append(
-        Text("/truncate", style="cyan")
-        + Text(
-            " <N>              Truncate message history to N most recent messages (keeping system message)"
-        )
-    )
-    help_lines.append(
-        Text("/<unknown>", style="cyan")
-        + Text("            Show unknown command warning")
-    )
+    lines: list[Text] = []
+    lines.append(Text("Commands Help", style="bold magenta"))
+
+    for cmd, desc in core_cmds:
+        left = Text(cmd.ljust(left_width), style="cyan")
+        right = Text(desc)
+        line = Text()
+        line.append_text(left)
+        line.append_text(right)
+        lines.append(line)
 
     # Add custom commands from plugins (if any)
     try:
         from code_puppy import callbacks
 
         custom_help_results = callbacks.on_custom_command_help()
-        # Flatten various returns into a list of (name, description)
-        custom_entries = []
+        custom_entries: list[tuple[str, str]] = []
         for res in custom_help_results:
             if not res:
                 continue
             if isinstance(res, tuple) and len(res) == 2:
-                custom_entries.append(res)
+                custom_entries.append((str(res[0]), str(res[1])))
             elif isinstance(res, list):
                 for item in res:
                     if isinstance(item, tuple) and len(item) == 2:
-                        custom_entries.append(item)
+                        custom_entries.append((str(item[0]), str(item[1])))
         if custom_entries:
-            help_lines.append(Text("\n", style="dim"))
-            help_lines.append(Text("Custom Commands", style="bold magenta"))
+            lines.append(Text("", style="dim"))
+            lines.append(Text("Custom Commands", style="bold magenta"))
+            # Compute padding for custom commands as well
+            custom_left_width = max(len(name) for name, _ in custom_entries) + 3
             for name, desc in custom_entries:
-                help_lines.append(
-                    Text(f"/{name}", style="cyan") + Text(f"  {desc}")
-                )
+                left = Text(f"/{name}".ljust(custom_left_width), style="cyan")
+                right = Text(desc)
+                line = Text()
+                line.append_text(left)
+                line.append_text(right)
+                lines.append(line)
     except Exception:
-        # If callbacks fail, skip custom help silently
         pass
 
-    # Combine all lines
     final_text = Text()
-    for i, line in enumerate(help_lines):
+    for i, line in enumerate(lines):
         if i > 0:
             final_text.append("\n")
         final_text.append_text(line)

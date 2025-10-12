@@ -4,7 +4,7 @@ Settings modal screen.
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Container
+from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Select, Static
 
@@ -27,6 +27,7 @@ class SettingsScreen(ModalScreen):
 
     #settings-form {
         height: 1fr;
+        overflow: auto;
     }
 
     .setting-row {
@@ -70,7 +71,8 @@ class SettingsScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="settings-dialog"):
             yield Static("⚙️  Settings Configuration", id="settings-title")
-            with Container(id="settings-form"):
+            # Make the form scrollable so long content fits
+            with VerticalScroll(id="settings-form"):
                 with Container(classes="setting-row"):
                     yield Static("Puppy Name:", classes="setting-label")
                     yield Input(id="puppy-name-input", classes="setting-input")
