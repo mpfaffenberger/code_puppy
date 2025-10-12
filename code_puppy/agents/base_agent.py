@@ -6,12 +6,13 @@ import math
 import signal
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import mcp
 import pydantic
 import pydantic_ai.models
 from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
 from pydantic_ai import RunContext, UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelMessage,
@@ -213,6 +214,12 @@ class BaseAgent(ABC):
             )
         elif isinstance(content, dict):
             attributes.append(f"content={json.dumps(content, sort_keys=True)}")
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, str):
+                    attributes.append(f"content={item}")
+                if isinstance(item, BinaryContent):
+
         else:
             attributes.append(f"content={repr(content)}")
         result = "|".join(attributes)
@@ -874,27 +881,46 @@ class BaseAgent(ABC):
         self.message_history_processor(ctx, _message_history)
         return self.get_message_history()
 
-    async def run_with_mcp(self, prompt: str, **kwargs) -> Any:
-        """
-        Run the agent with MCP servers and full cancellation support.
-
-        This method ensures we're always using the current agent instance
-        and handles Ctrl+C interruption properly by creating a cancellable task.
+    async def run_with_mcp(
+        self,
+        prompt: str,
+        *,
+        attachments: Optional[Sequence[BinaryContent]] = None,
+        link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+        **kwargs,
+    ) -> Any:
+        """Run the agent with MCP servers, attachments, and full cancellation support.
 
         Args:
-            prompt: The user prompt to process
-            usage_limits: Optional usage limits for the agent
-            **kwargs: Additional arguments to pass to agent.run (e.g., message_history)
+            prompt: Primary user prompt text (may be empty when attachments present).
+            attachments: Local binary payloads (e.g., dragged images) to include.
+            link_attachments: Remote assets (image/document URLs) to include.
+            **kwargs: Additional arguments forwarded to `pydantic_ai.Agent.run`.
 
         Returns:
-            The agent's response
+            The agent's response.
 
         Raises:
-            asyncio.CancelledError: When execution is cancelled by user
+            asyncio.CancelledError: When execution is cancelled by user.
         """
         group_id = str(uuid.uuid4())
         # Avoid double-loading: reuse existing agent if already built
         pydantic_agent = self._code_generation_agent or self.reload_code_generation_agent()
+
+        # Build combined prompt payload when attachments are provided.
+        attachment_parts: List[Any] = []
+        if attachments:
+            attachment_parts.extend(list(attachments))
+        if link_attachments:
+            attachment_parts.extend(list(link_attachments))
+
+        if attachment_parts:
+            prompt_payload: Union[str, List[Any]] = []
+            if prompt:
+                prompt_payload.append(prompt)
+            prompt_payload.extend(attachment_parts)
+        else:
+            prompt_payload = prompt
 
         async def run_agent_task():
             try:
@@ -903,7 +929,7 @@ class BaseAgent(ABC):
                 )
                 usage_limits = pydantic_ai.agent._usage.UsageLimits(request_limit=get_message_limit())
                 result_ = await pydantic_agent.run(
-                    prompt,
+                    prompt_payload,
                     message_history=self.get_message_history(),
                     usage_limits=usage_limits,
                     **kwargs,
