@@ -21,40 +21,11 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from code_puppy.callbacks import on_edit_file, on_file_permission
-from code_puppy.config import get_yolo_mode
+from code_puppy.callbacks import on_edit_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
 
 # File permission handling is now managed by the file_permission_handler plugin
-
-
-def prompt_for_file_permission(
-    file_path: str,
-    operation: str,
-    preview: str | None = None,
-    message_group: str | None = None,
-) -> bool:
-    """Prompt the user for permission to perform a file operation using the plugin system.
-
-    Args:
-        file_path: Path to the file being operated on
-        operation: Description of the operation (e.g., "write to", "delete")
-        preview: Optional diff preview of the changes
-        message_group: Optional message group for UI coordination
-
-    Returns:
-        bool: True if permission is granted, False otherwise
-    """
-    # Use the plugin system for permission handling
-    permission_results = on_file_permission(None, file_path, operation, preview, message_group)
-    
-    # If no plugins are registered, default to True (allow operation)
-    if not permission_results:
-        return True
-    
-    # Return True if all permission handlers approve, False if any deny
-    return all(result for result in permission_results if result is not None)
 
 
 class DeleteSnippetPayload(BaseModel):
@@ -81,179 +52,23 @@ class ContentPayload(BaseModel):
 EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
 
 
-def _format_diff_line(line: str) -> str:
-    """Apply diff-specific formatting to a single line."""
-    if line.startswith("+") and not line.startswith("+++"):
-        # Addition line - green with bold
-        return f"[bold green]{line}[/bold green]"
-    elif line.startswith("-") and not line.startswith("---"):
-        # Removal line - red with bold
-        return f"[bold red]{line}[/bold red]"
-    elif line.startswith("@@"):
-        # Hunk info - cyan with bold
-        return f"[bold cyan]{line}[/bold cyan]"
-    elif line.startswith("+++") or line.startswith("---"):
-        # Filename lines in diff - dim white
-        return f"[dim white]{line}[/dim white]"
-    else:
-        # Context lines - no special formatting, just return as-is
-        return line
-
-
-def _format_diff_with_highlighting(diff_text: str) -> str:
-    """Format diff text with proper highlighting for consistent display."""
-    if not diff_text or not diff_text.strip():
-        return "[dim]-- no diff available --[/dim]"
-    
-    formatted_lines = []
-    for line in diff_text.splitlines():
-        formatted_lines.append(_format_diff_line(line))
-    
-    return "\n".join(formatted_lines)
-
-
 def _print_diff(diff_text: str, message_group: str | None = None) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
-
     emit_info(
         "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
     )
-    
+
+    # Import the formatting function from the plugin
+    from code_puppy.plugins.file_permission_handler.register_callbacks import _format_diff_with_highlighting
     formatted_diff = _format_diff_with_highlighting(diff_text)
     emit_info(formatted_diff, highlight=False, message_group=message_group)
-    
+
     emit_info(
         "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
     )
 
-
-def _preview_delete_snippet(file_path: str, snippet: str) -> str | None:
-    """Generate a preview diff for deleting a snippet without modifying the file."""
-    try:
-        file_path = os.path.abspath(file_path)
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            return None
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            original = f.read()
-
-        if snippet not in original:
-            return None
-
-        modified = original.replace(snippet, "")
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                modified.splitlines(keepends=True),
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
-            )
-        )
-        return diff_text
-    except Exception:
-        return None
-
-
-def _preview_write_to_file(
-    file_path: str, content: str, overwrite: bool = False
-) -> str | None:
-    """Generate a preview diff for writing to a file without modifying it."""
-    try:
-        file_path = os.path.abspath(file_path)
-        exists = os.path.exists(file_path)
-
-        if exists and not overwrite:
-            return None
-
-        diff_lines = difflib.unified_diff(
-            [] if not exists else [""],
-            content.splitlines(keepends=True),
-            fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
-            tofile=f"b/{os.path.basename(file_path)}",
-            n=3,
-        )
-        return "".join(diff_lines)
-    except Exception:
-        return None
-
-
-def _preview_replace_in_file(
-    file_path: str, replacements: List[Dict[str, str]]
-) -> str | None:
-    """Generate a preview diff for replacing text in a file without modifying it."""
-    try:
-        file_path = os.path.abspath(file_path)
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            original = f.read()
-
-        modified = original
-        for rep in replacements:
-            old_snippet = rep.get("old_str", "")
-            new_snippet = rep.get("new_str", "")
-
-            if old_snippet and old_snippet in modified:
-                modified = modified.replace(old_snippet, new_snippet)
-                continue
-
-            # Use the same logic as _replace_in_file for fuzzy matching
-            orig_lines = modified.splitlines()
-            loc, score = _find_best_window(orig_lines, old_snippet)
-
-            if score < 0.95 or loc is None:
-                return None
-
-            start, end = loc
-            modified = (
-                "\n".join(orig_lines[:start])
-                + "\n"
-                + new_snippet.rstrip("\n")
-                + "\n"
-                + "\n".join(orig_lines[end:])
-            )
-
-        if modified == original:
-            return None
-
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                modified.splitlines(keepends=True),
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
-            )
-        )
-        return diff_text
-    except Exception:
-        return None
-
-
-def _preview_delete_file(file_path: str) -> str | None:
-    """Generate a preview diff for deleting a file without modifying it."""
-    try:
-        file_path = os.path.abspath(file_path)
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            return None
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            original = f.read()
-
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                [],
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
-            )
-        )
-        return diff_text
-    except Exception:
-        return None
 
 
 def _log_error(
@@ -429,38 +244,25 @@ def _write_to_file(
 def delete_snippet_from_file(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    emit_info(
-        f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]",
-        message_group=message_group,
+    
+    # Use the plugin system for permission handling
+    from code_puppy.plugins.file_permission_handler.register_callbacks import _preview_delete_snippet
+    preview_diff = _preview_delete_snippet(file_path, snippet)
+
+    from code_puppy.callbacks import on_file_permission
+    permission_results = on_file_permission(
+        context, file_path, "delete snippet from", preview_diff, message_group
     )
 
-    # Check for permission if not in yolo mode
-    if not get_yolo_mode():
-        # Generate preview diff without modifying the file
-        preview_diff = _preview_delete_snippet(file_path, snippet)
-        if preview_diff is None:
-            return {
-                "error": f"Failed to generate preview for deleting snippet from '{file_path}'",
-                "changed": False,
-            }
-
-        if not prompt_for_file_permission(
-            file_path, "delete snippet from", preview_diff, message_group
-        ):
-            # Return detailed rejection information that will be enhanced by the plugin
-            return {
-                "success": False,
-                "path": file_path,
-                "message": "Operation cancelled by user - rejected snippet deletion after reviewing diff preview",
-                "changed": False,
-                "user_rejection": True,
-                "rejection_context": {
-                    "operation": "delete_snippet",
-                    "file_type": "existing_file",
-                    "preview_shown": True,
-                    "user_action": "rejected_permission"
-                }
-            }
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(not result for result in permission_results if result is not None):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": "Operation cancelled by plugin system",
+            "changed": False,
+            "user_rejection": True,
+        }
 
     res = _delete_snippet_from_file(
         context, file_path, snippet, message_group=message_group
@@ -478,35 +280,25 @@ def write_to_file(
     overwrite: bool,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    emit_info(
-        f"✏️ Writing file [bold blue]{path}[/bold blue]", message_group=message_group
+    
+    # Use the plugin system for permission handling
+    from code_puppy.plugins.file_permission_handler.register_callbacks import _preview_write_to_file
+    preview_diff = _preview_write_to_file(path, content, overwrite)
+
+    from code_puppy.callbacks import on_file_permission
+    permission_results = on_file_permission(
+        context, path, "write", preview_diff, message_group
     )
 
-    # Check for permission if not in yolo mode
-    if not get_yolo_mode():
-        # Generate preview diff without modifying the file
-        preview_diff = _preview_write_to_file(path, content, overwrite)
-        if preview_diff is None:
-            return {
-                "error": f"Failed to generate preview for writing to '{path}'",
-                "changed": False,
-            }
-
-        if not prompt_for_file_permission(path, "write", preview_diff, message_group):
-            # Return detailed rejection information that will be enhanced by the plugin
-            return {
-                "success": False,
-                "path": path,
-                "message": "Operation cancelled by user - rejected file write after reviewing diff preview",
-                "changed": False,
-                "user_rejection": True,
-                "rejection_context": {
-                    "operation": "write_file",
-                    "file_exists": os.path.exists(path),
-                    "preview_shown": True,
-                    "user_action": "rejected_permission"
-                }
-            }
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(not result for result in permission_results if result is not None):
+        return {
+            "success": False,
+            "path": path,
+            "message": "Operation cancelled by plugin system",
+            "changed": False,
+            "user_rejection": True,
+        }
 
     res = _write_to_file(
         context, path, content, overwrite=overwrite, message_group=message_group
@@ -523,38 +315,32 @@ def replace_in_file(
     replacements: List[Dict[str, str]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    emit_info(
-        f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]",
-        message_group=message_group,
+    
+    # Use the plugin system for permission handling
+    from code_puppy.plugins.file_permission_handler.register_callbacks import _preview_replace_in_file
+    preview_diff = _preview_replace_in_file(path, replacements)
+
+    # Fail early if preview generation fails (like edit-file branch)
+    if preview_diff is None:
+        return {
+            "error": f"Failed to generate preview for replacing text in '{path}' (score < 0.95)",
+            "changed": False,
+        }
+
+    from code_puppy.callbacks import on_file_permission
+    permission_results = on_file_permission(
+        context, path, "replace text in", preview_diff, message_group
     )
 
-    # Check for permission if not in yolo mode
-    if not get_yolo_mode():
-        # Generate preview diff without modifying the file
-        preview_diff = _preview_replace_in_file(path, replacements)
-        if preview_diff is None:
-            return {
-                "error": f"Failed to generate preview for replacing text in '{path}'",
-                "changed": False,
-            }
-
-        if not prompt_for_file_permission(
-            path, "replace text in", preview_diff, message_group
-        ):
-            # Return detailed rejection information that will be enhanced by the plugin
-            return {
-                "success": False,
-                "path": path,
-                "message": "Operation cancelled by user - rejected text replacement after reviewing diff preview",
-                "changed": False,
-                "user_rejection": True,
-                "rejection_context": {
-                    "operation": "replace_text",
-                    "replacements_count": len(replacements),
-                    "preview_shown": True,
-                    "user_action": "rejected_permission"
-                }
-            }
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(not result for result in permission_results if result is not None):
+        return {
+            "success": False,
+            "path": path,
+            "message": "Operation cancelled by plugin system",
+            "changed": False,
+            "user_rejection": True,
+        }
 
     res = _replace_in_file(context, path, replacements, message_group=message_group)
     diff = res.get("diff", "")
@@ -660,38 +446,26 @@ def _edit_file(
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    emit_info(
-        f"🗑️ Deleting file [bold red]{file_path}[/bold red]", message_group=message_group
-    )
     file_path = os.path.abspath(file_path)
 
-    # Check for permission if not in yolo mode
-    if not get_yolo_mode():
-        # Generate preview diff without modifying the file
-        preview_diff = _preview_delete_file(file_path)
-        if preview_diff is None:
-            return {
-                "error": f"Failed to generate preview for deleting '{file_path}'",
-                "changed": False,
-            }
+    # Use the plugin system for permission handling
+    from code_puppy.plugins.file_permission_handler.register_callbacks import _preview_delete_file
+    preview_diff = _preview_delete_file(file_path)
 
-        if not prompt_for_file_permission(
-            file_path, "delete", preview_diff, message_group
-        ):
-            # Return detailed rejection information that will be enhanced by the plugin
-            return {
-                "success": False,
-                "path": file_path,
-                "message": "Operation cancelled by user - rejected file deletion after reviewing diff preview",
-                "changed": False,
-                "user_rejection": True,
-                "rejection_context": {
-                    "operation": "delete_file",
-                    "file_existed": True,
-                    "preview_shown": True,
-                    "user_action": "rejected_permission"
-                }
-            }
+    from code_puppy.callbacks import on_file_permission
+    permission_results = on_file_permission(
+        context, file_path, "delete", preview_diff, message_group
+    )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(not result for result in permission_results if result is not None):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": "Operation cancelled by plugin system",
+            "changed": False,
+            "user_rejection": True,
+        }
 
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
