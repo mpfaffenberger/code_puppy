@@ -1,12 +1,10 @@
 import argparse
 import asyncio
-import json
 import os
 import subprocess
 import sys
 import time
 import webbrowser
-from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -20,6 +18,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
 )
+from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
@@ -28,7 +27,7 @@ from code_puppy.config import (
     initialize_command_history_file,
     save_command_to_history,
 )
-from code_puppy.session_storage import list_sessions, load_session, restore_autosave_interactively
+from code_puppy.session_storage import restore_autosave_interactively
 from code_puppy.http_utils import find_available_port
 from code_puppy.tools.common import console
 
@@ -313,33 +312,24 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 awaiting_input = False
 
             # Run with or without spinner based on whether we're awaiting input
-            if awaiting_input:
-                # No spinner - use agent_manager's run_with_mcp method
+            response = await run_prompt_with_attachments(
+                agent,
+                initial_command,
+                spinner_console=display_console,
+                use_spinner=not awaiting_input,
+            )
+            if response is not None:
+                agent_response = response.output
 
-                response = await agent.run_with_mcp(
-                    initial_command,
+                emit_system_message(
+                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
-            else:
-                # Use our custom spinner for better compatibility with user input
-                from code_puppy.messaging.spinner import ConsoleSpinner
-
-                with ConsoleSpinner(console=display_console):
-                    # Use agent_manager's run_with_mcp method
-                    response = await agent.run_with_mcp(
-                        initial_command,
-                    )
-
-            agent_response = response.output
-
-            emit_system_message(
-                f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
-            )
-            emit_system_message("\n" + "=" * 50)
-            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
-            emit_system_message(
-                "Your command and response are preserved in the conversation history."
-            )
-            emit_system_message("=" * 50 + "\n")
+                emit_system_message("\n" + "=" * 50)
+                emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+                emit_system_message(
+                    "Your command and response are preserved in the conversation history."
+                )
+                emit_system_message("=" * 50 + "\n")
 
         except Exception as e:
             from code_puppy.messaging import emit_error
@@ -446,14 +436,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # No need to get agent directly - use manager's run methods
 
-                # Use our custom spinner for better compatibility with user input
-                from code_puppy.messaging import emit_warning
-                from code_puppy.messaging.spinner import ConsoleSpinner
-
-                with ConsoleSpinner(console=message_renderer.console):
-                    result = await current_agent.run_with_mcp(
-                        task,
-                    )
+                # Use our custom helper to enable attachment handling with spinner support
+                result = await run_prompt_with_attachments(
+                    current_agent,
+                    task,
+                    spinner_console=message_renderer.console,
+                )
                 # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
                     continue
@@ -504,6 +492,57 @@ def prettier_code_blocks():
     Markdown.elements["fence"] = SimpleCodeBlock
 
 
+async def run_prompt_with_attachments(
+    agent,
+    raw_prompt: str,
+    *,
+    spinner_console=None,
+    use_spinner: bool = True,
+):
+    """Run the agent after parsing CLI attachments for image/document support."""
+    from code_puppy.messaging import emit_system_message, emit_warning
+
+    processed_prompt = parse_prompt_attachments(raw_prompt)
+
+    for warning in processed_prompt.warnings:
+        emit_warning(warning)
+
+    summary_parts = []
+    if processed_prompt.attachments:
+        summary_parts.append(f"binary files: {len(processed_prompt.attachments)}")
+    if processed_prompt.link_attachments:
+        summary_parts.append(f"urls: {len(processed_prompt.link_attachments)}")
+    if summary_parts:
+        emit_system_message(
+            "[dim]Attachments detected -> " + ", ".join(summary_parts) + "[/dim]"
+        )
+
+    if not processed_prompt.prompt:
+        emit_warning(
+            "Prompt is empty after removing attachments; add instructions and retry."
+        )
+        return None
+
+    attachments = [attachment.content for attachment in processed_prompt.attachments]
+    link_attachments = [link.url_part for link in processed_prompt.link_attachments]
+
+    if use_spinner and spinner_console is not None:
+        from code_puppy.messaging.spinner import ConsoleSpinner
+
+        with ConsoleSpinner(console=spinner_console):
+            return await agent.run_with_mcp(
+                processed_prompt.prompt,
+                attachments=attachments,
+                link_attachments=link_attachments,
+            )
+
+    return await agent.run_with_mcp(
+        processed_prompt.prompt,
+        attachments=attachments,
+        link_attachments=link_attachments,
+    )
+
+
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
     from code_puppy.messaging import emit_info, emit_system_message
@@ -511,14 +550,15 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
 
     try:
-        # Get agent through runtime manager and use its run_with_mcp method
+        # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
-        from code_puppy.messaging.spinner import ConsoleSpinner
-
-        with ConsoleSpinner(console=message_renderer.console):
-            response = await agent.run_with_mcp(
-                prompt,
-            )
+        response = await run_prompt_with_attachments(
+            agent,
+            prompt,
+            spinner_console=message_renderer.console,
+        )
+        if response is None:
+            return
 
         agent_response = response.output
         emit_system_message(
