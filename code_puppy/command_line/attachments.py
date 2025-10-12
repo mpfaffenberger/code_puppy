@@ -7,7 +7,7 @@ import os
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Sequence
 
 from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
 
@@ -124,6 +124,25 @@ def _tokenise(prompt: str) -> Iterable[str]:
         return prompt.split()
 
 
+def _strip_attachment_token(token: str) -> str:
+    """Trim surrounding whitespace/punctuation terminals tack onto paths."""
+
+    return token.strip().strip(",;:()[]{}")
+
+
+def _candidate_paths(
+    tokens: Sequence[str],
+    start: int,
+    max_span: int = 5,
+) -> Iterable[tuple[str, int]]:
+    """Yield space-joined token slices to reconstruct paths with spaces."""
+
+    collected: list[str] = []
+    for offset, raw in enumerate(tokens[start : start + max_span]):
+        collected.append(raw)
+        yield " ".join(collected), start + offset + 1
+
+
 def _is_supported_extension(path: Path) -> bool:
     suffix = path.suffix.lower()
     return suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS | DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS
@@ -146,47 +165,140 @@ def _parse_link(token: str) -> PromptLinkAttachment | None:
     )
 
 
+@dataclass
+class _DetectedPath:
+    placeholder: str
+    path: Path | None
+    consumed_until: int
+    unsupported: bool = False
+    link: PromptLinkAttachment | None = None
+
+    def has_path(self) -> bool:
+        return self.path is not None and not self.unsupported
+
+
+def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
+    tokens = list(_tokenise(prompt))
+    detections: list[_DetectedPath] = []
+    warnings: list[str] = []
+
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+
+        link_attachment = _parse_link(token)
+        if link_attachment:
+            detections.append(
+                _DetectedPath(
+                    placeholder=token,
+                    path=None,
+                    consumed_until=index + 1,
+                    link=link_attachment,
+                )
+            )
+            index += 1
+            continue
+
+        stripped_token = _strip_attachment_token(token)
+        if not _is_probable_path(stripped_token):
+            index += 1
+            continue
+
+        consumed_until = index + 1
+        candidate_placeholder = token
+        candidate_path_token = stripped_token
+
+        try:
+            path = _normalise_path(candidate_path_token)
+        except AttachmentParsingError as exc:
+            warnings.append(str(exc))
+            index = consumed_until
+            continue
+
+        if not path.exists() or not path.is_file():
+            found_span = False
+            last_path = path
+            for joined, end_index in _candidate_paths(tokens, index):
+                stripped_joined = _strip_attachment_token(joined)
+                if not _is_probable_path(stripped_joined):
+                    continue
+                candidate_path_token = stripped_joined
+                candidate_placeholder = joined
+                consumed_until = end_index
+                try:
+                    last_path = _normalise_path(candidate_path_token)
+                except AttachmentParsingError as exc:
+                    warnings.append(str(exc))
+                    found_span = False
+                    break
+                if last_path.exists() and last_path.is_file():
+                    path = last_path
+                    found_span = True
+                    break
+            if not found_span:
+                warnings.append(f"Attachment ignored (not a file): {path}")
+                index += 1
+                continue
+        if not _is_supported_extension(path):
+            detections.append(
+                _DetectedPath(
+                    placeholder=candidate_placeholder,
+                    path=path,
+                    consumed_until=consumed_until,
+                    unsupported=True,
+                )
+            )
+            index = consumed_until
+            continue
+
+        detections.append(
+            _DetectedPath(
+                placeholder=candidate_placeholder,
+                path=path,
+                consumed_until=consumed_until,
+            )
+        )
+        index = consumed_until
+
+    return detections, warnings
+
+
 def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
     """Extract attachments from the prompt returning cleaned text and metadata."""
 
     attachments: List[PromptAttachment] = []
-    link_attachments: List[PromptLinkAttachment] = []
-    warnings: List[str] = []
-    tokens = list(_tokenise(prompt))
     replacement_map: dict[str, str] = {}
 
-    for token in tokens:
-        if token in replacement_map:
+    detections, detection_warnings = _detect_path_tokens(prompt)
+    warnings: List[str] = list(detection_warnings)
+
+    link_attachments = [d.link for d in detections if d.link is not None]
+
+    for detection in detections:
+        if detection.link is not None and detection.path is None:
+            replacement_map[detection.placeholder] = ""
             continue
-        link_attachment = _parse_link(token)
-        if link_attachment:
-            link_attachments.append(link_attachment)
-            replacement_map[token] = ""
+        if detection.path is None:
+            continue
+        if detection.unsupported:
+            warnings.append(
+                f"Unsupported attachment type: {detection.path.suffix or detection.path.name}"
+            )
             continue
 
-        if not _is_probable_path(token):
-            continue
         try:
-            path = _normalise_path(token)
-            if not path.exists() or not path.is_file():
-                warnings.append(f"Attachment ignored (not a file): {path}")
-                continue
-            if not _is_supported_extension(path):
-                warnings.append(f"Unsupported attachment type: {path.suffix or path.name}")
-                continue
-            media_type = _determine_media_type(path)
-            data = _load_binary(path)
-            # Keep placeholder minimal; we will strip later.
-            attachments.append(
-                PromptAttachment(
-                    placeholder=token,
-                    content=BinaryContent(data=data, media_type=media_type),
-                )
-            )
-            replacement_map[token] = ""
+            media_type = _determine_media_type(detection.path)
+            data = _load_binary(detection.path)
         except AttachmentParsingError as exc:
             warnings.append(str(exc))
             continue
+        attachments.append(
+            PromptAttachment(
+                placeholder=detection.placeholder,
+                content=BinaryContent(data=data, media_type=media_type),
+            )
+        )
+        replacement_map[detection.placeholder] = ""
 
     cleaned_prompt = prompt
     for original, replacement in replacement_map.items():
