@@ -82,7 +82,7 @@ def get_commands_help():
     help_lines.append(
         Text("/set", style="cyan")
         + Text(
-            "                  Set puppy config key-values (e.g., /set yolo_mode true, /set auto_save_session true, /set max_saved_sessions 20)"
+            "                  Set puppy config key-values (e.g., /set yolo_mode true, /set auto_save_session true)"
         )
     )
     help_lines.append(
@@ -336,6 +336,30 @@ def handle_command(command: str):
         )
         return True
 
+    if command.startswith("/session"):
+        # /session id -> show current autosave id
+        # /session new -> rotate autosave id
+        tokens = command.split()
+        from code_puppy.config import (
+            AUTOSAVE_DIR,
+            get_current_autosave_id,
+            get_current_autosave_session_name,
+            rotate_autosave_id,
+        )
+        if len(tokens) == 1 or tokens[1] == "id":
+            sid = get_current_autosave_id()
+            emit_info(
+                f"[bold magenta]Autosave Session[/bold magenta]: {sid}\n"
+                f"Files prefix: {Path(AUTOSAVE_DIR) / get_current_autosave_session_name()}"
+            )
+            return True
+        if tokens[1] == "new":
+            new_sid = rotate_autosave_id()
+            emit_success(f"New autosave session id: {new_sid}")
+            return True
+        emit_warning("Usage: /session [id|new]")
+        return True
+
     if command.startswith("/set"):
         # Syntax: /set KEY=VALUE or /set KEY VALUE
         from code_puppy.config import set_config_value
@@ -361,7 +385,6 @@ def handle_command(command: str):
             session_help = (
                 "\n[yellow]Session Management[/yellow]"
                 "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
-                "\n  [cyan]max_saved_sessions[/cyan]  Cap how many auto-saves to keep (0 = unlimited)"
             )
             emit_warning(
                 f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}"
@@ -712,9 +735,17 @@ def handle_command(command: str):
         agent.set_message_history(history)
         total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
 
+        # Rotate autosave id to avoid overwriting any existing autosave
+        try:
+            from code_puppy.config import rotate_autosave_id
+            new_id = rotate_autosave_id()
+            autosave_info = f"\n[dim]Autosave session rotated to: {new_id}[/dim]"
+        except Exception:
+            autosave_info = ""
+
         emit_success(
             f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
-            f"📁 From: {session_path}"
+            f"📁 From: {session_path}{autosave_info}"
         )
         return True
 

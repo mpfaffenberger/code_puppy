@@ -3,8 +3,9 @@ import datetime
 import json
 import os
 import pathlib
+from typing import Optional
 
-from code_puppy.session_storage import cleanup_sessions, save_session
+from code_puppy.session_storage import save_session
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
@@ -18,6 +19,9 @@ AUTOSAVE_DIR = os.path.join(CONFIG_DIR, "autosaves")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
+
+# Runtime-only autosave session ID (per-process)
+_CURRENT_AUTOSAVE_ID: Optional[str] = None
 
 # Cache containers for model validation and defaults
 _model_validation_cache = {}
@@ -702,22 +706,40 @@ def set_max_saved_sessions(max_sessions: int):
     set_config_value("max_saved_sessions", str(max_sessions))
 
 
-def _cleanup_old_sessions():
-    """Remove oldest auto-saved sessions if we exceed the max_saved_sessions limit."""
-    max_sessions = get_max_saved_sessions()
-    if max_sessions <= 0:
-        return
+def get_current_autosave_id() -> str:
+    """Get or create the current autosave session ID for this process."""
+    global _CURRENT_AUTOSAVE_ID
+    if not _CURRENT_AUTOSAVE_ID:
+        # Use a full timestamp so tests and UX can predict the name if needed
+        _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    return _CURRENT_AUTOSAVE_ID
 
-    autosave_dir = pathlib.Path(AUTOSAVE_DIR)
-    removed_sessions = cleanup_sessions(autosave_dir, max_sessions)
-    if not removed_sessions:
-        return
 
-    from rich.console import Console
+def rotate_autosave_id() -> str:
+    """Force a new autosave session ID and return it."""
+    global _CURRENT_AUTOSAVE_ID
+    _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    return _CURRENT_AUTOSAVE_ID
 
-    console = Console()
-    for session_name in removed_sessions:
-        console.print(f"[dim]🗑️  Removed old session: {session_name}.pkl[/dim]")
+
+def get_current_autosave_session_name() -> str:
+    """Return the full session name used for autosaves (no file extension)."""
+    return f"auto_session_{get_current_autosave_id()}"
+
+
+def set_current_autosave_from_session_name(session_name: str) -> str:
+    """Set the current autosave ID based on a full session name.
+
+    Accepts names like 'auto_session_YYYYMMDD_HHMMSS' and extracts the ID part.
+    Returns the ID that was set.
+    """
+    global _CURRENT_AUTOSAVE_ID
+    prefix = "auto_session_"
+    if session_name.startswith(prefix):
+        _CURRENT_AUTOSAVE_ID = session_name[len(prefix):]
+    else:
+        _CURRENT_AUTOSAVE_ID = session_name
+    return _CURRENT_AUTOSAVE_ID
 
 
 def auto_save_session_if_enabled() -> bool:
@@ -739,7 +761,7 @@ def auto_save_session_if_enabled() -> bool:
             return False
 
         now = datetime.datetime.now()
-        session_name = f"auto_session_{now.strftime('%Y%m%d_%H%M%S')}"
+        session_name = get_current_autosave_session_name()
         autosave_dir = pathlib.Path(AUTOSAVE_DIR)
 
         metadata = save_session(
@@ -755,7 +777,6 @@ def auto_save_session_if_enabled() -> bool:
             f"🐾 [dim]Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)[/dim]"
         )
 
-        _cleanup_old_sessions()
         return True
 
     except Exception as exc:  # pragma: no cover - defensive logging

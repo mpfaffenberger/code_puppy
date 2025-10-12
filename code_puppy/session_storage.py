@@ -96,6 +96,12 @@ def load_session(session_name: str, base_dir: Path) -> SessionHistory:
         return pickle.load(pickle_file)
 
 
+def list_sessions(base_dir: Path) -> List[str]:
+    if not base_dir.exists():
+        return []
+    return sorted(path.stem for path in base_dir.glob("*.pkl"))
+
+
 def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
     if max_sessions <= 0:
         return []
@@ -124,12 +130,6 @@ def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
             continue
 
     return removed_sessions
-
-
-def list_sessions(base_dir: Path) -> List[str]:
-    if not base_dir.exists():
-        return []
-    return sorted(path.stem for path in base_dir.glob("*.pkl"))
 
 
 async def restore_autosave_interactively(base_dir: Path) -> None:
@@ -232,6 +232,15 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
 
     agent = get_current_agent()
     agent.set_message_history(history)
+
+    # Set current autosave session id so subsequent autosaves overwrite this session
+    try:
+        from code_puppy.config import set_current_autosave_from_session_name
+
+        set_current_autosave_from_session_name(chosen_name)
+    except Exception:
+        pass
+
     total_tokens = sum(agent.estimate_tokens_for_message(msg) for msg in history)
 
     session_path = base_dir / f"{chosen_name}.pkl"
