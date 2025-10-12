@@ -129,7 +129,6 @@ class TestAutoSaveSessionFunctionality:
         assert result is False
         mock_get_auto_save.assert_called_once()
 
-    @patch("code_puppy.config._cleanup_old_sessions")
     @patch("code_puppy.config.save_session")
     @patch("code_puppy.config.datetime")
     @patch("code_puppy.config.get_auto_save_session")
@@ -199,51 +198,3 @@ class TestAutoSaveSessionFunctionality:
         result = cp_config.auto_save_session_if_enabled()
         assert result is False
         mock_console_instance.print.assert_called_once()
-
-
-class TestCleanupOldSessions:
-    @patch("code_puppy.config.cleanup_sessions")
-    @patch("code_puppy.config.get_max_saved_sessions")
-    def test_cleanup_old_sessions_unlimited(
-        self, mock_get_max_sessions, mock_cleanup, mock_config_paths
-    ):
-        mock_get_max_sessions.return_value = 0
-
-        cp_config._cleanup_old_sessions()
-
-        mock_get_max_sessions.assert_called_once()
-        mock_cleanup.assert_not_called()
-
-    @patch("code_puppy.config.cleanup_sessions")
-    @patch("code_puppy.config.get_max_saved_sessions")
-    def test_cleanup_old_sessions_no_removed(
-        self, mock_get_max_sessions, mock_cleanup, mock_config_paths
-    ):
-        mock_get_max_sessions.return_value = 5
-        mock_cleanup.return_value = []
-
-        with patch("rich.console.Console") as mock_console_class:
-            cp_config._cleanup_old_sessions()
-            mock_console_class.assert_not_called()
-
-        mock_cleanup.assert_called_once_with(Path(cp_config.AUTOSAVE_DIR), 5)
-
-    @patch("code_puppy.config.cleanup_sessions")
-    @patch("code_puppy.config.get_max_saved_sessions")
-    def test_cleanup_old_sessions_removed(
-        self, mock_get_max_sessions, mock_cleanup, mock_config_paths
-    ):
-        mock_get_max_sessions.return_value = 3
-        mock_cleanup.return_value = ["session_a", "session_b"]
-
-        with patch("rich.console.Console") as mock_console_class:
-            mock_console = MagicMock()
-            mock_console_class.return_value = mock_console
-
-            cp_config._cleanup_old_sessions()
-
-            assert mock_console.print.call_count == 2
-            mock_console.print.assert_any_call("[dim]🗑️  Removed old session: session_a.pkl[/dim]")
-            mock_console.print.assert_any_call("[dim]🗑️  Removed old session: session_b.pkl[/dim]")
-
-        mock_cleanup.assert_called_once_with(Path(cp_config.AUTOSAVE_DIR), 3)
