@@ -219,7 +219,7 @@ class BaseAgent(ABC):
                 if isinstance(item, str):
                     attributes.append(f"content={item}")
                 if isinstance(item, BinaryContent):
-
+                    attributes.append(f"BinaryContent")
         else:
             attributes.append(f"content={repr(content)}")
         result = "|".join(attributes)
