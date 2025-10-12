@@ -14,7 +14,6 @@ import difflib
 import json
 import os
 import sys
-import threading
 import traceback
 from typing import Any, Dict, List, Union
 
@@ -22,12 +21,12 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
+from code_puppy.callbacks import on_edit_file, on_file_permission
 from code_puppy.config import get_yolo_mode
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
 
-# Lock for preventing multiple simultaneous permission prompts
-_FILE_CONFIRMATION_LOCK = threading.Lock()
+# File permission handling is now managed by the file_permission_handler plugin
 
 
 def prompt_for_file_permission(
@@ -36,8 +35,7 @@ def prompt_for_file_permission(
     preview: str | None = None,
     message_group: str | None = None,
 ) -> bool:
-    """
-    Prompt the user for permission to perform a file operation.
+    """Prompt the user for permission to perform a file operation using the plugin system.
 
     Args:
         file_path: Path to the file being operated on
@@ -48,80 +46,15 @@ def prompt_for_file_permission(
     Returns:
         bool: True if permission is granted, False otherwise
     """
-
-    # Check if we're in yolo mode
-    from code_puppy.config import get_yolo_mode
-    from code_puppy.tools.command_runner import set_awaiting_user_input
-
-    yolo_mode = get_yolo_mode()
-
-    # Global lock to prevent multiple simultaneous permission prompts
-    global _FILE_CONFIRMATION_LOCK
-    confirmation_lock_acquired = False
-
-    # Only ask for confirmation if we're in an interactive TTY and not in yolo mode
-    if not yolo_mode and sys.stdin.isatty():
-        confirmation_lock_acquired = _FILE_CONFIRMATION_LOCK.acquire(blocking=False)
-        if not confirmation_lock_acquired:
-            emit_warning(
-                "Another file operation is currently awaiting confirmation",
-                message_group=message_group,
-            )
-            return False
-
-        # Show preview if available
-        if preview:
-            emit_info(
-                "\n[bold]Preview of changes:[/bold]",
-                message_group=message_group,
-            )
-            # Format the preview diff with the same highlighting as the final diff
-            formatted_preview = _format_diff_with_highlighting(preview)
-            emit_info(formatted_preview, highlight=False, message_group=message_group)
-
-        # Set the flag to indicate we're awaiting user input
-        set_awaiting_user_input(True)
-
-        emit_info(
-            f"\n[bold]Are you sure you want to {operation} {file_path}? (y(es) or enter as accept/n(o)) [/bold]",
-            message_group=message_group,
-        )
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-
-        try:
-            user_input = input()
-            # Empty input (Enter) counts as yes, like shell commands
-            confirmed = user_input.strip().lower() in {"yes", "y", ""}
-        except (KeyboardInterrupt, EOFError):
-            emit_warning("\n Cancelled by user", message_group=message_group)
-            confirmed = False
-        finally:
-            # Clear the flag regardless of the outcome
-            set_awaiting_user_input(False)
-            if confirmation_lock_acquired:
-                _FILE_CONFIRMATION_LOCK.release()
-
-        if not confirmed:
-            emit_info(
-                "[bold red]✗ Permission denied. Operation cancelled.[/bold red]",
-                message_group=message_group,
-            )
-            return False
-        else:
-            emit_info(
-                "[bold green]✓ Permission granted. Proceeding with operation.[/bold green]",
-                message_group=message_group,
-            )
-            return True
-    else:
-        # In yolo mode or non-interactive TTY, automatically grant permission
-        if not yolo_mode and not sys.stdin.isatty():
-            emit_warning(
-                "[yellow]Non-interactive terminal detected - auto-approving file operation[/yellow]",
-                message_group=message_group,
-            )
+    # Use the plugin system for permission handling
+    permission_results = on_file_permission(None, file_path, operation, preview, message_group)
+    
+    # If no plugins are registered, default to True (allow operation)
+    if not permission_results:
         return True
+    
+    # Return True if all permission handlers approve, False if any deny
+    return all(result for result in permission_results if result is not None)
 
 
 class DeleteSnippetPayload(BaseModel):
@@ -514,11 +447,19 @@ def delete_snippet_from_file(
         if not prompt_for_file_permission(
             file_path, "delete snippet from", preview_diff, message_group
         ):
+            # Return detailed rejection information that will be enhanced by the plugin
             return {
                 "success": False,
                 "path": file_path,
-                "message": "Operation cancelled by user",
+                "message": "Operation cancelled by user - rejected snippet deletion after reviewing diff preview",
                 "changed": False,
+                "user_rejection": True,
+                "rejection_context": {
+                    "operation": "delete_snippet",
+                    "file_type": "existing_file",
+                    "preview_shown": True,
+                    "user_action": "rejected_permission"
+                }
             }
 
     res = _delete_snippet_from_file(
@@ -552,11 +493,19 @@ def write_to_file(
             }
 
         if not prompt_for_file_permission(path, "write", preview_diff, message_group):
+            # Return detailed rejection information that will be enhanced by the plugin
             return {
                 "success": False,
                 "path": path,
-                "message": "Operation cancelled by user",
+                "message": "Operation cancelled by user - rejected file write after reviewing diff preview",
                 "changed": False,
+                "user_rejection": True,
+                "rejection_context": {
+                    "operation": "write_file",
+                    "file_exists": os.path.exists(path),
+                    "preview_shown": True,
+                    "user_action": "rejected_permission"
+                }
             }
 
     res = _write_to_file(
@@ -592,11 +541,19 @@ def replace_in_file(
         if not prompt_for_file_permission(
             path, "replace text in", preview_diff, message_group
         ):
+            # Return detailed rejection information that will be enhanced by the plugin
             return {
                 "success": False,
                 "path": path,
-                "message": "Operation cancelled by user",
+                "message": "Operation cancelled by user - rejected text replacement after reviewing diff preview",
                 "changed": False,
+                "user_rejection": True,
+                "rejection_context": {
+                    "operation": "replace_text",
+                    "replacements_count": len(replacements),
+                    "preview_shown": True,
+                    "user_action": "rejected_permission"
+                }
             }
 
     res = _replace_in_file(context, path, replacements, message_group=message_group)
@@ -721,11 +678,19 @@ def _delete_file(
         if not prompt_for_file_permission(
             file_path, "delete", preview_diff, message_group
         ):
+            # Return detailed rejection information that will be enhanced by the plugin
             return {
                 "success": False,
                 "path": file_path,
-                "message": "Operation cancelled by user",
+                "message": "Operation cancelled by user - rejected file deletion after reviewing diff preview",
                 "changed": False,
+                "user_rejection": True,
+                "rejection_context": {
+                    "operation": "delete_file",
+                    "file_existed": True,
+                    "preview_shown": True,
+                    "user_action": "rejected_permission"
+                }
             }
 
     try:
@@ -886,6 +851,16 @@ def register_edit_file(agent):
         result = _edit_file(context, payload)
         if "diff" in result:
             del result["diff"]
+            
+        # Trigger edit_file callbacks to enhance the result with rejection details
+        enhanced_results = on_edit_file(context, result, payload)
+        if enhanced_results:
+            # Use the first non-None enhanced result
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+                    
         return result
 
 
@@ -935,4 +910,14 @@ def register_delete_file(agent):
         result = _delete_file(context, file_path, message_group=group_id)
         if "diff" in result:
             del result["diff"]
+            
+        # Trigger delete_file callbacks to enhance the result with rejection details
+        enhanced_results = on_delete_file(context, result, file_path)
+        if enhanced_results:
+            # Use the first non-None enhanced result
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+                    
         return result

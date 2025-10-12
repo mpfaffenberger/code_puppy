@@ -17,6 +17,7 @@ PhaseType = Literal[
     "agent_reload",
     "custom_command",
     "custom_command_help",
+    "file_permission",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -34,6 +35,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_reload": [],
     "custom_command": [],
     "custom_command_help": [],
+    "file_permission": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -206,3 +208,23 @@ def on_custom_command(command: str, name: str) -> List[Any]:
         - None to indicate not handled
     """
     return _trigger_callbacks_sync("custom_command", command, name)
+
+
+def on_file_permission(context: Any, file_path: str, operation: str, preview: str | None = None, message_group: str | None = None) -> List[Any]:
+    """Trigger file permission callbacks.
+
+    This allows plugins to register handlers for file permission checks
+    before file operations are performed.
+
+    Args:
+        context: The operation context
+        file_path: Path to the file being operated on
+        operation: Description of the operation
+        preview: Optional preview of changes
+        message_group: Optional message group
+
+    Returns:
+        List of boolean results from permission handlers.
+        Returns True if permission should be granted, False if denied.
+    """
+    return _trigger_callbacks_sync("file_permission", context, file_path, operation, preview, message_group)
