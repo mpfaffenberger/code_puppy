@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -6,7 +7,12 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.keys import Keys
 
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.layout.controls import BufferControl
+from prompt_toolkit.layout.processors import TransformationInput
+
 from code_puppy.command_line.prompt_toolkit_completion import (
+    AttachmentPlaceholderProcessor,
     CDCompleter,
     FilePathCompleter,
     SetCompleter,
@@ -433,6 +439,11 @@ async def test_get_input_with_combined_completion_defaults(
     assert mock_prompt_session_cls.call_args[1]["history"] is None
     assert mock_prompt_session_cls.call_args[1]["complete_while_typing"] is True
     assert "key_bindings" in mock_prompt_session_cls.call_args[1]
+    assert "input_processors" in mock_prompt_session_cls.call_args[1]
+    assert isinstance(
+        mock_prompt_session_cls.call_args[1]["input_processors"][0],
+        AttachmentPlaceholderProcessor,
+    )
 
     mock_session_instance.prompt_async.assert_called_once()
     # Check default prompt string was converted to FormattedText
@@ -570,3 +581,58 @@ async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     with pytest.raises(KeyboardInterrupt):
         found_escape_handler(mock_event)
     mock_event.app.exit.assert_called_once_with(exception=KeyboardInterrupt)
+
+
+@pytest.mark.asyncio
+async def test_attachment_placeholder_processor_renders_images(tmp_path: Path) -> None:
+    image_path = tmp_path / "fluffy pupper.png"
+    image_path.write_bytes(b"png")
+
+    processor = AttachmentPlaceholderProcessor()
+    document_text = f"describe {image_path} now"
+    document = Document(text=document_text, cursor_position=len(document_text))
+
+    fragments = [("", document_text)]
+    buffer = Buffer(document=document)
+    control = BufferControl(buffer=buffer)
+    transformation_input = TransformationInput(
+        buffer_control=control,
+        document=document,
+        lineno=0,
+        source_to_display=lambda i: i,
+        fragments=fragments,
+        width=len(document_text),
+        height=1,
+    )
+
+    transformed = processor.apply_transformation(transformation_input)
+    rendered_text = "".join(text for _style, text in transformed.fragments)
+
+    assert "[png image]" in rendered_text
+    assert "fluffy pupper" not in rendered_text
+
+
+@pytest.mark.asyncio
+async def test_attachment_placeholder_processor_handles_links() -> None:
+    processor = AttachmentPlaceholderProcessor()
+    document_text = "check https://example.com/pic.png"
+    document = Document(text=document_text, cursor_position=len(document_text))
+
+    fragments = [("", document_text)]
+    buffer = Buffer(document=document)
+    control = BufferControl(buffer=buffer)
+    transformation_input = TransformationInput(
+        buffer_control=control,
+        document=document,
+        lineno=0,
+        source_to_display=lambda i: i,
+        fragments=fragments,
+        width=len(document_text),
+        height=1,
+    )
+
+    transformed = processor.apply_transformation(transformation_input)
+    rendered_text = "".join(text for _style, text in transformed.fragments)
+
+    assert "[link]" in rendered_text
+    assert "https://example.com/pic.png" not in rendered_text
