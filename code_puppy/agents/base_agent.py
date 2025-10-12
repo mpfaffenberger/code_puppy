@@ -219,7 +219,7 @@ class BaseAgent(ABC):
                 if isinstance(item, str):
                     attributes.append(f"content={item}")
                 if isinstance(item, BinaryContent):
-                    attributes.append(f"BinaryContent")
+                    attributes.append(f"BinaryContent={hash(item.data)}")
         else:
             attributes.append(f"content={repr(content)}")
         result = "|".join(attributes)
@@ -266,6 +266,13 @@ class BaseAgent(ABC):
                 result = json.dumps(part.content.model_dump())
             elif isinstance(part.content, dict):
                 result = json.dumps(part.content)
+            elif isinstance(part.content, list):
+                result = ""
+                for item in part.content:
+                    if isinstance(item, str):
+                        result += item + "\n"
+                    if isinstance(item, BinaryContent):
+                        result += f"BinaryContent={hash(item.data)}\n"
             else:
                 result = str(part.content)
 
