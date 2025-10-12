@@ -101,6 +101,14 @@ class JSONAgent(BaseAgent):
         """Get tool configuration from JSON config."""
         return self._config.get("tools_config")
 
+    def refresh_config(self) -> None:
+        """Reload the agent configuration from disk.
+
+        This keeps long-lived agent instances in sync after external edits.
+        """
+        self._config = self._load_config()
+        self._validate_config()
+
     def get_model_name(self) -> Optional[str]:
         """Get pinned model name from JSON config, if specified.
 

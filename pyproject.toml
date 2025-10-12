@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.192"
+version = "0.0.198"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic-ai<=0.8",
+    "pydantic-ai==1.0.6",
     "httpx>=0.24.1",
     "rich>=13.4.2",
     "logfire>=0.7.1",
@@ -19,7 +19,7 @@ dependencies = [
     "pytest-cov>=6.1.1",
     "ruff>=0.11.11",
     "httpx-limiter>=0.3.0",
-    "prompt-toolkit>=3.0.38",
+    "prompt-toolkit>=3.0.52",
     "pathspec>=0.11.0",
     "rapidfuzz>=3.13.0",
     "json-repair>=0.46.2",

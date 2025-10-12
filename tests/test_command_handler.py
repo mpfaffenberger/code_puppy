@@ -1,4 +1,5 @@
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from code_puppy.command_line.command_handler import handle_command
 
@@ -324,6 +325,109 @@ def test_bare_slash_with_spaces():
             )
     finally:
         mocks["emit_info"].stop()
+
+
+def test_agent_switch_triggers_autosave_rotation():
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    mock_emit_success = mocks["emit_success"].start()
+
+    try:
+        current_agent = SimpleNamespace(name="code-puppy", display_name="Code Puppy")
+        new_agent = SimpleNamespace(
+            name="reviewer",
+            display_name="Reviewer",
+            description="Checks code",
+        )
+        new_agent.reload_code_generation_agent = MagicMock()
+
+        with (
+            patch(
+                "code_puppy.agents.get_current_agent",
+                side_effect=[current_agent, new_agent],
+            ),
+            patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"code-puppy": "Code Puppy", "reviewer": "Reviewer"},
+            ),
+            patch(
+                "code_puppy.command_line.command_handler.finalize_autosave_session",
+                return_value="fresh_id",
+            ) as mock_finalize,
+            patch(
+                "code_puppy.agents.set_current_agent",
+                return_value=True,
+            ) as mock_set,
+        ):
+            result = handle_command("/agent reviewer")
+            assert result is True
+            mock_finalize.assert_called_once_with()
+            mock_set.assert_called_once_with("reviewer")
+
+        assert any("Switched to agent" in str(call) for call in mock_emit_success.call_args_list)
+        assert any("Auto-save session rotated" in str(call) for call in mock_emit_info.call_args_list)
+    finally:
+        mocks["emit_info"].stop()
+        mocks["emit_success"].stop()
+
+
+def test_agent_switch_same_agent_skips_rotation():
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+
+    try:
+        current_agent = SimpleNamespace(name="code-puppy", display_name="Code Puppy")
+        with (
+            patch(
+                "code_puppy.agents.get_current_agent",
+                return_value=current_agent,
+            ),
+            patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"code-puppy": "Code Puppy"},
+            ),
+            patch(
+                "code_puppy.command_line.command_handler.finalize_autosave_session",
+            ) as mock_finalize,
+            patch(
+                "code_puppy.agents.set_current_agent",
+            ) as mock_set,
+        ):
+            result = handle_command("/agent code-puppy")
+            assert result is True
+            mock_finalize.assert_not_called()
+            mock_set.assert_not_called()
+
+        assert any("Already using agent" in str(call) for call in mock_emit_info.call_args_list)
+    finally:
+        mocks["emit_info"].stop()
+
+
+def test_agent_switch_unknown_agent_skips_rotation():
+    mocks = setup_messaging_mocks()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        with (
+            patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"code-puppy": "Code Puppy"},
+            ),
+            patch(
+                "code_puppy.command_line.command_handler.finalize_autosave_session",
+            ) as mock_finalize,
+            patch(
+                "code_puppy.agents.set_current_agent",
+            ) as mock_set,
+        ):
+            result = handle_command("/agent reviewer")
+            assert result is True
+            mock_finalize.assert_not_called()
+            mock_set.assert_not_called()
+
+        assert any("Available agents" in str(call) for call in mock_emit_warning.call_args_list)
+    finally:
+        mocks["emit_warning"].stop()
 
 
 def test_tools_displays_tools_md():

@@ -22,7 +22,7 @@ from pydantic_ai.messages import (
     ToolReturn,
     ToolReturnPart,
 )
-from pydantic_ai.models.openai import OpenAIModelSettings
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.settings import ModelSettings
 
 # Consolidated relative imports
@@ -720,10 +720,7 @@ class BaseAgent(ABC):
             emit_system_message(
                 f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
             )
-        else:
-            emit_system_message(
-                "[yellow]No MCP servers available (check if servers are enabled)[/yellow]"
-            )
+        # Stay silent when there are no servers configured/available
         return servers
 
     def reload_mcp_servers(self):
@@ -835,7 +832,7 @@ class BaseAgent(ABC):
                 get_openai_reasoning_effort()
             )
             model_settings_dict["extra_body"] = {"verbosity": "low"}
-            model_settings = OpenAIModelSettings(**model_settings_dict)
+            model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
         self.cur_model = model
         p_agent = PydanticAgent(
@@ -891,7 +888,8 @@ class BaseAgent(ABC):
             asyncio.CancelledError: When execution is cancelled by user
         """
         group_id = str(uuid.uuid4())
-        pydantic_agent = self.reload_code_generation_agent()
+        # Avoid double-loading: reuse existing agent if already built
+        pydantic_agent = self._code_generation_agent or self.reload_code_generation_agent()
 
         async def run_agent_task():
             try:

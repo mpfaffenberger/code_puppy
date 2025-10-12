@@ -8,11 +8,11 @@ import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.models.gemini import GeminiModel
+from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
-from pydantic_ai.providers.google_gla import GoogleGLAProvider
+from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
@@ -142,9 +142,9 @@ class ModelFactory:
         model_type = model_config.get("type")
 
         if model_type == "gemini":
-            provider = GoogleGLAProvider(api_key=os.environ.get("GEMINI_API_KEY", ""))
+            provider = GoogleProvider(api_key=os.environ.get("GEMINI_API_KEY", ""))
 
-            model = GeminiModel(model_name=model_config["name"], provider=provider)
+            model = GoogleModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
 
@@ -266,7 +266,7 @@ class ModelFactory:
             url, headers, verify, api_key = get_custom_config(model_config)
             os.environ["GEMINI_API_KEY"] = api_key
 
-            class CustomGoogleGLAProvider(GoogleGLAProvider):
+            class CustomGoogleGLAProvider(GoogleProvider):
                 def __init__(self, *args, **kwargs):
                     super().__init__(*args, **kwargs)
 
@@ -281,7 +281,7 @@ class ModelFactory:
                     return _client
 
             google_gla = CustomGoogleGLAProvider(api_key=api_key)
-            model = GeminiModel(model_name=model_config["name"], provider=google_gla)
+            model = GoogleModel(model_name=model_config["name"], provider=google_gla)
             return model
         elif model_type == "cerebras":
             url, headers, verify, api_key = get_custom_config(model_config)

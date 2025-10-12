@@ -1,132 +1,107 @@
 import os
+from datetime import datetime
+from pathlib import Path
 
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
-from code_puppy.config import get_config_keys
+from code_puppy.config import (
+    CONTEXTS_DIR,
+    finalize_autosave_session,
+    get_config_keys,
+)
+from code_puppy.session_storage import list_sessions, load_session, save_session
 from code_puppy.tools.tools_content import tools_content
 
 
 def get_commands_help():
-    """Generate commands help using Rich Text objects to avoid markup conflicts."""
+    """Generate aligned commands help using Rich Text for safe markup."""
     from rich.text import Text
 
     # Ensure plugins are loaded so custom help can register
     _ensure_plugins_loaded()
 
-    # Build help text programmatically
-    help_lines = []
+    # Collect core commands with their syntax parts and descriptions
+    # (cmd_syntax, description)
+    core_cmds = [
+        ("/help, /h", "Show this help message"),
+        ("/cd <dir>", "Change directory or show directories"),
+        (
+            "/agent <name>",
+            "Switch to a different agent or show available agents",
+        ),
+        ("/exit, /quit", "Exit interactive mode"),
+        ("/generate-pr-description [@dir]", "Generate comprehensive PR description"),
+        ("/model, /m <model>", "Set active model"),
+        ("/reasoning <low|medium|high>", "Set OpenAI reasoning effort for GPT-5 models"),
+        ("/pin_model <agent> <model>", "Pin a specific model to an agent"),
+        ("/mcp", "Manage MCP servers (list, start, stop, status, etc.)"),
+        ("/motd", "Show the latest message of the day (MOTD)"),
+        ("/show", "Show puppy config key-values"),
+        (
+            "/compact",
+            "Summarize and compact current chat history (uses compaction_strategy config)",
+        ),
+        ("/dump_context <name>", "Save current message history to file"),
+        ("/load_context <name>", "Load message history from file"),
+        (
+            "/set",
+            "Set puppy config (e.g., /set yolo_mode true, /set auto_save_session true)",
+        ),
+        ("/tools", "Show available tools and capabilities"),
+        (
+            "/truncate <N>",
+            "Truncate history to N most recent messages (keeping system message)",
+        ),
+        ("/<unknown>", "Show unknown command warning"),
+    ]
 
-    # Title
-    help_lines.append(Text("Commands Help", style="bold magenta"))
+    # Determine padding width for the left column
+    left_width = max(len(cmd) for cmd, _ in core_cmds) + 2  # add spacing
 
-    # Commands - build each line programmatically
-    help_lines.append(
-        Text("/help, /h", style="cyan") + Text("             Show this help message")
-    )
-    help_lines.append(
-        Text("/cd", style="cyan")
-        + Text(" <dir>             Change directory or show directories")
-    )
-    help_lines.append(
-        Text("/agent", style="cyan")
-        + Text(" <name>         Switch to a different agent or show available agents")
-    )
-    help_lines.append(
-        Text("/exit, /quit", style="cyan") + Text("          Exit interactive mode")
-    )
-    help_lines.append(
-        Text("/generate-pr-description", style="cyan")
-        + Text(" [@dir]  Generate comprehensive PR description")
-    )
-    help_lines.append(
-        Text("/model, /m", style="cyan") + Text(" <model>   Set active model")
-    )
-    help_lines.append(
-        Text("/reasoning", style="cyan")
-        + Text(" <low|medium|high>  Set OpenAI reasoning effort for GPT-5 models")
-    )
-    help_lines.append(
-        Text("/pin_model", style="cyan")
-        + Text(" <agent> <model>  Pin a specific model to an agent")
-    )
-    help_lines.append(
-        Text("/mcp", style="cyan")
-        + Text("                  Manage MCP servers (list, start, stop, status, etc.)")
-    )
-    help_lines.append(
-        Text("/motd", style="cyan")
-        + Text("                 Show the latest message of the day (MOTD)")
-    )
-    help_lines.append(
-        Text("/show", style="cyan")
-        + Text("                 Show puppy config key-values")
-    )
-    help_lines.append(
-        Text("/compact", style="cyan")
-        + Text(
-            "              Summarize and compact current chat history (uses compaction_strategy config)"
-        )
-    )
-    help_lines.append(
-        Text("/dump_context", style="cyan")
-        + Text(" <name>  Save current message history to file")
-    )
-    help_lines.append(
-        Text("/load_context", style="cyan")
-        + Text(" <name>  Load message history from file")
-    )
-    help_lines.append(
-        Text("/set", style="cyan")
-        + Text(
-            "                  Set puppy config key-values (e.g., /set yolo_mode true, /set compaction_strategy truncation)"
-        )
-    )
-    help_lines.append(
-        Text("/tools", style="cyan")
-        + Text("                Show available tools and capabilities")
-    )
-    help_lines.append(
-        Text("/truncate", style="cyan")
-        + Text(
-            " <N>              Truncate message history to N most recent messages (keeping system message)"
-        )
-    )
-    help_lines.append(
-        Text("/<unknown>", style="cyan")
-        + Text("            Show unknown command warning")
-    )
+    lines: list[Text] = []
+    lines.append(Text("Commands Help", style="bold magenta"))
+
+    for cmd, desc in core_cmds:
+        left = Text(cmd.ljust(left_width), style="cyan")
+        right = Text(desc)
+        line = Text()
+        line.append_text(left)
+        line.append_text(right)
+        lines.append(line)
 
     # Add custom commands from plugins (if any)
     try:
         from code_puppy import callbacks
 
         custom_help_results = callbacks.on_custom_command_help()
-        # Flatten various returns into a list of (name, description)
-        custom_entries = []
+        custom_entries: list[tuple[str, str]] = []
         for res in custom_help_results:
             if not res:
                 continue
             if isinstance(res, tuple) and len(res) == 2:
-                custom_entries.append(res)
+                custom_entries.append((str(res[0]), str(res[1])))
             elif isinstance(res, list):
                 for item in res:
                     if isinstance(item, tuple) and len(item) == 2:
-                        custom_entries.append(item)
+                        custom_entries.append((str(item[0]), str(item[1])))
         if custom_entries:
-            help_lines.append(Text("\n", style="dim"))
-            help_lines.append(Text("Custom Commands", style="bold magenta"))
+            lines.append(Text("", style="dim"))
+            lines.append(Text("Custom Commands", style="bold magenta"))
+            # Compute padding for custom commands as well
+            custom_left_width = max(len(name) for name, _ in custom_entries) + 3
             for name, desc in custom_entries:
-                help_lines.append(
-                    Text(f"/{name}", style="cyan") + Text(f"  {desc}")
-                )
+                left = Text(f"/{name}".ljust(custom_left_width), style="cyan")
+                right = Text(desc)
+                line = Text()
+                line.append_text(left)
+                line.append_text(right)
+                lines.append(line)
     except Exception:
-        # If callbacks fail, skip custom help silently
         pass
 
-    # Combine all lines
     final_text = Text()
-    for i, line in enumerate(help_lines):
+    for i, line in enumerate(lines):
         if i > 0:
             final_text.append("\n")
         final_text.append_text(line)
@@ -333,6 +308,30 @@ def handle_command(command: str):
         )
         return True
 
+    if command.startswith("/session"):
+        # /session id -> show current autosave id
+        # /session new -> rotate autosave id
+        tokens = command.split()
+        from code_puppy.config import (
+            AUTOSAVE_DIR,
+            get_current_autosave_id,
+            get_current_autosave_session_name,
+            rotate_autosave_id,
+        )
+        if len(tokens) == 1 or tokens[1] == "id":
+            sid = get_current_autosave_id()
+            emit_info(
+                f"[bold magenta]Autosave Session[/bold magenta]: {sid}\n"
+                f"Files prefix: {Path(AUTOSAVE_DIR) / get_current_autosave_session_name()}"
+            )
+            return True
+        if tokens[1] == "new":
+            new_sid = rotate_autosave_id()
+            emit_success(f"New autosave session id: {new_sid}")
+            return True
+        emit_warning("Usage: /session [id|new]")
+        return True
+
     if command.startswith("/set"):
         # Syntax: /set KEY=VALUE or /set KEY VALUE
         from code_puppy.config import set_config_value
@@ -355,8 +354,12 @@ def handle_command(command: str):
             config_keys = get_config_keys()
             if "compaction_strategy" not in config_keys:
                 config_keys.append("compaction_strategy")
+            session_help = (
+                "\n[yellow]Session Management[/yellow]"
+                "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
+            )
             emit_warning(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]"
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}"
             )
             return True
         if key:
@@ -430,31 +433,44 @@ def handle_command(command: str):
             import uuid
 
             group_id = str(uuid.uuid4())
+            available_agents = get_available_agents()
 
-            if set_current_agent(agent_name):
-                # Reload the agent with new configuration
-                agent = get_current_agent()
-                agent.reload_code_generation_agent()
-                new_agent = get_current_agent()
-                emit_success(
-                    f"Switched to agent: {new_agent.display_name}",
-                    message_group=group_id,
-                )
-                emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
-                return True
-            else:
-                # Generate a group ID for all messages in this command
-                import uuid
-
-                group_id = str(uuid.uuid4())
-
-                available_agents = get_available_agents()
+            if agent_name not in available_agents:
                 emit_error(f"Agent '{agent_name}' not found", message_group=group_id)
                 emit_warning(
                     f"Available agents: {', '.join(available_agents.keys())}",
                     message_group=group_id,
                 )
                 return True
+
+            current_agent = get_current_agent()
+            if current_agent.name == agent_name:
+                emit_info(
+                    f"Already using agent: {current_agent.display_name}",
+                    message_group=group_id,
+                )
+                return True
+
+            new_session_id = finalize_autosave_session()
+            if not set_current_agent(agent_name):
+                emit_warning(
+                    "Agent switch failed after autosave rotation. Your context was preserved.",
+                    message_group=group_id,
+                )
+                return True
+
+            new_agent = get_current_agent()
+            new_agent.reload_code_generation_agent()
+            emit_success(
+                f"Switched to agent: {new_agent.display_name}",
+                message_group=group_id,
+            )
+            emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
+            emit_info(
+                f"[dim]Auto-save session rotated to: {new_session_id}[/dim]",
+                message_group=group_id,
+            )
+            return True
         else:
             emit_warning("Usage: /agent [agent-name]")
             return True
@@ -594,12 +610,22 @@ def handle_command(command: str):
 
             emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
 
-            # If this is the current agent, reload it to use the new model
+            # If this is the current agent, refresh it so the prompt updates immediately
             from code_puppy.agents import get_current_agent
 
             current_agent = get_current_agent()
             if current_agent.name == agent_name:
-                emit_info(f"Active agent reloaded with pinned model '{model_name}'")
+                try:
+                    if is_json_agent and hasattr(current_agent, "refresh_config"):
+                        current_agent.refresh_config()
+                    current_agent.reload_code_generation_agent()
+                    emit_info(
+                        f"Active agent reloaded with pinned model '{model_name}'"
+                    )
+                except Exception as reload_error:
+                    emit_warning(
+                        f"Pinned model applied but reload failed: {reload_error}"
+                    )
 
             return True
 
@@ -643,14 +669,7 @@ def handle_command(command: str):
         return pr_prompt
 
     if command.startswith("/dump_context"):
-        import json
-        import pickle
-        from datetime import datetime
-        from pathlib import Path
-
-        # estimate_tokens_for_message has been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.config import CONFIG_DIR
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -665,49 +684,26 @@ def handle_command(command: str):
             emit_warning("No message history to dump!")
             return True
 
-        # Create contexts directory inside CONFIG_DIR if it doesn't exist
-        contexts_dir = Path(CONFIG_DIR) / "contexts"
-        contexts_dir.mkdir(parents=True, exist_ok=True)
-
         try:
-            # Save as pickle for exact preservation
-            pickle_file = contexts_dir / f"{session_name}.pkl"
-            with open(pickle_file, "wb") as f:
-                pickle.dump(history, f)
-
-            # Also save metadata as JSON for readability
-            meta_file = contexts_dir / f"{session_name}_meta.json"
-            current_agent = get_current_agent()
-            metadata = {
-                "session_name": session_name,
-                "timestamp": datetime.now().isoformat(),
-                "message_count": len(history),
-                "total_tokens": sum(
-                    current_agent.estimate_tokens_for_message(m) for m in history
-                ),
-                "file_path": str(pickle_file),
-            }
-
-            with open(meta_file, "w") as f:
-                json.dump(metadata, f, indent=2)
-
+            metadata = save_session(
+                history=history,
+                session_name=session_name,
+                base_dir=Path(CONTEXTS_DIR),
+                timestamp=datetime.now().isoformat(),
+                token_estimator=agent.estimate_tokens_for_message,
+            )
             emit_success(
-                f"✅ Context saved: {len(history)} messages ({metadata['total_tokens']} tokens)\n"
-                f"📁 Files: {pickle_file}, {meta_file}"
+                f"✅ Context saved: {metadata.message_count} messages ({metadata.total_tokens} tokens)\n"
+                f"📁 Files: {metadata.pickle_path}, {metadata.metadata_path}"
             )
             return True
 
-        except Exception as e:
-            emit_error(f"Failed to dump context: {e}")
+        except Exception as exc:
+            emit_error(f"Failed to dump context: {exc}")
             return True
 
     if command.startswith("/load_context"):
-        import pickle
-        from pathlib import Path
-
-        # estimate_tokens_for_message has been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.config import CONFIG_DIR
 
         tokens = command.split()
         if len(tokens) != 2:
@@ -715,38 +711,38 @@ def handle_command(command: str):
             return True
 
         session_name = tokens[1]
-        contexts_dir = Path(CONFIG_DIR) / "contexts"
-        pickle_file = contexts_dir / f"{session_name}.pkl"
-
-        if not pickle_file.exists():
-            emit_error(f"Context file not found: {pickle_file}")
-            # List available contexts
-            available = list(contexts_dir.glob("*.pkl"))
-            if available:
-                names = [f.stem for f in available]
-                emit_info(f"Available contexts: {', '.join(names)}")
-            return True
+        contexts_dir = Path(CONTEXTS_DIR)
+        session_path = contexts_dir / f"{session_name}.pkl"
 
         try:
-            with open(pickle_file, "rb") as f:
-                history = pickle.load(f)
-
-            agent = get_current_agent()
-            agent.set_message_history(history)
-            current_agent = get_current_agent()
-            total_tokens = sum(
-                current_agent.estimate_tokens_for_message(m) for m in history
-            )
-
-            emit_success(
-                f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
-                f"📁 From: {pickle_file}"
-            )
+            history = load_session(session_name, contexts_dir)
+        except FileNotFoundError:
+            emit_error(f"Context file not found: {session_path}")
+            available = list_sessions(contexts_dir)
+            if available:
+                emit_info(f"Available contexts: {', '.join(available)}")
+            return True
+        except Exception as exc:
+            emit_error(f"Failed to load context: {exc}")
             return True
 
-        except Exception as e:
-            emit_error(f"Failed to load context: {e}")
-            return True
+        agent = get_current_agent()
+        agent.set_message_history(history)
+        total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+
+        # Rotate autosave id to avoid overwriting any existing autosave
+        try:
+            from code_puppy.config import rotate_autosave_id
+            new_id = rotate_autosave_id()
+            autosave_info = f"\n[dim]Autosave session rotated to: {new_id}[/dim]"
+        except Exception:
+            autosave_info = ""
+
+        emit_success(
+            f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
+            f"📁 From: {session_path}{autosave_info}"
+        )
+        return True
 
     if command.startswith("/truncate"):
         from code_puppy.agents.agent_manager import get_current_agent

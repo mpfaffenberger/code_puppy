@@ -1,7 +1,11 @@
 import configparser
+import datetime
 import json
 import os
 import pathlib
+from typing import Optional
+
+from code_puppy.session_storage import save_session
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
@@ -10,9 +14,14 @@ COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
 MODELS_FILE = os.path.join(CONFIG_DIR, "models.json")
 EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
+CONTEXTS_DIR = os.path.join(CONFIG_DIR, "contexts")
+AUTOSAVE_DIR = os.path.join(CONFIG_DIR, "autosaves")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
+
+# Runtime-only autosave session ID (per-process)
+_CURRENT_AUTOSAVE_ID: Optional[str] = None
 
 # Cache containers for model validation and defaults
 _model_validation_cache = {}
@@ -121,6 +130,8 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "auto_save_session",
+        "max_saved_sessions",
     ]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -645,3 +656,137 @@ def clear_agent_pinned_model(agent_name: str):
     # We can't easily delete keys from configparser, so set to empty string
     # which will be treated as None by get_agent_pinned_model
     set_config_value(f"agent_model_{agent_name}", "")
+
+
+def get_auto_save_session() -> bool:
+    """
+    Checks puppy.cfg for 'auto_save_session' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("auto_save_session")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return True
+
+
+def set_auto_save_session(enabled: bool):
+    """Sets the auto_save_session configuration value.
+    
+    Args:
+        enabled: Whether to enable auto-saving of sessions
+    """
+    set_config_value("auto_save_session", "true" if enabled else "false")
+
+
+def get_max_saved_sessions() -> int:
+    """
+    Gets the maximum number of sessions to keep.
+    Defaults to 20 if not set.
+    """
+    cfg_val = get_value("max_saved_sessions")
+    if cfg_val is not None:
+        try:
+            val = int(cfg_val)
+            return max(0, val)  # Ensure non-negative
+        except (ValueError, TypeError):
+            pass
+    return 20
+
+
+def set_max_saved_sessions(max_sessions: int):
+    """Sets the max_saved_sessions configuration value.
+    
+    Args:
+        max_sessions: Maximum number of sessions to keep (0 for unlimited)
+    """
+    set_config_value("max_saved_sessions", str(max_sessions))
+
+
+def get_current_autosave_id() -> str:
+    """Get or create the current autosave session ID for this process."""
+    global _CURRENT_AUTOSAVE_ID
+    if not _CURRENT_AUTOSAVE_ID:
+        # Use a full timestamp so tests and UX can predict the name if needed
+        _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    return _CURRENT_AUTOSAVE_ID
+
+
+def rotate_autosave_id() -> str:
+    """Force a new autosave session ID and return it."""
+    global _CURRENT_AUTOSAVE_ID
+    _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    return _CURRENT_AUTOSAVE_ID
+
+
+def get_current_autosave_session_name() -> str:
+    """Return the full session name used for autosaves (no file extension)."""
+    return f"auto_session_{get_current_autosave_id()}"
+
+
+def set_current_autosave_from_session_name(session_name: str) -> str:
+    """Set the current autosave ID based on a full session name.
+
+    Accepts names like 'auto_session_YYYYMMDD_HHMMSS' and extracts the ID part.
+    Returns the ID that was set.
+    """
+    global _CURRENT_AUTOSAVE_ID
+    prefix = "auto_session_"
+    if session_name.startswith(prefix):
+        _CURRENT_AUTOSAVE_ID = session_name[len(prefix):]
+    else:
+        _CURRENT_AUTOSAVE_ID = session_name
+    return _CURRENT_AUTOSAVE_ID
+
+
+def auto_save_session_if_enabled() -> bool:
+    """Automatically save the current session if auto_save_session is enabled."""
+    if not get_auto_save_session():
+        return False
+
+    try:
+        import pathlib
+        from rich.console import Console
+
+        from code_puppy.agents.agent_manager import get_current_agent
+
+        console = Console()
+
+        current_agent = get_current_agent()
+        history = current_agent.get_message_history()
+        if not history:
+            return False
+
+        now = datetime.datetime.now()
+        session_name = get_current_autosave_session_name()
+        autosave_dir = pathlib.Path(AUTOSAVE_DIR)
+
+        metadata = save_session(
+            history=history,
+            session_name=session_name,
+            base_dir=autosave_dir,
+            timestamp=now.isoformat(),
+            token_estimator=current_agent.estimate_tokens_for_message,
+            auto_saved=True,
+        )
+
+        console.print(
+            f"🐾 [dim]Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)[/dim]"
+        )
+
+        return True
+
+    except Exception as exc:  # pragma: no cover - defensive logging
+        from rich.console import Console
+
+        Console().print(f"[dim]❌ Failed to auto-save session: {exc}[/dim]")
+        return False
+
+
+def finalize_autosave_session() -> str:
+    """Persist the current autosave snapshot and rotate to a fresh session."""
+    auto_save_session_if_enabled()
+    return rotate_autosave_id()

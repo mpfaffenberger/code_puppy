@@ -194,24 +194,48 @@ async def get_input_with_combined_completion(
             LoadContextCompleter(trigger="/load_context"),
         ]
     )
-    # Add custom key bindings for multiline input
+    # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
 
-    @bindings.add(Keys.Escape, "m")  # Alt+M (legacy support)
+    # Multiline mode state
+    multiline = {"enabled": False}
+
+    # Toggle multiline with Alt+M
+    @bindings.add(Keys.Escape, "m")
+    def _(event):
+        multiline["enabled"] = not multiline["enabled"]
+        status = "ON" if multiline["enabled"] else "OFF"
+        # Print status for user feedback (version-agnostic)
+        print(f"[multiline] {status}", flush=True)
+
+    # Also toggle multiline with F2 (more reliable across platforms)
+    @bindings.add("f2")
+    def _(event):
+        multiline["enabled"] = not multiline["enabled"]
+        status = "ON" if multiline["enabled"] else "OFF"
+        print(f"[multiline] {status}", flush=True)
+
+    # Newline insert bindings — robust and explicit
+    # Ctrl+J (line feed) works in virtually all terminals; mark eager so it wins
+    @bindings.add("c-j", eager=True)
     def _(event):
         event.app.current_buffer.insert_text("\n")
 
-    # Create a special binding for shift+enter
-    @bindings.add("escape", "enter")
-    def _(event):
-        """Pressing alt+enter (meta+enter) inserts a newline."""
-        event.app.current_buffer.insert_text("\n")
+    # Also allow Ctrl+Enter for newline (terminal-dependent)
+    try:
+        @bindings.add("c-enter", eager=True)
+        def _(event):
+            event.app.current_buffer.insert_text("\n")
+    except Exception:
+        pass
 
-    # Override the default enter behavior to check for shift
-    @bindings.add("enter", filter=~is_searching)
+    # Enter behavior depends on multiline mode
+    @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
-        """Accept input only when we're not in an interactive search buffer."""
-        event.current_buffer.validate_and_handle()
+        if multiline["enabled"]:
+            event.app.current_buffer.insert_text("\n")
+        else:
+            event.current_buffer.validate_and_handle()
 
     @bindings.add(Keys.Escape)
     def _(event):

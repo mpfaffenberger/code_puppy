@@ -1,10 +1,13 @@
 import argparse
 import asyncio
+import json
 import os
 import subprocess
 import sys
 import time
 import webbrowser
+from datetime import datetime
+from pathlib import Path
 
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
@@ -18,11 +21,14 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_prompt_with_active_model,
 )
 from code_puppy.config import (
+    AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
     ensure_config_exists,
+    finalize_autosave_session,
     initialize_command_history_file,
     save_command_to_history,
 )
+from code_puppy.session_storage import list_sessions, load_session, restore_autosave_interactively
 from code_puppy.http_utils import find_available_port
 from code_puppy.tools.common import console
 
@@ -267,16 +273,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
     emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
     emit_system_message("Type 'clear' to reset the conversation history.")
+    emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue]."
     )
     emit_system_message(
         "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
     )
-    from code_puppy.command_line.command_handler import get_commands_help
-
-    help_text = get_commands_help()
-    emit_system_message(help_text)
     try:
         from code_puppy.command_line.motd import print_motd
 
@@ -288,6 +291,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.messaging import emit_info
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
+
+
     # Initialize the runtime agent manager
     if initial_command:
         from code_puppy.agents import get_current_agent
@@ -367,6 +372,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_error(f"Error installing prompt_toolkit: {e}")
             emit_warning("Falling back to basic input without tab completion")
 
+    await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.messaging import emit_info
@@ -408,12 +415,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Check for clear command (supports both `clear` and `/clear`)
         if task.strip().lower() in ("clear", "/clear"):
-            from code_puppy.messaging import emit_system_message, emit_warning
+            from code_puppy.messaging import emit_info, emit_system_message, emit_warning
 
             agent = get_current_agent()
+            new_session_id = finalize_autosave_session()
             agent.clear_message_history()
             emit_warning("Conversation history cleared!")
             emit_system_message("The agent will not remember previous interactions.\n")
+            emit_info(f"[dim]Auto-save session rotated to: {new_session_id}[/dim]")
             continue
 
         # Handle / commands before anything else
@@ -456,11 +465,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
 
+                # Auto-save session if enabled
+                from code_puppy.config import auto_save_session_if_enabled
+                auto_save_session_if_enabled()
+
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
                 display_console.file.flush() if hasattr(
                     display_console.file, "flush"
-                ) else None
+        ) else None
                 import time
 
                 time.sleep(0.1)  # Brief pause to ensure all messages are rendered
