@@ -720,10 +720,7 @@ class BaseAgent(ABC):
             emit_system_message(
                 f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
             )
-        else:
-            emit_system_message(
-                "[yellow]No MCP servers available (check if servers are enabled)[/yellow]"
-            )
+        # Stay silent when there are no servers configured/available
         return servers
 
     def reload_mcp_servers(self):
@@ -891,7 +888,8 @@ class BaseAgent(ABC):
             asyncio.CancelledError: When execution is cancelled by user
         """
         group_id = str(uuid.uuid4())
-        pydantic_agent = self.reload_code_generation_agent()
+        # Avoid double-loading: reuse existing agent if already built
+        pydantic_agent = self._code_generation_agent or self.reload_code_generation_agent()
 
         async def run_agent_task():
             try:

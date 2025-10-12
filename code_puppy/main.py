@@ -272,16 +272,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
     emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
     emit_system_message("Type 'clear' to reset the conversation history.")
+    emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue]."
     )
     emit_system_message(
         "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
     )
-    from code_puppy.command_line.command_handler import get_commands_help
-
-    help_text = get_commands_help()
-    emit_system_message(help_text)
     try:
         from code_puppy.command_line.motd import print_motd
 

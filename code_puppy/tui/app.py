@@ -176,6 +176,13 @@ class CodePuppyTUI(App):
         # Start the message renderer EARLY to catch startup messages
         # Using call_after_refresh to start it as soon as possible after mount
         self.call_after_refresh(self.start_message_renderer_sync)
+        
+        # Kick off a non-blocking preload of the agent/model so the
+        # status bar shows loading before first prompt
+        self.call_after_refresh(self.preload_agent_on_startup)
+        
+        # After preload, offer to restore an autosave session (like interactive mode)
+        self.call_after_refresh(self.maybe_prompt_restore_autosave)
 
         # Apply responsive design adjustments
         self.apply_responsive_layout()
@@ -187,16 +194,40 @@ class CodePuppyTUI(App):
         if self.initial_command:
             self.call_after_refresh(self.process_initial_command)
 
+    def _tighten_text(self, text: str) -> str:
+        """Aggressively tighten whitespace: trim lines, collapse multiples, drop extra blanks."""
+        try:
+            import re
+
+            # Split into lines, strip each, drop empty runs
+            lines = [re.sub(r"\s+", " ", ln.strip()) for ln in text.splitlines()]
+            # Remove consecutive blank lines
+            tight_lines = []
+            last_blank = False
+            for ln in lines:
+                is_blank = (ln == "")
+                if is_blank and last_blank:
+                    continue
+                tight_lines.append(ln)
+                last_blank = is_blank
+            return "\n".join(tight_lines).strip()
+        except Exception:
+            return text.strip()
+
     def add_system_message(
         self, content: str, message_group: str = None, group_id: str = None
     ) -> None:
         """Add a system message to the chat."""
         # Support both parameter names for backward compatibility
         final_group_id = message_group or group_id
+        # Tighten only plain strings
+        content_to_use = (
+            self._tighten_text(content) if isinstance(content, str) else content
+        )
         message = ChatMessage(
             id=f"sys_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.SYSTEM,
-            content=content,
+            content=content_to_use,
             timestamp=datetime.now(timezone.utc),
             group_id=final_group_id,
         )
@@ -245,10 +276,13 @@ class CodePuppyTUI(App):
 
     def add_error_message(self, content: str, message_group: str = None) -> None:
         """Add an error message to the chat."""
+        content_to_use = (
+            self._tighten_text(content) if isinstance(content, str) else content
+        )
         message = ChatMessage(
             id=f"error_{datetime.now(timezone.utc).timestamp()}",
             type=MessageType.ERROR,
-            content=content,
+            content=content_to_use,
             timestamp=datetime.now(timezone.utc),
             group_id=message_group,
         )
@@ -303,9 +337,9 @@ class CodePuppyTUI(App):
 
         # Only handle keys when input field is focused
         if input_field.has_focus:
-            # Handle Ctrl+Enter for new lines (more reliable than Shift+Enter)
-            if event.key == "ctrl+enter":
-                input_field.insert("\\n")
+            # Handle Ctrl+Enter or Shift+Enter for a new line
+            if event.key in ("ctrl+enter", "shift+enter"):
+                input_field.insert("\n")
                 event.prevent_default()
                 return
 
@@ -484,6 +518,14 @@ class CodePuppyTUI(App):
                     self.update_agent_progress("Processing", 75)
                     agent_response = result.output
                     self.add_agent_message(agent_response)
+
+                    # Auto-save session if enabled (mirror --interactive)
+                    try:
+                        from code_puppy.config import auto_save_session_if_enabled
+                        auto_save_session_if_enabled()
+                    except Exception:
+                        pass
+
                     # Refresh history display to show new interaction
                     self.refresh_history_display()
 
@@ -842,6 +884,36 @@ class CodePuppyTUI(App):
         """Synchronous wrapper to start message renderer via run_worker."""
         self.run_worker(self.start_message_renderer(), exclusive=False)
 
+    async def preload_agent_on_startup(self) -> None:
+        """Preload the agent/model at startup so loading status is visible."""
+        try:
+            # Show loading in status bar and spinner
+            self.start_agent_progress("Loading")
+
+            # Warm up agent/model without blocking UI
+            import asyncio
+
+            from code_puppy.agents.agent_manager import get_current_agent
+
+            agent = get_current_agent()
+
+            # Run the synchronous reload in a worker thread
+            await asyncio.to_thread(agent.reload_code_generation_agent)
+
+            # After load, refresh current model (in case of fallback or changes)
+            from code_puppy.config import get_global_model_name
+
+            self.current_model = get_global_model_name()
+
+            # Let the user know model/agent are ready
+            self.add_system_message("Model and agent preloaded. Ready to roll 🛼")
+        except Exception as e:
+            # Surface any preload issues but keep app usable
+            self.add_error_message(f"Startup preload failed: {e}")
+        finally:
+            # Always stop spinner and set ready state
+            self.stop_agent_progress()
+
     async def start_message_renderer(self):
         """Start the message renderer to consume messages from the queue."""
         if not self._renderer_started:
@@ -884,15 +956,89 @@ class CodePuppyTUI(App):
                             f"Error processing startup message: {e}"
                         )
 
-                # Create a single grouped startup message
+                # Create a single grouped startup message (tightened)
                 grouped_content = "\n".join(startup_content_lines)
-                self.add_system_message(grouped_content)
+                self.add_system_message(self._tighten_text(grouped_content))
 
                 # Clear the startup buffer after processing
                 self.message_queue.clear_startup_buffer()
 
             # Now start the regular message renderer
             await self.message_renderer.start()
+
+    async def maybe_prompt_restore_autosave(self) -> None:
+        """Offer to restore an autosave session at startup (TUI version)."""
+        try:
+            import asyncio
+            from pathlib import Path
+
+            from code_puppy.config import AUTOSAVE_DIR, set_current_autosave_from_session_name
+            from code_puppy.session_storage import list_sessions, load_session
+
+            base_dir = Path(AUTOSAVE_DIR)
+            sessions = list_sessions(base_dir)
+            if not sessions:
+                return
+
+            # Show modal picker for selection
+            from .screens.autosave_picker import AutosavePicker
+
+            async def handle_result(result_name: str | None):
+                if not result_name:
+                    return
+                try:
+                    # Load history and set into agent
+                    from code_puppy.agents.agent_manager import get_current_agent
+
+                    history = load_session(result_name, base_dir)
+                    agent = get_current_agent()
+                    agent.set_message_history(history)
+
+                    # Set current autosave session id so subsequent autosaves overwrite this session
+                    try:
+                        set_current_autosave_from_session_name(result_name)
+                    except Exception:
+                        pass
+
+                    # Update token info/status bar
+                    total_tokens = sum(
+                        agent.estimate_tokens_for_message(msg) for msg in history
+                    )
+                    try:
+                        status_bar = self.query_one(StatusBar)
+                        status_bar.update_token_info(
+                            total_tokens,
+                            agent.get_model_context_length(),
+                            total_tokens / max(1, agent.get_model_context_length()),
+                        )
+                    except Exception:
+                        pass
+
+                    # Notify
+                    session_path = base_dir / f"{result_name}.pkl"
+                    self.add_system_message(
+                        f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
+                        f"📁 From: {session_path}"
+                    )
+
+                    # Refresh history sidebar
+                    self.refresh_history_display()
+                except Exception as e:
+                    self.add_error_message(f"Failed to load autosave: {e}")
+
+            # Push modal and await result
+            picker = AutosavePicker(base_dir)
+
+            # Use Textual's push_screen with a result callback
+            def on_picker_result(result_name=None):
+                # Schedule async handler to avoid blocking UI
+                import asyncio
+                self.run_worker(handle_result(result_name), exclusive=False)
+
+            self.push_screen(picker, on_picker_result)
+        except Exception as e:
+            # Fail silently but show debug in chat
+            self.add_system_message(f"[dim]Autosave prompt error: {e}[/dim]")
 
     async def stop_message_renderer(self):
         """Stop the message renderer."""
