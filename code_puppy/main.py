@@ -24,6 +24,7 @@ from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
     ensure_config_exists,
+    finalize_autosave_session,
     initialize_command_history_file,
     save_command_to_history,
 )
@@ -414,12 +415,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Check for clear command (supports both `clear` and `/clear`)
         if task.strip().lower() in ("clear", "/clear"):
-            from code_puppy.messaging import emit_system_message, emit_warning
+            from code_puppy.messaging import emit_info, emit_system_message, emit_warning
 
             agent = get_current_agent()
+            new_session_id = finalize_autosave_session()
             agent.clear_message_history()
             emit_warning("Conversation history cleared!")
             emit_system_message("The agent will not remember previous interactions.\n")
+            emit_info(f"[dim]Auto-save session rotated to: {new_session_id}[/dim]")
             continue
 
         # Handle / commands before anything else

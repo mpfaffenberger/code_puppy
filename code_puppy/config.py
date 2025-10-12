@@ -784,3 +784,9 @@ def auto_save_session_if_enabled() -> bool:
 
         Console().print(f"[dim]❌ Failed to auto-save session: {exc}[/dim]")
         return False
+
+
+def finalize_autosave_session() -> str:
+    """Persist the current autosave snapshot and rotate to a fresh session."""
+    auto_save_session_if_enabled()
+    return rotate_autosave_id()

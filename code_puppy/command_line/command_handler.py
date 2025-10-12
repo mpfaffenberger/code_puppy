@@ -5,7 +5,11 @@ from pathlib import Path
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
-from code_puppy.config import CONTEXTS_DIR, get_config_keys
+from code_puppy.config import (
+    CONTEXTS_DIR,
+    finalize_autosave_session,
+    get_config_keys,
+)
 from code_puppy.session_storage import list_sessions, load_session, save_session
 from code_puppy.tools.tools_content import tools_content
 
@@ -429,31 +433,44 @@ def handle_command(command: str):
             import uuid
 
             group_id = str(uuid.uuid4())
+            available_agents = get_available_agents()
 
-            if set_current_agent(agent_name):
-                # Reload the agent with new configuration
-                agent = get_current_agent()
-                agent.reload_code_generation_agent()
-                new_agent = get_current_agent()
-                emit_success(
-                    f"Switched to agent: {new_agent.display_name}",
-                    message_group=group_id,
-                )
-                emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
-                return True
-            else:
-                # Generate a group ID for all messages in this command
-                import uuid
-
-                group_id = str(uuid.uuid4())
-
-                available_agents = get_available_agents()
+            if agent_name not in available_agents:
                 emit_error(f"Agent '{agent_name}' not found", message_group=group_id)
                 emit_warning(
                     f"Available agents: {', '.join(available_agents.keys())}",
                     message_group=group_id,
                 )
                 return True
+
+            current_agent = get_current_agent()
+            if current_agent.name == agent_name:
+                emit_info(
+                    f"Already using agent: {current_agent.display_name}",
+                    message_group=group_id,
+                )
+                return True
+
+            new_session_id = finalize_autosave_session()
+            if not set_current_agent(agent_name):
+                emit_warning(
+                    "Agent switch failed after autosave rotation. Your context was preserved.",
+                    message_group=group_id,
+                )
+                return True
+
+            new_agent = get_current_agent()
+            new_agent.reload_code_generation_agent()
+            emit_success(
+                f"Switched to agent: {new_agent.display_name}",
+                message_group=group_id,
+            )
+            emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
+            emit_info(
+                f"[dim]Auto-save session rotated to: {new_session_id}[/dim]",
+                message_group=group_id,
+            )
+            return True
         else:
             emit_warning("Usage: /agent [agent-name]")
             return True
@@ -593,12 +610,22 @@ def handle_command(command: str):
 
             emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
 
-            # If this is the current agent, reload it to use the new model
+            # If this is the current agent, refresh it so the prompt updates immediately
             from code_puppy.agents import get_current_agent
 
             current_agent = get_current_agent()
             if current_agent.name == agent_name:
-                emit_info(f"Active agent reloaded with pinned model '{model_name}'")
+                try:
+                    if is_json_agent and hasattr(current_agent, "refresh_config"):
+                        current_agent.refresh_config()
+                    current_agent.reload_code_generation_agent()
+                    emit_info(
+                        f"Active agent reloaded with pinned model '{model_name}'"
+                    )
+                except Exception as reload_error:
+                    emit_warning(
+                        f"Pinned model applied but reload failed: {reload_error}"
+                    )
 
             return True
 
