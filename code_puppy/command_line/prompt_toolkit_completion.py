@@ -17,6 +17,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.filters import is_searching
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout.processors import Processor, Transformation
 from prompt_toolkit.styles import Style
 
 from code_puppy.command_line.file_path_completion import FilePathCompleter
@@ -32,6 +33,11 @@ from code_puppy.config import (
     get_config_keys,
     get_puppy_name,
     get_value,
+)
+from code_puppy.command_line.attachments import (
+    DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS,
+    DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
+    _detect_path_tokens,
 )
 
 
@@ -96,6 +102,106 @@ class SetCompleter(Completer):
                     ),  # Correctly replace only the typed part of the key
                     display_meta="",
                 )
+
+
+class AttachmentPlaceholderProcessor(Processor):
+    """Display friendly placeholders for recognised attachments."""
+
+    _PLACEHOLDER_STYLE = "class:attachment-placeholder"
+
+    def apply_transformation(self, transformation_input):
+        document = transformation_input.document
+        text = document.text
+        if not text:
+            return Transformation(list(transformation_input.fragments))
+
+        detections, _warnings = _detect_path_tokens(text)
+        replacements: list[tuple[int, int, str]] = []
+        search_cursor = 0
+        for detection in detections:
+            display_text: str | None = None
+            if detection.path and detection.has_path():
+                suffix = detection.path.suffix.lower()
+                if suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS:
+                    display_text = f"[{suffix.lstrip('.') or 'image'} image]"
+                elif suffix in DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS:
+                    display_text = f"[{suffix.lstrip('.') or 'file'} document]"
+                else:
+                    display_text = "[file attachment]"
+            elif detection.link is not None:
+                display_text = "[link]"
+
+            if not display_text:
+                continue
+
+            placeholder = detection.placeholder
+            index = text.find(placeholder, search_cursor)
+            if index == -1:
+                continue
+            replacements.append((index, index + len(placeholder), display_text))
+            search_cursor = index + len(placeholder)
+
+        if not replacements:
+            return Transformation(list(transformation_input.fragments))
+
+        replacements.sort(key=lambda item: item[0])
+
+        new_fragments: list[tuple[str, str]] = []
+        source_to_display_map: list[int] = []
+        display_to_source_map: list[int] = []
+
+        source_index = 0
+        display_index = 0
+
+        def append_plain_segment(segment: str) -> None:
+            nonlocal source_index, display_index
+            if not segment:
+                return
+            new_fragments.append(("", segment))
+            for _ in segment:
+                source_to_display_map.append(display_index)
+                display_to_source_map.append(source_index)
+                source_index += 1
+                display_index += 1
+
+        for start, end, replacement_text in replacements:
+            if start > source_index:
+                append_plain_segment(text[source_index:start])
+
+            placeholder = replacement_text or ""
+            placeholder_start = display_index
+            if placeholder:
+                new_fragments.append((self._PLACEHOLDER_STYLE, placeholder))
+                for _ in placeholder:
+                    display_to_source_map.append(start)
+                    display_index += 1
+
+            for _ in text[source_index:end]:
+                source_to_display_map.append(placeholder_start if placeholder else display_index)
+                source_index += 1
+
+        if source_index < len(text):
+            append_plain_segment(text[source_index:])
+
+        def source_to_display(pos: int) -> int:
+            if pos < 0:
+                return 0
+            if pos < len(source_to_display_map):
+                return source_to_display_map[pos]
+            return display_index
+
+        def display_to_source(pos: int) -> int:
+            if pos < 0:
+                return 0
+            if pos < len(display_to_source_map):
+                return display_to_source_map[pos]
+            return len(source_to_display_map)
+
+        return Transformation(
+            new_fragments,
+            source_to_display=source_to_display,
+            display_to_source=display_to_source,
+        )
 
 
 class CDCompleter(Completer):
@@ -247,6 +353,7 @@ async def get_input_with_combined_completion(
         history=history,
         complete_while_typing=True,
         key_bindings=bindings,
+        input_processors=[AttachmentPlaceholderProcessor()],
     )
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
@@ -263,6 +370,7 @@ async def get_input_with_combined_completion(
             "model": "bold cyan",
             "cwd": "bold green",
             "arrow": "bold yellow",
+            "attachment-placeholder": "italic cyan",
         }
     )
     text = await session.prompt_async(prompt_str, style=style)

@@ -29,6 +29,32 @@ def test_parse_prompt_attachments_handles_images(tmp_path: Path, extension: str)
     assert processed.warnings == []
 
 
+def test_parse_prompt_attachments_handles_unquoted_spaces(tmp_path: Path) -> None:
+    file_path = tmp_path / "cute pupper image.png"
+    file_path.write_bytes(b"imaginary")
+
+    raw_prompt = f"please inspect {file_path} right now"
+
+    processed = parse_prompt_attachments(raw_prompt)
+
+    assert processed.prompt == "please inspect right now"
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.media_type.startswith("image/")
+    assert processed.warnings == []
+
+
+def test_parse_prompt_attachments_trims_trailing_punctuation(tmp_path: Path) -> None:
+    file_path = tmp_path / "doggo photo.png"
+    file_path.write_bytes(b"bytes")
+
+    processed = parse_prompt_attachments(f"look {file_path}, please")
+
+    assert processed.prompt == "look please"
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.media_type.startswith("image/")
+    assert processed.warnings == []
+
+
 def test_parse_prompt_skips_unsupported_types(tmp_path: Path) -> None:
     unsupported = tmp_path / "notes.xyz"
     unsupported.write_text("hello")
