@@ -34,6 +34,7 @@ dependencies = [
     "tenacity>=8.2.0",
     "playwright>=1.40.0",
     "camoufox>=0.4.11",
+    "dbos>=2.0.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
@@ -83,3 +84,11 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 omit = ["code_puppy/main.py"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-cov>=6.1.1",
+    "pytest-asyncio>=0.23.1",
+    "ruff>=0.11.11",
+]
