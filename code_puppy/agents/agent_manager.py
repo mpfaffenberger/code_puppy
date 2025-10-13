@@ -252,7 +252,8 @@ def set_current_agent(agent_name: str) -> bool:
     global _CURRENT_AGENT
     curr_agent = get_current_agent()
     if curr_agent is not None:
-        _AGENT_HISTORIES[curr_agent.name] = curr_agent.get_message_history()
+        # Store a shallow copy so future mutations don't affect saved history
+        _AGENT_HISTORIES[curr_agent.name] = list(curr_agent.get_message_history())
     # Generate a message group ID for agent switching
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
@@ -269,7 +270,8 @@ def set_current_agent(agent_name: str) -> bool:
     _SESSION_AGENTS_CACHE[session_id] = agent_name
     _save_session_data(_SESSION_AGENTS_CACHE)
     if agent_obj.name in _AGENT_HISTORIES:
-        agent_obj.set_message_history(_AGENT_HISTORIES[agent_obj.name])
+        # Restore a copy to avoid sharing the same list instance
+        agent_obj.set_message_history(list(_AGENT_HISTORIES[agent_obj.name]))
     on_agent_reload(agent_obj.id, agent_name)
     return True
 
