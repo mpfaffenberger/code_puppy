@@ -217,6 +217,20 @@ class SettingsScreen(ModalScreen):
             # Save model selection
             if selected_model:
                 set_model_name(selected_model)
+                # Reload the active agent so model switch takes effect immediately
+                try:
+                    from code_puppy.agents import get_current_agent
+
+                    current_agent = get_current_agent()
+                    if hasattr(current_agent, "refresh_config"):
+                        try:
+                            current_agent.refresh_config()
+                        except Exception:
+                            ...
+                    current_agent.reload_code_generation_agent()
+                except Exception:
+                    # Non-fatal: settings saved; reload will happen on next run if needed
+                    pass
 
             set_config_value("yolo_mode", yolo_mode)
 
