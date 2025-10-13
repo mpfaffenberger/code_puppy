@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 import webbrowser
+from pathlib import Path
 
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
@@ -13,17 +14,21 @@ from rich.text import Text
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
+from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
 )
 from code_puppy.config import (
+    AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
     ensure_config_exists,
+    finalize_autosave_session,
     initialize_command_history_file,
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
+from code_puppy.session_storage import restore_autosave_interactively
 from code_puppy.tools.common import console
 
 # message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
@@ -274,34 +279,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
     emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
     emit_system_message("Type 'clear' to reset the conversation history.")
+    emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Use [bold blue]Esc+Enter[/bold blue] for multi-line input."
+        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue]."
     )
     emit_system_message(
         "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
     )
-    from code_puppy.command_line.command_handler import get_commands_help
-
-    help_text = get_commands_help()
-    emit_system_message(help_text)
-
-    # Display current safety permission level
-    from code_puppy.config import get_safety_permission_level
-    from code_puppy.messaging import emit_info
-
-    safety_level = get_safety_permission_level()
-    emit_info("")
-    emit_info("[bold yellow]🔒 Safety Settings[/bold yellow]")
-    emit_info(
-        f"Current safety permission level: [bold cyan]{safety_level.upper()}[/bold cyan]"
-    )
-    emit_info("This controls which commands can run automatically.")
-    emit_info("Levels: [dim]safe < low < medium < high < critical[/dim]")
-    emit_info(
-        "To change: [bold green]/set safety_permission_level=<level>[/bold green]"
-    )
-    emit_info("")
-
     try:
         from code_puppy.command_line.motd import print_motd
 
@@ -312,6 +296,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         emit_warning(f"MOTD error: {e}")
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
+
     # Initialize the runtime agent manager
     if initial_command:
         from code_puppy.agents import get_current_agent
@@ -332,33 +317,24 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 awaiting_input = False
 
             # Run with or without spinner based on whether we're awaiting input
-            if awaiting_input:
-                # No spinner - use agent_manager's run_with_mcp method
+            response = await run_prompt_with_attachments(
+                agent,
+                initial_command,
+                spinner_console=display_console,
+                use_spinner=not awaiting_input,
+            )
+            if response is not None:
+                agent_response = response.output
 
-                response = await agent.run_with_mcp(
-                    initial_command,
+                emit_system_message(
+                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
-            else:
-                # Use our custom spinner for better compatibility with user input
-                from code_puppy.messaging.spinner import ConsoleSpinner
-
-                with ConsoleSpinner(console=display_console):
-                    # Use agent_manager's run_with_mcp method
-                    response = await agent.run_with_mcp(
-                        initial_command,
-                    )
-
-            agent_response = response.output
-
-            emit_system_message(
-                f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
-            )
-            emit_system_message("\n" + "=" * 50)
-            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
-            emit_system_message(
-                "Your command and response are preserved in the conversation history."
-            )
-            emit_system_message("=" * 50 + "\n")
+                emit_system_message("\n" + "=" * 50)
+                emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+                emit_system_message(
+                    "Your command and response are preserved in the conversation history."
+                )
+                emit_system_message("=" * 50 + "\n")
 
         except Exception as e:
             from code_puppy.messaging import emit_error
@@ -390,6 +366,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             emit_error(f"Error installing prompt_toolkit: {e}")
             emit_warning("Falling back to basic input without tab completion")
+
+    await restore_autosave_interactively(Path(AUTOSAVE_DIR))
 
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -432,17 +410,27 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Check for clear command (supports both `clear` and `/clear`)
         if task.strip().lower() in ("clear", "/clear"):
-            from code_puppy.messaging import emit_system_message, emit_warning
+            from code_puppy.messaging import (
+                emit_info,
+                emit_system_message,
+                emit_warning,
+            )
 
             agent = get_current_agent()
+            new_session_id = finalize_autosave_session()
             agent.clear_message_history()
             emit_warning("Conversation history cleared!")
             emit_system_message("The agent will not remember previous interactions.\n")
+            emit_info(f"[dim]Auto-save session rotated to: {new_session_id}[/dim]")
             continue
 
-        # Handle / commands before anything else
-        if task.strip().startswith("/"):
-            command_result = handle_command(task.strip())
+        # Parse attachments first so leading paths aren't misread as commands
+        processed_for_commands = parse_prompt_attachments(task)
+        cleaned_for_commands = (processed_for_commands.prompt or "").strip()
+
+        # Handle / commands based on cleaned prompt (after stripping attachments)
+        if cleaned_for_commands.startswith("/"):
+            command_result = handle_command(cleaned_for_commands)
             if command_result is True:
                 continue
             elif isinstance(command_result, str):
@@ -471,14 +459,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # No need to get agent directly - use manager's run methods
 
-                # Use our custom spinner for better compatibility with user input
-                from code_puppy.messaging import emit_warning
-                from code_puppy.messaging.spinner import ConsoleSpinner
-
-                with ConsoleSpinner(console=message_renderer.console):
-                    result = await current_agent.run_with_mcp(
-                        task,
-                    )
+                # Use our custom helper to enable attachment handling with spinner support
+                result = await run_prompt_with_attachments(
+                    current_agent,
+                    task,
+                    spinner_console=message_renderer.console,
+                )
                 # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
                     continue
@@ -489,6 +475,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
+
+                # Auto-save session if enabled
+                from code_puppy.config import auto_save_session_if_enabled
+
+                auto_save_session_if_enabled()
 
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
@@ -525,6 +516,57 @@ def prettier_code_blocks():
     Markdown.elements["fence"] = SimpleCodeBlock
 
 
+async def run_prompt_with_attachments(
+    agent,
+    raw_prompt: str,
+    *,
+    spinner_console=None,
+    use_spinner: bool = True,
+):
+    """Run the agent after parsing CLI attachments for image/document support."""
+    from code_puppy.messaging import emit_system_message, emit_warning
+
+    processed_prompt = parse_prompt_attachments(raw_prompt)
+
+    for warning in processed_prompt.warnings:
+        emit_warning(warning)
+
+    summary_parts = []
+    if processed_prompt.attachments:
+        summary_parts.append(f"binary files: {len(processed_prompt.attachments)}")
+    if processed_prompt.link_attachments:
+        summary_parts.append(f"urls: {len(processed_prompt.link_attachments)}")
+    if summary_parts:
+        emit_system_message(
+            "[dim]Attachments detected -> " + ", ".join(summary_parts) + "[/dim]"
+        )
+
+    if not processed_prompt.prompt:
+        emit_warning(
+            "Prompt is empty after removing attachments; add instructions and retry."
+        )
+        return None
+
+    attachments = [attachment.content for attachment in processed_prompt.attachments]
+    link_attachments = [link.url_part for link in processed_prompt.link_attachments]
+
+    if use_spinner and spinner_console is not None:
+        from code_puppy.messaging.spinner import ConsoleSpinner
+
+        with ConsoleSpinner(console=spinner_console):
+            return await agent.run_with_mcp(
+                processed_prompt.prompt,
+                attachments=attachments,
+                link_attachments=link_attachments,
+            )
+
+    return await agent.run_with_mcp(
+        processed_prompt.prompt,
+        attachments=attachments,
+        link_attachments=link_attachments,
+    )
+
+
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
     from code_puppy.messaging import emit_info, emit_system_message
@@ -532,14 +574,15 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
 
     try:
-        # Get agent through runtime manager and use its run_with_mcp method
+        # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
-        from code_puppy.messaging.spinner import ConsoleSpinner
-
-        with ConsoleSpinner(console=message_renderer.console):
-            response = await agent.run_with_mcp(
-                prompt,
-            )
+        response = await run_prompt_with_attachments(
+            agent,
+            prompt,
+            spinner_console=message_renderer.console,
+        )
+        if response is None:
+            return
 
         agent_response = response.output
         emit_system_message(

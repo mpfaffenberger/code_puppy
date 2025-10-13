@@ -83,7 +83,10 @@ class StatusBar(Static):
         elif self.agent_status == "Busy":
             status_indicator = "🔄"
             status_color = "orange"
-        else:  # Ready
+        elif self.agent_status == "Loading":
+            status_indicator = "⏳"
+            status_color = "cyan"
+        else:  # Ready or anything else
             status_indicator = "✅"
             status_color = "green"
 

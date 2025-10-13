@@ -6,13 +6,19 @@ import math
 import signal
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import mcp
 import pydantic
 import pydantic_ai.models
 from pydantic_ai import Agent as PydanticAgent
-from pydantic_ai import RunContext, UsageLimitExceeded
+from pydantic_ai import (
+    BinaryContent,
+    DocumentUrl,
+    ImageUrl,
+    RunContext,
+    UsageLimitExceeded,
+)
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -22,7 +28,7 @@ from pydantic_ai.messages import (
     ToolReturn,
     ToolReturnPart,
 )
-from pydantic_ai.models.openai import OpenAIModelSettings
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.settings import ModelSettings
 
 # Consolidated relative imports
@@ -177,6 +183,21 @@ class BaseAgent(ABC):
             return get_global_model_name()
         return pinned
 
+    def _clean_binaries(self, messages: List[ModelMessage]) -> List[ModelMessage]:
+        cleaned = []
+        for message in messages:
+            parts = []
+            for part in message.parts:
+                if hasattr(part, "content") and isinstance(part.content, list):
+                    content = []
+                    for item in part.content:
+                        if not isinstance(item, BinaryContent):
+                            content.append(item)
+                    part.content = content
+                parts.append(part)
+            cleaned.append(message)
+        return cleaned
+
     # Message history processing methods (moved from state_management.py and message_history_processor.py)
     def _stringify_part(self, part: Any) -> str:
         """Create a stable string representation for a message part.
@@ -210,6 +231,12 @@ class BaseAgent(ABC):
             )
         elif isinstance(content, dict):
             attributes.append(f"content={json.dumps(content, sort_keys=True)}")
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, str):
+                    attributes.append(f"content={item}")
+                if isinstance(item, BinaryContent):
+                    attributes.append(f"BinaryContent={hash(item.data)}")
         else:
             attributes.append(f"content={repr(content)}")
         result = "|".join(attributes)
@@ -256,6 +283,13 @@ class BaseAgent(ABC):
                 result = json.dumps(part.content.model_dump())
             elif isinstance(part.content, dict):
                 result = json.dumps(part.content)
+            elif isinstance(part.content, list):
+                result = ""
+                for item in part.content:
+                    if isinstance(item, str):
+                        result += item + "\n"
+                    if isinstance(item, BinaryContent):
+                        result += f"BinaryContent={hash(item.data)}\n"
             else:
                 result = str(part.content)
 
@@ -457,16 +491,21 @@ class BaseAgent(ABC):
 
     def get_model_context_length(self) -> int:
         """
-        Get the context length for the currently configured model from models.json
+        Return the context length for this agent's effective model.
+
+        Honors per-agent pinned model via `self.get_model_name()`; falls back
+        to global model when no pin is set. Defaults conservatively on failure.
         """
-        model_configs = ModelFactory.load_config()
-        model_name = get_global_model_name()
-
-        # Get context length from model config
-        model_config = model_configs.get(model_name, {})
-        context_length = model_config.get("context_length", 128000)  # Default value
-
-        return int(context_length)
+        try:
+            model_configs = ModelFactory.load_config()
+            # Use the agent's effective model (respects /pin_model)
+            model_name = self.get_model_name()
+            model_config = model_configs.get(model_name, {})
+            context_length = model_config.get("context_length", 128000)
+            return int(context_length)
+        except Exception:
+            # Be safe; don't blow up status/compaction if model lookup fails
+            return 128000
 
     def prune_interrupted_tool_calls(
         self, messages: List[ModelMessage]
@@ -598,6 +637,7 @@ class BaseAgent(ABC):
                         f"Final token count after processing: {final_token_count}",
                         message_group="token_context_status",
                     )
+
             self.set_message_history(result_messages)
             for m in summarized_messages:
                 self.add_compacted_message_hash(self.hash_message(m))
@@ -717,10 +757,7 @@ class BaseAgent(ABC):
             emit_system_message(
                 f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
             )
-        else:
-            emit_system_message(
-                "[yellow]No MCP servers available (check if servers are enabled)[/yellow]"
-            )
+        # Stay silent when there are no servers configured/available
         return servers
 
     def reload_mcp_servers(self):
@@ -832,7 +869,7 @@ class BaseAgent(ABC):
                 get_openai_reasoning_effort()
             )
             model_settings_dict["extra_body"] = {"verbosity": "low"}
-            model_settings = OpenAIModelSettings(**model_settings_dict)
+            model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
         self.cur_model = model
         p_agent = PydanticAgent(
@@ -869,26 +906,48 @@ class BaseAgent(ABC):
         self.message_history_processor(ctx, _message_history)
         return self.get_message_history()
 
-    async def run_with_mcp(self, prompt: str, **kwargs) -> Any:
-        """
-        Run the agent with MCP servers and full cancellation support.
-
-        This method ensures we're always using the current agent instance
-        and handles Ctrl+C interruption properly by creating a cancellable task.
+    async def run_with_mcp(
+        self,
+        prompt: str,
+        *,
+        attachments: Optional[Sequence[BinaryContent]] = None,
+        link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+        **kwargs,
+    ) -> Any:
+        """Run the agent with MCP servers, attachments, and full cancellation support.
 
         Args:
-            prompt: The user prompt to process
-            usage_limits: Optional usage limits for the agent
-            **kwargs: Additional arguments to pass to agent.run (e.g., message_history)
+            prompt: Primary user prompt text (may be empty when attachments present).
+            attachments: Local binary payloads (e.g., dragged images) to include.
+            link_attachments: Remote assets (image/document URLs) to include.
+            **kwargs: Additional arguments forwarded to `pydantic_ai.Agent.run`.
 
         Returns:
-            The agent's response
+            The agent's response.
 
         Raises:
-            asyncio.CancelledError: When execution is cancelled by user
+            asyncio.CancelledError: When execution is cancelled by user.
         """
         group_id = str(uuid.uuid4())
-        pydantic_agent = self.reload_code_generation_agent()
+        # Avoid double-loading: reuse existing agent if already built
+        pydantic_agent = (
+            self._code_generation_agent or self.reload_code_generation_agent()
+        )
+
+        # Build combined prompt payload when attachments are provided.
+        attachment_parts: List[Any] = []
+        if attachments:
+            attachment_parts.extend(list(attachments))
+        if link_attachments:
+            attachment_parts.extend(list(link_attachments))
+
+        if attachment_parts:
+            prompt_payload: Union[str, List[Any]] = []
+            if prompt:
+                prompt_payload.append(prompt)
+            prompt_payload.extend(attachment_parts)
+        else:
+            prompt_payload = prompt
 
         async def run_agent_task():
             try:
@@ -899,7 +958,7 @@ class BaseAgent(ABC):
                     request_limit=get_message_limit()
                 )
                 result_ = await pydantic_agent.run(
-                    prompt,
+                    prompt_payload,
                     message_history=self.get_message_history(),
                     usage_limits=usage_limits,
                     **kwargs,
