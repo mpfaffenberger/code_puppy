@@ -125,7 +125,9 @@ def _tokenise(prompt: str) -> Iterable[str]:
     if not prompt:
         return []
     try:
-        return shlex.split(prompt)
+        # On Windows, avoid POSIX escaping so backslashes are preserved
+        posix_mode = os.name != "nt"
+        return shlex.split(prompt, posix=posix_mode)
     except ValueError:
         # Fallback naive split when shlex fails (e.g. unmatched quotes)
         return prompt.split()
