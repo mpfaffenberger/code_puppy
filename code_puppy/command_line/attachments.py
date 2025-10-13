@@ -23,11 +23,7 @@ DEFAULT_ACCEPTED_IMAGE_EXTENSIONS = {
     ".webp",
     ".tiff",
 }
-DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS = {
-    ".pdf",
-    ".txt",
-    ".md",
-}
+DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS = set()
 
 
 @dataclass
@@ -95,16 +91,13 @@ def _normalise_path(token: str) -> Path:
 
 
 def _determine_media_type(path: Path) -> str:
-    """Best-effort media type detection."""
+    """Best-effort media type detection for images only."""
 
     mime, _ = mimetypes.guess_type(path.name)
     if mime:
         return mime
-    # Default fallbacks keep LLMs informed.
     if path.suffix.lower() in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS:
         return "image/png"
-    if path.suffix.lower() in DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS:
-        return "application/octet-stream"
     return "application/octet-stream"
 
 
