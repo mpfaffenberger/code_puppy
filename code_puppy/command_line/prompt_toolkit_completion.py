@@ -37,7 +37,7 @@ from code_puppy.config import (
 from code_puppy.command_line.attachments import (
     DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS,
     DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
-    _detect_path_tokens,
+    _detect_path_tokens, _tokenise,
 )
 
 
@@ -118,6 +118,9 @@ class AttachmentPlaceholderProcessor(Processor):
         detections, _warnings = _detect_path_tokens(text)
         replacements: list[tuple[int, int, str]] = []
         search_cursor = 0
+        ESCAPE_MARKER = "\u0000ESCAPED_SPACE\u0000"
+        masked_text = text.replace(r"\ ", ESCAPE_MARKER)
+        token_view = list(_tokenise(masked_text))
         for detection in detections:
             display_text: str | None = None
             if detection.path and detection.has_path():
@@ -134,12 +137,20 @@ class AttachmentPlaceholderProcessor(Processor):
             if not display_text:
                 continue
 
-            placeholder = detection.placeholder
-            index = text.find(placeholder, search_cursor)
+            # Use token-span for robust lookup (handles escaped spaces)
+            span_tokens = token_view[detection.start_index:detection.consumed_until]
+            raw_span = " ".join(span_tokens).replace(ESCAPE_MARKER, r"\ ")
+            index = text.find(raw_span, search_cursor)
+            span_len = len(raw_span)
+            if index == -1:
+                # Fallback to placeholder string
+                placeholder = detection.placeholder
+                index = text.find(placeholder, search_cursor)
+                span_len = len(placeholder)
             if index == -1:
                 continue
-            replacements.append((index, index + len(placeholder), display_text))
-            search_cursor = index + len(placeholder)
+            replacements.append((index, index + span_len, display_text))
+            search_cursor = index + span_len
 
         if not replacements:
             return Transformation(list(transformation_input.fragments))
