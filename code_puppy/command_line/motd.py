@@ -8,34 +8,42 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-09-14"
+MOTD_VERSION = "2025-10-13"
 MOTD_MESSAGE = """
-# 🛡️ New: Command Safety Validation
+# 🎉 Quality of life features
 
-Code Puppy now validates shell commands before execution to prevent dangerous operations.
+## 📎 Image Support drag and drop!
+You can now **drag-and-drop image files**!
 
-## Risk Levels
-Commands are categorized into 4 risk levels:
-- **LOW**: Minor risks (file modifications, git operations, etc)
-- **MEDIUM**: Moderate risks (package installs, system config changes, update queries which have a where clause, etc)
-- **HIGH**: Serious risks (recursive deletes, database updates without a where clause, sudo operations, etc)
-- **CRITICAL**: Catastrophic risks (`rm -rf /`, system wipes, fork bombs, drop table/database, etc)
+- **Supported formats**: Images (PNG, JPG, GIF, WebP)
+- **Local files**: Just drag them from your file explorer into the terminal
 
-## Permission Levels
-Control which commands run automatically:
-- `safe` - Only allow safe commands (minimal risk)
-- `low` - Allow up to LOW risk (small risk of local data loss or corruption)
-- `medium` - Allow up to MEDIUM risk (default)
-- `high` - Allow up to HIGH risk (the agent could cause isolated irreversible damage, tread carefully)
-- `critical` - Allow all commands (Full YOLO mode)
+Try it: Drag an image and ask "What's in this image?"
 
-## Adjust Your Safety Level
-```
-/set safety_permission_level=high
-```
-Blocked commands show exit code `-2` and explain why they were stopped.
+## 💾 Autosave Session Management
+Never lose your work! Sessions are now auto-saved with full management:
 
-Your agent will interpret this and adjust accordingly.
+- **Auto-restore on startup**: Pick up where you left off
+- **Interactive auto-save restore picker**: Browse sessions with metadata (message counts, timestamps)
+- **Pagination**: Navigate through sessions 5 at a time
+- **Session commands**:
+  - `/session` - View current session ID
+  - `/session new` - Start a fresh session
+- **Auto-rotation**: Switching agents or clearing history creates a new session
+
+Sessions live in `~/.code_puppy/autosaves/`
+
+## ⌨️ Better Multiline Input
+New keyboard shortcuts for multiline prompts:
+
+- **CLI**: `Alt+M` or `F2` to toggle multiline mode (persistent!)
+- **TUI**: `Shift+Enter` for newlines (more intuitive!)
+- **Universal**: `Ctrl+J` also inserts newlines
+- **Visual feedback**: See when multiline mode is active
+
+---
+
+*Woof! Your faithful code puppy is getting smarter every day! 🐶*
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 
