@@ -213,51 +213,25 @@ def prompt_for_file_permission(
         return False
 
     try:
-        # Set up a renderer to ensure emit_info works in plugin context
-        from code_puppy.messaging.renderers import SynchronousInteractiveRenderer
-        from code_puppy.messaging.message_queue import get_global_queue
-
-        queue = get_global_queue()
-        renderer_was_active = queue._has_active_renderer
-
-        if not renderer_was_active:
-            renderer = SynchronousInteractiveRenderer(queue)
-            queue.mark_renderer_active()
-
-        emit_info(
-            "\n[bold yellow]🔒 File Operation Confirmation Required[/bold yellow]",
-            message_group=message_group,
-        )
-        sys.stdout.flush()  # Force immediate display
-
-        emit_info(
-            f"Request to [bold cyan]{operation}[/bold cyan] file: [bold white]{file_path}[/bold white]",
-            message_group=message_group,
-        )
-        sys.stdout.flush()  # Force immediate display
+        # Build a complete prompt message to ensure atomic display
+        complete_message = "\n[bold yellow]🔒 File Operation Confirmation Required[/bold yellow]\n"
+        complete_message += f"Request to [bold cyan]{operation}[/bold cyan] file: [bold white]{file_path}[/bold white]"
 
         if preview:
-            emit_info(
-                "\n[bold]Preview of changes:[/bold]",
-                message_group=message_group,
-            )
+            complete_message += "\n\n[bold]Preview of changes:[/bold]\n"
             # Always format the preview with proper diff highlighting
             formatted_preview = _format_diff_with_highlighting(preview)
-            emit_info(formatted_preview, highlight=False, message_group=message_group)
-            sys.stdout.flush()  # Force immediate display
+            complete_message += formatted_preview
 
-        emit_info(
-            "[bold yellow]💡 Hint: Press Enter or 'y' to accept, 'n' to reject[/bold yellow]",
-            message_group=message_group,
-        )
-        sys.stdout.flush()  # Force immediate display
+        complete_message += "\n[bold yellow]💡 Hint: Press Enter or 'y' to accept, 'n' to reject[/bold yellow]"
+        complete_message += f"\n[bold]Are you sure you want to {operation} {file_path}? (y(es) or enter as accept/n(o)) [/bold]"
 
-        emit_info(
-            f"\n[bold]Are you sure you want to {operation} {file_path}? (y(es) or enter as accept/n(o)) [/bold]",
-            message_group=message_group,
-        )
+        # Emit the complete message as one unit to prevent interruption
+        emit_info(complete_message, message_group=message_group)
+
+        # Force the message to display before prompting
         sys.stdout.write("\n")
-        sys.stdout.flush()  # Force immediate display
+        sys.stdout.flush()
 
         set_awaiting_user_input(True)
 
@@ -285,10 +259,6 @@ def prompt_for_file_permission(
             return True
 
     finally:
-        # Clean up renderer state if we set it up
-        if not renderer_was_active:
-            queue.mark_renderer_inactive()
-
         if confirmation_lock_acquired:
             _FILE_CONFIRMATION_LOCK.release()
 
