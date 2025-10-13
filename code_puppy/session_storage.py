@@ -177,48 +177,87 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         return datetime.min
 
     entries.sort(key=sort_key, reverse=True)
-    top_entries = entries[:5]
 
-    emit_system_message("[bold magenta]Autosave Sessions Available:[/bold magenta]")
-    for index, (name, timestamp, message_count) in enumerate(top_entries, start=1):
-        timestamp_display = timestamp or "unknown time"
-        message_display = (
-            f"{message_count} messages" if message_count is not None else "unknown size"
-        )
-        emit_system_message(
-            f"  [{index}] {name} ({message_display}, saved at {timestamp_display})"
-        )
+    PAGE_SIZE = 5
+    total = len(entries)
+    page = 0
 
-    if len(entries) > len(top_entries):
-        emit_system_message(
-            f"  [dim]...and {len(entries) - len(top_entries)} more autosaves[/dim]"
-        )
+    def render_page() -> None:
+        start = page * PAGE_SIZE
+        end = min(start + PAGE_SIZE, total)
+        page_entries = entries[start:end]
+        emit_system_message("[bold magenta]Autosave Sessions Available:[/bold magenta]")
+        for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
+            timestamp_display = timestamp or "unknown time"
+            message_display = (
+                f"{message_count} messages" if message_count is not None else "unknown size"
+            )
+            emit_system_message(
+                f"  [{idx}] {name} ({message_display}, saved at {timestamp_display})"
+            )
+        # If there are more pages, offer next-page; show 'Return to first page' on last page
+        if total > PAGE_SIZE:
+            page_count = (total + PAGE_SIZE - 1) // PAGE_SIZE
+            is_last_page = (page + 1) >= page_count
+            remaining = total - (page * PAGE_SIZE + len(page_entries))
+            summary = f" and {remaining} more" if (remaining > 0 and not is_last_page) else ""
+            label = "Return to first page" if is_last_page else f"Next page{summary}"
+            emit_system_message(f"  [6] {label}")
+        emit_system_message("  [Enter] Skip loading autosave")
 
-    try:
-        selection = await get_input_with_combined_completion(
-            FormattedText([("class:prompt", "Load autosave (number, name, or Enter to skip): ")])
-        )
-    except (KeyboardInterrupt, EOFError):
-        emit_warning("Autosave selection cancelled")
-        return
+    chosen_name: str | None = None
 
-    selection = selection.strip()
-    if not selection:
-        return
+    while True:
+        render_page()
+        try:
+            selection = await get_input_with_combined_completion(
+                FormattedText(
+                    [
+                        (
+                            "class:prompt",
+                            "Pick 1-5 to load, 6 for next, or name/Enter: ",
+                        )
+                    ]
+                )
+            )
+        except (KeyboardInterrupt, EOFError):
+            emit_warning("Autosave selection cancelled")
+            return
 
-    chosen_name = None
-    if selection.isdigit():
-        idx = int(selection) - 1
-        if 0 <= idx < len(top_entries):
-            chosen_name = top_entries[idx][0]
-    else:
-        for name, _, _ in entries:
+        selection = (selection or "").strip()
+        if not selection:
+            return
+
+        # Numeric choice: 1-5 select within current page; 6 advances page
+        if selection.isdigit():
+            num = int(selection)
+            if num == 6 and total > PAGE_SIZE:
+                page = (page + 1) % ((total + PAGE_SIZE - 1) // PAGE_SIZE)
+                # loop and re-render next page
+                continue
+            if 1 <= num <= 5:
+                start = page * PAGE_SIZE
+                idx = start + (num - 1)
+                if 0 <= idx < total:
+                    chosen_name = entries[idx][0]
+                    break
+                else:
+                    emit_warning("Invalid selection for this page")
+                    continue
+            emit_warning("Invalid selection; choose 1-5 or 6 for next")
+            continue
+
+        # Allow direct typing by exact session name
+        for name, _ts, _mc in entries:
             if name == selection:
                 chosen_name = name
                 break
+        if chosen_name:
+            break
+        emit_warning("No autosave loaded (invalid selection)")
+        # keep looping and allow another try
 
     if not chosen_name:
-        emit_warning("No autosave loaded (invalid selection)")
         return
 
     try:
