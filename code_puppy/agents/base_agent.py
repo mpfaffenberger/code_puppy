@@ -460,16 +460,21 @@ class BaseAgent(ABC):
 
     def get_model_context_length(self) -> int:
         """
-        Get the context length for the currently configured model from models.json
+        Return the context length for this agent's effective model.
+
+        Honors per-agent pinned model via `self.get_model_name()`; falls back
+        to global model when no pin is set. Defaults conservatively on failure.
         """
-        model_configs = ModelFactory.load_config()
-        model_name = get_global_model_name()
-
-        # Get context length from model config
-        model_config = model_configs.get(model_name, {})
-        context_length = model_config.get("context_length", 128000)  # Default value
-
-        return int(context_length)
+        try:
+            model_configs = ModelFactory.load_config()
+            # Use the agent's effective model (respects /pin_model)
+            model_name = self.get_model_name()
+            model_config = model_configs.get(model_name, {})
+            context_length = model_config.get("context_length", 128000)
+            return int(context_length)
+        except Exception:
+            # Be safe; don't blow up status/compaction if model lookup fails
+            return 128000
 
     def prune_interrupted_tool_calls(
         self, messages: List[ModelMessage]

@@ -29,13 +29,22 @@ def set_active_model(model_name: str):
     Sets the active model name by updating the config (for persistence).
     """
     set_model_name(model_name)
-    # Reload agent globally
+    # Reload the currently active agent so the new model takes effect immediately
     try:
-        from code_puppy.agent import reload_code_generation_agent
+        from code_puppy.agents import get_current_agent
 
-        reload_code_generation_agent()  # This will reload dynamically everywhere
+        current_agent = get_current_agent()
+        # JSON agents may need to refresh their config before reload
+        if hasattr(current_agent, "refresh_config"):
+            try:
+                current_agent.refresh_config()
+            except Exception:
+                # Non-fatal, continue to reload
+                ...
+        current_agent.reload_code_generation_agent()
     except Exception:
-        pass  # If reload fails, agent will still be switched next interpreter run
+        # Swallow errors to avoid breaking the prompt flow; model persists for next run
+        pass
 
 
 class ModelNameCompleter(Completer):
