@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
+from pydantic_ai import BinaryContent
 
 from code_puppy.command_line.attachments import (
     DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
@@ -83,13 +83,13 @@ def test_parse_prompt_skips_unsupported_types(tmp_path: Path) -> None:
     assert "Unsupported attachment type" in processed.warnings[0]
 
 
-def test_parse_prompt_detects_links() -> None:
+def test_parse_prompt_leaves_urls_untouched() -> None:
     url = "https://example.com/cute-puppy.png"
     processed = parse_prompt_attachments(f"describe {url}")
 
-    assert processed.prompt == "describe"
+    assert processed.prompt == f"describe {url}"
     assert processed.attachments == []
-    assert [link.url_part for link in processed.link_attachments] == [ImageUrl(url=url)]
+    assert processed.link_attachments == []
 
 
 @pytest.mark.asyncio
@@ -167,15 +167,14 @@ async def test_run_prompt_with_attachments_warns_on_blank_prompt() -> None:
 
 
 @pytest.mark.parametrize(
-    "raw, expected_url_type",
+    "raw",
     [
-        ("https://example.com/file.pdf", DocumentUrl),
-        ("https://example.com/image.png", ImageUrl),
+        "https://example.com/file.pdf",
+        "https://example.com/image.png",
     ],
 )
-def test_parse_prompt_returns_correct_link_types(raw: str, expected_url_type: type[Any]) -> None:
+def test_parse_prompt_does_not_parse_urls_anymore(raw: str) -> None:
     processed = parse_prompt_attachments(raw)
 
-    assert processed.prompt == ""
-    assert len(processed.link_attachments) == 1
-    assert isinstance(processed.link_attachments[0].url_part, expected_url_type)
+    assert processed.prompt == raw
+    assert processed.link_attachments == []
