@@ -43,6 +43,23 @@ def test_parse_prompt_attachments_handles_unquoted_spaces(tmp_path: Path) -> Non
     assert processed.warnings == []
 
 
+def test_parse_prompt_handles_dragged_escaped_spaces(tmp_path: Path) -> None:
+    # Simulate a path with backslash-escaped spaces as produced by drag-and-drop
+    file_path = tmp_path / "cute pupper image.png"
+    file_path.write_bytes(b"imaginary")
+
+    # Simulate terminal drag-and-drop: insert backslash before spaces
+    escaped_display_path = str(file_path).replace(" ", r"\ ")
+    raw_prompt = f"please inspect {escaped_display_path} right now"
+
+    processed = parse_prompt_attachments(raw_prompt)
+
+    assert processed.prompt == "please inspect right now"
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.media_type.startswith("image/")
+    assert processed.warnings == []
+
+
 def test_parse_prompt_attachments_trims_trailing_punctuation(tmp_path: Path) -> None:
     file_path = tmp_path / "doggo photo.png"
     file_path.write_bytes(b"bytes")

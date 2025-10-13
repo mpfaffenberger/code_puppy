@@ -181,6 +181,21 @@ class BaseAgent(ABC):
             return get_global_model_name()
         return pinned
 
+    def _clean_binaries(self, messages: List[ModelMessage]) -> List[ModelMessage]:
+        cleaned = []
+        for message in messages:
+            parts = []
+            for part in message.parts:
+                if hasattr(part, "content") and isinstance(part.content, list):
+                    content = []
+                    for item in part.content:
+                        if not isinstance(item, BinaryContent):
+                            content.append(item)
+                    part.content = content
+                parts.append(part)
+            cleaned.append(message)
+        return cleaned
+
     # Message history processing methods (moved from state_management.py and message_history_processor.py)
     def _stringify_part(self, part: Any) -> str:
         """Create a stable string representation for a message part.
@@ -620,6 +635,7 @@ class BaseAgent(ABC):
                         f"Final token count after processing: {final_token_count}",
                         message_group="token_context_status",
                     )
+
             self.set_message_history(result_messages)
             for m in summarized_messages:
                 self.add_compacted_message_hash(self.hash_message(m))

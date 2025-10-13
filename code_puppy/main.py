@@ -415,9 +415,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_info(f"[dim]Auto-save session rotated to: {new_session_id}[/dim]")
             continue
 
-        # Handle / commands before anything else
-        if task.strip().startswith("/"):
-            command_result = handle_command(task.strip())
+        # Parse attachments first so leading paths aren't misread as commands
+        processed_for_commands = parse_prompt_attachments(task)
+        cleaned_for_commands = (processed_for_commands.prompt or "").strip()
+
+        # Handle / commands based on cleaned prompt (after stripping attachments)
+        if cleaned_for_commands.startswith("/"):
+            command_result = handle_command(cleaned_for_commands)
             if command_result is True:
                 continue
             elif isinstance(command_result, str):
