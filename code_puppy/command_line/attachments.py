@@ -76,10 +76,17 @@ def _is_probable_path(token: str) -> bool:
     return os.sep in token or "\"" in token
 
 
+def _unescape_dragged_path(token: str) -> str:
+    """Convert backslash-escaped spaces used by drag-and-drop to literal spaces."""
+    # Shell/terminal escaping typically produces '\ ' sequences
+    return token.replace(r"\ ", " ")
+
+
 def _normalise_path(token: str) -> Path:
     """Expand user shortcuts and resolve relative components without touching fs."""
-
-    expanded = os.path.expanduser(token)
+    # First unescape any drag-and-drop backslash spaces before other expansions
+    unescaped = _unescape_dragged_path(token)
+    expanded = os.path.expanduser(unescaped)
     try:
         # This will not resolve against symlinks because we do not call resolve()
         return Path(expanded).absolute()
@@ -169,6 +176,7 @@ def _parse_link(token: str) -> PromptLinkAttachment | None:
 class _DetectedPath:
     placeholder: str
     path: Path | None
+    start_index: int
     consumed_until: int
     unsupported: bool = False
     link: PromptLinkAttachment | None = None
@@ -178,7 +186,14 @@ class _DetectedPath:
 
 
 def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
-    tokens = list(_tokenise(prompt))
+    # Preserve backslash-spaces from drag-and-drop before shlex tokenization
+    # Replace '\ ' with a marker that shlex won't split, then restore later
+    ESCAPE_MARKER = "\u0000ESCAPED_SPACE\u0000"
+    masked_prompt = prompt.replace(r"\ ", ESCAPE_MARKER)
+    tokens = list(_tokenise(masked_prompt))
+    # Restore escaped spaces in individual tokens
+    tokens = [t.replace(ESCAPE_MARKER, " ") for t in tokens]
+
     detections: list[_DetectedPath] = []
     warnings: list[str] = []
 
@@ -192,6 +207,7 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
                 _DetectedPath(
                     placeholder=token,
                     path=None,
+                    start_index=index,
                     consumed_until=index + 1,
                     link=link_attachment,
                 )
@@ -204,9 +220,18 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
             index += 1
             continue
 
+        start_index = index
         consumed_until = index + 1
-        candidate_placeholder = token
         candidate_path_token = stripped_token
+        # For placeholder: try to reconstruct escaped representation; if none, use raw token
+        original_tokens_for_slice = list(_tokenise(masked_prompt))[index:consumed_until]
+        candidate_placeholder = "".join(
+            ot.replace(ESCAPE_MARKER, r"\ ") if ESCAPE_MARKER in ot else ot
+            for ot in original_tokens_for_slice
+        )
+        # If placeholder seems identical to raw token, just use the raw token
+        if candidate_placeholder == token.replace(" ", r"\ "):
+            candidate_placeholder = token
 
         try:
             path = _normalise_path(candidate_path_token)
@@ -234,16 +259,22 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
                 if last_path.exists() and last_path.is_file():
                     path = last_path
                     found_span = True
+                    # We'll rebuild escaped placeholder after this block
                     break
             if not found_span:
                 warnings.append(f"Attachment ignored (not a file): {path}")
                 index += 1
                 continue
+            # Reconstruct escaped placeholder for multi-token paths
+            original_tokens_for_path = tokens[index:consumed_until]
+            escaped_placeholder = " ".join(original_tokens_for_path).replace(" ", r"\ ")
+            candidate_placeholder = escaped_placeholder
         if not _is_supported_extension(path):
             detections.append(
                 _DetectedPath(
                     placeholder=candidate_placeholder,
                     path=path,
+                    start_index=start_index,
                     consumed_until=consumed_until,
                     unsupported=True,
                 )
@@ -251,10 +282,16 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
             index = consumed_until
             continue
 
+        # Reconstruct escaped placeholder for exact replacement later
+        # For unquoted spaces, keep the original literal token from the prompt
+        # so replacement matches precisely
+        escaped_placeholder = candidate_placeholder
+
         detections.append(
             _DetectedPath(
                 placeholder=candidate_placeholder,
                 path=path,
+                start_index=start_index,
                 consumed_until=consumed_until,
             )
         )
@@ -267,7 +304,6 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
     """Extract attachments from the prompt returning cleaned text and metadata."""
 
     attachments: List[PromptAttachment] = []
-    replacement_map: dict[str, str] = {}
 
     detections, detection_warnings = _detect_path_tokens(prompt)
     warnings: List[str] = list(detection_warnings)
@@ -276,7 +312,6 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
 
     for detection in detections:
         if detection.link is not None and detection.path is None:
-            replacement_map[detection.placeholder] = ""
             continue
         if detection.path is None:
             continue
@@ -298,13 +333,31 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
                 content=BinaryContent(data=data, media_type=media_type),
             )
         )
-        replacement_map[detection.placeholder] = ""
 
-    cleaned_prompt = prompt
-    for original, replacement in replacement_map.items():
-        cleaned_prompt = cleaned_prompt.replace(original, replacement).strip()
+    # Rebuild cleaned_prompt by skipping tokens consumed as file paths.
+    # This preserves original punctuation and spacing for non-attachment tokens.
+    ESCAPE_MARKER = "\u0000ESCAPED_SPACE\u0000"
+    masked = prompt.replace(r"\ ", ESCAPE_MARKER)
+    tokens = list(_tokenise(masked))
 
-    # Collapse double spaces introduced by removals
+    # Build exact token spans for file attachments (supported or unsupported)
+    # Skip spans for: supported files (path present and not unsupported) and links.
+    spans = [
+        (d.start_index, d.consumed_until)
+        for d in detections
+        if (d.path is not None and not d.unsupported) or (d.link is not None and d.path is None)
+    ]
+    cleaned_parts: list[str] = []
+    i = 0
+    while i < len(tokens):
+        span = next((s for s in spans if s[0] <= i < s[1]), None)
+        if span is not None:
+            i = span[1]
+            continue
+        cleaned_parts.append(tokens[i].replace(ESCAPE_MARKER, " "))
+        i += 1
+
+    cleaned_prompt = " ".join(cleaned_parts).strip()
     cleaned_prompt = " ".join(cleaned_prompt.split())
 
     if cleaned_prompt == "" and attachments:
