@@ -151,20 +151,8 @@ def _is_supported_extension(path: Path) -> bool:
 
 
 def _parse_link(token: str) -> PromptLinkAttachment | None:
-    if "://" not in token:
-        return None
-    scheme = token.split(":", 1)[0].lower()
-    if scheme not in SUPPORTED_INLINE_SCHEMES:
-        return None
-    if token.lower().endswith(".pdf"):
-        return PromptLinkAttachment(
-            placeholder=token,
-            url_part=DocumentUrl(url=token),
-        )
-    return PromptLinkAttachment(
-        placeholder=token,
-        url_part=ImageUrl(url=token),
-    )
+    """URL parsing disabled: no URLs are treated as attachments."""
+    return None
 
 
 @dataclass
