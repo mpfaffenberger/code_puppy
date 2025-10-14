@@ -26,6 +26,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.durable_exec.dbos import DBOSAgent
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -884,10 +885,12 @@ class BaseAgent(ABC):
         agent_tools = self.get_available_tools()
         register_tools_for_agent(p_agent, agent_tools)
 
-        self._code_generation_agent = p_agent
         self._last_model_name = resolved_model_name
         # expose for run_with_mcp
-        self.pydantic_agent = p_agent
+        # Wrap it with DBOS
+        dbos_agent = DBOSAgent(p_agent, name=self.name)
+        self.pydantic_agent = dbos_agent
+        self._code_generation_agent = dbos_agent
         return self._code_generation_agent
 
     @DBOS.step()
