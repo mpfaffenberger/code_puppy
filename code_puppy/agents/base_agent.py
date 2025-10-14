@@ -8,6 +8,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
+from dbos import DBOS
 import mcp
 import pydantic
 import pydantic_ai.models
@@ -875,7 +876,7 @@ class BaseAgent(ABC):
             instructions=instructions,
             output_type=str,
             retries=3,
-            mcp_servers=mcp_servers,
+            toolsets=mcp_servers,
             history_processors=[self.message_history_accumulator],
             model_settings=model_settings,
         )
@@ -889,6 +890,7 @@ class BaseAgent(ABC):
         self.pydantic_agent = p_agent
         return self._code_generation_agent
 
+    @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
         message_history_hashes = set([self.hash_message(m) for m in _message_history])
