@@ -12,14 +12,20 @@ from typing import Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, merge_completers
+from prompt_toolkit.filters import is_searching
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.filters import is_searching
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.processors import Processor, Transformation
 from prompt_toolkit.styles import Style
 
+from code_puppy.command_line.attachments import (
+    DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS,
+    DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
+    _detect_path_tokens,
+    _tokenise,
+)
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 from code_puppy.command_line.load_context_completion import LoadContextCompleter
 from code_puppy.command_line.model_picker_completion import (
@@ -33,11 +39,6 @@ from code_puppy.config import (
     get_config_keys,
     get_puppy_name,
     get_value,
-)
-from code_puppy.command_line.attachments import (
-    DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS,
-    DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
-    _detect_path_tokens, _tokenise,
 )
 
 
@@ -108,11 +109,17 @@ class AttachmentPlaceholderProcessor(Processor):
     """Display friendly placeholders for recognised attachments."""
 
     _PLACEHOLDER_STYLE = "class:attachment-placeholder"
+    # Skip expensive path detection for very long input (likely pasted content)
+    _MAX_TEXT_LENGTH_FOR_REALTIME = 500
 
     def apply_transformation(self, transformation_input):
         document = transformation_input.document
         text = document.text
         if not text:
+            return Transformation(list(transformation_input.fragments))
+
+        # Skip real-time path detection for long text to avoid slowdown
+        if len(text) > self._MAX_TEXT_LENGTH_FOR_REALTIME:
             return Transformation(list(transformation_input.fragments))
 
         detections, _warnings = _detect_path_tokens(text)
@@ -138,7 +145,7 @@ class AttachmentPlaceholderProcessor(Processor):
                 continue
 
             # Use token-span for robust lookup (handles escaped spaces)
-            span_tokens = token_view[detection.start_index:detection.consumed_until]
+            span_tokens = token_view[detection.start_index : detection.consumed_until]
             raw_span = " ".join(span_tokens).replace(ESCAPE_MARKER, r"\ ")
             index = text.find(raw_span, search_cursor)
             span_len = len(raw_span)
@@ -188,7 +195,9 @@ class AttachmentPlaceholderProcessor(Processor):
                     display_index += 1
 
             for _ in text[source_index:end]:
-                source_to_display_map.append(placeholder_start if placeholder else display_index)
+                source_to_display_map.append(
+                    placeholder_start if placeholder else display_index
+                )
                 source_index += 1
 
         if source_index < len(text):
@@ -340,6 +349,7 @@ async def get_input_with_combined_completion(
 
     # Also allow Ctrl+Enter for newline (terminal-dependent)
     try:
+
         @bindings.add("c-enter", eager=True)
         def _(event):
             event.app.current_buffer.insert_text("\n")

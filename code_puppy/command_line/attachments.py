@@ -13,6 +13,10 @@ from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
 
 SUPPORTED_INLINE_SCHEMES = {"http", "https"}
 
+# Maximum path length to consider - conservative limit to avoid OS errors
+# Most OS have limits around 4096, but we set lower to catch garbage early
+MAX_PATH_LENGTH = 1024
+
 # Allow common extensions people drag in the terminal.
 DEFAULT_ACCEPTED_IMAGE_EXTENSIONS = {
     ".png",
@@ -61,6 +65,9 @@ def _is_probable_path(token: str) -> bool:
 
     if not token:
         return False
+    # Reject absurdly long tokens before any processing to avoid OS errors
+    if len(token) > MAX_PATH_LENGTH:
+        return False
     if token.startswith("#"):
         return False
     # Windows drive letters or Unix absolute/relative paths
@@ -69,7 +76,7 @@ def _is_probable_path(token: str) -> bool:
     if len(token) >= 2 and token[1] == ":":
         return True
     # Things like `path/to/file.png`
-    return os.sep in token or "\"" in token
+    return os.sep in token or '"' in token
 
 
 def _unescape_dragged_path(token: str) -> str:
@@ -107,9 +114,13 @@ def _load_binary(path: Path) -> bytes:
     except FileNotFoundError as exc:
         raise AttachmentParsingError(f"Attachment not found: {path}") from exc
     except PermissionError as exc:
-        raise AttachmentParsingError(f"Cannot read attachment (permission denied): {path}") from exc
+        raise AttachmentParsingError(
+            f"Cannot read attachment (permission denied): {path}"
+        ) from exc
     except OSError as exc:
-        raise AttachmentParsingError(f"Failed to read attachment {path}: {exc}") from exc
+        raise AttachmentParsingError(
+            f"Failed to read attachment {path}: {exc}"
+        ) from exc
 
 
 def _tokenise(prompt: str) -> Iterable[str]:
@@ -147,7 +158,10 @@ def _candidate_paths(
 
 def _is_supported_extension(path: Path) -> bool:
     suffix = path.suffix.lower()
-    return suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS | DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS
+    return (
+        suffix
+        in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS | DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS
+    )
 
 
 def _parse_link(token: str) -> PromptLinkAttachment | None:
@@ -203,6 +217,11 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
             index += 1
             continue
 
+        # Additional guard: skip if stripped token exceeds reasonable path length
+        if len(stripped_token) > MAX_PATH_LENGTH:
+            index += 1
+            continue
+
         start_index = index
         consumed_until = index + 1
         candidate_path_token = stripped_token
@@ -223,7 +242,16 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
             index = consumed_until
             continue
 
-        if not path.exists() or not path.is_file():
+        # Guard filesystem operations against OS errors (ENAMETOOLONG, etc.)
+        try:
+            path_exists = path.exists()
+            path_is_file = path.is_file() if path_exists else False
+        except OSError:
+            # Skip this token if filesystem check fails (path too long, etc.)
+            index = consumed_until
+            continue
+
+        if not path_exists or not path_is_file:
             found_span = False
             last_path = path
             for joined, end_index in _candidate_paths(tokens, index):
@@ -328,7 +356,8 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
     spans = [
         (d.start_index, d.consumed_until)
         for d in detections
-        if (d.path is not None and not d.unsupported) or (d.link is not None and d.path is None)
+        if (d.path is not None and not d.unsupported)
+        or (d.link is not None and d.path is None)
     ]
     cleaned_parts: list[str] = []
     i = 0
