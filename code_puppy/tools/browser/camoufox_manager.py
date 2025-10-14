@@ -1,7 +1,7 @@
 """Camoufox browser manager - privacy-focused Firefox automation."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypeAlias
 
 import camoufox
 from camoufox.addons import DefaultAddons
@@ -9,6 +9,8 @@ from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
 from camoufox.locale import ALLOW_GEOIP, download_mmdb
 from camoufox.pkgman import CamoufoxFetcher, camoufox_path
 from playwright.async_api import Browser, BrowserContext, Page
+
+_MIN_VIEWPORT_DIMENSION = 640
 
 from code_puppy.messaging import emit_info
 
@@ -89,31 +91,33 @@ class CamoufoxManager:
             block_webrtc=self.block_webrtc,
             humanize=self.humanize,
             exclude_addons=list(DefaultAddons),
+            persistent_context=True,
+            user_data_dir=str(self.profile_dir),
             addons=[],
         )
-        self._browser = await camoufox_instance.start()
 
+        self._browser = camoufox_instance.browser
         # Use persistent storage directory for browser context
         # This ensures cookies, localStorage, history, etc. persist across runs
-        self._context = await self._browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            ignore_https_errors=True,
-            storage_state=str(self.profile_dir / "storage_state.json")
-            if (self.profile_dir / "storage_state.json").exists()
-            else None,
-        )
-        page = await self._context.new_page()
-        await page.goto(self.homepage)
+        if not self._initialized:
+            self._context = await camoufox_instance.start()
+            self._initialized = True
+            # Do not auto-open a page here to avoid duplicate windows/tabs.
 
     async def get_current_page(self) -> Optional[Page]:
-        """Get the currently active page."""
+        """Get the currently active page. Lazily creates one if none exist."""
         if not self._initialized or not self._context:
             await self.async_initialize()
 
-        if self._context:
-            pages = self._context.pages
-            return pages[0] if pages else None
-        return None
+        if not self._context:
+            return None
+
+        pages = self._context.pages
+        if pages:
+            return pages[0]
+
+        # Lazily create a new blank page without navigation
+        return await self._context.new_page()
 
     async def new_page(self, url: Optional[str] = None) -> Page:
         """Create a new page and optionally navigate to URL."""
