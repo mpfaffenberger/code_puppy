@@ -18,6 +18,7 @@ from pydantic_ai import (
     ImageUrl,
     RunContext,
     UsageLimitExceeded,
+    UsageLimits,
 )
 from pydantic_ai.messages import (
     ModelMessage,
@@ -954,9 +955,7 @@ class BaseAgent(ABC):
                 self.set_message_history(
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
-                usage_limits = pydantic_ai.agent._usage.UsageLimits(
-                    request_limit=get_message_limit()
-                )
+                usage_limits = UsageLimits(request_limit=get_message_limit())
                 result_ = await pydantic_agent.run(
                     prompt_payload,
                     message_history=self.get_message_history(),

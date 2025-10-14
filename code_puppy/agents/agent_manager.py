@@ -51,74 +51,59 @@ def get_terminal_session_id() -> str:
 
 
 def _is_process_alive(pid: int) -> bool:
-    """Cross-platform check whether a PID is alive without killing it.
+    """Check if a process with the given PID is still alive, cross-platform.
 
     On POSIX: use os.kill(pid, 0) and errno checks.
     On Windows: use kernel32 OpenProcess + GetExitCodeProcess.
-    """
+
     if pid <= 0:
         return False
 
+    Returns:
+        bool: True if process likely exists, False otherwise
+    """
     try:
-        if os.name == "nt":  # Windows
+        if os.name == "nt":
+            # Windows: use OpenProcess to probe liveness safely
             import ctypes
             from ctypes import wintypes
 
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            OpenProcess = kernel32.OpenProcess
-            OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-            OpenProcess.restype = wintypes.HANDLE
-
-            GetExitCodeProcess = kernel32.GetExitCodeProcess
-            GetExitCodeProcess.argtypes = [
-                wintypes.HANDLE,
-                ctypes.POINTER(wintypes.DWORD),
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            kernel32.OpenProcess.argtypes = [
+                wintypes.DWORD,
+                wintypes.BOOL,
+                wintypes.DWORD,
             ]
-            GetExitCodeProcess.restype = wintypes.BOOL
-
-            CloseHandle = kernel32.CloseHandle
-            CloseHandle.argtypes = [wintypes.HANDLE]
-            CloseHandle.restype = wintypes.BOOL
-
-            STILL_ACTIVE = 259  # per WinAPI
-
-            handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-            if not handle:
-                # Could be access denied (system process) or no such process
-                # Treat access denied as alive to avoid false negatives
-                error = ctypes.get_last_error()
-                ACCESS_DENIED = 5
-                return error == ACCESS_DENIED
-
-            try:
-                exit_code = wintypes.DWORD()
-                if not GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                    # If we can't query, assume not alive
-                    return False
-                return exit_code.value == STILL_ACTIVE
-            finally:
-                CloseHandle(handle)
-        else:
-            # POSIX
-            import errno
-
-            try:
-                os.kill(pid, 0)
-            except OSError as e:
-                if e.errno in (errno.ESRCH,):
-                    return False  # No such process
-                if e.errno in (errno.EPERM, errno.EACCES):
-                    return True  # Process exists but no permission
-                return False
-            except ProcessLookupError:
-                return False
-            else:
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            handle = kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+            )
+            if handle:
+                kernel32.CloseHandle(handle)
                 return True
-    except Exception:
-        # On any unexpected error, avoid crashing; assume not alive
+            # If access denied, process likely exists but we can't query it
+            last_error = kernel32.GetLastError()
+            # ERROR_ACCESS_DENIED = 5
+            if last_error == 5:
+                return True
+            return False
+        else:
+            # Unix-like: signal 0 does not deliver a signal but checks existence
+            os.kill(int(pid), 0)
+            return True
+    except PermissionError:
+        # No permission to signal -> process exists
+        return True
+    except (OSError, ProcessLookupError):
+        # Process does not exist
         return False
+    except ValueError:
+        # Invalid signal or pid format
+        return False
+    except Exception:
+        # Be conservative – don't crash session cleanup due to platform quirks
+        return True
 
 
 def _cleanup_dead_sessions(sessions: dict[str, str]) -> dict[str, str]:

@@ -45,15 +45,32 @@
     "type": "custom_openai",
     "context_length": 200000
   },
-  "gpt-5": {
-    "custom_endpoint": {
-      "headers": {
-        "X-Api-Key": "$puppy_token"
-      },
-      "url": "https://puppy-backend.stg.walmart.com"
-    },
-    "name": "gpt-5",
-    "type": "custom_openai",
-    "context_length": 400000
+  "claude-4-5-sonnet": {
+    "type": "anthropic",
+    "name": "claude-sonnet-4-5-20250929",
+    "context_length": 200000
+  },
+  "claude-4-1-opus": {
+    "type": "anthropic",
+    "name": "claude-opus-4-1-20250805",
+    "context_length": 200000
+  },
+  "glm-4.5-coding": {
+    "type": "zai_coding",
+    "name": "glm-4.5"
+  },
+  "glm-4.6-coding": {
+    "type": "zai_coding",
+    "name": "glm-4.6",
+    "context_length": 200000
+  },
+  "glm-4.5": {
+    "type": "zai_api",
+    "name": "glm-4.5"
+  },
+  "glm-4.6": {
+    "type": "zai_api",
+    "name": "glm-4.6",
+    "context_length": 200000
   }
 }

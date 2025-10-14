@@ -108,11 +108,17 @@ class AttachmentPlaceholderProcessor(Processor):
     """Display friendly placeholders for recognised attachments."""
 
     _PLACEHOLDER_STYLE = "class:attachment-placeholder"
+    # Skip expensive path detection for very long input (likely pasted content)
+    _MAX_TEXT_LENGTH_FOR_REALTIME = 500
 
     def apply_transformation(self, transformation_input):
         document = transformation_input.document
         text = document.text
         if not text:
+            return Transformation(list(transformation_input.fragments))
+
+        # Skip real-time path detection for long text to avoid slowdown
+        if len(text) > self._MAX_TEXT_LENGTH_FOR_REALTIME:
             return Transformation(list(transformation_input.fragments))
 
         detections, _warnings = _detect_path_tokens(text)
