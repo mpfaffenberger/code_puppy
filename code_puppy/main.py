@@ -7,6 +7,7 @@ import time
 import webbrowser
 from pathlib import Path
 
+from dbos import DBOS, DBOSConfig
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
@@ -655,14 +656,24 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
         emit_info("Falling back to interactive mode...")
         await interactive_mode(message_renderer)
 
+DBOS_SQLITE_FILE = "dboslocal.sqlite"
+DBOS_CONFIG: DBOSConfig = {
+    "name": "dbos-code-puppy",
+    "system_database_url": f"sqlite:///{DBOS_SQLITE_FILE}",
+    "run_admin_server": False,
+    "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),
+}
 
 def main_entry():
     """Entry point for the installed CLI tool."""
     try:
+        DBOS(config=DBOS_CONFIG)
+        DBOS.launch()
         asyncio.run(main())
     except KeyboardInterrupt:
         # Just exit gracefully with no error message
         callbacks.on_shutdown()
+        DBOS.destroy()
         return 0
 
 
