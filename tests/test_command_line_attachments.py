@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,7 +16,9 @@ from code_puppy.main import run_prompt_with_attachments
 
 
 @pytest.mark.parametrize("extension", sorted(DEFAULT_ACCEPTED_IMAGE_EXTENSIONS))
-def test_parse_prompt_attachments_handles_images(tmp_path: Path, extension: str) -> None:
+def test_parse_prompt_attachments_handles_images(
+    tmp_path: Path, extension: str
+) -> None:
     attachment_path = tmp_path / f"image{extension}"
     attachment_path.write_bytes(b"fake-bytes")
 
@@ -103,9 +104,10 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
     fake_result = AsyncMock()
     fake_agent.run_with_mcp.return_value = fake_result
 
-    with patch("code_puppy.messaging.emit_warning") as mock_warn, patch(
-        "code_puppy.messaging.emit_system_message"
-    ) as mock_system:
+    with (
+        patch("code_puppy.messaging.emit_warning") as mock_warn,
+        patch("code_puppy.messaging.emit_system_message") as mock_system,
+    ):
         result = await run_prompt_with_attachments(
             fake_agent,
             raw_prompt,
@@ -132,9 +134,11 @@ async def test_run_prompt_with_attachments_uses_spinner(tmp_path: Path) -> None:
 
     dummy_console = object()
 
-    with patch("code_puppy.messaging.spinner.ConsoleSpinner") as mock_spinner, patch(
-        "code_puppy.messaging.emit_system_message"
-    ), patch("code_puppy.messaging.emit_warning"):
+    with (
+        patch("code_puppy.messaging.spinner.ConsoleSpinner") as mock_spinner,
+        patch("code_puppy.messaging.emit_system_message"),
+        patch("code_puppy.messaging.emit_warning"),
+    ):
         await run_prompt_with_attachments(
             fake_agent,
             f"please summarise {pdf_path}",
@@ -151,8 +155,9 @@ async def test_run_prompt_with_attachments_uses_spinner(tmp_path: Path) -> None:
 async def test_run_prompt_with_attachments_warns_on_blank_prompt() -> None:
     fake_agent = AsyncMock()
 
-    with patch("code_puppy.messaging.emit_warning") as mock_warn, patch(
-        "code_puppy.messaging.emit_system_message"
+    with (
+        patch("code_puppy.messaging.emit_warning") as mock_warn,
+        patch("code_puppy.messaging.emit_system_message"),
     ):
         result = await run_prompt_with_attachments(
             fake_agent,
@@ -178,3 +183,35 @@ def test_parse_prompt_does_not_parse_urls_anymore(raw: str) -> None:
 
     assert processed.prompt == raw
     assert processed.link_attachments == []
+
+
+def test_parse_prompt_handles_very_long_tokens() -> None:
+    """Test that extremely long tokens don't cause ENAMETOOLONG errors."""
+    # Create a token longer than MAX_PATH_LENGTH (1024)
+    long_garbage = "a" * 2000
+    prompt = f"some text {long_garbage} more text"
+
+    # Should not raise, should just skip the long token
+    processed = parse_prompt_attachments(prompt)
+
+    # The long token should be preserved in output since it's not a valid path
+    assert "some text" in processed.prompt
+    assert "more text" in processed.prompt
+    assert processed.attachments == []
+
+
+def test_parse_prompt_handles_long_paragraph_paste() -> None:
+    """Test that pasting long error messages doesn't cause slowdown."""
+    # Simulate pasting a long error message with fake paths
+    long_text = (
+        "File /Users/testuser/.code-puppy-venv/lib/python3.13/site-packages/prompt_toolkit/layout/processors.py, "
+        "line 948, in apply_transformation return processor.apply_transformation(ti) "
+        * 20
+    )
+
+    # Should handle gracefully without errors
+    processed = parse_prompt_attachments(long_text)
+
+    # Should preserve the text (paths won't exist so won't be treated as attachments)
+    assert "apply_transformation" in processed.prompt
+    assert processed.attachments == []
