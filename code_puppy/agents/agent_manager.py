@@ -51,21 +51,50 @@ def get_terminal_session_id() -> str:
 
 
 def _is_process_alive(pid: int) -> bool:
-    """Check if a process with the given PID is still alive.
+    """Check if a process with the given PID is still alive, cross-platform.
 
     Args:
         pid: Process ID to check
 
     Returns:
-        bool: True if process exists, False otherwise
+        bool: True if process likely exists, False otherwise
     """
     try:
-        # On Unix: os.kill(pid, 0) raises OSError if process doesn't exist
-        # On Windows: This also works with signal 0
-        os.kill(pid, 0)
+        if os.name == "nt":
+            # Windows: use OpenProcess to probe liveness safely
+            import ctypes
+            from ctypes import wintypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            # If access denied, process likely exists but we can't query it
+            last_error = kernel32.GetLastError()
+            # ERROR_ACCESS_DENIED = 5
+            if last_error == 5:
+                return True
+            return False
+        else:
+            # Unix-like: signal 0 does not deliver a signal but checks existence
+            os.kill(int(pid), 0)
+            return True
+    except PermissionError:
+        # No permission to signal -> process exists
         return True
     except (OSError, ProcessLookupError):
+        # Process does not exist
         return False
+    except ValueError:
+        # Invalid signal or pid format
+        return False
+    except Exception:
+        # Be conservative – don't crash session cleanup due to platform quirks
+        return True
 
 
 def _cleanup_dead_sessions(sessions: dict[str, str]) -> dict[str, str]:

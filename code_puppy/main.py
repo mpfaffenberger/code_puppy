@@ -421,7 +421,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Handle / commands based on cleaned prompt (after stripping attachments)
         if cleaned_for_commands.startswith("/"):
-            command_result = handle_command(cleaned_for_commands)
+            try:
+                command_result = handle_command(cleaned_for_commands)
+            except Exception as e:
+                from code_puppy.messaging import emit_error
+                emit_error(f"Command error: {e}")
+                # Continue interactive loop instead of exiting
+                continue
             if command_result is True:
                 continue
             elif isinstance(command_result, str):
