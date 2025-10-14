@@ -1,5 +1,6 @@
 """Camoufox browser manager - privacy-focused Firefox automation."""
 
+from pathlib import Path
 from typing import Optional
 
 import camoufox
@@ -38,12 +39,25 @@ class CamoufoxManager:
         self.block_webrtc = True  # Block WebRTC for privacy
         self.humanize = True  # Add human-like behavior
 
+        # Persistent profile directory for consistent browser state across runs
+        self.profile_dir = self._get_profile_directory()
+
     @classmethod
     def get_instance(cls) -> "CamoufoxManager":
         """Get the singleton instance."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def _get_profile_directory(self) -> Path:
+        """Get or create the persistent profile directory.
+
+        Returns a Path object pointing to ~/.code_puppy/camoufox_profile
+        where browser data (cookies, history, bookmarks, etc.) will be stored.
+        """
+        profile_path = Path.home() / ".code_puppy" / "camoufox_profile"
+        profile_path.mkdir(parents=True, exist_ok=True)
+        return profile_path
 
     async def async_initialize(self) -> None:
         """Initialize Camoufox browser."""
@@ -68,6 +82,8 @@ class CamoufoxManager:
 
     async def _initialize_camoufox(self) -> None:
         """Try to start Camoufox with the configured privacy settings."""
+        emit_info(f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]")
+
         camoufox_instance = camoufox.AsyncCamoufox(
             headless=self.headless,
             block_webrtc=self.block_webrtc,
@@ -76,9 +92,15 @@ class CamoufoxManager:
             addons=[],
         )
         self._browser = await camoufox_instance.start()
+
+        # Use persistent storage directory for browser context
+        # This ensures cookies, localStorage, history, etc. persist across runs
         self._context = await self._browser.new_context(
             viewport={"width": 1920, "height": 1080},
             ignore_https_errors=True,
+            storage_state=str(self.profile_dir / "storage_state.json")
+            if (self.profile_dir / "storage_state.json").exists()
+            else None,
         )
         page = await self._context.new_page()
         await page.goto(self.homepage)
@@ -140,9 +162,21 @@ class CamoufoxManager:
         return self._context.pages
 
     async def _cleanup(self) -> None:
-        """Clean up browser resources."""
+        """Clean up browser resources and save persistent state."""
         try:
+            # Save browser state before closing (cookies, localStorage, etc.)
             if self._context:
+                try:
+                    storage_state_path = self.profile_dir / "storage_state.json"
+                    await self._context.storage_state(path=str(storage_state_path))
+                    emit_info(
+                        f"[green]💾 Browser state saved to {storage_state_path}[/green]"
+                    )
+                except Exception as e:
+                    emit_info(
+                        f"[yellow]Warning: Could not save storage state: {e}[/yellow]"
+                    )
+
                 await self._context.close()
                 self._context = None
             if self._browser:
