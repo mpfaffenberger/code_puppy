@@ -8,7 +8,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
-from dbos import DBOS
+from dbos import DBOS, SetWorkflowID
 import mcp
 import pydantic
 import pydantic_ai.models
@@ -956,12 +956,13 @@ class BaseAgent(ABC):
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
                 usage_limits = pydantic_ai.agent._usage.UsageLimits(request_limit=get_message_limit())
-                result_ = await pydantic_agent.run(
-                    prompt_payload,
-                    message_history=self.get_message_history(),
-                    usage_limits=usage_limits,
-                    **kwargs,
-                )
+                with SetWorkflowID(group_id):
+                    result_ = await pydantic_agent.run(
+                        prompt_payload,
+                        message_history=self.get_message_history(),
+                        usage_limits=usage_limits,
+                        **kwargs,
+                    )
                 return result_
             except* UsageLimitExceeded as ule:
                 emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
@@ -977,8 +978,10 @@ class BaseAgent(ABC):
                 )
             except* asyncio.exceptions.CancelledError:
                 emit_info("Cancelled")
+                await DBOS.cancel_workflow_async(group_id)
             except* InterruptedError as ie:
                 emit_info(f"Interrupted: {str(ie)}")
+                await DBOS.cancel_workflow_async(group_id)
             except* Exception as other_error:
                 # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
                 remaining_exceptions = []
