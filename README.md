@@ -80,6 +80,26 @@ Run specific tasks or engage in interactive mode:
 code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it and run it"
 ```
 
+### Durable Execution
+
+Code Puppy now supports **[DBOS](https://github.com/dbos-inc/dbos-transact-py)** durable execution.
+
+When enabled, every agent is automatically wrapped as a `DBOSAgent`, checkpointing key interactions (including agent inputs, LLM responses, MCP calls, and tool calls) in a database for durability and recovery.
+
+You can disable DBOS by setting:
+
+```bash
+export CODE_PUPPY_NO_DBOS=true
+```
+
+### Configuration
+
+The following environment variables control DBOS behavior:
+- `DBOS_CONDUCTOR_KEY`: If set, Code Puppy connects to the [DBOS Management Console](https://console.dbos.dev/). Make sure you first register an app named `dbos-code-puppy` on the console to generate a Conductor key. Default: `None`.
+- `DBOS_LOG_LEVEL`: Logging verbosity: `ERROR`, `WARNING`, `INFO`, or `DEBUG`. Default: `ERROR`.
+- `DBOS_SYSTEM_DATABASE_URL`: Database URL used by DBOS. Can point to a local SQLite file or a Postgres instance. Example: `postgresql://postgres:dbos@localhost:5432/postgres`. Default: `dbos_store.sqlite` file in the config directory.
+
+
 ## Requirements
 
 - Python 3.11+
