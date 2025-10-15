@@ -554,7 +554,7 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
     mock_event = MagicMock()
     mock_event.app.current_buffer = MagicMock()
     alt_m_handler(mock_event)
-    # mock_event.app.current_buffer.insert_text.assert_called_once_with("\n")
+    mock_event.app.current_buffer.insert_text.assert_called_once_with("\n")
 
 
 @pytest.mark.asyncio
@@ -634,5 +634,5 @@ async def test_attachment_placeholder_processor_handles_links() -> None:
     transformed = processor.apply_transformation(transformation_input)
     rendered_text = "".join(text for _style, text in transformed.fragments)
 
-    # assert "[link]" in rendered_text
-    # assert "https://example.com/pic.png" not in rendered_text
+    assert "[link]" in rendered_text
+    assert "https://example.com/pic.png" not in rendered_text

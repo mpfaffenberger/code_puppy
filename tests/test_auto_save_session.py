@@ -141,10 +141,9 @@ class TestAutoSaveSessionFunctionality:
         mock_get_auto_save,
         mock_datetime,
         mock_save_session,
-        # mock_cleanup,
+        mock_cleanup,
         mock_config_paths,
     ):
-        pytest.skip("Skipping flaky test for now")
         mock_get_auto_save.return_value = True
 
         history = ["hey", "listen"]
