@@ -560,12 +560,12 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls, capsys):
 
     mock_event = MagicMock()
     mock_event.app.current_buffer = MagicMock()
-    
+
     # First toggle - should turn multiline ON
     alt_m_handler(mock_event)
     captured = capsys.readouterr()
     assert "[multiline] ON" in captured.out
-    
+
     # Second toggle - should turn multiline OFF
     alt_m_handler(mock_event)
     captured = capsys.readouterr()
