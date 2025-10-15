@@ -522,15 +522,22 @@ class CodePuppyTUI(App):
                     # Generate session title after first successful response
                     if not message.strip().startswith("/"):
                         try:
-                            from code_puppy.config import (
+                            from pathlib import Path
+
+                            from code_puppy.session_title_agent import (
                                 maybe_generate_session_title,
+                            )
+                            from code_puppy.config import (
+                                AUTOSAVE_DIR,
                                 get_current_autosave_session_name,
                             )
 
                             session_name = get_current_autosave_session_name()
+                            autosave_dir = Path(AUTOSAVE_DIR)
                             maybe_generate_session_title(
                                 session_name=session_name,
                                 first_prompt=message,
+                                autosave_dir=autosave_dir,
                             )
                         except Exception as title_exc:
                             # Add warning message to chat

@@ -12,6 +12,7 @@ from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy.messaging import emit_info
 
+
 class CamoufoxManager:
     """Singleton browser manager for Camoufox (privacy-focused Firefox) automation."""
 
