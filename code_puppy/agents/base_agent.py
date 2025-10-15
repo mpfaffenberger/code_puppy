@@ -30,6 +30,7 @@ from pydantic_ai.durable_exec.dbos import DBOSAgent
 
 # Consolidated relative imports
 from code_puppy.config import (
+    USE_DBOS,
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
@@ -55,6 +56,7 @@ from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.common import console
 
+_reload_count = 0
 
 class BaseAgent(ABC):
     """Base class for all agent configurations."""
@@ -888,9 +890,15 @@ class BaseAgent(ABC):
         self._last_model_name = resolved_model_name
         # expose for run_with_mcp
         # Wrap it with DBOS
-        dbos_agent = DBOSAgent(p_agent, name=self.name)
-        self.pydantic_agent = dbos_agent
-        self._code_generation_agent = dbos_agent
+        global _reload_count
+        _reload_count += 1
+        if USE_DBOS:
+            dbos_agent = DBOSAgent(p_agent, name=f"{self.name}-{_reload_count}")
+            self.pydantic_agent = dbos_agent
+            self._code_generation_agent = dbos_agent
+        else:
+            self.pydantic_agent = p_agent
+            self._code_generation_agent = p_agent
         return self._code_generation_agent
 
     @DBOS.step()
@@ -958,7 +966,16 @@ class BaseAgent(ABC):
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
                 usage_limits = UsageLimits(request_limit=get_message_limit())
-                with SetWorkflowID(group_id):
+                if USE_DBOS:
+                    # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
+                    with SetWorkflowID(group_id):
+                        result_ = await pydantic_agent.run(
+                            prompt_payload,
+                            message_history=self.get_message_history(),
+                            usage_limits=usage_limits,
+                            **kwargs,
+                        )
+                else:
                     result_ = await pydantic_agent.run(
                         prompt_payload,
                         message_history=self.get_message_history(),
