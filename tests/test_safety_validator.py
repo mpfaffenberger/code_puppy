@@ -60,9 +60,9 @@ class TestCommandValidation:
         assert result.is_safe is False
         assert result.error == "Command is empty"
 
-    @patch("code_puppy.safety_validator.create_requests_session")
+    @patch("code_puppy.safety_validator.create_client")
     @patch("code_puppy.config.get_safety_permission_level")
-    def test_dangerous_command_blocked(self, mock_permission, mock_session):
+    def test_dangerous_command_blocked(self, mock_permission, mock_client):
         """Test that dangerous commands are blocked."""
         mock_permission.return_value = "medium"  # Default permission level
         mock_response = MagicMock()
@@ -72,9 +72,9 @@ class TestCommandValidation:
             "risk_level": "critical",
             "reasoning": "This command will delete everything",
         }
-        mock_session_instance = MagicMock()
-        mock_session_instance.post.return_value = mock_response
-        mock_session.return_value = mock_session_instance
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_client.return_value = mock_client_instance
 
         result = validate_command_safety("rm -rf *")
 
@@ -83,9 +83,9 @@ class TestCommandValidation:
         assert "delete everything" in result.reasoning
         assert result.should_block is True  # Critical > medium
 
-    @patch("code_puppy.safety_validator.create_requests_session")
+    @patch("code_puppy.safety_validator.create_client")
     @patch("code_puppy.config.get_safety_permission_level")
-    def test_safe_command_allowed(self, mock_permission, mock_session):
+    def test_safe_command_allowed(self, mock_permission, mock_client):
         """Test that safe commands are allowed."""
         mock_permission.return_value = "medium"
         mock_response = MagicMock()
@@ -95,9 +95,9 @@ class TestCommandValidation:
             "risk_level": "safe",
             "reasoning": "This command is safe",
         }
-        mock_session_instance = MagicMock()
-        mock_session_instance.post.return_value = mock_response
-        mock_session.return_value = mock_session_instance
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_client.return_value = mock_client_instance
 
         result = validate_command_safety("echo hello")
 
@@ -106,15 +106,15 @@ class TestCommandValidation:
         assert result.error is None
         assert result.should_block is False  # Safe <= medium
 
-    @patch("code_puppy.safety_validator.create_requests_session")
-    def test_service_unavailable_allows_command(self, mock_session):
+    @patch("code_puppy.safety_validator.create_client")
+    def test_service_unavailable_allows_command(self, mock_client):
         """Test that service unavailability doesn't block commands (fail open)."""
         mock_response = MagicMock()
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
-        mock_session_instance = MagicMock()
-        mock_session_instance.post.return_value = mock_response
-        mock_session.return_value = mock_session_instance
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_client.return_value = mock_client_instance
 
         result = validate_command_safety("ls -la")
 
@@ -124,12 +124,12 @@ class TestCommandValidation:
         assert result.error is not None
         assert "500" in result.error
 
-    @patch("code_puppy.safety_validator.create_requests_session")
-    def test_timeout_allows_command(self, mock_session):
+    @patch("code_puppy.safety_validator.create_client")
+    def test_timeout_allows_command(self, mock_client):
         """Test that timeouts don't block commands (fail open)."""
-        mock_session_instance = MagicMock()
-        mock_session_instance.post.side_effect = Exception("Connection timeout")
-        mock_session.return_value = mock_session_instance
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.side_effect = Exception("Connection timeout")
+        mock_client.return_value = mock_client_instance
 
         result = validate_command_safety("npm test")
 
@@ -138,12 +138,12 @@ class TestCommandValidation:
         assert result.risk_level == "unknown"
         assert result.error == "Timeout"
 
-    @patch("code_puppy.safety_validator.create_requests_session")
-    def test_network_error_allows_command(self, mock_session):
+    @patch("code_puppy.safety_validator.create_client")
+    def test_network_error_allows_command(self, mock_client):
         """Test that network errors don't block commands (fail open)."""
-        mock_session_instance = MagicMock()
-        mock_session_instance.post.side_effect = Exception("Network unreachable")
-        mock_session.return_value = mock_session_instance
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.side_effect = Exception("Network unreachable")
+        mock_client.return_value = mock_client_instance
 
         result = validate_command_safety("git status")
 
@@ -152,9 +152,9 @@ class TestCommandValidation:
         assert result.risk_level == "unknown"
         assert result.error is not None
 
-    @patch("code_puppy.safety_validator.create_requests_session")
+    @patch("code_puppy.safety_validator.create_client")
     @patch("code_puppy.config.get_safety_permission_level")
-    def test_context_passed_to_endpoint(self, mock_permission, mock_session):
+    def test_context_passed_to_endpoint(self, mock_permission, mock_client):
         """Test that context is passed to the validation endpoint."""
         mock_permission.return_value = "medium"
         mock_response = MagicMock()
@@ -164,15 +164,15 @@ class TestCommandValidation:
             "risk_level": "safe",
             "reasoning": "Safe command",
         }
-        mock_session_instance = MagicMock()
-        mock_session_instance.post.return_value = mock_response
-        mock_session.return_value = mock_session_instance
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_client.return_value = mock_client_instance
 
         validate_command_safety("echo test", context="Running unit tests")
 
         # Verify the context was included in the request
-        mock_session_instance.post.assert_called_once()
-        call_args = mock_session_instance.post.call_args
+        mock_client_instance.post.assert_called_once()
+        call_args = mock_client_instance.post.call_args
         assert call_args[1]["json"]["context"] == "Running unit tests"
 
 
@@ -231,9 +231,9 @@ class TestPermissionLevelLogic:
 
         assert should_block_command("unknown", "medium") is True
 
-    @patch("code_puppy.safety_validator.create_requests_session")
+    @patch("code_puppy.safety_validator.create_client")
     @patch("code_puppy.config.get_safety_permission_level")
-    def test_risky_but_allowed_command(self, mock_permission, mock_session):
+    def test_risky_but_allowed_command(self, mock_permission, mock_client):
         """Test a command that's risky but within permission level."""
         mock_permission.return_value = "high"  # High permission level
         mock_response = MagicMock()
@@ -243,6 +243,10 @@ class TestPermissionLevelLogic:
             "risk_level": "medium",
             "reasoning": "This command is somewhat risky",
         }
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_client.return_value = mock_client_instance
+
         result = validate_command_safety("sudo something")
 
         assert result.is_safe is False  # Marked as dangerous

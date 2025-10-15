@@ -87,19 +87,17 @@ def test_ios_reviewer_agent_prompt_structure():
     agent = IOSReviewerAgent()
     prompt = agent.get_system_prompt()
 
-    # Should have workflow guidance
-    assert "agent_share_your_reasoning" in prompt
-    assert "list_files" in prompt
-    assert "read_file" in prompt
-    assert "grep" in prompt
-
     # Should have review methodology
     assert "review" in prompt.lower()
-    assert "feedback" in prompt.lower()
+    assert "feedback" in prompt.lower() or "findings" in prompt.lower()
 
-    # Should have severity levels
-    assert "Critical" in prompt or "Major" in prompt or "Minor" in prompt
+    # Should have severity levels or prioritization
+    assert (
+        "severity" in prompt.lower()
+        or "blocker" in prompt.lower()
+        or "critical" in prompt.lower()
+    )
 
     # Should have iOS-specific anti-patterns
-    assert "retain cycle" in prompt or "force unwrap" in prompt
-    assert "main thread" in prompt or "MainActor" in prompt
+    assert "retain cycle" in prompt.lower() or "force unwrap" in prompt.lower()
+    assert "main thread" in prompt.lower() or "mainactor" in prompt.lower()

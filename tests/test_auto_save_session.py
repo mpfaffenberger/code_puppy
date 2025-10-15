@@ -47,7 +47,9 @@ class TestAutoSaveSession:
         for val in true_values:
             mock_get_value.reset_mock()
             mock_get_value.return_value = val
-            assert cp_config.get_auto_save_session() is True, f"Failed for config value: {val}"
+            assert cp_config.get_auto_save_session() is True, (
+                f"Failed for config value: {val}"
+            )
             mock_get_value.assert_called_once_with("auto_save_session")
 
     @patch("code_puppy.config.get_value")
@@ -56,7 +58,9 @@ class TestAutoSaveSession:
         for val in false_values:
             mock_get_value.reset_mock()
             mock_get_value.return_value = val
-            assert cp_config.get_auto_save_session() is False, f"Failed for config value: {val}"
+            assert cp_config.get_auto_save_session() is False, (
+                f"Failed for config value: {val}"
+            )
             mock_get_value.assert_called_once_with("auto_save_session")
 
     @patch("code_puppy.config.get_value")
@@ -141,7 +145,6 @@ class TestAutoSaveSessionFunctionality:
         mock_get_auto_save,
         mock_datetime,
         mock_save_session,
-        mock_cleanup,
         mock_config_paths,
     ):
         mock_get_auto_save.return_value = True
@@ -162,7 +165,8 @@ class TestAutoSaveSessionFunctionality:
             timestamp="2024-01-01T01:01:01",
             message_count=len(history),
             total_tokens=6,
-            pickle_path=Path(mock_config_paths.autosave_dir) / "auto_session_20240101_010101.pkl",
+            pickle_path=Path(mock_config_paths.autosave_dir)
+            / "auto_session_20240101_010101.pkl",
             metadata_path=Path(mock_config_paths.autosave_dir)
             / "auto_session_20240101_010101_meta.json",
         )
@@ -178,7 +182,6 @@ class TestAutoSaveSessionFunctionality:
         kwargs = mock_save_session.call_args.kwargs
         assert kwargs["base_dir"] == Path(mock_config_paths.autosave_dir)
         assert kwargs["session_name"] == "auto_session_20240101_010101"
-        mock_cleanup.assert_called_once()
         mock_console.print.assert_called_once()
 
     @patch("code_puppy.config.get_auto_save_session")

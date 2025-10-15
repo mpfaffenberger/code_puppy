@@ -416,11 +416,10 @@ def test_cd_completer_permission_error_silently_handled(monkeypatch):
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
-@patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
 @patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
 @patch("code_puppy.command_line.prompt_toolkit_completion.merge_completers")
 async def test_get_input_with_combined_completion_defaults(
-    mock_merge_completers, mock_update_model, mock_file_history, mock_prompt_session_cls
+    mock_merge_completers, mock_update_model, mock_prompt_session_cls
 ):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="test input")
@@ -454,18 +453,15 @@ async def test_get_input_with_combined_completion_defaults(
 
     mock_update_model.assert_called_once_with("test input")
     assert result == "processed input"
-    mock_file_history.assert_not_called()
 
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
-@patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
 @patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
 @patch("code_puppy.command_line.history_manager.get_history_manager")
 async def test_get_input_with_combined_completion_with_history(
     mock_get_history_manager,
     mock_update_model,
-    mock_file_history,
     mock_prompt_session_cls,
 ):
     from prompt_toolkit.history import InMemoryHistory
@@ -501,13 +497,11 @@ async def test_get_input_with_combined_completion_with_history(
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
-@patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
 @patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
 @patch("code_puppy.command_line.history_manager.get_history_manager")
 async def test_get_input_with_combined_completion_empty_history(
     mock_get_history_manager,
     mock_update_model,
-    mock_file_history,
     mock_prompt_session_cls,
 ):
     """Test that we handle empty history gracefully (no history to load)."""
@@ -606,10 +600,19 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
             break
     assert alt_m_handler is not None, "Alt+M keybinding not found"
 
+    # Alt+M toggles multiline mode, not inserts text
     mock_event = MagicMock()
-    mock_event.app.current_buffer = MagicMock()
-    alt_m_handler(mock_event)
-    mock_event.app.current_buffer.insert_text.assert_called_once_with("\n")
+
+    # Capture print output
+    import io
+    from contextlib import redirect_stdout
+
+    f = io.StringIO()
+    with redirect_stdout(f):
+        alt_m_handler(mock_event)
+    output = f.getvalue()
+    assert "[multiline]" in output
+    assert "ON" in output or "OFF" in output
 
 
 @pytest.mark.asyncio
@@ -669,6 +672,11 @@ async def test_attachment_placeholder_processor_renders_images(tmp_path: Path) -
 
 @pytest.mark.asyncio
 async def test_attachment_placeholder_processor_handles_links() -> None:
+    """Test that URL link parsing is currently disabled.
+
+    Note: _parse_link() in attachments.py intentionally returns None,
+    so URLs are not treated as attachments and are not replaced with placeholders.
+    """
     processor = AttachmentPlaceholderProcessor()
     document_text = "check https://example.com/pic.png"
     document = Document(text=document_text, cursor_position=len(document_text))
@@ -689,5 +697,6 @@ async def test_attachment_placeholder_processor_handles_links() -> None:
     transformed = processor.apply_transformation(transformation_input)
     rendered_text = "".join(text for _style, text in transformed.fragments)
 
-    assert "[link]" in rendered_text
-    assert "https://example.com/pic.png" not in rendered_text
+    # URL parsing is disabled, so links are NOT replaced
+    assert "[link]" not in rendered_text
+    assert "https://example.com/pic.png" in rendered_text
