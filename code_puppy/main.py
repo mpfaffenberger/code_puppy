@@ -175,15 +175,22 @@ async def main():
 
     # Handle agent selection from command line
     if args.agent:
-        from code_puppy.agents.agent_manager import set_current_agent, get_available_agents
+        from code_puppy.agents.agent_manager import (
+            set_current_agent,
+            get_available_agents,
+        )
 
         agent_name = args.agent.lower()
         try:
             # First check if the agent exists by getting available agents
             available_agents = get_available_agents()
             if agent_name not in available_agents:
-                emit_system_message(f"[bold red]Error:[/bold red] Agent '{agent_name}' not found")
-                emit_system_message(f"Available agents: {', '.join(available_agents.keys())}")
+                emit_system_message(
+                    f"[bold red]Error:[/bold red] Agent '{agent_name}' not found"
+                )
+                emit_system_message(
+                    f"Available agents: {', '.join(available_agents.keys())}"
+                )
                 sys.exit(1)
 
             # Agent exists, set it
@@ -192,7 +199,7 @@ async def main():
         except Exception as e:
             emit_system_message(f"[bold red]Error setting agent:[/bold red] {str(e)}")
             sys.exit(1)
-            
+
     current_version = __version__
 
     no_version_update = os.getenv("NO_VERSION_UPDATE", "").lower() in (
@@ -290,7 +297,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.messaging import emit_info
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
-
 
     # Initialize the runtime agent manager
     if initial_command:
@@ -405,7 +411,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Check for clear command (supports both `clear` and `/clear`)
         if task.strip().lower() in ("clear", "/clear"):
-            from code_puppy.messaging import emit_info, emit_system_message, emit_warning
+            from code_puppy.messaging import (
+                emit_info,
+                emit_system_message,
+                emit_warning,
+            )
 
             agent = get_current_agent()
             new_session_id = finalize_autosave_session()
@@ -425,6 +435,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 command_result = handle_command(cleaned_for_commands)
             except Exception as e:
                 from code_puppy.messaging import emit_error
+
                 emit_error(f"Command error: {e}")
                 # Continue interactive loop instead of exiting
                 continue
@@ -465,13 +476,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # Auto-save session if enabled
                 from code_puppy.config import auto_save_session_if_enabled
+
                 auto_save_session_if_enabled()
 
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
                 display_console.file.flush() if hasattr(
                     display_console.file, "flush"
-        ) else None
+                ) else None
                 import time
 
                 time.sleep(0.1)  # Brief pause to ensure all messages are rendered

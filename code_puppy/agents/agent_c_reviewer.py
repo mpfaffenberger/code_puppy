@@ -16,9 +16,7 @@ class CReviewerAgent(BaseAgent):
 
     @property
     def description(self) -> str:
-        return (
-            "Hardcore C systems reviewer obsessed with determinism, perf, and safety"
-        )
+        return "Hardcore C systems reviewer obsessed with determinism, perf, and safety"
 
     def get_available_tools(self) -> list[str]:
         """Reviewers only need read-only inspection helpers."""

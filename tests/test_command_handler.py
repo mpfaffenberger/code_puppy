@@ -364,8 +364,14 @@ def test_agent_switch_triggers_autosave_rotation():
             mock_finalize.assert_called_once_with()
             mock_set.assert_called_once_with("reviewer")
 
-        assert any("Switched to agent" in str(call) for call in mock_emit_success.call_args_list)
-        assert any("Auto-save session rotated" in str(call) for call in mock_emit_info.call_args_list)
+        assert any(
+            "Switched to agent" in str(call)
+            for call in mock_emit_success.call_args_list
+        )
+        assert any(
+            "Auto-save session rotated" in str(call)
+            for call in mock_emit_info.call_args_list
+        )
     finally:
         mocks["emit_info"].stop()
         mocks["emit_success"].stop()
@@ -398,7 +404,9 @@ def test_agent_switch_same_agent_skips_rotation():
             mock_finalize.assert_not_called()
             mock_set.assert_not_called()
 
-        assert any("Already using agent" in str(call) for call in mock_emit_info.call_args_list)
+        assert any(
+            "Already using agent" in str(call) for call in mock_emit_info.call_args_list
+        )
     finally:
         mocks["emit_info"].stop()
 
@@ -425,7 +433,9 @@ def test_agent_switch_unknown_agent_skips_rotation():
             mock_finalize.assert_not_called()
             mock_set.assert_not_called()
 
-        assert any("Available agents" in str(call) for call in mock_emit_warning.call_args_list)
+        assert any(
+            "Available agents" in str(call) for call in mock_emit_warning.call_args_list
+        )
     finally:
         mocks["emit_warning"].stop()
 

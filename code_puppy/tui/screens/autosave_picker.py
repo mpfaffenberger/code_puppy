@@ -2,6 +2,7 @@
 Autosave Picker modal for TUI.
 Lists recent autosave sessions and lets the user load one.
 """
+
 from __future__ import annotations
 
 import json
@@ -122,7 +123,11 @@ class AutosavePicker(ModalScreen):
 
             for entry in self.entries[:50]:
                 ts = entry.timestamp or "unknown time"
-                count = f"{entry.message_count} msgs" if entry.message_count is not None else "unknown size"
+                count = (
+                    f"{entry.message_count} msgs"
+                    if entry.message_count is not None
+                    else "unknown size"
+                )
                 label = f"{entry.name} — {count}, saved at {ts}"
                 self.list_view.append(ListItem(Static(label)))
 
@@ -138,7 +143,11 @@ class AutosavePicker(ModalScreen):
             # populate items
             for entry in self.entries[:50]:  # cap to avoid long lists
                 ts = entry.timestamp or "unknown time"
-                count = f"{entry.message_count} msgs" if entry.message_count is not None else "unknown size"
+                count = (
+                    f"{entry.message_count} msgs"
+                    if entry.message_count is not None
+                    else "unknown size"
+                )
                 label = f"{entry.name} — {count}, saved at {ts}"
                 self.list_view.append(ListItem(Static(label)))
             yield self.list_view
