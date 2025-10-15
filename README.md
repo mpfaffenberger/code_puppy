@@ -53,8 +53,7 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 export MODEL_NAME=gpt-5 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
 export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
 export CEREBRAS_API_KEY=<your_cerebras_api_key> # for Cerebras models
-export YOLO_MODE=true # to bypass the safety confirmation prompt when running shell commands
-
+export SYN_API_KEY=<your https://dev.synthetic.new api key> # for Synthetic provider
 # or ...
 
 export AZURE_OPENAI_API_KEY=...
@@ -62,6 +61,17 @@ export AZURE_OPENAI_ENDPOINT=...
 
 code-puppy --interactive
 ```
+
+### Synthetic Provider
+
+Code Puppy supports the **Synthetic provider**, which gives you access to various open-source models through a custom OpenAI-compatible endpoint. Set `SYN_API_KEY` to use models like:
+
+- `synthetic-DeepSeek-V3.1-Terminus` (128K context)
+- `synthetic-Kimi-K2-Instruct-0905` (256K context)
+- `synthetic-Qwen3-Coder-480B-A35B-Instruct` (256K context)
+- `synthetic-GLM-4.6` (200K context)
+
+These models are available via `https://api.synthetic.new/openai/v1/` and provide high-quality coding assistance with generous context windows.
 
 Run specific tasks or engage in interactive mode:
 
