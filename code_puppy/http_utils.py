@@ -80,7 +80,7 @@ def create_async_client(
 
 
 def create_requests_session(
-    timeout: float = 5.0,
+    timeout: float = 10.0,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> requests.Session:

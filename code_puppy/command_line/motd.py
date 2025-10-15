@@ -8,42 +8,12 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-10-13"
+MOTD_VERSION = "2025-10-14-v206"
 MOTD_MESSAGE = """
-# 🎉 Quality of life features
+# 🚀 Code Puppy v0.0.206 - QA Kitten Persistent Sessions! 🐶
 
-## 📎 Image Support drag and drop!
-You can now **drag-and-drop image files**!
+QA Kitten will now have persistent sessions, so you will stay logged into your sites.
 
-- **Supported formats**: Images (PNG, JPG, GIF, WebP)
-- **Local files**: Just drag them from your file explorer into the terminal
-
-Try it: Drag an image and ask "What's in this image?"
-
-## 💾 Autosave Session Management
-Never lose your work! Sessions are now auto-saved with full management:
-
-- **Auto-restore on startup**: Pick up where you left off
-- **Interactive auto-save restore picker**: Browse sessions with metadata (message counts, timestamps)
-- **Pagination**: Navigate through sessions 5 at a time
-- **Session commands**:
-  - `/session` - View current session ID
-  - `/session new` - Start a fresh session
-- **Auto-rotation**: Switching agents or clearing history creates a new session
-
-Sessions live in `~/.code_puppy/autosaves/`
-
-## ⌨️ Better Multiline Input
-New keyboard shortcuts for multiline prompts:
-
-- **CLI**: `Alt+M` or `F2` to toggle multiline mode (persistent!)
-- **TUI**: `Shift+Enter` for newlines (more intuitive!)
-- **Universal**: `Ctrl+J` also inserts newlines
-- **Visual feedback**: See when multiline mode is active
-
----
-
-*Woof! Your faithful code puppy is getting smarter every day! 🐶*
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 

@@ -87,7 +87,7 @@ def should_block_command(command_risk_level: str, permission_level: str) -> bool
 
 
 def validate_command_safety(
-    command: str, context: Optional[str] = None, timeout: int = 5
+    command: str, context: Optional[str] = None, timeout: int = 30
 ) -> SafetyValidationResult:
     """Validate if a shell command is safe to execute.
 

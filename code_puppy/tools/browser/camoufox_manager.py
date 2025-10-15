@@ -94,6 +94,7 @@ class CamoufoxManager:
             persistent_context=True,
             user_data_dir=str(self.profile_dir),
             addons=[],
+            viewport={"width": 1920, "height": 1080},  # Default to 1080p window size
         )
 
         self._browser = camoufox_instance.browser
