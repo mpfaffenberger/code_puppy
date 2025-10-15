@@ -25,7 +25,7 @@ from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
-    DBOS_DATABASE_URL,
+    maybe_generate_session_title,
     ensure_config_exists,
     finalize_autosave_session,
     get_use_dbos,
@@ -623,12 +623,23 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 get_message_bus().emit(response_msg)
 
-                # Update the agent's message history with the complete conversation
-                # including the final assistant response. The history_processors callback
-                # may not capture the final message, so we use result.all_messages()
-                # to ensure the autosave includes the complete conversation.
-                if hasattr(result, "all_messages"):
-                    current_agent.set_message_history(list(result.all_messages()))
+                # Generate session title after first successful response (if not command)
+                if not cleaned_for_commands.startswith("/"):
+                    try:
+                        from code_puppy.config import maybe_generate_session_title, get_current_autosave_session_name
+                        
+                        session_name = get_current_autosave_session_name()
+                        maybe_generate_session_title(
+                            session_name=session_name,
+                            first_prompt=task,
+                        )
+                    except Exception as title_exc:
+                        from code_puppy.messaging import emit_warning
+                        emit_warning(f"Session title generation failed: {title_exc}")
+
+                # Auto-save session if enabled
+                from code_puppy.config import auto_save_session_if_enabled
+                auto_save_session_if_enabled()
 
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
@@ -773,6 +784,78 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         from code_puppy.messaging import emit_error
 
         emit_error(f"Error executing prompt: {str(e)}")
+
+
+async def prompt_then_interactive_mode(message_renderer) -> None:
+    """Prompt user for input, execute it, then continue in interactive mode."""
+    from code_puppy.messaging import emit_info, emit_system_message
+
+    emit_info("[bold green]🐶 Code Puppy[/bold green] - Enter your request")
+    emit_system_message(
+        "After processing your request, you'll continue in interactive mode."
+    )
+
+    try:
+        # Get user input
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_input_with_combined_completion,
+            get_prompt_with_active_model,
+        )
+        from code_puppy.config import COMMAND_HISTORY_FILE
+
+        emit_info("[bold blue]What would you like me to help you with?[/bold blue]")
+
+        try:
+            # Use prompt_toolkit for enhanced input with path completion
+            user_prompt = await get_input_with_combined_completion(
+                get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+            )
+        except ImportError:
+            # Fall back to basic input if prompt_toolkit is not available
+            user_prompt = input(">>> ")
+
+        if user_prompt.strip():
+
+            # Generate session title based on the initial prompt
+            from code_puppy.config import get_current_autosave_session_name
+
+            try:
+                maybe_generate_session_title(
+                    session_name=get_current_autosave_session_name(),
+                    first_prompt=user_prompt,
+                )
+            except Exception as title_exc:
+                from code_puppy.messaging import emit_warning
+                emit_warning(f"Session title generation failed: {title_exc}")
+
+            # Execute the prompt
+            await execute_single_prompt(user_prompt, message_renderer)
+
+            # Transition to interactive mode
+            emit_system_message("\n" + "=" * 50)
+            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+            emit_system_message(
+                "Your request and response are preserved in the conversation history."
+            )
+            emit_system_message("=" * 50 + "\n")
+
+            # Continue in interactive mode with the initial command as history
+            await interactive_mode(message_renderer, initial_command=user_prompt)
+        else:
+            # No input provided, just go to interactive mode
+            await interactive_mode(message_renderer)
+
+    except (KeyboardInterrupt, EOFError):
+        from code_puppy.messaging import emit_warning
+
+        emit_warning("\nInput cancelled. Starting interactive mode...")
+        await interactive_mode(message_renderer)
+    except Exception as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(f"Error in prompt mode: {str(e)}")
+        emit_info("Falling back to interactive mode...")
+        await interactive_mode(message_renderer)
 
 
 def main_entry():
