@@ -6,8 +6,9 @@ from typing import Optional
 
 from playwright.async_api import Browser, BrowserContext, Page
 
-from code_puppy import config
-from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.messaging import emit_info
+
+_MIN_VIEWPORT_DIMENSION = 640
 
 
 class CamoufoxManager:
