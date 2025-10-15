@@ -717,7 +717,7 @@ def get_auto_save_session() -> bool:
 
 def set_auto_save_session(enabled: bool):
     """Sets the auto_save_session configuration value.
-    
+
     Args:
         enabled: Whether to enable auto-saving of sessions
     """
@@ -741,7 +741,7 @@ def get_max_saved_sessions() -> int:
 
 def set_max_saved_sessions(max_sessions: int):
     """Sets the max_saved_sessions configuration value.
-    
+
     Args:
         max_sessions: Maximum number of sessions to keep (0 for unlimited)
     """
@@ -753,14 +753,14 @@ def get_current_autosave_id() -> str:
     global _CURRENT_AUTOSAVE_ID
     if not _CURRENT_AUTOSAVE_ID:
         # Use a full timestamp so tests and UX can predict the name if needed
-        _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return _CURRENT_AUTOSAVE_ID
 
 
 def rotate_autosave_id() -> str:
     """Force a new autosave session ID and return it."""
     global _CURRENT_AUTOSAVE_ID
-    _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return _CURRENT_AUTOSAVE_ID
 
 
@@ -778,7 +778,7 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     global _CURRENT_AUTOSAVE_ID
     prefix = "auto_session_"
     if session_name.startswith(prefix):
-        _CURRENT_AUTOSAVE_ID = session_name[len(prefix):]
+        _CURRENT_AUTOSAVE_ID = session_name[len(prefix) :]
     else:
         _CURRENT_AUTOSAVE_ID = session_name
     return _CURRENT_AUTOSAVE_ID
@@ -817,7 +817,7 @@ async def _generate_session_title_async(prompt: str) -> str:
     agent = _ensure_title_agent()
     sanitized_prompt = prompt.strip()
     if len(sanitized_prompt) > _MAX_TITLE_PROMPT_CHARS:
-        sanitized_prompt = sanitized_prompt[: _MAX_TITLE_PROMPT_CHARS]
+        sanitized_prompt = sanitized_prompt[:_MAX_TITLE_PROMPT_CHARS]
     request = _TITLE_PROMPT_TEMPLATE.format(prompt=sanitized_prompt)
     result = await agent.run(request)
     title = (result.output or "").strip()
@@ -901,7 +901,7 @@ def maybe_generate_session_title(session_name: str, first_prompt: str) -> str | 
     if fallback_title:
         _SESSION_TITLE_CACHE[session_name] = fallback_title
         return fallback_title
-    
+
     return None
 
 

@@ -2,6 +2,7 @@
 Autosave Picker modal for TUI.
 Lists recent autosave sessions and lets the user load one.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,12 +28,18 @@ class AutosaveEntry:
     session_title: Optional[str] = None
 
 
-def _load_metadata(base_dir: Path, name: str) -> Tuple[Optional[str], Optional[int], Optional[str]]:
+def _load_metadata(
+    base_dir: Path, name: str
+) -> Tuple[Optional[str], Optional[int], Optional[str]]:
     meta_path = base_dir / f"{name}_meta.json"
     try:
         with meta_path.open("r", encoding="utf-8") as meta_file:
             data = json.load(meta_file)
-        return data.get("timestamp"), data.get("message_count"), data.get("session_title")
+        return (
+            data.get("timestamp"),
+            data.get("message_count"),
+            data.get("session_title"),
+        )
     except Exception:
         return None, None, None
 
@@ -123,7 +130,11 @@ class AutosavePicker(ModalScreen):
 
             for entry in self.entries[:50]:
                 ts = entry.timestamp or "unknown time"
-                count = f"{entry.message_count} msgs" if entry.message_count is not None else "unknown size"
+                count = (
+                    f"{entry.message_count} msgs"
+                    if entry.message_count is not None
+                    else "unknown size"
+                )
                 title_part = f" — {entry.session_title}" if entry.session_title else ""
                 label = f"{entry.name}{title_part} — {count}, saved at {ts}"
                 self.list_view.append(ListItem(Static(label)))
@@ -140,7 +151,11 @@ class AutosavePicker(ModalScreen):
             # populate items
             for entry in self.entries[:50]:  # cap to avoid long lists
                 ts = entry.timestamp or "unknown time"
-                count = f"{entry.message_count} msgs" if entry.message_count is not None else "unknown size"
+                count = (
+                    f"{entry.message_count} msgs"
+                    if entry.message_count is not None
+                    else "unknown size"
+                )
                 title_part = f" — {entry.session_title}" if entry.session_title else ""
                 label = f"{entry.name}{title_part} — {count}, saved at {ts}"
                 self.list_view.append(ListItem(Static(label)))

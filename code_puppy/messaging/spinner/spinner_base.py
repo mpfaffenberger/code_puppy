@@ -92,6 +92,4 @@ class SpinnerBase(ABC):
         if capacity <= 0:
             return ""
         proportion_pct = proportion * 100
-        return (
-            f"Tokens: {total_tokens:,}/{capacity:,} ({proportion_pct:.1f}% used)"
-        )
+        return f"Tokens: {total_tokens:,}/{capacity:,} ({proportion_pct:.1f}% used)"

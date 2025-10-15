@@ -67,9 +67,15 @@ def _is_process_alive(pid: int) -> bool:
 
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.argtypes = [
+                wintypes.DWORD,
+                wintypes.BOOL,
+                wintypes.DWORD,
+            ]
             kernel32.OpenProcess.restype = wintypes.HANDLE
-            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+            handle = kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+            )
             if handle:
                 kernel32.CloseHandle(handle)
                 return True

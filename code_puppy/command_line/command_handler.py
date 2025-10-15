@@ -33,7 +33,10 @@ def get_commands_help():
         ("/exit, /quit", "Exit interactive mode"),
         ("/generate-pr-description [@dir]", "Generate comprehensive PR description"),
         ("/model, /m <model>", "Set active model"),
-        ("/reasoning <low|medium|high>", "Set OpenAI reasoning effort for GPT-5 models"),
+        (
+            "/reasoning <low|medium|high>",
+            "Set OpenAI reasoning effort for GPT-5 models",
+        ),
         ("/pin_model <agent> <model>", "Pin a specific model to an agent"),
         ("/mcp", "Manage MCP servers (list, start, stop, status, etc.)"),
         ("/motd", "Show the latest message of the day (MOTD)"),
@@ -134,6 +137,7 @@ def _ensure_plugins_loaded() -> None:
 
 def handle_command(command: str):
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
     _ensure_plugins_loaded()
 
     """
@@ -318,6 +322,7 @@ def handle_command(command: str):
             get_current_autosave_session_name,
             rotate_autosave_id,
         )
+
         if len(tokens) == 1 or tokens[1] == "id":
             sid = get_current_autosave_id()
             emit_info(
@@ -619,9 +624,7 @@ def handle_command(command: str):
                     if is_json_agent and hasattr(current_agent, "refresh_config"):
                         current_agent.refresh_config()
                     current_agent.reload_code_generation_agent()
-                    emit_info(
-                        f"Active agent reloaded with pinned model '{model_name}'"
-                    )
+                    emit_info(f"Active agent reloaded with pinned model '{model_name}'")
                 except Exception as reload_error:
                     emit_warning(
                         f"Pinned model applied but reload failed: {reload_error}"
@@ -733,6 +736,7 @@ def handle_command(command: str):
         # Rotate autosave id to avoid overwriting any existing autosave
         try:
             from code_puppy.config import rotate_autosave_id
+
             new_id = rotate_autosave_id()
             autosave_info = f"\n[dim]Autosave session rotated to: {new_id}[/dim]"
         except Exception:
