@@ -12,6 +12,8 @@ import httpx
 import requests
 from tenacity import stop_after_attempt, wait_exponential
 
+from code_puppy.config import get_http2
+
 try:
     from pydantic_ai.retries import (
         AsyncTenacityTransport,
@@ -55,6 +57,9 @@ def create_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
+    # Check if HTTP/2 is enabled in config
+    http2_enabled = get_http2()
+
     # If retry components are available, create a client with retry transport
     if TenacityTransport and RetryConfig and wait_retry_after:
 
@@ -81,11 +86,17 @@ def create_client(
         )
 
         return httpx.Client(
-            transport=transport, verify=verify, headers=headers or {}, timeout=timeout
+            transport=transport,
+            verify=verify,
+            headers=headers or {},
+            timeout=timeout,
+            http2=http2_enabled,
         )
     else:
         # Fallback to regular client if retry components are not available
-        return httpx.Client(verify=verify, headers=headers or {}, timeout=timeout)
+        return httpx.Client(
+            verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
+        )
 
 
 def create_async_client(
@@ -96,6 +107,9 @@ def create_async_client(
 ) -> httpx.AsyncClient:
     if verify is None:
         verify = get_cert_bundle_path()
+
+    # Check if HTTP/2 is enabled in config
+    http2_enabled = get_http2()
 
     # If retry components are available, create a client with retry transport
     if AsyncTenacityTransport and RetryConfig and wait_retry_after:
@@ -120,11 +134,17 @@ def create_async_client(
         )
 
         return httpx.AsyncClient(
-            transport=transport, verify=verify, headers=headers or {}, timeout=timeout
+            transport=transport,
+            verify=verify,
+            headers=headers or {},
+            timeout=timeout,
+            http2=http2_enabled,
         )
     else:
         # Fallback to regular client if retry components are not available
-        return httpx.AsyncClient(verify=verify, headers=headers or {}, timeout=timeout)
+        return httpx.AsyncClient(
+            verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
+        )
 
 
 def create_requests_session(
@@ -176,6 +196,9 @@ def create_reopenable_async_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
+    # Check if HTTP/2 is enabled in config
+    http2_enabled = get_http2()
+
     # If retry components are available, create a client with retry transport
     if AsyncTenacityTransport and RetryConfig and wait_retry_after:
 
@@ -207,6 +230,7 @@ def create_reopenable_async_client(
                 verify=verify,
                 headers=headers or {},
                 timeout=timeout,
+                http2=http2_enabled,
             )
         else:
             # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
@@ -215,17 +239,24 @@ def create_reopenable_async_client(
                 verify=verify,
                 headers=headers or {},
                 timeout=timeout,
+                http2=http2_enabled,
             )
     else:
         # Fallback to regular clients if retry components are not available
         if ReopenableAsyncClient is not None:
             return ReopenableAsyncClient(
-                verify=verify, headers=headers or {}, timeout=timeout
+                verify=verify,
+                headers=headers or {},
+                timeout=timeout,
+                http2=http2_enabled,
             )
         else:
             # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
             return httpx.AsyncClient(
-                verify=verify, headers=headers or {}, timeout=timeout
+                verify=verify,
+                headers=headers or {},
+                timeout=timeout,
+                http2=http2_enabled,
             )
 
 

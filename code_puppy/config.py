@@ -152,6 +152,7 @@ def get_config_keys():
         "openai_reasoning_effort",
         "auto_save_session",
         "max_saved_sessions",
+        "http2",
     ]
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -607,6 +608,27 @@ def get_compaction_strategy() -> str:
         return val.lower()
     # Default to summarization
     return "truncation"
+
+
+def get_http2() -> bool:
+    """
+    Get the http2 configuration value.
+    Returns False if not set (default).
+    """
+    val = get_value("http2")
+    if val is None:
+        return False
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
+def set_http2(enabled: bool) -> None:
+    """
+    Sets the http2 configuration value.
+
+    Args:
+        enabled: Whether to enable HTTP/2 for httpx clients
+    """
+    set_config_value("http2", "true" if enabled else "false")
 
 
 def get_message_limit(default: int = 100) -> int:
