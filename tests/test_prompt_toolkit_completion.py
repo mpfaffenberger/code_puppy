@@ -536,7 +536,8 @@ async def test_get_input_with_combined_completion_no_model_update(
 )
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
-async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
+async def test_get_input_key_binding_alt_m(mock_prompt_session_cls, capsys):
+    """Test that Alt+M toggles multiline mode instead of inserting newline."""
     # We don't need the function to run fully, just to set up PromptSession
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="test")
@@ -556,6 +557,19 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
             alt_m_handler = binding.handler
             break
     assert alt_m_handler is not None, "Alt+M keybinding not found"
+
+    mock_event = MagicMock()
+    mock_event.app.current_buffer = MagicMock()
+    
+    # First toggle - should turn multiline ON
+    alt_m_handler(mock_event)
+    captured = capsys.readouterr()
+    assert "[multiline] ON" in captured.out
+    
+    # Second toggle - should turn multiline OFF
+    alt_m_handler(mock_event)
+    captured = capsys.readouterr()
+    assert "[multiline] OFF" in captured.out
 
 
 @pytest.mark.asyncio
@@ -611,3 +625,31 @@ async def test_attachment_placeholder_processor_renders_images(tmp_path: Path) -
 
     assert "[png image]" in rendered_text
     assert "fluffy pupper" not in rendered_text
+
+
+@pytest.mark.asyncio
+async def test_attachment_placeholder_processor_handles_links() -> None:
+    """Test that URLs are not replaced since link parsing is disabled."""
+    processor = AttachmentPlaceholderProcessor()
+    document_text = "check https://example.com/pic.png"
+    document = Document(text=document_text, cursor_position=len(document_text))
+
+    fragments = [("", document_text)]
+    buffer = Buffer(document=document)
+    control = BufferControl(buffer=buffer)
+    transformation_input = TransformationInput(
+        buffer_control=control,
+        document=document,
+        lineno=0,
+        source_to_display=lambda i: i,
+        fragments=fragments,
+        width=len(document_text),
+        height=1,
+    )
+
+    transformed = processor.apply_transformation(transformation_input)
+    rendered_text = "".join(text for _style, text in transformed.fragments)
+
+    # Link parsing is disabled, so URLs should remain unchanged
+    assert "https://example.com/pic.png" in rendered_text
+    assert "[link]" not in rendered_text
