@@ -53,6 +53,7 @@ def get_commands_help():
             "/truncate <N>",
             "Truncate history to N most recent messages (keeping system message)",
         ),
+        ("/history", "Show message history for current autosave session"),
         ("/<unknown>", "Show unknown command warning"),
     ]
 
@@ -784,6 +785,142 @@ def handle_command(command: str):
         emit_success(
             f"Truncated message history from {len(history)} to {len(truncated_history)} messages (keeping system message and {n - 1} most recent)"
         )
+        return True
+
+    if command.startswith("/history"):
+        from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.config import (
+            AUTOSAVE_DIR,
+            get_current_autosave_id,
+            get_current_autosave_session_name,
+        )
+        from code_puppy.session_storage import list_sessions
+        import json
+        from pathlib import Path
+
+        # Generate a group ID for all messages in this command
+        import uuid
+        group_id = str(uuid.uuid4())
+
+        # Show current autosave session info
+        current_session_name = get_current_autosave_session_name()
+        emit_info(
+            f"[bold magenta]Current Autosave Session:[/bold magenta] {current_session_name}",
+            message_group=group_id,
+        )
+
+        # Show current message history
+        try:
+            agent = get_current_agent()
+            history = agent.get_message_history()
+            
+            if not history:
+                emit_warning(
+                    "No message history in current session. Ask me something first!",
+                    message_group=group_id,
+                )
+            else:
+                total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+                emit_info(
+                    f"[bold]Messages:[/bold] {len(history)} total ({total_tokens:,} tokens)",
+                    message_group=group_id,
+                )
+                
+                # Show recent messages (last 10 to avoid spam)
+                recent_messages = history[-10:] if len(history) > 10 else history
+                emit_info(
+                    f"[bold]Recent Messages (last {len(recent_messages)}):[/bold]",
+                    message_group=group_id,
+                )
+                
+                for i, message in enumerate(recent_messages, start=len(history) - len(recent_messages) + 1):
+                    if hasattr(message, 'role') and hasattr(message, 'content'):
+                        role = message.role.upper()
+                        # Truncate long content for display
+                        content = message.content
+                        if len(content) > 100:
+                            content = content[:97] + "..."
+                        emit_info(
+                            f"  [{i}] [cyan]{role}[/cyan]: {content}",
+                            message_group=group_id,
+                        )
+                    else:
+                        emit_info(
+                            f"  [{i}] [dim]Unknown message format[/dim]",
+                            message_group=group_id,
+                        )
+                
+                if len(history) > 10:
+                    emit_info(
+                        f"  [dim]... and {len(history) - 10} earlier messages[/dim]",
+                        message_group=group_id,
+                    )
+
+        except Exception as e:
+            emit_error(f"Failed to get current message history: {e}", message_group=group_id)
+
+        # Show other available autosave sessions
+        try:
+            autosave_dir = Path(AUTOSAVE_DIR)
+            all_sessions = list_sessions(autosave_dir)
+            
+            # Filter out the current session
+            other_sessions = [s for s in all_sessions if s != current_session_name]
+            
+            if other_sessions:
+                emit_info(
+                    "\n[bold magenta]Other Autosave Sessions Available:[/bold magenta]",
+                    message_group=group_id,
+                )
+                
+                # Load metadata for each session to show more info
+                for session in other_sessions[:5]:  # Limit to 5 to avoid spam
+                    meta_path = autosave_dir / f"{session}_meta.json"
+                    try:
+                        with meta_path.open("r", encoding="utf-8") as f:
+                            metadata = json.load(f)
+                        timestamp = metadata.get("timestamp", "unknown")
+                        message_count = metadata.get("message_count", 0)
+                        total_tokens = metadata.get("total_tokens", 0)
+                        
+                        # Format timestamp nicely
+                        if timestamp != "unknown":
+                            try:
+                                from datetime import datetime
+                                dt = datetime.fromisoformat(timestamp)
+                                timestamp = dt.strftime("%Y-%m-%d %H:%M:%S")
+                            except Exception:
+                                pass
+                        
+                        emit_info(
+                            f"  [cyan]{session}[/cyan] - {message_count} messages ({total_tokens:,} tokens) - {timestamp}",
+                            message_group=group_id,
+                        )
+                    except Exception:
+                        emit_info(
+                            f"  [cyan]{session}[/cyan] - [dim]metadata unavailable[/dim]",
+                            message_group=group_id,
+                        )
+                
+                if len(other_sessions) > 5:
+                    emit_info(
+                        f"  [dim]... and {len(other_sessions) - 5} more sessions[/dim]",
+                        message_group=group_id,
+                    )
+                
+                emit_info(
+                    "\n[dim]Tip: Use /load_context <session_name> to load a different session[/dim]",
+                    message_group=group_id,
+                )
+            else:
+                emit_info(
+                    "\n[dim]No other autosave sessions available[/dim]",
+                    message_group=group_id,
+                )
+                
+        except Exception as e:
+            emit_warning(f"Failed to list other sessions: {e}", message_group=group_id)
+
         return True
 
     if command in ("/exit", "/quit"):
