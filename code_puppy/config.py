@@ -697,7 +697,7 @@ def get_auto_save_session() -> bool:
 
 def set_auto_save_session(enabled: bool):
     """Sets the auto_save_session configuration value.
-    
+
     Args:
         enabled: Whether to enable auto-saving of sessions
     """
@@ -721,7 +721,7 @@ def get_max_saved_sessions() -> int:
 
 def set_max_saved_sessions(max_sessions: int):
     """Sets the max_saved_sessions configuration value.
-    
+
     Args:
         max_sessions: Maximum number of sessions to keep (0 for unlimited)
     """
@@ -733,14 +733,14 @@ def get_current_autosave_id() -> str:
     global _CURRENT_AUTOSAVE_ID
     if not _CURRENT_AUTOSAVE_ID:
         # Use a full timestamp so tests and UX can predict the name if needed
-        _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return _CURRENT_AUTOSAVE_ID
 
 
 def rotate_autosave_id() -> str:
     """Force a new autosave session ID and return it."""
     global _CURRENT_AUTOSAVE_ID
-    _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return _CURRENT_AUTOSAVE_ID
 
 
@@ -758,7 +758,7 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     global _CURRENT_AUTOSAVE_ID
     prefix = "auto_session_"
     if session_name.startswith(prefix):
-        _CURRENT_AUTOSAVE_ID = session_name[len(prefix):]
+        _CURRENT_AUTOSAVE_ID = session_name[len(prefix) :]
     else:
         _CURRENT_AUTOSAVE_ID = session_name
     return _CURRENT_AUTOSAVE_ID

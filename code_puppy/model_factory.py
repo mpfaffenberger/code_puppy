@@ -33,7 +33,7 @@ from .round_robin_model import RoundRobinModel
 
 class ZaiChatModel(OpenAIChatModel):
     def _process_response(self, response):
-        response.object = 'chat.completion'
+        response.object = "chat.completion"
         return super()._process_response(response)
 
 
@@ -248,18 +248,18 @@ class ModelFactory:
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
                 provider=OpenAIProvider(
-                    api_key=os.getenv('ZAI_API_KEY'),
-                    base_url='https://api.z.ai/api/coding/paas/v4'
-                )
+                    api_key=os.getenv("ZAI_API_KEY"),
+                    base_url="https://api.z.ai/api/coding/paas/v4",
+                ),
             )
             return zai_model
         elif model_type == "zai_api":
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
                 provider=OpenAIProvider(
-                    api_key=os.getenv('ZAI_API_KEY'),
-                    base_url='https://api.z.ai/api/paas/v4/'
-                )
+                    api_key=os.getenv("ZAI_API_KEY"),
+                    base_url="https://api.z.ai/api/paas/v4/",
+                ),
             )
             return zai_model
         elif model_type == "custom_gemini":

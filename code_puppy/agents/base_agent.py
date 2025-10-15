@@ -928,7 +928,9 @@ class BaseAgent(ABC):
         """
         group_id = str(uuid.uuid4())
         # Avoid double-loading: reuse existing agent if already built
-        pydantic_agent = self._code_generation_agent or self.reload_code_generation_agent()
+        pydantic_agent = (
+            self._code_generation_agent or self.reload_code_generation_agent()
+        )
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []

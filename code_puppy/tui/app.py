@@ -176,11 +176,11 @@ class CodePuppyTUI(App):
         # Start the message renderer EARLY to catch startup messages
         # Using call_after_refresh to start it as soon as possible after mount
         self.call_after_refresh(self.start_message_renderer_sync)
-        
+
         # Kick off a non-blocking preload of the agent/model so the
         # status bar shows loading before first prompt
         self.call_after_refresh(self.preload_agent_on_startup)
-        
+
         # After preload, offer to restore an autosave session (like interactive mode)
         self.call_after_refresh(self.maybe_prompt_restore_autosave)
 
@@ -205,7 +205,7 @@ class CodePuppyTUI(App):
             tight_lines = []
             last_blank = False
             for ln in lines:
-                is_blank = (ln == "")
+                is_blank = ln == ""
                 if is_blank and last_blank:
                     continue
                 tight_lines.append(ln)
@@ -522,6 +522,7 @@ class CodePuppyTUI(App):
                     # Auto-save session if enabled (mirror --interactive)
                     try:
                         from code_puppy.config import auto_save_session_if_enabled
+
                         auto_save_session_if_enabled()
                     except Exception:
                         pass
@@ -969,10 +970,12 @@ class CodePuppyTUI(App):
     async def maybe_prompt_restore_autosave(self) -> None:
         """Offer to restore an autosave session at startup (TUI version)."""
         try:
-            import asyncio
             from pathlib import Path
 
-            from code_puppy.config import AUTOSAVE_DIR, set_current_autosave_from_session_name
+            from code_puppy.config import (
+                AUTOSAVE_DIR,
+                set_current_autosave_from_session_name,
+            )
             from code_puppy.session_storage import list_sessions, load_session
 
             base_dir = Path(AUTOSAVE_DIR)
@@ -1032,7 +1035,7 @@ class CodePuppyTUI(App):
             # Use Textual's push_screen with a result callback
             def on_picker_result(result_name=None):
                 # Schedule async handler to avoid blocking UI
-                import asyncio
+
                 self.run_worker(handle_result(result_name), exclusive=False)
 
             self.push_screen(picker, on_picker_result)

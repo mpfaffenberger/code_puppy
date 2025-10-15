@@ -1,7 +1,7 @@
 """Camoufox browser manager - privacy-focused Firefox automation."""
 
 from pathlib import Path
-from typing import Optional, TypeAlias
+from typing import Optional
 
 import camoufox
 from camoufox.addons import DefaultAddons
@@ -10,7 +10,6 @@ from camoufox.locale import ALLOW_GEOIP, download_mmdb
 from camoufox.pkgman import CamoufoxFetcher, camoufox_path
 from playwright.async_api import Browser, BrowserContext, Page
 
-_MIN_VIEWPORT_DIMENSION = 640
 
 from code_puppy.messaging import emit_info
 
