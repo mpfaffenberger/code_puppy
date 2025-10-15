@@ -32,10 +32,11 @@ class SessionMetadata:
     total_tokens: int
     pickle_path: Path
     metadata_path: Path
+    session_title: str | None = None
     auto_saved: bool = False
 
     def as_serialisable(self) -> dict[str, Any]:
-        return {
+        data = {
             "session_name": self.session_name,
             "timestamp": self.timestamp,
             "message_count": self.message_count,
@@ -43,6 +44,9 @@ class SessionMetadata:
             "file_path": str(self.pickle_path),
             "auto_saved": self.auto_saved,
         }
+        if self.session_title is not None:
+            data["session_title"] = self.session_title
+        return data
 
 
 def ensure_directory(path: Path) -> Path:
@@ -64,9 +68,21 @@ def save_session(
     timestamp: str,
     token_estimator: TokenEstimator,
     auto_saved: bool = False,
+    session_title: str | None = None,
 ) -> SessionMetadata:
     ensure_directory(base_dir)
     paths = build_session_paths(base_dir, session_name)
+
+    existing_title: str | None = None
+    if session_title is None and paths.metadata_path.exists():
+        try:
+            with paths.metadata_path.open("r", encoding="utf-8") as metadata_file:
+                existing_data = json.load(metadata_file)
+            existing_title = existing_data.get("session_title")
+        except Exception:
+            existing_title = None
+
+    final_title = session_title if session_title is not None else existing_title
 
     with paths.pickle_path.open("wb") as pickle_file:
         pickle.dump(history, pickle_file)
@@ -79,6 +95,7 @@ def save_session(
         total_tokens=total_tokens,
         pickle_path=paths.pickle_path,
         metadata_path=paths.metadata_path,
+        session_title=final_title,
         auto_saved=auto_saved,
     )
 
@@ -166,7 +183,8 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         except Exception:
             timestamp = None
             message_count = None
-        entries.append((name, timestamp, message_count))
+        session_title = data.get("session_title")
+        entries.append((name, timestamp, message_count, session_title))
 
     def sort_key(entry):
         _, timestamp, _ = entry
@@ -187,16 +205,19 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         start = page * PAGE_SIZE
         end = min(start + PAGE_SIZE, total)
         page_entries = entries[start:end]
-        emit_system_message("Autosave Sessions Available:")
-        for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
+        emit_system_message("[bold magenta]Autosave Sessions Available:[/bold magenta]")
+        for idx, (name, timestamp, message_count, session_title) in enumerate(
+            page_entries, start=1
+        ):
             timestamp_display = timestamp or "unknown time"
             message_display = (
                 f"{message_count} messages"
                 if message_count is not None
                 else "unknown size"
             )
+            title_display = f" — {session_title}" if session_title else ""
             emit_system_message(
-                f"  [{idx}] {name} ({message_display}, saved at {timestamp_display})"
+                f"  [{idx}] {name}{title_display} ({message_display}, saved at {timestamp_display})"
             )
         # If there are more pages, offer next-page; show 'Return to first page' on last page
         if total > PAGE_SIZE:
@@ -253,7 +274,7 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
             continue
 
         # Allow direct typing by exact session name
-        for name, _ts, _mc in entries:
+        for name, _ts, _mc, _title in entries:
             if name == selection:
                 chosen_name = name
                 break
