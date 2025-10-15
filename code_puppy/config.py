@@ -1390,8 +1390,25 @@ def maybe_generate_session_title(session_name: str, first_prompt: str) -> str | 
     else:
         first_prompt = cached_prompt
 
+    # Check in-memory cache first
     if session_name in _SESSION_TITLE_CACHE:
         return _SESSION_TITLE_CACHE[session_name]
+
+    # Check if session metadata already has a title (e.g., from restored session)
+    try:
+        autosave_dir = pathlib.Path(AUTOSAVE_DIR)
+        metadata_path = autosave_dir / f"{session_name}_meta.json"
+        if metadata_path.exists():
+            with metadata_path.open("r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            existing_title = metadata.get("session_title")
+            if existing_title:
+                # Load existing title into cache and return it
+                _SESSION_TITLE_CACHE[session_name] = existing_title
+                return existing_title
+    except Exception:
+        # If we can't read metadata, continue to generation
+        pass
 
     try:
         title = _generate_session_title(first_prompt)
