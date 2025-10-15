@@ -40,9 +40,10 @@ def _load_vqa_agent(model_name: str) -> Agent[None, VisualAnalysisResult]:
 
     if USE_DBOS:
         from pydantic_ai.durable_exec.dbos import DBOSAgent
+
         dbos_agent = DBOSAgent(vqa_agent, name="vqa-agent")
         return dbos_agent
-    
+
     return vqa_agent
 
 

@@ -19,6 +19,7 @@ from code_puppy.tools.common import generate_group_id
 
 _temp_agent_count = 0
 
+
 class AgentInfo(BaseModel):
     """Information about an available agent."""
 

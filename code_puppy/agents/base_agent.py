@@ -58,6 +58,7 @@ from code_puppy.tools.common import console
 
 _reload_count = 0
 
+
 class BaseAgent(ABC):
     """Base class for all agent configurations."""
 

@@ -17,6 +17,7 @@ _thread_pool: ThreadPoolExecutor | None = None
 # Reload counter
 _reload_count = 0
 
+
 def _ensure_thread_pool():
     global _thread_pool
     if _thread_pool is None:
@@ -79,6 +80,7 @@ When summarizing:
     )
     if USE_DBOS:
         from pydantic_ai.durable_exec.dbos import DBOSAgent
+
         global _reload_count
         _reload_count += 1
         dbos_agent = DBOSAgent(agent, name=f"summarization-agent-{_reload_count}")

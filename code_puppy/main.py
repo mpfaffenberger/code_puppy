@@ -235,9 +235,13 @@ async def main():
             "name": "dbos-code-puppy",
             "system_database_url": DBOS_DATABASE_URL,
             "run_admin_server": False,
-            "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),  # Optional, if set in env, connect to conductor
-            "log_level": os.environ.get("DBOS_LOG_LEVEL", "ERROR"), # Default to ERROR level to suppress verbose logs
-            "application_version": current_version, # Match DBOS app version to Code Puppy version
+            "conductor_key": os.environ.get(
+                "DBOS_CONDUCTOR_KEY"
+            ),  # Optional, if set in env, connect to conductor
+            "log_level": os.environ.get(
+                "DBOS_LOG_LEVEL", "ERROR"
+            ),  # Default to ERROR level to suppress verbose logs
+            "application_version": current_version,  # Match DBOS app version to Code Puppy version
         }
         try:
             DBOS(config=dbos_config)
@@ -681,6 +685,7 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
         emit_error(f"Error in prompt mode: {str(e)}")
         emit_info("Falling back to interactive mode...")
         await interactive_mode(message_renderer)
+
 
 def main_entry():
     """Entry point for the installed CLI tool."""
