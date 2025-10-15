@@ -23,6 +23,8 @@ from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
+    DBOS_SQLITE_FILE,
+    USE_DBOS,
     ensure_config_exists,
     finalize_autosave_session,
     initialize_command_history_file,
@@ -217,6 +219,27 @@ async def main():
 
     await callbacks.on_startup()
 
+    # Initialize DBOS if not disabled
+    if USE_DBOS:
+        dbos_message = f"Initializing DBOS with SQLite DB at: {DBOS_SQLITE_FILE}"
+        emit_system_message(dbos_message)
+
+        dbos_config: DBOSConfig = {
+            "name": "dbos-code-puppy",
+            "system_database_url": f"sqlite:///{DBOS_SQLITE_FILE}",
+            "run_admin_server": False,
+            "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),  # Optional, if set in env, connect to conductor
+            "log_level": os.environ.get("DBOS_LOG_LEVEL", "ERROR"), # Default to ERROR level to suppress verbose logs
+        }
+        try:
+            DBOS(config=dbos_config)
+            DBOS.launch()
+        except Exception as e:
+            emit_system_message(f"[bold red]Error initializing DBOS:[/bold red] {e}")
+            sys.exit(1)
+    else:
+        emit_system_message("DBOS is disabled. Running without durable execution.")
+
     global shutdown_flag
     shutdown_flag = False
     try:
@@ -259,6 +282,8 @@ async def main():
         if message_renderer:
             message_renderer.stop()
         await callbacks.on_shutdown()
+        if USE_DBOS:
+            DBOS.destroy()
 
 
 # Add the file handling functionality for interactive mode
@@ -644,24 +669,15 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
         emit_info("Falling back to interactive mode...")
         await interactive_mode(message_renderer)
 
-DBOS_SQLITE_FILE = "dboslocal.sqlite"
-DBOS_CONFIG: DBOSConfig = {
-    "name": "dbos-code-puppy",
-    "system_database_url": f"sqlite:///{DBOS_SQLITE_FILE}",
-    "run_admin_server": False,
-    "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),
-}
-
 def main_entry():
     """Entry point for the installed CLI tool."""
     try:
-        DBOS(config=DBOS_CONFIG)
-        DBOS.launch()
         asyncio.run(main())
     except KeyboardInterrupt:
         # Just exit gracefully with no error message
         callbacks.on_shutdown()
-        DBOS.destroy()
+        if USE_DBOS:
+            DBOS.destroy()
         return 0
 
 

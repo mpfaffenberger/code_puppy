@@ -16,6 +16,9 @@ EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
 CONTEXTS_DIR = os.path.join(CONFIG_DIR, "contexts")
 AUTOSAVE_DIR = os.path.join(CONFIG_DIR, "autosaves")
+DBOS_SQLITE_FILE = os.path.join(CONFIG_DIR, "dbos_store.sqlite")
+# If `CODE_PUPPY_NO_DBOS` set to True, skip using DBOS entirely
+USE_DBOS = os.environ.get("CODE_PUPPY_NO_DBOS", "0").lower() not in ("1", "true", "yes", "on")
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
