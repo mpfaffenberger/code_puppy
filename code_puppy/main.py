@@ -25,7 +25,6 @@ from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
-    maybe_generate_session_title,
     ensure_config_exists,
     finalize_autosave_session,
     get_use_dbos,
@@ -299,7 +298,10 @@ async def main():
 
 # Add the file handling functionality for interactive mode
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
+    from pathlib import Path
+
     from code_puppy.command_line.command_handler import handle_command
+    from code_puppy.config import AUTOSAVE_DIR
 
     """Run the agent in interactive mode."""
 
@@ -631,15 +633,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Generate session title after first successful response (if not command)
                 if not cleaned_for_commands.startswith("/"):
                     try:
-                        from code_puppy.config import (
+                        from code_puppy.session_title_agent import (
                             maybe_generate_session_title,
-                            get_current_autosave_session_name,
                         )
+                        from code_puppy.config import get_current_autosave_session_name
 
                         session_name = get_current_autosave_session_name()
+                        autosave_dir = Path(AUTOSAVE_DIR)
                         maybe_generate_session_title(
                             session_name=session_name,
                             first_prompt=task,
+                            autosave_dir=autosave_dir,
                         )
                     except Exception as title_exc:
                         from code_puppy.messaging import emit_warning
@@ -826,12 +830,17 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
 
         if user_prompt.strip():
             # Generate session title based on the initial prompt
+            from code_puppy.session_title_agent import (
+                maybe_generate_session_title,
+            )
             from code_puppy.config import get_current_autosave_session_name
 
             try:
+                autosave_dir = Path(AUTOSAVE_DIR)
                 maybe_generate_session_title(
                     session_name=get_current_autosave_session_name(),
                     first_prompt=user_prompt,
+                    autosave_dir=autosave_dir,
                 )
             except Exception as title_exc:
                 from code_puppy.messaging import emit_warning

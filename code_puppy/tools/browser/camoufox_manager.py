@@ -8,8 +8,6 @@ from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy.messaging import emit_info
 
-_MIN_VIEWPORT_DIMENSION = 640
-
 
 class CamoufoxManager:
     """Singleton browser manager for Camoufox (privacy-focused Firefox) automation."""
