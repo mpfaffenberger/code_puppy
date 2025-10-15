@@ -230,6 +230,7 @@ async def main():
             "run_admin_server": False,
             "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),  # Optional, if set in env, connect to conductor
             "log_level": os.environ.get("DBOS_LOG_LEVEL", "ERROR"), # Default to ERROR level to suppress verbose logs
+            "application_version": current_version, # Match DBOS app version to Code Puppy version
         }
         try:
             DBOS(config=dbos_config)
