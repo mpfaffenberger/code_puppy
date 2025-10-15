@@ -89,7 +89,7 @@ def test_save_session_with_title(tmp_path: Path, history: List[str], token_estim
     session_name = "titled_session"
     timestamp = "2024-01-01T00:00:00"
     session_title = "Test Session Title"
-    
+
     metadata = save_session(
         history=history,
         session_name=session_name,
@@ -98,13 +98,13 @@ def test_save_session_with_title(tmp_path: Path, history: List[str], token_estim
         token_estimator=token_estimator,
         session_title=session_title,
     )
-    
+
     assert metadata.session_title == session_title
-    
+
     with metadata.metadata_path.open() as meta_file:
         stored = json.load(meta_file)
     assert stored["session_title"] == session_title
-    
+
     # Verify title persists when saving again without providing it
     metadata2 = save_session(
         history=history + ["four"],
@@ -113,7 +113,7 @@ def test_save_session_with_title(tmp_path: Path, history: List[str], token_estim
         timestamp="2024-01-01T01:00:00",
         token_estimator=token_estimator,
     )
-    
+
     assert metadata2.session_title == session_title
     with metadata2.metadata_path.open() as meta_file:
         stored2 = json.load(meta_file)

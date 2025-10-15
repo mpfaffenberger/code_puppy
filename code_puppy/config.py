@@ -1346,7 +1346,7 @@ async def _generate_session_title_async(prompt: str) -> str:
     agent = _ensure_title_agent()
     sanitized_prompt = prompt.strip()
     if len(sanitized_prompt) > _MAX_TITLE_PROMPT_CHARS:
-        sanitized_prompt = sanitized_prompt[: _MAX_TITLE_PROMPT_CHARS]
+        sanitized_prompt = sanitized_prompt[:_MAX_TITLE_PROMPT_CHARS]
     request = _TITLE_PROMPT_TEMPLATE.format(prompt=sanitized_prompt)
     result = await agent.run(request)
     title = (result.output or "").strip()
@@ -1430,7 +1430,7 @@ def maybe_generate_session_title(session_name: str, first_prompt: str) -> str | 
     if fallback_title:
         _SESSION_TITLE_CACHE[session_name] = fallback_title
         return fallback_title
-    
+
     return None
 
 

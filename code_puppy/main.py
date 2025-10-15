@@ -195,8 +195,8 @@ async def main():
     # Handle agent selection from command line
     if args.agent:
         from code_puppy.agents.agent_manager import (
-            get_available_agents,
             set_current_agent,
+            get_available_agents,
         )
 
         agent_name = args.agent.lower()
@@ -204,7 +204,9 @@ async def main():
             # First check if the agent exists by getting available agents
             available_agents = get_available_agents()
             if agent_name not in available_agents:
-                emit_error(f"Agent '{agent_name}' not found")
+                emit_system_message(
+                    f"[bold red]Error:[/bold red] Agent '{agent_name}' not found"
+                )
                 emit_system_message(
                     f"Available agents: {', '.join(available_agents.keys())}"
                 )
@@ -328,6 +330,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
+    from code_puppy.messaging import emit_info
+
+    emit_info("[bold cyan]Initializing agent...[/bold cyan]")
 
     # Initialize the runtime agent manager
     if initial_command:
@@ -626,8 +631,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Generate session title after first successful response (if not command)
                 if not cleaned_for_commands.startswith("/"):
                     try:
-                        from code_puppy.config import maybe_generate_session_title, get_current_autosave_session_name
-                        
+                        from code_puppy.config import (
+                            maybe_generate_session_title,
+                            get_current_autosave_session_name,
+                        )
+
                         session_name = get_current_autosave_session_name()
                         maybe_generate_session_title(
                             session_name=session_name,
@@ -635,10 +643,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         )
                     except Exception as title_exc:
                         from code_puppy.messaging import emit_warning
+
                         emit_warning(f"Session title generation failed: {title_exc}")
 
                 # Auto-save session if enabled
                 from code_puppy.config import auto_save_session_if_enabled
+
                 auto_save_session_if_enabled()
 
                 # Ensure console output is flushed before next prompt
@@ -815,7 +825,6 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
             user_prompt = input(">>> ")
 
         if user_prompt.strip():
-
             # Generate session title based on the initial prompt
             from code_puppy.config import get_current_autosave_session_name
 
@@ -826,6 +835,7 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
                 )
             except Exception as title_exc:
                 from code_puppy.messaging import emit_warning
+
                 emit_warning(f"Session title generation failed: {title_exc}")
 
             # Execute the prompt
