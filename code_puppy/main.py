@@ -22,6 +22,7 @@ from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
+    maybe_generate_session_title,
     ensure_config_exists,
     finalize_autosave_session,
     initialize_command_history_file,
@@ -463,6 +464,20 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
 
+                # Generate session title after first successful response (if not command)
+                if not cleaned_for_commands.startswith("/"):
+                    try:
+                        from code_puppy.config import maybe_generate_session_title, get_current_autosave_session_name
+                        
+                        session_name = get_current_autosave_session_name()
+                        maybe_generate_session_title(
+                            session_name=session_name,
+                            first_prompt=task,
+                        )
+                    except Exception as title_exc:
+                        from code_puppy.messaging import emit_warning
+                        emit_warning(f"Session title generation failed: {title_exc}")
+
                 # Auto-save session if enabled
                 from code_puppy.config import auto_save_session_if_enabled
                 auto_save_session_if_enabled()
@@ -614,6 +629,19 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
             user_prompt = input(">>> ")
 
         if user_prompt.strip():
+
+            # Generate session title based on the initial prompt
+            from code_puppy.config import get_current_autosave_session_name
+
+            try:
+                maybe_generate_session_title(
+                    session_name=get_current_autosave_session_name(),
+                    first_prompt=user_prompt,
+                )
+            except Exception as title_exc:
+                from code_puppy.messaging import emit_warning
+                emit_warning(f"Session title generation failed: {title_exc}")
+
             # Execute the prompt
             await execute_single_prompt(user_prompt, message_renderer)
 
