@@ -990,7 +990,6 @@ class CodePuppyTUI(App):
     async def maybe_prompt_restore_autosave(self) -> None:
         """Offer to restore an autosave session at startup (TUI version)."""
         try:
-            import asyncio
             from pathlib import Path
 
             from code_puppy.config import AUTOSAVE_DIR, set_current_autosave_from_session_name
@@ -1053,7 +1052,6 @@ class CodePuppyTUI(App):
             # Use Textual's push_screen with a result callback
             def on_picker_result(result_name=None):
                 # Schedule async handler to avoid blocking UI
-                import asyncio
                 self.run_worker(handle_result(result_name), exclusive=False)
 
             self.push_screen(picker, on_picker_result)
