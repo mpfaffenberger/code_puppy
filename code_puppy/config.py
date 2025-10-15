@@ -1,11 +1,15 @@
+import asyncio
 import configparser
 import datetime
 import json
 import os
 import pathlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from code_puppy.session_storage import save_session
+from pydantic_ai import Agent as PydanticAgent
+
 
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
@@ -79,6 +83,22 @@ REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
 # Runtime-only autosave session ID (per-process)
 _CURRENT_AUTOSAVE_ID: Optional[str] = None
+_SESSION_FIRST_PROMPT: dict[str, str] = {}
+_SESSION_TITLE_CACHE: dict[str, str] = {}
+_TITLE_AGENT = None
+_TITLE_THREAD_POOL: Optional[ThreadPoolExecutor] = None
+
+_TITLE_AGENT_INSTRUCTIONS = (
+    "You generate concise session titles based on a user's first prompt. "
+    "Respond with fewer than ten words, title case preferred, and avoid punctuation beyond spaces."
+)
+_TITLE_PROMPT_TEMPLATE = (
+    "User's opening request:\n{prompt}\n\n"
+    "Return only the suggested session title (<=10 words)."
+)
+_MAX_TITLE_PROMPT_CHARS = 500
+_MAX_TITLE_WORDS = 10
+
 
 # Cache containers for model validation and defaults
 _model_validation_cache = {}
@@ -1293,6 +1313,110 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return _CURRENT_AUTOSAVE_ID
 
 
+def _ensure_title_agent() -> PydanticAgent:
+    global _TITLE_AGENT
+    if _TITLE_AGENT is not None:
+        return _TITLE_AGENT
+
+    from code_puppy.model_factory import ModelFactory
+
+    models_config = ModelFactory.load_config()
+    model_name = get_global_model_name()
+    model = ModelFactory.get_model(model_name, models_config)
+
+    _TITLE_AGENT = PydanticAgent(
+        model=model,
+        instructions=_TITLE_AGENT_INSTRUCTIONS,
+        output_type=str,
+        retries=1,
+    )
+    return _TITLE_AGENT
+
+
+def _ensure_title_thread_pool() -> ThreadPoolExecutor:
+    global _TITLE_THREAD_POOL
+    if _TITLE_THREAD_POOL is None:
+        _TITLE_THREAD_POOL = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="session-title-generator"
+        )
+    return _TITLE_THREAD_POOL
+
+
+async def _generate_session_title_async(prompt: str) -> str:
+    agent = _ensure_title_agent()
+    sanitized_prompt = prompt.strip()
+    if len(sanitized_prompt) > _MAX_TITLE_PROMPT_CHARS:
+        sanitized_prompt = sanitized_prompt[: _MAX_TITLE_PROMPT_CHARS]
+    request = _TITLE_PROMPT_TEMPLATE.format(prompt=sanitized_prompt)
+    result = await agent.run(request)
+    title = (result.output or "").strip()
+
+    # Enforce word limit defensively
+    words = title.split()
+    if len(words) > _MAX_TITLE_WORDS:
+        title = " ".join(words[:_MAX_TITLE_WORDS])
+    return title
+
+
+def _generate_session_title(prompt: str) -> str:
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        pool = _ensure_title_thread_pool()
+
+        def worker() -> str:
+            return asyncio.run(_generate_session_title_async(prompt))
+
+        return pool.submit(worker).result()
+
+    return loop.run_until_complete(_generate_session_title_async(prompt))
+
+
+def maybe_generate_session_title(session_name: str, first_prompt: str) -> str | None:
+    """Generate and cache a session title once per session.
+
+    Args:
+        session_name: Session identifier used for autosave/context naming.
+        first_prompt: User's first prompt for the session.
+
+    Returns:
+        Generated title or cached title. Falls back to truncated prompt if AI generation fails.
+    """
+    if not session_name or not (first_prompt or "").strip():
+        return None
+
+    cached_prompt = _SESSION_FIRST_PROMPT.get(session_name)
+    if cached_prompt is None:
+        _SESSION_FIRST_PROMPT[session_name] = first_prompt
+    else:
+        first_prompt = cached_prompt
+
+    if session_name in _SESSION_TITLE_CACHE:
+        return _SESSION_TITLE_CACHE[session_name]
+
+    try:
+        title = _generate_session_title(first_prompt)
+        if title:
+            _SESSION_TITLE_CACHE[session_name] = title
+            return title
+    except Exception:
+        # Fallback: Use truncated version of user prompt (max 10 words)
+        words = first_prompt.strip().split()
+        fallback_title = " ".join(words[:_MAX_TITLE_WORDS])
+        if fallback_title:
+            _SESSION_TITLE_CACHE[session_name] = fallback_title
+            return fallback_title
+        return None
+
+    # Fallback: Use truncated version of user prompt if AI returned empty
+    words = first_prompt.strip().split()
+    fallback_title = " ".join(words[:_MAX_TITLE_WORDS])
+    if fallback_title:
+        _SESSION_TITLE_CACHE[session_name] = fallback_title
+        return fallback_title
+    
+    return None
+
+
 def auto_save_session_if_enabled() -> bool:
     """Automatically save the current session if auto_save_session is enabled."""
     if not get_auto_save_session():
@@ -1320,6 +1444,7 @@ def auto_save_session_if_enabled() -> bool:
             timestamp=now.isoformat(),
             token_estimator=current_agent.estimate_tokens_for_message,
             auto_saved=True,
+            session_title=_SESSION_TITLE_CACHE.get(session_name),
         )
 
         emit_info(
