@@ -23,7 +23,7 @@ from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
-    DBOS_SQLITE_FILE,
+    DBOS_DATABASE_URL,
     USE_DBOS,
     ensure_config_exists,
     finalize_autosave_session,
@@ -228,12 +228,12 @@ async def main():
 
     # Initialize DBOS if not disabled
     if USE_DBOS:
-        dbos_message = f"Initializing DBOS with SQLite DB at: {DBOS_SQLITE_FILE}"
+        dbos_message = f"Initializing DBOS with database at: {DBOS_DATABASE_URL}"
         emit_system_message(dbos_message)
 
         dbos_config: DBOSConfig = {
             "name": "dbos-code-puppy",
-            "system_database_url": f"sqlite:///{DBOS_SQLITE_FILE}",
+            "system_database_url": DBOS_DATABASE_URL,
             "run_admin_server": False,
             "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),  # Optional, if set in env, connect to conductor
             "log_level": os.environ.get("DBOS_LOG_LEVEL", "ERROR"), # Default to ERROR level to suppress verbose logs
