@@ -146,8 +146,6 @@ class TestAutoSaveSessionFunctionality:
         mock_datetime,
         mock_get_session_name,
         mock_save_session,
-        mock_emit_info,
-        mock_cleanup,
         mock_config_paths,
     ):
         mock_get_auto_save.return_value = True
@@ -173,6 +171,7 @@ class TestAutoSaveSessionFunctionality:
             / "auto_session_20240101_010101.pkl",
             metadata_path=Path(mock_config_paths.autosave_dir)
             / "auto_session_20240101_010101_meta.json",
+            session_title=None,
         )
         mock_save_session.return_value = metadata
 
@@ -183,8 +182,7 @@ class TestAutoSaveSessionFunctionality:
         kwargs = mock_save_session.call_args.kwargs
         assert kwargs["base_dir"] == Path(mock_config_paths.autosave_dir)
         assert kwargs["session_name"] == "auto_session_20240101_010101"
-        mock_cleanup.assert_called_once()
-        mock_emit_info.assert_called_once()
+        mock_console.print.assert_called_once()
 
     @patch("code_puppy.messaging.emit_error")
     @patch("code_puppy.config.get_auto_save_session")
