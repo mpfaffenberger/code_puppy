@@ -135,8 +135,7 @@ class AutosavePicker(ModalScreen):
                     if entry.message_count is not None
                     else "unknown size"
                 )
-                title_part = f" — {entry.session_title}" if entry.session_title else ""
-                label = f"{entry.name}{title_part} — {count}, saved at {ts}"
+                label = f"{entry.name} — {count}, saved at {ts}"
                 self.list_view.append(ListItem(Static(label)))
 
             # Focus and select first item for better UX
@@ -156,8 +155,7 @@ class AutosavePicker(ModalScreen):
                     if entry.message_count is not None
                     else "unknown size"
                 )
-                title_part = f" — {entry.session_title}" if entry.session_title else ""
-                label = f"{entry.name}{title_part} — {count}, saved at {ts}"
+                label = f"{entry.name} — {count}, saved at {ts}"
                 self.list_view.append(ListItem(Static(label)))
             yield self.list_view
             with Horizontal(classes="button-row"):
