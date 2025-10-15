@@ -4,6 +4,42 @@
     "name": "gpt-5",
     "context_length": 400000
   },
+  "synthetic-DeepSeek-V3.1-Terminus": {
+    "type": "custom_openai",
+    "name": "hf:deepseek-ai/DeepSeek-V3.1-Terminus",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 128000
+  },
+  "synthetic-Kimi-K2-Instruct-0905": {
+    "type": "custom_openai",
+    "name": "hf:moonshotai/Kimi-K2-Instruct-0905",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 256000
+  },
+  "synthetic-Qwen3-Coder-480B-A35B-Instruct": {
+    "type": "custom_openai",
+    "name": "hf:Qwen/Qwen3-Coder-480B-A35B-Instruct",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 256000
+  },
+  "synthetic-GLM-4.6": {
+    "type": "custom_openai",
+    "name": "hf:zai-org/GLM-4.6",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 200000
+  },
   "Cerebras-Qwen3-Coder-480b": {
     "type": "cerebras",
     "name": "qwen-3-coder-480b",
