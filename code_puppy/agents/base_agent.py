@@ -901,6 +901,7 @@ class BaseAgent(ABC):
             self._code_generation_agent = p_agent
         return self._code_generation_agent
 
+    # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
     @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
@@ -995,10 +996,12 @@ class BaseAgent(ABC):
                 )
             except* asyncio.exceptions.CancelledError:
                 emit_info("Cancelled")
-                await DBOS.cancel_workflow_async(group_id)
+                if USE_DBOS:
+                    await DBOS.cancel_workflow_async(group_id)
             except* InterruptedError as ie:
                 emit_info(f"Interrupted: {str(ie)}")
-                await DBOS.cancel_workflow_async(group_id)
+                if USE_DBOS:
+                    await DBOS.cancel_workflow_async(group_id)
             except* Exception as other_error:
                 # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
                 remaining_exceptions = []
