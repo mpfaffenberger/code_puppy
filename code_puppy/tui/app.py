@@ -519,6 +519,27 @@ class CodePuppyTUI(App):
                     agent_response = result.output
                     self.add_agent_message(agent_response)
 
+                    # Generate session title after first successful response
+                    if not message.strip().startswith("/"):
+                        try:
+                            from code_puppy.config import maybe_generate_session_title, get_current_autosave_session_name
+                            
+                            session_name = get_current_autosave_session_name()
+                            maybe_generate_session_title(
+                                session_name=session_name,
+                                first_prompt=message,
+                            )
+                        except Exception as title_exc:
+                            # Add warning message to chat
+                            warning_msg = ChatMessage(
+                                id=f"warning_{datetime.now(timezone.utc).timestamp()}",
+                                type=MessageType.WARNING,
+                                content=f"Session title generation failed: {title_exc}",
+                                timestamp=datetime.now(timezone.utc),
+                            )
+                            chat_view = self.query_one("#chat-view", ChatView)
+                            chat_view.add_message(warning_msg)
+
                     # Auto-save session if enabled (mirror --interactive)
                     try:
                         from code_puppy.config import auto_save_session_if_enabled
