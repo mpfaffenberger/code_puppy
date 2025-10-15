@@ -53,7 +53,7 @@ def get_commands_help():
             "/truncate <N>",
             "Truncate history to N most recent messages (keeping system message)",
         ),
-        ("/history", "Show message history for current autosave session"),
+        ("/history [N]", "Show message history for current autosave session (optional N messages)"),
         ("/<unknown>", "Show unknown command warning"),
     ]
 
@@ -788,6 +788,22 @@ def handle_command(command: str):
         return True
 
     if command.startswith("/history"):
+        # Parse optional linecount parameter
+        tokens = command.split()
+        line_count = 10  # default
+        
+        if len(tokens) == 2:
+            try:
+                line_count = int(tokens[1])
+                if line_count <= 0:
+                    emit_error("Line count must be a positive integer")
+                    return True
+            except ValueError:
+                emit_error(f"Invalid line count: {tokens[1]}. Must be a positive integer.")
+                return True
+        elif len(tokens) > 2:
+            emit_error("Usage: /history [N] - where N is optional number of messages to show")
+            return True
         from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.config import (
             AUTOSAVE_DIR,
@@ -826,8 +842,12 @@ def handle_command(command: str):
                     message_group=group_id,
                 )
                 
-                # Show recent messages (last 10 to avoid spam)
-                recent_messages = history[-10:] if len(history) > 10 else history
+                # Show recent messages (last N messages, or all if N >= total)
+                if len(history) > line_count:
+                    recent_messages = history[-line_count:]
+                else:
+                    recent_messages = history
+                
                 emit_info(
                     f"[bold]Recent Messages (last {len(recent_messages)}):[/bold]",
                     message_group=group_id,
@@ -863,9 +883,33 @@ def handle_command(command: str):
                                     if user_content:
                                         content_parts.append(user_content)
                                 
-                                # ThinkingPart - show "{puppyname} thought"
+                                # ThinkingPart - capture thinking duration
                                 elif part_type == 'ThinkingPart':
                                     has_thinking = True
+                                    # Try to extract thinking duration from the part
+                                    thinking_duration = None
+                                    
+                                    # Check if the ThinkingPart has duration info
+                                    if hasattr(part, 'duration'):
+                                        thinking_duration = part.duration
+                                    elif hasattr(part, 'content'):
+                                        content_str = str(part.content)
+                                        # Look for duration in content like "thought for 2.3s" or similar patterns
+                                        import re
+                                        duration_match = re.search(r'(?:(?:thought|thinking|for|took)\s+[^(]*?)?(\d+(?:\.\d+)?)\s*(?:s|sec|seconds?|ms|milliseconds?)', content_str, re.IGNORECASE)
+                                        if duration_match:
+                                            duration_val = float(duration_match.group(1))
+                                            duration_unit = duration_match.group(0).lower()
+                                            if 'ms' in duration_unit:
+                                                thinking_duration = duration_val / 1000  # Convert ms to seconds
+                                            else:
+                                                thinking_duration = duration_val
+                                    
+                                    # Store duration for later use
+                                    if thinking_duration is not None:
+                                        if not hasattr(message, '_thinking_duration'):
+                                            message._thinking_duration = 0
+                                        message._thinking_duration = max(message._thinking_duration, thinking_duration)
                                 
                                 # ToolCallPart - count them
                                 elif 'ToolCall' in part_type:
@@ -887,7 +931,21 @@ def handle_command(command: str):
                             
                             # Build human-readable content
                             if has_thinking:
-                                content_parts.append(f"{puppy_name} thought")
+                                # Check if we have thinking duration info
+                                if hasattr(message, '_thinking_duration') and message._thinking_duration > 0:
+                                    duration = message._thinking_duration
+                                    if duration < 1:
+                                        # Show in milliseconds if less than 1 second
+                                        duration_ms = int(duration * 1000)
+                                        content_parts.append(f"{puppy_name} thought ({duration_ms}ms)")
+                                    else:
+                                        # Show in seconds with appropriate precision
+                                        if duration < 10:
+                                            content_parts.append(f"{puppy_name} thought ({duration:.2f}s)")
+                                        else:
+                                            content_parts.append(f"{puppy_name} thought ({duration:.1f}s)")
+                                else:
+                                    content_parts.append(f"{puppy_name} thought")
                             
                             if tool_call_count > 0:
                                 content_parts.append(f"{puppy_name} made {tool_call_count} tool call{'s' if tool_call_count != 1 else ''}")
@@ -909,9 +967,33 @@ def handle_command(command: str):
                                     if user_content:
                                         content_parts.append(user_content)
                                 
-                                # ThinkingPart - show "{puppyname} thought"
+                                # ThinkingPart - capture thinking duration
                                 elif part_type == 'ThinkingPart':
                                     has_thinking = True
+                                    # Try to extract thinking duration from the part
+                                    thinking_duration = None
+                                    
+                                    # Check if the ThinkingPart has duration info
+                                    if hasattr(part, 'duration'):
+                                        thinking_duration = part.duration
+                                    elif hasattr(part, 'content'):
+                                        content_str = str(part.content)
+                                        # Look for duration in content like "thought for 2.3s" or similar patterns
+                                        import re
+                                        duration_match = re.search(r'(?:(?:thought|thinking|for|took)\s+[^(]*?)?(\d+(?:\.\d+)?)\s*(?:s|sec|seconds?|ms|milliseconds?)', content_str, re.IGNORECASE)
+                                        if duration_match:
+                                            duration_val = float(duration_match.group(1))
+                                            duration_unit = duration_match.group(0).lower()
+                                            if 'ms' in duration_unit:
+                                                thinking_duration = duration_val / 1000  # Convert ms to seconds
+                                            else:
+                                                thinking_duration = duration_val
+                                    
+                                    # Store duration for later use
+                                    if thinking_duration is not None:
+                                        if not hasattr(message, '_thinking_duration'):
+                                            message._thinking_duration = 0
+                                        message._thinking_duration = max(message._thinking_duration, thinking_duration)
                                 
                                 # ToolCallPart - count them
                                 elif 'ToolCall' in part_type:
@@ -933,7 +1015,21 @@ def handle_command(command: str):
                             
                             # Build human-readable content
                             if has_thinking:
-                                content_parts.append(f"{puppy_name} thought")
+                                # Check if we have thinking duration info
+                                if hasattr(message, '_thinking_duration') and message._thinking_duration > 0:
+                                    duration = message._thinking_duration
+                                    if duration < 1:
+                                        # Show in milliseconds if less than 1 second
+                                        duration_ms = int(duration * 1000)
+                                        content_parts.append(f"{puppy_name} thought ({duration_ms}ms)")
+                                    else:
+                                        # Show in seconds with appropriate precision
+                                        if duration < 10:
+                                            content_parts.append(f"{puppy_name} thought ({duration:.2f}s)")
+                                        else:
+                                            content_parts.append(f"{puppy_name} thought ({duration:.1f}s)")
+                                else:
+                                    content_parts.append(f"{puppy_name} thought")
                             
                             if tool_call_count > 0:
                                 content_parts.append(f"{puppy_name} made {tool_call_count} tool call{'s' if tool_call_count != 1 else ''}")
@@ -982,9 +1078,9 @@ def handle_command(command: str):
                             message_group=group_id,
                         )
                 
-                if len(history) > 10:
+                if len(history) > line_count:
                     emit_info(
-                        f"  [dim]... and {len(history) - 10} earlier messages[/dim]",
+                        f"  [dim]... and {len(history) - line_count} earlier messages[/dim]",
                         message_group=group_id,
                     )
 
