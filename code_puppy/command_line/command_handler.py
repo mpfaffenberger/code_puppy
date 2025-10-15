@@ -834,19 +834,151 @@ def handle_command(command: str):
                 )
                 
                 for i, message in enumerate(recent_messages, start=len(history) - len(recent_messages) + 1):
-                    if hasattr(message, 'role') and hasattr(message, 'content'):
-                        role = message.role.upper()
+                    try:
+                        role = "unknown"
+                        content = "unknown"
+                        
+                        # Get puppy name for formatting
+                        from code_puppy.config import get_puppy_name
+                        puppy_name = get_puppy_name()
+                        
+                        # Handle simple role/content format (legacy/compatibility)
+                        if hasattr(message, 'role') and hasattr(message, 'content'):
+                            role = str(message.role).upper()
+                            content = str(message.content)
+                        
+                        # Handle Pydantic AI ModelRequest type
+                        elif hasattr(message, 'parts') and hasattr(message, 'role'):
+                            role = message.role.value if hasattr(message.role, 'value') else str(message.role)
+                            content_parts = []
+                            tool_call_count = 0
+                            has_thinking = False
+                            
+                            for part in message.parts:
+                                part_type = type(part).__name__
+                                
+                                # UserPromptPart - show the content directly
+                                if part_type == 'UserPromptPart' and hasattr(part, 'content'):
+                                    user_content = str(part.content).strip()
+                                    if user_content:
+                                        content_parts.append(user_content)
+                                
+                                # ThinkingPart - show "{puppyname} thought"
+                                elif part_type == 'ThinkingPart':
+                                    has_thinking = True
+                                
+                                # ToolCallPart - count them
+                                elif 'ToolCall' in part_type:
+                                    tool_call_count += 1
+                                
+                                # TextPart - show the content
+                                elif part_type == 'TextPart' and hasattr(part, 'content'):
+                                    text_content = str(part.content).strip()
+                                    if text_content:
+                                        content_parts.append(text_content)
+                                
+                                # Fallback for other parts
+                                elif hasattr(part, 'content'):
+                                    part_content = str(part.content).strip()
+                                    if part_content:
+                                        content_parts.append(part_content)
+                                else:
+                                    content_parts.append(str(part))
+                            
+                            # Build human-readable content
+                            if has_thinking:
+                                content_parts.append(f"{puppy_name} thought")
+                            
+                            if tool_call_count > 0:
+                                content_parts.append(f"{puppy_name} made {tool_call_count} tool call{'s' if tool_call_count != 1 else ''}")
+                            
+                            content = " | ".join(content_parts) if content_parts else "Empty message"
+                        
+                        # Handle other Pydantic AI ModelMessage types
+                        elif hasattr(message, 'parts'):
+                            content_parts = []
+                            tool_call_count = 0
+                            has_thinking = False
+                            
+                            for part in message.parts:
+                                part_type = type(part).__name__
+                                
+                                # UserPromptPart - show the content directly
+                                if part_type == 'UserPromptPart' and hasattr(part, 'content'):
+                                    user_content = str(part.content).strip()
+                                    if user_content:
+                                        content_parts.append(user_content)
+                                
+                                # ThinkingPart - show "{puppyname} thought"
+                                elif part_type == 'ThinkingPart':
+                                    has_thinking = True
+                                
+                                # ToolCallPart - count them
+                                elif 'ToolCall' in part_type:
+                                    tool_call_count += 1
+                                
+                                # TextPart - show the content
+                                elif part_type == 'TextPart' and hasattr(part, 'content'):
+                                    text_content = str(part.content).strip()
+                                    if text_content:
+                                        content_parts.append(text_content)
+                                
+                                # Fallback for other parts
+                                elif hasattr(part, 'content'):
+                                    part_content = str(part.content).strip()
+                                    if part_content:
+                                        content_parts.append(part_content)
+                                else:
+                                    content_parts.append(str(part))
+                            
+                            # Build human-readable content
+                            if has_thinking:
+                                content_parts.append(f"{puppy_name} thought")
+                            
+                            if tool_call_count > 0:
+                                content_parts.append(f"{puppy_name} made {tool_call_count} tool call{'s' if tool_call_count != 1 else ''}")
+                            
+                            content = " | ".join(content_parts) if content_parts else "Empty message"
+                            
+                            # Determine role from message class name
+                            class_name = message.__class__.__name__
+                            if 'request' in class_name.lower():
+                                role = 'USER'
+                            elif 'response' in class_name.lower() or 'assistant' in class_name.lower():
+                                role = 'ASSISTANT'
+                            elif 'system' in class_name.lower():
+                                role = 'SYSTEM'
+                            else:
+                                role = class_name.replace('Message', '').replace('Model', '').upper()
+                        
+                        # Handle dictionary format
+                        elif isinstance(message, dict):
+                            role = message.get('role', 'unknown').upper()
+                            content = message.get('content', str(message))
+                        
+                        # Fallback to string representation
+                        else:
+                            content = str(message)
+                            if content and len(content) < 200:  # If it's a short string, maybe it's just content
+                                role = 'MESSAGE'
+                            else:
+                                role = type(message).__name__.upper()
+                        
+                        # Clean up role name
+                        if role not in ['USER', 'ASSISTANT', 'SYSTEM', 'TOOL']:
+                            role = role[:10]  # Truncate very long role names
+                        
                         # Truncate long content for display
-                        content = message.content
                         if len(content) > 100:
                             content = content[:97] + "..."
+                        
                         emit_info(
                             f"  [{i}] [cyan]{role}[/cyan]: {content}",
                             message_group=group_id,
                         )
-                    else:
+                    except Exception as e:
                         emit_info(
-                            f"  [{i}] [dim]Unknown message format[/dim]",
+                            f"  [{i}] [dim]Error parsing message: {str(e)[:30]}...[/dim]",
                             message_group=group_id,
                         )
                 
