@@ -180,14 +180,15 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
                 data = json.load(meta_file)
             timestamp = data.get("timestamp")
             message_count = data.get("message_count")
+            session_title = data.get("session_title")
         except Exception:
             timestamp = None
             message_count = None
-        session_title = data.get("session_title")
+            session_title = None
         entries.append((name, timestamp, message_count, session_title))
 
     def sort_key(entry):
-        _, timestamp, _ = entry
+        _, timestamp, _, _ = entry
         if timestamp:
             try:
                 return datetime.fromisoformat(timestamp)
