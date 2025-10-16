@@ -788,21 +788,46 @@ def handle_command(command: str):
         return True
 
     if command.startswith("/history"):
-        # Parse optional linecount parameter
+        # Parse optional parameters
         tokens = command.split()
         line_count = 10  # default
+        verbose = False
         
+        # Handle different argument patterns
         if len(tokens) == 2:
-            try:
-                line_count = int(tokens[1])
-                if line_count <= 0:
-                    emit_error("Line count must be a positive integer")
+            arg = tokens[1]
+            if arg in ['-v', '--verbose']:
+                verbose = True
+            else:
+                try:
+                    line_count = int(arg)
+                    if line_count <= 0:
+                        emit_error("Line count must be a positive integer")
+                        return True
+                except ValueError:
+                    emit_error(f"Invalid line count: {arg}. Must be a positive integer.")
                     return True
-            except ValueError:
-                emit_error(f"Invalid line count: {tokens[1]}. Must be a positive integer.")
+        elif len(tokens) == 3:
+            # Handle combinations like "/history 5 -v" or "/history -v 5"
+            if '-v' in tokens or '--verbose' in tokens:
+                verbose = True
+                # Find the numeric argument
+                for token in tokens[1:]:
+                    if token not in ['-v', '--verbose']:
+                        try:
+                            line_count = int(token)
+                            if line_count <= 0:
+                                emit_error("Line count must be a positive integer")
+                                return True
+                        except ValueError:
+                            emit_error(f"Invalid line count: {token}. Must be a positive integer.")
+                            return True
+                        break
+            else:
+                emit_error("Usage: /history [N] [-v|--verbose] - shows N messages, verbose shows full content")
                 return True
-        elif len(tokens) > 2:
-            emit_error("Usage: /history [N] - where N is optional number of messages to show")
+        elif len(tokens) > 3:
+            emit_error("Usage: /history [N] [-v|--verbose] - shows N messages, verbose shows full content")
             return True
         from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.config import (
@@ -848,8 +873,9 @@ def handle_command(command: str):
                 else:
                     recent_messages = history
                 
+                mode_desc = " (verbose)" if verbose else ""
                 emit_info(
-                    f"[bold]Recent Messages (last {len(recent_messages)}):[/bold]",
+                    f"[bold]Recent Messages (last {len(recent_messages)}):{mode_desc}[/bold]",
                     message_group=group_id,
                 )
                 
@@ -873,6 +899,8 @@ def handle_command(command: str):
                             content_parts = []
                             tool_call_count = 0
                             has_thinking = False
+                            thinking_parts = []
+                            tool_calls = []
                             
                             for part in message.parts:
                                 part_type = type(part).__name__
@@ -883,37 +911,56 @@ def handle_command(command: str):
                                     if user_content:
                                         content_parts.append(user_content)
                                 
-                                # ThinkingPart - capture thinking duration
+                                # ThinkingPart - capture full thinking content and duration
                                 elif part_type == 'ThinkingPart':
                                     has_thinking = True
-                                    # Try to extract thinking duration from the part
-                                    thinking_duration = None
+                                    thinking_content = str(part.content) if hasattr(part, 'content') else "(no thinking content)"
                                     
-                                    # Check if the ThinkingPart has duration info
-                                    if hasattr(part, 'duration'):
-                                        thinking_duration = part.duration
-                                    elif hasattr(part, 'content'):
-                                        content_str = str(part.content)
-                                        # Look for duration in content like "thought for 2.3s" or similar patterns
-                                        import re
-                                        duration_match = re.search(r'(?:(?:thought|thinking|for|took)\s+[^(]*?)?(\d+(?:\.\d+)?)\s*(?:s|sec|seconds?|ms|milliseconds?)', content_str, re.IGNORECASE)
-                                        if duration_match:
-                                            duration_val = float(duration_match.group(1))
-                                            duration_unit = duration_match.group(0).lower()
-                                            if 'ms' in duration_unit:
-                                                thinking_duration = duration_val / 1000  # Convert ms to seconds
-                                            else:
-                                                thinking_duration = duration_val
-                                    
-                                    # Store duration for later use
-                                    if thinking_duration is not None:
-                                        if not hasattr(message, '_thinking_duration'):
-                                            message._thinking_duration = 0
-                                        message._thinking_duration = max(message._thinking_duration, thinking_duration)
+                                    if verbose:
+                                        # In verbose mode, store full thinking content
+                                        thinking_parts.append(thinking_content)
+                                    else:
+                                        # In normal mode, just capture duration for summary
+                                        thinking_duration = None
+                                        
+                                        # Check if the ThinkingPart has duration info
+                                        if hasattr(part, 'duration'):
+                                            thinking_duration = part.duration
+                                        elif hasattr(part, 'content'):
+                                            content_str = str(part.content)
+                                            # Look for duration in content like "thought for 2.3s" or similar patterns
+                                            import re
+                                            duration_match = re.search(r'(?:(?:thought|thinking|for|took)\s+[^(]*?)?(\d+(?:\.\d+)?)\s*(?:s|sec|seconds?|ms|milliseconds?)', content_str, re.IGNORECASE)
+                                            if duration_match:
+                                                duration_val = float(duration_match.group(1))
+                                                duration_unit = duration_match.group(0).lower()
+                                                if 'ms' in duration_unit:
+                                                    thinking_duration = duration_val / 1000  # Convert ms to seconds
+                                                else:
+                                                    thinking_duration = duration_val
+                                        
+                                        # Store duration for later use
+                                        if thinking_duration is not None:
+                                            if not hasattr(message, '_thinking_duration'):
+                                                message._thinking_duration = 0
+                                            message._thinking_duration = max(message._thinking_duration, thinking_duration)
                                 
-                                # ToolCallPart - count them
+                                # ToolCallPart - capture detailed tool call information
                                 elif 'ToolCall' in part_type:
                                     tool_call_count += 1
+                                    
+                                    if verbose:
+                                        # In verbose mode, capture detailed tool call information
+                                        tool_name = getattr(part, 'name', 'unknown_tool')
+                                        tool_args = getattr(part, 'args', {})
+                                        
+                                        # Format tool call details
+                                        try:
+                                            import json
+                                            args_str = json.dumps(tool_args, indent=2, default=str)
+                                            tool_calls.append(f"  📋 {tool_name}:\n{args_str}")
+                                        except (TypeError, ValueError):
+                                            tool_calls.append(f"  📋 {tool_name}: {tool_args}")
                                 
                                 # TextPart - show the content
                                 elif part_type == 'TextPart' and hasattr(part, 'content'):
@@ -929,26 +976,43 @@ def handle_command(command: str):
                                 else:
                                     content_parts.append(str(part))
                             
-                            # Build human-readable content
-                            if has_thinking:
-                                # Check if we have thinking duration info
-                                if hasattr(message, '_thinking_duration') and message._thinking_duration > 0:
-                                    duration = message._thinking_duration
-                                    if duration < 1:
-                                        # Show in milliseconds if less than 1 second
-                                        duration_ms = int(duration * 1000)
-                                        content_parts.append(f"{puppy_name} thought ({duration_ms}ms)")
-                                    else:
-                                        # Show in seconds with appropriate precision
-                                        if duration < 10:
-                                            content_parts.append(f"{puppy_name} thought ({duration:.2f}s)")
+                            # Build human-readable content based on mode
+                            if verbose:
+                                # Verbose mode: show full details
+                                if thinking_parts:
+                                    content_parts.append(f"\n  🧠 {puppy_name} thinking:")
+                                    for i, thinking in enumerate(thinking_parts, 1):
+                                        # Indent each line of thinking content
+                                        for line in thinking.split('\n'):
+                                            content_parts.append(f"    {line}")
+                                
+                                if tool_calls:
+                                    content_parts.append(f"\n  🔧 {puppy_name} tool calls:")
+                                    for tool_call in tool_calls:
+                                        # Add proper indentation for each tool call line
+                                        for line in tool_call.split('\n'):
+                                            content_parts.append(f"    {line}")
+                            else:
+                                # Normal mode: show summaries
+                                if has_thinking:
+                                    # Check if we have thinking duration info
+                                    if hasattr(message, '_thinking_duration') and message._thinking_duration > 0:
+                                        duration = message._thinking_duration
+                                        if duration < 1:
+                                            # Show in milliseconds if less than 1 second
+                                            duration_ms = int(duration * 1000)
+                                            content_parts.append(f"{puppy_name} thought ({duration_ms}ms)")
                                         else:
-                                            content_parts.append(f"{puppy_name} thought ({duration:.1f}s)")
-                                else:
-                                    content_parts.append(f"{puppy_name} thought")
-                            
-                            if tool_call_count > 0:
-                                content_parts.append(f"{puppy_name} made {tool_call_count} tool call{'s' if tool_call_count != 1 else ''}")
+                                            # Show in seconds with appropriate precision
+                                            if duration < 10:
+                                                content_parts.append(f"{puppy_name} thought ({duration:.2f}s)")
+                                            else:
+                                                content_parts.append(f"{puppy_name} thought ({duration:.1f}s)")
+                                    else:
+                                        content_parts.append(f"{puppy_name} thought")
+                                
+                                if tool_call_count > 0:
+                                    content_parts.append(f"{puppy_name} made {tool_call_count} tool call{'s' if tool_call_count != 1 else ''}")
                             
                             content = " | ".join(content_parts) if content_parts else "Empty message"
                         
@@ -957,6 +1021,8 @@ def handle_command(command: str):
                             content_parts = []
                             tool_call_count = 0
                             has_thinking = False
+                            thinking_parts = []
+                            tool_calls = []
                             
                             for part in message.parts:
                                 part_type = type(part).__name__
@@ -967,37 +1033,56 @@ def handle_command(command: str):
                                     if user_content:
                                         content_parts.append(user_content)
                                 
-                                # ThinkingPart - capture thinking duration
+                                # ThinkingPart - capture full thinking content and duration
                                 elif part_type == 'ThinkingPart':
                                     has_thinking = True
-                                    # Try to extract thinking duration from the part
-                                    thinking_duration = None
+                                    thinking_content = str(part.content) if hasattr(part, 'content') else "(no thinking content)"
                                     
-                                    # Check if the ThinkingPart has duration info
-                                    if hasattr(part, 'duration'):
-                                        thinking_duration = part.duration
-                                    elif hasattr(part, 'content'):
-                                        content_str = str(part.content)
-                                        # Look for duration in content like "thought for 2.3s" or similar patterns
-                                        import re
-                                        duration_match = re.search(r'(?:(?:thought|thinking|for|took)\s+[^(]*?)?(\d+(?:\.\d+)?)\s*(?:s|sec|seconds?|ms|milliseconds?)', content_str, re.IGNORECASE)
-                                        if duration_match:
-                                            duration_val = float(duration_match.group(1))
-                                            duration_unit = duration_match.group(0).lower()
-                                            if 'ms' in duration_unit:
-                                                thinking_duration = duration_val / 1000  # Convert ms to seconds
-                                            else:
-                                                thinking_duration = duration_val
-                                    
-                                    # Store duration for later use
-                                    if thinking_duration is not None:
-                                        if not hasattr(message, '_thinking_duration'):
-                                            message._thinking_duration = 0
-                                        message._thinking_duration = max(message._thinking_duration, thinking_duration)
+                                    if verbose:
+                                        # In verbose mode, store full thinking content
+                                        thinking_parts.append(thinking_content)
+                                    else:
+                                        # In normal mode, just capture duration for summary
+                                        thinking_duration = None
+                                        
+                                        # Check if the ThinkingPart has duration info
+                                        if hasattr(part, 'duration'):
+                                            thinking_duration = part.duration
+                                        elif hasattr(part, 'content'):
+                                            content_str = str(part.content)
+                                            # Look for duration in content like "thought for 2.3s" or similar patterns
+                                            import re
+                                            duration_match = re.search(r'(?:(?:thought|thinking|for|took)\s+[^(]*?)?(\d+(?:\.\d+)?)\s*(?:s|sec|seconds?|ms|milliseconds?)', content_str, re.IGNORECASE)
+                                            if duration_match:
+                                                duration_val = float(duration_match.group(1))
+                                                duration_unit = duration_match.group(0).lower()
+                                                if 'ms' in duration_unit:
+                                                    thinking_duration = duration_val / 1000  # Convert ms to seconds
+                                                else:
+                                                    thinking_duration = duration_val
+                                        
+                                        # Store duration for later use
+                                        if thinking_duration is not None:
+                                            if not hasattr(message, '_thinking_duration'):
+                                                message._thinking_duration = 0
+                                            message._thinking_duration = max(message._thinking_duration, thinking_duration)
                                 
-                                # ToolCallPart - count them
+                                # ToolCallPart - capture detailed tool call information
                                 elif 'ToolCall' in part_type:
                                     tool_call_count += 1
+                                    
+                                    if verbose:
+                                        # In verbose mode, capture detailed tool call information
+                                        tool_name = getattr(part, 'name', 'unknown_tool')
+                                        tool_args = getattr(part, 'args', {})
+                                        
+                                        # Format tool call details
+                                        try:
+                                            import json
+                                            args_str = json.dumps(tool_args, indent=2, default=str)
+                                            tool_calls.append(f"  📋 {tool_name}:\n{args_str}")
+                                        except (TypeError, ValueError):
+                                            tool_calls.append(f"  📋 {tool_name}: {tool_args}")
                                 
                                 # TextPart - show the content
                                 elif part_type == 'TextPart' and hasattr(part, 'content'):
@@ -1013,26 +1098,43 @@ def handle_command(command: str):
                                 else:
                                     content_parts.append(str(part))
                             
-                            # Build human-readable content
-                            if has_thinking:
-                                # Check if we have thinking duration info
-                                if hasattr(message, '_thinking_duration') and message._thinking_duration > 0:
-                                    duration = message._thinking_duration
-                                    if duration < 1:
-                                        # Show in milliseconds if less than 1 second
-                                        duration_ms = int(duration * 1000)
-                                        content_parts.append(f"{puppy_name} thought ({duration_ms}ms)")
-                                    else:
-                                        # Show in seconds with appropriate precision
-                                        if duration < 10:
-                                            content_parts.append(f"{puppy_name} thought ({duration:.2f}s)")
+                            # Build human-readable content based on mode
+                            if verbose:
+                                # Verbose mode: show full details
+                                if thinking_parts:
+                                    content_parts.append(f"\n  🧠 {puppy_name} thinking:")
+                                    for i, thinking in enumerate(thinking_parts, 1):
+                                        # Indent each line of thinking content
+                                        for line in thinking.split('\n'):
+                                            content_parts.append(f"    {line}")
+                                
+                                if tool_calls:
+                                    content_parts.append(f"\n  🔧 {puppy_name} tool calls:")
+                                    for tool_call in tool_calls:
+                                        # Add proper indentation for each tool call line
+                                        for line in tool_call.split('\n'):
+                                            content_parts.append(f"    {line}")
+                            else:
+                                # Normal mode: show summaries
+                                if has_thinking:
+                                    # Check if we have thinking duration info
+                                    if hasattr(message, '_thinking_duration') and message._thinking_duration > 0:
+                                        duration = message._thinking_duration
+                                        if duration < 1:
+                                            # Show in milliseconds if less than 1 second
+                                            duration_ms = int(duration * 1000)
+                                            content_parts.append(f"{puppy_name} thought ({duration_ms}ms)")
                                         else:
-                                            content_parts.append(f"{puppy_name} thought ({duration:.1f}s)")
-                                else:
-                                    content_parts.append(f"{puppy_name} thought")
-                            
-                            if tool_call_count > 0:
-                                content_parts.append(f"{puppy_name} made {tool_call_count} tool call{'s' if tool_call_count != 1 else ''}")
+                                            # Show in seconds with appropriate precision
+                                            if duration < 10:
+                                                content_parts.append(f"{puppy_name} thought ({duration:.2f}s)")
+                                            else:
+                                                content_parts.append(f"{puppy_name} thought ({duration:.1f}s)")
+                                    else:
+                                        content_parts.append(f"{puppy_name} thought")
+                                
+                                if tool_call_count > 0:
+                                    content_parts.append(f"{puppy_name} made {tool_call_count} tool call{'s' if tool_call_count != 1 else ''}")
                             
                             content = " | ".join(content_parts) if content_parts else "Empty message"
                             
@@ -1064,8 +1166,8 @@ def handle_command(command: str):
                         if role not in ['USER', 'ASSISTANT', 'SYSTEM', 'TOOL']:
                             role = role[:10]  # Truncate very long role names
                         
-                        # Truncate long content for display
-                        if len(content) > 100:
+                        # Truncate long content for display (unless verbose)
+                        if not verbose and len(content) > 100:
                             content = content[:97] + "..."
                         
                         emit_info(
