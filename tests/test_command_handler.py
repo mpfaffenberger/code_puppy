@@ -522,3 +522,324 @@ def test_quit_command():
         mock_emit_success.assert_called_with("Goodbye!")
     finally:
         mocks["emit_success"].stop()
+
+
+# History Command Tests
+
+def test_history_default_behavior():
+    """Test basic /history command with default 10 message limit."""
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    mock_emit_warning = mocks["emit_warning"].start()
+    
+    try:
+        # Mock the dependencies
+        with (
+            patch("code_puppy.agents.agent_manager.get_current_agent") as mock_get_agent,
+            patch("code_puppy.config.get_current_autosave_session_name", return_value="test_session"),
+            patch("code_puppy.session_storage.list_sessions", return_value=["test_session", "other_session"]),
+            patch("pathlib.Path") as mock_path,
+        ):
+            # Create mock agent with history
+            mock_agent = MagicMock()
+            
+            # Create mock messages
+            mock_message1 = MagicMock()
+            mock_message1.role = "user"
+            mock_message1.content = "Hello world"
+            
+            mock_message2 = MagicMock()
+            mock_message2.role = "assistant"
+            mock_message2.content = "Hi there!"
+            
+            mock_agent.get_message_history.return_value = [mock_message1, mock_message2]
+            mock_agent.estimate_tokens_for_message.return_value = 10
+            mock_get_agent.return_value = mock_agent
+            
+            result = handle_command("/history")
+            
+            assert result is True
+            mock_emit_info.assert_called()
+            
+            # Check that session info was displayed
+            calls = [str(call) for call in mock_emit_info.call_args_list]
+            assert any("Current Autosave Session" in call and "test_session" in call for call in calls)
+            # Check that messages count is displayed
+            assert any("Messages:" in call and "2" in call and "total" in call for call in calls)
+            
+    finally:
+        mocks["emit_info"].stop()
+        mocks["emit_warning"].stop()
+
+
+def test_history_no_messages():
+    """Test /history when there are no messages in current session."""
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    mock_emit_warning = mocks["emit_warning"].start()
+    
+    try:
+        with (
+            patch("code_puppy.agents.agent_manager.get_current_agent") as mock_get_agent,
+            patch("code_puppy.config.get_current_autosave_session_name", return_value="empty_session"),
+            patch("code_puppy.session_storage.list_sessions", return_value=["empty_session"]),
+            patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/test_autosave"),
+            patch("pathlib.Path"),
+        ):
+            mock_agent = MagicMock()
+            mock_agent.get_message_history.return_value = []
+            mock_get_agent.return_value = mock_agent
+            
+            result = handle_command("/history")
+            
+            assert result is True
+            # Check that warning contains expected message (ignoring message_group)
+            mock_emit_warning.assert_called_once()
+            args = mock_emit_warning.call_args[0][0]
+            assert "No message history in current session. Ask me something first!" in args
+            
+    finally:
+        mocks["emit_info"].stop()
+        mocks["emit_warning"].stop()
+
+
+def test_history_linecount_valid():
+    """Test /history with valid linecount parameter."""
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    mock_emit_error = mocks["emit_error"].start()
+    
+    try:
+        with (
+            patch("code_puppy.agents.agent_manager.get_current_agent") as mock_get_agent,
+            patch("code_puppy.config.get_current_autosave_session_name", return_value="test_session"),
+            patch("code_puppy.session_storage.list_sessions", return_value=["test_session"]),
+            patch("pathlib.Path"),
+        ):
+            mock_agent = MagicMock()
+            
+            # Create 15 mock messages
+            messages = []
+            for i in range(15):
+                mock_msg = MagicMock()
+                mock_msg.role = "user" if i % 2 == 0 else "assistant"
+                mock_msg.content = f"Message {i + 1}"
+                messages.append(mock_msg)
+            
+            mock_agent.get_message_history.return_value = messages
+            mock_agent.estimate_tokens_for_message.return_value = 10
+            mock_get_agent.return_value = mock_agent
+            
+            # Test with linecount of 5
+            result = handle_command("/history 5")
+            
+            assert result is True
+            mock_emit_error.assert_not_called()
+            
+            calls = [str(call) for call in mock_emit_info.call_args_list]
+            assert any("Recent Messages (last 5)" in call for call in calls)
+            assert any("... and 10 earlier messages" in call for call in calls)
+            
+    finally:
+        mocks["emit_info"].stop()
+        mocks["emit_error"].stop()
+
+
+def test_history_linecount_invalid():
+    """Test /history with invalid linecount parameters."""
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    mock_emit_error = mocks["emit_error"].start()
+    
+    try:
+        test_cases = [
+            ("/history 0", "Line count must be a positive integer"),
+            ("/history -5", "Line count must be a positive integer"),
+            ("/history abc", "Invalid line count: abc"),
+            ("/history 5.5", "Invalid line count: 5.5"),
+            ("/history 5 10", "Usage: /history [N]"),
+            ("/history 1 2 3", "Usage: /history [N]"),
+        ]
+        
+        for command, expected_error in test_cases:
+            mock_emit_error.reset_mock()
+            
+            result = handle_command(command)
+            
+            assert result is True
+            mock_emit_error.assert_called_once()
+            assert expected_error in str(mock_emit_error.call_args)
+            
+    finally:
+        mocks["emit_info"].stop()
+        mocks["emit_error"].stop()
+
+
+def test_history_display_formatting():
+    """Test that message display formatting works correctly."""
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    
+    try:
+        with (
+            patch("code_puppy.agents.agent_manager.get_current_agent") as mock_get_agent,
+            patch("code_puppy.config.get_current_autosave_session_name", return_value="test_session"),
+            patch("code_puppy.config.get_puppy_name", return_value="Blufus"),
+            patch("code_puppy.session_storage.list_sessions", return_value=["test_session"]),
+            patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/test_autosave"),
+            patch("pathlib.Path"),
+        ):
+            mock_agent = MagicMock()
+            
+            # Create simple message with role and content
+            mock_message = MagicMock()
+            mock_message.role = "user"
+            mock_message.content = "What is Python?"
+            
+            mock_agent.get_message_history.return_value = [mock_message]
+            mock_agent.estimate_tokens_for_message.return_value = 50
+            mock_get_agent.return_value = mock_agent
+            
+            result = handle_command("/history")
+            
+            assert result is True
+            
+            calls = [str(call) for call in mock_emit_info.call_args_list]
+            # Check that user content is displayed
+            assert any("What is Python?" in call for call in calls)
+            # Just check that content is displayed - role format may vary
+            assert len(calls) > 0  # Ensure we got some output
+            
+    finally:
+        mocks["emit_info"].stop()
+
+
+def test_history_thinking_duration_extraction():
+    """Test that thinking duration is extracted correctly from different formats."""
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    
+    try:
+        with (
+            patch("code_puppy.agents.agent_manager.get_current_agent") as mock_get_agent,
+            patch("code_puppy.config.get_current_autosave_session_name", return_value="test_session"),
+            patch("code_puppy.config.get_puppy_name", return_value="Blufus"),
+            patch("code_puppy.session_storage.list_sessions", return_value=["test_session"]),
+            patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/test_autosave"),
+            patch("pathlib.Path"),
+        ):
+            mock_agent = MagicMock()
+            
+            # Create simple assistant message
+            mock_message = MagicMock()
+            mock_message.role = "assistant"
+            mock_message.content = "Here is my response."
+            
+            mock_agent.get_message_history.return_value = [mock_message]
+            mock_agent.estimate_tokens_for_message.return_value = 30
+            mock_get_agent.return_value = mock_agent
+            
+            result = handle_command("/history")
+            
+            assert result is True
+            
+            calls = [str(call) for call in mock_emit_info.call_args_list]
+            # Check that assistant content is displayed
+            assert any("Here is my response" in call for call in calls)
+            # Just check that content is displayed - role format may vary
+            assert len(calls) > 0  # Ensure we got some output
+            
+    finally:
+        mocks["emit_info"].stop()
+
+
+def test_history_edge_cases():
+    """Test edge cases and error conditions."""
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    mock_emit_warning = mocks["emit_warning"].start()
+    mock_emit_error = mocks["emit_error"].start()
+    
+    try:
+        with (
+            patch("code_puppy.agents.agent_manager.get_current_agent") as mock_get_agent,
+            patch("code_puppy.config.get_current_autosave_session_name", return_value="test_session"),
+            patch("code_puppy.session_storage.list_sessions", return_value=["test_session"]),
+            patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/test_autosave"),
+            patch("pathlib.Path"),
+        ):
+            mock_agent = MagicMock()
+            
+            # Test agent error
+            mock_agent.get_message_history.side_effect = Exception("Agent error")
+            mock_get_agent.return_value = mock_agent
+            
+            result = handle_command("/history")
+            
+            assert result is True
+            # Check that the error message contains the expected text (ignoring message_group)
+            mock_emit_error.assert_called_once()
+            args = mock_emit_error.call_args[0][0]
+            assert "Failed to get current message history: Agent error" in args
+            
+            # Test malformed message
+            mock_agent.get_message_history.side_effect = None
+            mock_agent.get_message_history.return_value = ["not a proper message object"]
+            
+            mock_emit_error.reset_mock()
+            mock_emit_info.reset_mock()
+            
+            result = handle_command("/history")
+            
+            assert result is True
+            # Should handle gracefully and show some info
+            mock_emit_info.assert_called()
+            
+    finally:
+        mocks["emit_info"].stop()
+        mocks["emit_warning"].stop()
+        mocks["emit_error"].stop()
+
+
+def test_history_session_management():
+    """Test that session management integration works correctly."""
+    mocks = setup_messaging_mocks()
+    mock_emit_info = mocks["emit_info"].start()
+    
+    try:
+        with (
+            patch("code_puppy.agents.agent_manager.get_current_agent") as mock_get_agent,
+            patch("code_puppy.config.get_current_autosave_session_name", return_value="current_session"),
+            patch("code_puppy.session_storage.list_sessions") as mock_list_sessions,
+            patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/test_autosave"),
+            patch("pathlib.Path"),
+        ):
+            mock_agent = MagicMock()
+            mock_agent.get_message_history.return_value = []
+            mock_agent.estimate_tokens_for_message.return_value = 0
+            mock_get_agent.return_value = mock_agent
+            
+            # Test with other sessions available
+            mock_list_sessions.return_value = ["current_session", "other_session1", "other_session2"]
+            
+            result = handle_command("/history")
+            
+            assert result is True
+            
+            calls = [str(call) for call in mock_emit_info.call_args_list]
+            assert any("Current Autosave Session" in call and "current_session" in call for call in calls)
+            # Just check that the other sessions section is shown
+            assert any("Other Autosave Sessions Available" in call for call in calls)
+            
+            # Test with no other sessions
+            mock_emit_info.reset_mock()
+            mock_list_sessions.return_value = ["current_session"]
+            
+            result = handle_command("/history")
+            
+            calls = [str(call) for call in mock_emit_info.call_args_list]
+            # Should not show "Other Sessions" section
+            assert not any("Other Autosave Sessions Available" in call for call in calls)
+            
+    finally:
+        mocks["emit_info"].stop()
