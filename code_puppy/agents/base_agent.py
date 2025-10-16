@@ -776,18 +776,25 @@ class BaseAgent(ABC):
             return model, requested_model_name
         except ValueError as exc:
             available_models = list(models_config.keys())
-            available_str = (
-                ", ".join(sorted(available_models))
-                if available_models
-                else "no configured models"
-            )
-            emit_warning(
-                (
-                    f"[yellow]Model '{requested_model_name}' not found. "
-                    f"Available models: {available_str}[/yellow]"
-                ),
-                message_group=message_group,
-            )
+
+            if requested_model_name in available_models:
+                emit_error(
+                    f"[bold red]Failed to load model '{requested_model_name}': {exc}[/bold red]",
+                    message_group=message_group,
+                )
+            else:
+                available_str = (
+                    ", ".join(sorted(available_models))
+                    if available_models
+                    else "no configured models"
+                )
+                emit_warning(
+                    (
+                        f"[yellow]Model '{requested_model_name}' not found. "
+                        f"Available models: {available_str}[/yellow]"
+                    ),
+                    message_group=message_group,
+                )
 
             fallback_candidates: List[str] = []
             global_candidate = get_global_model_name()

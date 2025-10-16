@@ -241,7 +241,14 @@ class ModelFactory:
                 provider_args["api_key"] = api_key
             provider = OpenAIProvider(**provider_args)
 
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            # Z.ai has two OpenAI-compatible APIs: the common PAYGO endpoint and
+            # the coding plan endpoint. Both need the ZaiChatModel shim to
+            # normalize responses to "chat.completion".
+            if url and "api.z.ai" in url.lower():
+                model = ZaiChatModel(model_name=model_config["name"], provider=provider)
+            else:
+                model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+
             setattr(model, "provider", provider)
             return model
         elif model_type == "zai_coding":
