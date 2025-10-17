@@ -6,6 +6,12 @@ Key guarantees
 2. **Full traceback logging** for unexpected errors via `_log_error`.
 3. Helper functions stay print-free and return a `diff` key, while agent-tool wrappers handle
    all console output.
+
+Size Limits
+-----------
+- **Recommended max content size**: 100KB (~3000-5000 lines)
+- **Practical limit**: 500KB (hard limit for XML parameter encoding)
+- Files larger than recommended size should be split or created via shell commands
 """
 
 from __future__ import annotations
@@ -22,6 +28,11 @@ from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
+
+# Size limits for file content (to prevent XML encoding issues)
+MAX_RECOMMENDED_CONTENT_SIZE = 100 * 1024  # 100KB - recommended limit
+MAX_CONTENT_SIZE = 500 * 1024  # 500KB - hard limit
+CHUNK_SIZE = 50 * 1024  # 50KB chunks for large file writes
 
 
 class DeleteSnippetPayload(BaseModel):
@@ -227,6 +238,29 @@ def _write_to_file(
     file_path = os.path.abspath(path)
 
     try:
+        # Validate content size
+        content_size = len(content.encode('utf-8'))
+        
+        if content_size > MAX_CONTENT_SIZE:
+            return {
+                "success": False,
+                "path": file_path,
+                "message": (
+                    f"Content too large: {content_size / 1024:.1f}KB exceeds hard limit of "
+                    f"{MAX_CONTENT_SIZE / 1024:.0f}KB. Please split into multiple smaller files "
+                    f"or use shell commands (e.g., 'cat > file.txt << EOF') for very large files."
+                ),
+                "changed": False,
+                "diff": "",
+            }
+        
+        if content_size > MAX_RECOMMENDED_CONTENT_SIZE:
+            emit_warning(
+                f"⚠️  Content size ({content_size / 1024:.1f}KB) exceeds recommended limit of "
+                f"{MAX_RECOMMENDED_CONTENT_SIZE / 1024:.0f}KB. Consider splitting into smaller files.",
+                message_group=message_group,
+            )
+        
         exists = os.path.exists(file_path)
         if exists and not overwrite:
             return {
@@ -247,8 +281,17 @@ def _write_to_file(
         diff_text = "".join(diff_lines)
 
         os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        
+        # For very large content, write in chunks to avoid memory issues
+        if content_size > CHUNK_SIZE:
+            with open(file_path, "w", encoding="utf-8") as f:
+                # Write content in chunks
+                for i in range(0, len(content), CHUNK_SIZE):
+                    chunk = content[i:i + CHUNK_SIZE]
+                    f.write(chunk)
+        else:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
 
         action = "overwritten" if exists else "created"
         return {
@@ -462,6 +505,11 @@ def register_edit_file(agent):
         deletion. It provides robust diff generation, error handling, and automatic
         retry capabilities for reliable file operations.
 
+        **Size Limits:**
+        - Recommended max content size: 100KB (~3000-5000 lines)
+        - Hard limit: 500KB (due to XML parameter encoding)
+        - For larger files, split into multiple smaller files
+
         Args:
             context (RunContext): The PydanticAI runtime context for the agent.
             payload: One of three payload types:
@@ -519,6 +567,8 @@ def register_edit_file(agent):
             - Always check the 'success' field before assuming changes worked
             - Review the 'diff' field to understand what changed
             - Use delete_snippet for removing specific code blocks
+            - **For large files (>100KB)**: Split into multiple smaller files
+            - Keep individual files under 600 lines when possible (code quality guideline)
         """
         # Handle string payload parsing (for models that send JSON strings)
 
@@ -544,6 +594,19 @@ def register_edit_file(agent):
             >>> result = edit_file(ctx, payload)"""
 
         if isinstance(payload, str):
+            # Check if payload is empty or whitespace (indicates transmission failure)
+            if not payload or not payload.strip():
+                return {
+                    "success": False,
+                    "path": "Unknown",
+                    "message": (
+                        "edit_file received empty payload. This typically happens when content is too large. "
+                        f"Maximum content size is {MAX_CONTENT_SIZE / 1024:.0f}KB. "
+                        "For very large files, split content into multiple smaller files."
+                    ),
+                    "changed": False,
+                }
+            
             try:
                 # Fallback for weird models that just can't help but send json strings...
                 payload = json.loads(json_repair.repair_json(payload))
@@ -564,10 +627,25 @@ def register_edit_file(agent):
                         "changed": False,
                     }
             except Exception as e:
+                error_msg = str(e)
+                # Provide more helpful error for JSON parsing failures
+                if "Expecting value" in error_msg or "line 1 column 1" in error_msg:
+                    return {
+                        "success": False,
+                        "path": "Unknown",
+                        "message": (
+                            f"edit_file failed to parse payload: {error_msg}. "
+                            "This usually happens when content is too large or contains problematic characters. "
+                            f"Maximum safe content size is {MAX_RECOMMENDED_CONTENT_SIZE / 1024:.0f}KB. "
+                            "Try splitting your content into multiple smaller files. "
+                            f"\n\nRefer to these examples: {parse_error_message}"
+                        ),
+                        "changed": False,
+                    }
                 return {
                     "success": False,
                     "path": "Not retrievable in Payload",
-                    "message": f"edit_file call failed: {str(e)} - this means the tool failed to parse your inputs. Refer to the following examples: {parse_error_message}",
+                    "message": f"edit_file call failed: {error_msg} - this means the tool failed to parse your inputs. Refer to the following examples: {parse_error_message}",
                     "changed": False,
                 }
 
