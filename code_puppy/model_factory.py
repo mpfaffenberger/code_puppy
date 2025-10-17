@@ -20,6 +20,7 @@ from . import callbacks
 from .config import EXTRA_MODELS_FILE
 from .http_utils import create_async_client
 from .round_robin_model import RoundRobinModel
+from code_puppy.messaging import emit_warning
 
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
@@ -52,10 +53,10 @@ def get_custom_config(model_config):
             env_var_name = value[1:]
             resolved_value = os.environ.get(env_var_name)
             if resolved_value is None:
-                raise ValueError(
-                    f"Environment variable '{env_var_name}' is required for custom endpoint headers but is not set. "
-                    f"Please set the environment variable: export {env_var_name}=your_value"
+                emit_warning(
+                    f"Environment variable '{env_var_name}' is not set for custom endpoint header '{key}'. Proceeding with empty value."
                 )
+                resolved_value = ""
             value = resolved_value
         elif "$" in value:
             tokens = value.split(" ")
@@ -65,11 +66,12 @@ def get_custom_config(model_config):
                     env_var = token[1:]
                     resolved_value = os.environ.get(env_var)
                     if resolved_value is None:
-                        raise ValueError(
-                            f"Environment variable '{env_var}' is required for custom endpoint headers but is not set. "
-                            f"Please set the environment variable: export {env_var}=your_value"
+                        emit_warning(
+                            f"Environment variable '{env_var}' is not set for custom endpoint header '{key}'. Proceeding with empty value."
                         )
-                    resolved_values.append(resolved_value)
+                        resolved_values.append("")
+                    else:
+                        resolved_values.append(resolved_value)
                 else:
                     resolved_values.append(token)
             value = " ".join(resolved_values)
@@ -80,9 +82,8 @@ def get_custom_config(model_config):
             env_var_name = custom_config["api_key"][1:]
             api_key = os.environ.get(env_var_name)
             if api_key is None:
-                raise ValueError(
-                    f"Environment variable '{env_var_name}' is required for custom endpoint API key but is not set. "
-                    f"Please set the environment variable: export {env_var_name}=your_value"
+                emit_warning(
+                    f"Environment variable '{env_var_name}' is not set for custom endpoint API key; proceeding without API key."
                 )
         else:
             api_key = custom_config["api_key"]
@@ -158,9 +159,10 @@ class ModelFactory:
         elif model_type == "anthropic":
             api_key = os.environ.get("ANTHROPIC_API_KEY", None)
             if not api_key:
-                raise ValueError(
-                    "ANTHROPIC_API_KEY environment variable must be set for Anthropic models."
+                emit_warning(
+                    f"ANTHROPIC_API_KEY is not set; skipping Anthropic model '{model_config.get('name')}'."
                 )
+                return None
             anthropic_client = AsyncAnthropic(api_key=api_key)
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
@@ -186,9 +188,10 @@ class ModelFactory:
             if azure_endpoint_config.startswith("$"):
                 azure_endpoint = os.environ.get(azure_endpoint_config[1:])
             if not azure_endpoint:
-                raise ValueError(
-                    f"Azure OpenAI endpoint environment variable '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else ''}' not found or is empty."
+                emit_warning(
+                    f"Azure OpenAI endpoint environment variable '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else azure_endpoint_config}' not found or is empty; skipping model '{model_config.get('name')}'."
                 )
+                return None
 
             api_version_config = model_config.get("api_version")
             if not api_version_config:
@@ -199,9 +202,10 @@ class ModelFactory:
             if api_version_config.startswith("$"):
                 api_version = os.environ.get(api_version_config[1:])
             if not api_version:
-                raise ValueError(
-                    f"Azure OpenAI API version environment variable '{api_version_config[1:] if api_version_config.startswith('$') else ''}' not found or is empty."
+                emit_warning(
+                    f"Azure OpenAI API version environment variable '{api_version_config[1:] if api_version_config.startswith('$') else api_version_config}' not found or is empty; skipping model '{model_config.get('name')}'."
                 )
+                return None
 
             api_key_config = model_config.get("api_key")
             if not api_key_config:
@@ -212,9 +216,10 @@ class ModelFactory:
             if api_key_config.startswith("$"):
                 api_key = os.environ.get(api_key_config[1:])
             if not api_key:
-                raise ValueError(
-                    f"Azure OpenAI API key environment variable '{api_key_config[1:] if api_key_config.startswith('$') else ''}' not found or is empty."
+                emit_warning(
+                    f"Azure OpenAI API key environment variable '{api_key_config[1:] if api_key_config.startswith('$') else api_key_config}' not found or is empty; skipping model '{model_config.get('name')}'."
                 )
+                return None
 
             # Configure max_retries for the Azure client, defaulting if not specified in config
             azure_max_retries = model_config.get("max_retries", 2)
@@ -309,13 +314,12 @@ class ModelFactory:
                     env_var_name = api_key_config[1:]  # Remove the $ prefix
                     api_key = os.environ.get(env_var_name)
                     if api_key is None:
-                        raise ValueError(
-                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty. "
-                            f"Please set the environment variable: export {env_var_name}=your_value"
+                        emit_warning(
+                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty; proceeding without API key."
                         )
-                else:
-                    # It's a raw API key value
-                    api_key = api_key_config
+                    else:
+                        # It's a raw API key value
+                        api_key = api_key_config
             else:
                 # No API key in config, try to get it from the default environment variable
                 api_key = os.environ.get("OPENROUTER_API_KEY")
