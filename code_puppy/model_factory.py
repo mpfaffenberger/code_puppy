@@ -250,19 +250,31 @@ class ModelFactory:
             setattr(model, "provider", provider)
             return model
         elif model_type == "zai_coding":
+            api_key = os.getenv("ZAI_API_KEY")
+            if not api_key:
+                emit_warning(
+                    f"ZAI_API_KEY is not set; skipping ZAI coding model '{model_config.get('name')}'."
+                )
+                return None
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
                 provider=OpenAIProvider(
-                    api_key=os.getenv("ZAI_API_KEY"),
+                    api_key=api_key,
                     base_url="https://api.z.ai/api/coding/paas/v4",
                 ),
             )
             return zai_model
         elif model_type == "zai_api":
+            api_key = os.getenv("ZAI_API_KEY")
+            if not api_key:
+                emit_warning(
+                    f"ZAI_API_KEY is not set; skipping ZAI API model '{model_config.get('name')}'."
+                )
+                return None
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
                 provider=OpenAIProvider(
-                    api_key=os.getenv("ZAI_API_KEY"),
+                    api_key=api_key,
                     base_url="https://api.z.ai/api/paas/v4/",
                 ),
             )
