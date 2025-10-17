@@ -125,12 +125,16 @@ def test_custom_openai_happy(monkeypatch):
     assert hasattr(model.provider, "base_url")
 
 
+from unittest.mock import patch
+
 def test_anthropic_missing_api_key(monkeypatch):
     config = {"anthropic": {"type": "anthropic", "name": "claude-v2"}}
     if "ANTHROPIC_API_KEY" in os.environ:
         monkeypatch.delenv("ANTHROPIC_API_KEY")
-    with pytest.raises(ValueError):
-        ModelFactory.get_model("anthropic", config)
+    with patch("code_puppy.model_factory.emit_warning") as mock_warn:
+        model = ModelFactory.get_model("anthropic", config)
+        assert model is None
+        mock_warn.assert_called_once()
 
 
 def test_azure_missing_endpoint():
