@@ -24,7 +24,7 @@ from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
     DBOS_DATABASE_URL,
-    USE_DBOS,
+    get_use_dbos,
     ensure_config_exists,
     finalize_autosave_session,
     initialize_command_history_file,
@@ -227,7 +227,7 @@ async def main():
     await callbacks.on_startup()
 
     # Initialize DBOS if not disabled
-    if USE_DBOS:
+    if get_use_dbos():
         dbos_message = f"Initializing DBOS with database at: {DBOS_DATABASE_URL}"
         emit_system_message(dbos_message)
 
@@ -294,7 +294,7 @@ async def main():
         if message_renderer:
             message_renderer.stop()
         await callbacks.on_shutdown()
-        if USE_DBOS:
+        if get_use_dbos():
             DBOS.destroy()
 
 
@@ -694,7 +694,7 @@ def main_entry():
     except KeyboardInterrupt:
         # Just exit gracefully with no error message
         callbacks.on_shutdown()
-        if USE_DBOS:
+        if get_use_dbos():
             DBOS.destroy()
         return 0
 

@@ -4,7 +4,7 @@ from typing import List
 
 from pydantic_ai import Agent
 
-from code_puppy.config import USE_DBOS, get_global_model_name
+from code_puppy.config import get_use_dbos, get_global_model_name
 from code_puppy.model_factory import ModelFactory
 
 # Keep a module-level agent reference to avoid rebuilding per call
@@ -78,7 +78,7 @@ When summarizing:
         output_type=str,
         retries=1,  # Fewer retries for summarization
     )
-    if USE_DBOS:
+    if get_use_dbos():
         from pydantic_ai.durable_exec.dbos import DBOSAgent
 
         global _reload_count

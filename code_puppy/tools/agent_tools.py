@@ -7,7 +7,7 @@ from pydantic import BaseModel
 # Import Agent from pydantic_ai to create temporary agents for invocation
 from pydantic_ai import Agent, RunContext
 
-from code_puppy.config import USE_DBOS, get_global_model_name
+from code_puppy.config import get_use_dbos, get_global_model_name
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
@@ -154,7 +154,7 @@ def register_invoke_agent(agent):
                 retries=3,
             )
 
-            if USE_DBOS:
+            if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
 
                 dbos_agent = DBOSAgent(
