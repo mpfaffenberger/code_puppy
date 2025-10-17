@@ -370,8 +370,12 @@ def handle_command(command: str):
             )
             return True
         if key:
+            # Check if we're toggling DBOS enablement
+            if key == "enable_dbos":
+                emit_info("[yellow]⚠️ DBOS configuration changed. Please restart Code Puppy for this change to take effect.[/yellow]")
+            
             set_config_value(key, value)
-            emit_success(f'🌶 Set {key} = "{value}" in puppy.cfg!')
+            emit_success(f'Set {key} = "{value}" in puppy.cfg!')
         else:
             emit_error("You must supply a key.")
         return True
