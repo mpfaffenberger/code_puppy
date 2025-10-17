@@ -8,6 +8,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
+from dbos import DBOS, SetWorkflowID
 import mcp
 import pydantic
 import pydantic_ai.models
@@ -25,9 +26,11 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.durable_exec.dbos import DBOSAgent
 
 # Consolidated relative imports
 from code_puppy.config import (
+    USE_DBOS,
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
@@ -52,6 +55,8 @@ from code_puppy.messaging.spinner import (
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.common import console
+
+_reload_count = 0
 
 
 class BaseAgent(ABC):
@@ -875,7 +880,7 @@ class BaseAgent(ABC):
             instructions=instructions,
             output_type=str,
             retries=3,
-            mcp_servers=mcp_servers,
+            toolsets=mcp_servers,
             history_processors=[self.message_history_accumulator],
             model_settings=model_settings,
         )
@@ -883,12 +888,22 @@ class BaseAgent(ABC):
         agent_tools = self.get_available_tools()
         register_tools_for_agent(p_agent, agent_tools)
 
-        self._code_generation_agent = p_agent
         self._last_model_name = resolved_model_name
         # expose for run_with_mcp
-        self.pydantic_agent = p_agent
+        # Wrap it with DBOS
+        global _reload_count
+        _reload_count += 1
+        if USE_DBOS:
+            dbos_agent = DBOSAgent(p_agent, name=f"{self.name}-{_reload_count}")
+            self.pydantic_agent = dbos_agent
+            self._code_generation_agent = dbos_agent
+        else:
+            self.pydantic_agent = p_agent
+            self._code_generation_agent = p_agent
         return self._code_generation_agent
 
+    # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
+    @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
         message_history_hashes = set([self.hash_message(m) for m in _message_history])
@@ -953,12 +968,22 @@ class BaseAgent(ABC):
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
                 usage_limits = UsageLimits(request_limit=get_message_limit())
-                result_ = await pydantic_agent.run(
-                    prompt_payload,
-                    message_history=self.get_message_history(),
-                    usage_limits=usage_limits,
-                    **kwargs,
-                )
+                if USE_DBOS:
+                    # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
+                    with SetWorkflowID(group_id):
+                        result_ = await pydantic_agent.run(
+                            prompt_payload,
+                            message_history=self.get_message_history(),
+                            usage_limits=usage_limits,
+                            **kwargs,
+                        )
+                else:
+                    result_ = await pydantic_agent.run(
+                        prompt_payload,
+                        message_history=self.get_message_history(),
+                        usage_limits=usage_limits,
+                        **kwargs,
+                    )
                 return result_
             except* UsageLimitExceeded as ule:
                 emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
@@ -974,8 +999,12 @@ class BaseAgent(ABC):
                 )
             except* asyncio.exceptions.CancelledError:
                 emit_info("Cancelled")
+                if USE_DBOS:
+                    await DBOS.cancel_workflow_async(group_id)
             except* InterruptedError as ie:
                 emit_info(f"Interrupted: {str(ie)}")
+                if USE_DBOS:
+                    await DBOS.cancel_workflow_async(group_id)
             except* Exception as other_error:
                 # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
                 remaining_exceptions = []
