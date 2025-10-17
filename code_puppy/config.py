@@ -7,6 +7,7 @@ from typing import Optional
 
 from code_puppy.session_storage import save_session
 
+
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
@@ -808,6 +809,8 @@ def auto_save_session_if_enabled() -> bool:
         session_name = get_current_autosave_session_name()
         autosave_dir = pathlib.Path(AUTOSAVE_DIR)
 
+        from code_puppy.agents.session_title_agent import get_cached_session_title
+
         metadata = save_session(
             history=history,
             session_name=session_name,
@@ -815,6 +818,7 @@ def auto_save_session_if_enabled() -> bool:
             timestamp=now.isoformat(),
             token_estimator=current_agent.estimate_tokens_for_message,
             auto_saved=True,
+            session_title=get_cached_session_title(session_name),
         )
 
         console.print(

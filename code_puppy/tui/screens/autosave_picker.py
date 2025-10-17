@@ -25,16 +25,23 @@ class AutosaveEntry:
     name: str
     timestamp: Optional[str]
     message_count: Optional[int]
+    session_title: Optional[str] = None
 
 
-def _load_metadata(base_dir: Path, name: str) -> Tuple[Optional[str], Optional[int]]:
+def _load_metadata(
+    base_dir: Path, name: str
+) -> Tuple[Optional[str], Optional[int], Optional[str]]:
     meta_path = base_dir / f"{name}_meta.json"
     try:
         with meta_path.open("r", encoding="utf-8") as meta_file:
             data = json.load(meta_file)
-        return data.get("timestamp"), data.get("message_count")
+        return (
+            data.get("timestamp"),
+            data.get("message_count"),
+            data.get("session_title"),
+        )
     except Exception:
-        return None, None
+        return None, None, None
 
 
 class AutosavePicker(ModalScreen):
@@ -89,13 +96,13 @@ class AutosavePicker(ModalScreen):
 
     def on_mount(self) -> None:
         names = list_sessions(self.autosave_dir)
-        raw_entries: List[Tuple[str, Optional[str], Optional[int]]] = []
+        raw_entries: List[Tuple[str, Optional[str], Optional[int], Optional[str]]] = []
         for name in names:
-            ts, count = _load_metadata(self.autosave_dir, name)
-            raw_entries.append((name, ts, count))
+            ts, count, title = _load_metadata(self.autosave_dir, name)
+            raw_entries.append((name, ts, count, title))
 
         def sort_key(entry):
-            _, ts, _ = entry
+            _, ts, _, _ = entry
             if ts:
                 try:
                     return datetime.fromisoformat(ts)

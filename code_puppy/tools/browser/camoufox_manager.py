@@ -10,7 +10,6 @@ from camoufox.locale import ALLOW_GEOIP, download_mmdb
 from camoufox.pkgman import CamoufoxFetcher, camoufox_path
 from playwright.async_api import Browser, BrowserContext, Page
 
-
 from code_puppy.messaging import emit_info
 
 
