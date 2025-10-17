@@ -633,7 +633,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Generate session title after first successful response (if not command)
                 if not cleaned_for_commands.startswith("/"):
                     try:
-                        from code_puppy.session_title_agent import (
+                        from code_puppy.agents.session_title_agent import (
                             maybe_generate_session_title,
                         )
                         from code_puppy.config import get_current_autosave_session_name
@@ -830,7 +830,7 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
 
         if user_prompt.strip():
             # Generate session title based on the initial prompt
-            from code_puppy.session_title_agent import (
+            from code_puppy.agents.session_title_agent import (
                 maybe_generate_session_title,
             )
             from code_puppy.config import get_current_autosave_session_name
