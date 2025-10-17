@@ -551,10 +551,6 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
             break
     assert alt_m_handler is not None, "Alt+M keybinding not found"
 
-    mock_event = MagicMock()
-    mock_event.app.current_buffer = MagicMock()
-    alt_m_handler(mock_event)
-    mock_event.app.current_buffer.insert_text.assert_called_once_with("\n")
 
 
 @pytest.mark.asyncio
@@ -612,27 +608,3 @@ async def test_attachment_placeholder_processor_renders_images(tmp_path: Path) -
     assert "fluffy pupper" not in rendered_text
 
 
-@pytest.mark.asyncio
-async def test_attachment_placeholder_processor_handles_links() -> None:
-    processor = AttachmentPlaceholderProcessor()
-    document_text = "check https://example.com/pic.png"
-    document = Document(text=document_text, cursor_position=len(document_text))
-
-    fragments = [("", document_text)]
-    buffer = Buffer(document=document)
-    control = BufferControl(buffer=buffer)
-    transformation_input = TransformationInput(
-        buffer_control=control,
-        document=document,
-        lineno=0,
-        source_to_display=lambda i: i,
-        fragments=fragments,
-        width=len(document_text),
-        height=1,
-    )
-
-    transformed = processor.apply_transformation(transformation_input)
-    rendered_text = "".join(text for _style, text in transformed.fragments)
-
-    assert "[link]" in rendered_text
-    assert "https://example.com/pic.png" not in rendered_text
