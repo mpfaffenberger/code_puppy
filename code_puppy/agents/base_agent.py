@@ -30,7 +30,7 @@ from pydantic_ai.durable_exec.dbos import DBOSAgent
 
 # Consolidated relative imports
 from code_puppy.config import (
-    USE_DBOS,
+    get_use_dbos,
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
@@ -893,7 +893,7 @@ class BaseAgent(ABC):
         # Wrap it with DBOS
         global _reload_count
         _reload_count += 1
-        if USE_DBOS:
+        if get_use_dbos():
             dbos_agent = DBOSAgent(p_agent, name=f"{self.name}-{_reload_count}")
             self.pydantic_agent = dbos_agent
             self._code_generation_agent = dbos_agent
@@ -968,7 +968,7 @@ class BaseAgent(ABC):
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
                 usage_limits = UsageLimits(request_limit=get_message_limit())
-                if USE_DBOS:
+                if get_use_dbos():
                     # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
                     with SetWorkflowID(group_id):
                         result_ = await pydantic_agent.run(
@@ -999,11 +999,11 @@ class BaseAgent(ABC):
                 )
             except* asyncio.exceptions.CancelledError:
                 emit_info("Cancelled")
-                if USE_DBOS:
+                if get_use_dbos():
                     await DBOS.cancel_workflow_async(group_id)
             except* InterruptedError as ie:
                 emit_info(f"Interrupted: {str(ie)}")
-                if USE_DBOS:
+                if get_use_dbos():
                     await DBOS.cancel_workflow_async(group_id)
             except* Exception as other_error:
                 # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
