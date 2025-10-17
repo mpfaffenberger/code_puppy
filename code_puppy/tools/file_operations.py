@@ -115,7 +115,7 @@ def _list_files(
     import sys
 
     results = []
-    directory = os.path.abspath(directory)
+    directory = os.path.abspath(os.path.expanduser(directory))
 
     # Build string representation
     output_lines = []
@@ -191,11 +191,11 @@ def _list_files(
             cmd.extend(["--max-depth", "1"])
 
         # Add ignore patterns to the command via a temporary file
-        from code_puppy.tools.common import IGNORE_PATTERNS
+        from code_puppy.tools.common import DIR_IGNORE_PATTERNS, FILE_IGNORE_PATTERNS
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
             ignore_file = f.name
-            for pattern in IGNORE_PATTERNS:
+            for pattern in (DIR_IGNORE_PATTERNS + FILE_IGNORE_PATTERNS):
                 f.write(f"{pattern}\n")
 
         cmd.extend(["--ignore-file", ignore_file])
@@ -287,22 +287,21 @@ def _list_files(
                 # Skip files we can't access
                 continue
 
-        # In non-recursive mode, we also need to explicitly list directories in the target directory
-        # ripgrep's --files option only returns files, not directories
+        # In non-recursive mode, we also need to explicitly list immediate entries
+        # ripgrep's --files option only returns files; we add directories and files ourselves
         if not recursive:
             try:
+                from code_puppy.tools.common import should_ignore_dir_path
                 entries = os.listdir(directory)
-                for entry in entries:
+                for entry in sorted(entries):
                     full_entry_path = os.path.join(directory, entry)
-                    # Skip if it doesn't exist or if it's a file (since files are already listed by ripgrep)
-                    if not os.path.exists(full_entry_path) or os.path.isfile(
-                        full_entry_path
-                    ):
+                    if not os.path.exists(full_entry_path):
                         continue
 
-                    # For non-recursive mode, only include directories that are directly in the target directory
                     if os.path.isdir(full_entry_path):
-                        # Create a ListedFile for the directory
+                        # Skip ignored directories
+                        if should_ignore_dir_path(full_entry_path):
+                            continue
                         results.append(
                             ListedFile(
                                 path=entry,
@@ -312,8 +311,23 @@ def _list_files(
                                 depth=0,
                             )
                         )
+                    elif os.path.isfile(full_entry_path):
+                        # Include top-level files (including binaries)
+                        try:
+                            size = os.path.getsize(full_entry_path)
+                        except OSError:
+                            size = 0
+                        results.append(
+                            ListedFile(
+                                path=entry,
+                                type="file",
+                                size=size,
+                                full_path=full_entry_path,
+                                depth=0,
+                            )
+                        )
             except (FileNotFoundError, PermissionError, OSError):
-                # Skip directories we can't access
+                # Skip entries we can't access
                 pass
     except subprocess.TimeoutExpired:
         error_msg = (
@@ -438,7 +452,7 @@ def _read_file(
     start_line: int | None = None,
     num_lines: int | None = None,
 ) -> ReadFileOutput:
-    file_path = os.path.abspath(file_path)
+    file_path = os.path.abspath(os.path.expanduser(file_path))
 
     # Generate group_id for this tool execution
     group_id = generate_group_id("read_file", file_path)
@@ -497,7 +511,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     import subprocess
     import sys
 
-    directory = os.path.abspath(directory)
+    directory = os.path.abspath(os.path.expanduser(directory))
     matches: List[MatchInfo] = []
 
     # Generate group_id for this tool execution
@@ -556,11 +570,11 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         ]
 
         # Add ignore patterns to the command via a temporary file
-        from code_puppy.tools.common import IGNORE_PATTERNS
+        from code_puppy.tools.common import DIR_IGNORE_PATTERNS
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
             ignore_file = f.name
-            for pattern in IGNORE_PATTERNS:
+            for pattern in DIR_IGNORE_PATTERNS:
                 f.write(f"{pattern}\n")
 
         cmd.extend(["--ignore-file", ignore_file])
