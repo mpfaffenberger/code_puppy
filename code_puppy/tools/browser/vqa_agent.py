@@ -7,7 +7,7 @@ from functools import lru_cache
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
 
-from code_puppy.config import get_vqa_model_name
+from code_puppy.config import USE_DBOS, get_vqa_model_name
 from code_puppy.model_factory import ModelFactory
 
 
@@ -31,12 +31,20 @@ def _load_vqa_agent(model_name: str) -> Agent[None, VisualAnalysisResult]:
         "Confidence reflects how certain you are about the answer. Observations should include useful, concise context."
     )
 
-    return Agent(
+    vqa_agent = Agent(
         model=model,
         instructions=instructions,
         output_type=VisualAnalysisResult,
         retries=2,
     )
+
+    if USE_DBOS:
+        from pydantic_ai.durable_exec.dbos import DBOSAgent
+
+        dbos_agent = DBOSAgent(vqa_agent, name="vqa-agent")
+        return dbos_agent
+
+    return vqa_agent
 
 
 def _get_vqa_agent() -> Agent[None, VisualAnalysisResult]:

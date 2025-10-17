@@ -4,7 +4,7 @@ from typing import List
 
 from pydantic_ai import Agent
 
-from code_puppy.config import get_global_model_name
+from code_puppy.config import USE_DBOS, get_global_model_name
 from code_puppy.model_factory import ModelFactory
 
 # Keep a module-level agent reference to avoid rebuilding per call
@@ -13,6 +13,9 @@ _summarization_agent = None
 # Safe sync runner for async agent.run calls
 # Avoids "event loop is already running" by offloading to a separate thread loop when needed
 _thread_pool: ThreadPoolExecutor | None = None
+
+# Reload counter
+_reload_count = 0
 
 
 def _ensure_thread_pool():
@@ -75,6 +78,13 @@ When summarizing:
         output_type=str,
         retries=1,  # Fewer retries for summarization
     )
+    if USE_DBOS:
+        from pydantic_ai.durable_exec.dbos import DBOSAgent
+
+        global _reload_count
+        _reload_count += 1
+        dbos_agent = DBOSAgent(agent, name=f"summarization-agent-{_reload_count}")
+        return dbos_agent
     return agent
 
 

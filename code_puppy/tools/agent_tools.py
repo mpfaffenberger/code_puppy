@@ -7,7 +7,7 @@ from pydantic import BaseModel
 # Import Agent from pydantic_ai to create temporary agents for invocation
 from pydantic_ai import Agent, RunContext
 
-from code_puppy.config import get_global_model_name
+from code_puppy.config import USE_DBOS, get_global_model_name
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
@@ -16,6 +16,8 @@ from code_puppy.messaging import (
 )
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.common import generate_group_id
+
+_temp_agent_count = 0
 
 
 class AgentInfo(BaseModel):
@@ -143,12 +145,22 @@ def register_invoke_agent(agent):
 
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_system_prompt()
+            global _temp_agent_count
+            _temp_agent_count += 1
             temp_agent = Agent(
                 model=model,
                 instructions=instructions,
                 output_type=str,
                 retries=3,
             )
+
+            if USE_DBOS:
+                from pydantic_ai.durable_exec.dbos import DBOSAgent
+
+                dbos_agent = DBOSAgent(
+                    temp_agent, name=f"temp-invoke-agent-{_temp_agent_count}"
+                )
+                temp_agent = dbos_agent
 
             # Register the tools that the agent needs
             from code_puppy.tools import register_tools_for_agent
