@@ -86,11 +86,12 @@ Code Puppy now supports **[DBOS](https://github.com/dbos-inc/dbos-transact-py)**
 
 When enabled, every agent is automatically wrapped as a `DBOSAgent`, checkpointing key interactions (including agent inputs, LLM responses, MCP calls, and tool calls) in a database for durability and recovery.
 
-You can disable DBOS by setting:
+You can toggle DBOS via either of these options:
 
-```bash
-export CODE_PUPPY_NO_DBOS=true
-```
+- CLI config (persists): `/set enable_dbos true` (or `false` to disable)
+
+
+Config takes precedence if set; otherwise the environment variable is used.
 
 ### Configuration
 

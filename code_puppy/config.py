@@ -21,13 +21,15 @@ _DEFAULT_SQLITE_FILE = os.path.join(CONFIG_DIR, "dbos_store.sqlite")
 DBOS_DATABASE_URL = os.environ.get(
     "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
 )
-# If `CODE_PUPPY_NO_DBOS` set to True, skip using DBOS entirely
-USE_DBOS = os.environ.get("CODE_PUPPY_NO_DBOS", "0").lower() not in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
+# DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
+# Default: False (DBOS disabled) unless explicitly enabled.
+
+def get_use_dbos() -> bool:
+    """Return True if DBOS should be used based on 'enable_dbos' (default False)."""
+    cfg_val = get_value("enable_dbos")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -146,6 +148,9 @@ def get_config_keys():
         "max_saved_sessions",
         "http2",
     ]
+    # Add DBOS control key
+    default_keys.append("enable_dbos")
+
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -621,6 +626,11 @@ def set_http2(enabled: bool) -> None:
         enabled: Whether to enable HTTP/2 for httpx clients
     """
     set_config_value("http2", "true" if enabled else "false")
+
+
+def set_enable_dbos(enabled: bool) -> None:
+    """Enable DBOS via config (true enables, default false)."""
+    set_config_value("enable_dbos", "true" if enabled else "false")
 
 
 def get_message_limit(default: int = 100) -> int:

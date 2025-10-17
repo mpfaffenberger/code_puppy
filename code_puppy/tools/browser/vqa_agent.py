@@ -7,7 +7,7 @@ from functools import lru_cache
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
 
-from code_puppy.config import USE_DBOS, get_vqa_model_name
+from code_puppy.config import get_use_dbos, get_vqa_model_name
 from code_puppy.model_factory import ModelFactory
 
 
@@ -38,7 +38,7 @@ def _load_vqa_agent(model_name: str) -> Agent[None, VisualAnalysisResult]:
         retries=2,
     )
 
-    if USE_DBOS:
+    if get_use_dbos():
         from pydantic_ai.durable_exec.dbos import DBOSAgent
 
         dbos_agent = DBOSAgent(vqa_agent, name="vqa-agent")

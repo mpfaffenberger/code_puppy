@@ -255,6 +255,7 @@ def handle_command(command: str):
             get_protected_token_count,
             get_puppy_name,
             get_yolo_mode,
+            get_use_dbos,
         )
 
         puppy_name = get_puppy_name()
@@ -275,6 +276,7 @@ def handle_command(command: str):
 [bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
+[bold]DBOS:[/bold]                  {"[green]enabled[/green]" if get_use_dbos() else "[yellow]disabled[/yellow]"} (toggle: /set enable_dbos true|false)
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
