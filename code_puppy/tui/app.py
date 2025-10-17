@@ -524,7 +524,7 @@ class CodePuppyTUI(App):
                         try:
                             from pathlib import Path
 
-                            from code_puppy.session_title_agent import (
+                            from code_puppy.agents.session_title_agent import (
                                 maybe_generate_session_title,
                             )
                             from code_puppy.config import (
