@@ -59,16 +59,16 @@ def _print_diff(diff_text: str, message_group: str | None = None) -> None:
         message_group=message_group,
     )
 
-    # Import the formatting function from the plugin
-    from code_puppy.plugins.file_permission_handler.register_callbacks import _format_diff_with_highlighting
-    formatted_diff = _format_diff_with_highlighting(diff_text)
+    # Basic diff formatting without plugin dependency
+    # If plugin-specific formatting is needed, it should be provided through the callback system
+    formatted_diff = diff_text
+
     emit_info(formatted_diff, highlight=False, message_group=message_group)
 
     emit_info(
         "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
     )
-
 
 
 def _log_error(
@@ -244,18 +244,18 @@ def _write_to_file(
 def delete_snippet_from_file(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    
-    # Use the plugin system for permission handling
-    from code_puppy.plugins.file_permission_handler.register_callbacks import _preview_delete_snippet
-    preview_diff = _preview_delete_snippet(file_path, snippet)
-
+    # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"snippet": snippet}
     permission_results = on_file_permission(
-        context, file_path, "delete snippet from", preview_diff, message_group
+        context, file_path, "delete snippet from", None, message_group, operation_data
     )
 
     # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(not result for result in permission_results if result is not None):
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
         return {
             "success": False,
             "path": file_path,
@@ -280,18 +280,18 @@ def write_to_file(
     overwrite: bool,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    
-    # Use the plugin system for permission handling
-    from code_puppy.plugins.file_permission_handler.register_callbacks import _preview_write_to_file
-    preview_diff = _preview_write_to_file(path, content, overwrite)
-
+    # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"content": content, "overwrite": overwrite}
     permission_results = on_file_permission(
-        context, path, "write", preview_diff, message_group
+        context, path, "write", None, message_group, operation_data
     )
 
     # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(not result for result in permission_results if result is not None):
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
         return {
             "success": False,
             "path": path,
@@ -315,25 +315,18 @@ def replace_in_file(
     replacements: List[Dict[str, str]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    
-    # Use the plugin system for permission handling
-    from code_puppy.plugins.file_permission_handler.register_callbacks import _preview_replace_in_file
-    preview_diff = _preview_replace_in_file(path, replacements)
-
-    # Fail early if preview generation fails (like edit-file branch)
-    if preview_diff is None:
-        return {
-            "error": f"Failed to generate preview for replacing text in '{path}' (score < 0.95)",
-            "changed": False,
-        }
-
+    # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"replacements": replacements}
     permission_results = on_file_permission(
-        context, path, "replace text in", preview_diff, message_group
+        context, path, "replace text in", None, message_group, operation_data
     )
 
     # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(not result for result in permission_results if result is not None):
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
         return {
             "success": False,
             "path": path,
@@ -448,17 +441,18 @@ def _delete_file(
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
 
-    # Use the plugin system for permission handling
-    from code_puppy.plugins.file_permission_handler.register_callbacks import _preview_delete_file
-    preview_diff = _preview_delete_file(file_path)
-
+    # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
+
+    operation_data = {}  # No additional data needed for delete operations
     permission_results = on_file_permission(
-        context, file_path, "delete", preview_diff, message_group
+        context, file_path, "delete", None, message_group, operation_data
     )
 
     # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(not result for result in permission_results if result is not None):
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
         return {
             "success": False,
             "path": file_path,
@@ -625,7 +619,7 @@ def register_edit_file(agent):
         result = _edit_file(context, payload)
         if "diff" in result:
             del result["diff"]
-            
+
         # Trigger edit_file callbacks to enhance the result with rejection details
         enhanced_results = on_edit_file(context, result, payload)
         if enhanced_results:
@@ -634,7 +628,7 @@ def register_edit_file(agent):
                 if enhanced_result is not None:
                     result = enhanced_result
                     break
-                    
+
         return result
 
 
@@ -684,7 +678,7 @@ def register_delete_file(agent):
         result = _delete_file(context, file_path, message_group=group_id)
         if "diff" in result:
             del result["diff"]
-            
+
         # Trigger delete_file callbacks to enhance the result with rejection details
         enhanced_results = on_delete_file(context, result, file_path)
         if enhanced_results:
@@ -693,5 +687,5 @@ def register_delete_file(agent):
                 if enhanced_result is not None:
                     result = enhanced_result
                     break
-                    
+
         return result

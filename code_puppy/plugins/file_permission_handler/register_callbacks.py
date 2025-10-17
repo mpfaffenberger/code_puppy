@@ -214,7 +214,9 @@ def prompt_for_file_permission(
 
     try:
         # Build a complete prompt message to ensure atomic display
-        complete_message = "\n[bold yellow]🔒 File Operation Confirmation Required[/bold yellow]\n"
+        complete_message = (
+            "\n[bold yellow]🔒 File Operation Confirmation Required[/bold yellow]\n"
+        )
         complete_message += f"Request to [bold cyan]{operation}[/bold cyan] file: [bold white]{file_path}[/bold white]"
 
         if preview:
@@ -328,6 +330,7 @@ def handle_file_permission(
     operation: str,
     preview: str | None = None,
     message_group: str | None = None,
+    operation_data: Any = None,
 ) -> bool:
     """Callback handler for file permission checks.
 
@@ -338,13 +341,66 @@ def handle_file_permission(
         context: The operation context
         file_path: Path to the file being operated on
         operation: Description of the operation
-        preview: Optional preview of changes
+        preview: Optional preview of changes (deprecated - use operation_data instead)
         message_group: Optional message group
+        operation_data: Operation-specific data for preview generation
 
     Returns:
         True if permission granted, False if denied
     """
+    # Generate preview from operation_data if provided
+    if operation_data is not None:
+        preview = _generate_preview_from_operation_data(
+            file_path, operation, operation_data
+        )
+
     return prompt_for_file_permission(file_path, operation, preview, message_group)
+
+
+def _generate_preview_from_operation_data(
+    file_path: str, operation: str, operation_data: Any
+) -> str | None:
+    """Generate preview diff from operation data.
+
+    Args:
+        file_path: Path to the file
+        operation: Type of operation
+        operation_data: Operation-specific data
+
+    Returns:
+        Preview diff or None if generation fails
+    """
+    try:
+        if operation == "delete":
+            return _preview_delete_file(file_path)
+        elif operation == "write":
+            content = operation_data.get("content", "")
+            overwrite = operation_data.get("overwrite", False)
+            return _preview_write_to_file(file_path, content, overwrite)
+        elif operation == "delete snippet from":
+            snippet = operation_data.get("snippet", "")
+            return _preview_delete_snippet(file_path, snippet)
+        elif operation == "replace text in":
+            replacements = operation_data.get("replacements", [])
+            return _preview_replace_in_file(file_path, replacements)
+        elif operation == "edit_file":
+            # Handle edit_file operations
+            if "delete_snippet" in operation_data:
+                return _preview_delete_snippet(
+                    file_path, operation_data["delete_snippet"]
+                )
+            elif "replacements" in operation_data:
+                return _preview_replace_in_file(
+                    file_path, operation_data["replacements"]
+                )
+            elif "content" in operation_data:
+                content = operation_data.get("content", "")
+                overwrite = operation_data.get("overwrite", False)
+                return _preview_write_to_file(file_path, content, overwrite)
+
+        return None
+    except Exception:
+        return None
 
 
 def get_permission_handler_help() -> str:
@@ -354,7 +410,8 @@ def get_permission_handler_help() -> str:
 - YOLO mode support for automatic approval
 - Thread-safe confirmation system
 - Consistent user experience across file operations
-- Detailed preview support with diff highlighting"""
+- Detailed preview support with diff highlighting
+- Automatic preview generation from operation data"""
 
 
 # Register the callback for file permission handling
