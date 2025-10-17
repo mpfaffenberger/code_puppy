@@ -263,8 +263,8 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
                 consumed_until = end_index
                 try:
                     last_path = _normalise_path(candidate_path_token)
-                except AttachmentParsingError as exc:
-                    warnings.append(str(exc))
+                except AttachmentParsingError:
+                    # Suppress warnings for non-file spans; just skip quietly
                     found_span = False
                     break
                 if last_path.exists() and last_path.is_file():
@@ -273,7 +273,7 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
                     # We'll rebuild escaped placeholder after this block
                     break
             if not found_span:
-                warnings.append(f"Attachment ignored (not a file): {path}")
+                # Quietly skip tokens that are not files
                 index += 1
                 continue
             # Reconstruct escaped placeholder for multi-token paths
@@ -327,16 +327,14 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
         if detection.path is None:
             continue
         if detection.unsupported:
-            warnings.append(
-                f"Unsupported attachment type: {detection.path.suffix or detection.path.name}"
-            )
+            # Skip unsupported attachments without warning noise
             continue
 
         try:
             media_type = _determine_media_type(detection.path)
             data = _load_binary(detection.path)
-        except AttachmentParsingError as exc:
-            warnings.append(str(exc))
+        except AttachmentParsingError:
+            # Silently ignore unreadable attachments to reduce prompt noise
             continue
         attachments.append(
             PromptAttachment(

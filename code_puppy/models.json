@@ -100,11 +100,11 @@
     "name": "glm-4.6",
     "context_length": 200000
   },
-  "glm-4.5": {
+  "glm-4.5-api": {
     "type": "zai_api",
     "name": "glm-4.5"
   },
-  "glm-4.6": {
+  "glm-4.6-api": {
     "type": "zai_api",
     "name": "glm-4.6",
     "context_length": 200000
