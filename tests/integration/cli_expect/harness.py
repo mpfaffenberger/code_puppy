@@ -4,6 +4,7 @@ Handles a clean temporary HOME, config bootstrapping, and sending/receiving
 with the quirks we learned (\r line endings, tiny delays, optional stdout
 capture). Includes fixtures for pytest.
 """
+
 import os
 import pathlib
 import random
@@ -77,7 +78,9 @@ class SpawnResult:
         time.sleep(0.3)
 
     def read_log(self) -> str:
-        return self.log_path.read_text(encoding="utf-8") if self.log_path.exists() else ""
+        return (
+            self.log_path.read_text(encoding="utf-8") if self.log_path.exists() else ""
+        )
 
     def close_log(self) -> None:
         if hasattr(self, "_log_file") and self._log_file:
@@ -112,7 +115,9 @@ class CliHarness:
             code_puppy_dir.mkdir(parents=True, exist_ok=True)
             write_config = not (config_dir / "puppy.cfg").exists()
         else:
-            temp_home = pathlib.Path(tempfile.mkdtemp(prefix=f"code_puppy_home_{_random_name()}_"))
+            temp_home = pathlib.Path(
+                tempfile.mkdtemp(prefix=f"code_puppy_home_{_random_name()}_")
+            )
             config_dir = temp_home / ".config" / "code_puppy"
             code_puppy_dir = temp_home / ".code_puppy"
             config_dir.mkdir(parents=True, exist_ok=True)
@@ -172,7 +177,12 @@ class CliHarness:
 
     def cleanup(self, result: SpawnResult) -> None:
         """Terminate the child and remove the temporary HOME unless instructed otherwise."""
-        keep_home = os.getenv("CODE_PUPPY_KEEP_TEMP_HOME") in {"1", "true", "TRUE", "True"}
+        keep_home = os.getenv("CODE_PUPPY_KEEP_TEMP_HOME") in {
+            "1",
+            "true",
+            "TRUE",
+            "True",
+        }
         try:
             result.close_log()
         except Exception:
@@ -184,7 +194,9 @@ class CliHarness:
             if not keep_home:
                 shutil.rmtree(result.temp_home, ignore_errors=True)
 
-    def _expect_with_retry(self, child: pexpect.spawn, patterns, timeout: float) -> None:
+    def _expect_with_retry(
+        self, child: pexpect.spawn, patterns, timeout: float
+    ) -> None:
         def _inner():
             return child.expect(patterns, timeout=timeout)
 

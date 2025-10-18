@@ -1,19 +1,18 @@
 """Integration test ensuring live LLM commands include explicit carriage returns."""
+
 from __future__ import annotations
 
 import os
 import time
 
-import pytest
 import pexpect
+import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
     SpawnResult,
-    live_cli,
     satisfy_initial_prompts,
 )
-
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("CEREBRAS_API_KEY"),

@@ -1,18 +1,24 @@
 import os
 import subprocess
-import pytest
-import time
 from unittest.mock import MagicMock
+
+import pytest
 
 # Expose the CLI harness fixtures globally
 from tests.integration.cli_expect.harness import (
-    CliHarness,
     SpawnResult,
+)
+from tests.integration.cli_expect.harness import (
     cli_harness as cli_harness,
+)
+from tests.integration.cli_expect.harness import (
     integration_env as integration_env,
+)
+from tests.integration.cli_expect.harness import (
     log_dump as log_dump,
+)
+from tests.integration.cli_expect.harness import (
     retry_policy as retry_policy,
-    spawned_cli as base_spawned_cli,
 )
 
 
@@ -20,6 +26,7 @@ from tests.integration.cli_expect.harness import (
 def spawned_cli(base_spawned_cli: SpawnResult) -> SpawnResult:
     """Expose the harness-provided spawned_cli fixture for convenience."""
     return base_spawned_cli
+
 
 @pytest.fixture
 def mock_cleanup():
@@ -30,6 +37,7 @@ def mock_cleanup():
     # Pre-call so assert_called_once() passes without code changes
     m()
     return m
+
 
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
@@ -43,7 +51,8 @@ def pytest_sessionfinish(session, exitstatus):
             check=True,
         )
         untracked_py = [
-            line for line in result.stdout.splitlines()
+            line
+            for line in result.stdout.splitlines()
             if line.startswith("??") and line.endswith(".py")
         ]
         if untracked_py:

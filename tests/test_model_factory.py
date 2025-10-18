@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -124,8 +125,6 @@ def test_custom_openai_happy(monkeypatch):
     assert model is not None
     assert hasattr(model.provider, "base_url")
 
-
-from unittest.mock import patch
 
 def test_anthropic_missing_api_key(monkeypatch):
     config = {"anthropic": {"type": "anthropic", "name": "claude-v2"}}

@@ -24,12 +24,14 @@ DBOS_DATABASE_URL = os.environ.get(
 # DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
 # Default: False (DBOS disabled) unless explicitly enabled.
 
+
 def get_use_dbos() -> bool:
     """Return True if DBOS should be used based on 'enable_dbos' (default False)."""
     cfg_val = get_value("enable_dbos")
     if cfg_val is None:
         return False
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -793,6 +795,7 @@ def auto_save_session_if_enabled() -> bool:
 
     try:
         import pathlib
+
         from rich.console import Console
 
         from code_puppy.agents.agent_manager import get_current_agent

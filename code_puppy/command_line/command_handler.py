@@ -254,8 +254,8 @@ def handle_command(command: str):
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
-            get_yolo_mode,
             get_use_dbos,
+            get_yolo_mode,
         )
 
         puppy_name = get_puppy_name()
@@ -372,8 +372,10 @@ def handle_command(command: str):
         if key:
             # Check if we're toggling DBOS enablement
             if key == "enable_dbos":
-                emit_info("[yellow]⚠️ DBOS configuration changed. Please restart Code Puppy for this change to take effect.[/yellow]")
-            
+                emit_info(
+                    "[yellow]⚠️ DBOS configuration changed. Please restart Code Puppy for this change to take effect.[/yellow]"
+                )
+
             set_config_value(key, value)
             emit_success(f'Set {key} = "{value}" in puppy.cfg!')
         else:

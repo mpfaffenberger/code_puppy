@@ -1,0 +1,55 @@
+pre-commit:
+  parallel: true
+  commands:
+    isort:
+      glob: "*.py"
+      run: |
+        if command -v uv >/dev/null 2>&1 && uv run isort --version >/dev/null 2>&1; then
+          uv run isort --profile black {staged_files}
+        elif command -v isort >/dev/null 2>&1; then
+          isort --profile black {staged_files}
+        else
+          echo "isort not found; using ruff import sorter";
+          if command -v uv >/dev/null 2>&1; then
+            uv run ruff check --select I --fix {staged_files}
+          else
+            ruff check --select I --fix {staged_files}
+          fi
+        fi
+      stage_fixed: true
+    ruff-format:
+      glob: "*.py"
+      run: |
+        if command -v uv >/dev/null 2>&1; then
+          uv run ruff format {staged_files}
+        else
+          ruff format {staged_files}
+        fi
+      stage_fixed: true
+    ruff-lint:
+      glob: "*.py"
+      run: |
+        if command -v uv >/dev/null 2>&1; then
+          uv run ruff check --fix {staged_files}
+        else
+          ruff check --fix {staged_files}
+        fi
+      stage_fixed: true
+    pnpm-check:
+      run: |
+        if command -v pnpm >/dev/null 2>&1; then
+          pnpm check
+        else
+          echo "pnpm not found, skipping pnpm check"
+        fi
+
+pre-push:
+  parallel: false
+  commands:
+    pytest:
+      run: |
+        if command -v uv >/dev/null 2>&1; then
+          uv run pytest -q
+        else
+          pytest -q
+        fi

@@ -52,7 +52,7 @@ code_puppy.command_line
 - Run `ruff format .` to auto format
 - NEVER use `git push --force` on the main branch
 
-## `bd` Issue Tracker Tips
+## `bd` Issue Tracker Tips  
 
 - Initialize locally with `bd init` if missing.
 - Create issues fast: `bd create 'Title' --type task --priority 2 --description '...' --acceptance '...'`.
