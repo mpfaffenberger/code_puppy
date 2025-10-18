@@ -72,8 +72,8 @@ class SpawnResult:
         time.sleep(0.3)
 
     def sendline(self, txt: str) -> None:
-        """Send with trailing \r and a short pause."""
-        self.child.send(txt + "\r")
+        """Caller must include any desired line endings explicitly."""
+        self.child.send(txt)
         time.sleep(0.3)
 
     def read_log(self) -> str:
@@ -144,7 +144,7 @@ class CliHarness:
 
     def send_command(self, result: SpawnResult, txt: str) -> str:
         """Convenience: send a command and return all new output until next prompt."""
-        result.sendline(txt)
+        result.sendline(txt + "\r")
         # Let the child breathe before we slurp output
         time.sleep(0.2)
         return result.read_log()
@@ -179,6 +179,7 @@ class CliHarness:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+@pytest.fixture
 def integration_env() -> dict[str, str]:
     """Return a basic environment for integration tests."""
     return {
@@ -187,10 +188,12 @@ def integration_env() -> dict[str, str]:
     }
 
 
+@pytest.fixture
 def retry_policy() -> RetryPolicy:
     return RetryPolicy()
 
 
+@pytest.fixture
 def log_dump(tmp_path: pathlib.Path) -> pathlib.Path:
     return tmp_path / "test_cli.log"
 
@@ -202,14 +205,24 @@ def cli_harness() -> CliHarness:
 
 
 @pytest.fixture
-def spawned_cli(cli_harness: CliHarness) -> SpawnResult:
+def spawned_cli(
+    cli_harness: CliHarness,
+    integration_env: dict[str, str],
+) -> SpawnResult:
     """Spawn a CLI in interactive mode with a clean environment."""
-    result = cli_harness.spawn(args=["-i"], env=integration_env())
+    result = cli_harness.spawn(args=["-i"], env=integration_env)
+    result.child.expect("What should we name the puppy?", timeout=15)
+    result.sendline("\r")
+    result.child.expect("What's your name", timeout=10)
+    result.sendline("\r")
     result.child.expect("Interactive Mode", timeout=15)
-    result.child.expect("1-5 to load, 6 for next", timeout=10)
-    result.send("")
-    time.sleep(0.3)
-    result.send("")
-    result.child.expect("Enter your coding task", timeout=10)
+    try:
+        result.child.expect("1-5 to load, 6 for next", timeout=5)
+        result.send("\r")
+        time.sleep(0.3)
+        result.send("\r")
+    except pexpect.exceptions.TIMEOUT:
+        pass
+    result.child.expect("Enter your coding task", timeout=15)
     yield result
     cli_harness.cleanup(result)
