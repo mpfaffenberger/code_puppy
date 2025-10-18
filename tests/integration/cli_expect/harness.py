@@ -5,10 +5,12 @@ with the quirks we learned (\r line endings, tiny delays, optional stdout
 capture). Includes fixtures for pytest.
 """
 
+import json
 import os
 import pathlib
 import random
 import shutil
+import sqlite3
 import sys
 import tempfile
 import time
@@ -87,6 +89,69 @@ class SpawnResult:
             self._log_file.close()
 
 
+# ---------------------------------------------------------------------------
+# DBOS report collection
+# ---------------------------------------------------------------------------
+_dbos_reports: list[str] = []
+
+
+def _safe_json(val):
+    try:
+        json.dumps(val)
+        return val
+    except Exception:
+        return str(val)
+
+
+def dump_dbos_report(temp_home: pathlib.Path) -> None:
+    """Collect a summary of DBOS SQLite contents for this temp HOME.
+
+    - Lists tables and row counts
+    - Samples up to 2 rows per table
+    Appends human-readable text to a global report buffer.
+    """
+    try:
+        db_path = temp_home / ".code_puppy" / "dbos_store.sqlite"
+        if not db_path.exists():
+            return
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+            tables = [r[0] for r in cur.fetchall()]
+            lines: list[str] = []
+            lines.append(f"DBOS Report for: {db_path}")
+            if not tables:
+                lines.append("- No user tables found")
+            for t in tables:
+                try:
+                    cur.execute(f"SELECT COUNT(*) FROM {t}")
+                    count = cur.fetchone()[0]
+                    lines.append(f"- {t}: {count} rows")
+                    # Sample up to 2 rows for context
+                    cur.execute(f"SELECT * FROM {t} LIMIT 2")
+                    rows = cur.fetchall()
+                    colnames = [d[0] for d in cur.description] if cur.description else []
+                    for row in rows:
+                        obj = {colnames[i]: _safe_json(row[i]) for i in range(len(row))}
+                        lines.append(f"  • sample: {obj}")
+                except Exception as te:
+                    lines.append(f"- {t}: error reading table: {te}")
+            lines.append("")
+            _dbos_reports.append("\n".join(lines))
+        finally:
+            conn.close()
+    except Exception:
+        # Silent: reporting should never fail tests
+        pass
+
+
+def get_dbos_reports() -> str:
+    return "\n".join(_dbos_reports)
+
+
 class CliHarness:
     """Manages a temporary CLI environment and pexpect child."""
 
@@ -125,8 +190,10 @@ class CliHarness:
             write_config = True
 
         if write_config:
+            # Write config to both legacy (~/.code_puppy) and XDG (~/.config/code_puppy)
             (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
             (config_dir / "motd.txt").write_text(MOTD_TEMPLATE, encoding="utf-8")
+            (code_puppy_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
 
         log_path = temp_home / f"cli_output_{uuid.uuid4().hex}.log"
         cmd_args = ["code-puppy"] + (args or [])
@@ -135,6 +202,10 @@ class CliHarness:
         spawn_env.update(env or {})
         spawn_env["HOME"] = str(temp_home)
         spawn_env.pop("PYTHONPATH", None)  # avoid accidental venv confusion
+        # Ensure DBOS uses a temp sqlite under this HOME
+        dbos_sqlite = code_puppy_dir / "dbos_store.sqlite"
+        spawn_env["DBOS_SYSTEM_DATABASE_URL"] = f"sqlite:///{dbos_sqlite}"
+        spawn_env.setdefault("DBOS_LOG_LEVEL", "ERROR")
 
         child = pexpect.spawn(
             cmd_args[0],
@@ -176,7 +247,7 @@ class CliHarness:
         )
 
     def cleanup(self, result: SpawnResult) -> None:
-        """Terminate the child and remove the temporary HOME unless instructed otherwise."""
+        """Terminate the child, dump DBOS report, then remove the temporary HOME unless kept."""
         keep_home = os.getenv("CODE_PUPPY_KEEP_TEMP_HOME") in {
             "1",
             "true",
@@ -191,6 +262,8 @@ class CliHarness:
             if result.child.isalive():
                 result.child.terminate(force=True)
         finally:
+            # Dump DBOS report before cleanup
+            dump_dbos_report(result.temp_home)
             if not keep_home:
                 shutil.rmtree(result.temp_home, ignore_errors=True)
 
@@ -236,20 +309,32 @@ def spawned_cli(
     cli_harness: CliHarness,
     integration_env: dict[str, str],
 ) -> SpawnResult:
-    """Spawn a CLI in interactive mode with a clean environment."""
+    """Spawn a CLI in interactive mode with a clean environment.
+
+    Robust to first-run prompts; gracefully proceeds if config exists.
+    """
     result = cli_harness.spawn(args=["-i"], env=integration_env)
-    result.child.expect("What should we name the puppy?", timeout=15)
-    result.sendline("\r")
-    result.child.expect("What's your name", timeout=10)
-    result.sendline("\r")
-    result.child.expect("Interactive Mode", timeout=15)
+
+    # Try to satisfy first-run prompts if they appear; otherwise continue
     try:
-        result.child.expect("1-5 to load, 6 for next", timeout=5)
+        result.child.expect("What should we name the puppy?", timeout=5)
+        result.sendline("\r")
+        result.child.expect("What's your name", timeout=5)
+        result.sendline("\r")
+    except pexpect.exceptions.TIMEOUT:
+        pass
+
+    # Skip autosave picker if it appears
+    try:
+        result.child.expect("1-5 to load, 6 for next", timeout=3)
         result.send("\r")
-        time.sleep(0.3)
+        time.sleep(0.2)
         result.send("\r")
     except pexpect.exceptions.TIMEOUT:
         pass
-    result.child.expect("Enter your coding task", timeout=15)
+
+    # Wait until interactive prompt is ready
+    cli_harness.wait_for_ready(result)
+
     yield result
     cli_harness.cleanup(result)
