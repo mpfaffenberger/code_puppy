@@ -25,7 +25,7 @@ owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
 model = Cerebras-Qwen3-Coder-480b
-enable_dbos = false
+enable_dbos = true
 """
 
 MOTD_TEMPLATE: Final[str] = """2025-08-24
