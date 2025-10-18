@@ -7,7 +7,7 @@ from typing import Optional
 
 from code_puppy.session_storage import save_session
 
-CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
+CONFIG_DIR = os.path.join(os.getenv("HOME", os.path.expanduser("~")), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
