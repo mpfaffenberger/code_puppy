@@ -1,4 +1,5 @@
 """Foundational tests for the CLI harness plumbing."""
+
 import pathlib
 import time
 

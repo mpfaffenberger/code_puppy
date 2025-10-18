@@ -3,11 +3,10 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.keys import Keys
-
-from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.layout.processors import TransformationInput
 
@@ -552,7 +551,6 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
     assert alt_m_handler is not None, "Alt+M keybinding not found"
 
 
-
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 async def test_get_input_key_binding_escape(mock_prompt_session_cls):
@@ -606,5 +604,3 @@ async def test_attachment_placeholder_processor_renders_images(tmp_path: Path) -
 
     assert "[png image]" in rendered_text
     assert "fluffy pupper" not in rendered_text
-
-

@@ -1,6 +1,9 @@
 """Extremely basic pexpect smoke test – no harness, just raw subprocess."""
-import pexpect
+
 import time
+
+import pexpect
+
 
 def test_version_smoke() -> None:
     child = pexpect.spawn("code-puppy --version", encoding="utf-8")
@@ -9,6 +12,7 @@ def test_version_smoke() -> None:
     assert output.strip()  # just ensure we got something
     print("\n[SMOKE] version output:", output)
 
+
 def test_help_smoke() -> None:
     child = pexpect.spawn("code-puppy --help", encoding="utf-8")
     child.expect("--version", timeout=10)
@@ -16,6 +20,7 @@ def test_help_smoke() -> None:
     output = child.before
     assert "show version and exit" in output.lower()
     print("\n[SMOKE] help output seen")
+
 
 def test_interactive_smoke() -> None:
     child = pexpect.spawn("code-puppy -i", encoding="utf-8")

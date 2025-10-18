@@ -189,9 +189,13 @@ def _list_files(
             cmd = [rg_path, "--files"]
 
             # Add ignore patterns to the command via a temporary file
-            from code_puppy.tools.common import DIR_IGNORE_PATTERNS, FILE_IGNORE_PATTERNS
+            from code_puppy.tools.common import (
+                DIR_IGNORE_PATTERNS,
+            )
 
-            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".ignore"
+            ) as f:
                 ignore_file = f.name
                 for pattern in DIR_IGNORE_PATTERNS:
                     f.write(f"{pattern}\n")
@@ -259,9 +263,11 @@ def _list_files(
                                     results.append(
                                         ListedFile(
                                             path=partial_path,
-											type="directory",
+                                            type="directory",
                                             size=0,
-                                            full_path=os.path.join(directory, partial_path),
+                                            full_path=os.path.join(
+                                                directory, partial_path
+                                            ),
                                             depth=partial_path.count(os.sep),
                                         )
                                     )
@@ -285,6 +291,7 @@ def _list_files(
         if not recursive:
             try:
                 from code_puppy.tools.common import should_ignore_dir_path
+
                 entries = os.listdir(directory)
                 for entry in sorted(entries):
                     full_entry_path = os.path.join(directory, entry)
