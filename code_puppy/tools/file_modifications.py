@@ -21,7 +21,7 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from code_puppy.callbacks import on_edit_file
+from code_puppy.callbacks import on_edit_file, on_delete_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
 
