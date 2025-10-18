@@ -51,3 +51,14 @@ code_puppy.command_line
 - Fix linting errors with `ruff check --fix`
 - Run `ruff format .` to auto format
 - NEVER use `git push --force` on the main branch
+
+## `bd` Issue Tracker Tips
+
+- Initialize locally with `bd init` if missing.
+- Create issues fast: `bd create 'Title' --type task --priority 2 --description '...' --acceptance '...'`.
+- Update acceptance criteria: `bd update bd-123 --acceptance-criteria 'Given ...'`.
+- Append notes to capture decisions: `bd update bd-123 --notes 'context here'`.
+- List the backlog: `bd list`.
+- Show a single issue: `bd show bd-123`.
+- Keep commands under 60s; long multi-line acceptance text can time out—compact it or rerun with shorter strings.
+- Remember: `bd update` does *not* change descriptions directly; use notes/design fields when you need to tweak narrative details.
