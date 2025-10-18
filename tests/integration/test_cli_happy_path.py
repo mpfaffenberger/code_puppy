@@ -1,4 +1,5 @@
 """Happy-path interactive CLI test covering core commands."""
+
 from __future__ import annotations
 
 import json
@@ -6,16 +7,14 @@ import os
 import time
 from pathlib import Path
 
-import pytest
 import pexpect
+import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
     SpawnResult,
-    live_cli,
     satisfy_initial_prompts,
 )
-
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("CEREBRAS_API_KEY"),

@@ -1,4 +1,5 @@
 """Shared fixtures and helpers for CLI integration tests."""
+
 from __future__ import annotations
 
 import os
@@ -8,8 +9,14 @@ from typing import Generator
 import pexpect
 import pytest
 
-from .harness import CliHarness, SpawnResult
-from .harness import integration_env, log_dump, retry_policy, spawned_cli
+from .harness import (
+    CliHarness,
+    SpawnResult,
+    integration_env,
+    log_dump,
+    retry_policy,
+    spawned_cli,
+)
 
 __all__ = [
     "CliHarness",

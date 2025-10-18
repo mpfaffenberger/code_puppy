@@ -16,11 +16,12 @@ from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
+from code_puppy.messaging import emit_warning
+
 from . import callbacks
 from .config import EXTRA_MODELS_FILE
 from .http_utils import create_async_client
 from .round_robin_model import RoundRobinModel
-from code_puppy.messaging import emit_warning
 
 # Environment variables used in this module:
 # - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.

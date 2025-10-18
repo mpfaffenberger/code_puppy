@@ -1,16 +1,14 @@
 """Integration tests for autosave resume and session rotation."""
+
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
 import time
-from datetime import datetime, timezone
-from pathlib import Path
 
-import pytest
 import pexpect
+import pytest
 
 from tests.integration.cli_expect.fixtures import CliHarness, satisfy_initial_prompts
 
@@ -49,11 +47,8 @@ def test_autosave_resume_roundtrip(
             existing_home=first_run.temp_home,
         )
         try:
-
             second_run.child.expect("Autosave Sessions Available", timeout=20)
-            second_run.child.expect(
-                re.compile(r"Pick .*name/Enter:"), timeout=20
-            )
+            second_run.child.expect(re.compile(r"Pick .*name/Enter:"), timeout=20)
             time.sleep(0.2)
             second_run.send("1")
             time.sleep(0.3)
