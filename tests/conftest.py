@@ -6,9 +6,6 @@ import pytest
 
 # Expose the CLI harness fixtures globally
 from tests.integration.cli_expect.harness import (
-    SpawnResult,
-)
-from tests.integration.cli_expect.harness import (
     cli_harness as cli_harness,
 )
 from tests.integration.cli_expect.harness import (
@@ -20,12 +17,9 @@ from tests.integration.cli_expect.harness import (
 from tests.integration.cli_expect.harness import (
     retry_policy as retry_policy,
 )
-
-
-@pytest.fixture
-def spawned_cli(base_spawned_cli: SpawnResult) -> SpawnResult:
-    """Expose the harness-provided spawned_cli fixture for convenience."""
-    return base_spawned_cli
+# Re-export integration fixtures so pytest discovers them project-wide
+from tests.integration.cli_expect.harness import spawned_cli as spawned_cli  # noqa: F401
+from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
 
 
 @pytest.fixture
@@ -69,4 +63,14 @@ def pytest_sessionfinish(session, exitstatus):
                     print(f"    (cleanup failed: {e})")
     except subprocess.CalledProcessError:
         # Not a git repo or git not available: ignore silently
+        pass
+
+    # After cleanup, print DBOS consolidated report if available
+    try:
+        from tests.integration.cli_expect.harness import get_dbos_reports
+
+        report = get_dbos_reports()
+        if report.strip():
+            print("\n[DBOS Report]\n" + report)
+    except Exception:
         pass
