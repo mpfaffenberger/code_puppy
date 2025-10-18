@@ -1,14 +1,15 @@
-"""Export harness fixtures for the entire test suite."""
+"""Shared fixtures and helpers for CLI integration tests."""
+from __future__ import annotations
+
+import os
+import time
+from typing import Generator
+
+import pexpect
 import pytest
 
-from .harness import (
-    CliHarness,
-    SpawnResult,
-    integration_env,
-    log_dump,
-    retry_policy,
-    spawned_cli,
-)
+from .harness import CliHarness, SpawnResult
+from .harness import integration_env, log_dump, retry_policy, spawned_cli
 
 __all__ = [
     "CliHarness",
@@ -17,6 +18,41 @@ __all__ = [
     "log_dump",
     "retry_policy",
     "spawned_cli",
+    "live_cli",
+    "satisfy_initial_prompts",
+    "skip_autosave_picker",
 ]
 
-# Fixtures are already defined in harness; just re-export for importers
+
+@pytest.fixture
+def live_cli(cli_harness: CliHarness) -> Generator[SpawnResult, None, None]:
+    """Spawn the CLI using the caller's environment (for live network tests)."""
+    env = os.environ.copy()
+    env.setdefault("CODE_PUPPY_TEST_FAST", "1")
+    result = cli_harness.spawn(args=["-i"], env=env)
+    try:
+        yield result
+    finally:
+        cli_harness.cleanup(result)
+
+
+def satisfy_initial_prompts(result: SpawnResult) -> None:
+    """Complete the puppy name and owner prompts using explicit carriage returns."""
+    result.child.expect("What should we name the puppy?", timeout=20)
+    result.sendline("IntegrationPup\r")
+
+    result.child.expect("What's your name", timeout=20)
+    result.sendline("HarnessTester\r")
+
+    skip_autosave_picker(result)
+
+
+def skip_autosave_picker(result: SpawnResult) -> None:
+    """Skip the autosave picker if it appears."""
+    try:
+        result.child.expect("1-5 to load, 6 for next", timeout=5)
+        result.send("\r")
+        time.sleep(0.3)
+        result.send("\r")
+    except pexpect.exceptions.TIMEOUT:
+        pass

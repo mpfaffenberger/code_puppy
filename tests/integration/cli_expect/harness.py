@@ -105,6 +105,8 @@ class CliHarness:
         """Spawn a code-puppy CLI with a clean temporary HOME."""
         temp_home = pathlib.Path(tempfile.mkdtemp(prefix=f"code_puppy_home_{_random_name()}_"))
         config_dir = temp_home / ".config" / "code_puppy"
+        code_puppy_dir = temp_home / ".code_puppy"
+        code_puppy_dir.mkdir(parents=True, exist_ok=True)
         config_dir.mkdir(parents=True, exist_ok=True)
 
         (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
@@ -158,7 +160,8 @@ class CliHarness:
         )
 
     def cleanup(self, result: SpawnResult) -> None:
-        """Terminate the child and remove the temporary HOME."""
+        """Terminate the child and remove the temporary HOME unless instructed otherwise."""
+        keep_home = os.getenv("CODE_PUPPY_KEEP_TEMP_HOME") in {"1", "true", "TRUE", "True"}
         try:
             result.close_log()
         except Exception:
@@ -167,7 +170,8 @@ class CliHarness:
             if result.child.isalive():
                 result.child.terminate(force=True)
         finally:
-            shutil.rmtree(result.temp_home, ignore_errors=True)
+            if not keep_home:
+                shutil.rmtree(result.temp_home, ignore_errors=True)
 
     def _expect_with_retry(self, child: pexpect.spawn, patterns, timeout: float) -> None:
         def _inner():
