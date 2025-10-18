@@ -10,8 +10,8 @@ import random
 import shutil
 import sys
 import tempfile
-import textwrap
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -101,18 +101,29 @@ class CliHarness:
         self,
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
+        existing_home: pathlib.Path | None = None,
     ) -> SpawnResult:
-        """Spawn a code-puppy CLI with a clean temporary HOME."""
-        temp_home = pathlib.Path(tempfile.mkdtemp(prefix=f"code_puppy_home_{_random_name()}_"))
-        config_dir = temp_home / ".config" / "code_puppy"
-        code_puppy_dir = temp_home / ".code_puppy"
-        code_puppy_dir.mkdir(parents=True, exist_ok=True)
-        config_dir.mkdir(parents=True, exist_ok=True)
+        """Spawn the CLI, optionally reusing an existing HOME for autosave tests."""
+        if existing_home is not None:
+            temp_home = pathlib.Path(existing_home)
+            config_dir = temp_home / ".config" / "code_puppy"
+            code_puppy_dir = temp_home / ".code_puppy"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            code_puppy_dir.mkdir(parents=True, exist_ok=True)
+            write_config = not (config_dir / "puppy.cfg").exists()
+        else:
+            temp_home = pathlib.Path(tempfile.mkdtemp(prefix=f"code_puppy_home_{_random_name()}_"))
+            config_dir = temp_home / ".config" / "code_puppy"
+            code_puppy_dir = temp_home / ".code_puppy"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            code_puppy_dir.mkdir(parents=True, exist_ok=True)
+            write_config = True
 
-        (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
-        (config_dir / "motd.txt").write_text(MOTD_TEMPLATE, encoding="utf-8")
+        if write_config:
+            (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
+            (config_dir / "motd.txt").write_text(MOTD_TEMPLATE, encoding="utf-8")
 
-        log_path = temp_home / "cli_output.log"
+        log_path = temp_home / f"cli_output_{uuid.uuid4().hex}.log"
         cmd_args = ["code-puppy"] + (args or [])
 
         spawn_env = os.environ.copy()

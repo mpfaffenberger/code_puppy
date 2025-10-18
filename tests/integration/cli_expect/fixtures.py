@@ -36,7 +36,7 @@ def live_cli(cli_harness: CliHarness) -> Generator[SpawnResult, None, None]:
         cli_harness.cleanup(result)
 
 
-def satisfy_initial_prompts(result: SpawnResult) -> None:
+def satisfy_initial_prompts(result: SpawnResult, skip_autosave: bool = True) -> None:
     """Complete the puppy name and owner prompts using explicit carriage returns."""
     result.child.expect("What should we name the puppy?", timeout=20)
     result.sendline("IntegrationPup\r")
@@ -44,11 +44,14 @@ def satisfy_initial_prompts(result: SpawnResult) -> None:
     result.child.expect("What's your name", timeout=20)
     result.sendline("HarnessTester\r")
 
-    skip_autosave_picker(result)
+    skip_autosave_picker(result, skip=skip_autosave)
 
 
-def skip_autosave_picker(result: SpawnResult) -> None:
+def skip_autosave_picker(result: SpawnResult, *, skip: bool = True) -> None:
     """Skip the autosave picker if it appears."""
+    if not skip:
+        return
+
     try:
         result.child.expect("1-5 to load, 6 for next", timeout=5)
         result.send("\r")
