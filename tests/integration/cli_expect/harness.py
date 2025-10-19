@@ -381,7 +381,7 @@ class CliHarness:
 def integration_env() -> dict[str, str]:
     """Return a basic environment for integration tests."""
     return {
-        "CEREBRAS_API_KEY": os.getenv("CEREBRAS_API_KEY", "fake-key-for-ci"),
+        "CEREBRAS_API_KEY": os.environ["CEREBRAS_API_KEY"],
         "CODE_PUPPY_TEST_FAST": "1",
     }
 
