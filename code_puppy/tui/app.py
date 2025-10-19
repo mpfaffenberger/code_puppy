@@ -35,7 +35,14 @@ from code_puppy.tui.components import (
 # Import shared message classes
 from .messages import CommandSelected, HistoryEntrySelected
 from .models import ChatMessage, MessageType
-from .screens import HelpScreen, MCPInstallWizardScreen, SettingsScreen, ToolsScreen
+from .screens import (
+    HelpScreen,
+    MCPInstallWizardScreen,
+    SettingsScreen,
+    ToolsScreen,
+    ModelPicker,
+)
+from code_puppy.command_line.model_picker_completion import set_active_model
 
 
 class CodePuppyTUI(App):
@@ -489,6 +496,10 @@ class CodePuppyTUI(App):
                     self.app.exit()
                     return
 
+                if message.strip().lower() in ("/model", "/m"):
+                    self.action_open_model_picker()
+                    return
+
                 # Use the existing command handler
                 # The command handler directly uses the messaging system, so we don't need to capture stdout
                 try:
@@ -716,6 +727,22 @@ class CodePuppyTUI(App):
                 self.add_error_message(result.get("message", "MCP installation failed"))
 
         self.push_screen(MCPInstallWizardScreen(), handle_wizard_result)
+
+    def action_open_model_picker(self) -> None:
+        """Open the model picker modal."""
+
+        def handle_model_select(model_name: str | None):
+            if model_name:
+                try:
+                    set_active_model(model_name)
+                    self.current_model = model_name
+                    status_bar = self.query_one(StatusBar)
+                    status_bar.current_model = self.current_model
+                    self.add_system_message(f"✅ Model switched to: {model_name}")
+                except Exception as e:
+                    self.add_error_message(f"Failed to switch model: {e}")
+
+        self.push_screen(ModelPicker(), handle_model_select)
 
     def process_initial_command(self) -> None:
         """Process the initial command provided when starting the TUI."""
