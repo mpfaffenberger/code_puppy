@@ -80,8 +80,11 @@ class TestFilePermissions(unittest.TestCase):
         result = write_to_file(context, self.test_file, "New content", True)
 
         self.assertFalse(result["success"])
-        self.assertIn("cancelled by plugin system", result["message"])
+        self.assertIn("USER REJECTED", result["message"])
         self.assertFalse(result["changed"])
+        self.assertTrue(result["user_rejection"])
+        self.assertEqual(result["rejection_type"], "explicit_user_denial")
+        self.assertIn("Modify your approach", result["guidance"])
 
     @patch("code_puppy.callbacks.on_file_permission")
     def test_write_to_file_with_permission_granted(self, mock_permission):
@@ -126,8 +129,11 @@ class TestFilePermissions(unittest.TestCase):
         result = delete_snippet_from_file(context, self.test_file, "Hello, world!")
 
         self.assertFalse(result["success"])
-        self.assertIn("cancelled by plugin system", result["message"])
+        self.assertIn("USER REJECTED", result["message"])
         self.assertFalse(result["changed"])
+        self.assertTrue(result["user_rejection"])
+        self.assertEqual(result["rejection_type"], "explicit_user_denial")
+        self.assertIn("Modify your approach", result["guidance"])
 
     @patch("code_puppy.callbacks.on_file_permission")
     def test_replace_in_file_with_permission_denied(self, mock_permission):
@@ -139,8 +145,11 @@ class TestFilePermissions(unittest.TestCase):
         result = replace_in_file(context, self.test_file, replacements)
 
         self.assertFalse(result["success"])
-        self.assertIn("cancelled by plugin system", result["message"])
+        self.assertIn("USER REJECTED", result["message"])
         self.assertFalse(result["changed"])
+        self.assertTrue(result["user_rejection"])
+        self.assertEqual(result["rejection_type"], "explicit_user_denial")
+        self.assertIn("Modify your approach", result["guidance"])
 
     @patch("code_puppy.callbacks.on_file_permission")
     def test_delete_file_with_permission_denied(self, mock_permission):
@@ -151,8 +160,11 @@ class TestFilePermissions(unittest.TestCase):
         result = _delete_file(context, self.test_file)
 
         self.assertFalse(result["success"])
-        self.assertIn("cancelled by plugin system", result["message"])
+        self.assertIn("USER REJECTED", result["message"])
         self.assertFalse(result["changed"])
+        self.assertTrue(result["user_rejection"])
+        self.assertEqual(result["rejection_type"], "explicit_user_denial")
+        self.assertIn("Modify your approach", result["guidance"])
 
         # Verify file still exists
         self.assertTrue(os.path.exists(self.test_file))
