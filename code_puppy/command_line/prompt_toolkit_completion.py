@@ -18,6 +18,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.processors import Processor, Transformation
+from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.styles import Style
 
 from code_puppy.command_line.attachments import (
@@ -369,12 +370,23 @@ async def get_input_with_combined_completion(
         """Cancel the current prompt when the user presses the ESC key alone."""
         event.app.exit(exception=KeyboardInterrupt)
 
+    force_dummy_prompt = os.getenv("CODE_PUPPY_FORCE_DUMMY_PROMPT", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    session_kwargs: dict[str, object] = {}
+    if force_dummy_prompt:
+        session_kwargs["output"] = DummyOutput()
+        session_kwargs["erase_when_done"] = False
+
     session = PromptSession(
         completer=completer,
         history=history,
         complete_while_typing=True,
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
+        **session_kwargs,
     )
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
