@@ -12,17 +12,13 @@ import re
 import time
 
 import pexpect
-import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
     satisfy_initial_prompts,
 )
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("CONTEXT7_API_KEY"),
-    reason="Requires CONTEXT7_API_KEY to run Context7 MCP integration",
-)
+# No pytestmark - environment variables are required for integration tests
 
 
 def test_mcp_context7_end_to_end(cli_harness: CliHarness) -> None:

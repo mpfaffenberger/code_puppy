@@ -53,8 +53,14 @@ jobs:
           uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
 
       - name: Run integration tests
+        env:
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
           echo "Running integration tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
+          echo "Required environment variables are set (using CI fallbacks if secrets not available)"
           uv run pytest tests/integration/ -v
 
   build-publish:

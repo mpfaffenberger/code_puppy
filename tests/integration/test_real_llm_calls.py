@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-import os
 import time
 
 import pexpect
-import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
     SpawnResult,
     satisfy_initial_prompts,
-)
-
-pytestmark = pytest.mark.skipif(
-    not os.getenv("CEREBRAS_API_KEY"),
-    reason="Requires CEREBRAS_API_KEY to hit the live LLM",
 )
 
 

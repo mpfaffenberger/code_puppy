@@ -19,16 +19,10 @@ from tests.integration.cli_expect.fixtures import (
 
 IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
 
-pytestmark = [
-    pytest.mark.skipif(
-        not os.getenv("CEREBRAS_API_KEY"),
-        reason="Requires CEREBRAS_API_KEY to hit the live LLM",
-    ),
-    pytest.mark.skipif(
-        IS_WINDOWS,
-        reason="Interactive CLI pexpect tests have platform-specific issues on Windows",
-    ),
-]
+pytestmark = pytest.mark.skipif(
+    IS_WINDOWS,
+    reason="Interactive CLI pexpect tests have platform-specific issues on Windows",
+)
 
 
 def _assert_contains(log_output: str, needle: str) -> None:
