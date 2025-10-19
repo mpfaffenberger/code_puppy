@@ -307,9 +307,6 @@ class CliHarness:
         dbos_sqlite = code_puppy_dir / "dbos_store.sqlite"
         spawn_env["DBOS_SYSTEM_DATABASE_URL"] = f"sqlite:///{dbos_sqlite}"
         spawn_env.setdefault("DBOS_LOG_LEVEL", "ERROR")
-        if IS_WINDOWS:
-            spawn_env.setdefault("CODE_PUPPY_FORCE_DUMMY_PROMPT", "1")
-            spawn_env.setdefault("PROMPT_TOOLKIT_NO_CPR", "1")
 
         child = spawn_process(
             cmd_args,
