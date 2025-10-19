@@ -12,45 +12,16 @@ from pexpect.spawnbase import SpawnBase
 
 try:
     from pexpect.popen_spawn import PopenSpawn
-except (ImportError, AttributeError):  # pragma: no cover - missing on some builds
+except (
+    ImportError
+):  # pragma: no cover - executed only on non-Windows builds lacking popen spawn
     PopenSpawn = None
 
 IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
 
+SpawnChild = SpawnBase
+
 HAS_WINDOWS_BACKEND = PopenSpawn is not None
-
-if IS_WINDOWS and HAS_WINDOWS_BACKEND:
-
-    class WindowsPopenSpawn(PopenSpawn):  # pragma: no cover - Windows-only shim
-        """Provide POSIX-like helpers expected by our harness."""
-
-        def isalive(self) -> bool:
-            return not getattr(self, "closed", False) and self.proc.poll() is None
-
-        def terminate(self, force: bool = False) -> None:
-            if not self.isalive():
-                return
-            try:
-                if force:
-                    self.proc.kill()
-                else:
-                    self.proc.terminate()
-            except Exception:
-                pass
-            finally:
-                try:
-                    self.wait()
-                except Exception:
-                    pass
-                self.closed = True
-
-        def close(self) -> None:
-            self.terminate(force=False)
-
-else:
-    WindowsPopenSpawn = None
-
-SpawnChild = WindowsPopenSpawn if IS_WINDOWS and HAS_WINDOWS_BACKEND else SpawnBase
 
 __all__ = ["SpawnChild", "spawn_process", "IS_WINDOWS", "HAS_WINDOWS_BACKEND"]
 
@@ -83,7 +54,7 @@ def spawn_process(
         process_env = os.environ.copy()
         if env:
             process_env.update(env)
-        child: SpawnChild = WindowsPopenSpawn(
+        child: SpawnChild = PopenSpawn(
             normalized_command,
             timeout=timeout,
             encoding=encoding,
