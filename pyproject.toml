@@ -35,7 +35,6 @@ dependencies = [
     "playwright>=1.40.0",
     "camoufox>=0.4.11",
     "dbos>=2.0.0",
-    "pywinpty>=2.0.0; platform_system == 'Windows'",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
