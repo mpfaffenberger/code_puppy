@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from code_puppy.messaging import emit_info
 
+from ...agents import get_current_agent
 from .base import MCPCommandBase
 from .utils import find_server_id_by_name, suggest_similar_servers
 
@@ -75,6 +76,8 @@ class StartCommand(MCPCommandBase):
 
                 # Reload the agent to pick up the newly enabled server
                 try:
+                    agent = get_current_agent()
+                    agent.reload_code_generation_agent()
                     emit_info(
                         "[dim]Agent reloaded with updated servers[/dim]",
                         message_group=group_id,
