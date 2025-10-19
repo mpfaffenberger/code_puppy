@@ -1,5 +1,6 @@
 """Foundational tests for the CLI harness plumbing."""
 
+import os
 import pathlib
 import time
 
@@ -66,6 +67,79 @@ def test_harness_cleanup_terminates_and_removes_temp_home(
     result = cli_harness.spawn(args=["--help"], env=integration_env)
     temp_home = result.temp_home
     assert temp_home.exists()
-    cli_harness.cleanup(result)
+
+    # Disable selective cleanup for this test to verify original behavior
+    old_selective_cleanup = os.environ.get("CODE_PUPPY_SELECTIVE_CLEANUP")
+    os.environ["CODE_PUPPY_SELECTIVE_CLEANUP"] = "false"
+    try:
+        cli_harness.cleanup(result)
+    finally:
+        if old_selective_cleanup is None:
+            os.environ.pop("CODE_PUPPY_SELECTIVE_CLEANUP", None)
+        else:
+            os.environ["CODE_PUPPY_SELECTIVE_CLEANUP"] = old_selective_cleanup
+
     assert not temp_home.exists()
     assert not result.child.isalive()
+
+
+def test_selective_cleanup_only_removes_test_files(
+    cli_harness: CliHarness,
+    integration_env: dict[str, str],
+    tmp_path: pathlib.Path,
+) -> None:
+    """Selective cleanup should only remove files created during test run."""
+    # Create a pre-existing file directory
+    existing_home = tmp_path / "existing_home"
+    existing_home.mkdir()
+
+    # Add some pre-existing files
+    pre_existing_file = existing_home / "pre_existing.txt"
+    pre_existing_file.write_text("I was here before the test")
+
+    pre_existing_dir = existing_home / "pre_existing_dir"
+    pre_existing_dir.mkdir()
+    pre_existing_nested = pre_existing_dir / "nested.txt"
+    pre_existing_nested.write_text("Nested pre-existing file")
+
+    # Spawn CLI using existing home
+    result = cli_harness.spawn(
+        args=["--help"], env=integration_env, existing_home=existing_home
+    )
+
+    # Verify pre-existing files are still there
+    assert pre_existing_file.exists()
+    assert pre_existing_nested.exists()
+
+    # Create some test files during the test run
+    test_file = existing_home / "test_created.txt"
+    test_file.write_text("Created during test")
+
+    test_dir = existing_home / "test_created_dir"
+    test_dir.mkdir()
+    test_nested = test_dir / "nested.txt"
+    test_nested.write_text("Created during test")
+
+    # Verify test files exist
+    assert test_file.exists()
+    assert test_nested.exists()
+
+    # Cleanup with selective cleanup enabled (default)
+    old_selective_cleanup = os.environ.get("CODE_PUPPY_SELECTIVE_CLEANUP")
+    os.environ["CODE_PUPPY_SELECTIVE_CLEANUP"] = "true"
+    try:
+        cli_harness.cleanup(result)
+    finally:
+        if old_selective_cleanup is None:
+            os.environ.pop("CODE_PUPPY_SELECTIVE_CLEANUP", None)
+        else:
+            os.environ["CODE_PUPPY_SELECTIVE_CLEANUP"] = old_selective_cleanup
+
+    # Pre-existing files should still exist
+    assert pre_existing_file.exists()
+    assert pre_existing_nested.exists()
+
+    # Test-created files should be deleted
+    assert not test_file.exists()
+    assert not test_nested.exists()
+    assert not test_dir.exists()  # Empty dir should be removed too

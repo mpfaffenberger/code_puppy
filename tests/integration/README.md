@@ -34,7 +34,8 @@ Each spawned CLI writes diagnostic logs to `tmp/.../cli_output.log`. When a test
 
 ## Failure handling
 - The harness retries prompt expectations with exponential backoff (see `RetryPolicy`) to smooth transient delays.
-- Final cleanup terminates the child process and deletes the temporary HOME. If you need to keep artifacts for debugging, set `CODE_PUPPY_KEEP_TEMP_HOME=1` before running pytest; the fixtures honor that flag and skip deletion.
+- Final cleanup terminates the child process and selectively deletes files created during the test run. By default, only test-created files are removed, preserving any pre-existing files in reused HOME directories. If you need to keep artifacts for debugging, set `CODE_PUPPY_KEEP_TEMP_HOME=1` before running pytest; the fixtures honor that flag and skip deletion entirely.
+- To use the original "delete everything" cleanup behavior, set `CODE_PUPPY_SELECTIVE_CLEANUP=false`.
 - Timeout errors surface the last 100 characters captured by pyexpect, making it easier to diagnose mismatched prompts.
 
 ## Customizing the fixtures
