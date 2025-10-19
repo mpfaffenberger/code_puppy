@@ -258,7 +258,7 @@ def delete_snippet_from_file(
         return {
             "success": False,
             "path": file_path,
-            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes - consider a different approach or ask for clarification.",
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
             "changed": False,
             "user_rejection": True,
             "rejection_type": "explicit_user_denial",
@@ -295,7 +295,7 @@ def write_to_file(
         return {
             "success": False,
             "path": path,
-            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes - consider a different approach or ask for clarification.",
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
             "changed": False,
             "user_rejection": True,
             "rejection_type": "explicit_user_denial",
@@ -332,7 +332,7 @@ def replace_in_file(
         return {
             "success": False,
             "path": path,
-            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes - consider a different approach or ask for clarification.",
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
             "changed": False,
             "user_rejection": True,
             "rejection_type": "explicit_user_denial",
@@ -460,7 +460,7 @@ def _delete_file(
         return {
             "success": False,
             "path": file_path,
-            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes - consider a different approach or ask for clarification.",
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
             "changed": False,
             "user_rejection": True,
             "rejection_type": "explicit_user_denial",
