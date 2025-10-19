@@ -47,11 +47,6 @@ jobs:
         if: runner.os == 'Windows'
         run: uv pip install colorama
 
-      - name: Run unit tests
-        run: |
-          echo "Running unit tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
-          uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
-
       - name: Debug environment variables
         env:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
@@ -70,16 +65,16 @@ jobs:
           echo "ANTHROPIC_API_KEY length: ${#ANTHROPIC_API_KEY}"
           echo "=== END DEBUG ==="
 
-      - name: Run integration tests
+      - name: Run tests
         env:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
           CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
-          echo "Running integration tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
+          echo "Running all tests (unit + integration) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
-          uv run pytest tests/integration/ -v
+          uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
 
   build-publish:
     runs-on: ubuntu-latest
