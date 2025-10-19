@@ -8,13 +8,11 @@ changes match expectations.
 
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 import time
 from pathlib import Path
 
-import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
@@ -22,10 +20,7 @@ from tests.integration.cli_expect.fixtures import (
     satisfy_initial_prompts,
 )
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("CEREBRAS_API_KEY"),
-    reason="Requires CEREBRAS_API_KEY to hit the live LLM",
-)
+# No pytestmark - environment variables are required for integration tests
 
 
 def _assert_file_exists(test_dir: Path, relative_path: str) -> Path:

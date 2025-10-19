@@ -9,14 +9,8 @@ import time
 from pathlib import Path
 
 import pexpect
-import pytest
 
 from tests.integration.cli_expect.fixtures import CliHarness, satisfy_initial_prompts
-
-pytestmark = pytest.mark.skipif(
-    not os.getenv("CEREBRAS_API_KEY"),
-    reason="Requires CEREBRAS_API_KEY to hit the live LLM",
-)
 
 
 def test_session_rotation(
