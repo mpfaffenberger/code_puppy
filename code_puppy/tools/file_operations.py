@@ -115,7 +115,7 @@ def _list_files(
     import sys
 
     results = []
-    directory = os.path.abspath(directory)
+    directory = os.path.abspath(os.path.expanduser(directory))
 
     # Build string representation
     output_lines = []
@@ -183,126 +183,125 @@ def _list_files(
             output_lines.append(error_msg)
             return ListFileOutput(content="\n".join(output_lines))
 
-        # Build command for ripgrep --files
-        cmd = [rg_path, "--files"]
+        # Only use ripgrep for recursive listings
+        if recursive:
+            # Build command for ripgrep --files
+            cmd = [rg_path, "--files"]
 
-        # For non-recursive mode, we'll limit depth after getting results
-        if not recursive:
-            cmd.extend(["--max-depth", "1"])
+            # Add ignore patterns to the command via a temporary file
+            from code_puppy.tools.common import (
+                DIR_IGNORE_PATTERNS,
+            )
 
-        # Add ignore patterns to the command via a temporary file
-        from code_puppy.tools.common import IGNORE_PATTERNS
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".ignore"
+            ) as f:
+                ignore_file = f.name
+                for pattern in DIR_IGNORE_PATTERNS:
+                    f.write(f"{pattern}\n")
 
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
-            ignore_file = f.name
-            for pattern in IGNORE_PATTERNS:
-                f.write(f"{pattern}\n")
+            cmd.extend(["--ignore-file", ignore_file])
+            cmd.append(directory)
 
-        cmd.extend(["--ignore-file", ignore_file])
-        cmd.append(directory)
+            # Run ripgrep to get file listing
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
-        # Run ripgrep to get file listing
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            # Process the output lines
+            files = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
-        # Process the output lines
-        files = result.stdout.strip().split("\n") if result.stdout.strip() else []
+            # Create ListedFile objects with metadata
+            for full_path in files:
+                if not full_path:  # Skip empty lines
+                    continue
 
-        # Create ListedFile objects with metadata
-        for full_path in files:
-            if not full_path:  # Skip empty lines
-                continue
+                # Skip if file doesn't exist (though it should)
+                if not os.path.exists(full_path):
+                    continue
 
-            # Skip if file doesn't exist (though it should)
-            if not os.path.exists(full_path):
-                continue
+                # Extract relative path from the full path
+                if full_path.startswith(directory):
+                    file_path = full_path[len(directory) :].lstrip(os.sep)
+                else:
+                    file_path = full_path
 
-            # Extract relative path from the full path
-            if full_path.startswith(directory):
-                file_path = full_path[len(directory) :].lstrip(os.sep)
-            else:
-                file_path = full_path
+                # Check if path is a file or directory
+                if os.path.isfile(full_path):
+                    entry_type = "file"
+                    size = os.path.getsize(full_path)
+                elif os.path.isdir(full_path):
+                    entry_type = "directory"
+                    size = 0
+                else:
+                    # Skip if it's neither a file nor directory
+                    continue
 
-            # For non-recursive mode, skip files in subdirectories
-            # Only check the relative path, not the full path
-            if not recursive and os.sep in file_path:
-                continue
+                try:
+                    # Get stats for the entry
+                    stat_info = os.stat(full_path)
+                    actual_size = stat_info.st_size
 
-            # Check if path is a file or directory
-            if os.path.isfile(full_path):
-                entry_type = "file"
-                size = os.path.getsize(full_path)
-            elif os.path.isdir(full_path):
-                entry_type = "directory"
-                size = 0
-            else:
-                # Skip if it's neither a file nor directory
-                continue
+                    # For files, we use the actual size; for directories, we keep size=0
+                    if entry_type == "file":
+                        size = actual_size
 
-            try:
-                # Get stats for the entry
-                stat_info = os.stat(full_path)
-                actual_size = stat_info.st_size
+                    # Calculate depth based on the relative path
+                    depth = file_path.count(os.sep)
 
-                # For files, we use the actual size; for directories, we keep size=0
-                if entry_type == "file":
-                    size = actual_size
-
-                # Calculate depth based on the relative path
-                depth = file_path.count(os.sep)
-
-                # Add directory entries if needed for files
-                if entry_type == "file":
-                    dir_path = os.path.dirname(file_path)
-                    if dir_path:
-                        # Add directory path components if they don't exist
-                        path_parts = dir_path.split(os.sep)
-                        for i in range(len(path_parts)):
-                            partial_path = os.sep.join(path_parts[: i + 1])
-                            # Check if we already added this directory
-                            if not any(
-                                f.path == partial_path and f.type == "directory"
-                                for f in results
-                            ):
-                                results.append(
-                                    ListedFile(
-                                        path=partial_path,
-                                        type="directory",
-                                        size=0,
-                                        full_path=os.path.join(directory, partial_path),
-                                        depth=partial_path.count(os.sep),
+                    # Add directory entries if needed for files
+                    if entry_type == "file":
+                        dir_path = os.path.dirname(file_path)
+                        if dir_path:
+                            # Add directory path components if they don't exist
+                            path_parts = dir_path.split(os.sep)
+                            for i in range(len(path_parts)):
+                                partial_path = os.sep.join(path_parts[: i + 1])
+                                # Check if we already added this directory
+                                if not any(
+                                    f.path == partial_path and f.type == "directory"
+                                    for f in results
+                                ):
+                                    results.append(
+                                        ListedFile(
+                                            path=partial_path,
+                                            type="directory",
+                                            size=0,
+                                            full_path=os.path.join(
+                                                directory, partial_path
+                                            ),
+                                            depth=partial_path.count(os.sep),
+                                        )
                                     )
-                                )
 
-                # Add the entry (file or directory)
-                results.append(
-                    ListedFile(
-                        path=file_path,
-                        type=entry_type,
-                        size=size,
-                        full_path=full_path,
-                        depth=depth,
+                    # Add the entry (file or directory)
+                    results.append(
+                        ListedFile(
+                            path=file_path,
+                            type=entry_type,
+                            size=size,
+                            full_path=full_path,
+                            depth=depth,
+                        )
                     )
-                )
-            except (FileNotFoundError, PermissionError, OSError):
-                # Skip files we can't access
-                continue
+                except (FileNotFoundError, PermissionError, OSError):
+                    # Skip files we can't access
+                    continue
 
-        # In non-recursive mode, we also need to explicitly list directories in the target directory
-        # ripgrep's --files option only returns files, not directories
+        # In non-recursive mode, we also need to explicitly list immediate entries
+        # ripgrep's --files option only returns files; we add directories and files ourselves
         if not recursive:
             try:
+                from code_puppy.tools.common import should_ignore_dir_path
+
                 entries = os.listdir(directory)
-                for entry in entries:
+                for entry in sorted(entries):
                     full_entry_path = os.path.join(directory, entry)
-                    # Skip if it doesn't exist or if it's a file (since files are already listed by ripgrep)
-                    if not os.path.exists(full_entry_path) or os.path.isfile(
-                        full_entry_path
-                    ):
+                    if not os.path.exists(full_entry_path):
                         continue
 
-                    # For non-recursive mode, only include directories that are directly in the target directory
                     if os.path.isdir(full_entry_path):
-                        # Create a ListedFile for the directory
+                        # Skip ignored directories
+                        if should_ignore_dir_path(full_entry_path):
+                            continue
                         results.append(
                             ListedFile(
                                 path=entry,
@@ -312,8 +311,23 @@ def _list_files(
                                 depth=0,
                             )
                         )
+                    elif os.path.isfile(full_entry_path):
+                        # Include top-level files (including binaries)
+                        try:
+                            size = os.path.getsize(full_entry_path)
+                        except OSError:
+                            size = 0
+                        results.append(
+                            ListedFile(
+                                path=entry,
+                                type="file",
+                                size=size,
+                                full_path=full_entry_path,
+                                depth=0,
+                            )
+                        )
             except (FileNotFoundError, PermissionError, OSError):
-                # Skip directories we can't access
+                # Skip entries we can't access
                 pass
     except subprocess.TimeoutExpired:
         error_msg = (
@@ -438,7 +452,7 @@ def _read_file(
     start_line: int | None = None,
     num_lines: int | None = None,
 ) -> ReadFileOutput:
-    file_path = os.path.abspath(file_path)
+    file_path = os.path.abspath(os.path.expanduser(file_path))
 
     # Generate group_id for this tool execution
     group_id = generate_group_id("read_file", file_path)
@@ -497,7 +511,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     import subprocess
     import sys
 
-    directory = os.path.abspath(directory)
+    directory = os.path.abspath(os.path.expanduser(directory))
     matches: List[MatchInfo] = []
 
     # Generate group_id for this tool execution
@@ -556,11 +570,11 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         ]
 
         # Add ignore patterns to the command via a temporary file
-        from code_puppy.tools.common import IGNORE_PATTERNS
+        from code_puppy.tools.common import DIR_IGNORE_PATTERNS
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
             ignore_file = f.name
-            for pattern in IGNORE_PATTERNS:
+            for pattern in DIR_IGNORE_PATTERNS:
                 f.write(f"{pattern}\n")
 
         cmd.extend(["--ignore-file", ignore_file])
