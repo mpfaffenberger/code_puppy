@@ -10,20 +10,11 @@ from typing import Sequence
 import pexpect
 from pexpect.spawnbase import SpawnBase
 
-try:
-    from pexpect.popen_spawn import PopenSpawn
-except (
-    ImportError
-):  # pragma: no cover - executed only on non-Windows builds lacking popen spawn
-    PopenSpawn = None
-
 IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
 
 SpawnChild = SpawnBase
 
-HAS_WINDOWS_BACKEND = PopenSpawn is not None
-
-__all__ = ["SpawnChild", "spawn_process", "IS_WINDOWS", "HAS_WINDOWS_BACKEND"]
+__all__ = ["SpawnChild", "spawn_process", "IS_WINDOWS"]
 
 
 def _normalize_command(command: Sequence[str] | str) -> Sequence[str] | str:
@@ -47,14 +38,10 @@ def spawn_process(
     normalized_command = _normalize_command(command)
 
     if IS_WINDOWS:
-        if not HAS_WINDOWS_BACKEND:
-            raise RuntimeError(
-                "pexpect popen_spawn backend unavailable – install pexpect with Windows support"
-            )
         process_env = os.environ.copy()
         if env:
             process_env.update(env)
-        child: SpawnChild = PopenSpawn(
+        child: SpawnChild = pexpect.popen_spawn.PopenSpawn(
             normalized_command,
             timeout=timeout,
             encoding=encoding,

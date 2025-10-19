@@ -3,19 +3,8 @@
 import time
 
 import pexpect
-import pytest
 
-from tests.integration.cli_expect.pexpect_compat import (
-    HAS_WINDOWS_BACKEND,
-    IS_WINDOWS,
-    spawn_process,
-)
-
-if IS_WINDOWS and not HAS_WINDOWS_BACKEND:  # pragma: no cover - Windows-only guard
-    pytest.skip(
-        "pexpect Windows backend missing; install pywinpty or compatible provider",
-        allow_module_level=True,
-    )
+from tests.integration.cli_expect.pexpect_compat import spawn_process
 
 
 def test_version_smoke() -> None:
