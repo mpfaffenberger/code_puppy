@@ -259,9 +259,11 @@ def delete_snippet_from_file(
         return {
             "success": False,
             "path": file_path,
-            "message": "Operation cancelled by plugin system",
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes - consider a different approach or ask for clarification.",
             "changed": False,
             "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+            "guidance": "Modify your approach or ask the user what they prefer.",
         }
 
     res = _delete_snippet_from_file(
@@ -295,9 +297,11 @@ def write_to_file(
         return {
             "success": False,
             "path": path,
-            "message": "Operation cancelled by plugin system",
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes - consider a different approach or ask for clarification.",
             "changed": False,
             "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+            "guidance": "Modify your approach or ask the user what they prefer.",
         }
 
     res = _write_to_file(
@@ -330,9 +334,11 @@ def replace_in_file(
         return {
             "success": False,
             "path": path,
-            "message": "Operation cancelled by plugin system",
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes - consider a different approach or ask for clarification.",
             "changed": False,
             "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+            "guidance": "Modify your approach or ask the user what they prefer.",
         }
 
     res = _replace_in_file(context, path, replacements, message_group=message_group)
@@ -456,9 +462,11 @@ def _delete_file(
         return {
             "success": False,
             "path": file_path,
-            "message": "Operation cancelled by plugin system",
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes - consider a different approach or ask for clarification.",
             "changed": False,
             "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+            "guidance": "Modify your approach or ask the user what they prefer.",
         }
 
     try:
