@@ -5,20 +5,11 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import sys
 import time
 
 import pexpect
-import pytest
 
 from tests.integration.cli_expect.fixtures import CliHarness, satisfy_initial_prompts
-
-IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
-
-pytestmark = pytest.mark.skipif(
-    IS_WINDOWS,
-    reason="Interactive CLI pexpect tests have platform-specific issues on Windows",
-)
 
 
 def test_autosave_resume_roundtrip(
