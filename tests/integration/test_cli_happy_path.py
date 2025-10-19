@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -16,10 +17,18 @@ from tests.integration.cli_expect.fixtures import (
     satisfy_initial_prompts,
 )
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("CEREBRAS_API_KEY"),
-    reason="Requires CEREBRAS_API_KEY to hit the live LLM",
-)
+IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
+
+pytestmark = [
+    pytest.mark.skipif(
+        not os.getenv("CEREBRAS_API_KEY"),
+        reason="Requires CEREBRAS_API_KEY to hit the live LLM",
+    ),
+    pytest.mark.skipif(
+        IS_WINDOWS,
+        reason="Interactive CLI pexpect tests have platform-specific issues on Windows",
+    ),
+]
 
 
 def _assert_contains(log_output: str, needle: str) -> None:
