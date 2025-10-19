@@ -13,7 +13,6 @@ from __future__ import annotations
 import difflib
 import json
 import os
-import sys
 import traceback
 from typing import Any, Dict, List, Union
 
@@ -21,7 +20,7 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from code_puppy.callbacks import on_edit_file, on_delete_file
+from code_puppy.callbacks import on_delete_file, on_edit_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
 
@@ -263,7 +262,6 @@ def delete_snippet_from_file(
             "changed": False,
             "user_rejection": True,
             "rejection_type": "explicit_user_denial",
-            "guidance": "Modify your approach or ask the user what they prefer.",
         }
 
     res = _delete_snippet_from_file(
@@ -466,7 +464,6 @@ def _delete_file(
             "changed": False,
             "user_rejection": True,
             "rejection_type": "explicit_user_denial",
-            "guidance": "Modify your approach or ask the user what they prefer.",
         }
 
     try:
