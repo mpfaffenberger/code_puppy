@@ -3,29 +3,28 @@ from code_puppy.tools import file_modifications
 
 def test_replace_in_file_multiple_replacements(tmp_path):
     path = tmp_path / "multi.txt"
-    path.write_text("foo bar baz bar foo", encoding="utf-8")
+    path.write_text("foo bar baz bar foo")
     reps = [
         {"old_str": "bar", "new_str": "dog"},
         {"old_str": "foo", "new_str": "biscuit"},
     ]
     res = file_modifications._replace_in_file(None, str(path), reps)
     assert res["success"]
-    text = path.read_text(encoding="utf-8")
-    assert "dog" in text and "biscuit" in text
+    assert "dog" in path.read_text() and "biscuit" in path.read_text()
 
 
 def test_replace_in_file_unicode(tmp_path):
     path = tmp_path / "unicode.txt"
-    path.write_text("puppy 🐶 says meow", encoding="utf-8")
+    path.write_text("puppy 🐶 says meow")
     reps = [{"old_str": "meow", "new_str": "woof"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
     assert res["success"]
-    assert "woof" in path.read_text(encoding="utf-8")
+    assert "woof" in path.read_text()
 
 
 def test_replace_in_file_near_match(tmp_path):
     path = tmp_path / "fuzzy.txt"
-    path.write_text("abc\ndef\nghijk", encoding="utf-8")
+    path.write_text("abc\ndef\nghijk")
     # deliberately off by one for fuzzy test
     reps = [{"old_str": "def\nghij", "new_str": "replaced"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
@@ -36,7 +35,7 @@ def test_replace_in_file_near_match(tmp_path):
 def test_delete_large_snippet(tmp_path):
     path = tmp_path / "bigdelete.txt"
     content = "hello" + " fluff" * 500 + " bye"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content)
     snippet = " fluff" * 250
     res = file_modifications._delete_snippet_from_file(None, str(path), snippet)
     # Could still succeed or fail depending on split, just check key presence
@@ -53,7 +52,7 @@ def test_write_to_file_invalid_path(tmp_path):
 
 def test_replace_in_file_invalid_json(tmp_path):
     path = tmp_path / "bad.txt"
-    path.write_text("hi there!", encoding="utf-8")
+    path.write_text("hi there!")
     # malformed replacements - not a list
     reps = "this is definitely not json dicts"
     try:

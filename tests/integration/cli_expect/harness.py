@@ -21,20 +21,7 @@ from typing import Final
 import pexpect
 import pytest
 
-from tests.integration.cli_expect.pexpect_compat import (
-    HAS_WINDOWS_BACKEND,
-    IS_WINDOWS,
-    SpawnChild,
-    spawn_process,
-)
-
-if (
-    IS_WINDOWS and not HAS_WINDOWS_BACKEND
-):  # pragma: no cover - only triggered on Windows
-    pytest.skip(
-        "pexpect Windows backend missing; install pywinpty or compatible provider",
-        allow_module_level=True,
-    )
+from tests.integration.cli_expect.pexpect_compat import SpawnChild, spawn_process
 
 CONFIG_TEMPLATE: Final[str] = """[puppy]
 puppy_name = IntegrationPup
