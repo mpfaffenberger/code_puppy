@@ -44,12 +44,12 @@ class SubmitCancelButton(Button):
     """
 
     def __init__(self, **kwargs):
-        super().__init__("▶️", **kwargs)
+        super().__init__("▶", **kwargs)
         self.id = "submit-cancel-button"
 
     def watch_is_cancel_mode(self, is_cancel: bool) -> None:
         """Update the button label when cancel mode changes."""
-        self.label = "⏹️" if is_cancel else "▶️"
+        self.label = "■" if is_cancel else "▶"
 
     def on_click(self) -> None:
         """Handle click event and bubble it up to parent."""
@@ -97,7 +97,7 @@ class InputArea(Container):
     #input-field {
         height: 5;
         width: 1fr;
-        border: round $primary;
+        border: solid $primary;
         background: $surface;
     }
 
