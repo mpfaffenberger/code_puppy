@@ -21,6 +21,8 @@ from typing import Final
 import pexpect
 import pytest
 
+from tests.integration.cli_expect.pexpect_compat import SpawnChild, spawn_process
+
 CONFIG_TEMPLATE: Final[str] = """[puppy]
 puppy_name = IntegrationPup
 owner_name = CodePuppyTester
@@ -63,7 +65,7 @@ def _with_retry(fn, policy: RetryPolicy, timeout: float):
 
 @dataclass(slots=True)
 class SpawnResult:
-    child: pexpect.spawn
+    child: SpawnChild
     temp_home: pathlib.Path
     log_path: pathlib.Path
     timeout: float = field(default=10.0)
@@ -293,9 +295,8 @@ class CliHarness:
         spawn_env["DBOS_SYSTEM_DATABASE_URL"] = f"sqlite:///{dbos_sqlite}"
         spawn_env.setdefault("DBOS_LOG_LEVEL", "ERROR")
 
-        child = pexpect.spawn(
-            cmd_args[0],
-            args=cmd_args[1:],
+        child = spawn_process(
+            cmd_args,
             encoding="utf-8",
             timeout=self._timeout,
             env=spawn_env,
@@ -365,9 +366,7 @@ class CliHarness:
                     # Fallback to original behavior
                     shutil.rmtree(result.temp_home, ignore_errors=True)
 
-    def _expect_with_retry(
-        self, child: pexpect.spawn, patterns, timeout: float
-    ) -> None:
+    def _expect_with_retry(self, child: SpawnChild, patterns, timeout: float) -> None:
         def _inner():
             return child.expect(patterns, timeout=timeout)
 
