@@ -43,13 +43,4 @@ pre-commit:
           echo "pnpm not found, skipping pnpm check"
         fi
 
-pre-push:
-  parallel: false
-  commands:
-    pytest:
-      run: |
-        if command -v uv >/dev/null 2>&1; then
-          uv run pytest -q
-        else
-          pytest -q
-        fi
+# pre-push hook removed - tests run in CI only
