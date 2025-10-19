@@ -68,6 +68,9 @@ class SpawnResult:
     log_path: pathlib.Path
     timeout: float = field(default=10.0)
     _log_file: object = field(init=False, repr=False)
+    _initial_files: set[pathlib.Path] = field(
+        init=False, repr=False, default_factory=set
+    )
 
     def send(self, txt: str) -> None:
         """Send with the cooked line ending learned from smoke tests."""
@@ -103,6 +106,87 @@ def _safe_json(val):
         return str(val)
 
 
+def _capture_initial_files(temp_home: pathlib.Path) -> set[pathlib.Path]:
+    """Capture all files that exist before the test starts.
+
+    Returns a set of absolute file paths that were present at test start.
+    """
+    initial_files = set()
+    try:
+        for root, dirs, files in os.walk(temp_home):
+            for file in files:
+                initial_files.add(pathlib.Path(root) / file)
+    except (OSError, PermissionError):
+        # If we can't walk the directory, just return empty set
+        pass
+    return initial_files
+
+
+def _cleanup_test_only_files(
+    temp_home: pathlib.Path, initial_files: set[pathlib.Path]
+) -> None:
+    """Delete only files that were created during the test run.
+
+    This is more selective than removing the entire temp directory.
+    """
+    try:
+        # Walk current files and delete those not in initial set
+        current_files = set()
+        for root, dirs, files in os.walk(temp_home):
+            for file in files:
+                current_files.add(pathlib.Path(root) / file)
+
+        # Files to delete are those that exist now but didn't initially
+        files_to_delete = current_files - initial_files
+
+        # Delete files in reverse order (deepest first) to avoid path issues
+        for file_path in sorted(
+            files_to_delete, key=lambda p: len(p.parts), reverse=True
+        ):
+            try:
+                file_path.unlink()
+            except (OSError, PermissionError):
+                # Best effort cleanup
+                pass
+
+        # Try to remove empty directories
+        _cleanup_empty_directories(temp_home, initial_files)
+
+    except (OSError, PermissionError):
+        # Fallback to full cleanup if selective cleanup fails
+        shutil.rmtree(temp_home, ignore_errors=True)
+
+
+def _cleanup_empty_directories(
+    temp_home: pathlib.Path, initial_files: set[pathlib.Path]
+) -> None:
+    """Remove empty directories that weren't present initially."""
+    try:
+        # Get all current directories
+        current_dirs = set()
+        for root, dirs, files in os.walk(temp_home):
+            for dir_name in dirs:
+                current_dirs.add(pathlib.Path(root) / dir_name)
+
+        # Get initial directories (just the parent dirs of initial files)
+        initial_dirs = set()
+        for file_path in initial_files:
+            initial_dirs.add(file_path.parent)
+
+        # Remove empty directories that weren't there initially
+        dirs_to_remove = current_dirs - initial_dirs
+        for dir_path in sorted(
+            dirs_to_remove, key=lambda p: len(p.parts), reverse=True
+        ):
+            try:
+                if dir_path.exists() and not any(dir_path.iterdir()):
+                    dir_path.rmdir()
+            except (OSError, PermissionError):
+                pass
+    except (OSError, PermissionError):
+        pass
+
+
 def dump_dbos_report(temp_home: pathlib.Path) -> None:
     """Collect a summary of DBOS SQLite contents for this temp HOME.
 
@@ -133,7 +217,9 @@ def dump_dbos_report(temp_home: pathlib.Path) -> None:
                     # Sample up to 2 rows for context
                     cur.execute(f"SELECT * FROM {t} LIMIT 2")
                     rows = cur.fetchall()
-                    colnames = [d[0] for d in cur.description] if cur.description else []
+                    colnames = (
+                        [d[0] for d in cur.description] if cur.description else []
+                    )
                     for row in rows:
                         obj = {colnames[i]: _safe_json(row[i]) for i in range(len(row))}
                         lines.append(f"  • sample: {obj}")
@@ -229,6 +315,10 @@ class CliHarness:
         )
         if log_file:
             result._log_file = log_file
+
+        # Capture initial file state for selective cleanup
+        result._initial_files = _capture_initial_files(temp_home)
+
         return result
 
     def send_command(self, result: SpawnResult, txt: str) -> str:
@@ -247,7 +337,7 @@ class CliHarness:
         )
 
     def cleanup(self, result: SpawnResult) -> None:
-        """Terminate the child, dump DBOS report, then remove the temporary HOME unless kept."""
+        """Terminate the child, dump DBOS report, then remove test-created files unless kept."""
         keep_home = os.getenv("CODE_PUPPY_KEEP_TEMP_HOME") in {
             "1",
             "true",
@@ -265,7 +355,15 @@ class CliHarness:
             # Dump DBOS report before cleanup
             dump_dbos_report(result.temp_home)
             if not keep_home:
-                shutil.rmtree(result.temp_home, ignore_errors=True)
+                # Use selective cleanup - only delete files created during test
+                use_selective_cleanup = os.getenv(
+                    "CODE_PUPPY_SELECTIVE_CLEANUP", "true"
+                ).lower() in {"1", "true", "yes", "on"}
+                if use_selective_cleanup:
+                    _cleanup_test_only_files(result.temp_home, result._initial_files)
+                else:
+                    # Fallback to original behavior
+                    shutil.rmtree(result.temp_home, ignore_errors=True)
 
     def _expect_with_retry(
         self, child: pexpect.spawn, patterns, timeout: float
