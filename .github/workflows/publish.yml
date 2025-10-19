@@ -13,15 +13,26 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.11', '3.12', '3.13']
+        exclude:
+          # Exclude some combinations to reduce CI load while maintaining coverage
+          - os: macos-latest
+            python-version: '3.12'
+          - os: macos-latest
+            python-version: '3.13'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
+      - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         run: pip install uv
@@ -32,14 +43,18 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e .
 
+      - name: Install Windows-specific dependencies
+        if: runner.os == 'Windows'
+        run: uv pip install colorama
+
       - name: Run unit tests
         run: |
-          echo "Running unit tests..."
+          echo "Running unit tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
 
       - name: Run integration tests
         run: |
-          echo "Running integration tests..."
+          echo "Running integration tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           uv run pytest tests/integration/ -v
 
   build-publish:
