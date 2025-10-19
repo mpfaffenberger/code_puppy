@@ -12,8 +12,39 @@ on:
       - main
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Setup uv virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: uv pip install -e .
+
+      - name: Run unit tests
+        run: |
+          echo "Running unit tests..."
+          uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
+
+      - name: Run integration tests
+        run: |
+          echo "Running integration tests..."
+          uv run pytest tests/integration/ -v
+
   build-publish:
     runs-on: ubuntu-latest
+    needs: test
     permissions:
       contents: write # Allows writing to the repository
     steps:
