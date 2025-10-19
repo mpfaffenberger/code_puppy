@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
 from pathlib import Path
 
 import pexpect
+import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
     SpawnResult,
     satisfy_initial_prompts,
+)
+
+IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
+
+pytestmark = pytest.mark.skipif(
+    IS_WINDOWS,
+    reason="Interactive CLI pexpect tests have platform-specific issues on Windows",
 )
 
 

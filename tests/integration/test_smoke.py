@@ -4,11 +4,9 @@ import time
 
 import pexpect
 
-from tests.integration.cli_expect.pexpect_compat import spawn_process
-
 
 def test_version_smoke() -> None:
-    child = spawn_process("code-puppy --version", encoding="utf-8")
+    child = pexpect.spawn("code-puppy --version", encoding="utf-8")
     child.expect(pexpect.EOF, timeout=10)
     output = child.before
     assert output.strip()  # just ensure we got something
@@ -16,7 +14,7 @@ def test_version_smoke() -> None:
 
 
 def test_help_smoke() -> None:
-    child = spawn_process("code-puppy --help", encoding="utf-8")
+    child = pexpect.spawn("code-puppy --help", encoding="utf-8")
     child.expect("--version", timeout=10)
     child.expect(pexpect.EOF, timeout=10)
     output = child.before
@@ -25,7 +23,7 @@ def test_help_smoke() -> None:
 
 
 def test_interactive_smoke() -> None:
-    child = spawn_process("code-puppy -i", encoding="utf-8")
+    child = pexpect.spawn("code-puppy -i", encoding="utf-8")
     child.expect("Interactive Mode", timeout=10)
     child.expect("1-5 to load, 6 for next", timeout=10)
     child.send("\r")

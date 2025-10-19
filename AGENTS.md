@@ -47,6 +47,7 @@ code_puppy.command_line
 
 ## Git Workflow
 
+- ALWAYS run `pnpm check` before committing
 - Fix linting errors with `ruff check --fix`
 - Run `ruff format .` to auto format
 - NEVER use `git push --force` on the main branch
