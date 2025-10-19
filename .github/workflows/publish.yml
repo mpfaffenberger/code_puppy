@@ -52,6 +52,24 @@ jobs:
           echo "Running unit tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
 
+      - name: Debug environment variables
+        env:
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
+        run: |
+          echo "=== DEBUG: Environment Variables ==="
+          echo "CEREBRAS_API_KEY is set: ${{ secrets.CEREBRAS_API_KEY != '' }}"
+          echo "CONTEXT7_API_KEY is set: ${{ secrets.CONTEXT7_API_KEY != '' }}"
+          echo "OPENAI_API_KEY is set: ${{ secrets.OPENAI_API_KEY != '' }}"
+          echo "ANTHROPIC_API_KEY is set: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
+          echo "CEREBRAS_API_KEY length: ${#CEREBRAS_API_KEY}"
+          echo "CONTEXT7_API_KEY length: ${#CONTEXT7_API_KEY}"
+          echo "OPENAI_API_KEY length: ${#OPENAI_API_KEY}"
+          echo "ANTHROPIC_API_KEY length: ${#ANTHROPIC_API_KEY}"
+          echo "=== END DEBUG ==="
+
       - name: Run integration tests
         env:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
