@@ -35,5 +35,12 @@ pre-commit:
           ruff check --fix {staged_files}
         fi
       stage_fixed: true
+    pnpm-check:
+      run: |
+        if command -v pnpm >/dev/null 2>&1; then
+          pnpm check
+        else
+          echo "pnpm not found, skipping pnpm check"
+        fi
 
 # pre-push hook removed - tests run in CI only
