@@ -12,6 +12,11 @@ from code_puppy.callbacks import register_callback
 from code_puppy.config import get_puppy_token
 from code_puppy.http_utils import find_available_port
 from code_puppy.messaging import emit_system_message
+
+# CRITICAL: Import walmart_specific package to trigger monkey patches
+# This must happen BEFORE any other imports that might use HTTP libraries
+import code_puppy.plugins.walmart_specific  # noqa: F401
+
 from code_puppy.plugins.walmart_specific.agent_prompt import prompt
 from code_puppy.plugins.walmart_specific.auth import authenticate_puppy
 from code_puppy.plugins.walmart_specific.auto_update import _handle_update

@@ -1,13 +1,20 @@
-"""Camoufox browser manager - privacy-focused Firefox automation."""
+"""Camoufox browser manager - privacy-focused Firefox automation.
+
+IMPORTANT: Camoufox imports are done lazily (inside methods) to ensure
+Walmart-specific monkey patches are applied BEFORE camoufox tries to
+download binaries from GitHub. DO NOT move these to top-level imports!
+"""
 
 from pathlib import Path
 from typing import Optional
 
-import camoufox
-from camoufox.addons import DefaultAddons
-from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
-from camoufox.locale import ALLOW_GEOIP, download_mmdb
-from camoufox.pkgman import CamoufoxFetcher, camoufox_path
+# Lazy imports for camoufox to ensure monkey patches are applied first:
+# - import camoufox
+# - from camoufox.addons import DefaultAddons
+# - from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
+# - from camoufox.locale import ALLOW_GEOIP, download_mmdb
+# - from camoufox.pkgman import CamoufoxFetcher, camoufox_path
+
 from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy.messaging import emit_info
@@ -84,6 +91,10 @@ class CamoufoxManager:
 
     async def _initialize_camoufox(self) -> None:
         """Try to start Camoufox with the configured privacy settings."""
+        # Lazy import to ensure monkey patches are applied first
+        import camoufox
+        from camoufox.addons import DefaultAddons
+
         emit_info(f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]")
 
         camoufox_instance = camoufox.AsyncCamoufox(
@@ -132,7 +143,10 @@ class CamoufoxManager:
 
     async def _prefetch_camoufox(self) -> None:
         """Prefetch Camoufox binary and dependencies."""
-        # Import camoufox modules only when actually needed
+        # Lazy imports to ensure monkey patches are applied BEFORE downloading
+        from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
+        from camoufox.locale import ALLOW_GEOIP, download_mmdb
+        from camoufox.pkgman import CamoufoxFetcher, camoufox_path
 
         emit_info(
             "[cyan]🔍 Ensuring Camoufox binary and dependencies are up-to-date...[/cyan]"
@@ -159,8 +173,12 @@ class CamoufoxManager:
         emit_info("[cyan]📦 Camoufox dependencies ready[/cyan]")
 
     def _get_default_addons_to_exclude(self) -> list:
-        """Get default addons to exclude - imports only when camoufox starts."""
-        # Import DefaultAddons only when actually starting camoufox, not on module import
+        """Get default addons to exclude - imports only when camoufox starts.
+
+        Note: This method is kept for backwards compatibility but is no longer used.
+        DefaultAddons is now imported lazily in _initialize_camoufox().
+        """
+        # Lazy import to ensure monkey patches are applied first
         from camoufox.addons import DefaultAddons
 
         return list(DefaultAddons)
