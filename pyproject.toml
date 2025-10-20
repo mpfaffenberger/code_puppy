@@ -30,7 +30,7 @@ dependencies = [
     "termcolor>=3.1.0",
     "textual-dev>=1.7.0",
     "openai>=1.99.1",
-    "ripgrep>=14.1.0",
+    "ripgrep==14.1.0",
     "tenacity>=8.2.0",
     "playwright>=1.40.0",
     "camoufox>=0.4.11",
