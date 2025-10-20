@@ -7,14 +7,14 @@ ignore patterns, path matching, fuzzy text search, and ID generation.
 import importlib.util
 import re
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 # Import directly from the module file to avoid heavy dependencies in __init__.py
 spec = importlib.util.spec_from_file_location(
     "common_module",
-    Path(__file__).parent.parent.parent / "code_puppy" / "tools" / "common.py"
+    Path(__file__).parent.parent.parent / "code_puppy" / "tools" / "common.py",
 )
 common_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(common_module)
@@ -60,24 +60,24 @@ class TestIgnorePatterns:
             "**/.DS_Store",  # OS files
         ]
         for pattern in common_patterns:
-            assert (
-                pattern in IGNORE_PATTERNS
-            ), f"Expected common pattern '{pattern}' not found"
+            assert pattern in IGNORE_PATTERNS, (
+                f"Expected common pattern '{pattern}' not found"
+            )
 
     def test_ignore_patterns_tracks_duplicates(self):
         """Test and document any duplicate patterns.
-        
+
         Note: As of this test, IGNORE_PATTERNS contains some duplicates.
         This is likely intentional for cross-platform compatibility or
         different pattern matching styles. This test documents the count.
         """
         unique_patterns = set(IGNORE_PATTERNS)
         duplicate_count = len(IGNORE_PATTERNS) - len(unique_patterns)
-        
+
         # Document the current state (38 duplicates as of writing)
         # If this number changes significantly, it might indicate a problem
         assert duplicate_count >= 0, "Negative duplicates count - logic error"
-        
+
         # This is informational - duplicates may be intentional
         # If duplicate_count is unexpectedly high (>50), something might be wrong
         assert duplicate_count < 100, (
@@ -364,9 +364,9 @@ class TestGenerateGroupId:
         hash_part = parts[-1]
 
         assert len(hash_part) == 8, f"Expected 8 char hash, got {len(hash_part)}"
-        assert all(
-            c in "0123456789abcdef" for c in hash_part
-        ), f"Hash '{hash_part}' contains non-hex characters"
+        assert all(c in "0123456789abcdef" for c in hash_part), (
+            f"Hash '{hash_part}' contains non-hex characters"
+        )
 
     def test_handles_empty_extra_context(self, mock_time_and_random):
         """Test with empty extra_context (default parameter)."""

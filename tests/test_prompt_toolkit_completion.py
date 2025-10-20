@@ -19,7 +19,6 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
 )
 
-
 # Skip some path-format sensitive tests on Windows where backslashes are expected
 IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
 
@@ -538,7 +537,10 @@ async def test_get_input_with_combined_completion_no_model_update(
 # We can get it from the mock_prompt_session_cls.call_args
 
 
-@pytest.mark.xfail(reason="Alt+M binding representation varies across prompt_toolkit versions; current implementation may not expose Keys.Escape + 'm' tuple.", strict=False)
+@pytest.mark.xfail(
+    reason="Alt+M binding representation varies across prompt_toolkit versions; current implementation may not expose Keys.Escape + 'm' tuple.",
+    strict=False,
+)
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
