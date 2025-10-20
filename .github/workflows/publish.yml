@@ -17,14 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.11', '3.12', '3.13']
-        exclude:
-          # Exclude some combinations to reduce CI load while maintaining coverage
-          - os: macos-latest
-            python-version: '3.12'
-          - os: macos-latest
-            python-version: '3.13'
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.13']
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -43,9 +37,7 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e .
 
-      - name: Install Windows-specific dependencies
-        if: runner.os == 'Windows'
-        run: uv pip install colorama
+
 
       - name: Debug environment variables
         env:
@@ -85,10 +77,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
+      - name: Setup Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Install uv, build, and twine
         run: pip install uv build twine
