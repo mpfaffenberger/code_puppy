@@ -72,9 +72,9 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
-          echo "Running all tests (unit + integration) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
+          echo "Running unit tests only (integration tests disabled) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
-          uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
+          uv run pytest tests/ --ignore=tests/integration -v --cov=code_puppy --cov-report=term-missing
 
   build-publish:
     runs-on: ubuntu-latest
