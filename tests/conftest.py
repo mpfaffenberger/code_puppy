@@ -7,30 +7,14 @@ hook that runs coroutine test functions using the stdlib's asyncio.
 
 import asyncio
 import inspect
-import pytest
-from unittest.mock import MagicMock
-
-from code_puppy import config as cp_config
-
-
-@pytest.fixture(autouse=True)
-def clear_model_cache_between_tests():
-    """Clear the model cache before each test to prevent cache pollution.
-
-    This is especially important for tests that depend on loading fresh
-    data from models.json without any cached values.
-    """
-    cp_config.clear_model_cache()
-    yield
-    # Optionally clear again after the test
-    cp_config.clear_model_cache()
-    
-    
 import os
 import subprocess
 from unittest.mock import MagicMock
 
 import pytest
+
+from code_puppy import config as cp_config
+from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
 
 # Expose the CLI harness fixtures globally
 from tests.integration.cli_expect.harness import (
@@ -45,9 +29,24 @@ from tests.integration.cli_expect.harness import (
 from tests.integration.cli_expect.harness import (
     retry_policy as retry_policy,
 )
+
 # Re-export integration fixtures so pytest discovers them project-wide
-from tests.integration.cli_expect.harness import spawned_cli as spawned_cli  # noqa: F401
-from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
+from tests.integration.cli_expect.harness import (
+    spawned_cli as spawned_cli,  # noqa: F401
+)
+
+
+@pytest.fixture(autouse=True)
+def clear_model_cache_between_tests():
+    """Clear the model cache before each test to prevent cache pollution.
+
+    This is especially important for tests that depend on loading fresh
+    data from models.json without any cached values.
+    """
+    cp_config.clear_model_cache()
+    yield
+    # Optionally clear again after the test
+    cp_config.clear_model_cache()
 
 
 @pytest.fixture
@@ -63,7 +62,7 @@ def mock_cleanup():
 
 def pytest_pyfunc_call(pyfuncitem: pytest.Item) -> bool | None:
     """Enable running `async def` tests without external plugins.
-    
+
     If the test function is a coroutine function, execute it via asyncio.run.
     Return True to signal that the call was handled, allowing pytest to
     proceed without complaining about missing async plugins.
@@ -71,11 +70,14 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Item) -> bool | None:
     test_func = pyfuncitem.obj
     if inspect.iscoroutinefunction(test_func):
         # Build the kwargs that pytest would normally inject (fixtures)
-        kwargs = {name: pyfuncitem.funcargs[name] for name in pyfuncitem._fixtureinfo.argnames}
+        kwargs = {
+            name: pyfuncitem.funcargs[name] for name in pyfuncitem._fixtureinfo.argnames
+        }
         asyncio.run(test_func(**kwargs))
         return True
     return None
-  
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
     """Post-test hook: warn about stray .py files not tracked by git."""

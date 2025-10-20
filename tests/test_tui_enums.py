@@ -4,16 +4,17 @@ This module tests the TUI enum definitions used throughout
 the TUI interface for message type classification.
 """
 
-import pytest
-
 # Import the enum directly by importing only the enums module,
 # bypassing the tui package __init__ which has heavy dependencies
 import importlib.util
-import sys
 from pathlib import Path
 
+import pytest
+
 # Load the enums module directly without triggering tui.__init__
-module_path = Path(__file__).parent.parent / "code_puppy" / "tui" / "models" / "enums.py"
+module_path = (
+    Path(__file__).parent.parent / "code_puppy" / "tui" / "models" / "enums.py"
+)
 spec = importlib.util.spec_from_file_location("enums", module_path)
 enums_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(enums_module)
@@ -41,7 +42,7 @@ class TestMessageTypeEnum:
             "PLANNED_NEXT_STEPS",
             "AGENT_RESPONSE",
         }
-        
+
         actual_types = {member.name for member in MessageType}
         assert actual_types == expected_types
 
@@ -153,7 +154,7 @@ class TestMessageTypeEnum:
             MessageType.AGENT: "agent message",
         }
         assert message_dict[MessageType.USER] == "user message"
-        
+
         message_set = {MessageType.USER, MessageType.AGENT, MessageType.ERROR}
         assert len(message_set) == 3
         assert MessageType.USER in message_set
