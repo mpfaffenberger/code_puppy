@@ -1,7 +1,6 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
-import pytest
 
 from code_puppy.version_checker import (
     default_version_mismatch_behavior,
@@ -53,9 +52,7 @@ class TestFetchLatestVersion:
     def test_fetch_latest_version_success(self, mock_get):
         """Test successful version fetch from PyPI."""
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "info": {"version": "1.2.3"}
-        }
+        mock_response.json.return_value = {"info": {"version": "1.2.3"}}
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response
 
@@ -102,9 +99,7 @@ class TestFetchLatestVersion:
         """Test version fetch with HTTP status error."""
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "404 Not Found",
-            request=MagicMock(),
-            response=MagicMock()
+            "404 Not Found", request=MagicMock(), response=MagicMock()
         )
         mock_get.return_value = mock_response
 
@@ -172,4 +167,7 @@ class TestDefaultVersionMismatchBehavior:
         calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("new version" in str(call).lower() for call in calls)
         assert any("2.5.0" in str(call) for call in calls)
-        assert any("updating" in str(call).lower() or "update" in str(call).lower() for call in calls)
+        assert any(
+            "updating" in str(call).lower() or "update" in str(call).lower()
+            for call in calls
+        )

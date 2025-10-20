@@ -21,7 +21,7 @@ class TestMessagingPackageExports:
         assert "MessageType" in messaging_package.__all__
         assert "UIMessage" in messaging_package.__all__
         assert "get_global_queue" in messaging_package.__all__
-        
+
         assert hasattr(messaging_package, "MessageQueue")
         assert hasattr(messaging_package, "MessageType")
         assert hasattr(messaging_package, "UIMessage")
@@ -44,7 +44,7 @@ class TestMessagingPackageExports:
             "emit_system_message",
             "emit_prompt",
         ]
-        
+
         for func_name in emit_functions:
             assert func_name in messaging_package.__all__
             assert hasattr(messaging_package, func_name)
@@ -53,7 +53,7 @@ class TestMessagingPackageExports:
         """Test that prompt-related functions are exported."""
         assert "provide_prompt_response" in messaging_package.__all__
         assert "get_buffered_startup_messages" in messaging_package.__all__
-        
+
         assert hasattr(messaging_package, "provide_prompt_response")
         assert hasattr(messaging_package, "get_buffered_startup_messages")
 
@@ -62,7 +62,7 @@ class TestMessagingPackageExports:
         assert "InteractiveRenderer" in messaging_package.__all__
         assert "TUIRenderer" in messaging_package.__all__
         assert "SynchronousInteractiveRenderer" in messaging_package.__all__
-        
+
         assert hasattr(messaging_package, "InteractiveRenderer")
         assert hasattr(messaging_package, "TUIRenderer")
         assert hasattr(messaging_package, "SynchronousInteractiveRenderer")
@@ -71,7 +71,7 @@ class TestMessagingPackageExports:
         """Test that QueueConsole exports are available."""
         assert "QueueConsole" in messaging_package.__all__
         assert "get_queue_console" in messaging_package.__all__
-        
+
         assert hasattr(messaging_package, "QueueConsole")
         assert hasattr(messaging_package, "get_queue_console")
 
@@ -86,13 +86,30 @@ class TestMessagingPackageExports:
         """Test that __all__ has the expected number of exports."""
         # Based on the __all__ list in the module
         expected_exports = {
-            "MessageQueue", "MessageType", "UIMessage", "get_global_queue",
-            "emit_message", "emit_info", "emit_success", "emit_warning",
-            "emit_divider", "emit_error", "emit_tool_output", "emit_command_output",
-            "emit_agent_reasoning", "emit_planned_next_steps", "emit_agent_response",
-            "emit_system_message", "emit_prompt", "provide_prompt_response",
-            "get_buffered_startup_messages", "InteractiveRenderer", "TUIRenderer",
-            "SynchronousInteractiveRenderer", "QueueConsole", "get_queue_console",
+            "MessageQueue",
+            "MessageType",
+            "UIMessage",
+            "get_global_queue",
+            "emit_message",
+            "emit_info",
+            "emit_success",
+            "emit_warning",
+            "emit_divider",
+            "emit_error",
+            "emit_tool_output",
+            "emit_command_output",
+            "emit_agent_reasoning",
+            "emit_planned_next_steps",
+            "emit_agent_response",
+            "emit_system_message",
+            "emit_prompt",
+            "provide_prompt_response",
+            "get_buffered_startup_messages",
+            "InteractiveRenderer",
+            "TUIRenderer",
+            "SynchronousInteractiveRenderer",
+            "QueueConsole",
+            "get_queue_console",
         }
-        
+
         assert set(messaging_package.__all__) == expected_exports

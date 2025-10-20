@@ -863,7 +863,9 @@ class BaseAgent(ABC):
             instructions += f"\n{puppy_rules}"
 
         mcp_servers = self.load_mcp_servers()
-        emit_info(f"[dim]DEBUG: Loaded {len(mcp_servers)} MCP servers during reload[/dim]")
+        emit_info(
+            f"[dim]DEBUG: Loaded {len(mcp_servers)} MCP servers during reload[/dim]"
+        )
 
         model_settings_dict: Dict[str, Any] = {"seed": 42}
         output_tokens = max(
@@ -894,36 +896,37 @@ class BaseAgent(ABC):
 
         agent_tools = self.get_available_tools()
         register_tools_for_agent(p_agent, agent_tools)
-        
+
         # Get existing tool names to filter out conflicts with MCP tools
         existing_tool_names = set()
         try:
             # Get tools from the agent to find existing tool names
-            tools = getattr(p_agent, '_tools', None)
+            tools = getattr(p_agent, "_tools", None)
             if tools:
                 existing_tool_names = set(tools.keys())
         except Exception:
             # If we can't get tool names, proceed without filtering
             pass
-        
+
         # Filter MCP server toolsets to remove conflicting tools
         filtered_mcp_servers = []
         if mcp_servers and existing_tool_names:
             for mcp_server in mcp_servers:
                 try:
                     # Get tools from this MCP server
-                    server_tools = getattr(mcp_server, 'tools', None)
+                    server_tools = getattr(mcp_server, "tools", None)
                     if server_tools:
                         # Filter out conflicting tools
                         filtered_tools = {}
                         for tool_name, tool_func in server_tools.items():
                             if tool_name not in existing_tool_names:
                                 filtered_tools[tool_name] = tool_func
-                        
+
                         # Create a filtered version of the MCP server if we have tools
                         if filtered_tools:
                             # Create a new toolset with filtered tools
                             from pydantic_ai.tools import ToolSet
+
                             filtered_toolset = ToolSet()
                             for tool_name, tool_func in filtered_tools.items():
                                 filtered_toolset._tools[tool_name] = tool_func
@@ -934,15 +937,17 @@ class BaseAgent(ABC):
                     else:
                         # Can't get tools from this server, include as-is
                         filtered_mcp_servers.append(mcp_server)
-                except Exception as e:
+                except Exception:
                     # Error processing this server, include as-is to be safe
                     filtered_mcp_servers.append(mcp_server)
         else:
             # No filtering needed or possible
             filtered_mcp_servers = mcp_servers if mcp_servers else []
-        
+
         if len(filtered_mcp_servers) != len(mcp_servers):
-            emit_info(f"[dim]Filtered {len(mcp_servers) - len(filtered_mcp_servers)} conflicting MCP tools[/dim]")
+            emit_info(
+                f"[dim]Filtered {len(mcp_servers) - len(filtered_mcp_servers)} conflicting MCP tools[/dim]"
+            )
 
         self._last_model_name = resolved_model_name
         # expose for run_with_mcp
@@ -962,16 +967,18 @@ class BaseAgent(ABC):
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
             )
-            
+
             # Register regular tools (non-MCP) on the new agent
             agent_tools = self.get_available_tools()
             register_tools_for_agent(agent_without_mcp, agent_tools)
-            
+
             # Wrap with DBOS
-            dbos_agent = DBOSAgent(agent_without_mcp, name=f"{self.name}-{_reload_count}")
+            dbos_agent = DBOSAgent(
+                agent_without_mcp, name=f"{self.name}-{_reload_count}"
+            )
             self.pydantic_agent = dbos_agent
             self._code_generation_agent = dbos_agent
-            
+
             # Store filtered MCP servers separately for runtime use
             self._mcp_servers = filtered_mcp_servers
         else:
@@ -989,7 +996,7 @@ class BaseAgent(ABC):
             # Register regular tools on the agent
             agent_tools = self.get_available_tools()
             register_tools_for_agent(p_agent, agent_tools)
-            
+
             self.pydantic_agent = p_agent
             self._code_generation_agent = p_agent
             self._mcp_servers = filtered_mcp_servers
@@ -1062,14 +1069,18 @@ class BaseAgent(ABC):
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
                 usage_limits = UsageLimits(request_limit=get_message_limit())
-                
+
                 # Handle MCP servers - add them temporarily when using DBOS
-                if get_use_dbos() and hasattr(self, '_mcp_servers') and self._mcp_servers:
+                if (
+                    get_use_dbos()
+                    and hasattr(self, "_mcp_servers")
+                    and self._mcp_servers
+                ):
                     # Temporarily add MCP servers to the DBOS agent using internal _toolsets
                     original_toolsets = pydantic_agent._toolsets
                     pydantic_agent._toolsets = original_toolsets + self._mcp_servers
                     pydantic_agent._toolsets = original_toolsets + self._mcp_servers
-                    
+
                     try:
                         # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
                         with SetWorkflowID(group_id):

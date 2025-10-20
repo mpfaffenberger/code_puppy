@@ -196,7 +196,7 @@ Line 3"""
 
     def test_message_is_not_hashable_due_to_mutable_metadata(self):
         """Test that ChatMessage is not hashable due to mutable metadata dict.
-        
+
         Dataclasses with mutable default fields (like dict) are not hashable
         by default, which is correct behavior to prevent issues.
         """
