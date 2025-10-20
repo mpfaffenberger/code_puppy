@@ -1,8 +1,12 @@
+import sys
+
+# Print immediate feedback using basic print before any heavy imports
+print("🐶 Code Puppy is Loading...", flush=True)
+
 import argparse
 import asyncio
 import os
 import subprocess
-import sys
 import time
 import webbrowser
 from pathlib import Path
@@ -165,8 +169,6 @@ async def main():
             )
             sys.exit(1)
     from code_puppy.messaging import emit_system_message
-
-    emit_system_message("🐶 Code Puppy is Loading...")
 
     available_port = find_available_port()
     if available_port is None:
