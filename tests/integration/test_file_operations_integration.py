@@ -8,11 +8,13 @@ changes match expectations.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 import time
 from pathlib import Path
 
+import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
@@ -20,7 +22,11 @@ from tests.integration.cli_expect.fixtures import (
     satisfy_initial_prompts,
 )
 
-# No pytestmark - environment variables are required for integration tests
+# Skip in CI environment due to flakiness with real LLM calls
+pytestmark = pytest.mark.skipif(
+    os.getenv("CI") == "true",
+    reason="Integration test with real LLM calls is too flaky for CI environment",
+)
 
 
 def _assert_file_exists(test_dir: Path, relative_path: str) -> Path:
