@@ -68,8 +68,83 @@ def _is_probable_path(token: str) -> bool:
     # Reject absurdly long tokens before any processing to avoid OS errors
     if len(token) > MAX_PATH_LENGTH:
         return False
-    if token.startswith("#"):
+
+    # Reject screen drawing/divider characters
+    divider_chars = {
+        "─",
+        "│",
+        "┌",
+        "┐",
+        "└",
+        "┘",
+        "├",
+        "┤",
+        "┬",
+        "┴",
+        "┼",
+        "═",
+        "║",
+        "╚",
+        "╝",
+        "╔",
+        "╗",
+        "╠",
+        "╣",
+        "╦",
+        "╩",
+        "╬",
+        "━",
+        "┃",
+        "┏",
+        "┓",
+        "┗",
+        "┛",
+        "┣",
+        "┫",
+        "┳",
+        "┻",
+        "╋",
+        "-",
+        "=",
+        "—",
+        "–",
+        "•",
+        "·",
+        "○",
+        "●",
+        "■",
+        "□",
+        "░",
+        "▒",
+        "▓",
+        "█",
+        "▄",
+        "▌",
+        "▐",
+        "▀",
+        "╭",
+        "╮",
+        "╯",
+        "╰",
+    }
+
+    # If more than 50% of non-slash characters are dividers, exclude
+    if any(char in divider_chars for char in token):
+        non_slash_chars = [c for c in token if c != "/"]
+        if non_slash_chars:
+            divider_ratio = sum(1 for c in non_slash_chars if c in divider_chars) / len(
+                non_slash_chars
+            )
+            if divider_ratio > 0.5:
+                return False
+
+    # Enhanced comment detection with whitespace support
+    stripped = token.lstrip()
+    if stripped.startswith(("#", "＃")) or stripped.startswith(
+        ("//", "/*", ";", "--", "!", "%")
+    ):
         return False
+
     # Windows drive letters or Unix absolute/relative paths
     if token.startswith(("/", "~", "./", "../")):
         return True
@@ -267,11 +342,15 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
                     # Suppress warnings for non-file spans; just skip quietly
                     found_span = False
                     break
-                if last_path.exists() and last_path.is_file():
-                    path = last_path
-                    found_span = True
-                    # We'll rebuild escaped placeholder after this block
-                    break
+                try:
+                    if last_path.exists() and last_path.is_file():
+                        path = last_path
+                        found_span = True
+                        # We'll rebuild escaped placeholder after this block
+                        break
+                except OSError:
+                    # Skip this token if filesystem check fails (path too long, etc.)
+                    continue
             if not found_span:
                 # Quietly skip tokens that are not files
                 index += 1
