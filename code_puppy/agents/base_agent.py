@@ -868,6 +868,132 @@ class BaseAgent(ABC):
         )
 
         model_settings_dict: Dict[str, Any] = {"seed": 42}
+
+        # Load user-configured model parameters
+        from code_puppy.config import get_value
+
+        # Extract model parameters from user config
+        user_temp = get_value("temperature")
+        user_top_p = get_value("top_p")
+        user_top_k = get_value("top_k")
+
+        # Check if this is a GLM-4.6 model
+        model_name_lower = model_name.lower()
+        is_glm46_synthetic = (
+            "synthetic-glm-4.6" in model_name_lower
+            or "glm-4.6" in model_name_lower
+            and "synthetic" in model_name_lower
+        )
+        is_glm46_zai = "glm-4.6" in model_name_lower and (
+            "coding" in model_name_lower or "zai" in model_name_lower
+        )
+        is_glm46 = is_glm46_synthetic or is_glm46_zai
+
+        if is_glm46:
+            # For GLM-4.6: always apply defaults or user values
+            # Temperature: user value or default 1.0 (validate 0.0-2.0)
+            if user_temp:
+                try:
+                    temp_value = float(user_temp)
+                    if 0.0 <= temp_value <= 2.0:
+                        model_settings_dict["temperature"] = temp_value
+                        console.print(f"[dim]Using temperature: {temp_value}[/dim]")
+                    else:
+                        console.print(
+                            f"[red]Temperature value {temp_value} out of range (0.0-2.0), using default 1.0[/red]"
+                        )
+                        model_settings_dict["temperature"] = 1.0
+                except ValueError:
+                    console.print(
+                        f"[red]Invalid temperature value: {user_temp}, using default 1.0[/red]"
+                    )
+                    model_settings_dict["temperature"] = 1.0
+            else:
+                model_settings_dict["temperature"] = 1.0
+                console.print("[dim]Using GLM-4.6 default temperature: 1.0[/dim]")
+
+            # Top-p: user value or default 0.95 (validate 0.0-1.0)
+            if user_top_p:
+                try:
+                    top_p_value = float(user_top_p)
+                    if 0.0 <= top_p_value <= 1.0:
+                        model_settings_dict["top_p"] = top_p_value
+                        console.print(f"[dim]Using top_p: {top_p_value}[/dim]")
+                    else:
+                        console.print(
+                            f"[red]Top-p value {top_p_value} out of range (0.0-1.0), using default 0.95[/red]"
+                        )
+                        model_settings_dict["top_p"] = 0.95
+                except ValueError:
+                    console.print(
+                        f"[red]Invalid top_p value: {user_top_p}, using default 0.95[/red]"
+                    )
+                    model_settings_dict["top_p"] = 0.95
+            else:
+                model_settings_dict["top_p"] = 0.95
+                console.print("[dim]Using GLM-4.6 default top_p: 0.95[/dim]")
+
+            # Top-k: user value or default 40 (validate positive integer)
+            if user_top_k:
+                try:
+                    top_k_value = int(user_top_k)
+                    if top_k_value > 0:
+                        model_settings_dict["top_k"] = top_k_value
+                        console.print(f"[dim]Using top_k: {top_k_value}[/dim]")
+                    else:
+                        console.print(
+                            f"[red]Top-k value {top_k_value} must be positive, using default 40[/red]"
+                        )
+                        model_settings_dict["top_k"] = 40
+                except ValueError:
+                    console.print(
+                        f"[red]Invalid top_k value: {user_top_k}, using default 40[/red]"
+                    )
+                    model_settings_dict["top_k"] = 40
+            else:
+                model_settings_dict["top_k"] = 40
+                console.print("[dim]Using GLM-4.6 default top_k: 40[/dim]")
+        else:
+            # For non-GLM-4.6 models: only apply user settings if explicitly configured
+            if user_temp:
+                try:
+                    temp_value = float(user_temp)
+                    if 0.0 <= temp_value <= 2.0:
+                        model_settings_dict["temperature"] = temp_value
+                        console.print(f"[dim]Using temperature: {temp_value}[/dim]")
+                    else:
+                        console.print(
+                            f"[red]Temperature value {temp_value} out of range (0.0-2.0)[/red]"
+                        )
+                except ValueError:
+                    console.print(f"[red]Invalid temperature value: {user_temp}[/red]")
+
+            if user_top_p:
+                try:
+                    top_p_value = float(user_top_p)
+                    if 0.0 <= top_p_value <= 1.0:
+                        model_settings_dict["top_p"] = top_p_value
+                        console.print(f"[dim]Using top_p: {top_p_value}[/dim]")
+                    else:
+                        console.print(
+                            f"[red]Top-p value {top_p_value} out of range (0.0-1.0)[/red]"
+                        )
+                except ValueError:
+                    console.print(f"[red]Invalid top_p value: {user_top_p}[/red]")
+
+            if user_top_k:
+                try:
+                    top_k_value = int(user_top_k)
+                    if top_k_value > 0:
+                        model_settings_dict["top_k"] = top_k_value
+                        console.print(f"[dim]Using top_k: {top_k_value}[/dim]")
+                    else:
+                        console.print(
+                            f"[red]Top-k value {top_k_value} must be positive[/red]"
+                        )
+                except ValueError:
+                    console.print(f"[red]Invalid top_k value: {user_top_k}[/red]")
+
         output_tokens = max(
             2048,
             min(int(0.05 * self.get_model_context_length()) - 1024, 16384),

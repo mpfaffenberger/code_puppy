@@ -149,6 +149,10 @@ def get_config_keys():
         "auto_save_session",
         "max_saved_sessions",
         "http2",
+        # Model-specific parameters
+        "temperature",
+        "top_p",
+        "top_k",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
