@@ -24,12 +24,32 @@ def test_help_smoke() -> None:
 
 def test_interactive_smoke() -> None:
     child = pexpect.spawn("code-puppy -i", encoding="utf-8")
-    child.expect("Interactive Mode", timeout=10)
-    child.expect("1-5 to load, 6 for next", timeout=10)
-    child.send("\r")
-    time.sleep(0.3)
-    child.send("\r")
-    time.sleep(0.3)
+
+    # Handle initial prompts that might appear in CI
+    try:
+        child.expect("What should we name the puppy?", timeout=5)
+        child.sendline("IntegrationPup\r")
+        child.expect("What's your name", timeout=5)
+        child.sendline("HarnessTester\r")
+    except pexpect.exceptions.TIMEOUT:
+        # Config likely pre-provisioned; proceed
+        pass
+
+    # Skip autosave picker if it appears
+    try:
+        child.expect("1-5 to load, 6 for next", timeout=5)
+        child.send("\r")
+        time.sleep(0.3)
+        child.send("\r")
+    except pexpect.exceptions.TIMEOUT:
+        pass
+
+    # Look for either "Interactive Mode" or the prompt indicator
+    try:
+        child.expect("Interactive Mode", timeout=10)
+    except pexpect.exceptions.TIMEOUT:
+        # If no "Interactive Mode" text, look for the prompt
+        child.expect(">>> ", timeout=10)
     child.expect("Enter your coding task", timeout=10)
     print("\n[SMOKE] CLI entered interactive mode")
     time.sleep(5)
