@@ -7,33 +7,75 @@ hook that runs coroutine test functions using the stdlib's asyncio.
 
 import asyncio
 import inspect
-import os
+import shutil
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from code_puppy import config as cp_config
-from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
 
-# Expose the CLI harness fixtures globally
-from tests.integration.cli_expect.harness import (
-    cli_harness as cli_harness,
-)
-from tests.integration.cli_expect.harness import (
-    integration_env as integration_env,
-)
-from tests.integration.cli_expect.harness import (
-    log_dump as log_dump,
-)
-from tests.integration.cli_expect.harness import (
-    retry_policy as retry_policy,
-)
+# Test artifacts directory
+TEST_ARTIFACTS_DIR = Path(".test_artifacts")
 
-# Re-export integration fixtures so pytest discovers them project-wide
-from tests.integration.cli_expect.harness import (
-    spawned_cli as spawned_cli,  # noqa: F401
-)
+
+# Expose the CLI harness fixtures globally (only if pexpect is available)
+try:
+    from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
+    from tests.integration.cli_expect.harness import (
+        cli_harness as cli_harness,
+    )
+    from tests.integration.cli_expect.harness import (
+        integration_env as integration_env,
+    )
+    from tests.integration.cli_expect.harness import (
+        log_dump as log_dump,
+    )
+    from tests.integration.cli_expect.harness import (
+        retry_policy as retry_policy,
+    )
+    from tests.integration.cli_expect.harness import (
+        spawned_cli as spawned_cli,  # noqa: F401
+    )
+except ImportError:
+    # pexpect not available, skip integration test fixtures
+    pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def test_artifacts_directory():
+    """Create and clean up test artifacts directory for the session.
+    
+    This ensures all test-generated files go into a temp directory
+    that gets cleaned up after tests finish.
+    """
+    # Create the directory at session start
+    TEST_ARTIFACTS_DIR.mkdir(exist_ok=True)
+    print(f"\n[pytest] Using test artifacts directory: {TEST_ARTIFACTS_DIR}")
+    
+    yield TEST_ARTIFACTS_DIR
+    
+    # Clean up at session end
+    if TEST_ARTIFACTS_DIR.exists():
+        try:
+            shutil.rmtree(TEST_ARTIFACTS_DIR)
+            print(f"\n[pytest] Cleaned up test artifacts directory: {TEST_ARTIFACTS_DIR}")
+        except Exception as e:
+            print(f"\n[pytest] Warning: Could not clean up {TEST_ARTIFACTS_DIR}: {e}")
+
+
+@pytest.fixture
+def temp_test_dir(test_artifacts_directory):
+    """Provide a temporary directory for individual tests.
+    
+    Each test gets its own subdirectory within the test artifacts dir.
+    """
+    import uuid
+    test_dir = test_artifacts_directory / f"test_{uuid.uuid4().hex[:8]}"
+    test_dir.mkdir(parents=True, exist_ok=True)
+    yield test_dir
+    # Individual test dirs are cleaned up when session ends
 
 
 @pytest.fixture(autouse=True)
@@ -80,7 +122,19 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Item) -> bool | None:
 
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
-    """Post-test hook: warn about stray .py files not tracked by git."""
+    """Post-test hook: clean up test artifacts and warn about untracked files."""
+    # Clean up any files in the test artifacts directory
+    if TEST_ARTIFACTS_DIR.exists():
+        try:
+            for file_path in TEST_ARTIFACTS_DIR.rglob("*.py"):
+                try:
+                    file_path.unlink()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    
+    # Warn about untracked .py files outside test artifacts directory
     try:
         result = subprocess.run(
             ["git", "status", "--porcelain"],
@@ -94,18 +148,20 @@ def pytest_sessionfinish(session, exitstatus):
             for line in result.stdout.splitlines()
             if line.startswith("??") and line.endswith(".py")
         ]
-        if untracked_py:
-            print("\n[pytest-warn] Untracked .py files detected:")
-            for line in untracked_py:
+        
+        # Filter out files in test artifacts directory
+        artifacts_str = str(TEST_ARTIFACTS_DIR)
+        untracked_outside_artifacts = [
+            line for line in untracked_py
+            if artifacts_str not in line
+        ]
+        
+        if untracked_outside_artifacts:
+            print("\n[pytest-warn] Untracked .py files detected (outside test artifacts):")
+            for line in untracked_outside_artifacts:
                 rel_path = line[3:].strip()
-                full_path = os.path.join(session.config.invocation_dir, rel_path)
                 print(f"  - {rel_path}")
-                # Optional: attempt cleanup to keep repo tidy
-                try:
-                    os.remove(full_path)
-                    print(f"    (cleaned up: {rel_path})")
-                except Exception as e:
-                    print(f"    (cleanup failed: {e})")
+                print("    (These should be committed or moved to .test_artifacts/)")
     except subprocess.CalledProcessError:
         # Not a git repo or git not available: ignore silently
         pass
@@ -117,5 +173,5 @@ def pytest_sessionfinish(session, exitstatus):
         report = get_dbos_reports()
         if report.strip():
             print("\n[DBOS Report]\n" + report)
-    except Exception:
+    except (ImportError, Exception):
         pass
