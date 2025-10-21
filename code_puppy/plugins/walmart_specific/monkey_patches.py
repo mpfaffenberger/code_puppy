@@ -10,7 +10,15 @@ import ssl
 import urllib.request
 from pathlib import Path
 
-from code_puppy.messaging import emit_info
+# Lazy import of emit_info to avoid circular dependency issues
+# when this module is imported early in code_puppy/__init__.py
+try:
+    from code_puppy.messaging import emit_info
+except ImportError:
+    # Fallback if messaging isn't available yet (during early import)
+    def emit_info(msg: str, **kwargs):
+        pass  # Silent fallback during bootstrap
+
 
 # URL transformation constants
 GITHUB_BASE = "https://github.com/"
@@ -551,7 +559,7 @@ def patch_requests():
 
 
 def patch_httpx():
-    """Patch httpx library if available."""
+    """Patch httpx library if available (both sync and async)."""
     try:
         import httpx
     except ImportError:
@@ -560,6 +568,7 @@ def patch_httpx():
     if "httpx_get" in _original_functions:
         return  # Already patched
 
+    # Patch sync methods
     original_get = httpx.get
     original_post = httpx.post
     original_request = httpx.request
@@ -741,6 +750,195 @@ def patch_httpx():
     httpx.post = patched_post
     httpx.request = patched_request
 
+    # Patch Client (sync) and AsyncClient methods
+    try:
+        original_client_init = httpx.Client.__init__
+        original_async_client_init = httpx.AsyncClient.__init__
+
+        _original_functions["httpx_client_init"] = original_client_init
+        _original_functions["httpx_async_client_init"] = original_async_client_init
+
+        def patched_client_init(self, *args, **kwargs):
+            # Disable SSL verification for problematic domains if not explicitly set
+            if "verify" not in kwargs:
+                kwargs["verify"] = False
+                emit_info("[dim]🔓 Disabled SSL verification for httpx.Client[/dim]")
+            return original_client_init(self, *args, **kwargs)
+
+        def patched_async_client_init(self, *args, **kwargs):
+            # Disable SSL verification for problematic domains if not explicitly set
+            if "verify" not in kwargs:
+                kwargs["verify"] = False
+                emit_info(
+                    "[dim]🔓 Disabled SSL verification for httpx.AsyncClient[/dim]"
+                )
+            return original_async_client_init(self, *args, **kwargs)
+
+        httpx.Client.__init__ = patched_client_init
+        httpx.AsyncClient.__init__ = patched_async_client_init
+
+        # Also patch Client.request and AsyncClient.request to transform URLs
+        original_client_request = httpx.Client.request
+        original_async_client_request = httpx.AsyncClient.request
+
+        _original_functions["httpx_client_request"] = original_client_request
+        _original_functions["httpx_async_client_request"] = (
+            original_async_client_request
+        )
+
+        def patched_client_request(self, method, url, **kwargs):
+            """Patched httpx.Client.request that transforms GitHub URLs."""
+            str(url) if str(url).startswith(GITHUB_BASE) else None
+            url = transform_github_url(str(url))
+            return original_client_request(self, method, url, **kwargs)
+
+        async def patched_async_client_request(self, method, url, **kwargs):
+            """Patched httpx.AsyncClient.request that transforms GitHub URLs."""
+            str(url) if str(url).startswith(GITHUB_BASE) else None
+            url = transform_github_url(str(url))
+            return await original_async_client_request(self, method, url, **kwargs)
+
+        httpx.Client.request = patched_client_request
+        httpx.AsyncClient.request = patched_async_client_request
+
+    except Exception as e:
+        emit_info(f"[yellow]⚠️  Could not patch httpx Client/AsyncClient: {e}[/yellow]")
+
+
+def patch_urllib3():
+    """Patch urllib3 PoolManager to disable SSL verification for problematic domains.
+
+    Note: We don't transform GitHub URLs at this level because urllib3 works with
+    connection pools (host + path), not full URLs. The transformation happens at
+    higher levels (requests, httpx, urllib.request).
+    """
+    try:
+        import urllib3
+    except ImportError:
+        return  # urllib3 not available, skip
+
+    if "urllib3_poolmanager" in _original_functions:
+        return  # Already patched
+
+    # Patch PoolManager.__init__ to disable SSL verification by default
+    original_poolmanager_init = urllib3.PoolManager.__init__
+    _original_functions["urllib3_poolmanager"] = original_poolmanager_init
+
+    @functools.wraps(original_poolmanager_init)
+    def patched_poolmanager_init(self, *args, **kwargs):
+        """Patched PoolManager that disables SSL verification."""
+        # Disable SSL verification if not explicitly set
+        if "cert_reqs" not in kwargs:
+            kwargs["cert_reqs"] = "CERT_NONE"
+        if "assert_hostname" not in kwargs:
+            kwargs["assert_hostname"] = False
+        return original_poolmanager_init(self, *args, **kwargs)
+
+    urllib3.PoolManager.__init__ = patched_poolmanager_init
+
+
+def patch_aiohttp():
+    """Patch aiohttp library if available (async HTTP client)."""
+    try:
+        import aiohttp
+    except ImportError:
+        return  # aiohttp not available, skip
+
+    if "aiohttp_client_session" in _original_functions:
+        return  # Already patched
+
+    original_client_session_init = aiohttp.ClientSession.__init__
+    _original_functions["aiohttp_client_session"] = original_client_session_init
+
+    @functools.wraps(original_client_session_init)
+    def patched_client_session_init(self, *args, **kwargs):
+        """Patched aiohttp.ClientSession that disables SSL verification."""
+        import ssl
+
+        # Disable SSL verification for problematic domains if not explicitly set
+        if "connector" not in kwargs:
+            # Create SSL context with verification disabled
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+            # Create connector with disabled SSL verification
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            kwargs["connector"] = connector
+            emit_info(
+                "[dim]🔓 Disabled SSL verification for aiohttp.ClientSession[/dim]"
+            )
+
+        return original_client_session_init(self, *args, **kwargs)
+
+    aiohttp.ClientSession.__init__ = patched_client_session_init
+
+    # Also patch the request method to transform URLs
+    try:
+        original_request = aiohttp.ClientSession._request
+        _original_functions["aiohttp_request"] = original_request
+
+        async def patched_request(self, method, url, **kwargs):
+            """Patched aiohttp request that transforms GitHub URLs."""
+            original_github_url = str(url) if str(url).startswith(GITHUB_BASE) else None
+            url = transform_github_url(str(url))
+
+            # Try multiple artifactory URLs if DNS resolution fails
+            if "generic.ci.artifacts.walmart.com" in url:
+                # Try primary URL first
+                try:
+                    return await original_request(self, method, url, **kwargs)
+                except Exception as e:
+                    if "getaddrinfo failed" in str(
+                        e
+                    ) or "Name or service not known" in str(e):
+                        emit_info(
+                            "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                        )
+
+                        # Try alternative artifactory URLs
+                        for alt_base in ALTERNATIVE_ARTIFACTORY_BASES:
+                            try:
+                                alt_url = url.replace(
+                                    WALMART_ARTIFACTORY_BASE, alt_base, 1
+                                )
+                                emit_info(
+                                    f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                )
+                                return await original_request(
+                                    self, method, alt_url, **kwargs
+                                )
+                            except Exception as alt_e:
+                                emit_info(f"[red]❌ Alternative failed: {alt_e}[/red]")
+                                continue
+
+                        # If all alternatives fail, try original GitHub URL as fallback
+                        if original_github_url:
+                            try:
+                                emit_info(
+                                    "[yellow]🔄 All artifactory mirrors failed, trying original GitHub URL as fallback...[/yellow]"
+                                )
+                                emit_info(
+                                    f"[cyan]   → Fallback: {original_github_url[:60]}...[/cyan]"
+                                )
+                                return await original_request(
+                                    self, method, original_github_url, **kwargs
+                                )
+                            except Exception:
+                                pass  # Fall through to re-raise original exception
+
+                        # If all alternatives and fallback fail, re-raise original exception
+                        raise e
+                    else:
+                        # For non-DNS errors, re-raise immediately
+                        raise
+
+            return await original_request(self, method, url, **kwargs)
+
+        aiohttp.ClientSession._request = patched_request
+    except Exception as e:
+        emit_info(f"[yellow]⚠️  Could not patch aiohttp._request: {e}[/yellow]")
+
 
 def apply_github_redirect_patches():
     """Apply all GitHub URL redirect patches.
@@ -761,8 +959,14 @@ def apply_github_redirect_patches():
     # Patch requests if available
     patch_requests()
 
-    # Patch httpx if available
+    # Patch httpx if available (both sync and async)
     patch_httpx()
+
+    # Patch aiohttp if available (async HTTP client)
+    patch_aiohttp()
+
+    # Patch urllib3 at connection pool level (catches everything)
+    patch_urllib3()
 
     _patches_applied = True
     emit_info("[green]✅ GitHub redirect and SSL patches applied successfully[/green]")
@@ -803,6 +1007,40 @@ def remove_github_redirect_patches():
             httpx.get = _original_functions["httpx_get"]
             httpx.post = _original_functions["httpx_post"]
             httpx.request = _original_functions["httpx_request"]
+            if "httpx_client_init" in _original_functions:
+                httpx.Client.__init__ = _original_functions["httpx_client_init"]
+            if "httpx_async_client_init" in _original_functions:
+                httpx.AsyncClient.__init__ = _original_functions[
+                    "httpx_async_client_init"
+                ]
+            if "httpx_client_request" in _original_functions:
+                httpx.Client.request = _original_functions["httpx_client_request"]
+            if "httpx_async_client_request" in _original_functions:
+                httpx.AsyncClient.request = _original_functions[
+                    "httpx_async_client_request"
+                ]
+        except ImportError:
+            pass
+
+    # Restore aiohttp if patched
+    if "aiohttp_client_session" in _original_functions:
+        try:
+            import aiohttp
+
+            aiohttp.ClientSession.__init__ = _original_functions[
+                "aiohttp_client_session"
+            ]
+            if "aiohttp_request" in _original_functions:
+                aiohttp.ClientSession._request = _original_functions["aiohttp_request"]
+        except ImportError:
+            pass
+
+    # Restore urllib3 if patched
+    if "urllib3_poolmanager" in _original_functions:
+        try:
+            import urllib3
+
+            urllib3.PoolManager.__init__ = _original_functions["urllib3_poolmanager"]
         except ImportError:
             pass
 
