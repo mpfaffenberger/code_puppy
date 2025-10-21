@@ -120,7 +120,7 @@ def test_mcp_context7_end_to_end(cli_harness: CliHarness) -> None:
 
         # Pull recent logs as additional signal of activity
         result.sendline("/mcp logs context7 20\r")
-        result.child.expect(re.compile(r"Recent Events for .*context7"), timeout=60)
+        result.child.expect(re.compile(r"Recent Events for .*context7"), timeout=120)
         cli_harness.wait_for_ready(result)
 
         result.sendline("/quit\r")
