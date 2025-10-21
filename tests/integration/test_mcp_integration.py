@@ -12,13 +12,18 @@ import re
 import time
 
 import pexpect
+import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
     satisfy_initial_prompts,
 )
 
-# No pytestmark - environment variables are required for integration tests
+# Skip in CI environment due to flakiness with real MCP server calls
+pytestmark = pytest.mark.skipif(
+    os.getenv("CI") == "true",
+    reason="MCP integration test with real server calls is too flaky for CI environment",
+)
 
 
 def test_mcp_context7_end_to_end(cli_harness: CliHarness) -> None:
