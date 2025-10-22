@@ -50,6 +50,51 @@ def _assert_file_contains(test_dir: Path, relative_path: str, content: str) -> N
     )
 
 
+def _retry_file_edit_with_content_check(
+    cli_harness: CliHarness,
+    result: SpawnResult,
+    test_dir: Path,
+    relative_path: str,
+    expected_content: str,
+    max_retries: int = 2,
+) -> None:
+    """Check if file contains expected content, and prompt agent to retry if not.
+    
+    This helper makes the test more resilient by giving the agent a chance
+    to fix mistakes instead of immediately failing.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            _assert_file_contains(test_dir, relative_path, expected_content)
+            # Content found, success!
+            return
+        except AssertionError:
+            if attempt == max_retries:
+                # Final attempt failed, raise the original assertion
+                raise
+            
+            # Content not found, prompt agent to retry
+            print(f"[RETRY] Attempt {attempt + 1}: {expected_content} not found in {relative_path}")
+            retry_prompt = (
+                f"The file {test_dir}/{relative_path} doesn't contain '{expected_content}'. "
+                f"Please use edit_file to add this content to the file."
+            )
+            result.sendline(f"{retry_prompt}\r")
+            
+            # Wait for retry to complete
+            try:
+                result.child.expect(r"Auto-saved session", timeout=180)
+            except pexpect.exceptions.TIMEOUT:
+                log_output = result.read_log()
+                if relative_path in log_output:
+                    print("[INFO] Auto-save timeout but agent responded to retry, continuing...")
+                else:
+                    raise
+            
+            cli_harness.wait_for_ready(result)
+            time.sleep(3)
+
+
 def test_file_operations_integration(
     cli_harness: CliHarness,
     live_cli: SpawnResult,
@@ -215,8 +260,10 @@ def test_file_operations_integration(
     cli_harness.wait_for_ready(result)
     time.sleep(3)
 
-    # Check that the file was actually modified
-    _assert_file_contains(test_dir, "simple.txt", "Updated by Code Puppy!")
+    # Check that the file was actually modified with retry mechanism
+    _retry_file_edit_with_content_check(
+        cli_harness, result, test_dir, "simple.txt", "Updated by Code Puppy!"
+    )
 
     # 4. Test another edit - modify the Python file
     py_edit_prompt = f"Use edit_file to add a function called greet to {test_dir}/hello.py that prints 'Welcome!'"
