@@ -53,7 +53,7 @@ EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayloa
 
 def _colorize_diff(diff_text: str) -> str:
     """Add color highlighting to diff lines based on user style preference.
-    
+
     This function supports two modes:
     - 'text': ANSI color codes for additions (green) and deletions (red)
     - 'highlighted': Intelligent foreground/background color pairs for maximum contrast
@@ -63,170 +63,197 @@ def _colorize_diff(diff_text: str) -> str:
         get_diff_deletion_color,
         get_diff_highlight_style,
     )
-    
+
     if not diff_text:
         return diff_text
-    
+
     style = get_diff_highlight_style()
 
     # Highlighted mode - use intelligent color pairs
     addition_base_color = get_diff_addition_color()
     deletion_base_color = get_diff_deletion_color()
-    
+
     if style == "text":
         # Plain text mode - use simple Rich markup for additions and deletions
         colored_lines = []
-        for line in diff_text.split('\n'):
-            if line.startswith('+') and not line.startswith('+++'):
+        for line in diff_text.split("\n"):
+            if line.startswith("+") and not line.startswith("+++"):
                 # Added lines - green
-                colored_lines.append(f"[{addition_base_color}]{line}[/{addition_base_color}]")
-            elif line.startswith('-') and not line.startswith('---'):
+                colored_lines.append(
+                    f"[{addition_base_color}]{line}[/{addition_base_color}]"
+                )
+            elif line.startswith("-") and not line.startswith("---"):
                 # Removed lines - red
-                colored_lines.append(f"[{deletion_base_color}]{line}[/{deletion_base_color}]")
-            elif line.startswith('@@'):
+                colored_lines.append(
+                    f"[{deletion_base_color}]{line}[/{deletion_base_color}]"
+                )
+            elif line.startswith("@@"):
                 # Diff headers - cyan
                 colored_lines.append(f"[cyan]{line}[/cyan]")
-            elif line.startswith('+++') or line.startswith('---'):
+            elif line.startswith("+++") or line.startswith("---"):
                 # File headers - yellow
                 colored_lines.append(f"[yellow]{line}[/yellow]")
             else:
                 # Unchanged lines - no color
                 colored_lines.append(line)
-        return '\n'.join(colored_lines)
-    
+        return "\n".join(colored_lines)
+
     # Get optimal foreground/background color pairs
     addition_fg, addition_bg = _get_optimal_color_pair(addition_base_color, "green")
     deletion_fg, deletion_bg = _get_optimal_color_pair(deletion_base_color, "orange1")
-    
+
     # Create the color combinations
     addition_color = f"{addition_fg} on {addition_bg}"
     deletion_color = f"{deletion_fg} on {deletion_bg}"
-    
+
     colored_lines = []
-    for line in diff_text.split('\n'):
-        if line.startswith('+') and not line.startswith('+++'):
+    for line in diff_text.split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
             # Added lines - optimal contrast text on chosen background
             colored_lines.append(f"[{addition_color}]{line}[/{addition_color}]")
-        elif line.startswith('-') and not line.startswith('---'):
+        elif line.startswith("-") and not line.startswith("---"):
             # Removed lines - optimal contrast text on chosen background
             colored_lines.append(f"[{deletion_color}]{line}[/{deletion_color}]")
-        elif line.startswith('@@'):
+        elif line.startswith("@@"):
             # Diff headers (cyan)
             colored_lines.append(f"[cyan]{line}[/cyan]")
-        elif line.startswith('+++') or line.startswith('---'):
+        elif line.startswith("+++") or line.startswith("---"):
             # File headers (yellow)
             colored_lines.append(f"[yellow]{line}[/yellow]")
         else:
             # Unchanged lines (default color)
             colored_lines.append(line)
-    
-    return '\n'.join(colored_lines)
+
+    return "\n".join(colored_lines)
 
 
 def _get_optimal_color_pair(background_color: str, fallback_bg: str) -> tuple[str, str]:
     """Get optimal foreground/background color pair for maximum contrast and readability.
-    
+
     This function maps each background color to the best foreground color
     for optimal contrast, following accessibility guidelines and color theory.
-    
+
     Args:
         background_color: The requested background color name
         fallback_bg: A fallback background color that's known to work
-        
+
     Returns:
         A tuple of (foreground_color, background_color) for optimal contrast
     """
     # Clean the color name (remove 'on_' prefix if present)
-    clean_color = background_color.replace('on_', '')
-    
+    clean_color = background_color.replace("on_", "")
+
     # Known valid background colors that work well as backgrounds
     valid_background_colors = {
-        'red', 'bright_red', 'dark_red', 'indian_red',
-        'green', 'bright_green', 'dark_green', 'sea_green',
-        'blue', 'bright_blue', 'dark_blue', 'deep_sky_blue',
-        'yellow', 'bright_yellow', 'gold', 'dark_gold',
-        'magenta', 'bright_magenta', 'dark_magenta',
-        'cyan', 'bright_cyan', 'dark_cyan',
-        'white', 'bright_white', 'grey', 'dark_grey',
-        'orange1', 'orange3', 'orange4',  # These work
-        'purple', 'bright_purple', 'dark_purple',
-        'pink', 'bright_pink', 'dark_pink'
+        "red",
+        "bright_red",
+        "dark_red",
+        "indian_red",
+        "green",
+        "bright_green",
+        "dark_green",
+        "sea_green",
+        "blue",
+        "bright_blue",
+        "dark_blue",
+        "deep_sky_blue",
+        "yellow",
+        "bright_yellow",
+        "gold",
+        "dark_gold",
+        "magenta",
+        "bright_magenta",
+        "dark_magenta",
+        "cyan",
+        "bright_cyan",
+        "dark_cyan",
+        "white",
+        "bright_white",
+        "grey",
+        "dark_grey",
+        "orange1",
+        "orange3",
+        "orange4",  # These work
+        "purple",
+        "bright_purple",
+        "dark_purple",
+        "pink",
+        "bright_pink",
+        "dark_pink",
     }
-    
+
     # Color mappings for common names that don't work as backgrounds
     color_mappings = {
-        'orange': 'orange1',  # orange doesn't work as bg, but orange1 does
-        'bright_orange': 'bright_yellow',  # bright_orange doesn't exist as bg
-        'dark_orange': 'orange3',  # dark_orange doesn't exist as bg
-        'gold': 'yellow',  # gold doesn't work as bg
-        'dark_gold': 'dark_yellow',  # dark_gold doesn't work as bg
+        "orange": "orange1",  # orange doesn't work as bg, but orange1 does
+        "bright_orange": "bright_yellow",  # bright_orange doesn't exist as bg
+        "dark_orange": "orange3",  # dark_orange doesn't exist as bg
+        "gold": "yellow",  # gold doesn't work as bg
+        "dark_gold": "dark_yellow",  # dark_gold doesn't work as bg
     }
-    
+
     # Apply mappings first
     if clean_color in color_mappings:
         clean_color = color_mappings[clean_color]
-    
+
     # If the color is not valid as a background, use fallback
     if clean_color not in valid_background_colors:
         clean_color = fallback_bg
-    
+
     # Optimal foreground color mapping for each background
     # Based on contrast ratios and readability
     optimal_foreground_map = {
         # Light backgrounds → dark text
-        'white': 'black',
-        'bright_white': 'black', 
-        'grey': 'black',
-        'yellow': 'black',
-        'bright_yellow': 'black',
-        'orange1': 'black',
-        'orange3': 'white',  # Darker orange, white works better
-        'orange4': 'white',  # Darkest orange, white works best
-        'bright_green': 'black',
-        'sea_green': 'black',
-        'bright_cyan': 'black',
-        'bright_blue': 'white',  # Light blue but saturated, white better
-        'bright_magenta': 'white',
-        'bright_purple': 'white',
-        'bright_pink': 'black',  # Light pink, black better
-        'bright_red': 'white',
-        
+        "white": "black",
+        "bright_white": "black",
+        "grey": "black",
+        "yellow": "black",
+        "bright_yellow": "black",
+        "orange1": "black",
+        "orange3": "white",  # Darker orange, white works better
+        "orange4": "white",  # Darkest orange, white works best
+        "bright_green": "black",
+        "sea_green": "black",
+        "bright_cyan": "black",
+        "bright_blue": "white",  # Light blue but saturated, white better
+        "bright_magenta": "white",
+        "bright_purple": "white",
+        "bright_pink": "black",  # Light pink, black better
+        "bright_red": "white",
         # Dark backgrounds → light text
-        'dark_grey': 'white',
-        'dark_red': 'white',
-        'dark_green': 'white',
-        'dark_blue': 'white',
-        'dark_magenta': 'white',
-        'dark_cyan': 'white',
-        'dark_purple': 'white',
-        'dark_pink': 'white',
-        'dark_yellow': 'black',  # Dark yellow is actually olive-ish, black better
-        
+        "dark_grey": "white",
+        "dark_red": "white",
+        "dark_green": "white",
+        "dark_blue": "white",
+        "dark_magenta": "white",
+        "dark_cyan": "white",
+        "dark_purple": "white",
+        "dark_pink": "white",
+        "dark_yellow": "black",  # Dark yellow is actually olive-ish, black better
         # Medium/saturated backgrounds → specific choices
-        'red': 'white',
-        'green': 'white',
-        'blue': 'white',
-        'magenta': 'white',
-        'cyan': 'black',  # Cyan is light, black better
-        'purple': 'white',
-        'pink': 'black',  # Pink is light, black better
-        'indian_red': 'white',
-        'deep_sky_blue': 'black',  # Light sky blue, black better
+        "red": "white",
+        "green": "white",
+        "blue": "white",
+        "magenta": "white",
+        "cyan": "black",  # Cyan is light, black better
+        "purple": "white",
+        "pink": "black",  # Pink is light, black better
+        "indian_red": "white",
+        "deep_sky_blue": "black",  # Light sky blue, black better
     }
-    
+
     # Get the optimal foreground color, defaulting to white for safety
-    foreground_color = optimal_foreground_map.get(clean_color, 'white')
-    
+    foreground_color = optimal_foreground_map.get(clean_color, "white")
+
     return foreground_color, clean_color
 
 
 def _get_valid_background_color(color: str, fallback: str) -> str:
     """Legacy function - use _get_optimal_color_pair instead.
-    
+
     Args:
         color: The requested color name
         fallback: A fallback color that's known to work as background
-        
+
     Returns:
         A valid Rich background color name
     """
