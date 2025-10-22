@@ -41,12 +41,16 @@ def test_session_rotation(
         first_run.child.expect(pexpect.EOF, timeout=30)
         first_run.close_log()
 
-        # Start second session with existing home to trigger session picker
+        # Start second session with existing home
         second_run = harness.spawn(
             args=["-i"], env=integration_env, existing_home=first_run.temp_home
         )
         try:
-            # Should see the autosave picker now
+            # Wait for the CLI to be ready
+            harness.wait_for_ready(second_run)
+
+            # Manually trigger autosave loading to see the picker
+            second_run.sendline("/autosave_load\r")
             second_run.child.expect("Autosave Sessions Available", timeout=30)
             second_run.child.expect(re.compile(r"Pick .*name/Enter:"), timeout=30)
 
