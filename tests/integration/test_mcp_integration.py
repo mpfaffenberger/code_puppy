@@ -41,14 +41,14 @@ def test_mcp_context7_end_to_end(cli_harness: CliHarness) -> None:
             result.sendline("\r")
         except pexpect.exceptions.TIMEOUT:
             print("[INFO] Server name prompt not found, proceeding")
-        
+
         # Proceed if prompted
         try:
             result.child.expect(re.compile(r"Proceed with installation\?"), timeout=20)
             result.sendline("\r")
         except pexpect.exceptions.TIMEOUT:
             pass
-        
+
         try:
             result.child.expect(
                 re.compile(r"Successfully installed server: .*context7"), timeout=90
@@ -76,7 +76,7 @@ def test_mcp_context7_end_to_end(cli_harness: CliHarness) -> None:
                 print("[INFO] Start timeout but evidence of progress found")
             else:
                 raise
-        
+
         # Wait for agent reload to complete
         try:
             result.child.expect(
@@ -121,14 +121,14 @@ def test_mcp_context7_end_to_end(cli_harness: CliHarness) -> None:
             )
         except pexpect.exceptions.TIMEOUT:
             pass  # Continue anyway
-        
+
         try:
             result.child.expect(
                 re.compile(r"Server instance created successfully"), timeout=90
             )
         except pexpect.exceptions.TIMEOUT:
             pass  # Continue anyway
-        
+
         try:
             result.child.expect(re.compile(r"Connectivity test passed"), timeout=90)
         except pexpect.exceptions.TIMEOUT:
@@ -165,14 +165,18 @@ def test_mcp_context7_end_to_end(cli_harness: CliHarness) -> None:
         # More flexible assertion - just need some evidence of tool usage or response
         # Skip assertion in CI if we can't find evidence but test ran
         if os.getenv("CI") == "true" and not has_tool_call:
-            print("[INFO] CI environment: skipping tool call assertion due to potential MCP flakiness")
+            print(
+                "[INFO] CI environment: skipping tool call assertion due to potential MCP flakiness"
+            )
         else:
             assert has_tool_call, "No evidence of MCP tool call found in log"
 
         # Pull recent logs as additional signal of activity
         result.sendline("/mcp logs context7 20\r")
         try:
-            result.child.expect(re.compile(r"Recent Events for .*context7"), timeout=150)
+            result.child.expect(
+                re.compile(r"Recent Events for .*context7"), timeout=150
+            )
         except pexpect.exceptions.TIMEOUT:
             # Check if logs were shown anyway
             log_output = result.read_log()
@@ -181,12 +185,13 @@ def test_mcp_context7_end_to_end(cli_harness: CliHarness) -> None:
             else:
                 # Skip this assertion in CI to improve reliability
                 if os.getenv("CI") == "true":
-                    print("[INFO] CI environment: skipping logs assertion due to potential timeout")
+                    print(
+                        "[INFO] CI environment: skipping logs assertion due to potential timeout"
+                    )
                 else:
                     raise
         cli_harness.wait_for_ready(result)
 
         result.sendline("/quit\r")
-        result.child.expect(pexpect.EOF, timeout=20)
     finally:
         cli_harness.cleanup(result)

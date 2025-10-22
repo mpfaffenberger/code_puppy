@@ -8,11 +8,11 @@ import difflib
 import os
 import sys
 import threading
-from typing import Any, Dict, Optional
+from typing import Any
 
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_yolo_mode
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 from code_puppy.tools.common import _find_best_window
 
