@@ -320,6 +320,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session."
     )
+    emit_system_message(
+        "Use [bold blue]/diff[/bold blue] to configure diff highlighting colors for file changes."
+    )
     try:
         from code_puppy.command_line.motd import print_motd
 
