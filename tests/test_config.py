@@ -491,8 +491,9 @@ class TestCommandHistory:
     @patch("os.path.isfile")
     @patch("pathlib.Path.touch")
     @patch("os.path.expanduser")
+    @patch("os.makedirs")
     def test_initialize_command_history_file_creates_new_file(
-        self, mock_expanduser, mock_touch, mock_isfile, mock_config_paths
+        self, mock_makedirs, mock_expanduser, mock_touch, mock_isfile, mock_config_paths
     ):
         # Setup
         mock_cfg_dir, _ = mock_config_paths
@@ -513,8 +514,10 @@ class TestCommandHistory:
     @patch("os.path.expanduser")
     @patch("shutil.copy2")
     @patch("pathlib.Path.unlink")
+    @patch("os.makedirs")
     def test_initialize_command_history_file_migrates_old_file(
         self,
+        mock_makedirs,
         mock_unlink,
         mock_copy2,
         mock_expanduser,
@@ -538,8 +541,9 @@ class TestCommandHistory:
         mock_unlink.assert_called_once()
 
     @patch("os.path.isfile")
+    @patch("os.makedirs")
     def test_initialize_command_history_file_file_exists(
-        self, mock_isfile, mock_config_paths
+        self, mock_makedirs, mock_isfile, mock_config_paths
     ):
         # Setup
         mock_isfile.return_value = True  # File already exists

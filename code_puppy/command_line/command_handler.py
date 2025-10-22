@@ -51,6 +51,7 @@ def get_commands_help():
             "/set",
             "Set puppy config (e.g., /set yolo_mode true, /set auto_save_session true)",
         ),
+        ("/diff", "Configure diff highlighting colors (additions, deletions)"),
         ("/tools", "Show available tools and capabilities"),
         (
             "/truncate <N>",
@@ -133,6 +134,55 @@ def _ensure_plugins_loaded() -> None:
         except Exception:
             pass
         _PLUGINS_LOADED = True
+
+
+def _show_color_options(color_type: str):
+    """Show available Rich color options organized by category."""
+    from code_puppy.messaging import emit_info
+    
+    # Standard Rich colors organized by category
+    color_categories = {
+        "Basic Colors": [
+            ("black", "⚫"), ("red", "🔴"), ("green", "🟢"), ("yellow", "🟡"),
+            ("blue", "🔵"), ("magenta", "🟣"), ("cyan", "🔷"), ("white", "⚪")
+        ],
+        "Bright Colors": [
+            ("bright_black", "⚫"), ("bright_red", "🔴"), ("bright_green", "🟢"), ("bright_yellow", "🟡"),
+            ("bright_blue", "🔵"), ("bright_magenta", "🟣"), ("bright_cyan", "🔷"), ("bright_white", "⚪")
+        ],
+        "Special Colors": [
+            ("orange1", "🟠"), ("orange2", "🟠"), ("orange3", "🟠"), ("orange4", "🟠"),
+            ("deep_sky_blue1", "🔷"), ("deep_sky_blue2", "🔷"), ("deep_sky_blue3", "🔷"), ("deep_sky_blue4", "🔷"),
+            ("turquoise2", "🔷"), ("turquoise4", "🔷"), ("steel_blue1", "🔷"), ("steel_blue3", "🔷"),
+            ("chartreuse1", "🟢"), ("chartreuse2", "🟢"), ("chartreuse3", "🟢"), ("chartreuse4", "🟢"),
+            ("gold1", "🟡"), ("gold3", "🟡"), ("rosy_brown", "🔴"), ("indian_red", "🔴")
+        ]
+    }
+    
+    # Suggested colors for each type
+    if color_type == "additions":
+        suggestions = [("green", "🟢"), ("bright_green", "🟢"), ("chartreuse1", "🟢"), ("green3", "🟢"), ("sea_green1", "🟢")]
+        emit_info("[bold white on green]🎨 Recommended Colors for Additions:[/bold white on green]")
+        for color, emoji in suggestions:
+            emit_info(f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}")
+    elif color_type == "deletions":
+        suggestions = [("orange1", "🟠"), ("red", "🔴"), ("bright_red", "🔴"), ("indian_red", "🔴"), ("dark_red", "🔴")]
+        emit_info("[bold white on orange1]🎨 Recommended Colors for Deletions:[/bold white on orange1]")
+        for color, emoji in suggestions:
+            emit_info(f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}")
+    
+    emit_info("\n[bold]🎨 All Available Rich Colors:[/bold]")
+    for category, colors in color_categories.items():
+        emit_info(f"\n[cyan]{category}:[/cyan]")
+        # Display in columns for better readability
+        for i in range(0, len(colors), 4):
+            row = colors[i:i+4]
+            row_text = "  ".join([f"[{color}]■[/{color}] {color}" for color, _ in row])
+            emit_info(f"  {row_text}")
+    
+    emit_info("\n[yellow]Usage:[/yellow] [cyan]/diff {color_type} <color_name>[/cyan]")
+    emit_info("[dim]All diffs use white text on your chosen background colors[/dim]")
+    emit_info("[dim]You can also use hex colors like #ff0000 or rgb(255,0,0)[/dim]")
 
 
 def handle_command(command: str):
@@ -797,6 +847,156 @@ def handle_command(command: str):
             f"Truncated message history from {len(history)} to {len(truncated_history)} messages (keeping system message and {n - 1} most recent)"
         )
         return True
+
+    if command.startswith("/diff"):
+        # Handle diff configuration commands
+        from code_puppy.config import (
+            get_diff_addition_color,
+            get_diff_deletion_color,
+            get_diff_highlight_style,
+            set_diff_addition_color,
+            set_diff_deletion_color,
+            set_diff_highlight_style,
+        )
+        
+        tokens = command.split()
+        
+        if len(tokens) == 1:
+            # Show current diff configuration
+            add_color = get_diff_addition_color()
+            del_color = get_diff_deletion_color()
+            
+            emit_info("[bold magenta]🎨 Diff Configuration[/bold magenta]")
+            # Show the actual color pairs being used
+            from code_puppy.tools.file_modifications import _get_optimal_color_pair
+            add_fg, add_bg = _get_optimal_color_pair(add_color, "green")
+            del_fg, del_bg = _get_optimal_color_pair(del_color, "orange1")
+            current_style = get_diff_highlight_style()
+            if current_style == "highlighted":
+                emit_info(f"[bold]Additions:[/bold]       [{add_fg} on {add_bg}]■■■■■■■■■■[/{add_fg} on {add_bg}] {add_color}")
+                emit_info(f"[bold]Deletions:[/bold]       [{del_fg} on {del_bg}]■■■■■■■■■■[/{del_fg} on {del_bg}] {del_color}")
+            if current_style == "text":
+                emit_info(f"[bold]Additions:[/bold]       [{add_color}]■■■■■■■■■■[/{add_color}] {add_color}")
+                emit_info(f"[bold]Deletions:[/bold]       [{del_color}]■■■■■■■■■■[/{del_color}] {del_color}")
+            emit_info("\n[yellow]Subcommands:[/yellow]")
+            emit_info("  [cyan]/diff style [style][/cyan]                 Set diff style (text/highlighted)")
+            emit_info("  [cyan]/diff additions [color][/cyan]             Set addition color (shows options if no color)")
+            emit_info("  [cyan]/diff deletions [color][/cyan]             Set deletion color (shows options if no color)")
+            emit_info("  [cyan]/diff show[/cyan]                         Show current configuration with example")
+            
+            if current_style == "text":
+                emit_info("\n[dim]Current mode: Plain text diffs (no highlighting)[/dim]")
+            else:
+                emit_info("\n[dim]Current mode: Intelligent color pairs for maximum contrast[/dim]")
+            return True
+        
+        subcmd = tokens[1].lower()
+        
+        if subcmd == "style":
+            if len(tokens) == 2:
+                # Show current style
+                current_style = get_diff_highlight_style()
+                emit_info("[bold magenta]🎨 Current Diff Style[/bold magenta]")
+                emit_info(f"Style: {current_style}")
+                emit_info("\n[yellow]Available styles:[/yellow]")
+                emit_info("  [cyan]text[/cyan]         - Plain text diffs with no highlighting")
+                emit_info("  [cyan]highlighted[/cyan]   - Intelligent color pairs for maximum contrast")
+                emit_info("\n[dim]Use '/diff style <style>' to change[/dim]")
+                return True
+            elif len(tokens) != 3:
+                emit_warning("Usage: /diff style <style>")
+                emit_info("[dim]Use '/diff style' to see available styles[/dim]")
+                return True
+            
+            new_style = tokens[2].lower()
+            try:
+                set_diff_highlight_style(new_style)
+                emit_success(f"Diff style set to '{new_style}'")
+            except Exception as e:
+                emit_error(f"Failed to set diff style: {e}")
+            return True
+        
+        if subcmd == "additions":
+            if len(tokens) == 2:
+                # Show available color options
+                _show_color_options("additions")
+                return True
+            elif len(tokens) != 3:
+                emit_warning("Usage: /diff additions [color]")
+                emit_info("[dim]Use '/diff additions' to see available colors[/dim]")
+                return True
+            
+            color = tokens[2]
+            try:
+                set_diff_addition_color(color)
+                emit_success(f"Addition color set to '{color}'")
+            except Exception as e:
+                emit_error(f"Failed to set addition color: {e}")
+            return True
+        
+        elif subcmd == "deletions":
+            if len(tokens) == 2:
+                # Show available color options
+                _show_color_options("deletions")
+                return True
+            elif len(tokens) != 3:
+                emit_warning("Usage: /diff deletions [color]")
+                emit_info("[dim]Use '/diff deletions' to see available colors[/dim]")
+                return True
+            
+            color = tokens[2]
+            try:
+                set_diff_deletion_color(color)
+                emit_success(f"Deletion color set to '{color}'")
+            except Exception as e:
+                emit_error(f"Failed to set deletion color: {e}")
+            return True
+        
+        elif subcmd == "show":
+            # Show current configuration with example
+            from code_puppy.tools.file_modifications import _colorize_diff
+            
+            add_color = get_diff_addition_color()
+            del_color = get_diff_deletion_color()
+            
+            # Create a simple diff example
+            example_diff = """--- a/example.txt
++++ b/example.txt
+@@ -1,3 +1,4 @@
+ line 1
+-old line 2
++new line 2
+ line 3
++added line 4"""
+            
+            current_style = get_diff_highlight_style()
+            
+            emit_info("[bold magenta]🎨 Current Diff Configuration[/bold magenta]")
+            emit_info(f"Style: {current_style}")
+            
+            if current_style == "highlighted":
+                # Show the actual color pairs being used
+                from code_puppy.tools.file_modifications import _get_optimal_color_pair
+                add_fg, add_bg = _get_optimal_color_pair(add_color, "green")
+                del_fg, del_bg = _get_optimal_color_pair(del_color, "orange1")
+                emit_info(f"Additions: [{add_fg} on {add_bg}]■■■■■■■■■■[/{add_fg} on {add_bg}] {add_color}")
+                emit_info(f"Deletions: [{del_fg} on {del_bg}]■■■■■■■■■■[/{del_fg} on {del_bg}] {del_color}")
+            else:
+                emit_info(f"Additions: {add_color} (plain text mode)")
+                emit_info(f"Deletions: {del_color} (plain text mode)")
+            emit_info("\n[bold cyan]── DIFF EXAMPLE ───────────────────────────────────[/bold cyan]")
+            
+            # Show the colored example
+            colored_example = _colorize_diff(example_diff)
+            emit_info(colored_example, highlight=False)
+            
+            emit_info("[bold cyan]───────────────────────────────────────────────[/bold cyan]\n")
+            return True
+        
+        else:
+            emit_warning(f"Unknown diff subcommand: {subcmd}")
+            emit_info("Use '/diff' to see available subcommands")
+            return True
 
     if command in ("/exit", "/quit"):
         emit_success("Goodbye!")
