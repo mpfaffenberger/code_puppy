@@ -50,6 +50,11 @@ def test_autosave_resume_roundtrip(
             existing_home=first_run.temp_home,
         )
         try:
+            # Wait for the CLI to be ready
+            harness.wait_for_ready(second_run)
+
+            # Manually trigger autosave loading
+            second_run.sendline("/autosave_load\r")
             second_run.child.expect("Autosave Sessions Available", timeout=20)
             second_run.child.expect(re.compile(r"Pick .*name/Enter:"), timeout=20)
             time.sleep(0.2)
