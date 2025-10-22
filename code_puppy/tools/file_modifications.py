@@ -20,8 +20,11 @@ import json_repair
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
+from code_puppy.callbacks import on_delete_file, on_edit_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
+
+# File permission handling is now managed by the file_permission_handler plugin
 
 
 class DeleteSnippetPayload(BaseModel):
@@ -48,49 +51,19 @@ class ContentPayload(BaseModel):
 EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
 
 
-def _print_diff(diff_text: str, message_group: str = None) -> None:
+def _print_diff(diff_text: str, message_group: str | None = None) -> None:
     """Pretty-print *diff_text* with colour-coding (always runs)."""
-
     emit_info(
         "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
     )
-    if diff_text and diff_text.strip():
-        for line in diff_text.splitlines():
-            # Git-style diff coloring using markup strings for TUI compatibility
-            if line.startswith("+") and not line.startswith("+++"):
-                # Addition line - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold green]{line}[/bold green]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("-") and not line.startswith("---"):
-                # Removal line - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold red]{line}[/bold red]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("@@"):
-                # Hunk info - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold cyan]{line}[/bold cyan]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("+++") or line.startswith("---"):
-                # Filename lines in diff - use markup string instead of Rich Text
-                emit_info(
-                    f"[dim white]{line}[/dim white]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            else:
-                # Context lines - no special formatting
-                emit_info(line, highlight=False, message_group=message_group)
-    else:
-        emit_info("[dim]-- no diff available --[/dim]", message_group=message_group)
+
+    # Basic diff formatting without plugin dependency
+    # If plugin-specific formatting is needed, it should be provided through the callback system
+    formatted_diff = diff_text
+
+    emit_info(formatted_diff, highlight=False, message_group=message_group)
+
     emit_info(
         "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
@@ -98,7 +71,7 @@ def _print_diff(diff_text: str, message_group: str = None) -> None:
 
 
 def _log_error(
-    msg: str, exc: Exception | None = None, message_group: str = None
+    msg: str, exc: Exception | None = None, message_group: str | None = None
 ) -> None:
     emit_error(f"{msg}", message_group=message_group)
     if exc is not None:
@@ -106,7 +79,10 @@ def _log_error(
 
 
 def _delete_snippet_from_file(
-    context: RunContext | None, file_path: str, snippet: str, message_group: str = None
+    context: RunContext | None,
+    file_path: str,
+    snippet: str,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
     diff_text = ""
@@ -147,7 +123,7 @@ def _replace_in_file(
     context: RunContext | None,
     path: str,
     replacements: List[Dict[str, str]],
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
@@ -222,7 +198,7 @@ def _write_to_file(
     path: str,
     content: str,
     overwrite: bool = False,
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(path)
 
@@ -265,12 +241,29 @@ def _write_to_file(
 
 
 def delete_snippet_from_file(
-    context: RunContext, file_path: str, snippet: str, message_group: str = None
+    context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    emit_info(
-        f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]",
-        message_group=message_group,
+    # Use the plugin system for permission handling with operation data
+    from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"snippet": snippet}
+    permission_results = on_file_permission(
+        context, file_path, "delete snippet from", None, message_group, operation_data
     )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
+            "changed": False,
+            "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+        }
+
     res = _delete_snippet_from_file(
         context, file_path, snippet, message_group=message_group
     )
@@ -285,11 +278,30 @@ def write_to_file(
     path: str,
     content: str,
     overwrite: bool,
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
-    emit_info(
-        f"✏️ Writing file [bold blue]{path}[/bold blue]", message_group=message_group
+    # Use the plugin system for permission handling with operation data
+    from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"content": content, "overwrite": overwrite}
+    permission_results = on_file_permission(
+        context, path, "write", None, message_group, operation_data
     )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
+        return {
+            "success": False,
+            "path": path,
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
+            "changed": False,
+            "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+            "guidance": "Modify your approach or ask the user what they prefer.",
+        }
+
     res = _write_to_file(
         context, path, content, overwrite=overwrite, message_group=message_group
     )
@@ -303,12 +315,30 @@ def replace_in_file(
     context: RunContext,
     path: str,
     replacements: List[Dict[str, str]],
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
-    emit_info(
-        f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]",
-        message_group=message_group,
+    # Use the plugin system for permission handling with operation data
+    from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"replacements": replacements}
+    permission_results = on_file_permission(
+        context, path, "replace text in", None, message_group, operation_data
     )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
+        return {
+            "success": False,
+            "path": path,
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
+            "changed": False,
+            "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+            "guidance": "Modify your approach or ask the user what they prefer.",
+        }
+
     res = _replace_in_file(context, path, replacements, message_group=message_group)
     diff = res.get("diff", "")
     if diff:
@@ -317,7 +347,7 @@ def replace_in_file(
 
 
 def _edit_file(
-    context: RunContext, payload: EditFilePayload, group_id: str = None
+    context: RunContext, payload: EditFilePayload, group_id: str | None = None
 ) -> Dict[str, Any]:
     """
     High-level implementation of the *edit_file* behaviour.
@@ -411,12 +441,31 @@ def _edit_file(
 
 
 def _delete_file(
-    context: RunContext, file_path: str, message_group: str = None
+    context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    emit_info(
-        f"🗑️ Deleting file [bold red]{file_path}[/bold red]", message_group=message_group
-    )
     file_path = os.path.abspath(file_path)
+
+    # Use the plugin system for permission handling with operation data
+    from code_puppy.callbacks import on_file_permission
+
+    operation_data = {}  # No additional data needed for delete operations
+    permission_results = on_file_permission(
+        context, file_path, "delete", None, message_group, operation_data
+    )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
+            "changed": False,
+            "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+        }
+
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
@@ -546,17 +595,17 @@ def register_edit_file(agent):
         if isinstance(payload, str):
             try:
                 # Fallback for weird models that just can't help but send json strings...
-                payload = json.loads(json_repair.repair_json(payload))
-                if "replacements" in payload:
-                    payload = ReplacementsPayload(**payload)
-                elif "delete_snippet" in payload:
-                    payload = DeleteSnippetPayload(**payload)
-                elif "content" in payload:
-                    payload = ContentPayload(**payload)
+                payload_dict = json.loads(json_repair.repair_json(payload))
+                if "replacements" in payload_dict:
+                    payload = ReplacementsPayload(**payload_dict)
+                elif "delete_snippet" in payload_dict:
+                    payload = DeleteSnippetPayload(**payload_dict)
+                elif "content" in payload_dict:
+                    payload = ContentPayload(**payload_dict)
                 else:
                     file_path = "Unknown"
-                    if "file_path" in payload:
-                        file_path = payload["file_path"]
+                    if "file_path" in payload_dict:
+                        file_path = payload_dict["file_path"]
                     return {
                         "success": False,
                         "path": file_path,
@@ -575,6 +624,16 @@ def register_edit_file(agent):
         result = _edit_file(context, payload)
         if "diff" in result:
             del result["diff"]
+
+        # Trigger edit_file callbacks to enhance the result with rejection details
+        enhanced_results = on_edit_file(context, result, payload)
+        if enhanced_results:
+            # Use the first non-None enhanced result
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+
         return result
 
 
@@ -624,4 +683,14 @@ def register_delete_file(agent):
         result = _delete_file(context, file_path, message_group=group_id)
         if "diff" in result:
             del result["diff"]
+
+        # Trigger delete_file callbacks to enhance the result with rejection details
+        enhanced_results = on_delete_file(context, result, file_path)
+        if enhanced_results:
+            # Use the first non-None enhanced result
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+
         return result
