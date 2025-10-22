@@ -59,7 +59,7 @@ def _retry_file_edit_with_content_check(
     max_retries: int = 2,
 ) -> None:
     """Check if file contains expected content, and prompt agent to retry if not.
-    
+
     This helper makes the test more resilient by giving the agent a chance
     to fix mistakes instead of immediately failing.
     """
@@ -72,25 +72,29 @@ def _retry_file_edit_with_content_check(
             if attempt == max_retries:
                 # Final attempt failed, raise the original assertion
                 raise
-            
+
             # Content not found, prompt agent to retry
-            print(f"[RETRY] Attempt {attempt + 1}: {expected_content} not found in {relative_path}")
+            print(
+                f"[RETRY] Attempt {attempt + 1}: {expected_content} not found in {relative_path}"
+            )
             retry_prompt = (
                 f"The file {test_dir}/{relative_path} doesn't contain '{expected_content}'. "
                 f"Please use edit_file to add this content to the file."
             )
             result.sendline(f"{retry_prompt}\r")
-            
+
             # Wait for retry to complete
             try:
                 result.child.expect(r"Auto-saved session", timeout=180)
             except pexpect.exceptions.TIMEOUT:
                 log_output = result.read_log()
                 if relative_path in log_output:
-                    print("[INFO] Auto-save timeout but agent responded to retry, continuing...")
+                    print(
+                        "[INFO] Auto-save timeout but agent responded to retry, continuing..."
+                    )
                 else:
                     raise
-            
+
             cli_harness.wait_for_ready(result)
             time.sleep(3)
 

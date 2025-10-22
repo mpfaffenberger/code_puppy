@@ -770,7 +770,7 @@ def get_diff_highlight_style() -> str:
 
 def set_diff_highlight_style(style: str):
     """Set the diff highlight style.
-    
+
     Args:
         style: 'text' for plain text diffs, 'highlighted' for intelligent color pairs
     """
@@ -793,7 +793,7 @@ def get_diff_addition_color() -> str:
 
 def set_diff_addition_color(color: str):
     """Set the color for diff additions.
-    
+
     Args:
         color: Rich color markup (e.g., 'green', 'on_green', 'bright_green')
     """
@@ -814,7 +814,7 @@ def get_diff_deletion_color() -> str:
 
 def set_diff_deletion_color(color: str):
     """Set the color for diff deletions.
-    
+
     Args:
         color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
     """
@@ -827,7 +827,7 @@ def _emit_diff_style_example():
     try:
         from code_puppy.messaging import emit_info
         from code_puppy.tools.file_modifications import _colorize_diff
-        
+
         # Create a simple diff example
         example_diff = """--- a/example.txt
 +++ b/example.txt
@@ -837,34 +837,45 @@ def _emit_diff_style_example():
 +new line 2
  line 3
 +added line 4"""
-        
+
         style = get_diff_highlight_style()
         add_color = get_diff_addition_color()
         del_color = get_diff_deletion_color()
-        
+
         # Get the actual color pairs being used
         from code_puppy.tools.file_modifications import _get_optimal_color_pair
+
         add_fg, add_bg = _get_optimal_color_pair(add_color, "green")
         del_fg, del_bg = _get_optimal_color_pair(del_color, "orange1")
-        
+
         emit_info("\n🎨 [bold]Diff Style Updated![/bold]")
         emit_info(f"Style: {style}", highlight=False)
-        
+
         if style == "highlighted":
             # Show the actual color pairs being used
-            emit_info(f"Additions: {add_fg} on {add_bg} (requested: {add_color})", highlight=False)
-            emit_info(f"Deletions: {del_fg} on {del_bg} (requested: {del_color})", highlight=False)
+            emit_info(
+                f"Additions: {add_fg} on {add_bg} (requested: {add_color})",
+                highlight=False,
+            )
+            emit_info(
+                f"Deletions: {del_fg} on {del_bg} (requested: {del_color})",
+                highlight=False,
+            )
         else:
             emit_info(f"Additions: {add_color} (plain text mode)", highlight=False)
             emit_info(f"Deletions: {del_color} (plain text mode)", highlight=False)
-        emit_info("\n[bold cyan]── DIFF EXAMPLE ───────────────────────────────────[/bold cyan]")
-        
+        emit_info(
+            "\n[bold cyan]── DIFF EXAMPLE ───────────────────────────────────[/bold cyan]"
+        )
+
         # Show the colored example
         colored_example = _colorize_diff(example_diff)
         emit_info(colored_example, highlight=False)
-        
-        emit_info("[bold cyan]───────────────────────────────────────────────[/bold cyan]\n")
-        
+
+        emit_info(
+            "[bold cyan]───────────────────────────────────────────────[/bold cyan]\n"
+        )
+
     except Exception:
         # Fail silently if we can't emit the example
         pass
