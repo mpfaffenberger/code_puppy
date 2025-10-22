@@ -67,7 +67,9 @@ def test_interactive_smoke() -> None:
                 interactive_found = True
             else:
                 # Skip the assertion if we can't determine the state but CLI seems to be running
-                print("[INFO] Unable to confirm interactive mode, but CLI appears to be running")
+                print(
+                    "[INFO] Unable to confirm interactive mode, but CLI appears to be running"
+                )
                 interactive_found = True  # Assume success for CI stability
 
     if interactive_found:
@@ -77,7 +79,7 @@ def test_interactive_smoke() -> None:
             # This might not appear in all versions/configs
             pass
         print("\n[SMOKE] CLI entered interactive mode")
-    
+
     time.sleep(3)  # Reduced sleep time
     child.send("/quit\r")
     time.sleep(0.5)
