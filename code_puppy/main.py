@@ -15,23 +15,23 @@ from rich.text import Text
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
+from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.command_line.prompt_toolkit_completion import (
     get_input_with_combined_completion,
     get_prompt_with_active_model,
 )
-from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
     DBOS_DATABASE_URL,
-    get_use_dbos,
     ensure_config_exists,
     finalize_autosave_session,
+    get_use_dbos,
     initialize_command_history_file,
     save_command_to_history,
 )
-from code_puppy.session_storage import restore_autosave_interactively
 from code_puppy.http_utils import find_available_port
+from code_puppy.session_storage import restore_autosave_interactively
 from code_puppy.tools.common import console
 
 # message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
@@ -179,8 +179,8 @@ async def main():
     # Handle agent selection from command line
     if args.agent:
         from code_puppy.agents.agent_manager import (
-            set_current_agent,
             get_available_agents,
+            set_current_agent,
         )
 
         agent_name = args.agent.lower()
@@ -317,6 +317,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
     )
+    emit_system_message(
+        "Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session."
+    )
     try:
         from code_puppy.command_line.motd import print_motd
 
@@ -399,7 +402,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_error(f"Error installing prompt_toolkit: {e}")
             emit_warning("Falling back to basic input without tab completion")
 
-    await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+    # Autosave loading is now manual - use /autosave_load command
 
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -473,8 +476,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             if command_result is True:
                 continue
             elif isinstance(command_result, str):
-                # Command returned a prompt to execute
-                task = command_result
+                if command_result == "__AUTOSAVE_LOAD__":
+                    # Handle async autosave loading
+                    try:
+                        await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+                    except Exception as e:
+                        from code_puppy.messaging import emit_error
+
+                        emit_error(f"Failed to load autosave: {e}")
+                    continue
+                else:
+                    # Command returned a prompt to execute
+                    task = command_result
             elif command_result is False:
                 # Command not recognized, continue with normal processing
                 pass

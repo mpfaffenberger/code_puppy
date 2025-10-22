@@ -47,6 +47,7 @@ def get_commands_help():
         ),
         ("/dump_context <name>", "Save current message history to file"),
         ("/load_context <name>", "Load message history from file"),
+        ("/autosave_load", "Load an autosave session interactively"),
         (
             "/set",
             "Set puppy config (e.g., /set yolo_mode true, /set auto_save_session true)",
@@ -164,7 +165,6 @@ def _show_color_options(color_type: str):
         ],
         "Special Colors": [
             ("orange1", "🟠"),
-            ("orange2", "🟠"),
             ("orange3", "🟠"),
             ("orange4", "🟠"),
             ("deep_sky_blue1", "🔷"),
@@ -853,6 +853,10 @@ def handle_command(command: str):
         )
         return True
 
+    if command.startswith("/autosave_load"):
+        # Return a special marker to indicate we need to run async autosave loading
+        return "__AUTOSAVE_LOAD__"
+
     if command.startswith("/truncate"):
         from code_puppy.agents.agent_manager import get_current_agent
 
@@ -936,13 +940,13 @@ def handle_command(command: str):
                 )
             emit_info("\n[yellow]Subcommands:[/yellow]")
             emit_info(
-                "  [cyan]/diff style [style][/cyan]                 Set diff style (text/highlighted)"
+                "  [cyan]/diff style <style>[/cyan]                 Set diff style (text/highlighted)"
             )
             emit_info(
-                "  [cyan]/diff additions [color][/cyan]             Set addition color (shows options if no color)"
+                "  [cyan]/diff additions <color>[/cyan]             Set addition color (shows options if no color)"
             )
             emit_info(
-                "  [cyan]/diff deletions [color][/cyan]             Set deletion color (shows options if no color)"
+                "  [cyan]/diff deletions <color>[/cyan]             Set deletion color (shows options if no color)"
             )
             emit_info(
                 "  [cyan]/diff show[/cyan]                         Show current configuration with example"
@@ -994,7 +998,7 @@ def handle_command(command: str):
                 _show_color_options("additions")
                 return True
             elif len(tokens) != 3:
-                emit_warning("Usage: /diff additions [color]")
+                emit_warning("Usage: /diff additions <color>")
                 emit_info("[dim]Use '/diff additions' to see available colors[/dim]")
                 return True
 
@@ -1012,7 +1016,7 @@ def handle_command(command: str):
                 _show_color_options("deletions")
                 return True
             elif len(tokens) != 3:
-                emit_warning("Usage: /diff deletions [color]")
+                emit_warning("Usage: /diff deletions <color>")
                 emit_info("[dim]Use '/diff deletions' to see available colors[/dim]")
                 return True
 
