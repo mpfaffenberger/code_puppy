@@ -66,6 +66,8 @@ Code Puppy Walmart Edition is an AI-powered code generation agent, designed to u
 ```bash
 # Models are automatically fetched from the endpoint and cached locally
 export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
+export CEREBRAS_API_KEY=<your_cerebras_api_key> # for Cerebras models
+export SYN_API_KEY=<your https://dev.synthetic.new api key> # for Synthetic provider
 # or ...
 
 export AZURE_OPENAI_API_KEY=...
@@ -74,12 +76,44 @@ export AZURE_OPENAI_ENDPOINT=...
 code-puppy --interactive
 ```
 
+### Synthetic Provider
+
+Code Puppy supports the **Synthetic provider**, which gives you access to various open-source models through a custom OpenAI-compatible endpoint. Set `SYN_API_KEY` to use models like:
+
+- `synthetic-DeepSeek-V3.1-Terminus` (128K context)
+- `synthetic-Kimi-K2-Instruct-0905` (256K context)
+- `synthetic-Qwen3-Coder-480B-A35B-Instruct` (256K context)
+- `synthetic-GLM-4.6` (200K context)
+
+These models are available via `https://api.synthetic.new/openai/v1/` and provide high-quality coding assistance with generous context windows.
+
 Run specific tasks or engage in interactive mode:
 
 ```bash
 # Execute a task directly
 code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it and run it"
 ```
+
+### Durable Execution
+
+Code Puppy now supports **[DBOS](https://github.com/dbos-inc/dbos-transact-py)** durable execution.
+
+When enabled, every agent is automatically wrapped as a `DBOSAgent`, checkpointing key interactions (including agent inputs, LLM responses, MCP calls, and tool calls) in a database for durability and recovery.
+
+You can toggle DBOS via either of these options:
+
+- CLI config (persists): `/set enable_dbos true` (or `false` to disable)
+
+
+Config takes precedence if set; otherwise the environment variable is used.
+
+### Configuration
+
+The following environment variables control DBOS behavior:
+- `DBOS_CONDUCTOR_KEY`: If set, Code Puppy connects to the [DBOS Management Console](https://console.dbos.dev/). Make sure you first register an app named `dbos-code-puppy` on the console to generate a Conductor key. Default: `None`.
+- `DBOS_LOG_LEVEL`: Logging verbosity: `ERROR`, `WARNING`, `INFO`, or `DEBUG`. Default: `ERROR`.
+- `DBOS_SYSTEM_DATABASE_URL`: Database URL used by DBOS. Can point to a local SQLite file or a Postgres instance. Example: `postgresql://postgres:dbos@localhost:5432/postgres`. Default: `dbos_store.sqlite` file in the config directory.
+
 
 ## Requirements
 

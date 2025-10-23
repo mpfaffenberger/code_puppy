@@ -8,6 +8,10 @@ download binaries from GitHub. DO NOT move these to top-level imports!
 from pathlib import Path
 from typing import Optional
 
+from playwright.async_api import Browser, BrowserContext, Page
+
+from code_puppy.messaging import emit_info
+
 # Lazy imports for camoufox to ensure monkey patches are applied first:
 # - import camoufox
 # - from camoufox.addons import DefaultAddons
@@ -15,9 +19,6 @@ from typing import Optional
 # - from camoufox.locale import ALLOW_GEOIP, download_mmdb
 # - from camoufox.pkgman import CamoufoxFetcher, camoufox_path
 
-from playwright.async_api import Browser, BrowserContext, Page
-
-from code_puppy.messaging import emit_info
 
 _MIN_VIEWPORT_DIMENSION = 640
 

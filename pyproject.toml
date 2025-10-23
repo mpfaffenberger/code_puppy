@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.210"
+version = "0.0.222"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,7 @@ dependencies = [
     "tenacity>=8.2.0",
     "playwright>=1.40.0",
     "camoufox>=0.4.11",
+    "dbos>=2.0.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
@@ -95,5 +96,8 @@ omit = ["code_puppy/main.py"]
 
 [dependency-groups]
 dev = [
-    "pytest-asyncio>=1.0.0",
+    "pytest>=8.3.4",
+    "pytest-cov>=6.1.1",
+    "pytest-asyncio>=0.23.1",
+    "ruff>=0.11.11",
 ]

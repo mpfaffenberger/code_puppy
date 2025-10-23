@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -129,8 +130,10 @@ def test_anthropic_missing_api_key(monkeypatch):
     config = {"anthropic": {"type": "anthropic", "name": "claude-v2"}}
     if "ANTHROPIC_API_KEY" in os.environ:
         monkeypatch.delenv("ANTHROPIC_API_KEY")
-    with pytest.raises(ValueError):
-        ModelFactory.get_model("anthropic", config)
+    with patch("code_puppy.model_factory.emit_warning") as mock_warn:
+        model = ModelFactory.get_model("anthropic", config)
+        assert model is None
+        mock_warn.assert_called_once()
 
 
 def test_azure_missing_endpoint():

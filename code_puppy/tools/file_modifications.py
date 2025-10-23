@@ -24,6 +24,8 @@ from code_puppy.callbacks import on_delete_file, on_edit_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import _find_best_window, generate_group_id
 
+# File permission handling is now managed by the file_permission_handler plugin
+
 
 class DeleteSnippetPayload(BaseModel):
     file_path: str
@@ -49,49 +51,228 @@ class ContentPayload(BaseModel):
 EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
 
 
-def _print_diff(diff_text: str, message_group: str = None) -> None:
-    """Pretty-print *diff_text* with colour-coding (always runs)."""
+def _colorize_diff(diff_text: str) -> str:
+    """Add color highlighting to diff lines based on user style preference.
 
+    This function supports two modes:
+    - 'text': ANSI color codes for additions (green) and deletions (red)
+    - 'highlighted': Intelligent foreground/background color pairs for maximum contrast
+    """
+    from code_puppy.config import (
+        get_diff_addition_color,
+        get_diff_deletion_color,
+        get_diff_highlight_style,
+    )
+
+    if not diff_text:
+        return diff_text
+
+    style = get_diff_highlight_style()
+
+    # Highlighted mode - use intelligent color pairs
+    addition_base_color = get_diff_addition_color()
+    deletion_base_color = get_diff_deletion_color()
+
+    if style == "text":
+        # Plain text mode - use simple Rich markup for additions and deletions
+        colored_lines = []
+        for line in diff_text.split("\n"):
+            if line.startswith("+") and not line.startswith("+++"):
+                # Added lines - green
+                colored_lines.append(
+                    f"[{addition_base_color}]{line}[/{addition_base_color}]"
+                )
+            elif line.startswith("-") and not line.startswith("---"):
+                # Removed lines - red
+                colored_lines.append(
+                    f"[{deletion_base_color}]{line}[/{deletion_base_color}]"
+                )
+            elif line.startswith("@@"):
+                # Diff headers - cyan
+                colored_lines.append(f"[cyan]{line}[/cyan]")
+            elif line.startswith("+++") or line.startswith("---"):
+                # File headers - yellow
+                colored_lines.append(f"[yellow]{line}[/yellow]")
+            else:
+                # Unchanged lines - no color
+                colored_lines.append(line)
+        return "\n".join(colored_lines)
+
+    # Get optimal foreground/background color pairs
+    addition_fg, addition_bg = _get_optimal_color_pair(addition_base_color, "green")
+    deletion_fg, deletion_bg = _get_optimal_color_pair(deletion_base_color, "orange1")
+
+    # Create the color combinations
+    addition_color = f"{addition_fg} on {addition_bg}"
+    deletion_color = f"{deletion_fg} on {deletion_bg}"
+
+    colored_lines = []
+    for line in diff_text.split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
+            # Added lines - optimal contrast text on chosen background
+            colored_lines.append(f"[{addition_color}]{line}[/{addition_color}]")
+        elif line.startswith("-") and not line.startswith("---"):
+            # Removed lines - optimal contrast text on chosen background
+            colored_lines.append(f"[{deletion_color}]{line}[/{deletion_color}]")
+        elif line.startswith("@@"):
+            # Diff headers (cyan)
+            colored_lines.append(f"[cyan]{line}[/cyan]")
+        elif line.startswith("+++") or line.startswith("---"):
+            # File headers (yellow)
+            colored_lines.append(f"[yellow]{line}[/yellow]")
+        else:
+            # Unchanged lines (default color)
+            colored_lines.append(line)
+
+    return "\n".join(colored_lines)
+
+
+def _get_optimal_color_pair(background_color: str, fallback_bg: str) -> tuple[str, str]:
+    """Get optimal foreground/background color pair for maximum contrast and readability.
+
+    This function maps each background color to the best foreground color
+    for optimal contrast, following accessibility guidelines and color theory.
+
+    Args:
+        background_color: The requested background color name
+        fallback_bg: A fallback background color that's known to work
+
+    Returns:
+        A tuple of (foreground_color, background_color) for optimal contrast
+    """
+    # Clean the color name (remove 'on_' prefix if present)
+    clean_color = background_color.replace("on_", "")
+
+    # Known valid background colors that work well as backgrounds
+    valid_background_colors = {
+        "red",
+        "bright_red",
+        "dark_red",
+        "indian_red",
+        "green",
+        "bright_green",
+        "dark_green",
+        "sea_green",
+        "blue",
+        "bright_blue",
+        "dark_blue",
+        "deep_sky_blue",
+        "yellow",
+        "bright_yellow",
+        "gold",
+        "dark_gold",
+        "magenta",
+        "bright_magenta",
+        "dark_magenta",
+        "cyan",
+        "bright_cyan",
+        "dark_cyan",
+        "white",
+        "bright_white",
+        "grey",
+        "dark_grey",
+        "orange1",
+        "orange3",
+        "orange4",  # These work
+        "purple",
+        "bright_purple",
+        "dark_purple",
+        "pink",
+        "bright_pink",
+        "dark_pink",
+    }
+
+    # Color mappings for common names that don't work as backgrounds
+    color_mappings = {
+        "orange": "orange1",  # orange doesn't work as bg, but orange1 does
+        "bright_orange": "bright_yellow",  # bright_orange doesn't exist as bg
+        "dark_orange": "orange3",  # dark_orange doesn't exist as bg
+        "gold": "yellow",  # gold doesn't work as bg
+        "dark_gold": "dark_yellow",  # dark_gold doesn't work as bg
+    }
+
+    # Apply mappings first
+    if clean_color in color_mappings:
+        clean_color = color_mappings[clean_color]
+
+    # If the color is not valid as a background, use fallback
+    if clean_color not in valid_background_colors:
+        clean_color = fallback_bg
+
+    # Optimal foreground color mapping for each background
+    # Based on contrast ratios and readability
+    optimal_foreground_map = {
+        # Light backgrounds → dark text
+        "white": "black",
+        "bright_white": "black",
+        "grey": "black",
+        "yellow": "black",
+        "bright_yellow": "black",
+        "orange1": "black",
+        "orange3": "white",  # Darker orange, white works better
+        "orange4": "white",  # Darkest orange, white works best
+        "bright_green": "black",
+        "sea_green": "black",
+        "bright_cyan": "black",
+        "bright_blue": "white",  # Light blue but saturated, white better
+        "bright_magenta": "white",
+        "bright_purple": "white",
+        "bright_pink": "black",  # Light pink, black better
+        "bright_red": "white",
+        # Dark backgrounds → light text
+        "dark_grey": "white",
+        "dark_red": "white",
+        "dark_green": "white",
+        "dark_blue": "white",
+        "dark_magenta": "white",
+        "dark_cyan": "white",
+        "dark_purple": "white",
+        "dark_pink": "white",
+        "dark_yellow": "black",  # Dark yellow is actually olive-ish, black better
+        # Medium/saturated backgrounds → specific choices
+        "red": "white",
+        "green": "white",
+        "blue": "white",
+        "magenta": "white",
+        "cyan": "black",  # Cyan is light, black better
+        "purple": "white",
+        "pink": "black",  # Pink is light, black better
+        "indian_red": "white",
+        "deep_sky_blue": "black",  # Light sky blue, black better
+    }
+
+    # Get the optimal foreground color, defaulting to white for safety
+    foreground_color = optimal_foreground_map.get(clean_color, "white")
+
+    return foreground_color, clean_color
+
+
+def _get_valid_background_color(color: str, fallback: str) -> str:
+    """Legacy function - use _get_optimal_color_pair instead.
+
+    Args:
+        color: The requested color name
+        fallback: A fallback color that's known to work as background
+
+    Returns:
+        A valid Rich background color name
+    """
+    _, bg_color = _get_optimal_color_pair(color, fallback)
+    return bg_color
+
+
+def _print_diff(diff_text: str, message_group: str | None = None) -> None:
+    """Pretty-print *diff_text* with colour-coding (always runs)."""
     emit_info(
         "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
     )
-    if diff_text and diff_text.strip():
-        for line in diff_text.splitlines():
-            # Git-style diff coloring using markup strings for TUI compatibility
-            if line.startswith("+") and not line.startswith("+++"):
-                # Addition line - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold green]{line}[/bold green]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("-") and not line.startswith("---"):
-                # Removal line - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold red]{line}[/bold red]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("@@"):
-                # Hunk info - use markup string instead of Rich Text
-                emit_info(
-                    f"[bold cyan]{line}[/bold cyan]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            elif line.startswith("+++") or line.startswith("---"):
-                # Filename lines in diff - use markup string instead of Rich Text
-                emit_info(
-                    f"[dim white]{line}[/dim white]",
-                    highlight=False,
-                    message_group=message_group,
-                )
-            else:
-                # Context lines - no special formatting
-                emit_info(line, highlight=False, message_group=message_group)
-    else:
-        emit_info("[dim]-- no diff available --[/dim]", message_group=message_group)
+
+    # Apply color formatting to diff lines
+    formatted_diff = _colorize_diff(diff_text)
+
+    emit_info(formatted_diff, highlight=False, message_group=message_group)
+
     emit_info(
         "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
@@ -99,7 +280,7 @@ def _print_diff(diff_text: str, message_group: str = None) -> None:
 
 
 def _log_error(
-    msg: str, exc: Exception | None = None, message_group: str = None
+    msg: str, exc: Exception | None = None, message_group: str | None = None
 ) -> None:
     emit_error(f"{msg}", message_group=message_group)
     if exc is not None:
@@ -107,7 +288,10 @@ def _log_error(
 
 
 def _delete_snippet_from_file(
-    context: RunContext | None, file_path: str, snippet: str, message_group: str = None
+    context: RunContext | None,
+    file_path: str,
+    snippet: str,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
     diff_text = ""
@@ -148,7 +332,7 @@ def _replace_in_file(
     context: RunContext | None,
     path: str,
     replacements: List[Dict[str, str]],
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
@@ -223,7 +407,7 @@ def _write_to_file(
     path: str,
     content: str,
     overwrite: bool = False,
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(path)
 
@@ -266,12 +450,29 @@ def _write_to_file(
 
 
 def delete_snippet_from_file(
-    context: RunContext, file_path: str, snippet: str, message_group: str = None
+    context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    emit_info(
-        f"🗑️ Deleting snippet from file [bold red]{file_path}[/bold red]",
-        message_group=message_group,
+    # Use the plugin system for permission handling with operation data
+    from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"snippet": snippet}
+    permission_results = on_file_permission(
+        context, file_path, "delete snippet from", None, message_group, operation_data
     )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
+            "changed": False,
+            "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+        }
+
     res = _delete_snippet_from_file(
         context, file_path, snippet, message_group=message_group
     )
@@ -286,11 +487,30 @@ def write_to_file(
     path: str,
     content: str,
     overwrite: bool,
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
-    emit_info(
-        f"✏️ Writing file [bold blue]{path}[/bold blue]", message_group=message_group
+    # Use the plugin system for permission handling with operation data
+    from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"content": content, "overwrite": overwrite}
+    permission_results = on_file_permission(
+        context, path, "write", None, message_group, operation_data
     )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
+        return {
+            "success": False,
+            "path": path,
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
+            "changed": False,
+            "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+            "guidance": "Modify your approach or ask the user what they prefer.",
+        }
+
     res = _write_to_file(
         context, path, content, overwrite=overwrite, message_group=message_group
     )
@@ -304,12 +524,30 @@ def replace_in_file(
     context: RunContext,
     path: str,
     replacements: List[Dict[str, str]],
-    message_group: str = None,
+    message_group: str | None = None,
 ) -> Dict[str, Any]:
-    emit_info(
-        f"♻️ Replacing text in [bold yellow]{path}[/bold yellow]",
-        message_group=message_group,
+    # Use the plugin system for permission handling with operation data
+    from code_puppy.callbacks import on_file_permission
+
+    operation_data = {"replacements": replacements}
+    permission_results = on_file_permission(
+        context, path, "replace text in", None, message_group, operation_data
     )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
+        return {
+            "success": False,
+            "path": path,
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
+            "changed": False,
+            "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+            "guidance": "Modify your approach or ask the user what they prefer.",
+        }
+
     res = _replace_in_file(context, path, replacements, message_group=message_group)
     diff = res.get("diff", "")
     if diff:
@@ -318,7 +556,7 @@ def replace_in_file(
 
 
 def _edit_file(
-    context: RunContext, payload: EditFilePayload, group_id: str = None
+    context: RunContext, payload: EditFilePayload, group_id: str | None = None
 ) -> Dict[str, Any]:
     """
     High-level implementation of the *edit_file* behaviour.
@@ -412,12 +650,31 @@ def _edit_file(
 
 
 def _delete_file(
-    context: RunContext, file_path: str, message_group: str = None
+    context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    emit_info(
-        f"🗑️ Deleting file [bold red]{file_path}[/bold red]", message_group=message_group
-    )
     file_path = os.path.abspath(file_path)
+
+    # Use the plugin system for permission handling with operation data
+    from code_puppy.callbacks import on_file_permission
+
+    operation_data = {}  # No additional data needed for delete operations
+    permission_results = on_file_permission(
+        context, file_path, "delete", None, message_group, operation_data
+    )
+
+    # If any permission handler denies the operation, return cancelled result
+    if permission_results and any(
+        not result for result in permission_results if result is not None
+    ):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
+            "changed": False,
+            "user_rejection": True,
+            "rejection_type": "explicit_user_denial",
+        }
+
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
@@ -547,17 +804,17 @@ def register_edit_file(agent):
         if isinstance(payload, str):
             try:
                 # Fallback for weird models that just can't help but send json strings...
-                payload = json.loads(json_repair.repair_json(payload))
-                if "replacements" in payload:
-                    payload = ReplacementsPayload(**payload)
-                elif "delete_snippet" in payload:
-                    payload = DeleteSnippetPayload(**payload)
-                elif "content" in payload:
-                    payload = ContentPayload(**payload)
+                payload_dict = json.loads(json_repair.repair_json(payload))
+                if "replacements" in payload_dict:
+                    payload = ReplacementsPayload(**payload_dict)
+                elif "delete_snippet" in payload_dict:
+                    payload = DeleteSnippetPayload(**payload_dict)
+                elif "content" in payload_dict:
+                    payload = ContentPayload(**payload_dict)
                 else:
                     file_path = "Unknown"
-                    if "file_path" in payload:
-                        file_path = payload["file_path"]
+                    if "file_path" in payload_dict:
+                        file_path = payload_dict["file_path"]
                     return {
                         "success": False,
                         "path": file_path,
@@ -577,6 +834,16 @@ def register_edit_file(agent):
         on_edit_file(payload)
         if "diff" in result:
             del result["diff"]
+
+        # Trigger edit_file callbacks to enhance the result with rejection details
+        enhanced_results = on_edit_file(context, result, payload)
+        if enhanced_results:
+            # Use the first non-None enhanced result
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+
         return result
 
 
@@ -627,4 +894,14 @@ def register_delete_file(agent):
         on_delete_file(result.copy())
         if "diff" in result:
             del result["diff"]
+
+        # Trigger delete_file callbacks to enhance the result with rejection details
+        enhanced_results = on_delete_file(context, result, file_path)
+        if enhanced_results:
+            # Use the first non-None enhanced result
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+
         return result

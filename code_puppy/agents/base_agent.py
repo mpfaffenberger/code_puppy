@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 import mcp
 import pydantic
 import pydantic_ai.models
+from dbos import DBOS, SetWorkflowID
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai import (
     BinaryContent,
@@ -20,6 +21,7 @@ from pydantic_ai import (
     UsageLimitExceeded,
     UsageLimits,
 )
+from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -41,6 +43,7 @@ from code_puppy.config import (
     get_message_limit,
     get_openai_reasoning_effort,
     get_protected_token_count,
+    get_use_dbos,
     get_value,
     load_mcp_server_configs,
 )
@@ -55,6 +58,8 @@ from code_puppy.messaging.spinner import SpinnerBase, update_spinner_context
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.common import console
+
+_reload_count = 0
 
 
 class BaseAgent(ABC):
@@ -855,6 +860,9 @@ class BaseAgent(ABC):
             instructions += f"\n{puppy_rules}"
 
         mcp_servers = self.load_mcp_servers()
+        emit_info(
+            f"[dim]DEBUG: Loaded {len(mcp_servers)} MCP servers during reload[/dim]"
+        )
 
         model_settings_dict: Dict[str, Any] = {"seed": 42}
         output_tokens = max(
@@ -878,7 +886,7 @@ class BaseAgent(ABC):
             instructions=instructions,
             output_type=str,
             retries=3,
-            mcp_servers=mcp_servers,
+            toolsets=mcp_servers,
             history_processors=[self.message_history_accumulator],
             model_settings=model_settings,
         )
@@ -886,12 +894,114 @@ class BaseAgent(ABC):
         agent_tools = self.get_available_tools()
         register_tools_for_agent(p_agent, agent_tools)
 
-        self._code_generation_agent = p_agent
+        # Get existing tool names to filter out conflicts with MCP tools
+        existing_tool_names = set()
+        try:
+            # Get tools from the agent to find existing tool names
+            tools = getattr(p_agent, "_tools", None)
+            if tools:
+                existing_tool_names = set(tools.keys())
+        except Exception:
+            # If we can't get tool names, proceed without filtering
+            pass
+
+        # Filter MCP server toolsets to remove conflicting tools
+        filtered_mcp_servers = []
+        if mcp_servers and existing_tool_names:
+            for mcp_server in mcp_servers:
+                try:
+                    # Get tools from this MCP server
+                    server_tools = getattr(mcp_server, "tools", None)
+                    if server_tools:
+                        # Filter out conflicting tools
+                        filtered_tools = {}
+                        for tool_name, tool_func in server_tools.items():
+                            if tool_name not in existing_tool_names:
+                                filtered_tools[tool_name] = tool_func
+
+                        # Create a filtered version of the MCP server if we have tools
+                        if filtered_tools:
+                            # Create a new toolset with filtered tools
+                            from pydantic_ai.tools import ToolSet
+
+                            filtered_toolset = ToolSet()
+                            for tool_name, tool_func in filtered_tools.items():
+                                filtered_toolset._tools[tool_name] = tool_func
+                            filtered_mcp_servers.append(filtered_toolset)
+                        else:
+                            # No tools left after filtering, skip this server
+                            pass
+                    else:
+                        # Can't get tools from this server, include as-is
+                        filtered_mcp_servers.append(mcp_server)
+                except Exception:
+                    # Error processing this server, include as-is to be safe
+                    filtered_mcp_servers.append(mcp_server)
+        else:
+            # No filtering needed or possible
+            filtered_mcp_servers = mcp_servers if mcp_servers else []
+
+        if len(filtered_mcp_servers) != len(mcp_servers):
+            emit_info(
+                f"[dim]Filtered {len(mcp_servers) - len(filtered_mcp_servers)} conflicting MCP tools[/dim]"
+            )
+
         self._last_model_name = resolved_model_name
         # expose for run_with_mcp
-        self.pydantic_agent = p_agent
+        # Wrap it with DBOS, but handle MCP servers separately to avoid serialization issues
+        global _reload_count
+        _reload_count += 1
+        if get_use_dbos():
+            # Don't pass MCP servers to the agent constructor when using DBOS
+            # This prevents the "cannot pickle async_generator object" error
+            # MCP servers will be handled separately in run_with_mcp
+            agent_without_mcp = PydanticAgent(
+                model=model,
+                instructions=instructions,
+                output_type=str,
+                retries=3,
+                toolsets=[],  # Don't include MCP servers here
+                history_processors=[self.message_history_accumulator],
+                model_settings=model_settings,
+            )
+
+            # Register regular tools (non-MCP) on the new agent
+            agent_tools = self.get_available_tools()
+            register_tools_for_agent(agent_without_mcp, agent_tools)
+
+            # Wrap with DBOS
+            dbos_agent = DBOSAgent(
+                agent_without_mcp, name=f"{self.name}-{_reload_count}"
+            )
+            self.pydantic_agent = dbos_agent
+            self._code_generation_agent = dbos_agent
+
+            # Store filtered MCP servers separately for runtime use
+            self._mcp_servers = filtered_mcp_servers
+        else:
+            # Normal path without DBOS - include filtered MCP servers in the agent
+            # Re-create agent with filtered MCP servers
+            p_agent = PydanticAgent(
+                model=model,
+                instructions=instructions,
+                output_type=str,
+                retries=3,
+                toolsets=filtered_mcp_servers,
+                history_processors=[self.message_history_accumulator],
+                model_settings=model_settings,
+            )
+            # Register regular tools on the agent
+            agent_tools = self.get_available_tools()
+            register_tools_for_agent(p_agent, agent_tools)
+
+            self.pydantic_agent = p_agent
+            self._code_generation_agent = p_agent
+            self._mcp_servers = filtered_mcp_servers
+            self._mcp_servers = mcp_servers
         return self._code_generation_agent
 
+    # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
+    @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
         message_history_hashes = set([self.hash_message(m) for m in _message_history])
@@ -956,12 +1066,47 @@ class BaseAgent(ABC):
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
                 usage_limits = UsageLimits(request_limit=get_message_limit())
-                result_ = await pydantic_agent.run(
-                    prompt_payload,
-                    message_history=self.get_message_history(),
-                    usage_limits=usage_limits,
-                    **kwargs,
-                )
+
+                # Handle MCP servers - add them temporarily when using DBOS
+                if (
+                    get_use_dbos()
+                    and hasattr(self, "_mcp_servers")
+                    and self._mcp_servers
+                ):
+                    # Temporarily add MCP servers to the DBOS agent using internal _toolsets
+                    original_toolsets = pydantic_agent._toolsets
+                    pydantic_agent._toolsets = original_toolsets + self._mcp_servers
+                    pydantic_agent._toolsets = original_toolsets + self._mcp_servers
+
+                    try:
+                        # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
+                        with SetWorkflowID(group_id):
+                            result_ = await pydantic_agent.run(
+                                prompt_payload,
+                                message_history=self.get_message_history(),
+                                usage_limits=usage_limits,
+                                **kwargs,
+                            )
+                    finally:
+                        # Always restore original toolsets
+                        pydantic_agent._toolsets = original_toolsets
+                elif get_use_dbos():
+                    # DBOS without MCP servers
+                    with SetWorkflowID(group_id):
+                        result_ = await pydantic_agent.run(
+                            prompt_payload,
+                            message_history=self.get_message_history(),
+                            usage_limits=usage_limits,
+                            **kwargs,
+                        )
+                else:
+                    # Non-DBOS path (MCP servers are already included)
+                    result_ = await pydantic_agent.run(
+                        prompt_payload,
+                        message_history=self.get_message_history(),
+                        usage_limits=usage_limits,
+                        **kwargs,
+                    )
                 return result_
             except* UsageLimitExceeded as ule:
                 emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
@@ -977,8 +1122,12 @@ class BaseAgent(ABC):
                 )
             except* asyncio.exceptions.CancelledError:
                 emit_info("Cancelled")
+                if get_use_dbos():
+                    await DBOS.cancel_workflow_async(group_id)
             except* InterruptedError as ie:
                 emit_info(f"Interrupted: {str(ie)}")
+                if get_use_dbos():
+                    await DBOS.cancel_workflow_async(group_id)
             except* Exception as other_error:
                 # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
                 remaining_exceptions = []

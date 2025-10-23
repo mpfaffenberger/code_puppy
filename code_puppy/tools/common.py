@@ -26,8 +26,11 @@ except ImportError:
 
 # -------------------
 # Shared ignore patterns/helpers
+# Split into directory vs file patterns so tools can choose appropriately
+# - list_files should ignore only directories (still show binary files inside non-ignored dirs)
+# - grep should ignore both directories and files (avoid grepping binaries)
 # -------------------
-IGNORE_PATTERNS = [
+DIR_IGNORE_PATTERNS = [
     # Version control
     "**/.git/**",
     "**/.git",
@@ -304,6 +307,10 @@ IGNORE_PATTERNS = [
     "**/*.save",
     # Hidden files (but be careful with this one)
     "**/.*",  # Commented out as it might be too aggressive
+    # Directory-only section ends here
+]
+
+FILE_IGNORE_PATTERNS = [
     # Binary image formats
     "**/*.png",
     "**/*.jpg",
@@ -354,6 +361,9 @@ IGNORE_PATTERNS = [
     "**/*.sqlite3",
 ]
 
+# Backwards compatibility for any imports still referring to IGNORE_PATTERNS
+IGNORE_PATTERNS = DIR_IGNORE_PATTERNS + FILE_IGNORE_PATTERNS
+
 
 def should_ignore_path(path: str) -> bool:
     """Return True if *path* matches any pattern in IGNORE_PATTERNS."""
@@ -386,6 +396,28 @@ def should_ignore_path(path: str) -> bool:
                 if fnmatch.fnmatch(path_parts[i], simplified_pattern):
                     return True
 
+    return False
+
+
+def should_ignore_dir_path(path: str) -> bool:
+    """Return True if path matches any directory ignore pattern (directories only)."""
+    path_obj = Path(path)
+    for pattern in DIR_IGNORE_PATTERNS:
+        try:
+            if path_obj.match(pattern):
+                return True
+        except ValueError:
+            if fnmatch.fnmatch(path, pattern):
+                return True
+        if "**" in pattern:
+            simplified = pattern.replace("**/", "").replace("/**", "")
+            parts = path_obj.parts
+            for i in range(len(parts)):
+                subpath = Path(*parts[i:])
+                if fnmatch.fnmatch(str(subpath), simplified):
+                    return True
+                if fnmatch.fnmatch(parts[i], simplified):
+                    return True
     return False
 
 

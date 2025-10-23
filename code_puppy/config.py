@@ -7,7 +7,7 @@ from typing import Optional
 
 from code_puppy.session_storage import save_session
 
-CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".code_puppy")
+CONFIG_DIR = os.path.join(os.getenv("HOME", os.path.expanduser("~")), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
@@ -16,6 +16,22 @@ EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
 CONTEXTS_DIR = os.path.join(CONFIG_DIR, "contexts")
 AUTOSAVE_DIR = os.path.join(CONFIG_DIR, "autosaves")
+# Default saving to a SQLite DB in the config dir
+_DEFAULT_SQLITE_FILE = os.path.join(CONFIG_DIR, "dbos_store.sqlite")
+DBOS_DATABASE_URL = os.environ.get(
+    "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
+)
+# DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
+# Default: False (DBOS disabled) unless explicitly enabled.
+
+
+def get_use_dbos() -> bool:
+    """Return True if DBOS should be used based on 'enable_dbos' (default False)."""
+    cfg_val = get_value("enable_dbos")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
 
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
@@ -134,6 +150,9 @@ def get_config_keys():
         "max_saved_sessions",
         "http2",
     ]
+    # Add DBOS control key
+    default_keys.append("enable_dbos")
+
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -519,6 +538,10 @@ def initialize_command_history_file():
     import os
     from pathlib import Path
 
+    # Ensure the config directory exists before trying to create the history file
+    if not os.path.exists(CONFIG_DIR):
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+
     command_history_exists = os.path.isfile(COMMAND_HISTORY_FILE)
     if not command_history_exists:
         try:
@@ -708,6 +731,11 @@ def set_http2(enabled: bool) -> None:
     set_config_value("http2", "true" if enabled else "false")
 
 
+def set_enable_dbos(enabled: bool) -> None:
+    """Enable DBOS via config (true enables, default false)."""
+    set_config_value("enable_dbos", "true" if enabled else "false")
+
+
 def get_message_limit(default: int = 100) -> int:
     """
     Returns the user-configured message/request limit for the agent.
@@ -823,6 +851,131 @@ def set_max_saved_sessions(max_sessions: int):
         max_sessions: Maximum number of sessions to keep (0 for unlimited)
     """
     set_config_value("max_saved_sessions", str(max_sessions))
+
+
+def get_diff_highlight_style() -> str:
+    """
+    Get the diff highlight style preference.
+    Options: 'text' (plain text, no highlighting), 'highlighted' (intelligent color pairs)
+    Returns 'highlighted' if not set or invalid.
+    """
+    val = get_value("diff_highlight_style")
+    if val and val.lower() in ["text", "highlighted"]:
+        return val.lower()
+    return "text"  # Default to intelligent highlighting
+
+
+def set_diff_highlight_style(style: str):
+    """Set the diff highlight style.
+
+    Args:
+        style: 'text' for plain text diffs, 'highlighted' for intelligent color pairs
+    """
+    if style.lower() not in ["text", "highlighted"]:
+        raise ValueError("diff_highlight_style must be 'text' or 'highlighted'")
+    set_config_value("diff_highlight_style", style.lower())
+    _emit_diff_style_example()
+
+
+def get_diff_addition_color() -> str:
+    """
+    Get the base color for diff additions.
+    Default: green
+    """
+    val = get_value("diff_addition_color")
+    if val:
+        return val
+    return "sea_green1"  # Default to green
+
+
+def set_diff_addition_color(color: str):
+    """Set the color for diff additions.
+
+    Args:
+        color: Rich color markup (e.g., 'green', 'on_green', 'bright_green')
+    """
+    set_config_value("diff_addition_color", color)
+    _emit_diff_style_example()
+
+
+def get_diff_deletion_color() -> str:
+    """
+    Get the base color for diff deletions.
+    Default: orange1
+    """
+    val = get_value("diff_deletion_color")
+    if val:
+        return val
+    return "orange1"  # Default to orange1
+
+
+def set_diff_deletion_color(color: str):
+    """Set the color for diff deletions.
+
+    Args:
+        color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
+    """
+    set_config_value("diff_deletion_color", color)
+    _emit_diff_style_example()
+
+
+def _emit_diff_style_example():
+    """Emit a small diff example showing the current style configuration."""
+    try:
+        from code_puppy.messaging import emit_info
+        from code_puppy.tools.file_modifications import _colorize_diff
+
+        # Create a simple diff example
+        example_diff = """--- a/example.txt
++++ b/example.txt
+@@ -1,3 +1,4 @@
+ line 1
+-old line 2
++new line 2
+ line 3
++added line 4"""
+
+        style = get_diff_highlight_style()
+        add_color = get_diff_addition_color()
+        del_color = get_diff_deletion_color()
+
+        # Get the actual color pairs being used
+        from code_puppy.tools.file_modifications import _get_optimal_color_pair
+
+        add_fg, add_bg = _get_optimal_color_pair(add_color, "green")
+        del_fg, del_bg = _get_optimal_color_pair(del_color, "orange1")
+
+        emit_info("\n🎨 [bold]Diff Style Updated![/bold]")
+        emit_info(f"Style: {style}", highlight=False)
+
+        if style == "highlighted":
+            # Show the actual color pairs being used
+            emit_info(
+                f"Additions: {add_fg} on {add_bg} (requested: {add_color})",
+                highlight=False,
+            )
+            emit_info(
+                f"Deletions: {del_fg} on {del_bg} (requested: {del_color})",
+                highlight=False,
+            )
+        else:
+            emit_info(f"Additions: {add_color} (plain text mode)", highlight=False)
+            emit_info(f"Deletions: {del_color} (plain text mode)", highlight=False)
+        emit_info(
+            "\n[bold cyan]── DIFF EXAMPLE ───────────────────────────────────[/bold cyan]"
+        )
+
+        # Show the colored example
+        colored_example = _colorize_diff(example_diff)
+        emit_info(colored_example, highlight=False)
+
+        emit_info(
+            "[bold cyan]───────────────────────────────────────────────[/bold cyan]\n"
+        )
+
+    except Exception:
+        # Fail silently if we can't emit the example
+        pass
 
 
 def get_current_autosave_id() -> str:

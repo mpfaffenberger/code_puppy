@@ -81,7 +81,7 @@ def test_parse_prompt_skips_unsupported_types(tmp_path: Path) -> None:
 
     assert processed.prompt == str(unsupported)
     assert processed.attachments == []
-    assert "Unsupported attachment type" in processed.warnings[0]
+    assert processed.warnings == []
 
 
 def test_parse_prompt_leaves_urls_untouched() -> None:

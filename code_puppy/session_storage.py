@@ -190,7 +190,9 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
             timestamp_display = timestamp or "unknown time"
             message_display = (
-                f"{message_count} messages" if message_count is not None else "unknown size"
+                f"{message_count} messages"
+                if message_count is not None
+                else "unknown size"
             )
             emit_system_message(
                 f"  [{idx}] {name} ({message_display}, saved at {timestamp_display})"
@@ -200,7 +202,9 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
             page_count = (total + PAGE_SIZE - 1) // PAGE_SIZE
             is_last_page = (page + 1) >= page_count
             remaining = total - (page * PAGE_SIZE + len(page_entries))
-            summary = f" and {remaining} more" if (remaining > 0 and not is_last_page) else ""
+            summary = (
+                f" and {remaining} more" if (remaining > 0 and not is_last_page) else ""
+            )
             label = "Return to first page" if is_last_page else f"Next page{summary}"
             emit_system_message(f"  [6] {label}")
         emit_system_message("  [Enter] Skip loading autosave")

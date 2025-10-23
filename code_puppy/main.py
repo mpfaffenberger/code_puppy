@@ -7,6 +7,7 @@ import time
 import webbrowser
 from pathlib import Path
 
+from dbos import DBOS, DBOSConfig
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown
 from rich.syntax import Syntax
@@ -22,8 +23,10 @@ from code_puppy.command_line.prompt_toolkit_completion import (
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
+    DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
+    get_use_dbos,
     initialize_command_history_file,
     save_command_to_history,
 )
@@ -223,6 +226,32 @@ async def main():
 
     await callbacks.on_startup()
 
+    # Initialize DBOS if not disabled
+    if get_use_dbos():
+        dbos_message = f"Initializing DBOS with database at: {DBOS_DATABASE_URL}"
+        emit_system_message(dbos_message)
+
+        dbos_config: DBOSConfig = {
+            "name": "dbos-code-puppy",
+            "system_database_url": DBOS_DATABASE_URL,
+            "run_admin_server": False,
+            "conductor_key": os.environ.get(
+                "DBOS_CONDUCTOR_KEY"
+            ),  # Optional, if set in env, connect to conductor
+            "log_level": os.environ.get(
+                "DBOS_LOG_LEVEL", "ERROR"
+            ),  # Default to ERROR level to suppress verbose logs
+            "application_version": current_version,  # Match DBOS app version to Code Puppy version
+        }
+        try:
+            DBOS(config=dbos_config)
+            DBOS.launch()
+        except Exception as e:
+            emit_system_message(f"[bold red]Error initializing DBOS:[/bold red] {e}")
+            sys.exit(1)
+    else:
+        emit_system_message("DBOS is disabled. Running without durable execution.")
+
     global shutdown_flag
     shutdown_flag = False
     try:
@@ -264,7 +293,9 @@ async def main():
     finally:
         if message_renderer:
             message_renderer.stop()
-        callbacks.on_shutdown()
+        await callbacks.on_shutdown()
+        if get_use_dbos():
+            DBOS.destroy()
 
 
 # Add the file handling functionality for interactive mode
@@ -285,6 +316,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     )
     emit_system_message(
         "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
+    )
+    emit_system_message(
+        "Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session."
+    )
+    emit_system_message(
+        "Use [bold blue]/diff[/bold blue] to configure diff highlighting colors for file changes."
     )
     try:
         from code_puppy.command_line.motd import print_motd
@@ -367,7 +404,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_error(f"Error installing prompt_toolkit: {e}")
             emit_warning("Falling back to basic input without tab completion")
 
-    await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+    # Autosave loading is now manual - use /autosave_load command
 
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -441,8 +478,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             if command_result is True:
                 continue
             elif isinstance(command_result, str):
-                # Command returned a prompt to execute
-                task = command_result
+                if command_result == "__AUTOSAVE_LOAD__":
+                    # Handle async autosave loading
+                    try:
+                        await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+                    except Exception as e:
+                        from code_puppy.messaging import emit_error
+
+                        emit_error(f"Failed to load autosave: {e}")
+                    continue
+                else:
+                    # Command returned a prompt to execute
+                    task = command_result
             elif command_result is False:
                 # Command not recognized, continue with normal processing
                 pass
@@ -672,6 +719,8 @@ def main_entry():
     except KeyboardInterrupt:
         # Just exit gracefully with no error message
         callbacks.on_shutdown()
+        if get_use_dbos():
+            DBOS.destroy()
         return 0
 
 
