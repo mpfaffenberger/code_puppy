@@ -7,7 +7,7 @@ name = "code-puppy"
 version = "0.0.222"
 description = "Code generation agent"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "pydantic-ai==1.0.5",
     "httpx[http2]>=0.24.1",
