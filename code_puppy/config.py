@@ -195,10 +195,11 @@ def load_mcp_server_configs():
 
 
 def _default_model_from_models_json():
-    """Attempt to load the first model name from models.json.
+    """Load the default model name from models.json.
 
-    Falls back to the hard-coded default (``gpt-5``) if the file
-    cannot be read for any reason or is empty.
+    Prefers synthetic-GLM-4.6 as the default model.
+    Falls back to the first model in models.json if synthetic-GLM-4.6 is not available.
+    As a last resort, falls back to ``gpt-5`` if the file cannot be read.
     """
     global _default_model_cache
 
@@ -210,6 +211,11 @@ def _default_model_from_models_json():
 
         models_config = ModelFactory.load_config()
         if models_config:
+            # Prefer synthetic-GLM-4.6 as default
+            if "synthetic-GLM-4.6" in models_config:
+                _default_model_cache = "synthetic-GLM-4.6"
+                return "synthetic-GLM-4.6"
+            # Fall back to first model if synthetic-GLM-4.6 is not available
             first_key = next(iter(models_config))
             _default_model_cache = first_key
             return first_key
