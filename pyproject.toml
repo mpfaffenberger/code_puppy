@@ -85,6 +85,9 @@ asyncio_mode = "auto"
 [tool.coverage.run]
 omit = ["code_puppy/main.py"]
 
+[tool.uv]
+python-preference = "only-managed"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3.4",
