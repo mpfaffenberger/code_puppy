@@ -46,7 +46,48 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 
 ## Installation
 
-`pip install code-puppy`
+### Recommended (UV)
+
+```bash
+# Install UV if you don't have it
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install code-puppy with UV (includes automatic Python management)
+uvx --managed-python code-puppy
+```
+
+The `--managed-python` flag ensures UV downloads the required Python version (3.11+) instead of using potentially outdated system Python.
+
+### Alternative (pip)
+
+```bash
+pip install code-puppy
+```
+
+*Note: pip installation uses your system Python, which must be 3.11 or newer.*
+
+### Permanent Python Management
+
+To make UV always use managed Python versions (recommended):
+
+```bash
+# Set environment variable permanently
+echo 'export UV_MANAGED_PYTHON=1' >> ~/.zshrc  # or ~/.bashrc
+source ~/.zshrc  # or ~/.bashrc
+
+# Now all UV commands will prefer managed Python installations
+uvx code-puppy  # No need for --managed-python flag anymore
+```
+
+### Verifying Python Version
+
+```bash
+# Check which Python UV will use
+uv python find
+
+# Or check the current project's Python
+uv run python --version
+```
 
 ## Usage
 ```bash
