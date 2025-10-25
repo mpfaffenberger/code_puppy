@@ -5,9 +5,9 @@ from typing import List
 from pydantic import BaseModel
 
 # Import Agent from pydantic_ai to create temporary agents for invocation
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, RunContext, UsageLimits
 
-from code_puppy.config import get_use_dbos, get_global_model_name
+from code_puppy.config import get_global_model_name, get_message_limit, get_use_dbos
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
@@ -169,7 +169,9 @@ def register_invoke_agent(agent):
             register_tools_for_agent(temp_agent, agent_tools)
 
             # Run the temporary agent with the provided prompt
-            result = temp_agent.run_sync(prompt)
+            result = temp_agent.run_sync(
+                prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+            )
 
             # Extract the response from the result
             response = result.output
