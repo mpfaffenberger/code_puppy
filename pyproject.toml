@@ -41,6 +41,7 @@ dev-dependencies = [
     "pytest-cov>=6.1.1",
     "pytest-asyncio>=0.23.1",
     "ruff>=0.11.11",
+    "pexpect>=4.9.0",
 ]
 authors = [
     {name = "Michael Pfaffenberger"}
@@ -94,4 +95,5 @@ dev = [
     "pytest-cov>=6.1.1",
     "pytest-asyncio>=0.23.1",
     "ruff>=0.11.11",
+    "pexpect>=4.9.0",
 ]
