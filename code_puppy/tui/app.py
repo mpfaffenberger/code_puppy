@@ -15,6 +15,7 @@ from textual.widgets import Footer, ListView
 # message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
 from code_puppy.agents.agent_manager import get_current_agent
 from code_puppy.command_line.command_handler import handle_command
+from code_puppy.command_line.model_picker_completion import set_active_model
 from code_puppy.config import (
     get_global_model_name,
     get_puppy_name,
@@ -38,11 +39,10 @@ from .models import ChatMessage, MessageType
 from .screens import (
     HelpScreen,
     MCPInstallWizardScreen,
+    ModelPicker,
     SettingsScreen,
     ToolsScreen,
-    ModelPicker,
 )
-from code_puppy.command_line.model_picker_completion import set_active_model
 
 
 class CodePuppyTUI(App):
@@ -531,12 +531,9 @@ class CodePuppyTUI(App):
                     self.add_agent_message(agent_response)
 
                     # Auto-save session if enabled (mirror --interactive)
-                    try:
-                        from code_puppy.config import auto_save_session_if_enabled
+                    from code_puppy.config import auto_save_session_if_enabled
 
-                        auto_save_session_if_enabled()
-                    except Exception:
-                        pass
+                    auto_save_session_if_enabled()
 
                     # Refresh history display to show new interaction
                     self.refresh_history_display()
