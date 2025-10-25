@@ -62,6 +62,9 @@ from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.common import console
 
+# Global flag to track delayed compaction requests
+_delayed_compaction_requested = False
+
 _reload_count = 0
 
 
@@ -516,6 +519,98 @@ class BaseAgent(ABC):
             # Be safe; don't blow up status/compaction if model lookup fails
             return 128000
 
+    def has_pending_tool_calls(self, messages: List[ModelMessage]) -> bool:
+        """
+        Check if there are any pending tool calls in the message history.
+
+        A pending tool call is one that has a ToolCallPart without a corresponding
+        ToolReturnPart. This indicates the model is still waiting for tool execution.
+
+        Returns:
+            True if there are pending tool calls, False otherwise
+        """
+        if not messages:
+            return False
+
+        tool_call_ids: Set[str] = set()
+        tool_return_ids: Set[str] = set()
+
+        # Collect all tool call and return IDs
+        for msg in messages:
+            for part in getattr(msg, "parts", []) or []:
+                tool_call_id = getattr(part, "tool_call_id", None)
+                if not tool_call_id:
+                    continue
+
+                if part.part_kind == "tool-call":
+                    tool_call_ids.add(tool_call_id)
+                elif part.part_kind == "tool-return":
+                    tool_return_ids.add(tool_call_id)
+
+        # Pending tool calls are those without corresponding returns
+        pending_calls = tool_call_ids - tool_return_ids
+        return len(pending_calls) > 0
+
+    def request_delayed_compaction(self) -> None:
+        """
+        Request that compaction be attempted after the current tool calls complete.
+
+        This sets a global flag that will be checked during the next message
+        processing cycle to trigger compaction when it's safe to do so.
+        """
+        global _delayed_compaction_requested
+        _delayed_compaction_requested = True
+        emit_info(
+            "🔄 Delayed compaction requested - will attempt after tool calls complete",
+            message_group="token_context_status",
+        )
+
+    def should_attempt_delayed_compaction(self) -> bool:
+        """
+        Check if delayed compaction was requested and it's now safe to proceed.
+
+        Returns:
+            True if delayed compaction was requested and no tool calls are pending
+        """
+        global _delayed_compaction_requested
+        if not _delayed_compaction_requested:
+            return False
+
+        # Check if it's now safe to compact
+        messages = self.get_message_history()
+        if not self.has_pending_tool_calls(messages):
+            _delayed_compaction_requested = False  # Reset the flag
+            return True
+
+        return False
+
+    def get_pending_tool_call_count(self, messages: List[ModelMessage]) -> int:
+        """
+        Get the count of pending tool calls for debugging purposes.
+
+        Returns:
+            Number of tool calls waiting for execution
+        """
+        if not messages:
+            return 0
+
+        tool_call_ids: Set[str] = set()
+        tool_return_ids: Set[str] = set()
+
+        for msg in messages:
+            for part in getattr(msg, "parts", []) or []:
+                tool_call_id = getattr(part, "tool_call_id", None)
+                if not tool_call_id:
+                    continue
+
+                if part.part_kind == "tool-call":
+                    tool_call_ids.add(tool_call_id)
+                elif part.part_kind == "tool-return":
+                    tool_return_ids.add(tool_call_id)
+
+        pending_calls = tool_call_ids - tool_return_ids
+        return len(pending_calls)
+
     def prune_interrupted_tool_calls(
         self, messages: List[ModelMessage]
     ) -> List[ModelMessage]:
@@ -606,6 +701,21 @@ class BaseAgent(ABC):
         compaction_strategy = get_compaction_strategy()
 
         if proportion_used > compaction_threshold:
+            # RACE CONDITION PROTECTION: Check for pending tool calls before summarization
+            if compaction_strategy == "summarization" and self.has_pending_tool_calls(
+                messages
+            ):
+                pending_count = self.get_pending_tool_call_count(messages)
+                emit_warning(
+                    f"⚠️  Summarization deferred: {pending_count} pending tool call(s) detected. "
+                    "Waiting for tool execution to complete before compaction.",
+                    message_group="token_context_status",
+                )
+                # Request delayed compaction for when tool calls complete
+                self.request_delayed_compaction()
+                # Return original messages without compaction
+                return messages, []
+
             if compaction_strategy == "truncation":
                 # Use truncation instead of summarization
                 protected_tokens = get_protected_token_count()
@@ -614,7 +724,7 @@ class BaseAgent(ABC):
                 )
                 summarized_messages = []  # No summarization in truncation mode
             else:
-                # Default to summarization
+                # Default to summarization (safe to proceed - no pending tool calls)
                 result_messages, summarized_messages = self.summarize_messages(
                     self.filter_huge_messages(messages)
                 )
@@ -1068,6 +1178,22 @@ class BaseAgent(ABC):
                 self.set_message_history(
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
+
+                # DELAYED COMPACTION: Check if we should attempt delayed compaction
+                if self.should_attempt_delayed_compaction():
+                    emit_info(
+                        "🔄 Attempting delayed compaction (tool calls completed)",
+                        message_group="token_context_status",
+                    )
+                    current_messages = self.get_message_history()
+                    compacted_messages, _ = self.compact_messages(current_messages)
+                    if compacted_messages != current_messages:
+                        self.set_message_history(compacted_messages)
+                        emit_info(
+                            "✅ Delayed compaction completed successfully",
+                            message_group="token_context_status",
+                        )
+
                 usage_limits = UsageLimits(request_limit=get_message_limit())
 
                 # Handle MCP servers - add them temporarily when using DBOS
