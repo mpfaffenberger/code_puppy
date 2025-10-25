@@ -1091,12 +1091,24 @@ def handle_command(command: str):
         name = command[1:].split()[0] if len(command) > 1 else ""
         try:
             from code_puppy import callbacks
+            # Import the special result class for markdown commands
+            try:
+                from code_puppy.plugins.customizable_commands.register_callbacks import (
+                    MarkdownCommandResult,
+                )
+            except ImportError:
+                MarkdownCommandResult = None
 
             results = callbacks.on_custom_command(command=command, name=name)
             # Iterate through callback results; treat str as handled (no model run)
             for res in results:
                 if res is True:
                     return True
+                if MarkdownCommandResult and isinstance(res, MarkdownCommandResult):
+                    # Special case: markdown command that should be processed as input
+                    # Replace the command with the markdown content and let it be processed
+                    # This is handled by the caller, so return the content as string
+                    return res.content
                 if isinstance(res, str):
                     # Display returned text to the user and treat as handled
                     try:
