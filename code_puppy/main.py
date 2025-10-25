@@ -521,11 +521,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
 
-                # Auto-save session if enabled
-                from code_puppy.config import auto_save_session_if_enabled
-
-                auto_save_session_if_enabled()
-
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
                 display_console.file.flush() if hasattr(
@@ -539,6 +534,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging.queue_console import get_queue_console
 
                 get_queue_console().print_exception()
+
+            # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
+            from code_puppy.config import auto_save_session_if_enabled
+
+            auto_save_session_if_enabled()
 
 
 def prettier_code_blocks():
