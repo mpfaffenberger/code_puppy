@@ -75,6 +75,13 @@ def ensure_config_exists():
             else:
                 val = input(f"Enter {key}: ").strip()
             config[DEFAULT_SECTION][key] = val
+
+    # Set default values for important config keys if they don't exist
+    if not config[DEFAULT_SECTION].get("auto_save_session"):
+        config[DEFAULT_SECTION]["auto_save_session"] = "true"
+
+    # Write the config if we made any changes
+    if missing or not exists:
         with open(CONFIG_FILE, "w") as f:
             config.write(f)
     return config
