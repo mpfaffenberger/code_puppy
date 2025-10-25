@@ -17,6 +17,9 @@ wheels/
 # Pytest cache
 .pytest_cache/
 
+# Test artifacts (temporary test outputs)
+.test_artifacts/
+
 dummy_path
 
 .idea/
