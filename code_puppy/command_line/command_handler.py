@@ -341,6 +341,7 @@ def handle_command(command: str):
         from code_puppy.agents import get_current_agent
         from code_puppy.command_line.model_picker_completion import get_active_model
         from code_puppy.config import (
+            get_auto_save_session,
             get_compaction_strategy,
             get_compaction_threshold,
             get_openai_reasoning_effort,
@@ -355,6 +356,7 @@ def handle_command(command: str):
         owner_name = get_owner_name()
         model = get_active_model()
         yolo_mode = get_yolo_mode()
+        auto_save = get_auto_save_session()
         protected_tokens = get_protected_token_count()
         compaction_threshold = get_compaction_threshold()
         compaction_strategy = get_compaction_strategy()
@@ -370,6 +372,7 @@ def handle_command(command: str):
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]DBOS:[/bold]                  {"[green]enabled[/green]" if get_use_dbos() else "[yellow]disabled[/yellow]"} (toggle: /set enable_dbos true|false)
+[bold]auto_save_session:[/bold]     {"[green]enabled[/green]" if auto_save else "[yellow]disabled[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
@@ -1091,6 +1094,7 @@ def handle_command(command: str):
         name = command[1:].split()[0] if len(command) > 1 else ""
         try:
             from code_puppy import callbacks
+
             # Import the special result class for markdown commands
             try:
                 from code_puppy.plugins.customizable_commands.register_callbacks import (
