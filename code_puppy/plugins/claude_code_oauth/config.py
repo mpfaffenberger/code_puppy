@@ -41,6 +41,6 @@ def get_config_dir() -> Path:
     return config_dir
 
 
-def get_extra_models_path() -> Path:
-    """Get the path to the extra_models.json file."""
-    return get_config_dir() / "extra_models.json"
+def get_claude_models_path() -> Path:
+    """Get the path to the dedicated claude_models.json file."""
+    return get_config_dir() / "claude_models.json"

@@ -23,7 +23,7 @@ from .utils import (
     build_authorization_url,
     exchange_code_for_tokens,
     fetch_claude_code_models,
-    load_extra_models,
+    load_claude_models,
     load_stored_tokens,
     prepare_oauth_context,
     remove_claude_code_models,
@@ -333,10 +333,9 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 hours, minutes = divmod(remaining // 60, 60)
                 emit_info(f"Token expires in ~{hours}h {minutes}m")
 
-            extra_models = load_extra_models()
             claude_models = [
                 name
-                for name, cfg in extra_models.items()
+                for name, cfg in load_claude_models().items()
                 if cfg.get("oauth_source") == "claude-code-plugin"
             ]
             if claude_models:
