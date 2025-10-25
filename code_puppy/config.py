@@ -149,6 +149,7 @@ def get_config_keys():
         "auto_save_session",
         "max_saved_sessions",
         "http2",
+        "diff_context_lines",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -966,6 +967,22 @@ def auto_save_session_if_enabled() -> bool:
 
         Console().print(f"[dim]❌ Failed to auto-save session: {exc}[/dim]")
         return False
+
+
+def get_diff_context_lines() -> int:
+    """
+    Returns the user-configured number of context lines for diff display.
+    This controls how many lines of surrounding context are shown in diffs.
+    Defaults to 6 if unset or misconfigured.
+    Configurable by 'diff_context_lines' key.
+    """
+    val = get_value("diff_context_lines")
+    try:
+        context_lines = int(val) if val else 6
+        # Apply reasonable bounds: minimum 0, maximum 50
+        return max(0, min(context_lines, 50))
+    except (ValueError, TypeError):
+        return 6
 
 
 def finalize_autosave_session() -> str:

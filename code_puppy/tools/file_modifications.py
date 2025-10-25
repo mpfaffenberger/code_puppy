@@ -306,13 +306,15 @@ def _delete_snippet_from_file(
                 "diff": diff_text,
             }
         modified = original.replace(snippet, "")
+        from code_puppy.config import get_diff_context_lines
+
         diff_text = "".join(
             difflib.unified_diff(
                 original.splitlines(keepends=True),
                 modified.splitlines(keepends=True),
                 fromfile=f"a/{os.path.basename(file_path)}",
                 tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
+                n=get_diff_context_lines(),
             )
         )
         with open(file_path, "w", encoding="utf-8") as f:
@@ -382,13 +384,15 @@ def _replace_in_file(
             "diff": "",
         }
 
+    from code_puppy.config import get_diff_context_lines
+
     diff_text = "".join(
         difflib.unified_diff(
             original.splitlines(keepends=True),
             modified.splitlines(keepends=True),
             fromfile=f"a/{os.path.basename(file_path)}",
             tofile=f"b/{os.path.basename(file_path)}",
-            n=3,
+            n=get_diff_context_lines(),
         )
     )
     with open(file_path, "w", encoding="utf-8") as f:
@@ -422,12 +426,14 @@ def _write_to_file(
                 "diff": "",
             }
 
+        from code_puppy.config import get_diff_context_lines
+
         diff_lines = difflib.unified_diff(
             [] if not exists else [""],
             content.splitlines(keepends=True),
             fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
             tofile=f"b/{os.path.basename(file_path)}",
-            n=3,
+            n=get_diff_context_lines(),
         )
         diff_text = "".join(diff_lines)
 
@@ -508,7 +514,7 @@ def write_to_file(
             "changed": False,
             "user_rejection": True,
             "rejection_type": "explicit_user_denial",
-            "guidance": "Modify your approach or ask the user what they prefer.",
+            "guidance": "Always immediately ask the user what they prefer, don't do anything else.",
         }
 
     res = _write_to_file(
@@ -545,7 +551,7 @@ def replace_in_file(
             "changed": False,
             "user_rejection": True,
             "rejection_type": "explicit_user_denial",
-            "guidance": "Modify your approach or ask the user what they prefer.",
+            "guidance": "Always immediately ask the user what they prefer, don't do anything else.",
         }
 
     res = _replace_in_file(context, path, replacements, message_group=message_group)
@@ -681,13 +687,15 @@ def _delete_file(
         else:
             with open(file_path, "r", encoding="utf-8") as f:
                 original = f.read()
+            from code_puppy.config import get_diff_context_lines
+
             diff_text = "".join(
                 difflib.unified_diff(
                     original.splitlines(keepends=True),
                     [],
                     fromfile=f"a/{os.path.basename(file_path)}",
                     tofile=f"b/{os.path.basename(file_path)}",
-                    n=3,
+                    n=get_diff_context_lines(),
                 )
             )
             os.remove(file_path)
