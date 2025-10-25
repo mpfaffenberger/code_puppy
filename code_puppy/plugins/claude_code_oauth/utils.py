@@ -1,4 +1,5 @@
 """Utility helpers for the Claude Code OAuth plugin."""
+
 from __future__ import annotations
 
 import base64
@@ -15,7 +16,7 @@ import requests
 
 from .config import (
     CLAUDE_CODE_OAUTH_CONFIG,
-    get_extra_models_path,
+    get_claude_models_path,
     get_token_storage_path,
 )
 
@@ -143,29 +144,31 @@ def save_tokens(tokens: Dict[str, Any]) -> bool:
         return False
 
 
-def load_extra_models() -> Dict[str, Any]:
+def load_claude_models() -> Dict[str, Any]:
     try:
-        models_path = get_extra_models_path()
+        models_path = get_claude_models_path()
         if models_path.exists():
             with open(models_path, "r", encoding="utf-8") as handle:
                 return json.load(handle)
     except Exception as exc:  # pragma: no cover - defensive logging
-        logger.error("Failed to load extra models: %s", exc)
+        logger.error("Failed to load Claude models: %s", exc)
     return {}
 
 
-def save_extra_models(models: Dict[str, Any]) -> bool:
+def save_claude_models(models: Dict[str, Any]) -> bool:
     try:
-        models_path = get_extra_models_path()
+        models_path = get_claude_models_path()
         with open(models_path, "w", encoding="utf-8") as handle:
             json.dump(models, handle, indent=2)
         return True
     except Exception as exc:  # pragma: no cover - defensive logging
-        logger.error("Failed to save extra models: %s", exc)
+        logger.error("Failed to save Claude models: %s", exc)
         return False
 
 
-def exchange_code_for_tokens(auth_code: str, context: OAuthContext) -> Optional[Dict[str, Any]]:
+def exchange_code_for_tokens(
+    auth_code: str, context: OAuthContext
+) -> Optional[Dict[str, Any]]:
     if not context.redirect_uri:
         raise RuntimeError("Redirect URI missing from OAuth context")
 
@@ -215,7 +218,9 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
             "anthropic-beta": "oauth-2025-04-20",
-            "anthropic-version": CLAUDE_CODE_OAUTH_CONFIG.get("anthropic_version", "2023-06-01"),
+            "anthropic-version": CLAUDE_CODE_OAUTH_CONFIG.get(
+                "anthropic_version", "2023-06-01"
+            ),
         }
         response = requests.get(api_url, headers=headers, timeout=30)
         if response.status_code == 200:
@@ -240,11 +245,11 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
 
 def add_models_to_extra_config(models: List[str]) -> bool:
     try:
-        extra_models = load_extra_models()
+        claude_models = load_claude_models()
         added = 0
         for model_name in models:
             prefixed = f"{CLAUDE_CODE_OAUTH_CONFIG['prefix']}{model_name}"
-            extra_models[prefixed] = {
+            claude_models[prefixed] = {
                 "type": "anthropic",
                 "name": model_name,
                 "custom_endpoint": {
@@ -255,7 +260,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                 "oauth_source": "claude-code-plugin",
             }
             added += 1
-        if save_extra_models(extra_models):
+        if save_claude_models(claude_models):
             logger.info("Added %s Claude Code models", added)
             return True
     except Exception as exc:  # pragma: no cover - defensive logging
@@ -265,17 +270,17 @@ def add_models_to_extra_config(models: List[str]) -> bool:
 
 def remove_claude_code_models() -> int:
     try:
-        extra_models = load_extra_models()
+        claude_models = load_claude_models()
         to_remove = [
             name
-            for name, config in extra_models.items()
+            for name, config in claude_models.items()
             if config.get("oauth_source") == "claude-code-plugin"
         ]
         if not to_remove:
             return 0
         for model_name in to_remove:
-            extra_models.pop(model_name, None)
-        if save_extra_models(extra_models):
+            claude_models.pop(model_name, None)
+        if save_claude_models(claude_models):
             return len(to_remove)
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Error removing Claude Code models: %s", exc)

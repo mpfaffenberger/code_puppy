@@ -36,12 +36,12 @@ def test_plugin_imports() -> bool:
             build_authorization_url,
             exchange_code_for_tokens,
             fetch_claude_code_models,
-            load_extra_models,
+            load_claude_models,
             load_stored_tokens,
             parse_authorization_code,
             prepare_oauth_context,
             remove_claude_code_models,
-            save_extra_models,
+            save_claude_models,
             save_tokens,
         )
 
@@ -50,12 +50,12 @@ def test_plugin_imports() -> bool:
             build_authorization_url,
             exchange_code_for_tokens,
             fetch_claude_code_models,
-            load_extra_models,
+            load_claude_models,
             load_stored_tokens,
             parse_authorization_code,
             prepare_oauth_context,
             remove_claude_code_models,
-            save_extra_models,
+            save_claude_models,
             save_tokens,
         )
         print("✅ Utils import successful")
@@ -141,24 +141,24 @@ def test_file_operations() -> bool:
 
     try:
         from code_puppy.plugins.claude_code_oauth.config import (
-            get_extra_models_path,
+            get_claude_models_path,
             get_token_storage_path,
         )
         from code_puppy.plugins.claude_code_oauth.utils import (
-            load_extra_models,
+            load_claude_models,
             load_stored_tokens,
         )
 
         tokens = load_stored_tokens()
         print(f"✅ Token load result: {'present' if tokens else 'none'}")
 
-        models = load_extra_models()
-        print(f"✅ Loaded {len(models)} extra models")
+        models = load_claude_models()
+        print(f"✅ Loaded {len(models)} Claude models")
         for name, config in models.items():
             print(f"  - {name}: {config.get('type', 'unknown type')}")
 
         token_path = get_token_storage_path()
-        models_path = get_extra_models_path()
+        models_path = get_claude_models_path()
         token_path.parent.mkdir(parents=True, exist_ok=True)
         models_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"✅ Token path: {token_path}")

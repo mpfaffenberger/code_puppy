@@ -17,6 +17,8 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from code_puppy.messaging import emit_warning
+from code_puppy.plugins.chatgpt_oauth.config import get_chatgpt_models_path
+from code_puppy.plugins.claude_code_oauth.config import get_claude_models_path
 
 from . import callbacks
 from .config import EXTRA_MODELS_FILE
@@ -117,20 +119,27 @@ class ModelFactory:
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
 
-        if pathlib.Path(EXTRA_MODELS_FILE).exists():
+        extra_sources = [
+            (pathlib.Path(EXTRA_MODELS_FILE), "extra models"),
+            (get_chatgpt_models_path(), "ChatGPT OAuth models"),
+            (get_claude_models_path(), "Claude Code OAuth models"),
+        ]
+
+        for source_path, label in extra_sources:
+            path = pathlib.Path(source_path).expanduser()
+            if not path.exists():
+                continue
             try:
-                with open(EXTRA_MODELS_FILE, "r") as f:
+                with open(path, "r") as f:
                     extra_config = json.load(f)
                     config.update(extra_config)
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load extra models config from {EXTRA_MODELS_FILE}: Invalid JSON - {e}\n"
-                    f"Please check your extra_models.json file for syntax errors."
+                    f"Failed to load {label} config from {path}: Invalid JSON - {exc}"
                 )
-            except Exception as e:
+            except Exception as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load extra models config from {EXTRA_MODELS_FILE}: {e}\n"
-                    f"The extra models configuration will be ignored."
+                    f"Failed to load {label} config from {path}: {exc}"
                 )
         return config
 
