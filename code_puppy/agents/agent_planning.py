@@ -27,7 +27,7 @@ class PlanningAgent(BaseAgent):
         """Get the list of tools available to the Planning Agent."""
         return [
             "list_files",
-            "read_file", 
+            "read_file",
             "grep",
             "agent_share_your_reasoning",
             "list_agents",
