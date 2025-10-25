@@ -96,6 +96,20 @@ uv run python --version
 ```
 
 ## Usage
+
+### Custom Commands
+Create markdown files in `.claude/commands/`, `.github/prompts/`, or `.agents/commands/` to define custom slash commands. The filename becomes the command name and the content runs as a prompt.
+
+```bash
+# Create a custom command
+echo "# Code Review
+
+Please review this code for security issues." > .claude/commands/review.md
+
+# Use it in Code Puppy
+/review with focus on authentication
+```
+
 ```bash
 export MODEL_NAME=gpt-5 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
 export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
