@@ -5,11 +5,7 @@ from pathlib import Path
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
-from code_puppy.config import (
-    CONTEXTS_DIR,
-    finalize_autosave_session,
-    get_config_keys,
-)
+from code_puppy.config import CONTEXTS_DIR, finalize_autosave_session, get_config_keys
 from code_puppy.session_storage import list_sessions, load_session, save_session
 from code_puppy.tools.tools_content import tools_content
 
@@ -50,7 +46,7 @@ def get_commands_help():
         ("/autosave_load", "Load an autosave session interactively"),
         (
             "/set",
-            "Set puppy config (e.g., /set yolo_mode true, /set auto_save_session true)",
+            "Set puppy config (e.g., /set yolo_mode true, /set auto_save_session true, /set diff_context_lines 10)",
         ),
         ("/diff", "Configure diff highlighting colors (additions, deletions)"),
         ("/tools", "Show available tools and capabilities"),

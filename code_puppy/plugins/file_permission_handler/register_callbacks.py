@@ -11,7 +11,7 @@ import threading
 from typing import Any
 
 from code_puppy.callbacks import register_callback
-from code_puppy.config import get_yolo_mode
+from code_puppy.config import get_diff_context_lines, get_yolo_mode
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 from code_puppy.tools.common import _find_best_window
@@ -71,7 +71,7 @@ def _preview_delete_snippet(file_path: str, snippet: str) -> str | None:
                 modified.splitlines(keepends=True),
                 fromfile=f"a/{os.path.basename(file_path)}",
                 tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
+                n=get_diff_context_lines(),
             )
         )
         return diff_text
@@ -95,7 +95,7 @@ def _preview_write_to_file(
             content.splitlines(keepends=True),
             fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
             tofile=f"b/{os.path.basename(file_path)}",
-            n=3,
+            n=get_diff_context_lines(),
         )
         return "".join(diff_lines)
     except Exception:
@@ -146,7 +146,7 @@ def _preview_replace_in_file(
                 modified.splitlines(keepends=True),
                 fromfile=f"a/{os.path.basename(file_path)}",
                 tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
+                n=get_diff_context_lines(),
             )
         )
         return diff_text
@@ -170,7 +170,7 @@ def _preview_delete_file(file_path: str) -> str | None:
                 [],
                 fromfile=f"a/{os.path.basename(file_path)}",
                 tofile=f"b/{os.path.basename(file_path)}",
-                n=3,
+                n=get_diff_context_lines(),
             )
         )
         return diff_text

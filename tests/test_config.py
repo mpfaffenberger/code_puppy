@@ -282,6 +282,7 @@ class TestGetConfigKeys:
                 "auto_save_session",
                 "compaction_strategy",
                 "compaction_threshold",
+                "diff_context_lines",
                 "http2",
                 "enable_dbos",
                 "key1",
@@ -311,6 +312,7 @@ class TestGetConfigKeys:
                 "auto_save_session",
                 "compaction_strategy",
                 "compaction_threshold",
+                "diff_context_lines",
                 "http2",
                 "enable_dbos",
                 "max_saved_sessions",
@@ -648,11 +650,16 @@ class TestDefaultModelSelection:
         mock_load_config.assert_called_once()
 
     @patch("code_puppy.model_factory.ModelFactory.load_config")
-    def test_default_model_from_models_json_prefers_synthetic_glm(self, mock_load_config):
+    def test_default_model_from_models_json_prefers_synthetic_glm(
+        self, mock_load_config
+    ):
         # Test that synthetic-GLM-4.6 is preferred even when other models come first
         mock_load_config.return_value = {
             "other-model-1": {"type": "openai", "name": "other-model-1"},
-            "synthetic-GLM-4.6": {"type": "custom_openai", "name": "hf:zai-org/GLM-4.6"},
+            "synthetic-GLM-4.6": {
+                "type": "custom_openai",
+                "name": "hf:zai-org/GLM-4.6",
+            },
             "other-model-2": {"type": "anthropic", "name": "other-model-2"},
         }
 
