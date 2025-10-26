@@ -992,6 +992,9 @@ class BaseAgent(ABC):
             )
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
+        if model_name.startswith("claude-code"):
+            instructions = "You are Claude Code, Anthropic's official CLI for Claude."
+
         self.cur_model = model
         p_agent = PydanticAgent(
             model=model,
@@ -1164,6 +1167,9 @@ class BaseAgent(ABC):
         pydantic_agent = (
             self._code_generation_agent or self.reload_code_generation_agent()
         )
+        if self.get_model_name().startswith("claude-code"):
+            if len(self.get_message_history()) == 0:
+                prompt = self.get_system_prompt() + "\n\n" + prompt
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []

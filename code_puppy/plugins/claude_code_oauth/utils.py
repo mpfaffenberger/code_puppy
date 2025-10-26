@@ -247,14 +247,18 @@ def add_models_to_extra_config(models: List[str]) -> bool:
     try:
         claude_models = load_claude_models()
         added = 0
+        tokens = load_stored_tokens()
+        access_token = tokens["access_token"]
+
         for model_name in models:
             prefixed = f"{CLAUDE_CODE_OAUTH_CONFIG['prefix']}{model_name}"
             claude_models[prefixed] = {
-                "type": "anthropic",
+                "type": "claude_code",
                 "name": model_name,
                 "custom_endpoint": {
                     "url": CLAUDE_CODE_OAUTH_CONFIG["api_base_url"],
-                    "api_key": f"${CLAUDE_CODE_OAUTH_CONFIG['api_key_env_var']}",
+                    "api_key": access_token,
+                    "headers": {"anthropic-beta": "oauth-2025-04-20"},
                 },
                 "context_length": CLAUDE_CODE_OAUTH_CONFIG["default_context_length"],
                 "oauth_source": "claude-code-plugin",

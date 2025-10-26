@@ -192,7 +192,16 @@ class ModelFactory:
             )
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
-
+        elif model_type == "claude_code":
+            url, headers, verify, api_key = get_custom_config(model_config)
+            client = create_async_client(headers=headers, verify=verify)
+            anthropic_client = AsyncAnthropic(
+                base_url=url, http_client=client, auth_token=api_key
+            )
+            anthropic_client.api_key = None
+            anthropic_client.auth_token = api_key
+            provider = AnthropicProvider(anthropic_client=anthropic_client)
+            return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "azure_openai":
             azure_endpoint_config = model_config.get("azure_endpoint")
             if not azure_endpoint_config:
