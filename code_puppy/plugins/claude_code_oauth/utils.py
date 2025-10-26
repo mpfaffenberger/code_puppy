@@ -245,7 +245,8 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
 
 def add_models_to_extra_config(models: List[str]) -> bool:
     try:
-        claude_models = load_claude_models()
+        # Start fresh - overwrite the file on every auth instead of loading existing
+        claude_models = {}
         added = 0
         tokens = load_stored_tokens()
         access_token = tokens["access_token"]
