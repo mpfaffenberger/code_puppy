@@ -145,9 +145,18 @@ def register_invoke_agent(agent):
 
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_system_prompt()
+
+            # Apply prompt additions (like file permission handling) to temporary agents
+            from code_puppy import callbacks
+
+            prompt_additions = callbacks.on_load_prompt()
+            if len(prompt_additions):
+                instructions += "\n" + "\n".join(prompt_additions)
             if model_name.startswith("claude-code"):
                 prompt = instructions + "\n\n" + prompt
-                instructions = "You are Claude Code, Anthropic's official CLI for Claude."
+                instructions = (
+                    "You are Claude Code, Anthropic's official CLI for Claude."
+                )
 
             global _temp_agent_count
             _temp_agent_count += 1

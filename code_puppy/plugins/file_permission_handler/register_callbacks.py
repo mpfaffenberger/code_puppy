@@ -414,5 +414,54 @@ def get_permission_handler_help() -> str:
 - Automatic preview generation from operation data"""
 
 
+def get_file_permission_prompt_additions() -> str:
+    """Return file permission handling prompt additions for agents.
+
+    This function provides the file permission rejection handling
+    instructions that can be dynamically injected into agent prompts
+    via the prompt hook system.
+
+    Only returns instructions when yolo_mode is off (False).
+    """
+    # Only inject permission handling instructions when yolo mode is off
+    if get_yolo_mode():
+        return ""  # Return empty string when yolo mode is enabled
+
+    return """
+## 🚨 FILE PERMISSION REJECTION: STOP IMMEDIATELY
+
+**IMMEDIATE STOP ON ANY REJECTION**: 
+
+When you receive ANY of these indications:
+- "Permission denied. Operation cancelled."
+- "USER REJECTED: The user explicitly rejected these file changes"
+- Any error message containing "rejected", "denied", "cancelled", or similar
+- Tool responses showing `user_rejection: true` or `success: false`
+- ANY rejection message
+
+**YOU MUST:**
+
+1. **🛑 STOP ALL OPERATIONS NOW** - Do NOT attempt any more file operations
+2. **❌ DO NOT CONTINUE** - Do not proceed with any next steps
+3. **🤔 ASK USER WHAT TO DO** - Immediately ask for explicit direction
+
+**NEVER:**
+- Continue after rejection
+- Try again without confirmation
+- Assume user wants to continue
+- Guess what user wants
+
+**ALWAYS:**
+- Stop immediately on first rejection
+- Ask for explicit user guidance
+- Wait for clear confirmation
+
+That's it. Simple and direct.
+"""
+
+
 # Register the callback for file permission handling
 register_callback("file_permission", handle_file_permission)
+
+# Register the prompt hook for file permission instructions
+register_callback("load_prompt", get_file_permission_prompt_additions)
