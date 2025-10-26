@@ -31,6 +31,7 @@ from code_puppy.config import (
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
+from code_puppy.messaging import emit_info
 from code_puppy.session_storage import restore_autosave_interactively
 from code_puppy.tools.common import console
 
@@ -355,7 +356,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 awaiting_input = False
 
             # Run with or without spinner based on whether we're awaiting input
-            response = await run_prompt_with_attachments(
+            response, agent_task = await run_prompt_with_attachments(
                 agent,
                 initial_command,
                 spinner_console=display_console,
@@ -407,6 +408,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Autosave loading is now manual - use /autosave_load command
 
+    # Track the current agent task for cancellation on quit
+    current_agent_task = None
+
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.messaging import emit_info
@@ -440,9 +444,21 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             "/exit",
             "/quit",
         ]:
+            import asyncio
+
             from code_puppy.messaging import emit_success
 
             emit_success("Goodbye!")
+
+            # Cancel any running agent task for clean shutdown
+            if current_agent_task and not current_agent_task.done():
+                emit_info("Cancelling running agent task...")
+                current_agent_task.cancel()
+                try:
+                    await current_agent_task
+                except asyncio.CancelledError:
+                    pass  # Expected when cancelling
+
             # The renderer is stopped in the finally block of main().
             break
 
@@ -505,7 +521,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # No need to get agent directly - use manager's run methods
 
                 # Use our custom helper to enable attachment handling with spinner support
-                result = await run_prompt_with_attachments(
+                result, current_agent_task = await run_prompt_with_attachments(
                     current_agent,
                     task,
                     spinner_console=message_renderer.console,
@@ -568,7 +584,13 @@ async def run_prompt_with_attachments(
     spinner_console=None,
     use_spinner: bool = True,
 ):
-    """Run the agent after parsing CLI attachments for image/document support."""
+    """Run the agent after parsing CLI attachments for image/document support.
+
+    Returns:
+        tuple: (result, task) where result is the agent response and task is the asyncio task
+    """
+    import asyncio
+
     from code_puppy.messaging import emit_system_message, emit_warning
 
     processed_prompt = parse_prompt_attachments(raw_prompt)
@@ -590,26 +612,37 @@ async def run_prompt_with_attachments(
         emit_warning(
             "Prompt is empty after removing attachments; add instructions and retry."
         )
-        return None
+        return None, None
 
     attachments = [attachment.content for attachment in processed_prompt.attachments]
     link_attachments = [link.url_part for link in processed_prompt.link_attachments]
+
+    # Create the agent task first so we can track and cancel it
+    agent_task = asyncio.create_task(
+        agent.run_with_mcp(
+            processed_prompt.prompt,
+            attachments=attachments,
+            link_attachments=link_attachments,
+        )
+    )
 
     if use_spinner and spinner_console is not None:
         from code_puppy.messaging.spinner import ConsoleSpinner
 
         with ConsoleSpinner(console=spinner_console):
-            return await agent.run_with_mcp(
-                processed_prompt.prompt,
-                attachments=attachments,
-                link_attachments=link_attachments,
-            )
-
-    return await agent.run_with_mcp(
-        processed_prompt.prompt,
-        attachments=attachments,
-        link_attachments=link_attachments,
-    )
+            try:
+                result = await agent_task
+                return result, agent_task
+            except asyncio.CancelledError:
+                emit_info("Agent task cancelled")
+                return None, agent_task
+    else:
+        try:
+            result = await agent_task
+            return result, agent_task
+        except asyncio.CancelledError:
+            emit_info("Agent task cancelled")
+            return None, agent_task
 
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:

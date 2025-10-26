@@ -20,6 +20,7 @@ from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warni
 from .config import CHATGPT_OAUTH_CONFIG
 from .utils import (
     add_models_to_extra_config,
+    assign_redirect_uri,
     fetch_chatgpt_models,
     load_stored_tokens,
     parse_jwt_claims,
@@ -78,9 +79,10 @@ class _OAuthServer(HTTPServer):
         self.client_id = client_id
         self.issuer = CHATGPT_OAUTH_CONFIG["issuer"]
         self.token_endpoint = CHATGPT_OAUTH_CONFIG["token_url"]
-        self.redirect_uri = f"http://localhost:{REQUIRED_PORT}/auth/callback"
+
+        # Create fresh OAuth context for this server instance
         context = prepare_oauth_context()
-        context.redirect_uri = self.redirect_uri
+        self.redirect_uri = assign_redirect_uri(context, REQUIRED_PORT)
         self.context = context
 
     def auth_url(self) -> str:
@@ -233,7 +235,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            auth_bundle, _ = self.server.exchange_code(code)
+            auth_bundle, success_url = self.server.exchange_code(code)
         except Exception as exc:  # noqa: BLE001
             self.send_error(500, f"Token exchange failed: {exc}")
             self._shutdown()
@@ -251,9 +253,11 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         if save_tokens(tokens):
             self.server.exit_code = 0
-            self._send_html(_LOGIN_SUCCESS_HTML)
+            # Redirect to the success URL returned by exchange_code
+            self._send_redirect(success_url)
         else:
             self.send_error(500, "Unable to persist auth file")
+            self._shutdown()
         self._shutdown_after_delay(2.0)
 
     def do_POST(self) -> None:  # noqa: N802
@@ -263,6 +267,11 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
         if getattr(self.server, "verbose", False):
             super().log_message(fmt, *args)
+
+    def _send_redirect(self, url: str) -> None:
+        self.send_response(302)
+        self.send_header("Location", url)
+        self.end_headers()
 
     def _send_html(self, body: str) -> None:
         encoded = body.encode()

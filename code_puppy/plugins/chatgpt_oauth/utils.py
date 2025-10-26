@@ -44,9 +44,6 @@ class OAuthContext:
         return time.time() > self.expires_at
 
 
-_oauth_context: Optional[OAuthContext] = None
-
-
 def _urlsafe_b64encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
 
@@ -61,8 +58,7 @@ def _compute_code_challenge(code_verifier: str) -> str:
 
 
 def prepare_oauth_context() -> OAuthContext:
-    """Create and cache a new OAuth PKCE context."""
-    global _oauth_context
+    """Create a fresh OAuth PKCE context."""
     state = secrets.token_hex(32)
     code_verifier = _generate_code_verifier()
     code_challenge = _compute_code_challenge(code_verifier)
@@ -70,36 +66,17 @@ def prepare_oauth_context() -> OAuthContext:
     # Set expiration 4 minutes from now (OpenAI sessions are short)
     expires_at = time.time() + 240
 
-    _oauth_context = OAuthContext(
+    return OAuthContext(
         state=state,
         code_verifier=code_verifier,
         code_challenge=code_challenge,
         created_at=time.time(),
         expires_at=expires_at,
     )
-    return _oauth_context
 
 
-def get_oauth_context() -> Optional[OAuthContext]:
-    """Get current OAuth context, checking if it's expired."""
-    global _oauth_context
-    if _oauth_context and _oauth_context.is_expired():
-        logger.warning("OAuth context expired, clearing")
-        _oauth_context = None
-    return _oauth_context
-
-
-def clear_oauth_context() -> None:
-    global _oauth_context
-    _oauth_context = None
-
-
-def assign_redirect_uri(port: int) -> str:
-    """Assign redirect URI for the active OAuth context."""
-    context = _oauth_context
-    if context is None:
-        raise RuntimeError("OAuth context has not been prepared")
-
+def assign_redirect_uri(context: OAuthContext, port: int) -> str:
+    """Assign redirect URI for the given OAuth context."""
     host = CHATGPT_OAUTH_CONFIG["redirect_host"].rstrip("/")
     path = CHATGPT_OAUTH_CONFIG["redirect_path"].lstrip("/")
     required_port = CHATGPT_OAUTH_CONFIG.get("required_port")
