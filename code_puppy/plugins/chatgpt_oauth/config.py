@@ -8,8 +8,8 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     "auth_url": "https://auth.openai.com/oauth/authorize",
     "token_url": "https://auth.openai.com/oauth/token",
     "api_base_url": "https://api.openai.com",
-    # OAuth client configuration from Codex CLI
-    "client_id": "Iv1.5a92863aee9e4f61",
+    # OAuth client configuration for Code Puppy
+    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
     "scope": "openid profile email offline_access",
     # Callback handling (we host a localhost callback to capture the redirect)
     "redirect_host": "http://localhost",
