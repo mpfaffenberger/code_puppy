@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import re
 import shlex
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, List, Sequence
 
@@ -28,6 +30,43 @@ DEFAULT_ACCEPTED_IMAGE_EXTENSIONS = {
     ".tiff",
 }
 DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS = set()
+
+_COMMENT_RE = re.compile(r"^\s*(#|＃|//|/\*|;|--|!|%)")
+_BLOCK_RANGES: tuple[tuple[int, int], ...] = (
+    (0x2500, 0x257F),  # Box Drawing
+    (0x2580, 0x259F),  # Block Elements
+    (0x25A0, 0x25FF),  # Geometric Shapes
+    (0x1FB00, 0x1FBFF),  # Symbols for Legacy Computing (box drawing extensions)
+)
+_DIVIDER_EXTRA = frozenset("-=*_•·—–")
+_DIVIDER_RUN_RE = re.compile(r"([=\-_*])\1{2,}")
+
+
+@lru_cache(maxsize=None)
+def _is_visual_divider_char(char: str) -> bool:
+    """Return True when the character belongs to a visual divider block."""
+
+    if not char or char in "/\\":
+        return False
+    code_point = ord(char)
+    for start, end in _BLOCK_RANGES:
+        if start <= code_point <= end:
+            return True
+    return char in _DIVIDER_EXTRA
+
+
+def _looks_like_visual_divider(token: str) -> bool:
+    """Detect whether the token is mostly decorative divider glyphs."""
+
+    core_chars = [char for char in token if not char.isspace() and char not in "/\\"]
+    if not core_chars:
+        return False
+    divider_ratio = sum(
+        1 for char in core_chars if _is_visual_divider_char(char)
+    ) / len(core_chars)
+    if divider_ratio > 0.5:
+        return True
+    return bool(_DIVIDER_RUN_RE.search(token))
 
 
 @dataclass
@@ -69,80 +108,10 @@ def _is_probable_path(token: str) -> bool:
     if len(token) > MAX_PATH_LENGTH:
         return False
 
-    # Reject screen drawing/divider characters
-    divider_chars = {
-        "─",
-        "│",
-        "┌",
-        "┐",
-        "└",
-        "┘",
-        "├",
-        "┤",
-        "┬",
-        "┴",
-        "┼",
-        "═",
-        "║",
-        "╚",
-        "╝",
-        "╔",
-        "╗",
-        "╠",
-        "╣",
-        "╦",
-        "╩",
-        "╬",
-        "━",
-        "┃",
-        "┏",
-        "┓",
-        "┗",
-        "┛",
-        "┣",
-        "┫",
-        "┳",
-        "┻",
-        "╋",
-        "-",
-        "=",
-        "—",
-        "–",
-        "•",
-        "·",
-        "○",
-        "●",
-        "■",
-        "□",
-        "░",
-        "▒",
-        "▓",
-        "█",
-        "▄",
-        "▌",
-        "▐",
-        "▀",
-        "╭",
-        "╮",
-        "╯",
-        "╰",
-    }
+    if _looks_like_visual_divider(token):
+        return False
 
-    # If more than 50% of non-slash characters are dividers, exclude
-    if any(char in divider_chars for char in token):
-        non_slash_chars = [c for c in token if c != "/"]
-        if non_slash_chars:
-            divider_ratio = sum(1 for c in non_slash_chars if c in divider_chars) / len(
-                non_slash_chars
-            )
-            if divider_ratio > 0.5:
-                return False
-
-    # Enhanced comment detection with whitespace support
-    stripped = token.lstrip()
-    if stripped.startswith(("#", "＃")) or stripped.startswith(
-        ("//", "/*", ";", "--", "!", "%")
-    ):
+    if _COMMENT_RE.match(token):
         return False
 
     # Windows drive letters or Unix absolute/relative paths
@@ -320,7 +289,7 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
         # Guard filesystem operations against OS errors (ENAMETOOLONG, etc.)
         try:
             path_exists = path.exists()
-            path_is_file = path.is_file() if path_exists else False
+            path_is_file = path_exists and path.is_file()
         except OSError:
             # Skip this token if filesystem check fails (path too long, etc.)
             index = consumed_until
@@ -343,14 +312,16 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
                     found_span = False
                     break
                 try:
-                    if last_path.exists() and last_path.is_file():
-                        path = last_path
-                        found_span = True
-                        # We'll rebuild escaped placeholder after this block
-                        break
+                    last_exists = last_path.exists()
+                    last_is_file = last_exists and last_path.is_file()
                 except OSError:
                     # Skip this token if filesystem check fails (path too long, etc.)
                     continue
+                if last_is_file:
+                    path = last_path
+                    found_span = True
+                    # We'll rebuild escaped placeholder after this block
+                    break
             if not found_span:
                 # Quietly skip tokens that are not files
                 index += 1

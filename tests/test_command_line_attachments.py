@@ -10,6 +10,8 @@ from pydantic_ai import BinaryContent
 
 from code_puppy.command_line.attachments import (
     DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
+    _detect_path_tokens,
+    _is_probable_path,
     parse_prompt_attachments,
 )
 from code_puppy.main import run_prompt_with_attachments
@@ -198,6 +200,43 @@ def test_parse_prompt_handles_very_long_tokens() -> None:
     assert "some text" in processed.prompt
     assert "more text" in processed.prompt
     assert processed.attachments == []
+
+
+def test_is_probable_path_rejects_visual_dividers() -> None:
+    dividers = ("────────────", "==== build ====", "███")
+    for token in dividers:
+        assert not _is_probable_path(token)
+
+
+def test_is_probable_path_accepts_unicode_path_tokens() -> None:
+    assert _is_probable_path("/tmp/〇/report.txt")
+    assert _is_probable_path("relative/路径/arquivo.png")
+
+
+def test_is_probable_path_rejects_comment_prefixes() -> None:
+    comments = (
+        "# comment",
+        "＃ fullwidth",
+        "// inline",
+        "/* block */",
+        "; semi",
+        "-- dash dash",
+        "! bang",
+        "% percent",
+    )
+    for token in comments:
+        assert not _is_probable_path(token)
+
+
+def test_detect_path_tokens_handles_oserror(monkeypatch) -> None:
+    def explode_exists(_: Path) -> bool:
+        raise OSError("simulated failure")
+
+    monkeypatch.setattr(Path, "exists", explode_exists, raising=False)
+    detections, warnings = _detect_path_tokens("check /tmp/unreachable")
+
+    assert detections == []
+    assert warnings == []
 
 
 def test_parse_prompt_handles_long_paragraph_paste() -> None:
