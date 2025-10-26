@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from typing import List, Optional, Tuple
 
-from code_puppy.callbacks import register_callback
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 from .config import CHATGPT_OAUTH_CONFIG, get_token_storage_path
@@ -88,5 +87,6 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     return None
 
 
-register_callback("custom_command_help", _custom_help)
-register_callback("custom_command", _handle_custom_command)
+# Temporarily disabled - chatgpt-oauth plugin not working yet
+# register_callback("custom_command_help", _custom_help)
+# register_callback("custom_command", _handle_custom_command)
