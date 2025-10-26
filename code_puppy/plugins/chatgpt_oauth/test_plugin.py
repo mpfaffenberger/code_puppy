@@ -26,7 +26,7 @@ def test_config_paths():
 def test_oauth_config():
     """Test OAuth configuration values."""
     assert config.CHATGPT_OAUTH_CONFIG["issuer"] == "https://auth.openai.com"
-    assert config.CHATGPT_OAUTH_CONFIG["client_id"] == "Iv1.5a92863aee9e4f61"
+    assert config.CHATGPT_OAUTH_CONFIG["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
     assert config.CHATGPT_OAUTH_CONFIG["prefix"] == "chatgpt-"
     assert config.CHATGPT_OAUTH_CONFIG["required_port"] == 1455
 
@@ -64,7 +64,7 @@ def test_prepare_oauth_context():
 def test_assign_redirect_uri():
     """Test redirect URI assignment."""
     context = utils.prepare_oauth_context()
-    redirect_uri = utils.assign_redirect_uri(1455)
+    redirect_uri = utils.assign_redirect_uri(context, 1455)
     assert redirect_uri == "http://localhost:1455/auth/callback"
     assert context.redirect_uri == redirect_uri
 
@@ -72,7 +72,7 @@ def test_assign_redirect_uri():
 def test_build_authorization_url():
     """Test authorization URL building."""
     context = utils.prepare_oauth_context()
-    utils.assign_redirect_uri(1455)
+    utils.assign_redirect_uri(context, 1455)
     auth_url = utils.build_authorization_url(context)
 
     assert auth_url.startswith("https://auth.openai.com/oauth/authorize?")
@@ -181,7 +181,7 @@ def test_exchange_code_for_tokens(mock_post):
     mock_post.return_value = mock_response
 
     context = utils.prepare_oauth_context()
-    utils.assign_redirect_uri(1455)
+    utils.assign_redirect_uri(context, 1455)
 
     tokens = utils.exchange_code_for_tokens("test_code", context)
     assert tokens is not None
