@@ -154,7 +154,9 @@ def register_invoke_agent(agent):
                 instructions += "\n" + "\n".join(prompt_additions)
             if model_name.startswith("claude-code"):
                 prompt = instructions + "\n\n" + prompt
-                instructions = "You are Claude Code, Anthropic's official CLI for Claude."
+                instructions = (
+                    "You are Claude Code, Anthropic's official CLI for Claude."
+                )
 
             global _temp_agent_count
             _temp_agent_count += 1
