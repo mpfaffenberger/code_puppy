@@ -26,6 +26,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolCallPartDelta,
     ToolReturn,
@@ -756,7 +757,6 @@ class BaseAgent(ABC):
                         f"Final token count after processing: {final_token_count}",
                         message_group="token_context_status",
                     )
-
             self.set_message_history(result_messages)
             for m in summarized_messages:
                 self.add_compacted_message_hash(self.hash_message(m))
@@ -990,7 +990,6 @@ class BaseAgent(ABC):
             model_settings_dict["openai_reasoning_effort"] = (
                 get_openai_reasoning_effort()
             )
-            model_settings_dict["extra_body"] = {"verbosity": "low"}
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
         self.cur_model = model
@@ -1128,6 +1127,14 @@ class BaseAgent(ABC):
         # Apply message history trimming using the main processor
         # This ensures we maintain global state while still managing context limits
         self.message_history_processor(ctx, _message_history)
+        result_messages_filtered_empty_thinking = []
+        for msg in self.get_message_history():
+            if len(msg.parts) == 1:
+                if isinstance(msg.parts[0], ThinkingPart):
+                    if msg.parts[0].content == "":
+                        continue
+            result_messages_filtered_empty_thinking.append(msg)
+            self.set_message_history(result_messages_filtered_empty_thinking)
         return self.get_message_history()
 
     async def run_with_mcp(

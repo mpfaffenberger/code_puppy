@@ -244,92 +244,10 @@ def exchange_code_for_tokens(
     return None
 
 
-def exchange_for_api_key(tokens: Dict[str, Any]) -> Optional[str]:
-    """Exchange id_token for OpenAI API key using token exchange flow."""
-    id_token = tokens.get("id_token")
-    if not id_token:
-        logger.error("No id_token available for API key exchange")
-        return None
-
-    # Parse JWT to extract organization and project info
-    id_token_claims = parse_jwt_claims(id_token)
-    if not id_token_claims:
-        logger.error("Failed to parse id_token claims")
-        return None
-
-    org_id = id_token_claims.get("organization_id")
-    project_id = id_token_claims.get("project_id")
-
-    if not org_id or not project_id:
-        logger.warning(
-            "No organization or project ID in token; skipping API key exchange"
-        )
-        return None
-
-    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-    payload = {
-        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-        "client_id": CHATGPT_OAUTH_CONFIG["client_id"],
-        "requested_token": "openai-api-key",
-        "subject_token": id_token,
-        "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
-        "name": f"Code Puppy ChatGPT [auto-generated] ({today})",
-    }
-
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
-    try:
-        response = requests.post(
-            CHATGPT_OAUTH_CONFIG["token_url"],
-            data=payload,
-            headers=headers,
-            timeout=30,
-        )
-        if response.status_code == 200:
-            exchange_data = response.json()
-            api_key = exchange_data.get("access_token")
-            if api_key:
-                logger.info("Successfully exchanged token for API key")
-                return api_key
-        logger.error(
-            "API key exchange failed: %s - %s", response.status_code, response.text
-        )
-    except Exception as exc:
-        logger.error("API key exchange error: %s", exc)
-    return None
-
-
 def fetch_chatgpt_models(api_key: str) -> Optional[List[str]]:
     """Fetch available models from OpenAI API."""
-    try:
-        api_url = f"{CHATGPT_OAUTH_CONFIG['api_base_url']}/v1/models"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        response = requests.get(api_url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            if isinstance(data.get("data"), list):
-                models: List[str] = []
-                for model in data["data"]:
-                    model_id = model.get("id")
-                    if model_id and (
-                        model_id.startswith("gpt-")
-                        or model_id.startswith("o1-")
-                        or model_id.startswith("o3-")
-                    ):
-                        models.append(model_id)
-                return models
-        else:
-            logger.error(
-                "Failed to fetch models: %s - %s",
-                response.status_code,
-                response.text,
-            )
-    except Exception as exc:
-        logger.error("Error fetching ChatGPT models: %s", exc)
-    return None
+    models = ["gpt-5", "gpt-5-codex", "gpt-5-mini", "gpt-5-nano"]
+    return models
 
 
 def add_models_to_extra_config(models: List[str], api_key: str) -> bool:

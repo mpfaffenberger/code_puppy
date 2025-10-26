@@ -9,7 +9,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.google import GoogleProvider
@@ -163,6 +163,11 @@ class ModelFactory:
             provider = OpenAIProvider(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            print(model_name)
+            if model_name == "chatgpt-gpt-5-codex":
+                model = OpenAIResponsesModel(
+                    model_name=model_config["name"], provider=provider
+                )
             setattr(model, "provider", provider)
             return model
 
@@ -255,8 +260,9 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = OpenAIProvider(**provider_args)
-
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            if model_name == "chatgpt-gpt-5-codex":
+                model = OpenAIResponsesModel(model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
         elif model_type == "zai_coding":

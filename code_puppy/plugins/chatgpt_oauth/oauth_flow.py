@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import datetime
-import json
-import ssl
 import threading
 import time
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
-import certifi
+import requests
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
+from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CHATGPT_OAUTH_CONFIG
 from .utils import (
     add_models_to_extra_config,
@@ -30,7 +28,6 @@ from .utils import (
 
 REQUIRED_PORT = CHATGPT_OAUTH_CONFIG["required_port"]
 URL_BASE = f"http://localhost:{REQUIRED_PORT}"
-_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 @dataclass
@@ -46,22 +43,6 @@ class AuthBundle:
     api_key: Optional[str]
     token_data: TokenData
     last_refresh: str
-
-
-_LOGIN_SUCCESS_HTML = """<!DOCTYPE html>
-<html lang=\"en\">
-  <head>
-    <meta charset=\"utf-8\" />
-    <title>Login successful</title>
-  </head>
-  <body>
-    <div style=\"max-width: 640px; margin: 80px auto; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;\">
-      <h1>Login successful</h1>
-      <p>You can now close this window and return to Code Puppy.</p>
-    </div>
-  </body>
-  </html>
-"""
 
 
 class _OAuthServer(HTTPServer):
@@ -100,26 +81,22 @@ class _OAuthServer(HTTPServer):
         return f"{self.issuer}/oauth/authorize?" + urllib.parse.urlencode(params)
 
     def exchange_code(self, code: str) -> Tuple[AuthBundle, str]:
-        data = urllib.parse.urlencode(
-            {
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": self.redirect_uri,
-                "client_id": self.client_id,
-                "code_verifier": self.context.code_verifier,
-            }
-        ).encode()
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": self.redirect_uri,
+            "client_id": self.client_id,
+            "code_verifier": self.context.code_verifier,
+        }
 
-        with urllib.request.urlopen(
-            urllib.request.Request(
-                self.token_endpoint,
-                data=data,
-                method="POST",
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            ),
-            context=_SSL_CONTEXT,
-        ) as resp:
-            payload = json.loads(resp.read().decode())
+        response = requests.post(
+            self.token_endpoint,
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        payload = response.json()
 
         id_token = payload.get("id_token", "")
         access_token = payload.get("access_token", "")
@@ -130,6 +107,18 @@ class _OAuthServer(HTTPServer):
 
         auth_claims = id_token_claims.get("https://api.openai.com/auth") or {}
         chatgpt_account_id = auth_claims.get("chatgpt_account_id", "")
+        # Extract org_id from nested auth structure like ChatMock
+        organizations = auth_claims.get("organizations", [])
+        org_id = None
+        if organizations:
+            default_org = next(
+                (org for org in organizations if org.get("is_default")),
+                organizations[0],
+            )
+            org_id = default_org.get("id")
+        # Fallback to top-level org_id if still not found
+        if not org_id:
+            org_id = id_token_claims.get("organization_id")
 
         token_data = TokenData(
             id_token=id_token,
@@ -138,9 +127,9 @@ class _OAuthServer(HTTPServer):
             account_id=chatgpt_account_id,
         )
 
-        api_key, success_url = self._maybe_obtain_api_key(
-            id_token_claims, access_token_claims, token_data
-        )
+        # Instead of exchanging for an API key, just use the access_token directly
+        # This matches how ChatMock works - no token exchange, just OAuth tokens
+        api_key = token_data.access_token
 
         last_refresh = (
             datetime.datetime.now(datetime.timezone.utc)
@@ -150,64 +139,18 @@ class _OAuthServer(HTTPServer):
         bundle = AuthBundle(
             api_key=api_key, token_data=token_data, last_refresh=last_refresh
         )
-        return bundle, success_url or f"{URL_BASE}/success"
 
-    def _maybe_obtain_api_key(
-        self,
-        token_claims: Dict[str, Any],
-        access_claims: Dict[str, Any],
-        token_data: TokenData,
-    ) -> Tuple[Optional[str], Optional[str]]:
-        org_id = token_claims.get("organization_id")
-        project_id = token_claims.get("project_id")
-        if not org_id or not project_id:
-            query = {
-                "id_token": token_data.id_token,
-                "needs_setup": "false",
-                "org_id": org_id or "",
-                "project_id": project_id or "",
-                "plan_type": access_claims.get("chatgpt_plan_type"),
-                "platform_url": "https://platform.openai.com",
-            }
-            return None, f"{URL_BASE}/success?{urllib.parse.urlencode(query)}"
-
-        today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-        exchange_data = urllib.parse.urlencode(
-            {
-                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-                "client_id": self.client_id,
-                "requested_token": "openai-api-key",
-                "subject_token": token_data.id_token,
-                "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
-                "name": f"Code Puppy ChatGPT [auto-generated] ({today})",
-            }
-        ).encode()
-
-        with urllib.request.urlopen(
-            urllib.request.Request(
-                self.token_endpoint,
-                data=exchange_data,
-                method="POST",
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            ),
-            context=_SSL_CONTEXT,
-        ) as resp:
-            exchange_payload = json.loads(resp.read().decode())
-            exchanged_access_token = exchange_payload.get("access_token")
-
-        chatgpt_plan_type = access_claims.get("chatgpt_plan_type")
+        # Build success URL with all the token info
         success_query = {
             "id_token": token_data.id_token,
             "access_token": token_data.access_token,
             "refresh_token": token_data.refresh_token,
-            "exchanged_access_token": exchanged_access_token,
-            "org_id": org_id,
-            "project_id": project_id,
-            "plan_type": chatgpt_plan_type,
+            "org_id": org_id or "",
+            "plan_type": access_token_claims.get("chatgpt_plan_type"),
             "platform_url": "https://platform.openai.com",
         }
         success_url = f"{URL_BASE}/success?{urllib.parse.urlencode(success_query)}"
-        return exchanged_access_token, success_url
+        return bundle, success_url
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
@@ -216,12 +159,16 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
         if path == "/success":
-            self._send_html(_LOGIN_SUCCESS_HTML)
+            success_html = oauth_success_html(
+                "ChatGPT",
+                "You can now close this window and return to Code Puppy.",
+            )
+            self._send_html(success_html)
             self._shutdown_after_delay(2.0)
             return
 
         if path != "/auth/callback":
-            self.send_error(404, "Not Found")
+            self._send_failure(404, "Callback endpoint not found for the puppy parade.")
             self._shutdown()
             return
 
@@ -230,14 +177,14 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         code = params.get("code", [None])[0]
         if not code:
-            self.send_error(400, "Missing auth code")
+            self._send_failure(400, "Missing auth code — the token treat rolled away.")
             self._shutdown()
             return
 
         try:
             auth_bundle, success_url = self.server.exchange_code(code)
         except Exception as exc:  # noqa: BLE001
-            self.send_error(500, f"Token exchange failed: {exc}")
+            self._send_failure(500, f"Token exchange failed: {exc}")
             self._shutdown()
             return
 
@@ -256,12 +203,16 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             # Redirect to the success URL returned by exchange_code
             self._send_redirect(success_url)
         else:
-            self.send_error(500, "Unable to persist auth file")
+            self._send_failure(
+                500, "Unable to persist auth file — a puppy probably chewed it."
+            )
             self._shutdown()
         self._shutdown_after_delay(2.0)
 
     def do_POST(self) -> None:  # noqa: N802
-        self.send_error(404, "Not Found")
+        self._send_failure(
+            404, "POST not supported — the pups only fetch GET requests."
+        )
         self._shutdown()
 
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
@@ -273,13 +224,17 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.send_header("Location", url)
         self.end_headers()
 
-    def _send_html(self, body: str) -> None:
-        encoded = body.encode()
-        self.send_response(200)
+    def _send_html(self, body: str, status: int = 200) -> None:
+        encoded = body.encode("utf-8")
+        self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
+
+    def _send_failure(self, status: int, reason: str) -> None:
+        failure_html = oauth_failure_html("ChatGPT", reason)
+        self._send_html(failure_html, status)
 
     def _shutdown(self) -> None:
         threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -348,9 +303,9 @@ def run_oauth_flow() -> None:
 
     api_key = tokens.get("api_key")
     if api_key:
-        emit_success("Successfully obtained API key from OAuth exchange.")
+        emit_success("Successfully obtained OAuth access token for API access.")
         emit_info(
-            f"API key saved and available via {CHATGPT_OAUTH_CONFIG['api_key_env_var']}"
+            f"Access token saved and available via {CHATGPT_OAUTH_CONFIG['api_key_env_var']}"
         )
     else:
         emit_warning(

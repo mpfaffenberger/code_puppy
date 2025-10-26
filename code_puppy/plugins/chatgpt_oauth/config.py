@@ -20,7 +20,7 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     "token_storage": "~/.code_puppy/chatgpt_oauth.json",
     # Model configuration
     "prefix": "chatgpt-",
-    "default_context_length": 128000,
+    "default_context_length": 272000,
     "api_key_env_var": "CHATGPT_OAUTH_API_KEY",
 }
 
