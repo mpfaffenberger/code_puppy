@@ -420,7 +420,13 @@ def get_file_permission_prompt_additions() -> str:
     This function provides the file permission rejection handling
     instructions that can be dynamically injected into agent prompts
     via the prompt hook system.
+
+    Only returns instructions when yolo_mode is off (False).
     """
+    # Only inject permission handling instructions when yolo mode is off
+    if get_yolo_mode():
+        return ""  # Return empty string when yolo mode is enabled
+
     return """
 ## 🚨 FILE PERMISSION REJECTION: STOP IMMEDIATELY
 
