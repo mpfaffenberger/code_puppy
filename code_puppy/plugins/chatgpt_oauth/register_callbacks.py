@@ -35,11 +35,9 @@ def _handle_chatgpt_status() -> None:
         api_key = tokens.get("api_key")
         if api_key:
             os.environ[CHATGPT_OAUTH_CONFIG["api_key_env_var"]] = api_key
-            emit_info("✅ API key available for this session")
+            emit_info("✅ OAuth access token available for API requests")
         else:
-            emit_warning(
-                "⚠️ No API key obtained. Organization/project setup may be required at platform.openai.com."
-            )
+            emit_warning("⚠️ No access token obtained. Authentication may have failed.")
 
         chatgpt_models = [
             name
