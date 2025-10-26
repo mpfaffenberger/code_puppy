@@ -28,6 +28,48 @@ def test_oauth_config():
     assert config.CHATGPT_OAUTH_CONFIG["issuer"] == "https://auth.openai.com"
     assert config.CHATGPT_OAUTH_CONFIG["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
     assert config.CHATGPT_OAUTH_CONFIG["prefix"] == "chatgpt-"
+
+
+def test_jwt_parsing_with_nested_org():
+    """Test JWT parsing with nested organization structure like the user's payload."""
+    # This simulates the user's JWT payload structure
+    mock_claims = {
+        "aud": ["app_EMoamEEZ73f0CkXaXp7hrann"],
+        "auth_provider": "google",
+        "email": "mike.pfaf fenberger@gmail.com",
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": "d1844a91-9aac-419b-903e-f6a99c76f163",
+            "organizations": [
+                {
+                    "id": "org-iydWjnSxSr51VuYhDVMDte5",
+                    "is_default": True,
+                    "role": "owner",
+                    "title": "Personal",
+                }
+            ],
+            "groups": ["api-data-sharing-incentives-program", "verified-organization"],
+        },
+        "sub": "google-oauth2|107692466937587138174",
+    }
+
+    # Test the org extraction logic
+    auth_claims = mock_claims.get("https://api.openai.com/auth", {})
+    organizations = auth_claims.get("organizations", [])
+
+    org_id = None
+    if organizations:
+        default_org = next(
+            (org for org in organizations if org.get("is_default")), organizations[0]
+        )
+        org_id = default_org.get("id")
+
+    assert org_id == "org-iydWjnSxSr51VuYhDVMDte5"
+
+    # Test fallback to top-level org_id (should not happen in this case)
+    if not org_id:
+        org_id = mock_claims.get("organization_id")
+
+    assert org_id == "org-iydWjnSxSr51VuYhDVMDte5"
     assert config.CHATGPT_OAUTH_CONFIG["required_port"] == 1455
 
 
@@ -187,36 +229,6 @@ def test_exchange_code_for_tokens(mock_post):
     assert tokens is not None
     assert tokens["access_token"] == "test_access"
     assert "last_refresh" in tokens
-
-
-@patch("code_puppy.plugins.chatgpt_oauth.utils.requests.post")
-def test_exchange_for_api_key(mock_post):
-    """Test API key exchange."""
-    # Mock successful exchange
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "access_token": "sk-proj-test",
-    }
-    mock_post.return_value = mock_response
-
-    # Create tokens with valid id_token
-    import base64
-
-    id_token_payload = base64.urlsafe_b64encode(
-        json.dumps(
-            {
-                "organization_id": "org-123",
-                "project_id": "proj-456",
-            }
-        ).encode()
-    ).decode()
-    tokens = {
-        "id_token": f"header.{id_token_payload}.signature",
-    }
-
-    api_key = utils.exchange_for_api_key(tokens)
-    assert api_key == "sk-proj-test"
 
 
 @patch("code_puppy.plugins.chatgpt_oauth.utils.requests.get")

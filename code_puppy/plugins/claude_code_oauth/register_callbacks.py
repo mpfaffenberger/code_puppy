@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from code_puppy.callbacks import register_callback
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
+from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
 from .utils import (
     OAuthContext,
@@ -55,118 +56,18 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         if code and state:
             self.result.code = code
             self.result.state = state
-            self._write_response(
-                200,
-                (
-                    "<!DOCTYPE html>"
-                    "<html><head><style>"
-                    "body { margin: 0; padding: 0; overflow: hidden; "
-                    "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); "
-                    "font-family: 'Arial', sans-serif; height: 100vh; "
-                    "display: flex; flex-direction: column; align-items: center; "
-                    "justify-content: center; color: white; } "
-                    "h1 { font-size: 3em; margin: 0; animation: bounce 1s infinite; "
-                    "text-shadow: 3px 3px 10px rgba(0,0,0,0.3); } "
-                    "p { font-size: 1.3em; margin: 20px 0; animation: fadeIn 1.5s; } "
-                    ".puppy { position: absolute; font-size: 4em; "
-                    "animation: float 3s ease-in-out infinite; } "
-                    ".puppy:nth-child(1) { top: 10%; left: 10%; animation-delay: 0s; } "
-                    ".puppy:nth-child(2) { top: 20%; right: 15%; animation-delay: 0.5s; } "
-                    ".puppy:nth-child(3) { bottom: 15%; left: 20%; animation-delay: 1s; } "
-                    ".puppy:nth-child(4) { bottom: 20%; right: 10%; animation-delay: 1.5s; } "
-                    ".puppy:nth-child(5) { top: 50%; left: 5%; animation-delay: 0.3s; } "
-                    ".puppy:nth-child(6) { top: 50%; right: 5%; animation-delay: 0.8s; } "
-                    ".puppy:nth-child(7) { top: 5%; left: 50%; animation-delay: 1.2s; } "
-                    ".puppy:nth-child(8) { bottom: 5%; left: 50%; animation-delay: 0.6s; } "
-                    ".center { position: relative; z-index: 10; text-align: center; "
-                    "background: rgba(255,255,255,0.1); padding: 40px; "
-                    "border-radius: 20px; backdrop-filter: blur(10px); "
-                    "box-shadow: 0 8px 32px rgba(0,0,0,0.2); } "
-                    ".sparkle { display: inline-block; animation: sparkle 1s infinite; } "
-                    "@keyframes bounce { 0%, 100% { transform: translateY(0); } "
-                    "50% { transform: translateY(-20px); } } "
-                    "@keyframes float { 0%, 100% { transform: translateY(0) rotate(0deg); } "
-                    "50% { transform: translateY(-30px) rotate(10deg); } } "
-                    "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } "
-                    "@keyframes sparkle { 0%, 100% { transform: scale(1); } "
-                    "50% { transform: scale(1.3); } } "
-                    "</style></head><body>"
-                    "<div class='puppy'>🐶</div>"
-                    "<div class='puppy'>🐕</div>"
-                    "<div class='puppy'>🐩</div>"
-                    "<div class='puppy'>🦮</div>"
-                    "<div class='puppy'>🐕‍🦺</div>"
-                    "<div class='puppy'>🐶</div>"
-                    "<div class='puppy'>🐕</div>"
-                    "<div class='puppy'>🐩</div>"
-                    "<div class='center'>"
-                    "<h1><span class='sparkle'>🎉</span> OAuth Success! <span class='sparkle'>🎉</span></h1>"
-                    "<p><span class='sparkle'>✨</span> You're all set with Claude Code! <span class='sparkle'>✨</span></p>"
-                    "<p>🐾 This window will close automatically 🐾</p>"
-                    "</div>"
-                    "<script>setTimeout(() => window.close(), 3000);</script>"
-                    "</body></html>"
-                ),
+            success_html = oauth_success_html(
+                "Claude Code",
+                "You're totally synced with Claude Code now!",
             )
+            self._write_response(200, success_html)
         else:
             self.result.error = "Missing code or state"
-            self._write_response(
-                400,
-                (
-                    "<!DOCTYPE html>"
-                    "<html><head><style>"
-                    "body { margin: 0; padding: 0; overflow: hidden; "
-                    "background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%); "
-                    "font-family: 'Arial', sans-serif; height: 100vh; "
-                    "display: flex; flex-direction: column; align-items: center; "
-                    "justify-content: center; color: white; } "
-                    "h1 { font-size: 2.5em; margin: 0; animation: sadShake 2s infinite; "
-                    "text-shadow: 2px 2px 8px rgba(0,0,0,0.5); } "
-                    "p { font-size: 1.2em; margin: 20px 0; animation: fadeIn 1.5s; } "
-                    ".sad-puppy { position: absolute; font-size: 3.5em; "
-                    "animation: droop 4s ease-in-out infinite; filter: grayscale(30%); } "
-                    ".sad-puppy:nth-child(1) { top: 15%; left: 15%; animation-delay: 0s; } "
-                    ".sad-puppy:nth-child(2) { top: 25%; right: 20%; animation-delay: 0.5s; } "
-                    ".sad-puppy:nth-child(3) { bottom: 20%; left: 25%; animation-delay: 1s; } "
-                    ".sad-puppy:nth-child(4) { bottom: 25%; right: 15%; animation-delay: 1.5s; } "
-                    ".sad-puppy:nth-child(5) { top: 45%; left: 8%; animation-delay: 0.7s; } "
-                    ".sad-puppy:nth-child(6) { top: 45%; right: 8%; animation-delay: 1.2s; } "
-                    ".center { position: relative; z-index: 10; text-align: center; "
-                    "background: rgba(255,255,255,0.08); padding: 40px; "
-                    "border-radius: 20px; backdrop-filter: blur(10px); "
-                    "box-shadow: 0 8px 32px rgba(0,0,0,0.3); "
-                    "border: 2px solid rgba(255,255,255,0.1); } "
-                    ".tear { display: inline-block; animation: fall 2s infinite; } "
-                    "@keyframes sadShake { 0%, 100% { transform: translateX(0); } "
-                    "25% { transform: translateX(-5px); } "
-                    "75% { transform: translateX(5px); } } "
-                    "@keyframes droop { 0%, 100% { transform: translateY(0) rotate(-5deg); } "
-                    "50% { transform: translateY(10px) rotate(5deg); } } "
-                    "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } "
-                    "@keyframes fall { 0% { transform: translateY(0); opacity: 1; } "
-                    "100% { transform: translateY(20px); opacity: 0; } } "
-                    ".retry-btn { margin-top: 20px; padding: 12px 30px; "
-                    "background: rgba(255,255,255,0.2); border: 2px solid white; "
-                    "border-radius: 25px; color: white; font-size: 1em; "
-                    "cursor: pointer; transition: all 0.3s; } "
-                    ".retry-btn:hover { background: rgba(255,255,255,0.3); "
-                    "transform: scale(1.05); } "
-                    "</style></head><body>"
-                    "<div class='sad-puppy'>😭🐶</div>"
-                    "<div class='sad-puppy'>😢🐕</div>"
-                    "<div class='sad-puppy'>😥🐩</div>"
-                    "<div class='sad-puppy'>😫🦮</div>"
-                    "<div class='sad-puppy'>😭🐶</div>"
-                    "<div class='sad-puppy'>😢🐕</div>"
-                    "<div class='center'>"
-                    "<h1>💔 OAuth Oopsie! 💔</h1>"
-                    "<p><span class='tear'>💧</span> Something went wrong with the OAuth flow <span class='tear'>💧</span></p>"
-                    "<p style='font-size: 0.9em; opacity: 0.9;'>🥺 Missing code or state parameter 🥺</p>"
-                    "<p style='font-size: 1em; margin-top: 25px;'>🐾 Don't worry! Head back to Code Puppy and try again 🐾</p>"
-                    "</div>"
-                    "</body></html>"
-                ),
+            failure_html = oauth_failure_html(
+                "Claude Code",
+                "Missing code or state parameter 🥺",
             )
+            self._write_response(400, failure_html)
 
         self.received_event.set()
 
