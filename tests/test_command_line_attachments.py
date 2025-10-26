@@ -108,7 +108,7 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
         patch("code_puppy.messaging.emit_warning") as mock_warn,
         patch("code_puppy.messaging.emit_system_message") as mock_system,
     ):
-        result = await run_prompt_with_attachments(
+        result, _ = await run_prompt_with_attachments(
             fake_agent,
             raw_prompt,
             spinner_console=None,
@@ -159,7 +159,7 @@ async def test_run_prompt_with_attachments_warns_on_blank_prompt() -> None:
         patch("code_puppy.messaging.emit_warning") as mock_warn,
         patch("code_puppy.messaging.emit_system_message"),
     ):
-        result = await run_prompt_with_attachments(
+        result, _ = await run_prompt_with_attachments(
             fake_agent,
             "   ",
             spinner_console=None,

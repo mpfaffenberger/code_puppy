@@ -7,7 +7,7 @@ from pydantic import BaseModel
 # Import Agent from pydantic_ai to create temporary agents for invocation
 from pydantic_ai import Agent, RunContext, UsageLimits
 
-from code_puppy.config import get_global_model_name, get_message_limit, get_use_dbos
+from code_puppy.config import get_message_limit, get_use_dbos
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
@@ -134,7 +134,7 @@ def register_invoke_agent(agent):
             agent_config = load_agent(agent_name)
 
             # Get the current model for creating a temporary agent
-            model_name = get_global_model_name()
+            model_name = agent_config.get_model_name()
             models_config = ModelFactory.load_config()
 
             # Only proceed if we have a valid model configuration
@@ -152,6 +152,9 @@ def register_invoke_agent(agent):
             prompt_additions = callbacks.on_load_prompt()
             if len(prompt_additions):
                 instructions += "\n" + "\n".join(prompt_additions)
+            if model_name.startswith("claude-code"):
+                prompt = instructions + "\n\n" + prompt
+                instructions = "You are Claude Code, Anthropic's official CLI for Claude."
 
             global _temp_agent_count
             _temp_agent_count += 1
