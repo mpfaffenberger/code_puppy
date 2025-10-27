@@ -4,32 +4,57 @@ All notable changes to Code Puppy will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
-## [Unreleased] - 2025-10-22
+## [Unreleased] - 2025-10-27
 
 ### 🎉 Major Features
+
+- **Planning Agent** (#66) ([@cgycorey](https://github.com/cgycorey)
+  - New dedicated planning agent for project organization
+  - Enhanced prompt design for better planning outcomes
+  - Improved Code Puppy agent coordination
+
+- **Customizable Commands**
+  - You can now implement your own `/commands`!
+  - Create a markdown file with the prompt to run, place it in one of three places within your project
+    - `.claude/commands/` <--- Meant for compatibility with Claude Code
+    - `.github/prompts/` <--- Meant for compatibility with Github Copilot
+    - `.agents/commands/` <--- For Code Puppy and other agents (RECOMMENDED)
+    - You can use all 3 of these and if you have duplicates, they'll appear in the /help list with numbered suffixes
 
 - **Edit File Permissions System** ([@cgycorey](https://github.com/cgycorey) in #45)
   - Fine-grained control over file editing permissions
   - Allows users to approve/deny file modifications
   - Enhanced security for automated file operations
+  - Enable with `/set yolo_mode = false`
 
 - **Configurable Diff Highlighting**
   - Intelligent color pair system for diff display
   - Customizable diff command configuration hints
   - Beautiful, readable code change visualization
+  - Configurable context diff lines
+  - Try out `/diff` to play with these options
+    - `/diff style <text|highlighted>`
+    - `/diff additions <color>` 
+    - `/diff deletions <color>` <--- `type this with no color to show options`
+    - `/diff show` 
 
 - **Interactive Model Picker TUI** ([@jackdevs000](https://github.com/jackdevs000) in #52)
   - Full-featured interactive model selection interface
   - Border fix for improved UI consistency
   - Real-time model switching from the command line
+  - Only relevant to `code-puppy -t` users 
 
 - **Manual Autosave Session Loading**
   - Load any previously saved session on demand
-  - No longer automatically prompts on load, you need to run /autosave_load
+  - No longer automatically prompts on load, you need to run `/autosave_load`
+  - Auto-save session configuration option with display
+  - By popular demand...
 
 - **Enhanced Dependency Management**
   - Pinned ripgrep to exact version 14.1.0 for stability
   - Added pexpect for advanced CLI testing
+  - UV Python version management with UV_MANAGED_PYTHON=1
+  - Configured UV to use only managed Python installations
 
 ### 🧪 Testing & Quality Assurance
 
@@ -41,11 +66,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - CLI happy-path testing with shared fixtures
   - MCP Context7 end-to-end integration tests
   - DBOS initialization and database verification tests
+  - Real LLM call testing infrastructure
+  - Smoke tests for core functionality
 
 - **Unit Test Expansion** ([@Dakota Brown](https://github.com/DakotaBrown) in #55)
   - Extensive new unit test coverage across modules
   - Improved test fixture extraction and reusability
   - Better test isolation and consistency
+  - Agent tools testing with yolo mode mocking
+  - Updated tests for tuple returns from run_prompt_with_attachments
+
+- **CI/CD Pipeline Improvements**
+  - Cross-platform matrix builds (Windows/macOS/Linux)
+  - Consolidated test steps with environment variables
+  - Gated PyPI publishing with comprehensive test suite
+  - Streamlined builds: Ubuntu/macOS with Python 3.13 only
+  - Inline pexpect installation for integration test compatibility
+  - Re-enabled integration tests with enhanced PR workflow
+  - Removed pre-push pytest hook from lefthook
 
 - **Test Infrastructure Improvements**
   - Fixed autosave integration tests with explicit triggers
@@ -54,22 +92,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Selective file cleanup in test harness
   - Hardened sync mechanisms for async operations
   - SQLite report dumping for debugging
+  - Handled race conditions between auto-summarization and pending tool calls (#60)
+  - Skipped flaky tests in CI environment (later resolved)
+  - Added pre-commit isort+ruff hooks
 
 
 ### 🐛 Bug Fixes
 
-- **Camoufox Browser Support**
-  - Fixed Camoufox loading issues
+- **Browser Support**
+  - Fixed Camoufox loading issues (multiple iterations)
+  - Deferred Camoufox imports and added Playwright fallback
   - Resolved browser initialization problems
   - Improved profile persistence
+  - Avoided browserforge downloads at import-time
+  - Ensured Camoufox availability checks
+
+- **Autosave & Session Management**
+  - Restored autosave functionality by moving calls outside broad exception handlers
+  - Fixed race condition between automatic summarization and pending tool calls (#60)
+  - Proper session rotation and picker bypass
 
 - **CI & Testing**
   - Resolved MCP tool name conflicts during agent reload
   - Fixed Ubuntu CI filesystem timing races
   - Eliminated flaky integration test timeouts
   - Context7 tool execution visibility improvements
+  - Resolved integration test timeout issues in CI
+  - Windows pexpect compatibility (multiple attempts, later reverted)
+
+- **Python Version Management**
+  - Fixed UV Python version management to always use latest compatible Python
+  - Simplified UV installation with UV_MANAGED_PYTHON=1 export
+  - Updated requires-python to exclude versions > 3.13
+  - Configured UV to use only managed Python installations
+
+- **Agent Task Cancellation**
+  - Implemented clean task cancellation for agent operations
+  - Prevented zombie tasks and resource leaks
 
 ### ♻️ Refactoring & Code Quality
+
+- **Code Formatting & Cleanup**
+  - Applied automated linting and code formatting across codebase
+  - Consistent whitespace formatting and removed unused imports
+  - Improved code formatting and consistency across multiple modules
+  - Ran comprehensive linters and checks
+
+- **File Operations Refactoring**
+  - Simplified file listing by delegating non-recursive mode to fallback
+  - Separated directory and file ignore patterns for tool-specific filtering
+  - Better organization of file operation utilities
 
 - **Error Handling Improvements**
   - Replaced fatal errors with warnings in model processing
@@ -82,25 +154,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Dynamic configuration without restart requirements
   - Better integration with CLI workflow
 
+- **OAuth Flow Simplification**
+  - Consolidated HTML templates for OAuth success/failure pages
+  - Simplified ChatGPT OAuth flow implementation
+  - Cleaner callback handling and state management
+
 ### 📚 Documentation
 
 - **Updated Documentation**
   - Added `bd` (issue tracker) usage to AGENTS.md
-  - Documented lefthook linters and hooks setup
+  - Documented lefthook linters and hooks setup (LEFTHOOK.md)
   - Closed documentation gaps (bd-21)
+  - Enhanced contributing guidelines and onboarding docs
 
 ### 🔧 Technical Improvements
 
-- **Agent Permissions Standardization** ([@Diego](https://github.com/Diego) in #59)
-  - Removed edit_file from code-reviewer for safety
-  - Added invoke_agent and list_agent collaboration to all reviewers
-  - Consistent permission model across agent types
+- **Agent System Enhancements**
+  - **Agent Permissions Standardization** ([@Diego](https://github.com/Diego) in #59)
+    - Removed edit_file from code-reviewer for safety
+    - Added invoke_agent and list_agent collaboration to all reviewers
+    - Consistent permission model across agent types
+  - Enhanced Claude Code agent handling with dedicated prompt
+  - Improved planning agent prompt and Code Puppy integration (#67)
 
 - **Integration Test Harness Evolution**
   - Pexpect flows made \r-explicit
   - Autosave-friendly CLI interactions
   - Robust synchronization mechanisms
   - Bypassed session pickers for automation
+  - CLI harness foundations with stability improvements
+
+- **Build & Dependency Management**
+  - Pinned ripgrep dependency to exact version 14.1.0
+  - Updated requires-python constraints
+  - Configured UV for managed Python installations
+  - Improved dependency resolution and version compatibility
+
+- **Context Diff Configuration**
+  - Added configurable context diff line settings (#65)
+  - User-adjustable diff context for better code review
 
 ### 🎨 UI/UX Enhancements
 
@@ -108,11 +200,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Configuration hints for diff commands
   - Intelligent color pair selection
   - Enhanced readability of code changes
+  - Configurable context lines for diffs
 
 - **Model Selection**
   - Interactive TUI with improved borders
   - Real-time feedback and selection
   - Streamlined model switching workflow
+
+### 🔄 Reverted Changes
+
+- **Windows Integration Test Support** (multiple attempts)
+  - Attempted to enable integration tests on Windows
+  - Added pywinpty dependency for Windows pexpect support
+  - Guarded Windows pexpect backend availability
+  - Made test harness Windows-compatible
+  - **Reverted**: Due to compatibility issues, rolled back to Unix-only integration tests
+
+- **Pre-push Testing Hook**
+  - Temporarily removed pre-push pytest hook from lefthook for performance reasons
+  - Pre-commit hooks (isort, ruff) remain active
+
+### 🔧 Maintenance & Chores
+
+- Automated version bumps (multiple releases)
+- Merged upstream changes from main branch
+- Applied automated linting and formatting
+- Cleaned up CI workflows and removed redundant steps
+- Added secret debugging for integration tests (development)
+- Environment variable management improvements
 
 ---
 
