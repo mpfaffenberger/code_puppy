@@ -547,12 +547,9 @@ class CodePuppyTUI(App):
                     self.add_agent_message(agent_response)
 
                     # Auto-save session if enabled (mirror --interactive)
-                    try:
-                        from code_puppy.config import auto_save_session_if_enabled
+                    from code_puppy.config import auto_save_session_if_enabled
 
-                        auto_save_session_if_enabled()
-                    except Exception:
-                        pass
+                    auto_save_session_if_enabled()
 
                     # Refresh history display to show new interaction
                     self.refresh_history_display()

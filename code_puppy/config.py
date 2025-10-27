@@ -75,6 +75,13 @@ def ensure_config_exists():
             else:
                 val = input(f"Enter {key}: ").strip()
             config[DEFAULT_SECTION][key] = val
+
+    # Set default values for important config keys if they don't exist
+    if not config[DEFAULT_SECTION].get("auto_save_session"):
+        config[DEFAULT_SECTION]["auto_save_session"] = "true"
+
+    # Write the config if we made any changes
+    if missing or not exists:
         with open(CONFIG_FILE, "w") as f:
             config.write(f)
     return config
@@ -149,6 +156,7 @@ def get_config_keys():
         "auto_save_session",
         "max_saved_sessions",
         "http2",
+        "diff_context_lines",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -237,10 +245,11 @@ def load_mcp_server_configs():
 
 
 def _default_model_from_models_json():
-    """Attempt to load the first model name from models.json.
+    """Load the default model name from models.json.
 
-    Falls back to the hard-coded default (``gpt-5``) if the file
-    cannot be read for any reason or is empty.
+    Prefers synthetic-GLM-4.6 as the default model.
+    Falls back to the first model in models.json if synthetic-GLM-4.6 is not available.
+    As a last resort, falls back to ``gpt-5`` if the file cannot be read.
     """
     global _default_model_cache
 
@@ -252,6 +261,11 @@ def _default_model_from_models_json():
 
         models_config = ModelFactory.load_config()
         if models_config:
+            # Prefer synthetic-GLM-4.6 as default
+            if "synthetic-GLM-4.6" in models_config:
+                _default_model_cache = "synthetic-GLM-4.6"
+                return "synthetic-GLM-4.6"
+            # Fall back to first model if synthetic-GLM-4.6 is not available
             first_key = next(iter(models_config))
             _default_model_cache = first_key
             return first_key
@@ -1057,6 +1071,22 @@ def auto_save_session_if_enabled() -> bool:
 
         Console().print(f"[dim]❌ Failed to auto-save session: {exc}[/dim]")
         return False
+
+
+def get_diff_context_lines() -> int:
+    """
+    Returns the user-configured number of context lines for diff display.
+    This controls how many lines of surrounding context are shown in diffs.
+    Defaults to 6 if unset or misconfigured.
+    Configurable by 'diff_context_lines' key.
+    """
+    val = get_value("diff_context_lines")
+    try:
+        context_lines = int(val) if val else 6
+        # Apply reasonable bounds: minimum 0, maximum 50
+        return max(0, min(context_lines, 50))
+    except (ValueError, TypeError):
+        return 6
 
 
 def finalize_autosave_session() -> str:

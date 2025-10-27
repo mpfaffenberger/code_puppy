@@ -9,7 +9,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.google import GoogleProvider
@@ -17,6 +17,8 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from code_puppy.messaging import emit_warning
+from code_puppy.plugins.chatgpt_oauth.config import get_chatgpt_models_path
+from code_puppy.plugins.claude_code_oauth.config import get_claude_models_path
 
 from . import callbacks
 from .config import EXTRA_MODELS_FILE
@@ -117,20 +119,27 @@ class ModelFactory:
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
 
-        if pathlib.Path(EXTRA_MODELS_FILE).exists():
+        extra_sources = [
+            (pathlib.Path(EXTRA_MODELS_FILE), "extra models"),
+            (get_chatgpt_models_path(), "ChatGPT OAuth models"),
+            (get_claude_models_path(), "Claude Code OAuth models"),
+        ]
+
+        for source_path, label in extra_sources:
+            path = pathlib.Path(source_path).expanduser()
+            if not path.exists():
+                continue
             try:
-                with open(EXTRA_MODELS_FILE, "r") as f:
+                with open(path, "r") as f:
                     extra_config = json.load(f)
                     config.update(extra_config)
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load extra models config from {EXTRA_MODELS_FILE}: Invalid JSON - {e}\n"
-                    f"Please check your extra_models.json file for syntax errors."
+                    f"Failed to load {label} config from {path}: Invalid JSON - {exc}"
                 )
-            except Exception as e:
+            except Exception as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load extra models config from {EXTRA_MODELS_FILE}: {e}\n"
-                    f"The extra models configuration will be ignored."
+                    f"Failed to load {label} config from {path}: {exc}"
                 )
         return config
 
@@ -154,6 +163,11 @@ class ModelFactory:
             provider = OpenAIProvider(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            print(model_name)
+            if model_name == "chatgpt-gpt-5-codex":
+                model = OpenAIResponsesModel(
+                    model_name=model_config["name"], provider=provider
+                )
             setattr(model, "provider", provider)
             return model
 
@@ -178,7 +192,16 @@ class ModelFactory:
             )
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
-
+        elif model_type == "claude_code":
+            url, headers, verify, api_key = get_custom_config(model_config)
+            client = create_async_client(headers=headers, verify=verify)
+            anthropic_client = AsyncAnthropic(
+                base_url=url, http_client=client, auth_token=api_key
+            )
+            anthropic_client.api_key = None
+            anthropic_client.auth_token = api_key
+            provider = AnthropicProvider(anthropic_client=anthropic_client)
+            return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "azure_openai":
             azure_endpoint_config = model_config.get("azure_endpoint")
             if not azure_endpoint_config:
@@ -246,8 +269,9 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = OpenAIProvider(**provider_args)
-
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            if model_name == "chatgpt-gpt-5-codex":
+                model = OpenAIResponsesModel(model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
         elif model_type == "zai_coding":

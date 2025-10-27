@@ -282,6 +282,7 @@ class TestGetConfigKeys:
                 "auto_save_session",
                 "compaction_strategy",
                 "compaction_threshold",
+                "diff_context_lines",
                 "http2",
                 "enable_dbos",
                 "key1",
@@ -311,6 +312,7 @@ class TestGetConfigKeys:
                 "auto_save_session",
                 "compaction_strategy",
                 "compaction_threshold",
+                "diff_context_lines",
                 "http2",
                 "enable_dbos",
                 "max_saved_sessions",
@@ -653,11 +655,11 @@ class TestDefaultModelSelection:
     ):
         # When no model is stored in config, get_model_name should return the default model
         mock_get_value.return_value = None
-        mock_default_model.return_value = "gpt-5"
+        mock_default_model.return_value = "synthetic-GLM-4.6"
 
         result = cp_config.get_global_model_name()
 
-        assert result == "gpt-5"
+        assert result == "synthetic-GLM-4.6"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_not_called()
         mock_default_model.assert_called_once()
@@ -671,11 +673,11 @@ class TestDefaultModelSelection:
         # When stored model doesn't exist in models.json, should return default model
         mock_get_value.return_value = "invalid-model"
         mock_validate_model_exists.return_value = False
-        mock_default_model.return_value = "gpt-5"
+        mock_default_model.return_value = "synthetic-GLM-4.6"
 
         result = cp_config.get_global_model_name()
 
-        assert result == "gpt-5"
+        assert result == "synthetic-GLM-4.6"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_called_once_with("invalid-model")
         mock_default_model.assert_called_once()
@@ -692,6 +694,25 @@ class TestDefaultModelSelection:
         result = cp_config._default_model_from_models_json()
 
         assert result == "test-model-1"
+        mock_load_config.assert_called_once()
+
+    @patch("code_puppy.model_factory.ModelFactory.load_config")
+    def test_default_model_from_models_json_prefers_synthetic_glm(
+        self, mock_load_config
+    ):
+        # Test that synthetic-GLM-4.6 is preferred even when other models come first
+        mock_load_config.return_value = {
+            "other-model-1": {"type": "openai", "name": "other-model-1"},
+            "synthetic-GLM-4.6": {
+                "type": "custom_openai",
+                "name": "hf:zai-org/GLM-4.6",
+            },
+            "other-model-2": {"type": "anthropic", "name": "other-model-2"},
+        }
+
+        result = cp_config._default_model_from_models_json()
+
+        assert result == "synthetic-GLM-4.6"
         mock_load_config.assert_called_once()
 
     @patch("code_puppy.model_factory.ModelFactory.load_config")
@@ -716,8 +737,8 @@ class TestDefaultModelSelection:
 
         result = cp_config._default_model_from_models_json()
 
-        # The first model in models.json should be selected
-        assert result == "gpt-5"
+        # synthetic-GLM-4.6 should be selected as it's explicitly preferred
+        assert result == "synthetic-GLM-4.6"
 
     @patch("code_puppy.config.get_value")
     def test_get_model_name_with_nonexistent_model_uses_first_from_models_json(
@@ -727,7 +748,7 @@ class TestDefaultModelSelection:
         cp_config.clear_model_cache()
 
         # Test the exact scenario: when a model doesn't exist in the config,
-        # the first model from models.json is selected
+        # the preferred default model from models.json is selected
         mock_get_value.return_value = "non-existent-model"
 
         # This will use the real models.json file through the ModelFactory

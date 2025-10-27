@@ -139,6 +139,8 @@ Important rules:
 - You're encouraged to loop between share_your_reasoning, file tools, and run_shell_command to test output in order to write programs
 - Aim to continue operations independently unless user input is definitively required.
 
+
+
 Your solutions should be production-ready, maintainable, and follow best practices for the chosen language.
 
 Return your final response as a string output

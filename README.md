@@ -60,11 +60,70 @@ Code Puppy Walmart Edition is an AI-powered code generation agent, designed to u
 
 ## Installation
 
-`pip install code-puppy`
+### UV (Recommended)
+
+```bash
+# Install UV if you don't have it
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Set UV to always use managed Python (one-time setup)
+echo 'export UV_MANAGED_PYTHON=1' >> ~/.zshrc  # or ~/.bashrc
+source ~/.zshrc  # or ~/.bashrc
+
+# Install and run code-puppy
+uvx code-puppy -i
+```
+
+UV will automatically download the latest compatible Python version (3.11+) if your system doesn't have one.
+
+### pip (Alternative)
+
+```bash
+pip install code-puppy
+```
+
+*Note: pip installation requires your system Python to be 3.11 or newer.*
+
+### Permanent Python Management
+
+To make UV always use managed Python versions (recommended):
+
+```bash
+# Set environment variable permanently
+echo 'export UV_MANAGED_PYTHON=1' >> ~/.zshrc  # or ~/.bashrc
+source ~/.zshrc  # or ~/.bashrc
+
+# Now all UV commands will prefer managed Python installations
+uvx code-puppy  # No need for --managed-python flag anymore
+```
+
+### Verifying Python Version
+
+```bash
+# Check which Python UV will use
+uv python find
+
+# Or check the current project's Python
+uv run python --version
+```
 
 ## Usage
+
+### Custom Commands
+Create markdown files in `.claude/commands/`, `.github/prompts/`, or `.agents/commands/` to define custom slash commands. The filename becomes the command name and the content runs as a prompt.
+
 ```bash
-# Models are automatically fetched from the endpoint and cached locally
+# Create a custom command
+echo "# Code Review
+
+Please review this code for security issues." > .claude/commands/review.md
+
+# Use it in Code Puppy
+/review with focus on authentication
+```
+
+```bash
+export MODEL_NAME=gpt-5 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
 export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
 export CEREBRAS_API_KEY=<your_cerebras_api_key> # for Cerebras models
 export SYN_API_KEY=<your https://dev.synthetic.new api key> # for Synthetic provider

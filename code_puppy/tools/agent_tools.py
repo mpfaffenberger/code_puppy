@@ -5,9 +5,9 @@ from typing import List
 from pydantic import BaseModel
 
 # Import Agent from pydantic_ai to create temporary agents for invocation
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, RunContext, UsageLimits
 
-from code_puppy.config import get_use_dbos, get_global_model_name
+from code_puppy.config import get_message_limit, get_use_dbos
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
@@ -134,7 +134,7 @@ def register_invoke_agent(agent):
             agent_config = load_agent(agent_name)
 
             # Get the current model for creating a temporary agent
-            model_name = get_global_model_name()
+            model_name = agent_config.get_model_name()
             models_config = ModelFactory.load_config()
 
             # Only proceed if we have a valid model configuration
@@ -145,6 +145,19 @@ def register_invoke_agent(agent):
 
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_system_prompt()
+
+            # Apply prompt additions (like file permission handling) to temporary agents
+            from code_puppy import callbacks
+
+            prompt_additions = callbacks.on_load_prompt()
+            if len(prompt_additions):
+                instructions += "\n" + "\n".join(prompt_additions)
+            if model_name.startswith("claude-code"):
+                prompt = instructions + "\n\n" + prompt
+                instructions = (
+                    "You are Claude Code, Anthropic's official CLI for Claude."
+                )
+
             global _temp_agent_count
             _temp_agent_count += 1
             temp_agent = Agent(
@@ -169,7 +182,9 @@ def register_invoke_agent(agent):
             register_tools_for_agent(temp_agent, agent_tools)
 
             # Run the temporary agent with the provided prompt
-            result = temp_agent.run_sync(prompt)
+            result = temp_agent.run_sync(
+                prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+            )
 
             # Extract the response from the result
             response = result.output
