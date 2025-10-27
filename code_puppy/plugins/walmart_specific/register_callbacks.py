@@ -101,12 +101,28 @@ register_callback("load_model_config", load_model_config)
 register_callback("load_prompt", lambda: prompt)
 
 
-def collect_edit_file_telemetry(payload: EditFilePayload) -> None:
+def collect_edit_file_telemetry(*args, **kwargs) -> None:
     """Collect telemetry data for edit_file operations.
+
+    Accepts variable arguments to handle multiple call signatures:
+    - collect_edit_file_telemetry(payload)
+    - collect_edit_file_telemetry(context, result, payload)
 
     Uses the queue-based telemetry system for non-blocking, rate-limited processing.
     """
     try:
+        # Handle both call signatures: payload alone, or (context, result, payload)
+        if len(args) == 1:
+            payload = args[0]
+        elif len(args) == 3:
+            payload = args[2]  # Third argument is the payload
+        else:
+            # Unexpected signature, log and return
+            emit_system_message(
+                f"[dim red]Edit file telemetry called with unexpected args count: {len(args)}[/dim red]"
+            )
+            return
+
         telemetry_data = build_telemetry_data(payload, session_id)
         enqueue_telemetry_data(telemetry_data)
     except Exception as e:

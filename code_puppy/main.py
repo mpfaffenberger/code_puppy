@@ -293,7 +293,7 @@ async def main():
     finally:
         if message_renderer:
             message_renderer.stop()
-        await callbacks.on_shutdown()
+        callbacks.on_shutdown()
         if get_use_dbos():
             DBOS.destroy()
 
@@ -418,14 +418,21 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         try:
             # Use prompt_toolkit for enhanced input with path completion
-            try:
-                # Use the async version of get_input_with_combined_completion
-                task = await get_input_with_combined_completion(
-                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
-                )
-            except ImportError:
-                # Fall back to basic input if prompt_toolkit is not available
+            # Disable prompt_toolkit in test environments (it doesn't work well with pexpect)
+            use_basic_input = os.getenv("CODE_PUPPY_USE_BASIC_INPUT", "0").lower() in {"1", "true", "yes"}
+            
+            if use_basic_input:
+                # Use basic input for pexpect compatibility
                 task = input(">>> ")
+            else:
+                try:
+                    # Use the async version of get_input_with_combined_completion
+                    task = await get_input_with_combined_completion(
+                        get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+                    )
+                except ImportError:
+                    # Fall back to basic input if prompt_toolkit is not available
+                    task = input(">>> ")
 
         except (KeyboardInterrupt, EOFError):
             # Handle Ctrl+C or Ctrl+D

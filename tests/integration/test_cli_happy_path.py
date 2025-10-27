@@ -38,23 +38,48 @@ def test_cli_happy_path_interactive_flow(
     satisfy_initial_prompts(result)
     cli_harness.wait_for_ready(result)
 
+    # /help command - increased timeout for network latency
     result.sendline("/help\r")
-    result.child.expect(r"Commands Help", timeout=10)
+    try:
+        result.child.expect(r"Commands Help", timeout=15)
+    except pexpect.exceptions.TIMEOUT:
+        raise AssertionError(
+            f"Timeout waiting for /help response. Log: {result.read_log()[-500:]}"
+        )
     cli_harness.wait_for_ready(result)
 
-    result.sendline("/model Cerebras-Qwen3-Coder-480b\r")
-    result.child.expect(r"Active model set and loaded", timeout=10)
+    # /model command - needs more time for model loading and Walmart auth
+    result.sendline("/model claude-4-5-sonnet\r")
+    try:
+        result.child.expect(r"Active model set and loaded", timeout=20)
+    except pexpect.exceptions.TIMEOUT:
+        raise AssertionError(
+            f"Timeout waiting for /model response. Log: {result.read_log()[-500:]}"
+        )
     cli_harness.wait_for_ready(result)
 
+    # /set command
     result.sendline("/set owner_name FlowTester\r")
-    result.child.expect(r"Set owner_name", timeout=10)
+    try:
+        result.child.expect(r"Set owner_name", timeout=15)
+    except pexpect.exceptions.TIMEOUT:
+        raise AssertionError(
+            f"Timeout waiting for /set response. Log: {result.read_log()[-500:]}"
+        )
     cli_harness.wait_for_ready(result)
 
+    # AI prompt - needs significant time for API call and response
     prompt_text = "Explain the benefits of unit testing in Python"
     result.sendline(f"{prompt_text}\r")
-    result.child.expect(r"Auto-saved session", timeout=120)
+    try:
+        result.child.expect(r"Auto-saved session", timeout=150)  # Increased from 120 to 150
+    except pexpect.exceptions.TIMEOUT:
+        raise AssertionError(
+            f"Timeout waiting for AI response and autosave. Log: {result.read_log()[-1000:]}"
+        )
     cli_harness.wait_for_ready(result)
-    time.sleep(10)
+    # Give filesystem time to flush autosave files
+    time.sleep(5)  # Reduced from 10 to 5 since we already wait for "Auto-saved session"
 
     log_output = result.read_log()
     _assert_contains(log_output, "FlowTester")

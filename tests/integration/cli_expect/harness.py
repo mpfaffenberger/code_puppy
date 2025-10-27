@@ -26,7 +26,7 @@ puppy_name = IntegrationPup
 owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
-model = Cerebras-Qwen3-Coder-480b
+model = claude-4-5-sonnet
 enable_dbos = true
 """
 
@@ -73,14 +73,24 @@ class SpawnResult:
     )
 
     def send(self, txt: str) -> None:
-        """Send with the cooked line ending learned from smoke tests."""
+        """Send text as-is without any line endings."""
         self.child.send(txt)
         time.sleep(0.3)
 
     def sendline(self, txt: str) -> None:
-        """Caller must include any desired line endings explicitly."""
-        self.child.send(txt)
-        time.sleep(0.3)
+        """Send text with Enter key for prompt_toolkit apps.
+        
+        Automatically strips any trailing \r or \n from txt to avoid double line endings.
+        Sends Control+M (\r) which is the actual Enter key code that prompt_toolkit expects.
+        Waits 2 seconds for the CLI to process the command (important for async operations).
+        """
+        # Strip any existing line endings to avoid duplication  
+        clean_txt = txt.rstrip('\r\n')
+        # Send text followed by Control+M (carriage return = Enter key)
+        # Prompt_toolkit expects \r for Enter, not \n
+        self.child.send(clean_txt + "\r")
+        # Wait longer for CLI to process (especially important for Walmart auth changes and model loading)
+        time.sleep(2.0)
 
     def read_log(self) -> str:
         return (
@@ -323,17 +333,19 @@ class CliHarness:
 
     def send_command(self, result: SpawnResult, txt: str) -> str:
         """Convenience: send a command and return all new output until next prompt."""
-        result.sendline(txt + "\r")
+        result.sendline(txt)  # sendline now handles line endings automatically
         # Let the child breathe before we slurp output
         time.sleep(0.2)
         return result.read_log()
 
     def wait_for_ready(self, result: SpawnResult) -> None:
         """Wait for CLI to be ready for user input."""
+        # Increased timeout for Walmart environment with auth latency
+        extended_timeout = max(result.timeout, 15.0)  # At least 15 seconds
         self._expect_with_retry(
             result.child,
             ["Enter your coding task", ">>> ", "Interactive Mode"],
-            timeout=result.timeout,
+            timeout=extended_timeout,
         )
 
     def cleanup(self, result: SpawnResult) -> None:
@@ -377,12 +389,17 @@ class CliHarness:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-@pytest.fixture
+@pytest.fixture(scope="session")
 def integration_env() -> dict[str, str]:
-    """Return a basic environment for integration tests."""
+    """Return a basic environment for integration tests.
+    
+    Session-scoped to ensure auth only runs once per test session.
+    """
     return {
-        "CEREBRAS_API_KEY": os.environ["CEREBRAS_API_KEY"],
+        "CEREBRAS_API_KEY": os.environ.get("CEREBRAS_API_KEY", ""),
         "CODE_PUPPY_TEST_FAST": "1",
+        "CODE_PUPPY_NO_AUTOCOMPLETE": "1",  # Disable autocomplete dropdowns for pexpect
+        "CODE_PUPPY_USE_BASIC_INPUT": "1",  # Use basic input() instead of prompt_toolkit for pexpect compatibility
     }
 
 
@@ -410,8 +427,15 @@ def spawned_cli(
     """Spawn a CLI in interactive mode with a clean environment.
 
     Robust to first-run prompts; gracefully proceeds if config exists.
+    Includes configurable wait time for auth flow completion (Walmart requirement).
     """
     result = cli_harness.spawn(args=["-i"], env=integration_env)
+
+    # Wait for auth flow to complete (required in Walmart environment)
+    # Each CLI spawn validates the auth token which takes time
+    auth_wait_seconds = float(os.getenv("CODE_PUPPY_AUTH_WAIT_SECONDS", "5"))
+    if auth_wait_seconds > 0:
+        time.sleep(auth_wait_seconds)
 
     # Try to satisfy first-run prompts if they appear; otherwise continue
     try:

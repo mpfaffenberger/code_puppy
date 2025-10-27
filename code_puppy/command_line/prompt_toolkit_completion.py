@@ -384,10 +384,13 @@ async def get_input_with_combined_completion(
         """Cancel the current prompt when the user presses the ESC key alone."""
         event.app.exit(exception=KeyboardInterrupt)
 
+    # Disable autocomplete in test environments to avoid dropdown menus blocking pexpect
+    autocomplete_enabled = os.getenv("CODE_PUPPY_NO_AUTOCOMPLETE", "0").lower() not in {"1", "true", "yes"}
+    
     session = PromptSession(
         completer=completer,
         history=history,
-        complete_while_typing=True,
+        complete_while_typing=autocomplete_enabled,
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
     )

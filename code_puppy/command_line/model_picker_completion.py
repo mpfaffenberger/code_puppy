@@ -117,10 +117,14 @@ async def get_input_with_model_completion(
     history_file: Optional[str] = None,
 ) -> str:
     history = FileHistory(os.path.expanduser(history_file)) if history_file else None
+    
+    # Disable autocomplete in test environments to avoid dropdown menus blocking pexpect
+    autocomplete_enabled = os.getenv("CODE_PUPPY_NO_AUTOCOMPLETE", "0").lower() not in {"1", "true", "yes"}
+    
     session = PromptSession(
         completer=ModelNameCompleter(trigger),
         history=history,
-        complete_while_typing=True,
+        complete_while_typing=autocomplete_enabled,
     )
     text = await session.prompt_async(prompt_str)
     possibly_stripped = update_model_in_input(text)

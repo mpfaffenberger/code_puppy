@@ -36,6 +36,8 @@ def live_cli(cli_harness: CliHarness) -> Generator[SpawnResult, None, None]:
     """Spawn the CLI using the caller's environment (for live network tests)."""
     env = os.environ.copy()
     env.setdefault("CODE_PUPPY_TEST_FAST", "1")
+    # Use basic input mode for pexpect compatibility (prompt_toolkit async doesn't work well with pexpect)
+    env["CODE_PUPPY_USE_BASIC_INPUT"] = "1"
     result = cli_harness.spawn(args=["-i"], env=env)
     try:
         yield result
@@ -54,7 +56,8 @@ def satisfy_initial_prompts(result: SpawnResult, skip_autosave: bool = True) -> 
         # Config likely pre-provisioned; proceed
         pass
 
-    skip_autosave_picker(result, skip=skip_autosave)
+    # Autosave picker is now manual-only (/autosave_load), so we don't need to skip it
+    # skip_autosave_picker(result, skip=skip_autosave)
 
 
 def skip_autosave_picker(result: SpawnResult, *, skip: bool = True) -> None:

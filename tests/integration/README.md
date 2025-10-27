@@ -6,13 +6,16 @@ This folder contains the reusable pyexpect harness that powers Code Puppy's end-
 ## Prerequisites
 - The CLI must be installed locally via `uv sync` or equivalent so `uv run pytest …` launches the editable project binary.
 - Set the environment you want to exercise; by default the fixtures read the active shell environment and only override a few keys for test hygiene.
-- Export a **real** `CEREBRAS_API_KEY` when you intend to hit live Cerebras models. The harness falls back to `fake-key-for-ci` so tests can run offline, but that key will be rejected by the remote API.
+- Inside Walmart, tests use **claude-4-5-sonnet** by default. Auth is handled automatically via session-scoped fixtures (runs once per test session).
 
 ## Required environment variables
 | Variable | Purpose | Notes |
 | --- | --- | --- |
-| `CEREBRAS_API_KEY` | Primary provider for live integration coverage | Required for real LLM calls. Leave unset only when running offline smoke tests. |
+| `CEREBRAS_API_KEY` | Legacy provider key (optional) | Used for backward compatibility. Inside Walmart, Claude models are preferred. |
 | `CODE_PUPPY_TEST_FAST` | Puts the CLI into fast/lean mode | Defaults to `1` inside the fixtures so prompts skip nonessential animation. |
+| `CODE_PUPPY_AUTH_WAIT_SECONDS` | Time to wait for auth flow completion after spawn | Defaults to `5` seconds (required in Walmart for JWT token validation). Set to `0` to disable. |
+| `CODE_PUPPY_USE_BASIC_INPUT` | Use basic `input()` instead of prompt_toolkit | **REQUIRED for pexpect tests!** Set to `1` to disable prompt_toolkit's async event loop which doesn't work with pexpect. |
+| `CODE_PUPPY_NO_AUTOCOMPLETE` | Disable autocomplete dropdowns | Set to `1` to prevent prompt_toolkit autocomplete menus from blocking pexpect tests. |
 | `MODEL_NAME` | Optional override for the default model | Useful when pointing at alternate providers (OpenAI, Gemini, etc.). |
 | Provider-specific keys | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `SYN_API_KEY`, … | Set whichever keys you expect the CLI to fall back to. The harness deliberately preserves ambient environment variables so you can swap providers without code changes. |
 
@@ -41,6 +44,6 @@ Each spawned CLI writes diagnostic logs to `tmp/.../cli_output.log`. When a test
 ## Customizing the fixtures
 - Override `integration_env` by parametrizing tests or using `monkeypatch` to inject additional environment keys.
 - Pass different CLI arguments by calling `cli_harness.spawn(args=[...], env=...)` inside your test.
-- Use `spawned_cli.send("\r")` and `spawned_cli.sendline("command\r")` helpers whenever you need to interact with the prompt; both enforce the carriage-return quirks we observed during manual testing.
+- Use `spawned_cli.send("text")` for raw text without line endings, and `spawned_cli.sendline("command")` for commands (automatically appends `\r\n` for cross-platform compatibility). The `sendline()` method intelligently strips any trailing `\r` or `\n` you might have included to avoid double line endings.
 
 With the harness and documentation in place, bd-1 is considered complete; additional feature coverage can now focus on bd-2 and beyond.

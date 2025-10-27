@@ -15,7 +15,7 @@ def round_robin_config(tmp_path: pathlib.Path) -> pathlib.Path:
     config = {
         "test-round-robin": {
             "type": "round_robin",
-            "models": ["glm-4.6-coding", "Cerebras-Qwen3-Coder-480b"],
+            "models": ["claude-4-5-sonnet", "claude-4-0-sonnet"],
             "rotate_every": 2,
         },
         "test-round-robin-single": {
@@ -116,11 +116,10 @@ auto_save_session = false
         assert "4" in full_log or "6" in full_log or "8" in full_log or "10" in full_log
 
         # Look for round-robin indicators in the log
-        # The model name should contain round_robin identifier
+        # The model name should contain round_robin identifier or claude
         assert (
             "round_robin" in full_log
-            or "glm-4.6" in full_log
-            or "qwen" in full_log.lower()
+            or "claude" in full_log.lower()
         )
 
         # Count number of responses to ensure we got responses for all prompts
@@ -253,7 +252,7 @@ def test_round_robin_rotate_every_parameter(
     config = {
         "test-rotate-every-3": {
             "type": "round_robin",
-            "models": ["glm-4.6-coding", "Cerebras-Qwen3-Coder-480b"],
+            "models": ["claude-4-5-sonnet", "claude-4-0-sonnet"],
             "rotate_every": 3,
         }
     }
