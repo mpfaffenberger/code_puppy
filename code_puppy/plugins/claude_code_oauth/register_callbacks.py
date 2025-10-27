@@ -264,5 +264,5 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     return None
 
 
-register_callback("custom_command_help", _custom_help)
-register_callback("custom_command", _handle_custom_command)
+# register_callback("custom_command_help", _custom_help)
+# register_callback("custom_command", _handle_custom_command)
