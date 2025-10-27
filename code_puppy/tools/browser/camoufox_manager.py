@@ -97,10 +97,6 @@ class CamoufoxManager:
         from camoufox.addons import DefaultAddons
 
         emit_info(f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]")
-        # Lazy import camoufox to avoid triggering heavy optional deps at import time
-        try:
-            import camoufox
-            from camoufox.addons import DefaultAddons
 
         camoufox_instance = camoufox.AsyncCamoufox(
             headless=self.headless,
@@ -113,24 +109,13 @@ class CamoufoxManager:
             viewport={"width": 1920, "height": 1080},  # Default to 1080p window size
         )
 
-            self._browser = camoufox_instance.browser
-            if not self._initialized:
-                self._context = await camoufox_instance.start()
-                self._initialized = True
-        except Exception:
-            from playwright.async_api import async_playwright
-
-            emit_info(
-                "[yellow]Camoufox no disponible. Usando Playwright (Chromium) como alternativa.[/yellow]"
-            )
-            pw = await async_playwright().start()
-            # Use persistent context directory for Chromium to emulate previous behavior
-            context = await pw.chromium.launch_persistent_context(
-                user_data_dir=str(self.profile_dir), headless=self.headless
-            )
-            self._context = context
-            self._browser = context.browser
+        self._browser = camoufox_instance.browser
+        # Use persistent storage directory for browser context
+        # This ensures cookies, localStorage, history, etc. persist across runs
+        if not self._initialized:
+            self._context = await camoufox_instance.start()
             self._initialized = True
+            # Do not auto-open a page here to avoid duplicate windows/tabs.
 
     async def get_current_page(self) -> Optional[Page]:
         """Get the currently active page. Lazily creates one if none exist."""
@@ -167,17 +152,6 @@ class CamoufoxManager:
         emit_info(
             "[cyan]🔍 Ensuring Camoufox binary and dependencies are up-to-date...[/cyan]"
         )
-
-        # Lazy import camoufox utilities to avoid side effects during module import
-        try:
-            from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
-            from camoufox.pkgman import CamoufoxFetcher, camoufox_path
-            from camoufox.locale import ALLOW_GEOIP, download_mmdb
-        except Exception:
-            emit_info(
-                "[yellow]Camoufox no disponible. Omitiendo prefetch y preparándose para usar Playwright.[/yellow]"
-            )
-            return
 
         needs_install = False
         try:
