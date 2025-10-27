@@ -47,7 +47,12 @@
   "gpt-5": {
     "type": "openai",
     "name": "gpt-5",
-    "context_length": 400000
+    "context_length": 27200
+  },
+  "gpt-5-codex-api": {
+    "type": "openai",
+    "name": "gpt-5-codex",
+    "context_length": 272000
   },
   "Cerebras-Qwen3-Coder-480b": {
     "type": "cerebras",
