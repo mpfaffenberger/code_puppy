@@ -8,6 +8,15 @@
     },
     "context_length": 200000
   },
+  "synthetic-MiniMax-M2": {
+    "type": "custom_openai",
+    "name": "hf:MiniMaxAI/MiniMax-M2",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 205000
+  },
   "synthetic-DeepSeek-V3.1-Terminus": {
     "type": "custom_openai",
     "name": "hf:deepseek-ai/DeepSeek-V3.1-Terminus",
