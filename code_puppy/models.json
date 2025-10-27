@@ -47,7 +47,7 @@
   "gpt-5": {
     "type": "openai",
     "name": "gpt-5",
-    "context_length": 27200
+    "context_length": 272000
   },
   "gpt-5-codex-api": {
     "type": "openai",
