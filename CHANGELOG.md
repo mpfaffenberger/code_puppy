@@ -4,11 +4,17 @@ All notable changes to Code Puppy will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
-## [Unreleased] - 2025-10-27
+## [0.0.210 -> 0.0.233] - 2025-10-27
 
 ### 🎉 Major Features
 
-- **Planning Agent** (#66) ([@cgycorey](https://github.com/cgycorey)
+- **Auto Updating** 
+  - Significantly faster Updates
+  - Code Puppy will no longer load slowly the first time you run it after updating
+  - Update failures no longer cause Code Puppy to require a re-install
+  - Windows updates should be significantly more stable
+
+- **Planning Agent** (#66) ([@cgycorey](https://github.com/cgycorey))
   - New dedicated planning agent for project organization
   - Enhanced prompt design for better planning outcomes
   - Improved Code Puppy agent coordination
@@ -55,6 +61,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Added pexpect for advanced CLI testing
   - UV Python version management with UV_MANAGED_PYTHON=1
   - Configured UV to use only managed Python installations
+
+- **Open Source Committers**
+  - [@jackdevs000](https://github.com/jackdevs000) - Interactive TUI Model Picker!
+  - [@cdakotabrown](https://github.com/cdakotabrown) - Unit test coverage!
+  - [@cgycorey](https://github.com/cgycorey) - New permissions in non-YOLO mode, planning agent
+  - [@diegonix](https://github.com/diegonix) - Numerous bug fixes and tweaks
+  - [@IgriegaL](https://github.com/IgriegaL) - Camoufox manager bug fix
 
 ### 🧪 Testing & Quality Assurance
 
