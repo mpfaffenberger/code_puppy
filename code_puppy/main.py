@@ -42,6 +42,43 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 plugins.load_plugin_callbacks()
 
 
+def escape_system32_if_needed():
+    """Detect if running from System32 or other Windows system directories and relocate to home."""
+    if sys.platform != "win32":
+        return  # Not Windows, nothing to do
+
+    cwd = Path.cwd()
+    cwd_str = str(cwd).lower()
+
+    # Common Windows system directories where users shouldn't be working
+    problematic_dirs = [
+        "\\system32",
+        "\\syswow64",
+        "\\windows\\system",
+        "c:\\windows",
+    ]
+
+    is_problematic = any(bad_dir in cwd_str for bad_dir in problematic_dirs)
+
+    if is_problematic:
+        from code_puppy.messaging import emit_system_message, emit_warning
+
+        home_dir = Path.home()
+        emit_warning(
+            f"🚨 Whoa there! You're running Code Puppy from a system directory: {cwd}"
+        )
+        emit_system_message(
+            f"[yellow]This can cause permission issues and other weirdness.[/yellow]"
+        )
+        emit_system_message(
+            f"[bold green]Auto-relocating to your home directory: {home_dir}[/bold green]"
+        )
+        os.chdir(home_dir)
+        emit_system_message(
+            f"[dim]New working directory: {Path.cwd()}[/dim]"
+        )
+
+
 async def main():
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
@@ -85,6 +122,9 @@ async def main():
         set_tui_mode(True)
     elif args.interactive or args.command or args.prompt:
         set_tui_mode(False)
+
+    # Early escape from System32 before any file operations
+    escape_system32_if_needed()
 
     message_renderer = None
     if not is_tui_mode():

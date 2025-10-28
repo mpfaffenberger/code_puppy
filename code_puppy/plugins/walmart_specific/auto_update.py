@@ -1,6 +1,8 @@
 import subprocess
 import sys
+import tempfile
 import time
+import httpx
 
 from code_puppy.http_utils import create_client
 from code_puppy.messaging import emit_system_message
@@ -11,7 +13,7 @@ from code_puppy.plugins.walmart_specific.urls import (
 from code_puppy.version_checker import normalize_version, versions_are_equal
 
 
-def fetch_latest_version(package_name=None, httpx=None):
+def fetch_latest_version(package_name=None):
     """
     Fetch the latest version from the code-puppy staging API.
 
@@ -84,12 +86,15 @@ def _handle_update(current_version):
             if proceed.lower()[0] != "y":
                 emit_system_message("[yellow]Update cancelled by user.[/yellow]")
                 return
-            with open("update.bat", "w") as f:
+            # Write the batch file to the temp directory to avoid permission issues in System32
+            temp_dir = tempfile.gettempdir()
+            update_bat_path = f"{temp_dir}\\update.bat"
+            with open(update_bat_path, "w") as f:
                 f.write(
                     "curl -L https://puppy.stg.walmart.com/api/releases/setup_windows.bat -o %TEMP%\\setup.bat && %TEMP%\\setup.bat && del %TEMP%\\setup.bat"
                 )
 
-            update_command = "start cmd.exe /k update.bat"
+            update_command = f"start cmd.exe /k {update_bat_path}"
             emit_system_message(f"[dim]Running: {update_command}[/dim]")
             result = subprocess.run(update_command, shell=True)
             emit_system_message("This instance of Code Puppy will close.")
