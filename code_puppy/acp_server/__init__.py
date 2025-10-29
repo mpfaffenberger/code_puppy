@@ -1,10 +1,25 @@
 import asyncio
+import uuid
 from acp import Agent, AgentSideConnection, PromptRequest, PromptResponse, stdio_streams, text_block
+from acp.schema import Implementation, InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse
+from code_puppy import __version__
 from code_puppy.agents import get_current_agent
 
 class CodePuppyAgent(Agent):
     def __init__(self, conn):
         self._conn = conn
+
+    async def initialize(self, params: InitializeRequest) -> InitializeResponse:
+        """
+        Handles the initialization request from the client.
+        """
+        return InitializeResponse(
+            protocolVersion=params.protocolVersion,
+            agentInfo=Implementation(
+                name="Code Puppy",
+                version=__version__,
+            ),
+        )
 
     async def prompt(self, params: PromptRequest) -> PromptResponse:
         """
@@ -32,6 +47,12 @@ class CodePuppyAgent(Agent):
 
         # Signal the end of the turn
         return PromptResponse(stopReason="end_turn")
+
+    async def newSession(self, params: NewSessionRequest) -> NewSessionResponse:
+        """
+        Handles a new session request from the client.
+        """
+        return NewSessionResponse(sessionId=str(uuid.uuid4()))
 
 async def acp_main():
     """

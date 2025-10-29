@@ -2,9 +2,9 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from acp.schema import PromptRequest
+from acp.schema import InitializeRequest, NewSessionRequest, PromptRequest
 from acp.helpers import text_block
-
+from code_puppy import __version__
 from code_puppy.acp_server import CodePuppyAgent, acp_main
 
 
@@ -68,3 +68,34 @@ async def test_acp_main():
         assert isinstance(
             mock_agent_side_connection.call_args[0][0](MagicMock()), CodePuppyAgent
         )
+
+
+@pytest.mark.asyncio
+async def test_code_puppy_agent_initialize():
+    # Create a mock connection
+    mock_conn = MagicMock()
+    # Instantiate the CodePuppyAgent
+    agent = CodePuppyAgent(mock_conn)
+    # Create a mock initialize request
+    initialize_request = InitializeRequest(protocolVersion=1)
+    # Call the initialize method
+    response = await agent.initialize(initialize_request)
+    # Assert that the response has the correct protocol version
+    assert response.protocolVersion == 1
+    # Assert that the agent information is correct
+    assert response.agentInfo.name == "Code Puppy"
+    assert response.agentInfo.version == __version__
+
+
+@pytest.mark.asyncio
+async def test_code_puppy_agent_new_session():
+    # Create a mock connection
+    mock_conn = MagicMock()
+    # Instantiate the CodePuppyAgent
+    agent = CodePuppyAgent(mock_conn)
+    # Create a mock new session request
+    new_session_request = NewSessionRequest(cwd="/", mcpServers=[])
+    # Call the newSession method
+    response = await agent.newSession(new_session_request)
+    # Assert that the response has a session ID
+    assert response.sessionId is not None
