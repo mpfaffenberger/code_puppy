@@ -56,47 +56,34 @@ from code_puppy.tools.browser.browser_workflows import (
     register_save_workflow,
 )
 
-# RPA (Robotic Process Automation) tools - optional dependencies
-try:
-    from code_puppy.tools.rpa.keyboard_control import register_keyboard_control_tools
-    from code_puppy.tools.rpa.keyboard_shortcuts import register_keyboard_shortcut_tools
-    from code_puppy.tools.rpa.mouse_control import register_mouse_control_tools
-    from code_puppy.tools.rpa.screen_capture import register_desktop_screenshot_tools
-    from code_puppy.tools.rpa.window_control import register_window_control_tools
-    from code_puppy.tools.rpa.grid_calibration import register_grid_calibration_tools
-    from code_puppy.tools.rpa.ocr_tools import register_ocr_tools
-    from code_puppy.tools.rpa.click_debugging import register_click_debugging_tools
-    from code_puppy.tools.rpa.multi_strategy_click import register_multi_strategy_click_tools
+# RPA (Robotic Process Automation) tools - required dependencies
+# Dependencies: pyautogui, pillow, opencv-python, pytesseract, openpyxl (installed via pyproject.toml)
+from code_puppy.tools.rpa.keyboard_control import register_keyboard_control_tools
+from code_puppy.tools.rpa.keyboard_shortcuts import register_keyboard_shortcut_tools
+from code_puppy.tools.rpa.mouse_control import register_mouse_control_tools
+from code_puppy.tools.rpa.screen_capture import register_desktop_screenshot_tools
+from code_puppy.tools.rpa.window_control import register_window_control_tools
+from code_puppy.tools.rpa.grid_calibration import register_grid_calibration_tools
+from code_puppy.tools.rpa.ocr_tools import register_ocr_tools
+from code_puppy.tools.rpa.click_debugging import register_click_debugging_tools
+from code_puppy.tools.rpa.multi_strategy_click import register_multi_strategy_click_tools
+from code_puppy.tools.rpa.vqa_hover_click import register_vqa_hover_tools
 
-    from code_puppy.tools.rpa.vqa_hover_click import register_vqa_hover_tools
+RPA_TOOLS_AVAILABLE = True  # Always available - required dependencies
 
-    RPA_TOOLS_AVAILABLE = True
-except ImportError:
-    # RPA tools require pyautogui and pillow
-    RPA_TOOLS_AVAILABLE = False
-    register_keyboard_control_tools = None
-    register_keyboard_shortcut_tools = None
-    register_mouse_control_tools = None
-    register_desktop_screenshot_tools = None
-    register_window_control_tools = None
-    register_grid_calibration_tools = None
-    register_ocr_tools = None
-    register_click_debugging_tools = None
-    register_multi_strategy_click_tools = None
-
-    register_vqa_hover_tools = None
-
-# RPA Accessibility API tools (macOS only) - optional
+# RPA Accessibility API tools (macOS only) - platform-specific
+# Dependencies: atomacos, pyobjc-framework-Cocoa (installed on macOS via pyproject.toml)
 try:
     from code_puppy.tools.rpa.accessibility import register_accessibility_tools
 
     ACCESSIBILITY_TOOLS_AVAILABLE = True
 except ImportError:
-    # Accessibility tools require PyObjC on macOS
+    # Accessibility tools only available on macOS (atomacos, PyObjC)
     ACCESSIBILITY_TOOLS_AVAILABLE = False
     register_accessibility_tools = None
 
-# Windows automation tools - optional (Windows only)
+# Windows automation tools - platform-specific (Windows only)
+# Dependencies: pywinauto, pywin32 (installed on Windows via pyproject.toml)
 import sys
 
 if sys.platform == "win32":
@@ -105,7 +92,7 @@ if sys.platform == "win32":
 
         WINDOWS_TOOLS_AVAILABLE = True
     except ImportError:
-        # Windows tools require pywinauto and pywin32
+        # Windows tools only available on Windows (pywinauto, pywin32)
         WINDOWS_TOOLS_AVAILABLE = False
         register_windows_tools = None
 else:
