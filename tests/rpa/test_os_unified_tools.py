@@ -162,3 +162,130 @@ def test_ui_list_elements_tree_mode(agent: DummyAgent, monkeypatch) -> None:
     assert res.total_elements == 2
     assert "AXButton" in (res.types or [])
 
+
+@patch("sys.platform", "win32")
+def test_ui_list_elements_windows(agent: DummyAgent) -> None:
+    """Test ui_list_elements on Windows."""
+    os_unified._WIN = True
+    os_unified._MAC = False
+    
+    def fake_win_list_elements(**kwargs):
+        from code_puppy.tools.rpa.result_types import ElementListResult
+        elements = [
+            {"center_x": 100, "center_y": 200, "title": "Button1", "control_type": "Button"},
+            {"center_x": 150, "center_y": 250, "title": "Button2", "control_type": "Button"},
+        ]
+        return ElementListResult(
+            success=True, total_elements=2, elements=elements, types=["Button"]
+        )
+    
+    os_unified._win_list_elements = fake_win_list_elements
+    
+    res: ElementListResult = agent.tools["ui_list_elements"](
+        context=None,
+        control_type="Button"
+    )
+    assert res.success is True
+    assert res.total_elements == 2
+    assert "Button" in (res.types or [])
+
+
+@patch("sys.platform", "darwin")
+def test_ui_find_element_macos_not_found(agent: DummyAgent) -> None:
+    """Test ui_find_element on macOS when element not found."""
+    os_unified._WIN = False
+    os_unified._MAC = True
+    
+    def fake_mac_find_element(**kwargs):
+        return ElementSearchResult(success=True, found=False, count=0, matches=[], best_match=None)
+    
+    os_unified._mac_find_element = fake_mac_find_element
+    
+    res: ElementSearchResult = agent.tools["ui_find_element"](
+        context=None,
+        role="AXButton",
+        title="NotFound"
+    )
+    assert res.success is True
+    assert res.found is False
+    assert res.best_match is None
+
+
+@patch("sys.platform", "linux")
+def test_ui_find_element_unsupported_os(agent: DummyAgent) -> None:
+    """Test ui_find_element on unsupported OS."""
+    os_unified._WIN = False
+    os_unified._MAC = False
+    
+    res: ElementSearchResult = agent.tools["ui_find_element"](
+        context=None,
+        title="Button"
+    )
+    assert res.success is False
+    assert res.found is False
+
+
+@patch("sys.platform", "linux")
+def test_ui_click_element_unsupported_os(agent: DummyAgent) -> None:
+    """Test ui_click_element on unsupported OS."""
+    os_unified._WIN = False
+    os_unified._MAC = False
+    
+    res: ElementClickResult = agent.tools["ui_click_element"](
+        context=None,
+        title="Button"
+    )
+    assert res.success is False
+    assert res.clicked is False
+
+
+@patch("sys.platform", "linux")
+def test_ui_list_elements_unsupported_os(agent: DummyAgent) -> None:
+    """Test ui_list_elements on unsupported OS."""
+    os_unified._WIN = False
+    os_unified._MAC = False
+    
+    res: ElementListResult = agent.tools["ui_list_elements"](
+        context=None
+    )
+    assert res.success is False
+    assert "Unsupported" in (res.error or "")
+
+
+@patch("sys.platform", "win32")
+def test_ui_find_element_exception_handling(agent: DummyAgent) -> None:
+    """Test exception handling in ui_find_element."""
+    os_unified._WIN = True
+    os_unified._MAC = False
+    
+    def raise_exception(**kwargs):
+        raise Exception("Find error")
+    
+    os_unified._win_find_element = raise_exception
+    
+    res: ElementSearchResult = agent.tools["ui_find_element"](
+        context=None,
+        title="Button"
+    )
+    assert res.success is False
+    assert "Find error" in (res.error or "")
+
+
+@patch("sys.platform", "win32")
+def test_ui_click_element_exception_handling(agent: DummyAgent) -> None:
+    """Test exception handling in ui_click_element."""
+    os_unified._WIN = True
+    os_unified._MAC = False
+    
+    def raise_exception(**kwargs):
+        raise Exception("Click error")
+    
+    os_unified._win_click_element = raise_exception
+    
+    res: ElementClickResult = agent.tools["ui_click_element"](
+        context=None,
+        title="Button"
+    )
+    assert res.success is False
+    assert "Click error" in (res.error or "")
+

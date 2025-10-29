@@ -147,3 +147,75 @@ class TestImageResizing:
         # With noisy images, we expect downscaling to occur
         # But solid colors can compress well enough with JPEG alone
         assert scale <= 1.0, "Scale should not be greater than 1.0"
+
+
+try:
+    from code_puppy.tools.rpa.screen_capture import (
+        _calculate_region,
+        _normalize_region,
+        _validate_coordinates,
+    )
+    CAPTURE_UTILS_AVAILABLE = True
+except ImportError:
+    CAPTURE_UTILS_AVAILABLE = False
+
+
+@pytest.mark.skipif(not CAPTURE_UTILS_AVAILABLE, reason="screen_capture utils not available")
+class TestScreenCaptureUtilities:
+    """Test utility functions for screen capture."""
+
+    def test_validate_coordinates_valid(self):
+        """Test validating valid coordinates."""
+        result = _validate_coordinates(x=100, y=200, width=800, height=600)
+        assert result is True
+
+    def test_validate_coordinates_negative_dimensions(self):
+        """Test validating negative dimensions."""
+        result = _validate_coordinates(x=100, y=200, width=-800, height=600)
+        assert result is False
+
+    def test_validate_coordinates_zero_dimensions(self):
+        """Test validating zero dimensions."""
+        result = _validate_coordinates(x=100, y=200, width=0, height=600)
+        assert result is False
+
+    def test_normalize_region_valid(self):
+        """Test normalizing valid region."""
+        result = _normalize_region(x=100, y=200, width=800, height=600)
+        assert result == (100, 200, 800, 600)
+
+    def test_normalize_region_none_values(self):
+        """Test normalizing region with None values returns None."""
+        result = _normalize_region(x=None, y=200, width=800, height=600)
+        assert result is None
+
+    def test_calculate_region_with_bounds(self):
+        """Test calculating region with window bounds."""
+        from code_puppy.tools.rpa.result_types import WindowBoundsResult
+        
+        bounds = WindowBoundsResult(
+            success=True,
+            x=100,
+            y=50,
+            width=1200,
+            height=800,
+            window_title="Test Window"
+        )
+        
+        result = _calculate_region(window_bounds=bounds)
+        assert result == (100, 50, 1200, 800)
+
+    def test_calculate_region_explicit_coordinates(self):
+        """Test calculating region with explicit coordinates."""
+        result = _calculate_region(
+            x=200,
+            y=100,
+            width=640,
+            height=480
+        )
+        assert result == (200, 100, 640, 480)
+
+    def test_calculate_region_fullscreen(self):
+        """Test calculating region for fullscreen."""
+        result = _calculate_region()
+        assert result is None  # None means fullscreen
