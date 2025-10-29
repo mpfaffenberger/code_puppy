@@ -79,7 +79,13 @@ async def main():
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
+    parser.add_argument("--acp", action="store_true", help="Run in ACP mode")
     args = parser.parse_args()
+
+    if args.acp:
+        from code_puppy.acp import acp_main
+        asyncio.run(acp_main())
+        return
 
     if args.tui or args.web:
         set_tui_mode(True)
