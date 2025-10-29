@@ -5,13 +5,13 @@ import pytest
 from acp.schema import PromptRequest
 from acp.helpers import text_block
 
-from code_puppy.acp import CodePuppyAgent, acp_main
+from code_puppy.acp_server import CodePuppyAgent, acp_main
 
 
 @pytest.mark.asyncio
 async def test_code_puppy_agent_prompt():
     # Mock the get_current_agent function
-    with patch("code_puppy.acp.get_current_agent") as mock_get_agent:
+    with patch("code_puppy.acp_server.get_current_agent") as mock_get_agent:
         # Create a mock agent with an async run_with_mcp method
         mock_agent = MagicMock()
         mock_agent.run_with_mcp = AsyncMock(return_value=MagicMock(output="Test response"))
@@ -49,8 +49,8 @@ async def test_code_puppy_agent_prompt():
 @pytest.mark.asyncio
 async def test_acp_main():
     # Mock stdio_streams and AgentSideConnection
-    with patch("code_puppy.acp.stdio_streams") as mock_stdio_streams, patch(
-        "code_puppy.acp.AgentSideConnection"
+    with patch("code_puppy.acp_server.stdio_streams") as mock_stdio_streams, patch(
+        "code_puppy.acp_server.AgentSideConnection"
     ) as mock_agent_side_connection:
         # Make stdio_streams an async mock
         mock_stdio_streams.return_value = (AsyncMock(), AsyncMock())

@@ -83,8 +83,8 @@ async def main():
     args = parser.parse_args()
 
     if args.acp:
-        from code_puppy.acp import acp_main
-        asyncio.run(acp_main())
+        from code_puppy.acp_server import acp_main
+        await acp_main()
         return
 
     if args.tui or args.web:
