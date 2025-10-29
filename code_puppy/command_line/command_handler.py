@@ -787,6 +787,8 @@ def handle_command(command: str):
         )
         return True
 
+
+
     if command.startswith("/history"):
         from code_puppy.command_line.history_command import handle_history_command
         return handle_history_command(command)

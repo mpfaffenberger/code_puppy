@@ -246,6 +246,8 @@ class HistoryCommand:
         """
         try:
             line_count, verbose = self._parse_command_args(command)
+            if line_count is None:  # Error case from _parse_command_args
+                return True
             self.formatter = MessageFormatter(verbose=verbose)
             
             group_id = str(uuid.uuid4())
@@ -257,9 +259,9 @@ class HistoryCommand:
             
         except Exception as e:
             emit_error(f"Failed to execute history command: {e}")
-            return False
+            return True
     
-    def _parse_command_args(self, command: str) -> Tuple[int, bool]:
+    def _parse_command_args(self, command: str) -> Tuple[Optional[int], bool]:
         """Parse command arguments for line count and verbose flag."""
         tokens = command.split()
         line_count = 10  # default
@@ -275,10 +277,10 @@ class HistoryCommand:
                     line_count = int(arg)
                     if line_count <= 0:
                         emit_error("Line count must be a positive integer")
-                        raise ValueError("Invalid line count")
+                        return None, verbose
                 except ValueError:
                     emit_error(f"Invalid line count: {arg}. Must be a positive integer.")
-                    raise
+                    return None, verbose
         elif len(tokens) == 3:
             # Handle combinations like "/history 5 -v" or "/history -v 5"
             if '-v' in tokens or '--verbose' in tokens:
@@ -290,17 +292,17 @@ class HistoryCommand:
                             line_count = int(token)
                             if line_count <= 0:
                                 emit_error("Line count must be a positive integer")
-                                raise ValueError("Invalid line count")
+                                return None, verbose
                         except ValueError:
                             emit_error(f"Invalid line count: {token}. Must be a positive integer.")
-                            raise
+                            return None, verbose
                         break
             else:
                 emit_error("Usage: /history [N] [-v|--verbose] - shows N messages, verbose shows full content")
-                raise ValueError("Invalid arguments")
+                return None, verbose
         elif len(tokens) > 3:
             emit_error("Usage: /history [N] [-v|--verbose] - shows N messages, verbose shows full content")
-            raise ValueError("Too many arguments")
+            return None, verbose
         
         return line_count, verbose
     
