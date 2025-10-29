@@ -55,10 +55,69 @@ from code_puppy.tools.browser.browser_workflows import (
     register_read_workflow,
     register_save_workflow,
 )
+
+# RPA (Robotic Process Automation) tools - optional dependencies
+try:
+    from code_puppy.tools.rpa.keyboard_control import register_keyboard_control_tools
+    from code_puppy.tools.rpa.keyboard_shortcuts import register_keyboard_shortcut_tools
+    from code_puppy.tools.rpa.mouse_control import register_mouse_control_tools
+    from code_puppy.tools.rpa.screen_capture import register_desktop_screenshot_tools
+    from code_puppy.tools.rpa.window_control import register_window_control_tools
+    from code_puppy.tools.rpa.grid_calibration import register_grid_calibration_tools
+    from code_puppy.tools.rpa.ocr_tools import register_ocr_tools
+    from code_puppy.tools.rpa.click_debugging import register_click_debugging_tools
+    from code_puppy.tools.rpa.multi_strategy_click import register_multi_strategy_click_tools
+
+    from code_puppy.tools.rpa.vqa_hover_click import register_vqa_hover_tools
+
+    RPA_TOOLS_AVAILABLE = True
+except ImportError:
+    # RPA tools require pyautogui and pillow
+    RPA_TOOLS_AVAILABLE = False
+    register_keyboard_control_tools = None
+    register_keyboard_shortcut_tools = None
+    register_mouse_control_tools = None
+    register_desktop_screenshot_tools = None
+    register_window_control_tools = None
+    register_grid_calibration_tools = None
+    register_ocr_tools = None
+    register_click_debugging_tools = None
+    register_multi_strategy_click_tools = None
+
+    register_vqa_hover_tools = None
+
+# RPA Accessibility API tools (macOS only) - optional
+try:
+    from code_puppy.tools.rpa.accessibility import register_accessibility_tools
+
+    ACCESSIBILITY_TOOLS_AVAILABLE = True
+except ImportError:
+    # Accessibility tools require PyObjC on macOS
+    ACCESSIBILITY_TOOLS_AVAILABLE = False
+    register_accessibility_tools = None
+
+# Windows automation tools - optional (Windows only)
+import sys
+
+if sys.platform == "win32":
+    try:
+        from code_puppy.tools.rpa.windows_automation import register_windows_tools
+
+        WINDOWS_TOOLS_AVAILABLE = True
+    except ImportError:
+        # Windows tools require pywinauto and pywin32
+        WINDOWS_TOOLS_AVAILABLE = False
+        register_windows_tools = None
+else:
+    # Not on Windows - skip import entirely
+    WINDOWS_TOOLS_AVAILABLE = False
+    register_windows_tools = None
+
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
 )
+from code_puppy.tools.rpa.os_unified import register_os_unified_tools
 from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
 from code_puppy.tools.file_operations import (
     register_grep,
@@ -129,6 +188,111 @@ TOOL_REGISTRY = {
     "browser_read_workflow": register_read_workflow,
 }
 
+# Add RPA tools if available
+if RPA_TOOLS_AVAILABLE:
+    TOOL_REGISTRY.update(
+        {
+            # RPA - Screen Capture
+            "desktop_screenshot": register_desktop_screenshot_tools,
+            "desktop_screenshot_analyze": register_desktop_screenshot_tools,
+            "desktop_get_screen_size": register_desktop_screenshot_tools,
+            # RPA - Mouse Control
+            "desktop_mouse_move": register_mouse_control_tools,
+            "desktop_mouse_click": register_mouse_control_tools,
+            "desktop_mouse_drag": register_mouse_control_tools,
+            "desktop_mouse_scroll": register_mouse_control_tools,
+            "desktop_mouse_get_position": register_mouse_control_tools,
+            # RPA - Keyboard Shortcuts (platform-aware)
+            "desktop_copy": register_keyboard_shortcut_tools,
+            "desktop_paste": register_keyboard_shortcut_tools,
+            "desktop_cut": register_keyboard_shortcut_tools,
+            "desktop_select_all": register_keyboard_shortcut_tools,
+            "desktop_save": register_keyboard_shortcut_tools,
+            "desktop_undo": register_keyboard_shortcut_tools,
+            "desktop_redo": register_keyboard_shortcut_tools,
+            "desktop_find": register_keyboard_shortcut_tools,
+            "desktop_new": register_keyboard_shortcut_tools,
+            "desktop_open": register_keyboard_shortcut_tools,
+            "desktop_close": register_keyboard_shortcut_tools,
+            "desktop_quit": register_keyboard_shortcut_tools,
+            # RPA - Keyboard Control (low-level)
+            "desktop_keyboard_type": register_keyboard_control_tools,
+            "desktop_keyboard_press": register_keyboard_control_tools,
+            "desktop_keyboard_hotkey": register_keyboard_control_tools,
+            "desktop_keyboard_hold": register_keyboard_control_tools,
+            "desktop_keyboard_release": register_keyboard_control_tools,
+            # RPA - Window and Utility Control
+            "desktop_sleep": register_window_control_tools,
+            "desktop_alert": register_window_control_tools,
+            "desktop_confirm": register_window_control_tools,
+            "desktop_prompt": register_window_control_tools,
+
+
+            "desktop_focus_window": register_window_control_tools,
+            "desktop_get_monitors": register_window_control_tools,
+            "desktop_check_pixel_color": register_window_control_tools,
+            # RPA - Grid Calibration (NEW!)
+            "desktop_set_grid_density": register_grid_calibration_tools,
+            "desktop_show_grid_test_pattern": register_grid_calibration_tools,
+            "desktop_screenshot_with_confidence": register_grid_calibration_tools,
+            # RPA - OCR Tools (NEW!)
+            "desktop_extract_text": register_ocr_tools,
+            "desktop_find_text": register_ocr_tools,
+            "desktop_verify_text": register_ocr_tools,
+            "desktop_find_text_reliable": register_ocr_tools,
+            "desktop_show_all_ocr_boxes": register_ocr_tools,
+            # RPA - Click Debugging Tools (NEW!)
+            "desktop_highlight_click_target": register_click_debugging_tools,
+            "desktop_verify_coordinates": register_click_debugging_tools,
+            "desktop_click_with_verification": register_click_debugging_tools,
+            "desktop_hover_and_verify": register_click_debugging_tools,
+            "desktop_click_smart": register_click_debugging_tools,
+            # RPA - Multi-Strategy Click (NEW!)
+            "desktop_click_element_smart": register_multi_strategy_click_tools,
+
+            # RPA - Simplified VQA Hover & Click (RECOMMENDED! - Single-shot VQA + hover verification)
+            "desktop_find_and_hover": register_vqa_hover_tools,
+            "desktop_find_and_click": register_vqa_hover_tools,
+        }
+    )
+
+# Add Accessibility API tools if available (macOS only)
+if ACCESSIBILITY_TOOLS_AVAILABLE:
+    TOOL_REGISTRY.update(
+        {
+            # RPA - Accessibility API (macOS)
+            "desktop_find_accessible_element": register_accessibility_tools,
+            "desktop_list_accessible_elements": register_accessibility_tools,
+            "desktop_click_accessible_element": register_accessibility_tools,
+            "desktop_get_accessible_element_value": register_accessibility_tools,
+            "desktop_list_accessible_tree": register_accessibility_tools,
+            "desktop_list_windows": register_accessibility_tools,
+        }
+    )
+
+# Add Windows automation tools if available (Windows only)
+if WINDOWS_TOOLS_AVAILABLE:
+    TOOL_REGISTRY.update(
+        {
+            # RPA - Windows UI Automation
+            "windows_focus_window": register_windows_tools,
+            "windows_find_element": register_windows_tools,
+            "windows_click_element": register_windows_tools,
+            "windows_list_elements": register_windows_tools,
+            "windows_list_windows": register_windows_tools,
+            "windows_get_focused_element": register_windows_tools,
+            "windows_get_element_value": register_windows_tools,
+        }
+    )
+
+
+# Unified OS-aware tool names
+TOOL_REGISTRY.update({
+    "ui_list_windows": register_os_unified_tools,
+    "ui_list_elements": register_os_unified_tools,
+    "ui_find_element": register_os_unified_tools,
+    "ui_click_element": register_os_unified_tools,
+})
 
 def register_tools_for_agent(agent, tool_names: list[str]):
     """Register specific tools for an agent based on tool names.
@@ -137,6 +301,9 @@ def register_tools_for_agent(agent, tool_names: list[str]):
         agent: The agent to register tools to.
         tool_names: List of tool names to register.
     """
+    # Track which registration functions we've already called to avoid duplicates
+    registered_funcs = set()
+
     for tool_name in tool_names:
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
@@ -145,7 +312,11 @@ def register_tools_for_agent(agent, tool_names: list[str]):
 
         # Register the individual tool
         register_func = TOOL_REGISTRY[tool_name]
-        register_func(agent)
+
+        # Only call each registration function once (some functions register multiple tools)
+        if register_func not in registered_funcs:
+            register_func(agent)
+            registered_funcs.add(register_func)
 
 
 def register_all_tools(agent):
