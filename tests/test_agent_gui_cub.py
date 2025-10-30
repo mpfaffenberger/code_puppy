@@ -5,7 +5,11 @@ They focus on:
 1. Tool registration and platform-specific behavior
 2. Knowledge base file management
 3. Agent configuration and metadata
+4. System prompt semantic auditing and safety constraints
+5. Deep tool presence verification across platforms
 """
+
+from __future__ import annotations
 
 import tempfile
 from pathlib import Path
@@ -330,6 +334,200 @@ class TestGUICubAgent:
         
         # Minimal personality = 0-2 bear references max, not constant puns
         assert bear_pun_count <= 2, f"Too many bear puns ({bear_pun_count}). Keep it minimal!"
+
+    # ========================================================================
+    # TEST CASE 4: Extended Tool Presence Verification
+    # ========================================================================
+
+    def test_unified_ui_tools_present(self, agent):
+        """Verify unified UI tools are registered."""
+        tools = set(agent.get_available_tools())
+        expected = {
+            "ui_list_windows",
+            "ui_list_elements",
+            "ui_find_element",
+            "ui_click_element",
+        }
+        missing = expected - tools
+        assert not missing, f"Missing unified UI tools: {sorted(missing)}"
+
+    def test_keyboard_shortcut_tools_present(self, agent):
+        """Verify keyboard shortcut tools are registered."""
+        tools = set(agent.get_available_tools())
+        expected = {
+            "desktop_copy",
+            "desktop_paste",
+            "desktop_cut",
+            "desktop_select_all",
+            "desktop_save",
+            "desktop_undo",
+            "desktop_redo",
+            "desktop_find",
+            "desktop_new",
+            "desktop_open",
+            "desktop_close",
+            "desktop_quit",
+        }
+        assert expected.issubset(tools)
+
+    def test_window_and_utility_tools_present(self, agent):
+        """Verify window and utility tools are registered."""
+        tools = set(agent.get_available_tools())
+        expected = {
+            "desktop_sleep",
+            "desktop_alert",
+            "desktop_confirm",
+            "desktop_prompt",
+            "desktop_focus_window",
+            "desktop_get_monitors",
+            "desktop_check_pixel_color",
+        }
+        assert expected.issubset(tools)
+
+    @patch("sys.platform", "linux")
+    def test_linux_platform_has_no_macos_or_windows_specific_tools(self):
+        """Verify Linux builds don't include platform-specific tools."""
+        agent = GUICubAgent()
+        tools = set(agent.get_available_tools())
+
+        mac_specific = {
+            "desktop_find_accessible_element",
+            "desktop_list_accessible_elements",
+            "desktop_click_accessible_element",
+            "desktop_get_accessible_element_value",
+            "desktop_list_accessible_tree",
+        }
+        win_specific = {
+            "windows_focus_window",
+            "windows_find_element",
+            "windows_click_element",
+            "windows_list_elements",
+            "windows_list_windows",
+        }
+
+        assert tools.isdisjoint(mac_specific), "Linux should not include macOS-only tools"
+        assert tools.isdisjoint(win_specific), "Linux should not include Windows-only tools"
+
+    @patch("sys.platform", "darwin")
+    def test_macos_specific_full_set_present(self):
+        """Verify complete macOS accessibility toolset is registered."""
+        agent = GUICubAgent()
+        tools = set(agent.get_available_tools())
+        expected = {
+            "desktop_find_accessible_element",
+            "desktop_list_accessible_elements",
+            "desktop_click_accessible_element",
+            "desktop_get_accessible_element_value",
+            "desktop_list_accessible_tree",
+        }
+        missing = expected - tools
+        assert not missing, f"Missing macOS tools: {sorted(missing)}"
+
+    def test_critical_prompt_tools_are_available(self, agent):
+        """Verify critical tools mentioned in prompt are actually registered."""
+        tools = set(agent.get_available_tools())
+        # Mentioned as NEW or critical in prompt
+        expected = {
+            "desktop_hover_and_verify",
+            "desktop_click_smart",
+            "desktop_click_element_smart",
+            "desktop_find_and_hover",
+            "desktop_find_and_click",
+            "desktop_show_all_ocr_boxes",
+        }
+        missing = expected - tools
+        assert not missing, f"Prompt mentions tools missing from registry: {sorted(missing)}"
+
+    # ========================================================================
+    # TEST CASE 5: System Prompt Deep Semantic Auditing
+    # ========================================================================
+
+    def test_prompt_includes_critical_mandatory_rules(self, agent):
+        """Verify system prompt includes mandatory reporting and safety rules."""
+        prompt = agent.get_system_prompt()
+        # Mandatory reporting cadence
+        assert "MANDATORY RULE" in prompt
+        assert "every 2-3 actions" in prompt
+        # Terminal prevention
+        assert "TERMINAL/SHELL" in prompt or "terminal" in prompt.lower()
+        assert "NEVER perform OCR on terminal" in prompt
+
+    def test_prompt_includes_priority_order_and_tiers(self, agent):
+        """Verify system prompt includes tier system for method selection."""
+        p = agent.get_system_prompt()
+        # Priority section and tier references
+        assert "PRIORITY ORDER" in p
+        for tier in ("TIER 1", "TIER 2", "TIER 3", "TIER 4", "TIER 5", "TIER 6"):
+            assert tier in p
+
+    def test_prompt_includes_yaml_element_tree_guidance(self, agent):
+        """Verify system prompt includes YAML element tree documentation."""
+        p = agent.get_system_prompt()
+        assert "YAML Element Tree" in p
+        assert "shorthand" in p.lower()
+        assert "automation_id" in p or "auto_id" in p
+        assert "success_indicator" in p
+        assert "error_indicators" in p
+
+    def test_prompt_includes_timing_guidelines(self, agent):
+        """Verify system prompt includes timing and wait guidance."""
+        p = agent.get_system_prompt()
+        assert "Timing Guidelines" in p
+        assert "Default wait times" in p
+        assert "User-configurable waits" in p
+
+    def test_prompt_includes_verification_checklist_and_wrapup(self, agent):
+        """Verify system prompt includes verification and wrap-up protocols."""
+        p = agent.get_system_prompt()
+        assert "Verification & Self-Evaluation Checklist" in p
+        assert "Wrap-Up Protocol" in p
+
+    def test_prompt_includes_screenshot_ocr_vqa_gating(self, agent):
+        """Verify system prompt includes heavy tooling warnings."""
+        p = agent.get_system_prompt()
+        assert "Heavy tooling warning" in p or "Screenshots, OCR, and VQA are expensive" in p
+        assert "explicitly requests" in p
+        assert "Do not take screenshots" in p or "MUST NOT invoke" in p
+
+    def test_prompt_tool_reference_mentions_examples(self, agent):
+        """Verify system prompt includes tool reference examples."""
+        p = agent.get_system_prompt()
+        assert "Tool Reference" in p
+        # representative example code blocks referenced
+        for snippet in ("desktop_click_accessible_element", "desktop_extract_text", "desktop_highlight_click_target"):
+            assert snippet in p
+
+    def test_prompt_discourages_deprecated_recursive_vqa(self, agent):
+        """Verify system prompt warns against deprecated VQA tools."""
+        p = agent.get_system_prompt()
+        assert "deprecated" in p.lower() or "unavailable" in p.lower()
+        assert "desktop_find_element_recursive" in p
+
+    def test_prompt_includes_prohibited_section(self, agent):
+        """Verify system prompt includes PROHIBITED section for safety."""
+        p = agent.get_system_prompt()
+        assert "PROHIBITED" in p
+        assert "Do not take screenshots" in p or "MUST NOT invoke" in p
+
+    def test_prompt_platform_specific_nuance(self, agent):
+        """Verify system prompt covers platform-specific nuances."""
+        p = agent.get_system_prompt()
+        assert "macOS" in p and "Windows" in p
+        assert "Linux" in p
+        assert "AXRole" in p or "UI Automation" in p or "control_type" in p
+
+    def test_prompt_discourages_vqa_for_coordinates(self, agent):
+        """Verify system prompt warns against using VQA for coordinates."""
+        p = agent.get_system_prompt()
+        # The prompt explicitly says not to use VQA for coordinates and mentions offset problems
+        assert "VQA" in p
+        assert "not for coordinates" in p or "Do not use VQA for coordinates" in p or "50-100px offset" in p
+
+    def test_prompt_includes_knowledge_base_path(self, agent):
+        """Verify system prompt includes knowledge base path and management guidance."""
+        p = agent.get_system_prompt()
+        assert "~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md" in p
+        assert "Knowledge Base Management" in p or "KB" in p
 
 
 class TestGUICubIntegration:
