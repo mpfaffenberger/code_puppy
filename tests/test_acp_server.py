@@ -43,10 +43,8 @@ async def test_code_puppy_agent_prompt():
         assert sent_notification.sessionId == "test-session"
         sent_update = sent_notification.update
         assert sent_update.sessionUpdate == "agent_message_chunk"
-        assert len(sent_update.content) == 1
-        sent_block = sent_update.content[0]
-        assert sent_block.type == "text"
-        assert sent_block.text == "Test response"
+        assert sent_update.content.type == "text"
+        assert sent_update.content.text == "Test response"
 
         # Assert that the prompt response has the correct stop reason
         assert response.stopReason == "end_turn"

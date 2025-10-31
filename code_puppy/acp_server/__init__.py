@@ -85,7 +85,7 @@ class CodePuppyAgent(Agent):
                 await self._conn.sessionUpdate(
                     helpers.session_notification(
                         params.sessionId,
-                        helpers.update_agent_message([helpers.text_block(response.output)])
+                        helpers.update_agent_message(helpers.text_block(response.output))
                     )
                 )
 
