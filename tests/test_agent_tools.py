@@ -35,9 +35,14 @@ class TestAgentTools:
         )
 
         # Mock yolo mode to be False so we can test prompt additions
-        with patch('code_puppy.plugins.file_permission_handler.register_callbacks.get_yolo_mode', return_value=False):
+        with patch(
+            "code_puppy.plugins.file_permission_handler.register_callbacks.get_yolo_mode",
+            return_value=False,
+        ):
             # Register the file permission callback (normally done at startup)
-            callbacks.register_callback("load_prompt", get_file_permission_prompt_additions)
+            callbacks.register_callback(
+                "load_prompt", get_file_permission_prompt_additions
+            )
 
             # Get prompt additions to verify they exist
             prompt_additions = callbacks.on_load_prompt()
