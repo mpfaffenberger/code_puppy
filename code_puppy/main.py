@@ -82,11 +82,6 @@ async def main():
     parser.add_argument("--acp", action="store_true", help="Run in ACP mode")
     args = parser.parse_args()
 
-    if args.acp:
-        from code_puppy.acp_server import acp_main
-        await acp_main()
-        return
-
     if args.tui or args.web:
         set_tui_mode(True)
     elif args.interactive or args.command or args.prompt:
@@ -293,6 +288,9 @@ async def main():
                 emit_error(f"TUI Error: {str(e)}")
                 emit_warning("Falling back to interactive mode...")
                 await interactive_mode(message_renderer)
+        elif args.acp:
+            from code_puppy.acp_server import acp_main
+            await acp_main()
         elif args.interactive or initial_command:
             await interactive_mode(message_renderer, initial_command=initial_command)
         else:
