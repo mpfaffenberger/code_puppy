@@ -93,7 +93,7 @@ async def main():
         set_tui_mode(False)
 
     message_renderer = None
-    if not is_tui_mode():
+    if not is_tui_mode() and not args.acp:
         from rich.console import Console
 
         from code_puppy.messaging import (

@@ -35,6 +35,7 @@ dependencies = [
     "playwright>=1.40.0",
     "camoufox>=0.4.11",
     "dbos>=2.0.0",
+    "agent-client-protocol==0.6.2",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
