@@ -10,6 +10,7 @@ from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.google import GoogleProvider
@@ -325,6 +326,16 @@ class ModelFactory:
             model = GoogleModel(model_name=model_config["name"], provider=google_gla)
             return model
         elif model_type == "cerebras":
+
+            class ZaiCerebrasProvider(CerebrasProvider):
+                def model_profile(self, model_name: str) -> ModelProfile | None:
+                    profile = super().model_profile(model_name)
+                    if model_name.startswith("zai"):
+                        from pydantic_ai.profiles.qwen import qwen_model_profile
+
+                        profile = profile.update(qwen_model_profile("qwen-3-coder"))
+                    return profile
+
             url, headers, verify, api_key = get_custom_config(model_config)
             client = create_async_client(headers=headers, verify=verify)
             provider_args = dict(
@@ -333,7 +344,7 @@ class ModelFactory:
             )
             if api_key:
                 provider_args["api_key"] = api_key
-            provider = CerebrasProvider(**provider_args)
+            provider = ZaiCerebrasProvider(**provider_args)
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
