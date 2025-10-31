@@ -2,8 +2,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from acp.schema import InitializeRequest, NewSessionRequest, PromptRequest
-from acp.helpers import text_block
+from acp.schema import InitializeRequest, NewSessionRequest, PromptRequest, SessionNotification
+from acp import helpers
 from code_puppy import __version__
 from code_puppy.acp_server import CodePuppyAgent, acp_main
 
@@ -27,7 +27,7 @@ async def test_code_puppy_agent_prompt():
         # Create a mock prompt request
         prompt_request = PromptRequest(
             sessionId="test-session",
-            prompt=[text_block("Hello, world!")],
+            prompt=[helpers.text_block("Hello, world!")],
         )
 
         # Call the prompt method
@@ -38,9 +38,15 @@ async def test_code_puppy_agent_prompt():
 
         # Assert that sessionUpdate was called with the correct response
         mock_conn.sessionUpdate.assert_called_once()
-        sent_update = mock_conn.sessionUpdate.call_args[0][0][0]
-        assert sent_update.type == "text"
-        assert sent_update.text == "Test response"
+        sent_notification = mock_conn.sessionUpdate.call_args[0][0]
+        assert isinstance(sent_notification, SessionNotification)
+        assert sent_notification.sessionId == "test-session"
+        sent_update = sent_notification.update
+        assert sent_update.sessionUpdate == "agent_message_chunk"
+        assert len(sent_update.content) == 1
+        sent_block = sent_update.content[0]
+        assert sent_block.type == "text"
+        assert sent_block.text == "Test response"
 
         # Assert that the prompt response has the correct stop reason
         assert response.stopReason == "end_turn"

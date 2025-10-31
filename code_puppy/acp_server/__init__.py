@@ -3,7 +3,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from acp import Agent, AgentSideConnection, PromptRequest, PromptResponse, stdio_streams, text_block
+from acp import Agent, AgentSideConnection, PromptRequest, PromptResponse, stdio_streams, helpers
 from acp.schema import Implementation, InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse
 from code_puppy import __version__
 from code_puppy.agents import get_current_agent
@@ -82,7 +82,12 @@ class CodePuppyAgent(Agent):
             # Send the response back to the client as a text block update
             if response and response.output:
                 logger.info("Sending response to client.")
-                await self._conn.sessionUpdate([text_block(response.output)])
+                await self._conn.sessionUpdate(
+                    helpers.session_notification(
+                        params.sessionId,
+                        helpers.update_agent_message([helpers.text_block(response.output)])
+                    )
+                )
 
             # Signal the end of the turn
             logger.info("Ending turn.")
