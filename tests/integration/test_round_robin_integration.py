@@ -15,7 +15,7 @@ def round_robin_config(tmp_path: pathlib.Path) -> pathlib.Path:
     config = {
         "test-round-robin": {
             "type": "round_robin",
-            "models": ["glm-4.6-coding", "Cerebras-Qwen3-Coder-480b"],
+            "models": ["glm-4.6-coding", "Cerebras-GLM-4.6"],
             "rotate_every": 2,
         },
         "test-round-robin-single": {
@@ -253,7 +253,7 @@ def test_round_robin_rotate_every_parameter(
     config = {
         "test-rotate-every-3": {
             "type": "round_robin",
-            "models": ["glm-4.6-coding", "Cerebras-Qwen3-Coder-480b"],
+            "models": ["glm-4.6-coding", "Cerebras-GLM-4.6"],
             "rotate_every": 3,
         }
     }
