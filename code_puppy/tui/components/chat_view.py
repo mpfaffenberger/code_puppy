@@ -178,6 +178,7 @@ class ChatView(VerticalScroll):
         self._scroll_pending = False  # Track if scroll is already scheduled
         self._last_message_category = None  # Track last message category for combining
         self._last_widget = None  # Track the last widget created for combining
+        self._last_combined_message = None  # Track the actual message we're combining into
 
         # Initialize trace log
         import datetime
@@ -399,19 +400,24 @@ class ChatView(VerticalScroll):
         trace_log.write(f"  - Has messages: {len(self.messages) > 0}\n")
         trace_log.write(f"  - Same category: {self._last_message_category == message_category}\n")
         trace_log.write(f"  - Has widget: {self._last_widget is not None}\n")
+        trace_log.write(f"  - Has combined message: {self._last_combined_message is not None}\n")
+        if self._last_combined_message:
+            trace_log.write(f"  - Combined message ID: {self._last_combined_message.id}\n")
         trace_log.write(f"  - Not AGENT_RESPONSE: {message_category != MessageCategory.AGENT_RESPONSE}\n")
 
         if (
             self.messages
             and self._last_message_category == message_category
             and self._last_widget is not None  # Make sure we have a widget to update
+            and self._last_combined_message is not None  # Make sure we have a message to combine into
             and message_category != MessageCategory.AGENT_RESPONSE  # Don't combine agent responses (they're complete answers)
         ):
             # SAME CATEGORY: Add to existing container
             trace_log.write(f"PATH: Category-based combining - adding to existing {message_category.value} container\n")
-            last_message = self.messages[-1]
+            last_message = self._last_combined_message  # Use tracked message, not messages[-1]
             trace_log.write(f"  - Last message type: {last_message.type.value}\n")
             trace_log.write(f"  - Current message type: {message.type.value}\n")
+            trace_log.write(f"  - Last message content length before: {len(str(last_message.content))}\n")
 
             # Create a separator for different message types within the same category
             if message.type != last_message.type:
@@ -481,6 +487,7 @@ class ChatView(VerticalScroll):
 
             # Add to messages list but don't create a new widget
             self.messages.append(message)
+            trace_log.write(f"  - Last message content length after: {len(str(last_message.content))}\n")
             trace_log.write(f"SUCCESS: Combined into existing container. Total messages: {len(self.messages)}\n")
             trace_log.close()
             # Refresh the entire view to ensure proper layout
@@ -496,6 +503,7 @@ class ChatView(VerticalScroll):
             trace_log.write(f"  - New category: {message_category.value}\n")
             self._last_widget = None
             self._last_message_category = None
+            self._last_combined_message = None
 
         trace_log.write(f"PATH: Creating NEW container for {message_category.value}\n")
 
@@ -529,6 +537,8 @@ class ChatView(VerticalScroll):
             self._last_widget = message_widget
             # Track the category of this message for future combining
             self._last_message_category = message_category
+            # Track the actual message for combining
+            self._last_combined_message = message
             trace_log.write(f"SUCCESS: USER container created. Total messages: {len(self.messages)}\n")
             trace_log.close()
             # Auto-scroll to bottom
@@ -598,6 +608,8 @@ class ChatView(VerticalScroll):
             self._last_widget = message_widget
             # Track the category of this message for future combining
             self._last_message_category = message_category
+            # Track the actual message for combining
+            self._last_combined_message = message
 
             # Track widget for group-based updates
             if message.group_id:
@@ -661,10 +673,13 @@ class ChatView(VerticalScroll):
 
         # Track the category of this message for future combining
         self._last_message_category = message_category
+        # Track the actual message for combining (use the message we just added)
+        self._last_combined_message = self.messages[-1] if self.messages else None
 
         trace_log.write(f"SUCCESS: New container created for {message.type.value}\n")
         trace_log.write(f"  - Widget tracked: {self._last_widget is not None}\n")
         trace_log.write(f"  - Category tracked: {self._last_message_category.value}\n")
+        trace_log.write(f"  - Combined message tracked: {self._last_combined_message is not None}\n")
         trace_log.write(f"  - Total messages: {len(self.messages)}\n")
         trace_log.close()
 
@@ -686,6 +701,7 @@ class ChatView(VerticalScroll):
         self.group_widgets.clear()  # Clear widget tracking too
         self._last_message_category = None  # Reset category tracking
         self._last_widget = None  # Reset widget tracking
+        self._last_combined_message = None  # Reset combined message tracking
         # Remove all message widgets (Static widgets and any Vertical containers)
         for widget in self.query(Static):
             widget.remove()
