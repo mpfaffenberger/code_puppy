@@ -184,6 +184,14 @@ def run_shell_command_streaming(
     command: str = "",
     group_id: str = None,
 ):
+    # Check for cancellation before starting
+    try:
+        from code_puppy.cancellation_token import raise_if_cancelled
+
+        raise_if_cancelled("Shell command cancelled")
+    except ImportError:
+        pass  # Cancellation token not available
+
     start_time = time.time()
     last_output_time = [start_time]
 

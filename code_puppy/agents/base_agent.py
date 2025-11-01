@@ -3,7 +3,6 @@
 import asyncio
 import json
 import math
-import signal
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
@@ -1303,50 +1302,13 @@ class BaseAgent(ABC):
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
 
-        # Create the task FIRST
+        # Create the task - task factory will automatically track it
         agent_task = asyncio.create_task(run_agent_task())
 
-        # Import shell process killer
-        from code_puppy.tools.command_runner import kill_all_running_shell_processes
-
-        # Ensure the interrupt handler only acts once per task
-        def keyboard_interrupt_handler(sig, frame):
-            """Signal handler for Ctrl+C - replicating exact original logic"""
-
-            # First, nuke any running shell processes triggered by tools
-            try:
-                killed = kill_all_running_shell_processes()
-                if killed:
-                    emit_info(f"Cancelled {killed} running shell process(es).")
-                else:
-                    # Only cancel the agent task if no shell processes were killed
-                    if not agent_task.done():
-                        agent_task.cancel()
-            except Exception as e:
-                emit_info(f"Shell kill error: {e}")
-                if not agent_task.done():
-                    agent_task.cancel()
-            # Don't call the original handler
-            # This prevents the application from exiting
-
         try:
-            # Save original handler and set our custom one AFTER task is created
-            original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
-
             # Wait for the task to complete or be cancelled
             result = await agent_task
             return result
-        except asyncio.CancelledError:
-            agent_task.cancel()
-        except KeyboardInterrupt:
-            # Handle direct keyboard interrupt during await
-            if not agent_task.done():
-                agent_task.cancel()
-            try:
-                await agent_task
-            except asyncio.CancelledError:
-                pass
         finally:
-            # Restore original signal handler
-            if original_handler:
-                signal.signal(signal.SIGINT, original_handler)
+            # Task factory handles automatic untracking when task completes
+            pass

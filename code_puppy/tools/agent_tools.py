@@ -1,5 +1,6 @@
 # agent_tools.py
 
+import asyncio
 from typing import List
 
 from pydantic import BaseModel
@@ -104,7 +105,7 @@ def register_invoke_agent(agent):
     """
 
     @agent.tool
-    def invoke_agent(
+    async def invoke_agent(
         context: RunContext, agent_name: str, prompt: str
     ) -> AgentInvokeOutput:
         """Invoke a specific sub-agent with a given prompt.
@@ -181,10 +182,20 @@ def register_invoke_agent(agent):
             agent_tools = agent_config.get_available_tools()
             register_tools_for_agent(temp_agent, agent_tools)
 
-            # Run the temporary agent with the provided prompt
-            result = temp_agent.run_sync(
-                prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
-            )
+            # Create and track the agent execution task for proper cancellation support
+            async def run_temp_agent():
+                return await temp_agent.run(
+                    prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+                )
+
+            # Create the subagent task - task factory will automatically track it
+            subagent_task = asyncio.create_task(run_temp_agent())
+
+            try:
+                result = await subagent_task
+            finally:
+                # Task factory handles automatic untracking when task completes
+                pass
 
             # Extract the response from the result
             response = result.output
