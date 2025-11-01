@@ -9,6 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+    "agent-client-protocol==0.6.2",
     "pydantic-ai==1.0.5",
     "httpx[http2]>=0.24.1",
     "rich>=13.4.2",
