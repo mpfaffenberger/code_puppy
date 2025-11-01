@@ -36,73 +36,6 @@ def setup_acp_logging():
 logger = logging.getLogger("acp_server")
 
 
-class LoggingStreamReader:
-    """A wrapper for asyncio.StreamReader that logs the data being read."""
-    def __init__(self, reader: asyncio.StreamReader):
-        self._reader = reader
-
-    async def read(self, n: int = -1) -> bytes:
-        data = await self._reader.read(n)
-        if data:
-            logger.debug(f"STDIN <<< {data!r}")
-        return data
-
-    async def readexactly(self, n: int) -> bytes:
-        data = await self._reader.readexactly(n)
-        if data:
-            logger.debug(f"STDIN <<< {data!r}")
-        return data
-
-    async def readline(self) -> bytes:
-        data = await self._reader.readline()
-        if data:
-            logger.debug(f"STDIN <<< {data!r}")
-        return data
-
-    def at_eof(self) -> bool:
-        return self._reader.at_eof()
-
-
-class LoggingStreamWriter:
-    """A wrapper for asyncio.StreamWriter that logs the data being written."""
-    def __init__(self, writer: asyncio.StreamWriter):
-        self._writer = writer
-
-    def write(self, data: bytes):
-        logger.debug(f"STDOUT >>> {data!r}")
-        self._writer.write(data)
-
-    def writelines(self, data: list[bytes]):
-        for line in data:
-            logger.debug(f"STDOUT >>> {line!r}")
-        self._writer.writelines(data)
-
-    async def drain(self):
-        await self._writer.drain()
-
-    def close(self):
-        self._writer.close()
-
-    async def wait_closed(self):
-        await self._writer.wait_closed()
-
-    def can_write_eof(self) -> bool:
-        return self._writer.can_write_eof()
-
-    def write_eof(self):
-        self._writer.write_eof()
-
-    def get_extra_info(self, name, default=None):
-        return self._writer.get_extra_info(name, default)
-
-    def is_closing(self) -> bool:
-        return self._writer.is_closing()
-
-    @property
-    def transport(self):
-        return self._writer.transport
-
-
 class CodePuppyAgent(Agent):
     def __init__(self, conn):
         self._conn = conn
@@ -185,15 +118,46 @@ async def acp_main():
     setup_acp_logging()
     logger.info("Starting ACP server.")
 
-    # Get the original stdio streams
-    original_reader, original_writer = await stdio_streams()
+    reader, writer = await stdio_streams()
 
-    # Wrap the streams with our logging wrappers
-    reader = LoggingStreamReader(original_reader)
-    writer = LoggingStreamWriter(original_writer)
+    # Monkey-patch reader methods
+    original_read = reader.read
+    async def new_read(n: int = -1) -> bytes:
+        data = await original_read(n)
+        if data:
+            logger.debug(f"STDIN <<< {data!r}")
+        return data
+    reader.read = new_read
 
-    # Start the agent connection with the wrapped streams
+    original_readexactly = reader.readexactly
+    async def new_readexactly(n: int) -> bytes:
+        data = await original_readexactly(n)
+        if data:
+            logger.debug(f"STDIN <<< {data!r}")
+        return data
+    reader.readexactly = new_readexactly
+
+    original_readline = reader.readline
+    async def new_readline() -> bytes:
+        data = await original_readline()
+        if data:
+            logger.debug(f"STDIN <<< {data!r}")
+        return data
+    reader.readline = new_readline
+
+    # Monkey-patch writer methods
+    original_write = writer.write
+    def new_write(data: bytes):
+        logger.debug(f"STDOUT >>> {data!r}")
+        original_write(data)
+    writer.write = new_write
+
+    original_writelines = writer.writelines
+    def new_writelines(data: list[bytes]):
+        for line in data:
+            logger.debug(f"STDOUT >>> {line!r}")
+        original_writelines(data)
+    writer.writelines = new_writelines
+
     AgentSideConnection(lambda conn: CodePuppyAgent(conn), writer, reader)
-
-    # Keep the server running
     await asyncio.Event().wait()
