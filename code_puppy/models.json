@@ -54,9 +54,9 @@
     "name": "gpt-5-codex",
     "context_length": 272000
   },
-  "Cerebras-Qwen3-Coder-480b": {
+  "Cerebras-GLM-4.6": {
     "type": "cerebras",
-    "name": "qwen-3-coder-480b",
+    "name": "zai-glm-4.6",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
       "api_key": "$CEREBRAS_API_KEY"

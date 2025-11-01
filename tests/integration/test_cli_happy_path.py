@@ -42,7 +42,7 @@ def test_cli_happy_path_interactive_flow(
     result.child.expect(r"Commands Help", timeout=10)
     cli_harness.wait_for_ready(result)
 
-    result.sendline("/model Cerebras-Qwen3-Coder-480b\r")
+    result.sendline("/model Cerebras-GLM-4.6\r")
     result.child.expect(r"Active model set and loaded", timeout=10)
     cli_harness.wait_for_ready(result)
 
