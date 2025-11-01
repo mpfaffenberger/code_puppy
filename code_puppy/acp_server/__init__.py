@@ -6,7 +6,7 @@ from pathlib import Path
 from acp import Agent, AgentSideConnection, PromptRequest, PromptResponse, stdio_streams, helpers
 from acp.schema import Implementation, InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse
 from code_puppy import __version__
-from code_puppy.agents import get_current_agent
+from code_puppy.agents.agent_manager import get_current_agent_name, load_agent
 
 def setup_acp_logging():
     """Set up a file logger for the ACP server to avoid interfering with stdio."""
@@ -38,6 +38,7 @@ logger = logging.getLogger("acp_server")
 class CodePuppyAgent(Agent):
     def __init__(self, conn):
         self._conn = conn
+        self._sessions = {}
 
     async def initialize(self, params: InitializeRequest) -> InitializeResponse:
         """
@@ -70,9 +71,12 @@ class CodePuppyAgent(Agent):
 
             logger.info(f"Extracted prompt text: {prompt_text}")
 
-            # Get the current Code Puppy agent
-            agent = get_current_agent()
-            logger.info(f"Using agent: {type(agent).__name__}")
+            # Get the agent for the current session
+            agent = self._sessions.get(params.sessionId)
+            if not agent:
+                logger.error(f"No agent found for session ID: {params.sessionId}")
+                return PromptResponse(stopReason="refusal")
+            logger.info(f"Using agent: {type(agent).__name__} for session: {params.sessionId}")
 
             # Run the agent with the prompt
             logger.info("Running agent with prompt...")
@@ -100,7 +104,11 @@ class CodePuppyAgent(Agent):
         """
         Handles a new session request from the client.
         """
-        return NewSessionResponse(sessionId=str(uuid.uuid4()))
+        session_id = str(uuid.uuid4())
+        agent = load_agent(get_current_agent_name())
+        self._sessions[session_id] = agent
+        logger.info(f"Created new session with ID: {session_id} and agent {type(agent).__name__}")
+        return NewSessionResponse(sessionId=session_id)
 
 async def acp_main():
     """
