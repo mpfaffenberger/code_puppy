@@ -996,3 +996,53 @@ def finalize_autosave_session() -> str:
     """Persist the current autosave snapshot and rotate to a fresh session."""
     auto_save_session_if_enabled()
     return rotate_autosave_id()
+
+
+def get_suppress_thinking_messages() -> bool:
+    """
+    Checks puppy.cfg for 'suppress_thinking_messages' (case-insensitive in value only).
+    Defaults to False if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+    When enabled, thinking messages (agent_reasoning, planned_next_steps) will be hidden.
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("suppress_thinking_messages")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return False
+
+
+def set_suppress_thinking_messages(enabled: bool):
+    """Sets the suppress_thinking_messages configuration value.
+
+    Args:
+        enabled: Whether to suppress thinking messages
+    """
+    set_config_value("suppress_thinking_messages", "true" if enabled else "false")
+
+
+def get_suppress_informational_messages() -> bool:
+    """
+    Checks puppy.cfg for 'suppress_informational_messages' (case-insensitive in value only).
+    Defaults to False if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+    When enabled, informational messages (info, success, warning) will be hidden.
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("suppress_informational_messages")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return False
+
+
+def set_suppress_informational_messages(enabled: bool):
+    """Sets the suppress_informational_messages configuration value.
+
+    Args:
+        enabled: Whether to suppress informational messages
+    """
+    set_config_value("suppress_informational_messages", "true" if enabled else "false")
