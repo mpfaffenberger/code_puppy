@@ -271,13 +271,13 @@ async def main():
             initial_command = " ".join(args.command)
             prompt_only_mode = False
 
-        if prompt_only_mode:
+        if prompt_only_mode and initial_command:
             await execute_single_prompt(initial_command, message_renderer)
         elif is_tui_mode():
             try:
                 from code_puppy.tui import run_textual_ui
 
-                await run_textual_ui(initial_command=initial_command)
+                await run_textual_ui(initial_command=initial_command or "")
             except ImportError:
                 from code_puppy.messaging import emit_error, emit_warning
 
@@ -305,13 +305,15 @@ async def main():
 
 
 # Add the file handling functionality for interactive mode
-async def interactive_mode(message_renderer, initial_command: str = None) -> None:
+async def interactive_mode(
+    message_renderer, initial_command: str | None = None
+) -> None:
     from code_puppy.command_line.command_handler import handle_command
 
     """Run the agent in interactive mode."""
 
     display_console = message_renderer.console
-    from code_puppy.messaging import emit_system_message
+    from code_puppy.messaging import emit_info, emit_system_message
 
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
     emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
@@ -387,7 +389,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Check if prompt_toolkit is installed
     try:
-        from code_puppy.messaging import emit_system_message
+        from code_puppy.messaging import emit_info, emit_system_message
 
         emit_system_message(
             "[dim]Using prompt_toolkit for enhanced tab completion[/dim]"
