@@ -117,47 +117,6 @@ async def acp_main():
     """
     setup_acp_logging()
     logger.info("Starting ACP server.")
-
     reader, writer = await stdio_streams()
-
-    # Monkey-patch reader methods
-    original_read = reader.read
-    async def new_read(n: int = -1) -> bytes:
-        data = await original_read(n)
-        if data:
-            logger.debug(f"STDIN <<< {data!r}")
-        return data
-    reader.read = new_read
-
-    original_readexactly = reader.readexactly
-    async def new_readexactly(n: int) -> bytes:
-        data = await original_readexactly(n)
-        if data:
-            logger.debug(f"STDIN <<< {data!r}")
-        return data
-    reader.readexactly = new_readexactly
-
-    original_readline = reader.readline
-    async def new_readline() -> bytes:
-        data = await original_readline()
-        if data:
-            logger.debug(f"STDIN <<< {data!r}")
-        return data
-    reader.readline = new_readline
-
-    # Monkey-patch writer methods
-    original_write = writer.write
-    def new_write(data: bytes):
-        logger.debug(f"STDOUT >>> {data!r}")
-        original_write(data)
-    writer.write = new_write
-
-    original_writelines = writer.writelines
-    def new_writelines(data: list[bytes]):
-        for line in data:
-            logger.debug(f"STDOUT >>> {line!r}")
-        original_writelines(data)
-    writer.writelines = new_writelines
-
-    conn = AgentSideConnection(lambda conn: CodePuppyAgent(conn), writer, reader)
-    await conn.serve()
+    AgentSideConnection(lambda conn: CodePuppyAgent(conn), writer, reader)
+    await asyncio.Event().wait()
