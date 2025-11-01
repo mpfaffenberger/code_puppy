@@ -79,18 +79,18 @@ class CodePuppyAgent(Agent):
                 return PromptResponse(stopReason="refusal")
             logger.info(f"Using agent: {type(agent).__name__} for session: {params.sessionId}")
 
-            # Run the agent with the prompt
-            logger.info("Running agent with prompt...")
-            response = await agent.run_with_mcp(prompt_text)
-            logger.info(f"Agent response received: {response.output if response else 'None'}")
+            # DIAGNOSTIC: Isolate run_with_mcp by using a canned response
+            logger.info("Skipping agent execution and using canned response for diagnostics.")
+            canned_response = f"This is a canned response to the prompt: '{prompt_text}'"
+            logger.info(f"Canned response: {canned_response}")
 
             # Send the response back to the client as a text block update
-            if response and response.output:
+            if canned_response:
                 logger.info("Sending response to client.")
                 await self._conn.sessionUpdate(
                     helpers.session_notification(
                         params.sessionId,
-                        helpers.update_agent_message(helpers.text_block(response.output))
+                        helpers.update_agent_message(helpers.text_block(canned_response))
                     )
                 )
 
