@@ -22,148 +22,129 @@ class ChatView(VerticalScroll):
 
     DEFAULT_CSS = """
     ChatView {
-        background: $background;
-        scrollbar-background: $primary;
-        scrollbar-color: $accent;
+        background: #0a0e1a;
+        scrollbar-background: #1e293b;
+        scrollbar-color: #60a5fa;
+        scrollbar-color-hover: #93c5fd;
+        scrollbar-color-active: #3b82f6;
         margin: 0 0 1 0;
-        padding: 0;
+        padding: 1 2;
     }
 
     .user-message {
-        background: $primary-darken-3;
-        color: #ffffff;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 1;
-        padding-top: 1;
+        background: #1e3a5f;
+        color: #e0f2fe;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
-        border-left: thick $accent;
+        border: tall #3b82f6;
+        border-title-align: left;
         text-style: bold;
     }
 
     .agent-message {
-        background: transparent;
-        color: #f3f4f6;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        background: #0f172a;
+        color: #f1f5f9;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
+        border: round #475569;
     }
 
     .system-message {
-        background: transparent;
-        color: #d1d5db;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        background: #1a1a2e;
+        color: #94a3b8;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-style: italic;
         text-wrap: wrap;
-        border: none;
+        border: dashed #334155;
     }
 
     .error-message {
-        background: transparent;
-        color: #fef2f2;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        background: #4c0519;
+        color: #fecdd3;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
+        border: heavy #f43f5e;
+        border-title-align: left;
     }
 
     .agent_reasoning-message {
-        background: transparent;
-        color: #f3e8ff;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        background: #1e1b4b;
+        color: #c4b5fd;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
         text-style: italic;
-        border: none;
+        border: round #6366f1;
     }
 
     .planned_next_steps-message {
-        background: transparent;
-        color: #f3e8ff;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        background: #1e1b4b;
+        color: #e9d5ff;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
         text-style: italic;
-        border: none;
+        border: round #a78bfa;
     }
 
     .agent_response-message {
-        background: transparent;
-        color: #f3e8ff;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        background: #0f172a;
+        color: #e0e7ff;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
+        border: double #818cf8;
     }
 
     .info-message {
-        background: transparent;
-        color: #d1fae5;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        background: #022c22;
+        color: #a7f3d0;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
+        border: round #10b981;
     }
 
     .success-message {
-        background: #0d9488;
+        background: #065f46;
         color: #d1fae5;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
+        border: heavy #34d399;
+        border-title-align: center;
     }
 
     .warning-message {
-        background: #d97706;
+        background: #78350f;
         color: #fef3c7;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
+        border: wide #fbbf24;
+        border-title-align: left;
     }
 
     .tool_output-message {
-        background: #5b21b6;
-        color: #dbeafe;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        background: #2e1065;
+        color: #ddd6fe;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
+        border: round #7c3aed;
     }
 
     .command_output-message {
-        background: #9a3412;
+        background: #431407;
         color: #fed7aa;
-        margin: 0 0 1 0;
-        margin-top: 0;
-        padding: 0;
-        padding-top: 0;
+        margin: 1 0 1 0;
+        padding: 1 2;
         text-wrap: wrap;
-        border: none;
+        border: solid #f97316;
     }
 
     .message-container {
@@ -174,7 +155,7 @@ class ChatView(VerticalScroll):
 
     .copy-button-container {
         margin: 0 0 1 0;
-        padding: 0 1;
+        padding: 0 2;
         width: 1fr;
         height: auto;
         align: left top;
@@ -183,7 +164,6 @@ class ChatView(VerticalScroll):
     /* Ensure first message has no top spacing */
     ChatView > *:first-child {
         margin-top: 0;
-        padding-top: 0;
     }
     """
 

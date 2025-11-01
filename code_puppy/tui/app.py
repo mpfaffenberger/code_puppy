@@ -29,6 +29,7 @@ from code_puppy.tui.components import (
     ChatView,
     CustomTextArea,
     InputArea,
+    RightSidebar,
     Sidebar,
     StatusBar,
 )
@@ -54,17 +55,20 @@ class CodePuppyTUI(App):
     CSS = """
     Screen {
         layout: horizontal;
+        background: #0a0e1a;
     }
 
     #main-area {
         layout: vertical;
         width: 1fr;
         min-width: 40;
+        background: #0f172a;
     }
 
     #chat-container {
         height: 1fr;
         min-height: 10;
+        background: #0a0e1a;
     }
     """
 
@@ -78,6 +82,7 @@ class CodePuppyTUI(App):
         Binding("ctrl+4", "show_tools", "Tools"),
         Binding("ctrl+5", "focus_input", "Focus Prompt"),
         Binding("ctrl+6", "focus_chat", "Focus Response"),
+        Binding("ctrl+7", "toggle_right_sidebar", "Status"),
         Binding("ctrl+t", "open_mcp_wizard", "MCP Install Wizard"),
     ]
 
@@ -131,6 +136,11 @@ class CodePuppyTUI(App):
         self.message_renderer = TUIRenderer(self.message_queue, self)
         self._renderer_started = False
 
+        # Track session start time
+        from datetime import datetime
+
+        self._session_start_time = datetime.now()
+
     def compose(self) -> ComposeResult:
         """Create the UI layout."""
         yield StatusBar()
@@ -139,6 +149,7 @@ class CodePuppyTUI(App):
             with Container(id="chat-container"):
                 yield ChatView(id="chat-view")
             yield InputArea()
+        yield RightSidebar()
         yield Footer()
 
     def on_mount(self) -> None:
@@ -200,6 +211,14 @@ class CodePuppyTUI(App):
         # Process initial command if provided
         if self.initial_command:
             self.call_after_refresh(self.process_initial_command)
+
+        # Initialize right sidebar (hidden by default)
+        try:
+            right_sidebar = self.query_one(RightSidebar)
+            right_sidebar.display = True  # Show by default for sexy UI
+            self._update_right_sidebar()
+        except Exception:
+            pass
 
     def _tighten_text(self, text: str) -> str:
         """Aggressively tighten whitespace: trim lines, collapse multiples, drop extra blanks."""
@@ -538,6 +557,9 @@ class CodePuppyTUI(App):
                     # Refresh history display to show new interaction
                     self.refresh_history_display()
 
+                    # Update right sidebar with new token counts
+                    self._update_right_sidebar()
+
                 except Exception as eg:
                     # Handle TaskGroup and other exceptions
                     # BaseExceptionGroup is only available in Python 3.11+
@@ -655,6 +677,18 @@ class CodePuppyTUI(App):
         """Focus the chat area."""
         chat_view = self.query_one("#chat-view", ChatView)
         chat_view.focus()
+
+    def action_toggle_right_sidebar(self) -> None:
+        """Toggle right sidebar visibility."""
+        try:
+            right_sidebar = self.query_one(RightSidebar)
+            right_sidebar.display = not right_sidebar.display
+
+            # Update context info when showing
+            if right_sidebar.display:
+                self._update_right_sidebar()
+        except Exception:
+            pass
 
     def action_show_tools(self) -> None:
         """Show the tools modal."""
@@ -850,6 +884,44 @@ class CodePuppyTUI(App):
     def stop_agent_progress(self) -> None:
         """Stop showing agent progress indicators."""
         self.set_agent_status("Ready", show_progress=False)
+
+    def _update_right_sidebar(self) -> None:
+        """Update the right sidebar with current session information."""
+        try:
+            right_sidebar = self.query_one(RightSidebar)
+
+            # Get current agent and calculate tokens
+            agent = get_current_agent()
+            message_history = agent.get_message_history()
+
+            total_tokens = sum(
+                agent.estimate_tokens_for_message(msg) for msg in message_history
+            )
+            max_tokens = agent.get_model_context_length()
+
+            # Calculate session duration
+            from datetime import datetime
+
+            duration = datetime.now() - self._session_start_time
+            hours = int(duration.total_seconds() // 3600)
+            minutes = int((duration.total_seconds() % 3600) // 60)
+
+            if hours > 0:
+                duration_str = f"{hours}h {minutes}m"
+            else:
+                duration_str = f"{minutes}m"
+
+            # Update sidebar
+            right_sidebar.update_context(total_tokens, max_tokens)
+            right_sidebar.update_session_info(
+                message_count=len(message_history),
+                duration=duration_str,
+                model=self.current_model,
+                agent=self.current_agent,
+            )
+
+        except Exception:
+            pass  # Silently fail if right sidebar not available
 
     def on_resize(self, event: Resize) -> None:
         """Handle terminal resize events to update responsive elements."""

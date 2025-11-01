@@ -71,16 +71,19 @@ class InputArea(Container):
     InputArea {
         dock: bottom;
         height: 9;
-        margin: 1;
+        margin: 0 1 1 1;
+        background: #0f172a;
+        border-top: wide #1e3a8a;
     }
 
     #spinner {
         height: 1;
         width: 1fr;
-        margin: 0 3 0 1;
+        margin: 0 3 0 2;
         content-align: left middle;
         text-align: left;
         display: none;
+        color: #60a5fa;
     }
 
     #spinner.visible {
@@ -90,33 +93,52 @@ class InputArea(Container):
     #input-container {
         height: 5;
         width: 1fr;
-        margin: 1 3 0 1;
+        margin: 1 2 0 2;
         align: center middle;
     }
 
     #input-field {
         height: 5;
         width: 1fr;
-        border: solid $primary;
-        background: $surface;
+        border: heavy #3b82f6;
+        background: #1e293b;
+        color: #e0f2fe;
+    }
+
+    #input-field:focus {
+        border: heavy #60a5fa;
+        background: #1e3a5f;
     }
 
     #submit-cancel-button {
-        height: 3;
-        width: 3;
-        min-width: 3;
-        margin: 1 0 1 1;
+        height: 5;
+        width: 4;
+        min-width: 4;
+        margin: 0 0 0 1;
         content-align: center middle;
-        border: none;
-        background: $surface;
+        border: round #3b82f6;
+        background: #1e3a8a;
+        color: #93c5fd;
+    }
+
+    #submit-cancel-button:hover {
+        border: round #60a5fa;
+        background: #2563eb;
+        color: #dbeafe;
+    }
+
+    #submit-cancel-button:focus {
+        border: double #60a5fa;
+        background: #1e40af;
     }
 
     #input-help {
         height: 1;
         width: 1fr;
-        margin: 0 3 1 1;
-        color: $text-muted;
+        margin: 1 2 1 2;
+        color: #64748b;
         text-align: center;
+        text-style: italic;
     }
     """
 
