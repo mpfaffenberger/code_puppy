@@ -360,6 +360,30 @@ class SettingsScreen(ModalScreen):
                 # Tab 4: Appearance
                 with TabPane("Appearance", id="appearance"):
                     with VerticalScroll(classes="tab-scroll"):
+                        yield Label("Message Display", classes="section-header")
+                        yield Static(
+                            "Control which message types are displayed in the chat view.",
+                            classes="setting-description",
+                        )
+
+                        with Container(classes="switch-row"):
+                            yield Label("Suppress Thinking Messages:", classes="setting-label")
+                            yield Switch(id="suppress-thinking-switch", classes="setting-input")
+                            yield Static(
+                                "Hide agent reasoning and planning messages (reduces clutter).",
+                                classes="setting-description",
+                            )
+
+                        with Container(classes="switch-row"):
+                            yield Label("Suppress Informational Messages:", classes="setting-label")
+                            yield Switch(id="suppress-informational-switch", classes="setting-input")
+                            yield Static(
+                                "Hide info, success, and warning messages (quieter experience).",
+                                classes="setting-description",
+                            )
+
+                        yield Label("Diff Display", classes="section-header")
+
                         with Container(classes="setting-row"):
                             yield Label("Diff Display Style:", classes="setting-label")
                             yield Select(
@@ -439,14 +463,69 @@ class SettingsScreen(ModalScreen):
                                 classes="setting-description",
                             )
 
-                # Tab 6: API Keys & Status (Read-Only)
+                # Tab 6: API Keys & Status
                 with TabPane("API Keys & Status", id="status"):
                     with VerticalScroll(classes="tab-scroll"):
                         yield Static(
-                            "Environment Variable Status (Read-Only)",
+                            "API Keys Configuration",
                             classes="section-header",
                         )
-                        yield Container(id="api-status-container")
+
+                        with Container(classes="setting-row"):
+                            yield Label("OpenAI API Key:", classes="setting-label")
+                            yield Input(id="openai-api-key-input", classes="setting-input", password=True)
+                        yield Static(
+                            "Required for OpenAI GPT models",
+                            classes="input-description",
+                        )
+
+                        with Container(classes="setting-row"):
+                            yield Label("Gemini API Key:", classes="setting-label")
+                            yield Input(id="gemini-api-key-input", classes="setting-input", password=True)
+                        yield Static(
+                            "Required for Google Gemini models",
+                            classes="input-description",
+                        )
+
+                        with Container(classes="setting-row"):
+                            yield Label("Anthropic API Key:", classes="setting-label")
+                            yield Input(id="anthropic-api-key-input", classes="setting-input", password=True)
+                        yield Static(
+                            "Required for Anthropic Claude models",
+                            classes="input-description",
+                        )
+
+                        with Container(classes="setting-row"):
+                            yield Label("Cerebras API Key:", classes="setting-label")
+                            yield Input(id="cerebras-api-key-input", classes="setting-input", password=True)
+                        yield Static(
+                            "Required for Cerebras models",
+                            classes="input-description",
+                        )
+
+                        with Container(classes="setting-row"):
+                            yield Label("Synthetic API Key:", classes="setting-label")
+                            yield Input(id="syn-api-key-input", classes="setting-input", password=True)
+                        yield Static(
+                            "Required for Synthetic provider models",
+                            classes="input-description",
+                        )
+
+                        with Container(classes="setting-row"):
+                            yield Label("Azure OpenAI API Key:", classes="setting-label")
+                            yield Input(id="azure-api-key-input", classes="setting-input", password=True)
+                        yield Static(
+                            "Required for Azure OpenAI",
+                            classes="input-description",
+                        )
+
+                        with Container(classes="setting-row"):
+                            yield Label("Azure OpenAI Endpoint:", classes="setting-label")
+                            yield Input(id="azure-endpoint-input", classes="setting-input")
+                        yield Static(
+                            "Azure OpenAI endpoint URL",
+                            classes="input-description",
+                        )
 
             with Horizontal(id="settings-buttons"):
                 yield Button("Save & Close", id="save-button", variant="primary")
@@ -470,6 +549,8 @@ class SettingsScreen(ModalScreen):
             get_owner_name,
             get_protected_token_count,
             get_puppy_name,
+            get_suppress_informational_messages,
+            get_suppress_thinking_messages,
             get_use_dbos,
             get_vqa_model_name,
             get_yolo_mode,
@@ -505,6 +586,8 @@ class SettingsScreen(ModalScreen):
         )
 
         # Tab 4: Appearance
+        self.query_one("#suppress-thinking-switch", Switch).value = get_suppress_thinking_messages()
+        self.query_one("#suppress-informational-switch", Switch).value = get_suppress_informational_messages()
         self.query_one("#diff-style-select", Select).value = get_diff_highlight_style()
         self.query_one("#diff-addition-color-input", Input).value = (
             get_diff_addition_color()
@@ -522,7 +605,7 @@ class SettingsScreen(ModalScreen):
         self.query_one("#enable-dbos-switch", Switch).value = get_use_dbos()
 
         # Tab 6: API Keys & Status
-        self.load_api_status()
+        self.load_api_keys()
 
     def load_model_options(self):
         """Load available models into the model select widgets."""
@@ -599,30 +682,65 @@ class SettingsScreen(ModalScreen):
             agent_select = Select(model_options, id=select_id, value=pinned_model)
             agent_row.mount(agent_select)
 
-    def load_api_status(self):
-        """Load and display API key status."""
+    def load_api_keys(self):
+        """Load API keys from environment variables into input fields."""
+        # Load current values from environment variables
+        self.query_one("#openai-api-key-input", Input).value = os.getenv("OPENAI_API_KEY", "")
+        self.query_one("#gemini-api-key-input", Input).value = os.getenv("GEMINI_API_KEY", "")
+        self.query_one("#anthropic-api-key-input", Input).value = os.getenv("ANTHROPIC_API_KEY", "")
+        self.query_one("#cerebras-api-key-input", Input).value = os.getenv("CEREBRAS_API_KEY", "")
+        self.query_one("#syn-api-key-input", Input).value = os.getenv("SYN_API_KEY", "")
+        self.query_one("#azure-api-key-input", Input).value = os.getenv("AZURE_OPENAI_API_KEY", "")
+        self.query_one("#azure-endpoint-input", Input).value = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+
+    def save_api_keys(self):
+        """Save API keys to .env file and update environment variables."""
+        from pathlib import Path
+        from code_puppy.config import CONFIG_DIR
+
+        # Get values from input fields
         api_keys = {
-            "OPENAI_API_KEY": "Required for OpenAI GPT models",
-            "GEMINI_API_KEY": "Required for Google Gemini models",
-            "ANTHROPIC_API_KEY": "Required for Anthropic Claude models",
-            "CEREBRAS_API_KEY": "Required for Cerebras models",
-            "SYN_API_KEY": "Required for Synthetic provider models",
-            "AZURE_OPENAI_API_KEY": "Required for Azure OpenAI",
-            "AZURE_OPENAI_ENDPOINT": "Required for Azure OpenAI endpoint",
+            "OPENAI_API_KEY": self.query_one("#openai-api-key-input", Input).value.strip(),
+            "GEMINI_API_KEY": self.query_one("#gemini-api-key-input", Input).value.strip(),
+            "ANTHROPIC_API_KEY": self.query_one("#anthropic-api-key-input", Input).value.strip(),
+            "CEREBRAS_API_KEY": self.query_one("#cerebras-api-key-input", Input).value.strip(),
+            "SYN_API_KEY": self.query_one("#syn-api-key-input", Input).value.strip(),
+            "AZURE_OPENAI_API_KEY": self.query_one("#azure-api-key-input", Input).value.strip(),
+            "AZURE_OPENAI_ENDPOINT": self.query_one("#azure-endpoint-input", Input).value.strip(),
         }
 
-        container = self.query_one("#api-status-container")
+        # Update environment variables
+        for key, value in api_keys.items():
+            if value:
+                os.environ[key] = value
+            elif key in os.environ:
+                del os.environ[key]
 
-        for key_name, description in api_keys.items():
-            key_value = os.getenv(key_name)
-            if key_value:
-                status_text = f"[green]✔️  {key_name}[/green]: Set"
-            else:
-                status_text = f"[red]❌  {key_name}[/red]: Not Set"
+        # Save to .env file in ~/.code_puppy directory
+        env_file = Path(CONFIG_DIR) / ".env"
 
-            with container.app.batch_update():
-                container.mount(Static(status_text))
-                container.mount(Static(f"   [dim]{description}[/dim]"))
+        # Read existing .env file if it exists
+        existing_vars = {}
+        if env_file.exists():
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
+                        existing_vars[key.strip()] = value.strip()
+
+        # Update with new API keys
+        existing_vars.update({k: v for k, v in api_keys.items() if v})
+
+        # Remove empty keys
+        for key in api_keys.keys():
+            if not api_keys[key] and key in existing_vars:
+                del existing_vars[key]
+
+        # Write back to .env file
+        with open(env_file, "w", encoding="utf-8") as f:
+            for key, value in existing_vars.items():
+                f.write(f"{key}={value}\n")
 
     @on(Button.Pressed, "#save-button")
     def save_settings(self) -> None:
@@ -639,6 +757,8 @@ class SettingsScreen(ModalScreen):
             set_max_saved_sessions,
             set_model_name,
             set_openai_reasoning_effort,
+            set_suppress_informational_messages,
+            set_suppress_thinking_messages,
             set_vqa_model_name,
         )
 
@@ -712,6 +832,8 @@ class SettingsScreen(ModalScreen):
                 set_max_saved_sessions(int(max_autosaves))
 
             # Tab 4: Appearance
+            suppress_thinking = self.query_one("#suppress-thinking-switch", Switch).value
+            suppress_informational = self.query_one("#suppress-informational-switch", Switch).value
             diff_style = self.query_one("#diff-style-select", Select).value
             diff_addition_color = self.query_one(
                 "#diff-addition-color-input", Input
@@ -723,6 +845,8 @@ class SettingsScreen(ModalScreen):
                 "#diff-context-lines-input", Input
             ).value.strip()
 
+            set_suppress_thinking_messages(suppress_thinking)
+            set_suppress_informational_messages(suppress_informational)
             if diff_style:
                 set_diff_highlight_style(diff_style)
             if diff_addition_color:
@@ -759,6 +883,10 @@ class SettingsScreen(ModalScreen):
             set_config_value("disable_mcp", "true" if disable_mcp else "false")
             set_enable_dbos(enable_dbos)
 
+            # Tab 6: API Keys & Status
+            # Save API keys to environment and .env file
+            self.save_api_keys()
+
             # Reload agent if model changed
             if model_changed:
                 try:
@@ -769,10 +897,16 @@ class SettingsScreen(ModalScreen):
                 except Exception:
                     pass
 
-            # Return success message
-            message = "✅ Settings saved successfully!"
+            # Return success message with file locations
+            from code_puppy.config import CONFIG_FILE
+            from pathlib import Path
+
+            message = f"✅ Settings saved successfully!\n"
+            message += f"📁 Config: {CONFIG_FILE}\n"
+            message += f"📁 API Keys: {Path.cwd() / '.env'}"
+
             if model_changed:
-                message += f" Model switched to: {selected_model}"
+                message += f"\n🔄 Model switched to: {selected_model}"
 
             self.dismiss(
                 {

@@ -76,6 +76,7 @@ class CodePuppyTUI(App):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
+        Binding("ctrl+m", "toggle_mouse_capture", "Toggle Copy Mode"),
         Binding("ctrl+1", "show_help", "Help"),
         Binding("ctrl+2", "toggle_sidebar", "History"),
         Binding("ctrl+3", "open_settings", "Settings"),
@@ -774,6 +775,14 @@ class CodePuppyTUI(App):
                     self.add_error_message(f"Failed to switch model: {e}")
 
         self.push_screen(ModelPicker(), handle_model_select)
+
+    def action_toggle_mouse_capture(self) -> None:
+        """Toggle mouse capture to enable/disable text selection."""
+        self.capture_mouse = not self.capture_mouse
+        if self.capture_mouse:
+            self.add_system_message("🖱️  Mouse capture ON - App is interactive (use Ctrl+M to enable copy mode)")
+        else:
+            self.add_system_message("📋 Copy mode ON - You can now select and copy text (use Ctrl+M to exit)")
 
     def process_initial_command(self) -> None:
         """Process the initial command provided when starting the TUI."""
