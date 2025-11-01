@@ -1,5 +1,5 @@
 # agent_tools.py
-
+import traceback
 from typing import List
 
 from pydantic import BaseModel
@@ -104,7 +104,7 @@ def register_invoke_agent(agent):
     """
 
     @agent.tool
-    def invoke_agent(
+    async def invoke_agent(
         context: RunContext, agent_name: str, prompt: str
     ) -> AgentInvokeOutput:
         """Invoke a specific sub-agent with a given prompt.
@@ -167,6 +167,12 @@ def register_invoke_agent(agent):
                 retries=3,
             )
 
+            # Register the tools that the agent needs
+            from code_puppy.tools import register_tools_for_agent
+
+            agent_tools = agent_config.get_available_tools()
+            register_tools_for_agent(temp_agent, agent_tools)
+
             if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
 
@@ -175,14 +181,8 @@ def register_invoke_agent(agent):
                 )
                 temp_agent = dbos_agent
 
-            # Register the tools that the agent needs
-            from code_puppy.tools import register_tools_for_agent
-
-            agent_tools = agent_config.get_available_tools()
-            register_tools_for_agent(temp_agent, agent_tools)
-
             # Run the temporary agent with the provided prompt
-            result = temp_agent.run_sync(
+            result = await temp_agent.run(
                 prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
             )
 
@@ -194,8 +194,8 @@ def register_invoke_agent(agent):
 
             return AgentInvokeOutput(response=response, agent_name=agent_name)
 
-        except Exception as e:
-            error_msg = f"Error invoking agent '{agent_name}': {str(e)}"
+        except Exception:
+            error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
             emit_divider(message_group=group_id)
             return AgentInvokeOutput(
