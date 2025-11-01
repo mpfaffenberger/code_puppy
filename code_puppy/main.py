@@ -79,6 +79,7 @@ async def main():
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
+    parser.add_argument("--acp", action="store_true", help="Run in ACP mode")
     args = parser.parse_args()
 
     if args.tui or args.web:
@@ -87,7 +88,7 @@ async def main():
         set_tui_mode(False)
 
     message_renderer = None
-    if not is_tui_mode():
+    if not is_tui_mode() and not args.acp:
         from rich.console import Console
 
         from code_puppy.messaging import (
@@ -287,6 +288,9 @@ async def main():
                 emit_error(f"TUI Error: {str(e)}")
                 emit_warning("Falling back to interactive mode...")
                 await interactive_mode(message_renderer)
+        elif args.acp:
+            from code_puppy.acp_server import acp_main
+            await acp_main()
         elif args.interactive or initial_command:
             await interactive_mode(message_renderer, initial_command=initial_command)
         else:
