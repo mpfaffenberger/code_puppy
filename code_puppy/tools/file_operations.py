@@ -114,6 +114,11 @@ def _list_files(
     import subprocess
     import sys
 
+    # Check for cancellation before starting
+    from code_puppy.cancellation_token import raise_if_cancelled
+
+    raise_if_cancelled("File listing cancelled")
+
     results = []
     directory = os.path.abspath(os.path.expanduser(directory))
 
@@ -452,6 +457,11 @@ def _read_file(
     start_line: int | None = None,
     num_lines: int | None = None,
 ) -> ReadFileOutput:
+    # Check for cancellation before starting
+    from code_puppy.cancellation_token import raise_if_cancelled
+
+    raise_if_cancelled("File reading cancelled")
+
     file_path = os.path.abspath(os.path.expanduser(file_path))
 
     # Generate group_id for this tool execution

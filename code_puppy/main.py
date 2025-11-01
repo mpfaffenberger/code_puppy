@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -33,6 +34,7 @@ from code_puppy.config import (
 from code_puppy.http_utils import find_available_port
 from code_puppy.messaging import emit_info
 from code_puppy.session_storage import restore_autosave_interactively
+from code_puppy.task_factory import ensure_task_factory_installed
 from code_puppy.tools.common import console
 
 # message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
@@ -43,6 +45,9 @@ plugins.load_plugin_callbacks()
 
 
 async def main():
+    # Install global task factory to intercept all task creation
+    ensure_task_factory_installed()
+
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
         "--version",
@@ -306,7 +311,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     """Run the agent in interactive mode."""
 
     display_console = message_renderer.console
-    from code_puppy.messaging import emit_info, emit_system_message
+    from code_puppy.messaging import emit_system_message
 
     emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
     emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
@@ -591,7 +596,8 @@ async def run_prompt_with_attachments(
     """
     import asyncio
 
-    from code_puppy.messaging import emit_system_message, emit_warning
+    from code_puppy.messaging import emit_info, emit_system_message, emit_warning
+    from code_puppy.tools.command_runner import kill_all_running_shell_processes
 
     processed_prompt = parse_prompt_attachments(raw_prompt)
 
@@ -626,28 +632,81 @@ async def run_prompt_with_attachments(
         )
     )
 
-    if use_spinner and spinner_console is not None:
-        from code_puppy.messaging.spinner import ConsoleSpinner
+    # Task factory automatically tracks the agent task
 
-        with ConsoleSpinner(console=spinner_console):
+    # Set up signal handling BEFORE creating the agent task
+    def cli_keyboard_interrupt_handler(sig, frame):
+        """Signal handler for Ctrl+C at CLI level - immediate interruption."""
+        emit_info(
+            "\n[bold yellow]Ctrl+C detected - cancelling all tasks...[/bold yellow]"
+        )
+
+        # First, try to kill any running shell processes
+        try:
+            killed = kill_all_running_shell_processes()
+            if killed:
+                emit_info(f"Cancelled {killed} running shell process(es).")
+        except Exception as e:
+            emit_info(f"Shell kill error: {e}")
+
+        # Immediate task cancellation without signal raising
+        try:
+            from code_puppy.task_registry import cancel_all_agent_tasks
+
+            cancel_all_agent_tasks(agent_task)
+        except Exception:
+            pass
+
+        # Don't raise KeyboardInterrupt - let the task cancellation handle it naturally
+
+    # Save original handler and set our custom one
+    original_handler = signal.signal(signal.SIGINT, cli_keyboard_interrupt_handler)
+
+    try:
+        if use_spinner and spinner_console is not None:
+            from code_puppy.messaging.spinner import ConsoleSpinner
+
+            with ConsoleSpinner(console=spinner_console):
+                try:
+                    # Add timeout to prevent hanging on cancelled tasks
+                    result = await asyncio.wait_for(agent_task, timeout=300)
+                    return result, agent_task
+                except asyncio.TimeoutError:
+                    emit_info("Agent task timed out")
+                    return None, agent_task
+                except asyncio.CancelledError:
+                    emit_info("Agent task cancelled")
+                    return None, agent_task
+        else:
             try:
-                result = await agent_task
+                # Add timeout to prevent hanging on cancelled tasks
+                result = await asyncio.wait_for(agent_task, timeout=300)
                 return result, agent_task
+            except asyncio.TimeoutError:
+                emit_info("Agent task timed out")
+                return None, agent_task
             except asyncio.CancelledError:
                 emit_info("Agent task cancelled")
                 return None, agent_task
-    else:
+    finally:
+        # Restore original signal handler
+        signal.signal(signal.SIGINT, original_handler)
+
+        # Ensure proper cleanup of any remaining tasks
         try:
-            result = await agent_task
-            return result, agent_task
-        except asyncio.CancelledError:
-            emit_info("Agent task cancelled")
-            return None, agent_task
+            from code_puppy.task_registry import cleanup_completed_tasks
+
+            cleanup_completed_tasks()
+        except Exception:
+            pass
+
+
+# Task factory handles automatic untracking when task completes
 
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
-    from code_puppy.messaging import emit_info, emit_system_message
+    from code_puppy.messaging import emit_system_message
 
     emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
 
@@ -679,7 +738,7 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 
 async def prompt_then_interactive_mode(message_renderer) -> None:
     """Prompt user for input, execute it, then continue in interactive mode."""
-    from code_puppy.messaging import emit_info, emit_system_message
+    from code_puppy.messaging import emit_system_message
 
     emit_info("[bold green]🐶 Code Puppy[/bold green] - Enter your request")
     emit_system_message(
