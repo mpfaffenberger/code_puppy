@@ -163,7 +163,10 @@ def test_desktop_extract_text_active_window(monkeypatch):
 
     res: OCRExtractResult = desktop_extract_text(context=None, use_active_window=True)
     assert res.success is True
-    assert res.total_words == 2
+    # Check compact fields (success-conditional compaction)
+    assert res.found_count == 2  # Should have 2 elements
+    assert len(res.key_elements) > 0  # Should have key elements
+    assert res.summary != ""  # Should have summary
 
 
 @patch("code_puppy.tools.rpa.ocr_tools.PYAUTOGUI_AVAILABLE", True)

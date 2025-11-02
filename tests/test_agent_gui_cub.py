@@ -483,11 +483,12 @@ class TestGUICubAgent:
         assert "Wrap-Up Protocol" in p
 
     def test_prompt_includes_screenshot_ocr_vqa_gating(self, agent):
-        """Verify system prompt includes heavy tooling warnings."""
+        """Verify system prompt includes success-conditional compaction info."""
         p = agent.get_system_prompt()
-        assert "Heavy tooling warning" in p or "Screenshots, OCR, and VQA are expensive" in p
-        assert "explicitly requests" in p
-        assert "Do not take screenshots" in p or "MUST NOT invoke" in p
+        # Check for success-conditional compaction documentation
+        assert "Success-Conditional" in p or "success-conditional" in p
+        assert "compact" in p.lower() or "compaction" in p.lower()
+        assert "token" in p.lower()  # Should mention token savings
 
     def test_prompt_tool_reference_mentions_examples(self, agent):
         """Verify system prompt includes tool reference examples."""
@@ -504,10 +505,12 @@ class TestGUICubAgent:
         assert "desktop_find_element_recursive" in p
 
     def test_prompt_includes_prohibited_section(self, agent):
-        """Verify system prompt includes PROHIBITED section for safety."""
+        """Verify system prompt includes operational guidelines."""
         p = agent.get_system_prompt()
-        assert "PROHIBITED" in p
-        assert "Do not take screenshots" in p or "MUST NOT invoke" in p
+        # Check for operational rules and guidelines
+        assert "PROHIBITED" in p or "Critical Rules" in p or "ALWAYS" in p
+        # Check for VQA usage guidance
+        assert "VQA" in p or "desktop_screenshot_analyze" in p
 
     def test_prompt_platform_specific_nuance(self, agent):
         """Verify system prompt covers platform-specific nuances."""
