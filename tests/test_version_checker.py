@@ -128,32 +128,25 @@ class TestDefaultVersionMismatchBehavior:
 
     @patch("code_puppy.version_checker.console")
     @patch("code_puppy.version_checker.fetch_latest_version")
-    def test_version_match_no_update_message(self, mock_fetch, mock_console):
-        """Test that no update message when versions match."""
+    def test_version_match_still_shows_current_version(self, mock_fetch, mock_console):
+        """Test that current version is still shown when versions match."""
         mock_fetch.return_value = "1.0.0"
 
         default_version_mismatch_behavior("1.0.0")
 
-        # Should still print versions
-        mock_console.print.assert_any_call("Current version: 1.0.0")
-        mock_console.print.assert_any_call("Latest version: 1.0.0")
-        # Should not show update message (only 2 calls)
-        assert mock_console.print.call_count == 2
+        # Should print current version even when versions match
+        mock_console.print.assert_called_once_with("Current version: 1.0.0")
 
     @patch("code_puppy.version_checker.console")
     @patch("code_puppy.version_checker.fetch_latest_version")
-    def test_version_fetch_failure_no_update_message(self, mock_fetch, mock_console):
+    def test_version_fetch_failure_still_shows_current(self, mock_fetch, mock_console):
         """Test behavior when fetch_latest_version returns None."""
         mock_fetch.return_value = None
 
         default_version_mismatch_behavior("1.0.0")
 
-        # Should print current version
-        mock_console.print.assert_any_call("Current version: 1.0.0")
-        # Should print None for latest
-        mock_console.print.assert_any_call("Latest version: None")
-        # Should not show update message
-        assert mock_console.print.call_count == 2
+        # Should still print current version even when version fetch fails
+        mock_console.print.assert_called_once_with("Current version: 1.0.0")
 
     @patch("code_puppy.version_checker.console")
     @patch("code_puppy.version_checker.fetch_latest_version")
