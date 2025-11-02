@@ -102,102 +102,6 @@ class ModelFactory:
     """A factory for creating and managing different AI models."""
 
     @staticmethod
-    def validate_api_key_for_model(model_name: str) -> bool:
-        """Validate that the required API key is present for a given model.
-
-        Args:
-            model_name: Name of the model to validate
-
-        Returns:
-            True if API key is present (or not required), False and emits warning if missing
-        """
-        try:
-            config = ModelFactory.load_config()
-            model_config = config.get(model_name)
-            if not model_config:
-                return True  # Model doesn't exist, skip validation
-
-            model_type = model_config.get("type")
-
-            # Check API keys based on model type
-            if model_type == "gemini":
-                if not os.environ.get("GEMINI_API_KEY"):
-                    emit_warning(
-                        f"⚠️  GEMINI_API_KEY is not set. Model '{model_name}' may not work."
-                    )
-                    return False
-
-            elif model_type == "openai":
-                if not os.environ.get("OPENAI_API_KEY"):
-                    emit_warning(
-                        f"⚠️  OPENAI_API_KEY is not set. Model '{model_name}' may not work."
-                    )
-                    return False
-
-            elif model_type == "anthropic":
-                if not os.environ.get("ANTHROPIC_API_KEY"):
-                    emit_warning(
-                        f"⚠️  ANTHROPIC_API_KEY is not set. Model '{model_name}' may not work."
-                    )
-                    return False
-
-            elif model_type == "cerebras":
-                url, headers, verify, api_key = get_custom_config(model_config)
-                if not api_key:
-                    emit_warning(
-                        f"⚠️  Cerebras API key is not set. Model '{model_name}' may not work."
-                    )
-                    return False
-
-            elif model_type == "openrouter":
-                api_key_config = model_config.get("api_key")
-                api_key = None
-                if api_key_config:
-                    if api_key_config.startswith("$"):
-                        env_var_name = api_key_config[1:]
-                        api_key = os.environ.get(env_var_name)
-                    else:
-                        api_key = api_key_config
-                else:
-                    api_key = os.environ.get("OPENROUTER_API_KEY")
-
-                if not api_key:
-                    emit_warning(
-                        f"⚠️  OPENROUTER_API_KEY is not set. Model '{model_name}' may not work."
-                    )
-                    return False
-
-            elif model_type == "zai_coding" or model_type == "zai_api":
-                if not os.getenv("ZAI_API_KEY"):
-                    emit_warning(
-                        f"⚠️  ZAI_API_KEY is not set. Model '{model_name}' may not work."
-                    )
-                    return False
-
-            elif model_type == "azure_openai":
-                api_key_config = model_config.get("api_key")
-                api_key = None
-                if api_key_config and api_key_config.startswith("$"):
-                    api_key = os.environ.get(api_key_config[1:])
-                elif api_key_config:
-                    api_key = api_key_config
-
-                if not api_key:
-                    emit_warning(
-                        f"⚠️  Azure OpenAI API key is not set. Model '{model_name}' may not work."
-                    )
-                    return False
-
-            # custom_openai, custom_anthropic, claude_code, custom_gemini
-            # have their own validation in get_custom_config
-
-            return True
-
-        except Exception:
-            # If validation fails, don't block the model switch
-            return True
-
-    @staticmethod
     def load_config() -> Dict[str, Any]:
         load_model_config_callbacks = callbacks.get_callbacks("load_model_config")
         if len(load_model_config_callbacks) > 0:
@@ -242,13 +146,14 @@ class ModelFactory:
 
     @staticmethod
     def get_model(model_name: str, config: Dict[str, Any]) -> Any:
-        """Returns a configured model instance based on the provided name and config."""
+        """Returns a configured model instance based on the provided name and config.
+
+        API key validation happens naturally within each model type's initialization,
+        which emits warnings and returns None if keys are missing.
+        """
         model_config = config.get(model_name)
         if not model_config:
             raise ValueError(f"Model '{model_name}' not found in configuration.")
-
-        # Validate API key whenever a model is loaded (as per maintainer feedback)
-        ModelFactory.validate_api_key_for_model(model_name)
 
         model_type = model_config.get("type")
 
