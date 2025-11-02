@@ -77,6 +77,12 @@ async def main():
         help="Specify which agent to use (e.g., --agent code-puppy)",
     )
     parser.add_argument(
+        "--model",
+        "-m",
+        type=str,
+        help="Specify which model to use (e.g., --model gpt-5)",
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
@@ -175,7 +181,43 @@ async def main():
         emit_system_message(f"[bold red]{error_msg}[/bold red]")
         return
 
+    # Early model setting if specified via command line
+    # This happens before ensure_config_exists() to ensure config is set up correctly
+    early_model = None
+    if args.model:
+        early_model = args.model.strip()
+        from code_puppy.config import set_model_name
+
+        set_model_name(early_model)
+
     ensure_config_exists()
+
+    # Handle model validation from command line (validation happens here, setting was earlier)
+    if args.model:
+        from code_puppy.config import _validate_model_exists
+
+        model_name = args.model.strip()
+        try:
+            # Validate that the model exists in models.json
+            if not _validate_model_exists(model_name):
+                from code_puppy.model_factory import ModelFactory
+
+                models_config = ModelFactory.load_config()
+                available_models = list(models_config.keys()) if models_config else []
+
+                emit_system_message(
+                    f"[bold red]Error:[/bold red] Model '{model_name}' not found"
+                )
+                emit_system_message(f"Available models: {', '.join(available_models)}")
+                sys.exit(1)
+
+            # Model is valid, show confirmation (already set earlier)
+            emit_system_message(f"🎯 Using model: {model_name}")
+        except Exception as e:
+            emit_system_message(
+                f"[bold red]Error validating model:[/bold red] {str(e)}"
+            )
+            sys.exit(1)
 
     # Handle agent selection from command line
     if args.agent:
