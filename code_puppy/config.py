@@ -1072,10 +1072,17 @@ def set_api_key(key_name: str, value: str):
 
 
 def load_api_keys_to_environment():
-    """Load all API keys from puppy.cfg into environment variables.
+    """Load all API keys from .env and puppy.cfg into environment variables.
+
+    Priority order:
+    1. .env file (highest priority) - if present in current directory
+    2. puppy.cfg - fallback if not in .env
+    3. Existing environment variables - preserved if already set
 
     This should be called on startup to ensure API keys are available.
     """
+    from pathlib import Path
+
     api_key_names = [
         "OPENAI_API_KEY",
         "GEMINI_API_KEY",
@@ -1084,12 +1091,27 @@ def load_api_keys_to_environment():
         "SYN_API_KEY",
         "AZURE_OPENAI_API_KEY",
         "AZURE_OPENAI_ENDPOINT",
+        "OPENROUTER_API_KEY",
+        "ZAI_API_KEY",
     ]
 
+    # Step 1: Load from .env file if it exists (highest priority)
+    # Look for .env in current working directory
+    env_file = Path.cwd() / ".env"
+    if env_file.exists():
+        try:
+            from dotenv import load_dotenv
+            # override=True means .env values take precedence over existing env vars
+            load_dotenv(env_file, override=True)
+        except ImportError:
+            # python-dotenv not installed, skip .env loading
+            pass
+
+    # Step 2: Load from puppy.cfg, but only if not already set
+    # This ensures .env has priority over puppy.cfg
     for key_name in api_key_names:
-        value = get_api_key(key_name)
-        if value:
-            os.environ[key_name] = value
-        elif key_name in os.environ:
-            # Remove from environment if it was removed from config
-            del os.environ[key_name]
+        # Only load from config if not already in environment
+        if key_name not in os.environ or not os.environ[key_name]:
+            value = get_api_key(key_name)
+            if value:
+                os.environ[key_name] = value

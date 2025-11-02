@@ -683,20 +683,53 @@ class SettingsScreen(ModalScreen):
             agent_row.mount(agent_select)
 
     def load_api_keys(self):
-        """Load API keys from puppy.cfg into input fields."""
+        """Load API keys from .env (priority) or puppy.cfg (fallback) into input fields."""
+        from pathlib import Path
+
+        # Priority order: .env file > environment variables > puppy.cfg
+        api_key_names = {
+            "OPENAI_API_KEY": "#openai-api-key-input",
+            "GEMINI_API_KEY": "#gemini-api-key-input",
+            "ANTHROPIC_API_KEY": "#anthropic-api-key-input",
+            "CEREBRAS_API_KEY": "#cerebras-api-key-input",
+            "SYN_API_KEY": "#syn-api-key-input",
+            "AZURE_OPENAI_API_KEY": "#azure-api-key-input",
+            "AZURE_OPENAI_ENDPOINT": "#azure-endpoint-input",
+        }
+
+        # Load from .env file if it exists
+        env_file = Path.cwd() / ".env"
+        env_values = {}
+        if env_file.exists():
+            try:
+                with open(env_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            key, value = line.split("=", 1)
+                            env_values[key.strip()] = value.strip()
+            except Exception:
+                pass
+
+        # Load each key with priority: .env > environment > puppy.cfg
         from code_puppy.config import get_api_key
 
-        # Load current values from puppy.cfg
-        self.query_one("#openai-api-key-input", Input).value = get_api_key("OPENAI_API_KEY")
-        self.query_one("#gemini-api-key-input", Input).value = get_api_key("GEMINI_API_KEY")
-        self.query_one("#anthropic-api-key-input", Input).value = get_api_key("ANTHROPIC_API_KEY")
-        self.query_one("#cerebras-api-key-input", Input).value = get_api_key("CEREBRAS_API_KEY")
-        self.query_one("#syn-api-key-input", Input).value = get_api_key("SYN_API_KEY")
-        self.query_one("#azure-api-key-input", Input).value = get_api_key("AZURE_OPENAI_API_KEY")
-        self.query_one("#azure-endpoint-input", Input).value = get_api_key("AZURE_OPENAI_ENDPOINT")
+        for key_name, input_id in api_key_names.items():
+            # Priority 1: .env file
+            if key_name in env_values:
+                value = env_values[key_name]
+            # Priority 2: environment variable
+            elif key_name in os.environ and os.environ[key_name]:
+                value = os.environ[key_name]
+            # Priority 3: puppy.cfg
+            else:
+                value = get_api_key(key_name)
+
+            self.query_one(input_id, Input).value = value or ""
 
     def save_api_keys(self):
-        """Save API keys to puppy.cfg and update environment variables."""
+        """Save API keys to .env file (primary) and puppy.cfg (backup) and update environment variables."""
+        from pathlib import Path
         from code_puppy.config import set_api_key
 
         # Get values from input fields
@@ -710,13 +743,64 @@ class SettingsScreen(ModalScreen):
             "AZURE_OPENAI_ENDPOINT": self.query_one("#azure-endpoint-input", Input).value.strip(),
         }
 
-        # Save to puppy.cfg and update environment variables
+        # Update environment variables immediately
         for key, value in api_keys.items():
-            set_api_key(key, value)
             if value:
                 os.environ[key] = value
             elif key in os.environ:
                 del os.environ[key]
+
+        # Save to .env file (highest priority source)
+        env_file = Path.cwd() / ".env"
+        try:
+            # Read existing .env content to preserve comments and other variables
+            existing_lines = []
+            existing_keys = set()
+            if env_file.exists():
+                with open(env_file, "r") as f:
+                    for line in f:
+                        stripped = line.strip()
+                        # Track which keys exist
+                        if stripped and not stripped.startswith("#") and "=" in stripped:
+                            key = stripped.split("=", 1)[0].strip()
+                            existing_keys.add(key)
+                        existing_lines.append(line)
+
+            # Update or add API keys
+            updated_lines = []
+            for line in existing_lines:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    key = stripped.split("=", 1)[0].strip()
+                    if key in api_keys:
+                        # Update this key
+                        if api_keys[key]:
+                            updated_lines.append(f"{key}={api_keys[key]}\n")
+                        # else: skip it (delete if empty)
+                        existing_keys.discard(key)  # Mark as processed
+                    else:
+                        # Keep other variables
+                        updated_lines.append(line)
+                else:
+                    # Keep comments and empty lines
+                    updated_lines.append(line)
+
+            # Add new keys that weren't in the file
+            for key, value in api_keys.items():
+                if value and key not in existing_keys:
+                    updated_lines.append(f"{key}={value}\n")
+
+            # Write back to .env
+            with open(env_file, "w") as f:
+                f.writelines(updated_lines)
+
+        except Exception:
+            # If .env fails, fall back to puppy.cfg only
+            pass
+
+        # Also save to puppy.cfg as backup
+        for key, value in api_keys.items():
+            set_api_key(key, value)
 
     @on(Button.Pressed, "#save-button")
     def save_settings(self) -> None:
