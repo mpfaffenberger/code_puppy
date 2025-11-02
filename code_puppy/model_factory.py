@@ -362,14 +362,20 @@ class ModelFactory:
                     api_key = os.environ.get(env_var_name)
                     if api_key is None:
                         emit_warning(
-                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty; proceeding without API key."
+                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty; skipping model '{model_config.get('name')}'."
                         )
-                    else:
-                        # It's a raw API key value
-                        api_key = api_key_config
+                        return None
+                else:
+                    # It's a raw API key value
+                    api_key = api_key_config
             else:
                 # No API key in config, try to get it from the default environment variable
                 api_key = os.environ.get("OPENROUTER_API_KEY")
+                if api_key is None:
+                    emit_warning(
+                        f"OPENROUTER_API_KEY is not set; skipping OpenRouter model '{model_config.get('name')}'."
+                    )
+                    return None
 
             provider = OpenRouterProvider(api_key=api_key)
 
