@@ -61,8 +61,9 @@ from code_puppy.messaging.spinner import (
 )
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
-from code_puppy.tools.command_runner import kill_all_running_shell_processes
 from code_puppy.tools.agent_tools import _active_subagent_tasks
+from code_puppy.tools.command_runner import kill_all_running_shell_processes
+
 # Global flag to track delayed compaction requests
 _delayed_compaction_requested = False
 
@@ -1406,16 +1407,23 @@ class BaseAgent(ABC):
 
         def schedule_agent_cancel() -> None:
             from code_puppy.tools.command_runner import _RUNNING_PROCESSES
+
             if len(_RUNNING_PROCESSES):
-                emit_warning("Refusing to cancel Agent while a shell command is currently running - press ESC to cancel the shell command.")
+                emit_warning(
+                    "Refusing to cancel Agent while a shell command is currently running - press ESC to cancel the shell command."
+                )
                 return
             if agent_task.done():
                 return
 
             # Cancel all active subagent tasks
             if _active_subagent_tasks:
-                emit_warning(f"Cancelling {len(_active_subagent_tasks)} active subagent task(s)...")
-                for task in list(_active_subagent_tasks):  # Create a copy since we'll be modifying the set
+                emit_warning(
+                    f"Cancelling {len(_active_subagent_tasks)} active subagent task(s)..."
+                )
+                for task in list(
+                    _active_subagent_tasks
+                ):  # Create a copy since we'll be modifying the set
                     if not task.done():
                         loop.call_soon_threadsafe(task.cancel)
             loop.call_soon_threadsafe(agent_task.cancel)
