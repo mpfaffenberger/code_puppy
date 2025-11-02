@@ -153,7 +153,9 @@ class TUIRenderer(MessageRenderer):
 
     async def render_message(self, message: UIMessage):
         """Render a message in the TUI chat view."""
-        print(f"[DEBUG TUIRenderer] Received message: type={message.type}, content={str(message.content)[:50]}...")
+        print(
+            f"[DEBUG TUIRenderer] Received message: type={message.type}, content={str(message.content)[:50]}..."
+        )
 
         if not self.tui_app:
             print("[DEBUG TUIRenderer] No tui_app available, returning")

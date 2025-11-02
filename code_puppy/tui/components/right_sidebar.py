@@ -73,7 +73,9 @@ class RightSidebar(Static):
 
         # Session Info Section
         status_text.append("Session Info\n\n", style="bold cyan")
-        status_text.append(f"Time: {datetime.now().strftime('%H:%M:%S')}\n", style="green")
+        status_text.append(
+            f"Time: {datetime.now().strftime('%H:%M:%S')}\n", style="green"
+        )
         status_text.append(f"Messages: {self.message_count}\n", style="yellow")
         status_text.append(f"Duration: {self.session_duration}\n", style="magenta")
 
@@ -122,8 +124,7 @@ class RightSidebar(Static):
         tokens_k = self.context_used / 1000
         max_k = self.context_total / 1000
         status_text.append(
-            f"{tokens_k:.1f}k/{max_k:.0f}k ({percentage:.1f}%)\n",
-            style="dim"
+            f"{tokens_k:.1f}k/{max_k:.0f}k ({percentage:.1f}%)\n", style="dim"
         )
 
         # Quick Actions Section

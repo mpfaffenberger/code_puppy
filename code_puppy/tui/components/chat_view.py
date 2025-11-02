@@ -194,7 +194,9 @@ class ChatView(VerticalScroll):
         suppress_thinking = get_suppress_thinking_messages()
         suppress_info = get_suppress_informational_messages()
         print(f"[DEBUG] Message type: {message.type}, Category: {category}")
-        print(f"[DEBUG] suppress_thinking={suppress_thinking}, suppress_info={suppress_info}")
+        print(
+            f"[DEBUG] suppress_thinking={suppress_thinking}, suppress_info={suppress_info}"
+        )
 
         # Check if thinking messages should be suppressed
         if category == MessageCategory.THINKING and suppress_thinking:
@@ -202,10 +204,7 @@ class ChatView(VerticalScroll):
             return True
 
         # Check if informational messages should be suppressed
-        if (
-            category == MessageCategory.INFORMATIONAL
-            and suppress_info
-        ):
+        if category == MessageCategory.INFORMATIONAL and suppress_info:
             print("[DEBUG] Suppressing INFORMATIONAL message")
             return True
 
@@ -349,7 +348,9 @@ class ChatView(VerticalScroll):
 
     def add_message(self, message: ChatMessage) -> None:
         """Add a new message to the chat view."""
-        print(f"[DEBUG] add_message() called with message type: {message.type}, content: {str(message.content)[:50]}...")
+        print(
+            f"[DEBUG] add_message() called with message type: {message.type}, content: {str(message.content)[:50]}..."
+        )
 
         # First check if this message should be suppressed
         if self._should_suppress_message(message):
