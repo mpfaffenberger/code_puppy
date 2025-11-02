@@ -251,6 +251,7 @@ class TUIRenderer(MessageRenderer):
             provide_prompt_response(prompt_id, "")
 
         except Exception as e:
+            print(f"Exception in _handle_human_input_request: {e}")
             import traceback
 
             traceback.print_exc()

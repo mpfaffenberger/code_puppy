@@ -111,6 +111,7 @@ class HumanInputModal(ModalScreen):
             input_field = self.query_one("#response-input", CustomTextArea)
             input_field.focus()
         except Exception as e:
+            print(f"Modal on_mount exception: {e}")
             import traceback
 
             traceback.print_exc()
@@ -154,6 +155,7 @@ class HumanInputModal(ModalScreen):
             # Close the modal using the same method as other modals
             self.app.pop_screen()
         except Exception as e:
+            print(f"Modal error during submit: {e}")
             # If something goes wrong, provide empty response
             from code_puppy.messaging import provide_prompt_response
 
