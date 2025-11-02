@@ -52,7 +52,6 @@ from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
     emit_info,
-    emit_system_message,
     emit_warning,
 )
 from code_puppy.messaging.spinner import (
@@ -61,7 +60,6 @@ from code_puppy.messaging.spinner import (
 )
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
-from code_puppy.tools.common import console
 
 # Global flag to track delayed compaction requests
 _delayed_compaction_requested = False
@@ -837,7 +835,6 @@ class BaseAgent(ABC):
 
         mcp_disabled = get_value("disable_mcp_servers")
         if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
-            emit_system_message("[dim]MCP servers disabled via config[/dim]")
             return []
 
         manager = get_mcp_manager()
@@ -845,7 +842,6 @@ class BaseAgent(ABC):
         if not configs:
             existing_servers = manager.list_servers()
             if not existing_servers:
-                emit_system_message("[dim]No MCP servers configured[/dim]")
                 return []
         else:
             for name, conf in configs.items():
@@ -860,24 +856,13 @@ class BaseAgent(ABC):
                     existing = manager.get_server_by_name(name)
                     if not existing:
                         manager.register_server(server_config)
-                        emit_system_message(f"[dim]Registered MCP server: {name}[/dim]")
                     else:
                         if existing.config != server_config.config:
                             manager.update_server(existing.id, server_config)
-                            emit_system_message(
-                                f"[dim]Updated MCP server: {name}[/dim]"
-                            )
-                except Exception as e:
-                    emit_error(f"Failed to register MCP server '{name}': {str(e)}")
+                except Exception:
                     continue
 
-        servers = manager.get_servers_for_agent()
-        if servers:
-            emit_system_message(
-                f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
-            )
-        # Stay silent when there are no servers configured/available
-        return servers
+        return manager.get_servers_for_agent()
 
     def reload_mcp_servers(self):
         """Reload MCP servers and return updated servers."""
@@ -982,7 +967,6 @@ class BaseAgent(ABC):
             2048,
             min(int(0.05 * self.get_model_context_length()) - 1024, 16384),
         )
-        console.print(f"Max output tokens per message: {output_tokens}")
         model_settings_dict["max_tokens"] = output_tokens
 
         model_settings: ModelSettings = ModelSettings(**model_settings_dict)

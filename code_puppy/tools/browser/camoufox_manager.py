@@ -66,9 +66,9 @@ class CamoufoxManager:
             await self._prefetch_camoufox()
 
             await self._initialize_camoufox()
-            emit_info(
-                "[green]✅ Camoufox initialized successfully (privacy-focused Firefox)[/green]"
-            )
+            # emit_info(
+            #     "[green]✅ Camoufox initialized successfully (privacy-focused Firefox)[/green]"
+            # )  # Removed to reduce console spam
             self._initialized = True
 
         except Exception:
@@ -146,8 +146,8 @@ class CamoufoxManager:
         # Lazy import camoufox utilities to avoid side effects during module import
         try:
             from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
-            from camoufox.pkgman import CamoufoxFetcher, camoufox_path
             from camoufox.locale import ALLOW_GEOIP, download_mmdb
+            from camoufox.pkgman import CamoufoxFetcher, camoufox_path
         except Exception:
             emit_info(
                 "[yellow]Camoufox no disponible. Omitiendo prefetch y preparándose para usar Playwright.[/yellow]"
