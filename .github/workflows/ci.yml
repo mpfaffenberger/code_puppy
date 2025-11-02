@@ -40,16 +40,19 @@ jobs:
           CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
+          SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
           echo "=== DEBUG: Environment Variables ==="
           echo "CEREBRAS_API_KEY is set: ${{ secrets.CEREBRAS_API_KEY != '' }}"
           echo "CONTEXT7_API_KEY is set: ${{ secrets.CONTEXT7_API_KEY != '' }}"
           echo "OPENAI_API_KEY is set: ${{ secrets.OPENAI_API_KEY != '' }}"
           echo "ANTHROPIC_API_KEY is set: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
+          echo "SYN_API_KEY is set: ${{ secrets.SYN_API_KEY != '' }}"
           echo "CEREBRAS_API_KEY length: ${#CEREBRAS_API_KEY}"
           echo "CONTEXT7_API_KEY length: ${#CONTEXT7_API_KEY}"
           echo "OPENAI_API_KEY length: ${#OPENAI_API_KEY}"
           echo "ANTHROPIC_API_KEY length: ${#ANTHROPIC_API_KEY}"
+          echo "SYN_API_KEY length: ${#SYN_API_KEY}"
           echo "=== END DEBUG ==="
 
       - name: Run tests
@@ -58,6 +61,7 @@ jobs:
           CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
+          SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
           echo "Running all tests (including integration tests) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
