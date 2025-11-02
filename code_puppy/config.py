@@ -157,6 +157,7 @@ def get_config_keys():
         "max_saved_sessions",
         "http2",
         "diff_context_lines",
+        "default_agent",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -996,3 +997,23 @@ def finalize_autosave_session() -> str:
     """Persist the current autosave snapshot and rotate to a fresh session."""
     auto_save_session_if_enabled()
     return rotate_autosave_id()
+
+
+def get_default_agent() -> str:
+    """
+    Get the default agent name from puppy.cfg.
+
+    Returns:
+        str: The default agent name, or "code-puppy" if not set.
+    """
+    return get_value("default_agent") or "code-puppy"
+
+
+def set_default_agent(agent_name: str) -> None:
+    """
+    Set the default agent name in puppy.cfg.
+
+    Args:
+        agent_name: The name of the agent to set as default.
+    """
+    set_config_value("default_agent", agent_name)

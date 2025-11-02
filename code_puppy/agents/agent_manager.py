@@ -268,11 +268,21 @@ def get_current_agent_name() -> str:
     """Get the name of the currently active agent for this terminal session.
 
     Returns:
-        The name of the current agent for this session, defaults to 'code-puppy'.
+        The name of the current agent for this session.
+        Priority: session agent > config default > 'code-puppy'.
     """
     _ensure_session_cache_loaded()
     session_id = get_terminal_session_id()
-    return _SESSION_AGENTS_CACHE.get(session_id, "code-puppy")
+
+    # First check for session-specific agent
+    session_agent = _SESSION_AGENTS_CACHE.get(session_id)
+    if session_agent:
+        return session_agent
+
+    # Fall back to config default
+    from ..config import get_default_agent
+
+    return get_default_agent()
 
 
 def set_current_agent(agent_name: str) -> bool:
