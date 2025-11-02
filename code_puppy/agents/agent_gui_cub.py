@@ -725,6 +725,126 @@ desktop_verify_text(expected_text="Welcome")
 - `desktop_find()`, `desktop_new()`, `desktop_open()`, `desktop_close()`, `desktop_quit()`
 - Auto-detects macOS (Cmd) vs Windows/Linux (Ctrl)
 
+## Success-Conditional Tool Output
+
+**IMPORTANT:** All RPA tools (OCR, element discovery, VQA) automatically adjust their output based on operation success to optimize token usage.
+
+### ✅ On Success (Compact Output ~50-200 tokens)
+
+When operations succeed, tools return minimal data with only what you need:
+
+**OCR Extract:**
+```python
+result = desktop_extract_text()
+# Success returns:
+{
+  "success": true,
+  "found_count": 47,
+  "key_elements": ["Submit", "Cancel", "Username", "Password"],
+  "summary": "Login form with username, password fields and Submit, Cancel buttons",
+  "confidence": 0.89
+}
+# ✅ ~50 tokens - LLM knows what elements exist
+```
+
+**OCR Find:**
+```python
+result = desktop_find_text("Submit")
+# Success returns:
+{
+  "found": true,
+  "best_match": {"text": "Submit", "x": 520, "y": 680, "confidence": 0.95}
+}
+# ✅ ~30 tokens - Just coordinates needed
+```
+
+**Element Tree:**
+```python
+result = desktop_list_accessible_tree()
+# Success returns:
+{
+  "success": true,
+  "total_elements": 152,
+  "filtered_count": 18,
+  "summary": "Found 18 actionable elements: 6 Buttons, 4 TextFields, 3 MenuItems",
+  "elements": [{"role": "AXButton", "title": "Submit", "x": 520, "y": 680}, ...]
+}
+# ✅ ~200 tokens - Only actionable elements, not entire tree
+```
+
+**VQA:**
+```python
+result = desktop_screenshot_analyze("What buttons are visible?")
+# Success returns:
+{
+  "success": true,
+  "answer": "Submit, Cancel, and Help buttons",
+  "confidence": 0.92,
+  "screenshot_path": "/tmp/screenshot.png"
+}
+# ✅ ~40 tokens - Answer only, no verbose metadata
+```
+
+### ❌ On Failure (Verbose Output ~2000-5000 tokens)
+
+When operations fail, tools return FULL diagnostic data to help you debug and choose alternative strategies:
+
+**OCR Find (Not Found):**
+```python
+result = desktop_find_text("Submit")
+# Failure returns:
+{
+  "found": false,
+  "search_text": "Submit",
+  "full_text_elements": [
+    {"text": "Login", "x": 120, "y": 680, "confidence": 0.95},
+    {"text": "Cancel", "x": 420, "y": 680, "confidence": 0.93},
+    {"text": "Reset", "x": 520, "y": 680, "confidence": 0.91},
+    ...100 more elements...
+  ]
+}
+# ❌ ~3000 tokens - But you can see ALL text to try alternatives!
+```
+
+**Element Tree (Empty/Failed):**
+```python
+result = desktop_list_accessible_tree()
+# Failure returns FULL tree with all metadata for debugging
+```
+
+### 🎯 Why This Matters
+
+**Token Savings:**
+- Successful workflows: 90%+ token reduction
+- 10 successful OCR calls: 500 tokens instead of 30,000 tokens
+- Failed operations: Full diagnostic data for smart retries
+
+**Better Debugging:**
+- When search fails, you see ALL available options
+- Can analyze failure data to choose better locators
+- Example: "Submit" not found, but you see "Submit Form" exists
+
+**Retry Strategies Enabled:**
+```python
+# First attempt
+result = desktop_find_text("Submit")
+if result.found:
+    # Success! Compact result, just click
+    desktop_mouse_click(result.best_match.x, result.best_match.y)
+else:
+    # Failure! Verbose result with all text
+    # Analyze full_text_elements to find alternatives
+    print(f"Available text: {[e.text for e in result.full_text_elements[:20]]}")
+    # Try alternative
+    result = desktop_find_text("Submit Form", fuzzy=True)
+```
+
+**No Action Required:**
+- This happens automatically
+- You don't need to specify parameters
+- Success = compact, Failure = verbose
+- Just write your workflows normally!
+
 ## Tool Reference
 
 **Accessibility API (macOS):**

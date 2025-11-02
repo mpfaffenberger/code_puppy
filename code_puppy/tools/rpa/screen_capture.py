@@ -320,6 +320,38 @@ def capture_screen(
         return ScreenshotResult(success=False, error=str(e))
 
 
+def _compact_vqa_result(full_result: 'VQAResult') -> 'VQAResult':
+    """
+    Compress VQA result to minimal data.
+    
+    Strategy:
+    - Keep question, answer, confidence
+    - Keep screenshot path only (strip full metadata)
+    - Remove verbose screenshot_info details
+    
+    Args:
+        full_result: Full VQA result with all metadata
+    
+    Returns:
+        Compact VQA result with essentials only
+    """
+    from .result_types import VQAResult
+    
+    return VQAResult(
+        success=full_result.success,
+        question=full_result.question,
+        answer=full_result.answer,
+        confidence=full_result.confidence,
+        screenshot_path=full_result.screenshot_info.path if full_result.screenshot_info else None,
+        error=full_result.error,
+        # Explicitly exclude verbose fields
+        observations=None,
+        screenshot_info=None,
+        window_bounds=None,
+        coordinate_system=full_result.coordinate_system,
+    )
+
+
 async def take_desktop_screenshot_and_analyze(
     question: str,
     region: tuple[int, int, int, int] | None = None,
@@ -587,12 +619,14 @@ async def take_desktop_screenshot_and_analyze(
             message_group=group_id,
         )
 
-        return VQAResult(
+        # Build full VQA result
+        full_result = VQAResult(
             success=True,
             question=question,
             answer=vqa_result.answer,
             confidence=vqa_result.confidence,
             observations=vqa_result.observations,
+            screenshot_path=screenshot_result.screenshot_path,
             screenshot_info=ScreenshotInfo(
                 path=screenshot_result.screenshot_path,
                 size=len(screenshot_bytes),
@@ -614,6 +648,14 @@ async def take_desktop_screenshot_and_analyze(
             window_bounds=window_bounds,
             coordinate_system=coordinate_system,
         )
+        
+        # Success-conditional compaction: Return compact result
+        compact_result = _compact_vqa_result(full_result)
+        emit_info(
+            f"[dim]💾 Compacted VQA result: screenshot metadata stripped[/dim]",
+            message_group=group_id,
+        )
+        return compact_result
 
     except Exception as e:
         emit_error(

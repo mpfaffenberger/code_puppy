@@ -56,12 +56,23 @@ class TextBoundingBox(BaseModel):
 
 
 class OCRExtractResult(BaseRPAResult):
-    """Result from OCR text extraction."""
+    """Result from OCR text extraction.
+    
+    Uses success-conditional compaction:
+    - On success: Returns compact summary with key elements
+    - On failure: Returns full diagnostic data
+    """
 
+    # Compact fields (always included)
+    found_count: int = 0
+    key_elements: list[str] = Field(default_factory=list)
+    summary: str = ""
+    average_confidence: float = 0.0
+    
+    # Verbose fields (only included on failure or when text_elements needed)
     full_text: str = ""
     text_elements: list[TextBoundingBox] = Field(default_factory=list)
     total_words: int = 0
-    average_confidence: float = 0.0
     language: str = "eng"
     region: list[int] | None = Field(
         None,
@@ -71,13 +82,21 @@ class OCRExtractResult(BaseRPAResult):
 
 
 class OCRFindResult(BaseRPAResult):
-    """Result from OCR text search."""
+    """Result from OCR text search.
+    
+    Uses success-conditional compaction:
+    - On found=True: Returns best match only
+    - On found=False: Returns all text elements for debugging
+    """
 
     search_text: str = ""
     found: bool = False
-    matches: list[TextBoundingBox] = Field(default_factory=list)
     total_matches: int = 0
     best_match: TextBoundingBox | None = None
+    
+    # Verbose fields (only on failure)
+    matches: list[TextBoundingBox] = Field(default_factory=list)
+    full_text_elements: list[TextBoundingBox] = Field(default_factory=list)  # All OCR elements for debugging
 
 
 class OCRVerifyResult(BaseRPAResult):
@@ -97,6 +116,118 @@ class OCRDebugVisualization(BaseRPAResult):
     total_boxes: int = 0
     language: str = "eng"
     message: str = ""
+
+
+def _generate_ocr_summary(text_elements: list[TextBoundingBox]) -> str:
+    """
+    Generate a brief natural language summary of OCR findings.
+    
+    Categorizes elements into buttons, fields, and general text.
+    
+    Examples:
+        - "Login form with username, password fields and Submit, Cancel buttons"
+        - "Dialog with OK, Cancel buttons"
+        - "Menu with File, Edit, View options"
+    """
+    if not text_elements:
+        return "No text found"
+    
+    # Categorize elements by keywords
+    buttons = []
+    fields = []
+    
+    for elem in text_elements:
+        text_lower = elem.text.lower()
+        
+        # Check for button-like elements
+        if any(kw in text_lower for kw in ['submit', 'ok', 'cancel', 'button', 'save', 'close', 'confirm']):
+            buttons.append(elem.text)
+        
+        # Check for field-like elements
+        elif any(kw in text_lower for kw in ['username', 'password', 'email', 'name', 'field', 'input']):
+            fields.append(elem.text)
+    
+    # Build summary
+    parts = []
+    if fields:
+        parts.append(f"{', '.join(fields[:3])} fields")
+    if buttons:
+        parts.append(f"{', '.join(buttons[:3])} buttons")
+    if not parts:
+        # Generic summary
+        sample_text = [elem.text for elem in text_elements[:5] if len(elem.text.strip()) > 2]
+        if sample_text:
+            parts.append(f"Text including: {', '.join(sample_text)}")
+        else:
+            parts.append(f"{len(text_elements)} text elements")
+    
+    return " with ".join(parts)
+
+
+def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResult:
+    """
+    Compress OCR extraction result to minimal essential data.
+    
+    Strategy:
+    - Keep success/error status
+    - Count total elements found
+    - Extract key text elements (high confidence, meaningful words)
+    - Generate brief summary
+    - Strip full_text and detailed element list
+    
+    Args:
+        full_result: Full OCR result with all data
+    
+    Returns:
+        Compact OCR result with ~90% token reduction
+    """
+    # Extract high-confidence, meaningful text elements (top 10)
+    key_elements = [
+        elem.text
+        for elem in sorted(full_result.text_elements, key=lambda e: e.confidence, reverse=True)[:10]
+        if elem.confidence > 0.7 and len(elem.text.strip()) > 2
+    ]
+    
+    # Generate summary
+    summary = _generate_ocr_summary(full_result.text_elements)
+    
+    return OCRExtractResult(
+        success=full_result.success,
+        found_count=len(full_result.text_elements),
+        key_elements=key_elements,
+        summary=summary,
+        average_confidence=full_result.average_confidence,
+        error=full_result.error,
+        # Explicitly exclude verbose fields
+        full_text="",
+        text_elements=[],
+        total_words=0,
+        language=full_result.language,
+        region=full_result.region,
+    )
+
+
+def _compact_ocr_find_result(full_result: 'OCRFindResult') -> 'OCRFindResult':
+    """
+    Compress OCR find result to minimal data.
+    
+    On success: Return just the best match coordinates
+    On failure: Return full data for debugging
+    """
+    if not full_result.found or not full_result.best_match:
+        # Failure - return full result for debugging
+        return full_result
+    
+    # Success - return compact version with just best match
+    return OCRFindResult(
+        success=full_result.success,
+        found=True,
+        search_text=full_result.search_text,
+        total_matches=full_result.total_matches,
+        best_match=full_result.best_match,  # Keep best match (has coords)
+        matches=[],  # Strip full match list
+        error=None,
+    )
 
 
 def extract_text_from_image(
@@ -367,6 +498,7 @@ def register_ocr_tools(agent):
         use_active_window: bool = True,
         use_full_screen: bool = False,
         language: str = "eng",
+        _internal: bool = False,  # Internal use - skip compaction
     ) -> OCRExtractResult:
         """
         Extract text from a screenshot using OCR (Optical Character Recognition).
@@ -534,12 +666,22 @@ def register_ocr_tools(agent):
                     f"[dim]Full text: {result.full_text[:200]}{'...' if len(result.full_text) > 200 else ''}[/dim]",
                     message_group=group_id,
                 )
+                
+                # Success-conditional compaction: Return compact result (unless internal call)
+                if len(result.text_elements) > 0 and not _internal:
+                    compact_result = _compact_ocr_extract_result(result)
+                    emit_info(
+                        f"[dim]💾 Compacted OCR result: {len(result.text_elements)} elements → summary + {len(compact_result.key_elements)} key elements[/dim]",
+                        message_group=group_id,
+                    )
+                    return compact_result
             else:
                 emit_error(
                     f"[red]OCR extraction failed: {result.error}[/red]",
                     message_group=group_id,
                 )
 
+            # Failure or empty result - return full diagnostic data
             return result
 
         except Exception as e:
@@ -602,7 +744,7 @@ def register_ocr_tools(agent):
             message_group=group_id,
         )
 
-        # First, extract all text
+        # First, extract all text (internal call - get full result)
         extract_result = desktop_extract_text(
             context=context,
             x=x,
@@ -612,6 +754,7 @@ def register_ocr_tools(agent):
             use_active_window=use_active_window,
             use_full_screen=use_full_screen,
             language=language,
+            _internal=True,  # Get full result for searching
         )
 
         if not extract_result.success:
@@ -640,11 +783,25 @@ def register_ocr_tools(agent):
                     f"[green]Best match: '{find_result.best_match.text}' at ({find_result.best_match.center_x}, {find_result.best_match.center_y}) confidence={find_result.best_match.confidence:.2f}[/green]",
                     message_group=group_id,
                 )
+            
+            # Success-conditional compaction: Return compact result
+            compact_result = _compact_ocr_find_result(find_result)
+            emit_info(
+                f"[dim]💾 Compacted find result: {find_result.total_matches} matches → best match only[/dim]",
+                message_group=group_id,
+            )
+            return compact_result
         else:
             emit_warning(
                 f"[yellow]No matches found for '{search_text}'[/yellow]",
                 message_group=group_id,
             )
+            emit_info(
+                f"[dim]Returning full OCR data ({len(extract_result.text_elements)} elements) for debugging[/dim]",
+                message_group=group_id,
+            )
+            # Failure - return full diagnostic data with all text elements
+            find_result.full_text_elements = extract_result.text_elements  # Add for debugging
 
         return find_result
 

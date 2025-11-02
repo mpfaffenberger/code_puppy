@@ -445,6 +445,82 @@ def _list_macos_windows() -> list[dict[str, Any]]:
     return out
 
 
+def _compact_element_list_result(full_result: ElementListResult) -> ElementListResult:
+    """
+    Compress element list to actionable elements only.
+    
+    Strategy:
+    - Filter to interactive/actionable elements (buttons, fields, menus)
+    - Remove static text and decorative elements
+    - Limit to top 20 most relevant elements
+    - Generate summary
+    
+    Args:
+        full_result: Full element list with all elements
+    
+    Returns:
+        Compact result with filtered actionable elements only
+    """
+    if not full_result.success or not full_result.elements:
+        # Failure or empty - return as-is for debugging
+        return full_result
+    
+    # Define actionable element types
+    actionable_roles = {
+        'AXButton', 'AXTextField', 'AXSearchField', 'AXTextArea',
+        'AXMenuItem', 'AXCheckBox', 'AXRadioButton', 'AXPopUpButton',
+        'AXComboBox', 'AXIncrementor', 'AXSlider', 'AXLink',
+        # Windows equivalents
+        'Button', 'Edit', 'ComboBox', 'ListItem', 'MenuItem',
+        'CheckBox', 'RadioButton', 'Hyperlink', 'Document',
+    }
+    
+    # Filter to actionable elements
+    actionable = []
+    for elem in full_result.elements:
+        role = elem.get('role') or elem.get('type') or elem.get('control_type')
+        if role in actionable_roles:
+            # Compact element structure - keep only essential fields
+            compact_elem = {
+                'role': role,
+                'title': elem.get('title'),
+                'x': elem.get('center_x') or elem.get('x'),
+                'y': elem.get('center_y') or elem.get('y'),
+            }
+            # Add automation_id if available (Windows)
+            if 'auto_id' in elem:
+                compact_elem['auto_id'] = elem['auto_id']
+            actionable.append(compact_elem)
+    
+    # Limit to top 20
+    actionable = actionable[:20]
+    
+    # Extract unique roles
+    unique_roles = list(set(elem['role'] for elem in actionable if elem['role']))
+    
+    # Generate summary
+    role_counts = {}
+    for elem in actionable:
+        role = elem['role']
+        role_counts[role] = role_counts.get(role, 0) + 1
+    
+    summary_parts = [f"{count} {role}(s)" for role, count in sorted(role_counts.items())[:5]]
+    summary = f"Found {len(actionable)} actionable elements: " + ", ".join(summary_parts)
+    
+    return ElementListResult(
+        success=True,
+        total_elements=full_result.total_elements,
+        filtered_count=len(actionable),
+        summary=summary,
+        elements=actionable,
+        roles=unique_roles,
+        types=unique_roles,  # For compatibility
+        # Explicitly exclude verbose fields
+        by_role=None,
+        by_type=None,
+    )
+
+
 def register_accessibility_tools(agent):
     """Register accessibility API tools for macOS."""
 
@@ -506,13 +582,26 @@ def register_accessibility_tools(agent):
             message_group=group_id,
         )
 
-        return ElementListResult(
+        # Build full result
+        full_result = ElementListResult(
             success=True,
             elements=elements,
             by_type=by_type,
             types=list(by_type.keys()),
             total_elements=len(elements),
         )
+        
+        # Success-conditional compaction: Return filtered actionable elements
+        if len(elements) > 0:
+            compact_result = _compact_element_list_result(full_result)
+            emit_info(
+                f"[dim]💾 Compacted tree: {len(elements)} total → {compact_result.filtered_count} actionable elements[/dim]",
+                message_group=group_id,
+            )
+            return compact_result
+        
+        # Empty tree - return as-is
+        return full_result
 
     @agent.tool
     def desktop_find_accessible_element(
