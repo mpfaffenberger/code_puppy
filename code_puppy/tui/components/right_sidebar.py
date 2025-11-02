@@ -2,13 +2,14 @@
 Right sidebar component with status information.
 """
 
-from textual.app import ComposeResult
-from textual.containers import Container, Vertical
+from datetime import datetime
+
+from rich.text import Text
 from textual.reactive import reactive
-from textual.widgets import Label, ProgressBar
+from textual.widgets import Static
 
 
-class RightSidebar(Container):
+class RightSidebar(Static):
     """Right sidebar with status information and metrics."""
 
     DEFAULT_CSS = """
@@ -17,64 +18,9 @@ class RightSidebar(Container):
         width: 35;
         min-width: 25;
         max-width: 50;
-        background: #1e293b;
-        border-left: wide #3b82f6;
+        background: $panel;
+        border-left: wide $primary;
         padding: 1 2;
-    }
-
-    .status-section {
-        height: auto;
-        margin: 0 0 2 0;
-        padding: 1;
-        background: #0f172a;
-        border: round #475569;
-    }
-
-    .section-title {
-        color: #60a5fa;
-        text-style: bold;
-        margin: 0 0 1 0;
-    }
-
-    .status-label {
-        color: #cbd5e1;
-        margin: 0 0 1 0;
-    }
-
-    .status-value {
-        color: #e0f2fe;
-        text-style: bold;
-    }
-
-    #context-progress {
-        height: 1;
-        margin: 1 0 0 0;
-    }
-
-    #context-progress.progress-low {
-        color: #10b981;
-    }
-
-    #context-progress.progress-medium {
-        color: #fbbf24;
-    }
-
-    #context-progress.progress-high {
-        color: #f97316;
-    }
-
-    #context-progress.progress-critical {
-        color: #ef4444;
-    }
-
-    .metric-item {
-        color: #94a3b8;
-        margin: 0 0 1 0;
-    }
-
-    .metric-value {
-        color: #e0f2fe;
-        text-style: bold;
     }
     """
 
@@ -91,120 +37,105 @@ class RightSidebar(Container):
         super().__init__(**kwargs)
         self.id = "right-sidebar"
 
-    def compose(self) -> ComposeResult:
-        """Create the right sidebar layout."""
-        with Vertical(classes="status-section"):
-            yield Label("📊 Context Usage", classes="section-title")
-            yield Label("", id="context-label", classes="status-label")
-            yield ProgressBar(
-                total=100,
-                show_eta=False,
-                show_percentage=True,
-                id="context-progress",
-            )
-
-        with Vertical(classes="status-section"):
-            yield Label("🤖 Agent Info", classes="section-title")
-            yield Label("", id="agent-info", classes="status-label")
-
-        with Vertical(classes="status-section"):
-            yield Label("💬 Session Stats", classes="section-title")
-            yield Label("", id="session-stats", classes="status-label")
-
-        with Vertical(classes="status-section"):
-            yield Label("🎯 Quick Actions", classes="section-title")
-            yield Label(
-                "Ctrl+L - Clear\nCtrl+2 - History\nCtrl+Q - Quit",
-                classes="status-label",
-            )
+    def on_mount(self) -> None:
+        """Initialize the sidebar and start auto-refresh."""
+        self._update_display()
+        # Auto-refresh every second for live updates
+        self.set_interval(1.0, self._update_display)
 
     def watch_context_used(self) -> None:
         """Update display when context usage changes."""
-        self._update_context_display()
+        self._update_display()
 
     def watch_context_total(self) -> None:
         """Update display when context total changes."""
-        self._update_context_display()
+        self._update_display()
 
     def watch_message_count(self) -> None:
-        """Update session stats when message count changes."""
-        self._update_session_stats()
+        """Update display when message count changes."""
+        self._update_display()
 
     def watch_current_model(self) -> None:
-        """Update agent info when model changes."""
-        self._update_agent_info()
+        """Update display when model changes."""
+        self._update_display()
 
     def watch_agent_name(self) -> None:
-        """Update agent info when agent changes."""
-        self._update_agent_info()
+        """Update display when agent changes."""
+        self._update_display()
 
-    def _update_context_display(self) -> None:
-        """Update the context usage display."""
-        try:
-            # Calculate percentage
-            if self.context_total > 0:
-                percentage = (self.context_used / self.context_total) * 100
-            else:
-                percentage = 0
+    def watch_session_duration(self) -> None:
+        """Update display when session duration changes."""
+        self._update_display()
 
-            self.context_percentage = percentage
+    def _update_display(self) -> None:
+        """Update the entire sidebar display with Rich Text."""
+        status_text = Text()
 
-            # Format numbers with commas for readability
-            used_str = f"{self.context_used:,}"
-            total_str = f"{self.context_total:,}"
+        # Session Info Section
+        status_text.append("Session Info\n\n", style="bold cyan")
+        status_text.append(
+            f"Time: {datetime.now().strftime('%H:%M:%S')}\n", style="green"
+        )
+        status_text.append(f"Messages: {self.message_count}\n", style="yellow")
+        status_text.append(f"Duration: {self.session_duration}\n", style="magenta")
 
-            # Update label
-            context_label = self.query_one("#context-label", Label)
-            context_label.update(
-                f"Tokens: {used_str} / {total_str}\n{percentage:.1f}% used"
-            )
+        # Agent Info Section
+        status_text.append("\n")
+        status_text.append("Agent Info\n\n", style="bold cyan")
 
-            # Update progress bar
-            progress_bar = self.query_one("#context-progress", ProgressBar)
-            progress_bar.update(progress=percentage)
+        # Truncate model name if too long
+        model_display = self.current_model
+        if len(model_display) > 28:
+            model_display = model_display[:25] + "..."
 
-            # Update progress bar color based on percentage
-            progress_bar.remove_class(
-                "progress-low",
-                "progress-medium",
-                "progress-high",
-                "progress-critical",
-            )
-            if percentage < 50:
-                progress_bar.add_class("progress-low")
-            elif percentage < 70:
-                progress_bar.add_class("progress-medium")
-            elif percentage < 85:
-                progress_bar.add_class("progress-high")
-            else:
-                progress_bar.add_class("progress-critical")
+        status_text.append("Agent: ", style="bold")
+        status_text.append(f"{self.agent_name}\n", style="green")
+        status_text.append("Model: ", style="bold")
+        status_text.append(f"{model_display}\n", style="green")
 
-        except Exception:
-            pass  # Silently handle if widgets not ready
+        # Context Window Section
+        status_text.append("\n")
+        status_text.append("Context Window\n\n", style="bold cyan")
 
-    def _update_agent_info(self) -> None:
-        """Update the agent information display."""
-        try:
-            agent_info = self.query_one("#agent-info", Label)
+        # Calculate percentage
+        if self.context_total > 0:
+            percentage = (self.context_used / self.context_total) * 100
+        else:
+            percentage = 0
 
-            # Truncate model name if too long
-            model_display = self.current_model
-            if len(model_display) > 25:
-                model_display = model_display[:22] + "..."
+        # Create visual progress bar (20 chars wide)
+        bar_width = 20
+        filled = int((self.context_used / max(1, self.context_total)) * bar_width)
+        empty = bar_width - filled
 
-            agent_info.update(f"Agent: {self.agent_name}\nModel: {model_display}")
-        except Exception:
-            pass
+        # Choose color based on usage
+        if percentage < 50:
+            bar_color = "green"
+        elif percentage < 75:
+            bar_color = "yellow"
+        else:
+            bar_color = "red"
 
-    def _update_session_stats(self) -> None:
-        """Update the session statistics display."""
-        try:
-            stats_label = self.query_one("#session-stats", Label)
-            stats_label.update(
-                f"Messages: {self.message_count}\nDuration: {self.session_duration}"
-            )
-        except Exception:
-            pass
+        # Build the bar using block characters
+        bar = "█" * filled + "░" * empty
+        status_text.append(f"[{bar}]\n", style=bar_color)
+
+        # Show stats in k format
+        tokens_k = self.context_used / 1000
+        max_k = self.context_total / 1000
+        status_text.append(
+            f"{tokens_k:.1f}k/{max_k:.0f}k ({percentage:.1f}%)\n", style="dim"
+        )
+
+        # Quick Actions Section
+        status_text.append("\n")
+        status_text.append("Quick Actions\n\n", style="bold cyan")
+        status_text.append("Ctrl+Q: Quit\n", style="dim")
+        status_text.append("Ctrl+L: Clear\n", style="dim")
+        status_text.append("Ctrl+2: History\n", style="dim")
+        status_text.append("Ctrl+3: Settings\n", style="dim")
+
+        self.update(status_text)
 
     def update_context(self, used: int, total: int) -> None:
         """Update context usage values.

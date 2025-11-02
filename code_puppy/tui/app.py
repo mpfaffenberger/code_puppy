@@ -53,23 +53,28 @@ class CodePuppyTUI(App):
     TITLE = "Code Puppy - AI Code Assistant"
     SUB_TITLE = "TUI Mode"
 
+    # Enable beautiful Nord theme by default
+    # Available themes: "textual-dark", "textual-light", "nord", "gruvbox",
+    # "catppuccin-mocha", "catppuccin-latte", "dracula", "tokyo-night", "monokai", etc.
+    DEFAULT_THEME = "nord"
+
     CSS = """
     Screen {
         layout: horizontal;
-        background: #0a0e1a;
+        background: $surface;
     }
 
     #main-area {
         layout: vertical;
         width: 1fr;
         min-width: 40;
-        background: #0f172a;
+        background: $panel;
     }
 
     #chat-container {
         height: 1fr;
         min-height: 10;
-        background: #0a0e1a;
+        background: $surface;
     }
     """
 
@@ -131,6 +136,10 @@ class CodePuppyTUI(App):
         super().__init__(**kwargs)
         self._current_worker = None
         self.initial_command = initial_command
+
+        # Set the theme - you can change this to any Textual built-in theme
+        # Try: "nord", "gruvbox", "dracula", "tokyo-night", "monokai", etc.
+        self.theme = self.DEFAULT_THEME
 
         # Initialize message queue renderer
         self.message_queue = get_global_queue()

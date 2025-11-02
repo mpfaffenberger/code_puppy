@@ -20,141 +20,141 @@ class ChatView(VerticalScroll):
 
     DEFAULT_CSS = """
     ChatView {
-        background: #0a0e1a;
-        scrollbar-background: #1e293b;
-        scrollbar-color: #60a5fa;
-        scrollbar-color-hover: #93c5fd;
-        scrollbar-color-active: #3b82f6;
+        background: $surface;
+        scrollbar-background: $panel;
+        scrollbar-color: $primary;
+        scrollbar-color-hover: $primary-lighten-1;
+        scrollbar-color-active: $primary-darken-1;
         margin: 0 0 1 0;
         padding: 1 2;
     }
 
     .user-message {
-        background: #1e3a5f;
-        color: #e0f2fe;
+        background: $primary-background;
+        color: $text;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: tall #3b82f6;
+        border: tall $primary;
         border-title-align: left;
         text-style: bold;
     }
 
     .agent-message {
-        background: #0f172a;
-        color: #f1f5f9;
+        background: $panel;
+        color: $text;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: round #475569;
+        border: round $panel-lighten-2;
     }
 
     .system-message {
-        background: #1a1a2e;
-        color: #94a3b8;
+        background: $panel;
+        color: $text-muted;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-style: italic;
         text-wrap: wrap;
-        border: dashed #334155;
+        border: dashed $panel-lighten-1;
     }
 
     .error-message {
-        background: #4c0519;
-        color: #fecdd3;
+        background: $error-darken-2;
+        color: $text;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: heavy #f43f5e;
+        border: heavy $error;
         border-title-align: left;
     }
 
     .agent_reasoning-message {
-        background: #1e1b4b;
-        color: #c4b5fd;
+        background: $accent-darken-2;
+        color: $accent-lighten-2;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
         text-style: italic;
-        border: round #6366f1;
+        border: round $accent;
     }
 
     .planned_next_steps-message {
-        background: #1e1b4b;
-        color: #e9d5ff;
+        background: $accent-darken-2;
+        color: $accent-lighten-3;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
         text-style: italic;
-        border: round #a78bfa;
+        border: round $accent-lighten-1;
     }
 
     .agent_response-message {
-        background: #0f172a;
-        color: #e0e7ff;
+        background: $panel;
+        color: $text;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: double #818cf8;
+        border: double $accent;
     }
 
     .info-message {
-        background: #022c22;
-        color: #a7f3d0;
+        background: $success-darken-3;
+        color: $success-lighten-2;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: round #10b981;
+        border: round $success;
     }
 
     .success-message {
-        background: #065f46;
-        color: #d1fae5;
+        background: $success-darken-1;
+        color: $text;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: heavy #34d399;
+        border: heavy $success;
         border-title-align: center;
     }
 
     .warning-message {
-        background: #78350f;
-        color: #fef3c7;
+        background: $warning-darken-2;
+        color: $text;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: wide #fbbf24;
+        border: wide $warning;
         border-title-align: left;
     }
 
     .tool_output-message {
-        background: #2e1065;
-        color: #ddd6fe;
+        background: $accent-darken-3;
+        color: $accent-lighten-2;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: round #7c3aed;
+        border: round $accent-darken-1;
     }
 
     .command_output-message {
-        background: #431407;
-        color: #fed7aa;
+        background: $warning-darken-3;
+        color: $warning-lighten-2;
         margin: 1 0 1 0;
         padding: 1 2;
         height: auto;
         text-wrap: wrap;
-        border: solid #f97316;
+        border: solid $warning-darken-1;
     }
 
     .message-container {
@@ -190,15 +190,15 @@ class ChatView(VerticalScroll):
 
         category = get_message_category(message.type)
 
+        suppress_thinking = get_suppress_thinking_messages()
+        suppress_info = get_suppress_informational_messages()
+
         # Check if thinking messages should be suppressed
-        if category == MessageCategory.THINKING and get_suppress_thinking_messages():
+        if category == MessageCategory.THINKING and suppress_thinking:
             return True
 
         # Check if informational messages should be suppressed
-        if (
-            category == MessageCategory.INFORMATIONAL
-            and get_suppress_informational_messages()
-        ):
+        if category == MessageCategory.INFORMATIONAL and suppress_info:
             return True
 
         return False
