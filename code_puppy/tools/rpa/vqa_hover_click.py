@@ -127,7 +127,7 @@ def _vqa_hover_and_click_impl(
     
     emit_info(
         f"[green]✓ Screenshot captured: {region_w}x{region_h}[/green]\n"
-        f"[dim]   File: {screenshot_result.file_path}[/dim]",
+        f"[dim]   File: {screenshot_result.screenshot_path}[/dim]",
         message_group=group_id,
     )
     
@@ -247,7 +247,7 @@ def _vqa_hover_and_click_impl(
     
     emit_info(
         f"[green]✓ Verification screenshot saved[/green]\n"
-        f"[dim]   File: {verify_screenshot.file_path}[/dim]",
+        f"[dim]   File: {verify_screenshot.screenshot_path}[/dim]",
         message_group=group_id,
     )
     
@@ -295,7 +295,7 @@ def _vqa_hover_and_click_impl(
         mouse_y=actual_y,
         confidence=vqa_result.confidence * (verify_vqa.confidence if is_verified else 0.5),
         description=f"Initial: {vqa_result.answer} | Verify: {verify_vqa.answer}",
-        verification_screenshot=verify_screenshot.file_path,
+        verification_screenshot=verify_screenshot.screenshot_path,
     )
 
 
