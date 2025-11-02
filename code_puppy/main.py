@@ -188,6 +188,11 @@ async def main():
 
     ensure_config_exists()
 
+    # Load API keys from puppy.cfg into environment variables
+    from code_puppy.config import load_api_keys_to_environment
+
+    load_api_keys_to_environment()
+
     # Handle model validation from command line (validation happens here, setting was earlier)
     if args.model:
         from code_puppy.config import _validate_model_exists
