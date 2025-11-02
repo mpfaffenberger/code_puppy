@@ -41,6 +41,7 @@ from .screens import (
     HelpScreen,
     MCPInstallWizardScreen,
     ModelPicker,
+    QuitConfirmationScreen,
     SettingsScreen,
     ToolsScreen,
 )
@@ -76,7 +77,6 @@ class CodePuppyTUI(App):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
-        Binding("ctrl+m", "toggle_mouse_capture", "Toggle Copy Mode"),
         Binding("ctrl+1", "show_help", "Help"),
         Binding("ctrl+2", "toggle_sidebar", "History"),
         Binding("ctrl+3", "open_settings", "Settings"),
@@ -141,6 +141,13 @@ class CodePuppyTUI(App):
         from datetime import datetime
 
         self._session_start_time = datetime.now()
+
+        # Background worker for periodic context updates during agent execution
+        self._context_update_worker = None
+
+        # Track double-click timing for history list
+        self._last_history_click_time = None
+        self._last_history_click_index = None
 
     def compose(self) -> ComposeResult:
         """Create the UI layout."""
@@ -476,6 +483,8 @@ class CodePuppyTUI(App):
                     self._current_worker = None
                     self.agent_busy = False
                     self.stop_agent_progress()
+                    # Stop periodic context updates
+                    self._stop_context_updates()
             except Exception as e:
                 self.add_error_message(f"Failed to cancel processing: {str(e)}")
                 # Only clear state on exception if we haven't already done so
@@ -486,6 +495,8 @@ class CodePuppyTUI(App):
                     self._current_worker = None
                     self.agent_busy = False
                     self.stop_agent_progress()
+                    # Stop periodic context updates
+                    self._stop_context_updates()
 
     async def process_message(self, message: str) -> None:
         """Process a user message asynchronously."""
@@ -493,6 +504,9 @@ class CodePuppyTUI(App):
             self.agent_busy = True
             self._update_submit_cancel_button(True)
             self.start_agent_progress("Thinking")
+
+            # Start periodic context updates
+            self._start_context_updates()
 
             # Handle commands
             if message.strip().startswith("/"):
@@ -584,6 +598,9 @@ class CodePuppyTUI(App):
             self._update_submit_cancel_button(False)
             self.stop_agent_progress()
 
+            # Stop periodic context updates and do a final update
+            self._stop_context_updates()
+
     # Action methods
     def action_clear_chat(self) -> None:
         """Clear the chat history."""
@@ -592,6 +609,14 @@ class CodePuppyTUI(App):
         agent = get_current_agent()
         agent.clear_message_history()
         self.add_system_message("Chat history cleared")
+
+    def action_quit(self) -> None:
+        """Show quit confirmation dialog before exiting."""
+        def handle_quit_confirmation(should_quit: bool) -> None:
+            if should_quit:
+                self.exit()
+
+        self.push_screen(QuitConfirmationScreen(), handle_quit_confirmation)
 
     def action_show_help(self) -> None:
         """Show help information in a modal."""
@@ -602,7 +627,7 @@ class CodePuppyTUI(App):
         sidebar = self.query_one(Sidebar)
         sidebar.display = not sidebar.display
 
-        # If sidebar is now visible, focus the history list to enable immediate keyboard navigation
+        # If sidebar is now visible, focus the history list to enable keyboard navigation
         if sidebar.display:
             try:
                 # Ensure history tab is active
@@ -616,37 +641,13 @@ class CodePuppyTUI(App):
                 history_list = self.query_one("#history-list", ListView)
                 history_list.focus()
 
-                # If the list has items, get the first item for the modal
+                # If the list has items, set the index to the first item
                 if len(history_list.children) > 0:
                     # Reset sidebar's internal index tracker to 0
                     sidebar.current_history_index = 0
-
                     # Set ListView index to match
                     history_list.index = 0
 
-                    # Get the first item and show the command history modal
-                    first_item = history_list.children[0]
-                    if hasattr(first_item, "command_entry"):
-                        # command_entry = first_item.command_entry
-
-                        # Use call_after_refresh to allow UI to update first
-                        def show_modal():
-                            from .components.command_history_modal import (
-                                CommandHistoryModal,
-                            )
-
-                            # Get all command entries from the history list
-                            command_entries = []
-                            for i, child in enumerate(history_list.children):
-                                if hasattr(child, "command_entry"):
-                                    command_entries.append(child.command_entry)
-
-                            # Push the modal screen
-                            # The modal will get the command entries from the sidebar
-                            self.push_screen(CommandHistoryModal())
-
-                        # Schedule modal to appear after UI refresh
-                        self.call_after_refresh(show_modal)
             except Exception as e:
                 # Log the exception in debug mode but silently fail for end users
                 import logging
@@ -775,14 +776,6 @@ class CodePuppyTUI(App):
                     self.add_error_message(f"Failed to switch model: {e}")
 
         self.push_screen(ModelPicker(), handle_model_select)
-
-    def action_toggle_mouse_capture(self) -> None:
-        """Toggle mouse capture to enable/disable text selection."""
-        self.capture_mouse = not self.capture_mouse
-        if self.capture_mouse:
-            self.add_system_message("🖱️  Mouse capture ON - App is interactive (use Ctrl+M to enable copy mode)")
-        else:
-            self.add_system_message("📋 Copy mode ON - You can now select and copy text (use Ctrl+M to exit)")
 
     def process_initial_command(self) -> None:
         """Process the initial command provided when starting the TUI."""
@@ -931,6 +924,50 @@ class CodePuppyTUI(App):
 
         except Exception:
             pass  # Silently fail if right sidebar not available
+
+    async def _periodic_context_update(self) -> None:
+        """Periodically update context information while agent is busy."""
+        import asyncio
+
+        while self.agent_busy:
+            try:
+                # Update the right sidebar with current context
+                self._update_right_sidebar()
+
+                # Wait before next update (0.5 seconds for responsive updates)
+                await asyncio.sleep(0.5)
+            except asyncio.CancelledError:
+                # Task was cancelled, exit gracefully
+                break
+            except Exception:
+                # Silently handle any errors to avoid crashing the update loop
+                pass
+
+    def _start_context_updates(self) -> None:
+        """Start periodic context updates during agent execution."""
+        # Cancel any existing update worker
+        if self._context_update_worker is not None:
+            try:
+                self._context_update_worker.cancel()
+            except Exception:
+                pass
+
+        # Start a new background worker for context updates
+        self._context_update_worker = self.run_worker(
+            self._periodic_context_update(), exclusive=False
+        )
+
+    def _stop_context_updates(self) -> None:
+        """Stop periodic context updates."""
+        if self._context_update_worker is not None:
+            try:
+                self._context_update_worker.cancel()
+            except Exception:
+                pass
+            self._context_update_worker = None
+
+        # Do a final update when stopping
+        self._update_right_sidebar()
 
     def on_resize(self, event: Resize) -> None:
         """Handle terminal resize events to update responsive elements."""
@@ -1157,6 +1194,39 @@ class CodePuppyTUI(App):
             except Exception as e:
                 # Log renderer stop errors but don't crash
                 self.add_system_message(f"Renderer stop error: {e}")
+
+    @on(ListView.Selected, "#history-list")
+    def on_history_list_selected(self, event: ListView.Selected) -> None:
+        """Handle clicks on history list items - show modal on double-click."""
+        import time
+
+        current_time = time.time()
+        current_index = event.list_view.index
+
+        # Check if this is a double-click (within 0.5 seconds and same item)
+        if (
+            self._last_history_click_time is not None
+            and self._last_history_click_index == current_index
+            and (current_time - self._last_history_click_time) < 0.5
+        ):
+            # This is a double-click - show the modal
+            try:
+                sidebar = self.query_one(Sidebar)
+                sidebar.current_history_index = current_index
+
+                from .components.command_history_modal import CommandHistoryModal
+
+                self.push_screen(CommandHistoryModal())
+            except Exception:
+                pass
+
+            # Reset tracking
+            self._last_history_click_time = None
+            self._last_history_click_index = None
+        else:
+            # This is a single click - just track it
+            self._last_history_click_time = current_time
+            self._last_history_click_index = current_index
 
     @on(HistoryEntrySelected)
     def on_history_entry_selected(self, event: HistoryEntrySelected) -> None:
