@@ -245,7 +245,9 @@ class SettingsScreen(ModalScreen):
                         )
 
                         with Container(classes="switch-row"):
-                            yield Label("YOLO Mode (auto-confirm):", classes="setting-label")
+                            yield Label(
+                                "YOLO Mode (auto-confirm):", classes="setting-label"
+                            )
                             yield Switch(id="yolo-mode-switch", classes="setting-input")
                             yield Static(
                                 "If enabled, agent commands execute without a confirmation prompt.",
@@ -253,8 +255,12 @@ class SettingsScreen(ModalScreen):
                             )
 
                         with Container(classes="switch-row"):
-                            yield Label("Allow Agent Recursion:", classes="setting-label")
-                            yield Switch(id="allow-recursion-switch", classes="setting-input")
+                            yield Label(
+                                "Allow Agent Recursion:", classes="setting-label"
+                            )
+                            yield Switch(
+                                id="allow-recursion-switch", classes="setting-input"
+                            )
                             yield Static(
                                 "Permits agents to call other agents to complete tasks.",
                                 classes="setting-description",
@@ -273,14 +279,18 @@ class SettingsScreen(ModalScreen):
 
                         with Container(classes="setting-row"):
                             yield Label("Vision Model (VQA):", classes="setting-label")
-                            yield Select([], id="vqa-model-select", classes="setting-input")
+                            yield Select(
+                                [], id="vqa-model-select", classes="setting-input"
+                            )
                         yield Static(
                             "Model used for vision and image-related tasks.",
                             classes="input-description",
                         )
 
                         with Container(classes="setting-row"):
-                            yield Label("GPT-5 Reasoning Effort:", classes="setting-label")
+                            yield Label(
+                                "GPT-5 Reasoning Effort:", classes="setting-label"
+                            )
                             yield Select(
                                 [
                                     ("Low", "low"),
@@ -314,7 +324,9 @@ class SettingsScreen(ModalScreen):
                         )
 
                         with Container(classes="setting-row"):
-                            yield Label("Compaction Threshold:", classes="setting-label")
+                            yield Label(
+                                "Compaction Threshold:", classes="setting-label"
+                            )
                             yield Input(
                                 id="compaction-threshold-input",
                                 classes="setting-input",
@@ -326,7 +338,9 @@ class SettingsScreen(ModalScreen):
                         )
 
                         with Container(classes="setting-row"):
-                            yield Label("Protected Recent Tokens:", classes="setting-label")
+                            yield Label(
+                                "Protected Recent Tokens:", classes="setting-label"
+                            )
                             yield Input(
                                 id="protected-tokens-input",
                                 classes="setting-input",
@@ -346,7 +360,9 @@ class SettingsScreen(ModalScreen):
                             )
 
                         with Container(classes="setting-row"):
-                            yield Label("Max Autosaved Sessions:", classes="setting-label")
+                            yield Label(
+                                "Max Autosaved Sessions:", classes="setting-label"
+                            )
                             yield Input(
                                 id="max-autosaves-input",
                                 classes="setting-input",
@@ -367,16 +383,26 @@ class SettingsScreen(ModalScreen):
                         )
 
                         with Container(classes="switch-row"):
-                            yield Label("Suppress Thinking Messages:", classes="setting-label")
-                            yield Switch(id="suppress-thinking-switch", classes="setting-input")
+                            yield Label(
+                                "Suppress Thinking Messages:", classes="setting-label"
+                            )
+                            yield Switch(
+                                id="suppress-thinking-switch", classes="setting-input"
+                            )
                             yield Static(
                                 "Hide agent reasoning and planning messages (reduces clutter).",
                                 classes="setting-description",
                             )
 
                         with Container(classes="switch-row"):
-                            yield Label("Suppress Informational Messages:", classes="setting-label")
-                            yield Switch(id="suppress-informational-switch", classes="setting-input")
+                            yield Label(
+                                "Suppress Informational Messages:",
+                                classes="setting-label",
+                            )
+                            yield Switch(
+                                id="suppress-informational-switch",
+                                classes="setting-input",
+                            )
                             yield Static(
                                 "Hide info, success, and warning messages (quieter experience).",
                                 classes="setting-description",
@@ -448,8 +474,12 @@ class SettingsScreen(ModalScreen):
                         yield Label("MCP & DBOS", classes="section-header")
 
                         with Container(classes="switch-row"):
-                            yield Label("Disable All MCP Servers:", classes="setting-label")
-                            yield Switch(id="disable-mcp-switch", classes="setting-input")
+                            yield Label(
+                                "Disable All MCP Servers:", classes="setting-label"
+                            )
+                            yield Switch(
+                                id="disable-mcp-switch", classes="setting-input"
+                            )
                             yield Static(
                                 "Globally enable or disable the Model Context Protocol.",
                                 classes="setting-description",
@@ -457,7 +487,9 @@ class SettingsScreen(ModalScreen):
 
                         with Container(classes="switch-row"):
                             yield Label("Enable DBOS:", classes="setting-label")
-                            yield Switch(id="enable-dbos-switch", classes="setting-input")
+                            yield Switch(
+                                id="enable-dbos-switch", classes="setting-input"
+                            )
                             yield Static(
                                 "Use DBOS for durable, resumable agent workflows.",
                                 classes="setting-description",
@@ -473,7 +505,11 @@ class SettingsScreen(ModalScreen):
 
                         with Container(classes="setting-row"):
                             yield Label("OpenAI API Key:", classes="setting-label")
-                            yield Input(id="openai-api-key-input", classes="setting-input", password=True)
+                            yield Input(
+                                id="openai-api-key-input",
+                                classes="setting-input",
+                                password=True,
+                            )
                         yield Static(
                             "Required for OpenAI GPT models",
                             classes="input-description",
@@ -481,7 +517,11 @@ class SettingsScreen(ModalScreen):
 
                         with Container(classes="setting-row"):
                             yield Label("Gemini API Key:", classes="setting-label")
-                            yield Input(id="gemini-api-key-input", classes="setting-input", password=True)
+                            yield Input(
+                                id="gemini-api-key-input",
+                                classes="setting-input",
+                                password=True,
+                            )
                         yield Static(
                             "Required for Google Gemini models",
                             classes="input-description",
@@ -489,7 +529,11 @@ class SettingsScreen(ModalScreen):
 
                         with Container(classes="setting-row"):
                             yield Label("Anthropic API Key:", classes="setting-label")
-                            yield Input(id="anthropic-api-key-input", classes="setting-input", password=True)
+                            yield Input(
+                                id="anthropic-api-key-input",
+                                classes="setting-input",
+                                password=True,
+                            )
                         yield Static(
                             "Required for Anthropic Claude models",
                             classes="input-description",
@@ -497,7 +541,11 @@ class SettingsScreen(ModalScreen):
 
                         with Container(classes="setting-row"):
                             yield Label("Cerebras API Key:", classes="setting-label")
-                            yield Input(id="cerebras-api-key-input", classes="setting-input", password=True)
+                            yield Input(
+                                id="cerebras-api-key-input",
+                                classes="setting-input",
+                                password=True,
+                            )
                         yield Static(
                             "Required for Cerebras models",
                             classes="input-description",
@@ -505,23 +553,37 @@ class SettingsScreen(ModalScreen):
 
                         with Container(classes="setting-row"):
                             yield Label("Synthetic API Key:", classes="setting-label")
-                            yield Input(id="syn-api-key-input", classes="setting-input", password=True)
+                            yield Input(
+                                id="syn-api-key-input",
+                                classes="setting-input",
+                                password=True,
+                            )
                         yield Static(
                             "Required for Synthetic provider models",
                             classes="input-description",
                         )
 
                         with Container(classes="setting-row"):
-                            yield Label("Azure OpenAI API Key:", classes="setting-label")
-                            yield Input(id="azure-api-key-input", classes="setting-input", password=True)
+                            yield Label(
+                                "Azure OpenAI API Key:", classes="setting-label"
+                            )
+                            yield Input(
+                                id="azure-api-key-input",
+                                classes="setting-input",
+                                password=True,
+                            )
                         yield Static(
                             "Required for Azure OpenAI",
                             classes="input-description",
                         )
 
                         with Container(classes="setting-row"):
-                            yield Label("Azure OpenAI Endpoint:", classes="setting-label")
-                            yield Input(id="azure-endpoint-input", classes="setting-input")
+                            yield Label(
+                                "Azure OpenAI Endpoint:", classes="setting-label"
+                            )
+                            yield Input(
+                                id="azure-endpoint-input", classes="setting-input"
+                            )
                         yield Static(
                             "Azure OpenAI endpoint URL",
                             classes="input-description",
@@ -566,14 +628,14 @@ class SettingsScreen(ModalScreen):
         self.load_model_options()
         self.query_one("#model-select", Select).value = get_global_model_name()
         self.query_one("#vqa-model-select", Select).value = get_vqa_model_name()
-        self.query_one("#reasoning-effort-select", Select).value = (
-            get_openai_reasoning_effort()
-        )
+        self.query_one(
+            "#reasoning-effort-select", Select
+        ).value = get_openai_reasoning_effort()
 
         # Tab 3: History & Context
-        self.query_one("#compaction-strategy-select", Select).value = (
-            get_compaction_strategy()
-        )
+        self.query_one(
+            "#compaction-strategy-select", Select
+        ).value = get_compaction_strategy()
         self.query_one("#compaction-threshold-input", Input).value = str(
             get_compaction_threshold()
         )
@@ -586,15 +648,19 @@ class SettingsScreen(ModalScreen):
         )
 
         # Tab 4: Appearance
-        self.query_one("#suppress-thinking-switch", Switch).value = get_suppress_thinking_messages()
-        self.query_one("#suppress-informational-switch", Switch).value = get_suppress_informational_messages()
+        self.query_one(
+            "#suppress-thinking-switch", Switch
+        ).value = get_suppress_thinking_messages()
+        self.query_one(
+            "#suppress-informational-switch", Switch
+        ).value = get_suppress_informational_messages()
         self.query_one("#diff-style-select", Select).value = get_diff_highlight_style()
-        self.query_one("#diff-addition-color-input", Input).value = (
-            get_diff_addition_color()
-        )
-        self.query_one("#diff-deletion-color-input", Input).value = (
-            get_diff_deletion_color()
-        )
+        self.query_one(
+            "#diff-addition-color-input", Input
+        ).value = get_diff_addition_color()
+        self.query_one(
+            "#diff-deletion-color-input", Input
+        ).value = get_diff_deletion_color()
         self.query_one("#diff-context-lines-input", Input).value = str(
             get_diff_context_lines()
         )
@@ -734,13 +800,25 @@ class SettingsScreen(ModalScreen):
 
         # Get values from input fields
         api_keys = {
-            "OPENAI_API_KEY": self.query_one("#openai-api-key-input", Input).value.strip(),
-            "GEMINI_API_KEY": self.query_one("#gemini-api-key-input", Input).value.strip(),
-            "ANTHROPIC_API_KEY": self.query_one("#anthropic-api-key-input", Input).value.strip(),
-            "CEREBRAS_API_KEY": self.query_one("#cerebras-api-key-input", Input).value.strip(),
+            "OPENAI_API_KEY": self.query_one(
+                "#openai-api-key-input", Input
+            ).value.strip(),
+            "GEMINI_API_KEY": self.query_one(
+                "#gemini-api-key-input", Input
+            ).value.strip(),
+            "ANTHROPIC_API_KEY": self.query_one(
+                "#anthropic-api-key-input", Input
+            ).value.strip(),
+            "CEREBRAS_API_KEY": self.query_one(
+                "#cerebras-api-key-input", Input
+            ).value.strip(),
             "SYN_API_KEY": self.query_one("#syn-api-key-input", Input).value.strip(),
-            "AZURE_OPENAI_API_KEY": self.query_one("#azure-api-key-input", Input).value.strip(),
-            "AZURE_OPENAI_ENDPOINT": self.query_one("#azure-endpoint-input", Input).value.strip(),
+            "AZURE_OPENAI_API_KEY": self.query_one(
+                "#azure-api-key-input", Input
+            ).value.strip(),
+            "AZURE_OPENAI_ENDPOINT": self.query_one(
+                "#azure-endpoint-input", Input
+            ).value.strip(),
         }
 
         # Update environment variables immediately
@@ -761,7 +839,11 @@ class SettingsScreen(ModalScreen):
                     for line in f:
                         stripped = line.strip()
                         # Track which keys exist
-                        if stripped and not stripped.startswith("#") and "=" in stripped:
+                        if (
+                            stripped
+                            and not stripped.startswith("#")
+                            and "=" in stripped
+                        ):
                             key = stripped.split("=", 1)[0].strip()
                             existing_keys.add(key)
                         existing_lines.append(line)
@@ -891,8 +973,12 @@ class SettingsScreen(ModalScreen):
                 set_max_saved_sessions(int(max_autosaves))
 
             # Tab 4: Appearance
-            suppress_thinking = self.query_one("#suppress-thinking-switch", Switch).value
-            suppress_informational = self.query_one("#suppress-informational-switch", Switch).value
+            suppress_thinking = self.query_one(
+                "#suppress-thinking-switch", Switch
+            ).value
+            suppress_informational = self.query_one(
+                "#suppress-informational-switch", Switch
+            ).value
             diff_style = self.query_one("#diff-style-select", Select).value
             diff_addition_color = self.query_one(
                 "#diff-addition-color-input", Input

@@ -612,6 +612,7 @@ class CodePuppyTUI(App):
 
     def action_quit(self) -> None:
         """Show quit confirmation dialog before exiting."""
+
         def handle_quit_confirmation(should_quit: bool) -> None:
             if should_quit:
                 self.exit()

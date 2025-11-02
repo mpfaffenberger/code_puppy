@@ -1101,6 +1101,7 @@ def load_api_keys_to_environment():
     if env_file.exists():
         try:
             from dotenv import load_dotenv
+
             # override=True means .env values take precedence over existing env vars
             load_dotenv(env_file, override=True)
         except ImportError:

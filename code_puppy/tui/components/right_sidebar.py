@@ -192,9 +192,7 @@ class RightSidebar(Container):
             if len(model_display) > 25:
                 model_display = model_display[:22] + "..."
 
-            agent_info.update(
-                f"Agent: {self.agent_name}\nModel: {model_display}"
-            )
+            agent_info.update(f"Agent: {self.agent_name}\nModel: {model_display}")
         except Exception:
             pass
 

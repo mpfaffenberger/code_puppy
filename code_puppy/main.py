@@ -190,6 +190,7 @@ async def main():
 
     # Load API keys from puppy.cfg into environment variables
     from code_puppy.config import load_api_keys_to_environment
+
     load_api_keys_to_environment()
 
     # Handle model validation from command line (validation happens here, setting was earlier)

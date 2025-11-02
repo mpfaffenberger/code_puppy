@@ -177,7 +177,9 @@ class ChatView(VerticalScroll):
         self._scroll_pending = False  # Track if scroll is already scheduled
         self._last_message_category = None  # Track last message category for combining
         self._last_widget = None  # Track the last widget created for combining
-        self._last_combined_message = None  # Track the actual message we're combining into
+        self._last_combined_message = (
+            None  # Track the actual message we're combining into
+        )
 
     def _should_suppress_message(self, message: ChatMessage) -> bool:
         """Check if a message should be suppressed based on user settings."""
@@ -193,7 +195,10 @@ class ChatView(VerticalScroll):
             return True
 
         # Check if informational messages should be suppressed
-        if category == MessageCategory.INFORMATIONAL and get_suppress_informational_messages():
+        if (
+            category == MessageCategory.INFORMATIONAL
+            and get_suppress_informational_messages()
+        ):
             return True
 
         return False
@@ -366,11 +371,15 @@ class ChatView(VerticalScroll):
             self.messages
             and self._last_message_category == message_category
             and self._last_widget is not None  # Make sure we have a widget to update
-            and self._last_combined_message is not None  # Make sure we have a message to combine into
-            and message_category != MessageCategory.AGENT_RESPONSE  # Don't combine agent responses (they're complete answers)
+            and self._last_combined_message
+            is not None  # Make sure we have a message to combine into
+            and message_category
+            != MessageCategory.AGENT_RESPONSE  # Don't combine agent responses (they're complete answers)
         ):
             # SAME CATEGORY: Add to existing container
-            last_message = self._last_combined_message  # Use tracked message, not messages[-1]
+            last_message = (
+                self._last_combined_message
+            )  # Use tracked message, not messages[-1]
 
             # Create a separator for different message types within the same category
             if message.type != last_message.type:
