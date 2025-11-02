@@ -44,12 +44,12 @@ class SubmitCancelButton(Button):
     """
 
     def __init__(self, **kwargs):
-        super().__init__("▶", **kwargs)
+        super().__init__("SEND", **kwargs)
         self.id = "submit-cancel-button"
 
     def watch_is_cancel_mode(self, is_cancel: bool) -> None:
         """Update the button label when cancel mode changes."""
-        self.label = "■" if is_cancel else "▶"
+        self.label = "STOP" if is_cancel else "SEND"
 
     def on_click(self) -> None:
         """Handle click event and bubble it up to parent."""
@@ -71,16 +71,20 @@ class InputArea(Container):
     InputArea {
         dock: bottom;
         height: 9;
-        margin: 1;
+        margin: 0 1 1 1;
+        background: #0a0e1a;
+        border-top: thick #3b82f6 80%;
     }
 
     #spinner {
         height: 1;
         width: 1fr;
-        margin: 0 3 0 1;
+        margin: 0 3 0 2;
         content-align: left middle;
         text-align: left;
         display: none;
+        color: #60a5fa;
+        text-style: bold;
     }
 
     #spinner.visible {
@@ -90,33 +94,60 @@ class InputArea(Container):
     #input-container {
         height: 5;
         width: 1fr;
-        margin: 1 3 0 1;
+        margin: 1 2 0 2;
         align: center middle;
+        background: transparent;
     }
 
     #input-field {
         height: 5;
         width: 1fr;
-        border: solid $primary;
-        background: $surface;
+        border: tall #3b82f6;
+        border-title-align: left;
+        background: #0f172a;
+        color: #e0f2fe;
+        padding: 0 1;
+    }
+
+    #input-field:focus {
+        border: tall #60a5fa;
+        background: #1e293b;
+        color: #ffffff;
     }
 
     #submit-cancel-button {
-        height: 3;
-        width: 3;
-        min-width: 3;
-        margin: 1 0 1 1;
+        height: 5;
+        width: 8;
+        min-width: 8;
+        margin: 0 0 0 1;
         content-align: center middle;
-        border: none;
-        background: $surface;
+        border: thick #3b82f6;
+        background: #1e3a8a 80%;
+        color: #ffffff;
+        text-style: bold;
+    }
+
+    #submit-cancel-button:hover {
+        border: thick #60a5fa;
+        background: #2563eb;
+        color: #ffffff;
+        text-style: bold;
+    }
+
+    #submit-cancel-button:focus {
+        border: heavy #93c5fd;
+        background: #3b82f6;
+        color: #ffffff;
+        text-style: bold;
     }
 
     #input-help {
         height: 1;
         width: 1fr;
-        margin: 0 3 1 1;
-        color: $text-muted;
+        margin: 1 2 1 2;
+        color: #64748b;
         text-align: center;
+        text-style: italic dim;
     }
     """
 

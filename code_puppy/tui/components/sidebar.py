@@ -39,17 +39,21 @@ class Sidebar(Container):
         width: 30;
         min-width: 20;
         max-width: 50;
-        background: $surface;
-        border-right: solid $primary;
+        background: #1e293b;
+        border-right: wide #3b82f6;
         display: none;
     }
 
     #sidebar-tabs {
         height: 1fr;
+        background: #1e293b;
     }
 
     #history-list {
         height: 1fr;
+        background: #1e293b;
+        scrollbar-background: #334155;
+        scrollbar-color: #60a5fa;
     }
 
     .history-interactive {
@@ -66,24 +70,24 @@ class Sidebar(Container):
     }
 
     .history-command {
-        /* Use default text color from theme */
+        color: #e0f2fe;
     }
 
     .history-generic {
-        color: #d1d5db;
+        color: #cbd5e1;
     }
 
     .history-empty {
-        color: #6b7280;
+        color: #64748b;
         text-style: italic;
     }
 
     .history-error {
-        color: #ef4444;
+        color: #fca5a5;
     }
 
     .file-item {
-        color: #d1d5db;
+        color: #cbd5e1;
     }
     """
 
