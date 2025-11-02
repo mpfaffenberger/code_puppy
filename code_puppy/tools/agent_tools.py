@@ -1,6 +1,7 @@
 # agent_tools.py
+import asyncio
 import traceback
-from typing import List
+from typing import List, Set
 
 from pydantic import BaseModel
 
@@ -18,6 +19,8 @@ from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.common import generate_group_id
 
 _temp_agent_count = 0
+# Set to track active subagent invocation tasks
+_active_subagent_tasks: Set[asyncio.Task] = set()
 
 
 class AgentInfo(BaseModel):
@@ -181,10 +184,18 @@ def register_invoke_agent(agent):
                 )
                 temp_agent = dbos_agent
 
-            # Run the temporary agent with the provided prompt
-            result = await temp_agent.run(
-                prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+            # Run the temporary agent with the provided prompt as an asyncio task
+            task = asyncio.create_task(
+                temp_agent.run(
+                    prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+                )
             )
+            _active_subagent_tasks.add(task)
+
+            try:
+                result = await task
+            finally:
+                _active_subagent_tasks.discard(task)
 
             # Extract the response from the result
             response = result.output

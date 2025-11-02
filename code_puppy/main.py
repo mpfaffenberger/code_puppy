@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 import webbrowser
 from pathlib import Path
 
@@ -784,8 +785,7 @@ def main_entry():
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Just exit gracefully with no error message
-        callbacks.on_shutdown()
+        print(traceback.format_exc())
         if get_use_dbos():
             DBOS.destroy()
         return 0

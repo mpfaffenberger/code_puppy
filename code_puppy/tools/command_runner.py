@@ -134,6 +134,21 @@ def kill_all_running_shell_processes() -> int:
     return count
 
 
+def get_running_shell_process_count() -> int:
+    """Return the number of currently-active shell processes being tracked."""
+    with _RUNNING_PROCESSES_LOCK:
+        alive = 0
+        stale: Set[subprocess.Popen] = set()
+        for proc in _RUNNING_PROCESSES:
+            if proc.poll() is None:
+                alive += 1
+            else:
+                stale.add(proc)
+        for proc in stale:
+            _RUNNING_PROCESSES.discard(proc)
+    return alive
+
+
 # Function to check if user input is awaited
 def is_awaiting_user_input():
     """Check if command_runner is waiting for user input."""
