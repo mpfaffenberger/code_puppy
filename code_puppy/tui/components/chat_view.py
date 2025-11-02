@@ -9,7 +9,6 @@ from rich.console import Group
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
-from textual import on
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Static
 

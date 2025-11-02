@@ -5,7 +5,7 @@ Comprehensive settings configuration modal with tabbed interface.
 import os
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -813,7 +813,6 @@ class SettingsScreen(ModalScreen):
             set_diff_deletion_color,
             set_diff_highlight_style,
             set_enable_dbos,
-            set_http2,
             set_max_saved_sessions,
             set_model_name,
             set_openai_reasoning_effort,
@@ -961,7 +960,7 @@ class SettingsScreen(ModalScreen):
             from code_puppy.config import CONFIG_FILE
             from pathlib import Path
 
-            message = f"✅ Settings saved successfully!\n"
+            message = "✅ Settings saved successfully!\n"
             message += f"📁 Config: {CONFIG_FILE}\n"
             message += f"📁 API Keys: {Path.cwd() / '.env'}"
 

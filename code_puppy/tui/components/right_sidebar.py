@@ -5,7 +5,7 @@ Right sidebar component with status information.
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical
 from textual.reactive import reactive
-from textual.widgets import Label, ProgressBar, Static
+from textual.widgets import Label, ProgressBar
 
 
 class RightSidebar(Container):
