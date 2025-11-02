@@ -5,8 +5,6 @@ Right sidebar component with status information.
 from datetime import datetime
 
 from rich.text import Text
-from textual.app import ComposeResult
-from textual.containers import Container
 from textual.reactive import reactive
 from textual.widgets import Static
 
@@ -88,9 +86,9 @@ class RightSidebar(Static):
         if len(model_display) > 28:
             model_display = model_display[:25] + "..."
 
-        status_text.append(f"Agent: ", style="bold")
+        status_text.append("Agent: ", style="bold")
         status_text.append(f"{self.agent_name}\n", style="green")
-        status_text.append(f"Model: ", style="bold")
+        status_text.append("Model: ", style="bold")
         status_text.append(f"{model_display}\n", style="green")
 
         # Context Window Section

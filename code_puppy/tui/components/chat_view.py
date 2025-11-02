@@ -198,7 +198,7 @@ class ChatView(VerticalScroll):
 
         # Check if thinking messages should be suppressed
         if category == MessageCategory.THINKING and suppress_thinking:
-            print(f"[DEBUG] Suppressing THINKING message")
+            print("[DEBUG] Suppressing THINKING message")
             return True
 
         # Check if informational messages should be suppressed
@@ -206,10 +206,10 @@ class ChatView(VerticalScroll):
             category == MessageCategory.INFORMATIONAL
             and suppress_info
         ):
-            print(f"[DEBUG] Suppressing INFORMATIONAL message")
+            print("[DEBUG] Suppressing INFORMATIONAL message")
             return True
 
-        print(f"[DEBUG] NOT suppressing message")
+        print("[DEBUG] NOT suppressing message")
         return False
 
     def _render_agent_message_with_syntax(self, prefix: str, content: str):
@@ -353,10 +353,10 @@ class ChatView(VerticalScroll):
 
         # First check if this message should be suppressed
         if self._should_suppress_message(message):
-            print(f"[DEBUG] Message was suppressed, returning early")
+            print("[DEBUG] Message was suppressed, returning early")
             return  # Skip this message entirely
 
-        print(f"[DEBUG] Message passed suppression check, continuing to add it")
+        print("[DEBUG] Message passed suppression check, continuing to add it")
 
         # Get message category for combining logic
         message_category = get_message_category(message.type)

@@ -156,12 +156,12 @@ class TUIRenderer(MessageRenderer):
         print(f"[DEBUG TUIRenderer] Received message: type={message.type}, content={str(message.content)[:50]}...")
 
         if not self.tui_app:
-            print(f"[DEBUG TUIRenderer] No tui_app available, returning")
+            print("[DEBUG TUIRenderer] No tui_app available, returning")
             return
 
         # Handle human input requests
         if message.type == MessageType.HUMAN_INPUT_REQUEST:
-            print(f"[DEBUG TUIRenderer] Handling human input request")
+            print("[DEBUG TUIRenderer] Handling human input request")
             await self._handle_human_input_request(message)
             return
 
