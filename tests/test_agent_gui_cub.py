@@ -161,7 +161,7 @@ class TestGUICubAgent:
 
         # Simulate the KB logging pattern from the system prompt
         kb_entry = f"""
-## [{datetime.now().strftime('%Y-%m-%d %H:%M')}] Test Entry
+## [{datetime.now().strftime("%Y-%m-%d %H:%M")}] Test Entry
 - Location: (100, 200) via OCR
 - Method: desktop_find_text_in_window()
 - App: TestApp
@@ -304,9 +304,9 @@ class TestGUICubAgent:
 
         for tool in critical_tools:
             # Tool should be available
-            assert (
-                tool in tools
-            ), f"Tool '{tool}' mentioned in prompt but not in available tools"
+            assert tool in tools, (
+                f"Tool '{tool}' mentioned in prompt but not in available tools"
+            )
 
     def test_agent_tool_count_reasonable(self, agent):
         """Verify agent has a reasonable number of tools (not empty, not excessive)."""
@@ -316,13 +316,12 @@ class TestGUICubAgent:
         assert len(tools) > 30, "GUI Cub should have 30+ tools"
 
         # But not an unreasonable amount (might indicate duplicates)
-        assert (
-            len(tools) < 200
-        ), "Tool count seems excessive, check for duplicates or errors"
+        assert len(tools) < 200, (
+            "Tool count seems excessive, check for duplicates or errors"
+        )
 
         # All tools should be unique (no duplicates)
         assert len(tools) == len(set(tools)), "Duplicate tools detected in tool list"
-
 
     def test_system_prompt_stays_professional(self, agent):
         """Verify system prompt maintains professional tone without excessive bear puns."""
@@ -331,9 +330,11 @@ class TestGUICubAgent:
         # Should NOT have excessive bear puns throughout
         bear_pun_terms = ["paw", "sniff", "hibernat", "forag", "ursine"]
         bear_pun_count = sum(prompt.lower().count(term) for term in bear_pun_terms)
-        
+
         # Minimal personality = 0-2 bear references max, not constant puns
-        assert bear_pun_count <= 2, f"Too many bear puns ({bear_pun_count}). Keep it minimal!"
+        assert bear_pun_count <= 2, (
+            f"Too many bear puns ({bear_pun_count}). Keep it minimal!"
+        )
 
     # ========================================================================
     # TEST CASE 4: Extended Tool Presence Verification
@@ -405,8 +406,12 @@ class TestGUICubAgent:
             "windows_list_windows",
         }
 
-        assert tools.isdisjoint(mac_specific), "Linux should not include macOS-only tools"
-        assert tools.isdisjoint(win_specific), "Linux should not include Windows-only tools"
+        assert tools.isdisjoint(mac_specific), (
+            "Linux should not include macOS-only tools"
+        )
+        assert tools.isdisjoint(win_specific), (
+            "Linux should not include Windows-only tools"
+        )
 
     @patch("sys.platform", "darwin")
     def test_macos_specific_full_set_present(self):
@@ -436,7 +441,9 @@ class TestGUICubAgent:
             "desktop_show_all_ocr_boxes",
         }
         missing = expected - tools
-        assert not missing, f"Prompt mentions tools missing from registry: {sorted(missing)}"
+        assert not missing, (
+            f"Prompt mentions tools missing from registry: {sorted(missing)}"
+        )
 
     # ========================================================================
     # TEST CASE 5: System Prompt Deep Semantic Auditing
@@ -495,7 +502,11 @@ class TestGUICubAgent:
         p = agent.get_system_prompt()
         assert "Tool Reference" in p
         # representative example code blocks referenced
-        for snippet in ("desktop_click_accessible_element", "desktop_extract_text", "desktop_highlight_click_target"):
+        for snippet in (
+            "desktop_click_accessible_element",
+            "desktop_extract_text",
+            "desktop_highlight_click_target",
+        ):
             assert snippet in p
 
     def test_prompt_discourages_deprecated_recursive_vqa(self, agent):
@@ -524,7 +535,11 @@ class TestGUICubAgent:
         p = agent.get_system_prompt()
         # The prompt explicitly says not to use VQA for coordinates and mentions offset problems
         assert "VQA" in p
-        assert "not for coordinates" in p or "Do not use VQA for coordinates" in p or "50-100px offset" in p
+        assert (
+            "not for coordinates" in p
+            or "Do not use VQA for coordinates" in p
+            or "50-100px offset" in p
+        )
 
     def test_prompt_includes_knowledge_base_path(self, agent):
         """Verify system prompt includes knowledge base path and management guidance."""
@@ -568,3 +583,239 @@ class TestGUICubIntegration:
         prompt2 = agent.get_system_prompt()
 
         assert prompt1 == prompt2
+
+
+class TestGUICubTokenMonitoring:
+    """Test suite for TIER 4 token monitoring functionality."""
+
+    @pytest.fixture
+    def agent(self):
+        """Create a GUI Cub agent instance for testing."""
+        return GUICubAgent()
+
+    def test_token_monitor_initialized(self, agent):
+        """Verify token monitor is initialized on agent creation."""
+        assert hasattr(agent, "token_monitor")
+        assert agent.token_monitor is not None
+        assert agent.token_monitor.context_limit == 128000
+
+    def test_token_monitor_thresholds_configured(self, agent):
+        """Verify token thresholds are set correctly."""
+        monitor = agent.token_monitor
+        assert monitor.warning_threshold == 0.70
+        assert monitor.checkpoint_threshold == 0.85
+        assert monitor.emergency_threshold == 0.95
+
+    def test_warning_threshold_triggers_at_70_percent(self, agent):
+        """Verify warning triggers at 70% usage."""
+        monitor = agent.token_monitor
+
+        # Set to 69% - should not trigger
+        result = monitor.update(int(128000 * 0.69))
+        assert result is None
+        assert not monitor.warning_fired
+
+        # Set to 71% - should trigger warning
+        result = monitor.update(int(128000 * 0.71))
+        assert result == "warning"
+        assert monitor.warning_fired
+
+    def test_checkpoint_threshold_triggers_at_85_percent(self, agent):
+        """Verify checkpoint triggers at 85% usage."""
+        monitor = agent.token_monitor
+
+        # Set to 84% - should not trigger checkpoint (but warning already fired)
+        result = monitor.update(int(128000 * 0.84))
+        # Should only return warning since it's the first threshold crossed
+        assert result == "warning"
+
+        # Set to 86% - should trigger checkpoint
+        result = monitor.update(int(128000 * 0.86))
+        assert result == "checkpoint"
+        assert monitor.checkpoint_fired
+
+    def test_emergency_threshold_triggers_at_95_percent(self, agent):
+        """Verify emergency triggers at 95% usage."""
+        monitor = agent.token_monitor
+
+        # Jump straight to 96% - should trigger emergency (highest threshold)
+        result = monitor.update(int(128000 * 0.96))
+        # When jumping to 96%, emergency threshold (95%) is hit first
+        assert result == "emergency"
+        assert monitor.emergency_fired
+
+        # Reset and test gradual increase
+        monitor.reset_threshold_flags()
+
+        # Gradually increase: 71% -> warning
+        result = monitor.update(int(128000 * 0.71))
+        assert result == "warning"
+
+        # 86% -> checkpoint
+        result = monitor.update(int(128000 * 0.86))
+        assert result == "checkpoint"
+
+        # 96% -> emergency
+        result = monitor.update(int(128000 * 0.96))
+        assert result == "emergency"
+        assert monitor.emergency_fired
+
+    def test_threshold_flags_reset(self, agent):
+        """Verify threshold flags can be reset."""
+        monitor = agent.token_monitor
+
+        # Trigger all thresholds
+        monitor.update(int(128000 * 0.71))
+        monitor.update(int(128000 * 0.86))
+        monitor.update(int(128000 * 0.96))
+
+        assert monitor.warning_fired
+        assert monitor.checkpoint_fired
+        assert monitor.emergency_fired
+
+        # Reset
+        monitor.reset_threshold_flags()
+
+        assert not monitor.warning_fired
+        assert not monitor.checkpoint_fired
+        assert not monitor.emergency_fired
+
+    def test_get_percentage_calculation(self, agent):
+        """Verify percentage calculation is accurate."""
+        monitor = agent.token_monitor
+
+        monitor.current_tokens = 64000  # 50% of 128000
+        assert monitor.get_percentage() == 50.0
+
+        monitor.current_tokens = 96000  # 75% of 128000
+        assert monitor.get_percentage() == 75.0
+
+    def test_get_remaining_calculation(self, agent):
+        """Verify remaining tokens calculation is accurate."""
+        monitor = agent.token_monitor
+
+        monitor.current_tokens = 64000
+        assert monitor.get_remaining() == 64000
+
+        monitor.current_tokens = 120000
+        assert monitor.get_remaining() == 8000
+
+    def test_metrics_tracking(self, agent):
+        """Verify metrics are tracked correctly."""
+        monitor = agent.token_monitor
+
+        # Initially zero
+        metrics = monitor.get_metrics()
+        assert metrics.warnings_fired == 0
+        assert metrics.checkpoints_created == 0
+        assert metrics.emergencies_fired == 0
+
+        # Trigger warning
+        monitor.update(int(128000 * 0.71))
+        metrics = monitor.get_metrics()
+        assert metrics.warnings_fired == 1
+
+        # Trigger checkpoint
+        monitor.update(int(128000 * 0.86))
+        metrics = monitor.get_metrics()
+        assert metrics.checkpoints_created == 1
+
+        # Trigger emergency
+        monitor.update(int(128000 * 0.96))
+        metrics = monitor.get_metrics()
+        assert metrics.emergencies_fired == 1
+
+    def test_get_status_display_returns_string(self, agent):
+        """Verify status display returns formatted string."""
+        status = agent.get_token_status()
+        assert isinstance(status, str)
+        assert "Context Usage:" in status
+
+    def test_check_token_usage_with_mock_history(self, agent):
+        """Verify check_token_usage calculates from message history."""
+        # Mock message history to simulate high token usage
+        mock_messages = [
+            {"role": "user", "content": "test" * 10000},  # Lots of tokens
+            {"role": "assistant", "content": "response" * 10000},
+        ]
+
+        with patch.object(agent, "get_message_history", return_value=mock_messages):
+            with patch.object(agent, "estimate_tokens_for_message", return_value=50000):
+                # This should trigger warning (100K tokens)
+                agent.check_token_usage()
+                assert agent.token_monitor.warning_fired
+
+
+class TestGUICubAutoResume:
+    """Test suite for TIER 4.5 autonomous context self-management."""
+
+    @pytest.fixture
+    def agent(self):
+        """Create a GUI Cub agent instance for testing."""
+        return GUICubAgent()
+
+    def test_generate_resume_prompt(self, agent):
+        """Verify resume prompt generation captures context."""
+        from code_puppy.agents.gui_cub_monitoring import generate_resume_prompt
+
+        # Set up some message history
+        agent.append_to_message_history(
+            {"role": "user", "content": "Click the login button"}
+        )
+        agent.append_to_message_history(
+            {
+                "role": "assistant",
+                "content": "Clicking login button with accessibility API",
+            }
+        )
+
+        # Generate resume prompt
+        resume_prompt = generate_resume_prompt(agent, "Test automation task")
+
+        # Verify it contains key sections
+        assert "GUI Cub Context Resume" in resume_prompt
+        assert "Session Continuation" in resume_prompt
+        assert "Test automation task" in resume_prompt
+        assert "Recent User Requests" in resume_prompt
+        assert "knowledge base" in resume_prompt.lower()
+
+    def test_auto_save_and_resume_clears_history(self, agent):
+        """Verify auto-resume clears message history."""
+        from code_puppy.agents.gui_cub_monitoring import auto_save_and_resume
+
+        # Add some messages
+        for i in range(10):
+            agent.append_to_message_history({"role": "user", "content": f"Message {i}"})
+
+        # Should have 10 messages
+        assert len(agent.get_message_history()) == 10
+
+        # Auto-resume
+        success, msg = auto_save_and_resume(agent)
+
+        # Should succeed
+        assert success
+
+        # History should be cleared and replaced with resume prompt
+        history = agent.get_message_history()
+        assert len(history) == 1
+        assert history[0]["role"] == "user"
+        assert "GUI Cub Context Resume" in history[0]["content"]
+
+    def test_auto_save_and_resume_resets_thresholds(self, agent):
+        """Verify auto-resume resets threshold flags."""
+        from code_puppy.agents.gui_cub_monitoring import auto_save_and_resume
+
+        # Trigger thresholds
+        agent.token_monitor.update(int(128000 * 0.71))
+        agent.token_monitor.update(int(128000 * 0.86))
+
+        assert agent.token_monitor.warning_fired
+        assert agent.token_monitor.checkpoint_fired
+
+        # Auto-resume should reset flags
+        success, msg = auto_save_and_resume(agent)
+
+        assert success
+        assert not agent.token_monitor.warning_fired
+        assert not agent.token_monitor.checkpoint_fired

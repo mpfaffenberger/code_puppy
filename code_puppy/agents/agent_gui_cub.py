@@ -1,10 +1,25 @@
 """GUI Cub - Desktop automation agent for robotic process automation."""
 
 from .base_agent import BaseAgent
+from .gui_cub_monitoring import (
+    TokenMonitor,
+    auto_save_and_resume,
+    emit_checkpoint_threshold,
+    emit_emergency_threshold,
+    emit_warning_threshold,
+    generate_resume_prompt,
+)
 
 
 class GUICubAgent(BaseAgent):
     """GUI Cub - Advanced desktop automation for robotic process automation."""
+
+    def __init__(self):
+        """Initialize GUI Cub agent with token monitoring."""
+        super().__init__()
+        # TIER 4: Proactive token monitoring
+        self.token_monitor = TokenMonitor(context_limit=128000)
+        self._last_token_check = 0
 
     @property
     def name(self) -> str:
@@ -261,7 +276,15 @@ If user asks "how do I build workflows?" or "how does this work?", explain:
 
 ## Knowledge Base Management & Workflow Reuse
 
-**Location:** `~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md`
+**Location:** Cross-platform in user home directory at `.code_puppy/agents/gui-cub/`
+- Windows: `C:/Users/<username>/.code_puppy/agents/gui-cub/`
+- macOS/Linux: `~/.code_puppy/agents/gui-cub/`
+
+**Files:**
+- `gui_cub_knowledge_base.md` - Main working memory (kept < 1000 lines)
+- `resume_prompt.md` - Latest auto-resume prompt (replaced each time)
+- `sessions/session_YYYYMMDD_HHMMSS.md` - Session snapshots (kept forever)
+
 **Purpose:** Persistent working memory for findings, element locations, timing data, and observations.
 
 **Autonomous logging (append to KB automatically):**
@@ -1021,3 +1044,63 @@ Your desktop automation should be reliable, precise, and mode-aware.
 
 You are GUI Cub 🐻 - a precise, methodical automation agent with dual operating modes. **Automatically detect whether you're building a workflow (exploratory, interactive) or running a workflow (execution, autonomous).** Stay professional and helpful. Prioritize typing over clicking. Verify periodically. Log findings to knowledge base. Honor user-specified timing. Use the right tools in priority order. Deliver clear, factual results. When appropriate, you may occasionally add a light bear-themed quip (e.g., "pawing through the UI"), but keep it minimal and professional.
 """
+
+    def check_token_usage(self) -> None:
+        """Check token usage and emit warnings if thresholds are crossed.
+
+        Called periodically during agent execution to monitor context usage.
+        TIER 4: Proactive token monitoring.
+        TIER 4.5: Autonomous context self-management (auto-resume at 85%).
+        """
+        # Calculate total tokens from message history
+        messages = self.get_message_history()
+        total_tokens = sum(self.estimate_tokens_for_message(msg) for msg in messages)
+
+        # Update monitor and check thresholds
+        threshold_event = self.token_monitor.update(total_tokens)
+
+        # Handle threshold events
+        if threshold_event == "warning":
+            # 70% - Just warn
+            emit_warning_threshold(self.token_monitor)
+
+        elif threshold_event == "checkpoint":
+            # 85% - AUTONOMOUS CONTEXT MANAGEMENT!
+            # auto_save_and_resume handles:
+            # - Saving session to ~/.code_puppy/agents/gui-cub/sessions/
+            # - Replacing resume_prompt.md
+            # - Appending brief entry to KB (with rotation if > 800 lines)
+            # - Clearing message history
+            # - Loading resume prompt
+            success, msg = auto_save_and_resume(self)
+
+            if not success:
+                # Fallback to just emitting warning if auto-resume fails
+                emit_checkpoint_threshold(self.token_monitor)
+
+        elif threshold_event == "emergency":
+            # 95% - Critical warning (shouldn't get here if 85% auto-resume works)
+            emit_emergency_threshold(self.token_monitor)
+
+    def get_token_status(self) -> str:
+        """Get current token usage status display.
+
+        Returns:
+            Formatted token usage string with visual meter
+        """
+        # Update current token count first
+        messages = self.get_message_history()
+        total_tokens = sum(self.estimate_tokens_for_message(msg) for msg in messages)
+        self.token_monitor.current_tokens = total_tokens
+
+        return self.token_monitor.get_status_display()
+
+    async def run_with_mcp(self, prompt: str, **kwargs):
+        """Override to add token monitoring after each run."""
+        # Call parent implementation
+        result = await super().run_with_mcp(prompt, **kwargs)
+
+        # Check token usage after execution (TIER 4)
+        self.check_token_usage()
+
+        return result
