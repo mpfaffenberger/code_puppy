@@ -683,20 +683,21 @@ class SettingsScreen(ModalScreen):
             agent_row.mount(agent_select)
 
     def load_api_keys(self):
-        """Load API keys from environment variables into input fields."""
-        # Load current values from environment variables
-        self.query_one("#openai-api-key-input", Input).value = os.getenv("OPENAI_API_KEY", "")
-        self.query_one("#gemini-api-key-input", Input).value = os.getenv("GEMINI_API_KEY", "")
-        self.query_one("#anthropic-api-key-input", Input).value = os.getenv("ANTHROPIC_API_KEY", "")
-        self.query_one("#cerebras-api-key-input", Input).value = os.getenv("CEREBRAS_API_KEY", "")
-        self.query_one("#syn-api-key-input", Input).value = os.getenv("SYN_API_KEY", "")
-        self.query_one("#azure-api-key-input", Input).value = os.getenv("AZURE_OPENAI_API_KEY", "")
-        self.query_one("#azure-endpoint-input", Input).value = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+        """Load API keys from puppy.cfg into input fields."""
+        from code_puppy.config import get_api_key
+
+        # Load current values from puppy.cfg
+        self.query_one("#openai-api-key-input", Input).value = get_api_key("OPENAI_API_KEY")
+        self.query_one("#gemini-api-key-input", Input).value = get_api_key("GEMINI_API_KEY")
+        self.query_one("#anthropic-api-key-input", Input).value = get_api_key("ANTHROPIC_API_KEY")
+        self.query_one("#cerebras-api-key-input", Input).value = get_api_key("CEREBRAS_API_KEY")
+        self.query_one("#syn-api-key-input", Input).value = get_api_key("SYN_API_KEY")
+        self.query_one("#azure-api-key-input", Input).value = get_api_key("AZURE_OPENAI_API_KEY")
+        self.query_one("#azure-endpoint-input", Input).value = get_api_key("AZURE_OPENAI_ENDPOINT")
 
     def save_api_keys(self):
-        """Save API keys to .env file and update environment variables."""
-        from pathlib import Path
-        from code_puppy.config import CONFIG_DIR
+        """Save API keys to puppy.cfg and update environment variables."""
+        from code_puppy.config import set_api_key
 
         # Get values from input fields
         api_keys = {
@@ -709,38 +710,13 @@ class SettingsScreen(ModalScreen):
             "AZURE_OPENAI_ENDPOINT": self.query_one("#azure-endpoint-input", Input).value.strip(),
         }
 
-        # Update environment variables
+        # Save to puppy.cfg and update environment variables
         for key, value in api_keys.items():
+            set_api_key(key, value)
             if value:
                 os.environ[key] = value
             elif key in os.environ:
                 del os.environ[key]
-
-        # Save to .env file in ~/.code_puppy directory
-        env_file = Path(CONFIG_DIR) / ".env"
-
-        # Read existing .env file if it exists
-        existing_vars = {}
-        if env_file.exists():
-            with open(env_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        key, value = line.split("=", 1)
-                        existing_vars[key.strip()] = value.strip()
-
-        # Update with new API keys
-        existing_vars.update({k: v for k, v in api_keys.items() if v})
-
-        # Remove empty keys
-        for key in api_keys.keys():
-            if not api_keys[key] and key in existing_vars:
-                del existing_vars[key]
-
-        # Write back to .env file
-        with open(env_file, "w", encoding="utf-8") as f:
-            for key, value in existing_vars.items():
-                f.write(f"{key}={value}\n")
 
     @on(Button.Pressed, "#save-button")
     def save_settings(self) -> None:

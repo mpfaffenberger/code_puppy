@@ -77,6 +77,12 @@ async def main():
         help="Specify which agent to use (e.g., --agent code-puppy)",
     )
     parser.add_argument(
+        "--model",
+        "-m",
+        type=str,
+        help="Override the configured model for this session (e.g., --model gpt-5)",
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
@@ -176,6 +182,35 @@ async def main():
         return
 
     ensure_config_exists()
+
+    # Load API keys from puppy.cfg into environment variables
+    from code_puppy.config import load_api_keys_to_environment
+    load_api_keys_to_environment()
+
+    # Handle model override from command line
+    if args.model:
+        from code_puppy.config import set_model_name
+        from code_puppy.model_factory import ModelFactory
+
+        model_name = args.model
+        try:
+            # Check if the model exists in models.json
+            models_config = ModelFactory.load_config()
+            if model_name not in models_config:
+                emit_system_message(
+                    f"[bold red]Error:[/bold red] Model '{model_name}' not found in models.json"
+                )
+                emit_system_message(
+                    f"Available models: {', '.join(models_config.keys())}"
+                )
+                sys.exit(1)
+
+            # Model exists, set it permanently in config
+            set_model_name(model_name)
+            emit_system_message(f"🔄 Model overridden to: {model_name}")
+        except Exception as e:
+            emit_system_message(f"[bold red]Error setting model:[/bold red] {str(e)}")
+            sys.exit(1)
 
     # Handle agent selection from command line
     if args.agent:

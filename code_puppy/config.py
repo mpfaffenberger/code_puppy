@@ -1046,3 +1046,50 @@ def set_suppress_informational_messages(enabled: bool):
         enabled: Whether to suppress informational messages
     """
     set_config_value("suppress_informational_messages", "true" if enabled else "false")
+
+
+# API Key management functions
+def get_api_key(key_name: str) -> str:
+    """Get an API key from puppy.cfg.
+
+    Args:
+        key_name: The name of the API key (e.g., 'OPENAI_API_KEY')
+
+    Returns:
+        The API key value, or empty string if not set
+    """
+    return get_value(key_name) or ""
+
+
+def set_api_key(key_name: str, value: str):
+    """Set an API key in puppy.cfg.
+
+    Args:
+        key_name: The name of the API key (e.g., 'OPENAI_API_KEY')
+        value: The API key value (empty string to remove)
+    """
+    set_config_value(key_name, value)
+
+
+def load_api_keys_to_environment():
+    """Load all API keys from puppy.cfg into environment variables.
+
+    This should be called on startup to ensure API keys are available.
+    """
+    api_key_names = [
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "CEREBRAS_API_KEY",
+        "SYN_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_ENDPOINT",
+    ]
+
+    for key_name in api_key_names:
+        value = get_api_key(key_name)
+        if value:
+            os.environ[key_name] = value
+        elif key_name in os.environ:
+            # Remove from environment if it was removed from config
+            del os.environ[key_name]

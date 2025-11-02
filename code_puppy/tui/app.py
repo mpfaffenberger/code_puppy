@@ -1199,10 +1199,13 @@ class CodePuppyTUI(App):
 async def run_textual_ui(initial_command: str = None):
     """Run the Textual UI interface."""
     # Always enable YOLO mode in TUI mode for a smoother experience
-    from code_puppy.config import set_config_value
+    from code_puppy.config import set_config_value, load_api_keys_to_environment
 
     # Initialize the command history file
     initialize_command_history_file()
+
+    # Load API keys from puppy.cfg into environment variables
+    load_api_keys_to_environment()
 
     set_config_value("yolo_mode", "true")
 
