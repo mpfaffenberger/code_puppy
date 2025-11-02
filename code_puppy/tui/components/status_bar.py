@@ -17,17 +17,17 @@ class StatusBar(Static):
     StatusBar {
         dock: top;
         height: 1;
-        background: #1e3a8a;
-        color: #dbeafe;
+        background: $primary;
+        color: $text;
         text-align: right;
         padding: 0 2;
-        border-bottom: wide #3b82f6;
+        border-bottom: wide $primary-lighten-1;
     }
 
     #status-content {
         text-align: right;
         width: 100%;
-        color: #e0f2fe;
+        color: $text;
     }
     """
 
