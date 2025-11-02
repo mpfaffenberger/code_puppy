@@ -153,23 +153,16 @@ class TUIRenderer(MessageRenderer):
 
     async def render_message(self, message: UIMessage):
         """Render a message in the TUI chat view."""
-        print(
-            f"[DEBUG TUIRenderer] Received message: type={message.type}, content={str(message.content)[:50]}..."
-        )
-
         if not self.tui_app:
-            print("[DEBUG TUIRenderer] No tui_app available, returning")
             return
 
         # Handle human input requests
         if message.type == MessageType.HUMAN_INPUT_REQUEST:
-            print("[DEBUG TUIRenderer] Handling human input request")
             await self._handle_human_input_request(message)
             return
 
         # Extract group_id from message metadata (fixing the key name)
         group_id = message.metadata.get("message_group") if message.metadata else None
-        print(f"[DEBUG TUIRenderer] Processing message with group_id={group_id}")
 
         # For INFO messages with Rich objects (like Markdown), preserve them for proper rendering
         if message.type == MessageType.INFO and hasattr(
@@ -228,11 +221,8 @@ class TUIRenderer(MessageRenderer):
     async def _handle_human_input_request(self, message: UIMessage):
         """Handle a human input request in TUI mode."""
         try:
-            print("[DEBUG] TUI renderer handling human input request")
-
             # Check if tui_app is available
             if not self.tui_app:
-                print("[DEBUG] No tui_app available, falling back to error response")
                 prompt_id = (
                     message.metadata.get("prompt_id") if message.metadata else None
                 )
@@ -244,12 +234,10 @@ class TUIRenderer(MessageRenderer):
 
             prompt_id = message.metadata.get("prompt_id") if message.metadata else None
             if not prompt_id:
-                print("[DEBUG] No prompt_id in message metadata")
                 self.tui_app.add_error_message("Error: Invalid human input request")
                 return
 
             # For now, use a simple fallback instead of modal to avoid crashes
-            print("[DEBUG] Using fallback approach - showing prompt as message")
             self.tui_app.add_system_message(
                 f"[yellow]INPUT NEEDED:[/yellow] {str(message.content)}"
             )
@@ -263,7 +251,6 @@ class TUIRenderer(MessageRenderer):
             provide_prompt_response(prompt_id, "")
 
         except Exception as e:
-            print(f"[DEBUG] Top-level exception in _handle_human_input_request: {e}")
             import traceback
 
             traceback.print_exc()

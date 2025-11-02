@@ -190,25 +190,17 @@ class ChatView(VerticalScroll):
 
         category = get_message_category(message.type)
 
-        # Debug logging
         suppress_thinking = get_suppress_thinking_messages()
         suppress_info = get_suppress_informational_messages()
-        print(f"[DEBUG] Message type: {message.type}, Category: {category}")
-        print(
-            f"[DEBUG] suppress_thinking={suppress_thinking}, suppress_info={suppress_info}"
-        )
 
         # Check if thinking messages should be suppressed
         if category == MessageCategory.THINKING and suppress_thinking:
-            print("[DEBUG] Suppressing THINKING message")
             return True
 
         # Check if informational messages should be suppressed
         if category == MessageCategory.INFORMATIONAL and suppress_info:
-            print("[DEBUG] Suppressing INFORMATIONAL message")
             return True
 
-        print("[DEBUG] NOT suppressing message")
         return False
 
     def _render_agent_message_with_syntax(self, prefix: str, content: str):
@@ -348,16 +340,9 @@ class ChatView(VerticalScroll):
 
     def add_message(self, message: ChatMessage) -> None:
         """Add a new message to the chat view."""
-        print(
-            f"[DEBUG] add_message() called with message type: {message.type}, content: {str(message.content)[:50]}..."
-        )
-
         # First check if this message should be suppressed
         if self._should_suppress_message(message):
-            print("[DEBUG] Message was suppressed, returning early")
             return  # Skip this message entirely
-
-        print("[DEBUG] Message passed suppression check, continuing to add it")
 
         # Get message category for combining logic
         message_category = get_message_category(message.type)

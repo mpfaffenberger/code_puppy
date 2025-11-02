@@ -136,9 +136,6 @@ def test_file_operations_integration(
         # Small delay to ensure filesystem operations complete
         time.sleep(0.5)
 
-        print(f"[DEBUG] Created test files in: {test_dir}")
-        print(f"[DEBUG] Directory contents: {list(test_dir.rglob('*'))}")
-
     except Exception as e:
         print(f"[ERROR] Failed to create test files: {e}")
         raise
@@ -185,11 +182,6 @@ def test_file_operations_integration(
     # If agent reports empty directory, that's still a valid list_files execution
     # The important thing is that the tool was called, not that it found files
     if not (has_file_evidence or has_list_evidence):
-        print(f"[DEBUG] Test directory: {test_dir}")
-        print(f"[DEBUG] Directory actually exists: {test_dir.exists()}")
-        if test_dir.exists():
-            print(f"[DEBUG] Actual directory contents: {list(test_dir.rglob('*'))}")
-
         # If we get here, check if there's a real filesystem issue
         # Verify the files actually exist
         files_exist = all(

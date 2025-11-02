@@ -223,15 +223,9 @@ class MessageQueue:
 
         sleep_interval = 0.05 if is_tui_mode() else 0.1
 
-        # Debug logging for TUI mode
-        if is_tui_mode():
-            print(f"[DEBUG] Waiting for prompt response: {prompt_id}")
-
         while True:
             if prompt_id in self._prompt_responses:
                 response = self._prompt_responses.pop(prompt_id)
-                if is_tui_mode():
-                    print(f"[DEBUG] Got response for {prompt_id}: {response[:20]}...")
                 return response
 
             if timeout and (time.time() - start_time) > timeout:
@@ -243,10 +237,6 @@ class MessageQueue:
 
     def provide_prompt_response(self, prompt_id: str, response: str):
         """Provide a response to a human input request."""
-        from code_puppy.tui_state import is_tui_mode
-
-        if is_tui_mode():
-            print(f"[DEBUG] Providing response for {prompt_id}: {response[:20]}...")
         self._prompt_responses[prompt_id] = response
 
 
