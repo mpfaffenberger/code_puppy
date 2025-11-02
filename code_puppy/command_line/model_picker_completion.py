@@ -27,13 +27,8 @@ def get_active_model():
 def set_active_model(model_name: str):
     """
     Sets the active model name by updating the config (for persistence).
-    Also validates that required API keys are present for the model.
     """
     set_model_name(model_name)
-
-    # Validate API key for the model (as per maintainer feedback)
-    ModelFactory.validate_api_key_for_model(model_name)
-
     # Reload the currently active agent so the new model takes effect immediately
     try:
         from code_puppy.agents import get_current_agent

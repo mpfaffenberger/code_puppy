@@ -247,6 +247,9 @@ class ModelFactory:
         if not model_config:
             raise ValueError(f"Model '{model_name}' not found in configuration.")
 
+        # Validate API key whenever a model is loaded (as per maintainer feedback)
+        ModelFactory.validate_api_key_for_model(model_name)
+
         model_type = model_config.get("type")
 
         if model_type == "gemini":
