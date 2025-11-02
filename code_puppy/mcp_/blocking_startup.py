@@ -193,13 +193,13 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
             # Mark as initialized
             self._initialized.set()
 
-            # Emit success message
-            server_name = getattr(self, "tool_prefix", self.command)
-            emit_info(
-                f"✅ MCP Server '{server_name}' initialized successfully",
-                style="green",
-                message_group=self.message_group,
-            )
+            # Success message removed to reduce console spam
+            # server_name = getattr(self, "tool_prefix", self.command)
+            # emit_info(
+            #     f"✅ MCP Server '{server_name}' initialized successfully",
+            #     style="green",
+            #     message_group=self.message_group,
+            # )
 
             return result
 

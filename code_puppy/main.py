@@ -16,10 +16,6 @@ from rich.text import Text
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.command_line.attachments import parse_prompt_attachments
-from code_puppy.command_line.prompt_toolkit_completion import (
-    get_input_with_combined_completion,
-    get_prompt_with_active_model,
-)
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
@@ -271,9 +267,6 @@ async def main():
 
     # Initialize DBOS if not disabled
     if get_use_dbos():
-        dbos_message = f"Initializing DBOS with database at: {DBOS_DATABASE_URL}"
-        emit_system_message(dbos_message)
-
         dbos_config: DBOSConfig = {
             "name": "dbos-code-puppy",
             "system_database_url": DBOS_DATABASE_URL,
@@ -424,10 +417,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Check if prompt_toolkit is installed
     try:
-        from code_puppy.messaging import emit_system_message
-
-        emit_system_message(
-            "[dim]Using prompt_toolkit for enhanced tab completion[/dim]"
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_input_with_combined_completion,
+            get_prompt_with_active_model,
         )
     except ImportError:
         from code_puppy.messaging import emit_warning
@@ -442,6 +434,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.messaging import emit_success
 
             emit_success("Successfully installed prompt_toolkit")
+            from code_puppy.command_line.prompt_toolkit_completion import (
+                get_input_with_combined_completion,
+                get_prompt_with_active_model,
+            )
         except Exception as e:
             from code_puppy.messaging import emit_error, emit_warning
 

@@ -15,7 +15,7 @@ def round_robin_config(tmp_path: pathlib.Path) -> pathlib.Path:
     config = {
         "test-round-robin": {
             "type": "round_robin",
-            "models": ["glm-4.6-coding", "Cerebras-GLM-4.6"],
+            "models": ["glm-4.6-coding", "synthetic-GLM-4.6"],
             "rotate_every": 2,
         },
         "test-round-robin-single": {
@@ -118,7 +118,7 @@ auto_save_session = false
         # Look for round-robin indicators in the log
         # Check that we're using one of the configured round-robin models
         assert (
-            "Cerebras-GLM-4.6" in full_log
+            "synthetic-GLM-4.6" in full_log
             or "glm-4.6-coding" in full_log
             or "Loading Model:"
             in full_log  # At least the model loading pattern should be there
@@ -254,7 +254,7 @@ def test_round_robin_rotate_every_parameter(
     config = {
         "test-rotate-every-3": {
             "type": "round_robin",
-            "models": ["glm-4.6-coding", "Cerebras-GLM-4.6"],
+            "models": ["glm-4.6-coding", "synthetic-GLM-4.6"],
             "rotate_every": 3,
         }
     }
