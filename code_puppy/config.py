@@ -157,6 +157,7 @@ def get_config_keys():
         "max_saved_sessions",
         "http2",
         "diff_context_lines",
+        "default_agent",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -188,11 +189,10 @@ def load_mcp_server_configs():
     Returns a dict mapping names to their URL or config dict.
     If file does not exist, returns an empty dict.
     """
-    from code_puppy.messaging.message_queue import emit_error, emit_system_message
+    from code_puppy.messaging.message_queue import emit_error
 
     try:
         if not pathlib.Path(MCP_SERVERS_FILE).exists():
-            emit_system_message("[dim]No MCP configuration was found[/dim]")
             return {}
         with open(MCP_SERVERS_FILE, "r") as f:
             conf = json.loads(f.read())
@@ -1115,3 +1115,23 @@ def load_api_keys_to_environment():
             value = get_api_key(key_name)
             if value:
                 os.environ[key_name] = value
+
+
+def get_default_agent() -> str:
+    """
+    Get the default agent name from puppy.cfg.
+
+    Returns:
+        str: The default agent name, or "code-puppy" if not set.
+    """
+    return get_value("default_agent") or "code-puppy"
+
+
+def set_default_agent(agent_name: str) -> None:
+    """
+    Set the default agent name in puppy.cfg.
+
+    Args:
+        agent_name: The name of the agent to set as default.
+    """
+    set_config_value("default_agent", agent_name)

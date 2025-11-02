@@ -16,10 +16,6 @@ from rich.text import Text
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.command_line.attachments import parse_prompt_attachments
-from code_puppy.command_line.prompt_toolkit_completion import (
-    get_input_with_combined_completion,
-    get_prompt_with_active_model,
-)
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
@@ -80,7 +76,7 @@ async def main():
         "--model",
         "-m",
         type=str,
-        help="Override the configured model for this session (e.g., --model gpt-5)",
+        help="Specify which model to use (e.g., --model gpt-5)",
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
@@ -181,35 +177,46 @@ async def main():
         emit_system_message(f"[bold red]{error_msg}[/bold red]")
         return
 
+    # Early model setting if specified via command line
+    # This happens before ensure_config_exists() to ensure config is set up correctly
+    early_model = None
+    if args.model:
+        early_model = args.model.strip()
+        from code_puppy.config import set_model_name
+
+        set_model_name(early_model)
+
     ensure_config_exists()
 
     # Load API keys from puppy.cfg into environment variables
     from code_puppy.config import load_api_keys_to_environment
     load_api_keys_to_environment()
 
-    # Handle model override from command line
+    # Handle model validation from command line (validation happens here, setting was earlier)
     if args.model:
-        from code_puppy.config import set_model_name
-        from code_puppy.model_factory import ModelFactory
+        from code_puppy.config import _validate_model_exists
 
-        model_name = args.model
+        model_name = args.model.strip()
         try:
-            # Check if the model exists in models.json
-            models_config = ModelFactory.load_config()
-            if model_name not in models_config:
+            # Validate that the model exists in models.json
+            if not _validate_model_exists(model_name):
+                from code_puppy.model_factory import ModelFactory
+
+                models_config = ModelFactory.load_config()
+                available_models = list(models_config.keys()) if models_config else []
+
                 emit_system_message(
-                    f"[bold red]Error:[/bold red] Model '{model_name}' not found in models.json"
+                    f"[bold red]Error:[/bold red] Model '{model_name}' not found"
                 )
-                emit_system_message(
-                    f"Available models: {', '.join(models_config.keys())}"
-                )
+                emit_system_message(f"Available models: {', '.join(available_models)}")
                 sys.exit(1)
 
-            # Model exists, set it permanently in config
-            set_model_name(model_name)
-            emit_system_message(f"🔄 Model overridden to: {model_name}")
+            # Model is valid, show confirmation (already set earlier)
+            emit_system_message(f"🎯 Using model: {model_name}")
         except Exception as e:
-            emit_system_message(f"[bold red]Error setting model:[/bold red] {str(e)}")
+            emit_system_message(
+                f"[bold red]Error validating model:[/bold red] {str(e)}"
+            )
             sys.exit(1)
 
     # Handle agent selection from command line
@@ -264,9 +271,6 @@ async def main():
 
     # Initialize DBOS if not disabled
     if get_use_dbos():
-        dbos_message = f"Initializing DBOS with database at: {DBOS_DATABASE_URL}"
-        emit_system_message(dbos_message)
-
         dbos_config: DBOSConfig = {
             "name": "dbos-code-puppy",
             "system_database_url": DBOS_DATABASE_URL,
@@ -417,10 +421,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Check if prompt_toolkit is installed
     try:
-        from code_puppy.messaging import emit_system_message
-
-        emit_system_message(
-            "[dim]Using prompt_toolkit for enhanced tab completion[/dim]"
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_input_with_combined_completion,
+            get_prompt_with_active_model,
         )
     except ImportError:
         from code_puppy.messaging import emit_warning
@@ -435,6 +438,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.messaging import emit_success
 
             emit_success("Successfully installed prompt_toolkit")
+            from code_puppy.command_line.prompt_toolkit_completion import (
+                get_input_with_combined_completion,
+                get_prompt_with_active_model,
+            )
         except Exception as e:
             from code_puppy.messaging import emit_error, emit_warning
 
