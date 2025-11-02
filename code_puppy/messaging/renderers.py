@@ -153,16 +153,21 @@ class TUIRenderer(MessageRenderer):
 
     async def render_message(self, message: UIMessage):
         """Render a message in the TUI chat view."""
+        print(f"[DEBUG TUIRenderer] Received message: type={message.type}, content={str(message.content)[:50]}...")
+
         if not self.tui_app:
+            print(f"[DEBUG TUIRenderer] No tui_app available, returning")
             return
 
         # Handle human input requests
         if message.type == MessageType.HUMAN_INPUT_REQUEST:
+            print(f"[DEBUG TUIRenderer] Handling human input request")
             await self._handle_human_input_request(message)
             return
 
         # Extract group_id from message metadata (fixing the key name)
         group_id = message.metadata.get("message_group") if message.metadata else None
+        print(f"[DEBUG TUIRenderer] Processing message with group_id={group_id}")
 
         # For INFO messages with Rich objects (like Markdown), preserve them for proper rendering
         if message.type == MessageType.INFO and hasattr(

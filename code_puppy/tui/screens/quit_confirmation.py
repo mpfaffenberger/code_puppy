@@ -60,6 +60,11 @@ class QuitConfirmationScreen(ModalScreen[bool]):
                 yield Button("Cancel", id="cancel-button", variant="default")
                 yield Button("Quit", id="quit-button", variant="error")
 
+    def on_mount(self) -> None:
+        """Set initial focus to the Quit button."""
+        quit_button = self.query_one("#quit-button", Button)
+        quit_button.focus()
+
     @on(Button.Pressed, "#cancel-button")
     def cancel_quit(self) -> None:
         """Cancel quitting."""
@@ -74,6 +79,5 @@ class QuitConfirmationScreen(ModalScreen[bool]):
         """Handle key events."""
         if event.key == "escape":
             self.dismiss(False)
-        elif event.key == "enter":
-            # Default to cancel on Enter for safety
-            self.dismiss(False)
+        # Note: Enter key will automatically activate the focused button
+        # No need to handle it here - Textual handles button activation

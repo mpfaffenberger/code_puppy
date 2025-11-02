@@ -72,8 +72,8 @@ class InputArea(Container):
         dock: bottom;
         height: 9;
         margin: 0 1 1 1;
-        background: #0a0e1a;
-        border-top: thick #3b82f6 80%;
+        background: $surface;
+        border-top: thick $primary 80%;
     }
 
     #spinner {
@@ -83,7 +83,7 @@ class InputArea(Container):
         content-align: left middle;
         text-align: left;
         display: none;
-        color: #60a5fa;
+        color: $primary;
         text-style: bold;
     }
 
@@ -102,17 +102,17 @@ class InputArea(Container):
     #input-field {
         height: 5;
         width: 1fr;
-        border: tall #3b82f6;
+        border: tall $primary;
         border-title-align: left;
-        background: #0f172a;
-        color: #e0f2fe;
+        background: $panel;
+        color: $text;
         padding: 0 1;
     }
 
     #input-field:focus {
-        border: tall #60a5fa;
-        background: #1e293b;
-        color: #ffffff;
+        border: tall $primary-lighten-1;
+        background: $panel-lighten-1;
+        color: $text;
     }
 
     #submit-cancel-button {
@@ -121,23 +121,23 @@ class InputArea(Container):
         min-width: 8;
         margin: 0 0 0 1;
         content-align: center middle;
-        border: thick #3b82f6;
-        background: #1e3a8a 80%;
-        color: #ffffff;
+        border: thick $primary;
+        background: $primary 80%;
+        color: $text;
         text-style: bold;
     }
 
     #submit-cancel-button:hover {
-        border: thick #60a5fa;
-        background: #2563eb;
-        color: #ffffff;
+        border: thick $primary-lighten-1;
+        background: $primary-lighten-1;
+        color: $text;
         text-style: bold;
     }
 
     #submit-cancel-button:focus {
-        border: heavy #93c5fd;
-        background: #3b82f6;
-        color: #ffffff;
+        border: heavy $primary-lighten-2;
+        background: $primary-lighten-2;
+        color: $text;
         text-style: bold;
     }
 
@@ -145,7 +145,7 @@ class InputArea(Container):
         height: 1;
         width: 1fr;
         margin: 1 2 1 2;
-        color: #64748b;
+        color: $text-muted;
         text-align: center;
         text-style: italic dim;
     }
