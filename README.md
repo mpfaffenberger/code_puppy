@@ -1,13 +1,11 @@
 <div align="center">
 
-# 🐶✨ Code Puppy ✨🐶
-
 ![Code Puppy Logo](code_puppy.png)
 
-**The sassy AI code agent that makes IDEs look outdated** 🚀
+**🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
 
 [![Version](https://img.shields.io/badge/Version-0.0.243-purple?style=for-the-badge&logo=git)](https://pypi.org/project/code-puppy/)
-[![Downloads](https://img.shields.io/badge/Downloads-10k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
+[![Downloads](https://img.shields.io/badge/Downloads-100k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/actions)
@@ -15,12 +13,14 @@
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-black?style=for-the-badge)](https://github.com/psf/black)
 [![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/mpfaffenberger/code_puppy/tests)
 
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-orange?style=flat-square&logo=openai)](https://openai.com)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5-orange?style=flat-square&logo=openai)](https://openai.com)
 [![Gemini](https://img.shields.io/badge/Google-Gemini-blue?style=flat-square&logo=google)](https://ai.google.dev/)
 [![Anthropic](https://img.shields.io/badge/Anthropic-Claude-orange?style=flat-square&logo=anthropic)](https://anthropic.com)
-[![Cerebras](https://img.shields.io/badge/Cerebras-LLM-red?style=flat-square)](https://cerebras.ai)
+[![Cerebras](https://img.shields.io/badge/Cerebras-GLM%204.6-red?style=flat-square)](https://cerebras.ai)
+[![Z.AI](https://img.shields.io/badge/Z.AI-GLM%204.6-purple?style=flat-square)](https://z.ai/)
+[![Synthetic](https://img.shields.io/badge/Synthetic-MINIMAX_M2-green?style=flat-square)](https://synthetic.new)
 
-[![Made with ❤️](https://img.shields.io/badge/Made%20with-%F0%9F%A6%84-red?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
+🐶
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
 [![Zero Dependencies](https://img.shields.io/badge/Zero-Dependencies-success?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
 
@@ -29,7 +29,7 @@
 
 **[⭐ Star this repo if you hate expensive IDEs! ⭐](#quick-start)**
 
-*"Who needs an IDE when you have 1024 angry puppies?"* - Mike, probably.
+*"Who needs an IDE when you have 1024 angry puppies?"* - Someone, probably.
 
 </div>
 
@@ -53,29 +53,7 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 
 ```bash
 uvx code-puppy -i
-```
-
-
-## Features
-
-### Session Autosave & Contexts
-- Autosaves live in `~/.code_puppy/autosaves` and include a `.pkl` and `_meta.json` per session.
-- On startup, you’ll be prompted to optionally load a recent autosave (with message counts and timestamps).
-- Autosaves use a stable session ID per interactive run so subsequent prompts overwrite the same session (not N new files). Rotate via `/session new` when you want a fresh session.
-- Loading an autosave makes it the active autosave target (future autosaves overwrite that loaded session).
-- Loading a manual context with `/load_context <name>` automatically rotates the autosave ID to avoid overwriting anything.
-- Helpers:
-  - `/session id` shows the current autosave ID and file prefix
-  - `/session new` rotates the autosave ID
-
-
-- **Multi-language support**: Capable of generating code in various programming languages.
-- **Interactive CLI**: A command-line interface for interactive use.
-- **Detailed explanations**: Provides insights into generated code to understand its logic and structure.
-
-## Command Line Animation
-
-![Code Puppy](code_puppy.gif)
+````
 
 ## Installation
 
