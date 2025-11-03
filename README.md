@@ -1,19 +1,44 @@
-# 🐶 Code Puppy - Walmart Global Tech Edition 🐶
-<!-- Biscuit's tool demo: showing edit_file with replacements! -->
-<!-- Biscuit was here: this comment added during a tool call demo! -->
-<!-- Biscuit was here: this comment added during a tool call demo! -->
-<!-- Biscuit's tool demo: showing edit_file with replacements! -->
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
-![Walmart Internal](https://img.shields.io/badge/walmart-internal-blue)
-![Enterprise Ready](https://img.shields.io/badge/enterprise-ready-green)
-  <a href="https://github.com/mpfaffenberger/code_puppy"><img src="https://img.shields.io/pypi/pyversions/pydantic-ai.svg" alt="versions"></a>
-  <a href="https://github.com/mpfaffenberger/code_puppy/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pydantic/pydantic-ai.svg?v" alt="license"></a>
+<div align="center">
 
-### Last Updated Jul 11, 2025 10pm
-*"Who needs an IDE when you have enterprise-grade code puppies?"* - Walmart Global Tech, 2025.
+![Code Puppy Logo](code_puppy.png)
 
-## 🏢 Walmart Internal Fork Notice
+**🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
+
+[![Version](https://img.shields.io/badge/Version-0.0.248-purple?style=for-the-badge&logo=git)](https://pypi.org/project/code-puppy/)
+[![Downloads](https://img.shields.io/badge/Downloads-100k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/actions)
+[![Coverage](https://img.shields.io/badge/Coverage-95%25-brightgreen?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
+[![Code Style](https://img.shields.io/badge/Code%20Style-Black-black?style=for-the-badge)](https://github.com/psf/black)
+[![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/mpfaffenberger/code_puppy/tests)
+
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5-orange?style=flat-square&logo=openai)](https://openai.com)
+[![Gemini](https://img.shields.io/badge/Google-Gemini-blue?style=flat-square&logo=google)](https://ai.google.dev/)
+[![Anthropic](https://img.shields.io/badge/Anthropic-Claude-orange?style=flat-square&logo=anthropic)](https://anthropic.com)
+[![Cerebras](https://img.shields.io/badge/Cerebras-GLM%204.6-red?style=flat-square)](https://cerebras.ai)
+[![Z.AI](https://img.shields.io/badge/Z.AI-GLM%204.6-purple?style=flat-square)](https://z.ai/)
+[![Synthetic](https://img.shields.io/badge/Synthetic-MINIMAX_M2-green?style=flat-square)](https://synthetic.new)
+
+[![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
+[![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
+
+[![100% privacy](https://img.shields.io/badge/FULL-Privacy%20commitment-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy/blob/main/README.md#code-puppy-privacy-commitment)
+
+[![GitHub stars](https://img.shields.io/github/stars/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/network)
+
+**[⭐ Star this repo if you hate expensive IDEs! ⭐](#quick-start)**
+
+*"Who needs an IDE when you have 1024 angry puppies?"* - Someone, probably.
+
+</div>
+
+---
+
+
+
+## Overview
 
 *This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.*
 
@@ -28,6 +53,7 @@
 
 
 Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor.
+
 
 ## Quick start
 
@@ -170,8 +196,9 @@ Config takes precedence if set; otherwise the environment variable is used.
 
 The following environment variables control DBOS behavior:
 - `DBOS_CONDUCTOR_KEY`: If set, Code Puppy connects to the [DBOS Management Console](https://console.dbos.dev/). Make sure you first register an app named `dbos-code-puppy` on the console to generate a Conductor key. Default: `None`.
-- `DBOS_LOG_LEVEL`: Logging verbosity: `ERROR`, `WARNING`, `INFO`, or `DEBUG`. Default: `ERROR`.
+- `DBOS_LOG_LEVEL`: Logging verbosity: `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG`. Default: `ERROR`.
 - `DBOS_SYSTEM_DATABASE_URL`: Database URL used by DBOS. Can point to a local SQLite file or a Postgres instance. Example: `postgresql://postgres:dbos@localhost:5432/postgres`. Default: `dbos_store.sqlite` file in the config directory.
+- `DBOS_APP_VERSION`: If set, Code Puppy uses it as the [DBOS application version](https://docs.dbos.dev/architecture#application-and-workflow-versions) and automatically tries to recover pending workflows for this version. Default: Code Puppy version + Unix timestamp in millisecond (disable automatic recovery).
 
 
 ## Requirements
@@ -738,11 +765,13 @@ Consider contributing agent templates for:
 
 ---
 
-**Happy Agent Building!** 🚀 Code Puppy now supports both Python and JSON agents, making it easy for anyone to create custom AI coding assistants! 🐶✨
+# Code Puppy Privacy Commitment
 
+**Zero-compromise privacy policy. Always.**
 
 ## Conclusion
 By using Code Puppy Walmart Edition, Walmart Global Tech teams can maintain enterprise-grade code quality, adhere to Walmart's design guidelines, and accelerate development workflows at global retail scale.
+Unlike other Agentic Coding software, there is no corporate or investor backing for this project, which means **zero pressure to compromise our principles for profit**. This isn't just a nice-to-have feature – it's fundamental to the project's DNA.
 
 ---
 
@@ -756,3 +785,19 @@ uv tool install pre-commit --with pre-commit-uv
 uv run pre-commit install
 ```
 Now whenever you commit, the hooks will run.
+
+### What Code Puppy _absolutely does not_ collect:
+- ❌ **Zero telemetry** – no usage analytics, crash reports, or behavioral tracking
+- ❌ **Zero prompt logging** – your code, conversations, or project details are never stored
+- ❌ **Zero behavioral profiling** – we don't track what you build, how you code, or when you use the tool
+- ❌ **Zero third-party data sharing** – your information is never sold, traded, or given away
+
+### What data flows where:
+- **LLM Provider Communication**: Your prompts are sent directly to whichever LLM provider you've configured (OpenAI, Anthropic, local models, etc.) – this is unavoidable for AI functionality
+- **Complete Local Option**: Run your own VLLM/SGLang/Llama.cpp server locally → **zero data leaves your network**. Configure this with `~/.code_puppy/extra_models.json`
+- **Direct Developer Contact**: All feature requests, bug reports, and discussions happen directly with me – no middleman analytics platforms or customer data harvesting tools
+
+### Our privacy-first architecture:
+Code Puppy is designed with privacy-by-design principles. Every feature has been evaluated through a privacy lens, and every integration respects user data sovereignty. When you use Code Puppy, you're not the product – you're just a developer getting things done.
+
+**This commitment is enforceable because it's structurally impossible to violate it.** No external pressures, no investor demands, no quarterly earnings targets to hit. Just solid code that respects your privacy.

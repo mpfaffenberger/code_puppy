@@ -26,9 +26,13 @@ def fetch_latest_version(package_name):
 
 def default_version_mismatch_behavior(current_version):
     latest_version = fetch_latest_version("code-puppy")
+
+    # Always print the current version
     console.print(f"Current version: {current_version}")
-    console.print(f"Latest version: {latest_version}")
+
     if latest_version and latest_version != current_version:
+        # Show both versions and update message when they're different
+        console.print(f"Latest version: {latest_version}")
         console.print(
             f"[bold yellow]A new version of code puppy is available: {latest_version}[/bold yellow]"
         )

@@ -49,7 +49,7 @@ session_id = str(uuid.uuid4())
 set_cert_bundle()
 
 register_callback("version_check", _handle_update)
-register_callback("startup", display_disclaimer)
+# Disclaimer is now shown via /disclaimer command instead of on startup
 
 
 async def auth_flow() -> None:

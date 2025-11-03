@@ -11,7 +11,6 @@ from pydantic_ai import RunContext
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
 from code_puppy.messaging import (
-    emit_divider,
     emit_error,
     emit_info,
     emit_success,
@@ -463,7 +462,6 @@ def _read_file(
         console_msg += f" [dim](lines {start_line}-{start_line + num_lines - 1})[/dim]"
     emit_info(console_msg, message_group=group_id)
 
-    emit_divider(message_group=group_id)
     if not os.path.exists(file_path):
         error_msg = f"File {file_path} does not exist"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
@@ -521,7 +519,6 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]",
         message_group=group_id,
     )
-    emit_divider(message_group=group_id)
 
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None

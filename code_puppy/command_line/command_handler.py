@@ -36,6 +36,7 @@ def get_commands_help():
         ("/pin_model <agent> <model>", "Pin a specific model to an agent"),
         ("/mcp", "Manage MCP servers (list, start, stop, status, etc.)"),
         ("/motd", "Show the latest message of the day (MOTD)"),
+        ("/disclaimer", "Show usage disclaimer and data sensitivity guidelines"),
         ("/show", "Show puppy config key-values"),
         (
             "/compact",
@@ -248,6 +249,11 @@ def handle_command(command: str):
         print_motd(force=True)
         return True
 
+    if command.strip().startswith("/disclaimer"):
+        from code_puppy.plugins.walmart_specific.disclaimer import display_disclaimer
+        display_disclaimer()
+        return True
+
     if command.strip().startswith("/compact"):
         # Functions have been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent
@@ -344,6 +350,7 @@ def handle_command(command: str):
             get_auto_save_session,
             get_compaction_strategy,
             get_compaction_threshold,
+            get_default_agent,
             get_openai_reasoning_effort,
             get_owner_name,
             get_protected_token_count,
@@ -365,12 +372,14 @@ def handle_command(command: str):
 
         # Get current agent info
         current_agent = get_current_agent()
+        default_agent = get_default_agent()
 
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
 [bold]puppy_name:[/bold]            [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]            [cyan]{owner_name}[/cyan]
 [bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
+[bold]default_agent:[/bold]        [cyan]{default_agent}[/cyan]
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]DBOS:[/bold]                  {"[green]enabled[/green]" if get_use_dbos() else "[yellow]disabled[/yellow]"} (toggle: /set enable_dbos true|false)

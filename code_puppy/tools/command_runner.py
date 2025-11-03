@@ -12,7 +12,6 @@ from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.text import Text
 
-from code_puppy.callbacks import on_run_shell_command
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
@@ -20,7 +19,6 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-from code_puppy.safety_validator import validate_command_safety
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tui_state import is_tui_mode
 
@@ -134,6 +132,21 @@ def kill_all_running_shell_processes() -> int:
         finally:
             _unregister_process(p)
     return count
+
+
+def get_running_shell_process_count() -> int:
+    """Return the number of currently-active shell processes being tracked."""
+    with _RUNNING_PROCESSES_LOCK:
+        alive = 0
+        stale: Set[subprocess.Popen] = set()
+        for proc in _RUNNING_PROCESSES:
+            if proc.poll() is None:
+                alive += 1
+            else:
+                stale.add(proc)
+        for proc in stale:
+            _RUNNING_PROCESSES.discard(proc)
+    return alive
 
 
 # Function to check if user input is awaited
@@ -386,88 +399,13 @@ def run_shell_command(
     if not command or not command.strip():
         emit_error("Command cannot be empty", message_group=group_id)
         return ShellCommandOutput(
-            success=False,
-            command=command,
-            error="Command cannot be empty",
-            stdout=None,
-            stderr=None,
-            exit_code=-1,
-            execution_time=0.0,
-            timeout=False,
+            **{"success": False, "error": "Command cannot be empty"}
         )
 
     emit_info(
         f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] 📂 [bold green]$ {command}[/bold green]",
         message_group=group_id,
     )
-
-    # Safety validation check
-    from code_puppy.config import get_safety_permission_level
-
-    validation_result = validate_command_safety(
-        command, context="User requested command"
-    )
-    permission_level = get_safety_permission_level()
-
-    if validation_result.should_block:
-        emit_error(
-            "🚨 [bold red]COMMAND BLOCKED BY SAFETY VALIDATION[/bold red]",
-            message_group=group_id,
-        )
-        emit_warning(
-            f"Risk Level: [bold yellow]{validation_result.risk_level.upper()}[/bold yellow]",
-            message_group=group_id,
-        )
-        emit_info(
-            f"Reasoning: {validation_result.reasoning}",
-            message_group=group_id,
-        )
-        emit_info(
-            f"\nYour current safety permission level: [bold cyan]{permission_level.upper()}[/bold cyan]",
-            message_group=group_id,
-        )
-        emit_info(
-            "To allow this command, adjust your permission level with:",
-            message_group=group_id,
-        )
-        emit_info(
-            "  [bold green]/set safety_permission_level=<level>[/bold green]",
-            message_group=group_id,
-        )
-        emit_info(
-            "  Levels: safe < low < medium < high < critical (default: medium)",
-            message_group=group_id,
-        )
-        return ShellCommandOutput(
-            success=False,
-            command=command,
-            error=f"Command blocked by safety validation: {validation_result.reasoning}",
-            stdout=None,
-            stderr=None,
-            exit_code=-2,
-            execution_time=0.0,
-            timeout=False,
-        )
-    elif not validation_result.is_safe and not validation_result.should_block:
-        # Command is risky but within user's permission level - show warning
-        emit_warning(
-            f"⚠️  [bold yellow]RISKY COMMAND ALLOWED[/bold yellow] (Risk: {validation_result.risk_level.upper()})",
-            message_group=group_id,
-        )
-        emit_info(
-            f"This command is risky but within your permission level ({permission_level.upper()})",
-            message_group=group_id,
-        )
-        emit_info(
-            f"Reasoning: {validation_result.reasoning}",
-            message_group=group_id,
-        )
-    elif validation_result.error:
-        # Log warning if validation had issues but allowed command
-        emit_warning(
-            f"⚠️  Safety validation had issues: {validation_result.error}",
-            message_group=group_id,
-        )
 
     from code_puppy.config import get_yolo_mode
 
@@ -663,9 +601,7 @@ def register_agent_run_shell_command(agent):
             This tool can execute arbitrary shell commands. Exercise caution when
             running untrusted commands, especially those that modify system state.
         """
-        result = run_shell_command(context, command, cwd, timeout)
-        on_run_shell_command(result)
-        return result
+        return run_shell_command(context, command, cwd, timeout)
 
 
 def register_agent_share_your_reasoning(agent):

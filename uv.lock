@@ -362,7 +362,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.233"
+version = "0.0.248"
 source = { editable = "." }
 dependencies = [
     { name = "atomacos", marker = "sys_platform == 'darwin'" },
@@ -384,6 +384,7 @@ dependencies = [
     { name = "pyautogui" },
     { name = "pydantic" },
     { name = "pydantic-ai" },
+    { name = "pyfiglet" },
     { name = "pyjwt" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
     { name = "pytesseract" },
@@ -433,6 +434,7 @@ requires-dist = [
     { name = "pyautogui", specifier = ">=0.9.40,<0.9.42" },
     { name = "pydantic", specifier = ">=2.4.0" },
     { name = "pydantic-ai", specifier = "==1.0.5" },
+    { name = "pyfiglet", specifier = ">=0.8.post1" },
     { name = "pyjwt", specifier = ">=2.8.0" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pytesseract", specifier = ">=0.3.13" },
@@ -2397,13 +2399,13 @@ wheels = [
 ]
 
 [[package]]
-name = "pygetwindow"
-version = "0.0.4"
-source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
-dependencies = [
-    { name = "pyrect" },
+name = "pyfiglet"
+version = "1.0.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c8/e3/0a86276ad2c383ce08d76110a8eec2fe22e7051c4b8ba3fa163a0b08c428/pyfiglet-1.0.4.tar.gz", hash = "sha256:db9c9940ed1bf3048deff534ed52ff2dafbbc2cd7610b17bb5eca1df6d4278ef", size = 1560615, upload-time = "2025-08-15T18:32:47.302Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/5c/fe9f95abd5eaedfa69f31e450f7e2768bef121dbdf25bcddee2cd3087a16/pyfiglet-1.0.4-py3-none-any.whl", hash = "sha256:65b57b7a8e1dff8a67dc8e940a117238661d5e14c3e49121032bd404d9b2b39f", size = 1806118, upload-time = "2025-08-15T18:32:45.556Z" },
 ]
-sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/01/ed/56d4a369c6e18f6b239d9ef37b3222ba308bfebf949571b2611ff7d64f1d/PyGetWindow-0.0.4.tar.gz", hash = "sha256:e51e173f2ce8a6a9260fde7f0cf4d15df99ea0d622fad67a400f3e9d6a8a67f2" }
 
 [[package]]
 name = "pygments"

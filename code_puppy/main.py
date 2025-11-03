@@ -9,6 +9,7 @@ import asyncio
 import os
 import subprocess
 import time
+import traceback
 import webbrowser
 from pathlib import Path
 
@@ -21,10 +22,6 @@ from rich.text import Text
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.command_line.attachments import parse_prompt_attachments
-from code_puppy.command_line.prompt_toolkit_completion import (
-    get_input_with_combined_completion,
-    get_prompt_with_active_model,
-)
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
@@ -117,6 +114,12 @@ async def main():
         "-a",
         type=str,
         help="Specify which agent to use (e.g., --agent code-puppy)",
+    )
+    parser.add_argument(
+        "--model",
+        "-m",
+        type=str,
+        help="Specify which model to use (e.g., --model gpt-5)",
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
@@ -212,13 +215,82 @@ async def main():
             sys.exit(1)
     from code_puppy.messaging import emit_system_message
 
+    # Show the awesome Code Puppy logo only in interactive mode (never in TUI mode)
+    # Always check both command line args AND runtime TUI state for safety
+    if args.interactive and not args.tui and not args.web and not is_tui_mode():
+        try:
+            import pyfiglet
+
+            intro_lines = pyfiglet.figlet_format(
+                "CODE PUPPY", font="ansi_shadow"
+            ).split("\n")
+
+            # Simple blue to green gradient (top to bottom)
+            gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
+            emit_system_message("\n\n")
+            # Apply gradient line by line
+            logo = []
+            for line_num, line in enumerate(intro_lines):
+                if line.strip():
+                    # Use line position to determine color (top blue, middle cyan, bottom green)
+                    color_idx = min(line_num // 2, len(gradient_colors) - 1)
+                    color = gradient_colors[color_idx]
+                    logo.append(f"[{color}]{line}[/{color}]")
+                else:
+                    logo.append("")
+
+            emit_system_message("\n".join(logo))
+        except ImportError:
+            emit_system_message("🐶 Code Puppy is Loading...")
+
     available_port = find_available_port()
     if available_port is None:
         error_msg = "Error: No available ports in range 8090-9010!"
         emit_system_message(f"[bold red]{error_msg}[/bold red]")
         return
 
+    # Early model setting if specified via command line
+    # This happens before ensure_config_exists() to ensure config is set up correctly
+    early_model = None
+    if args.model:
+        early_model = args.model.strip()
+        from code_puppy.config import set_model_name
+
+        set_model_name(early_model)
+
     ensure_config_exists()
+
+    # Load API keys from puppy.cfg into environment variables
+    from code_puppy.config import load_api_keys_to_environment
+
+    load_api_keys_to_environment()
+
+    # Handle model validation from command line (validation happens here, setting was earlier)
+    if args.model:
+        from code_puppy.config import _validate_model_exists
+
+        model_name = args.model.strip()
+        try:
+            # Validate that the model exists in models.json
+            if not _validate_model_exists(model_name):
+                from code_puppy.model_factory import ModelFactory
+
+                models_config = ModelFactory.load_config()
+                available_models = list(models_config.keys()) if models_config else []
+
+                emit_system_message(
+                    f"[bold red]Error:[/bold red] Model '{model_name}' not found"
+                )
+                emit_system_message(f"Available models: {', '.join(available_models)}")
+                sys.exit(1)
+
+            # Model is valid, show confirmation (already set earlier)
+            emit_system_message(f"🎯 Using model: {model_name}")
+        except Exception as e:
+            emit_system_message(
+                f"[bold red]Error validating model:[/bold red] {str(e)}"
+            )
+            sys.exit(1)
 
     # Handle agent selection from command line
     if args.agent:
@@ -272,9 +344,10 @@ async def main():
 
     # Initialize DBOS if not disabled
     if get_use_dbos():
-        dbos_message = f"Initializing DBOS with database at: {DBOS_DATABASE_URL}"
-        emit_system_message(dbos_message)
-
+        # Append a Unix timestamp in ms to the version for uniqueness
+        dbos_app_version = os.environ.get(
+            "DBOS_APP_VERSION", f"{current_version}-{int(time.time() * 1000)}"
+        )
         dbos_config: DBOSConfig = {
             "name": "dbos-code-puppy",
             "system_database_url": DBOS_DATABASE_URL,
@@ -285,7 +358,7 @@ async def main():
             "log_level": os.environ.get(
                 "DBOS_LOG_LEVEL", "ERROR"
             ),  # Default to ERROR level to suppress verbose logs
-            "application_version": current_version,  # Match DBOS app version to Code Puppy version
+            "application_version": dbos_app_version,  # Match DBOS app version to Code Puppy version
         }
         try:
             DBOS(config=dbos_config)
@@ -294,7 +367,7 @@ async def main():
             emit_system_message(f"[bold red]Error initializing DBOS:[/bold red] {e}")
             sys.exit(1)
     else:
-        emit_system_message("DBOS is disabled. Running without durable execution.")
+        pass
 
     global shutdown_flag
     shutdown_flag = False
@@ -351,21 +424,25 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
-    emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
-    emit_system_message("Type 'clear' to reset the conversation history.")
+    emit_system_message(
+        "[dim]Type '/exit' or '/quit' to exit the interactive mode.[/dim]"
+    )
+    emit_system_message("[dim]Type 'clear' to reset the conversation history.[/dim]")
     emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue]."
+        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
     )
     emit_system_message(
-        "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
+        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference.[/dim]"
     )
     emit_system_message(
-        "Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session."
+        "[dim]Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session.[/dim]"
     )
     emit_system_message(
-        "Use [bold blue]/diff[/bold blue] to configure diff highlighting colors for file changes."
+        "[dim]Use [bold blue]/diff[/bold blue] to configure diff highlighting colors for file changes.[/dim]"
+    )
+    emit_system_message(
+        "[dim]⚠️  Type [bold blue]/disclaimer[/bold blue] to view important usage terms and data sensitivity guidelines.[/dim]"
     )
     try:
         from code_puppy.command_line.motd import print_motd
@@ -375,8 +452,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
-
-    emit_info("[bold cyan]Initializing agent...[/bold cyan]")
 
     # Initialize the runtime agent manager
     if initial_command:
@@ -424,10 +499,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Check if prompt_toolkit is installed
     try:
-        from code_puppy.messaging import emit_system_message
-
-        emit_system_message(
-            "[dim]Using prompt_toolkit for enhanced tab completion[/dim]"
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_input_with_combined_completion,
+            get_prompt_with_active_model,
         )
     except ImportError:
         from code_puppy.messaging import emit_warning
@@ -442,6 +516,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.messaging import emit_success
 
             emit_success("Successfully installed prompt_toolkit")
+            from code_puppy.command_line.prompt_toolkit_completion import (
+                get_input_with_combined_completion,
+                get_prompt_with_active_model,
+            )
         except Exception as e:
             from code_puppy.messaging import emit_error, emit_warning
 
@@ -461,25 +539,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
 
-        emit_info(f"[bold blue]{user_prompt}[/bold blue]")
+        emit_info(f"[dim][bold blue]{user_prompt}\n[/bold blue][/dim]")
 
         try:
             # Use prompt_toolkit for enhanced input with path completion
-            # Disable prompt_toolkit in test environments (it doesn't work well with pexpect)
-            use_basic_input = os.getenv("CODE_PUPPY_USE_BASIC_INPUT", "0").lower() in {"1", "true", "yes"}
-            
-            if use_basic_input:
-                # Use basic input for pexpect compatibility
+            try:
+                # Use the async version of get_input_with_combined_completion
+                task = await get_input_with_combined_completion(
+                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+                )
+            except ImportError:
+                # Fall back to basic input if prompt_toolkit is not available
                 task = input(">>> ")
-            else:
-                try:
-                    # Use the async version of get_input_with_combined_completion
-                    task = await get_input_with_combined_completion(
-                        get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
-                    )
-                except ImportError:
-                    # Fall back to basic input if prompt_toolkit is not available
-                    task = input(">>> ")
 
         except (KeyboardInterrupt, EOFError):
             # Handle Ctrl+C or Ctrl+D
@@ -523,7 +594,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             new_session_id = finalize_autosave_session()
             agent.clear_message_history()
             emit_warning("Conversation history cleared!")
-            emit_system_message("The agent will not remember previous interactions.\n")
+            emit_system_message(
+                "[dim]The agent will not remember previous interactions.[/dim]"
+            )
             emit_info(f"[dim]Auto-save session rotated to: {new_session_id}[/dim]")
             continue
 
@@ -563,16 +636,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         if task.strip():
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
-
-            # Also update our enhanced history manager (for future improvements)
-            try:
-                from code_puppy.command_line.history_manager import get_history_manager
-
-                get_history_manager()
-                # Note: save_command_to_history already handles the saving,
-                # this is just to keep our manager in sync if needed
-            except Exception:
-                pass  # Silently handle any import errors
 
             try:
                 prettier_code_blocks()
@@ -800,8 +863,7 @@ def main_entry():
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Just exit gracefully with no error message
-        callbacks.on_shutdown()
+        print(traceback.format_exc())
         if get_use_dbos():
             DBOS.destroy()
         return 0

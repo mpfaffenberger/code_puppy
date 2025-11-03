@@ -335,7 +335,7 @@ This detailed documentation should be copied verbatim into any agent that will b
 
 ## Model Selection Guidance:
 
-**For code-heavy tasks**: → Suggest `Cerebras-Qwen3-Coder-480b`, `grok-code-fast-1`, or `gpt-4.1`
+**For code-heavy tasks**: → Suggest `Cerebras-GLM-4.6`, `grok-code-fast-1`, or `gpt-4.1`
 **For document analysis**: → Suggest `gemini-2.5-flash-preview-05-20` or `claude-4-0-sonnet`
 **For general reasoning**: → Suggest `gpt-5` or `o3`
 **For cost-conscious tasks**: → Suggest `gpt-4.1-mini` or `gpt-4.1-nano`
@@ -368,7 +368,7 @@ This detailed documentation should be copied verbatim into any agent that will b
   ],
   "tools": ["read_file", "edit_file", "agent_share_your_reasoning"],
   "user_prompt": "What Python concept would you like to learn today?",
-  "model": "Cerebras-Qwen3-Coder-480b"  // Optional: Pin to a specific code model
+  "model": "Cerebras-GLM-4.6"  // Optional: Pin to a specific code model
 }}
 ```
 
