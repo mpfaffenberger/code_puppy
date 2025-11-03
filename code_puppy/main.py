@@ -297,6 +297,10 @@ async def main():
 
     # Initialize DBOS if not disabled
     if get_use_dbos():
+        # Append a Unix timestamp in ms to the version for uniqueness
+        dbos_app_version = os.environ.get(
+            "DBOS_APP_VERSION", f"{current_version}-{int(time.time() * 1000)}"
+        )
         dbos_config: DBOSConfig = {
             "name": "dbos-code-puppy",
             "system_database_url": DBOS_DATABASE_URL,
@@ -307,7 +311,7 @@ async def main():
             "log_level": os.environ.get(
                 "DBOS_LOG_LEVEL", "ERROR"
             ),  # Default to ERROR level to suppress verbose logs
-            "application_version": current_version,  # Match DBOS app version to Code Puppy version
+            "application_version": dbos_app_version,  # Match DBOS app version to Code Puppy version
         }
         try:
             DBOS(config=dbos_config)
