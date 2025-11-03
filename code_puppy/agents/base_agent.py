@@ -62,7 +62,10 @@ from code_puppy.messaging.spinner import (
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
-from code_puppy.tools.command_runner import kill_all_running_shell_processes
+from code_puppy.tools.command_runner import (
+    is_awaiting_user_input,
+    kill_all_running_shell_processes,
+)
 
 # Global flag to track delayed compaction requests
 _delayed_compaction_requested = False
@@ -1429,6 +1432,12 @@ class BaseAgent(ABC):
             loop.call_soon_threadsafe(agent_task.cancel)
 
         def keyboard_interrupt_handler(_sig, _frame):
+            # If we're awaiting user input (e.g., file permission prompt),
+            # don't cancel the agent - let the input() call handle the interrupt naturally
+            if is_awaiting_user_input():
+                # Don't do anything here - let the input() call raise KeyboardInterrupt naturally
+                return
+
             schedule_agent_cancel()
 
         from code_puppy.tui_state import is_tui_mode
