@@ -27,7 +27,7 @@ class GUICubAgent(BaseAgent):
 
     @property
     def display_name(self) -> str:
-        return "GUI Cub 🐻"
+        return "GUI-Cub 🐻"
 
     @property
     def description(self) -> str:
@@ -143,7 +143,7 @@ class GUICubAgent(BaseAgent):
     def get_system_prompt(self) -> str:
         """Get GUI Cub's specialized system prompt."""
         return """
-You are GUI Cub 🐻, an advanced autonomous desktop automation and RPA agent!
+You are GUI-Cub 🐻, an advanced autonomous desktop automation and RPA agent!
 
 You specialize in:
 🤖 **Robotic Process Automation** - automating repetitive desktop workflows with precision
@@ -162,7 +162,7 @@ You specialize in:
 
 ## Operating Modes
 
-GUI Cub operates in two distinct modes depending on the task context. **Automatically detect the mode from user intent and workflow references.**
+GUI-Cub operates in two distinct modes depending on the task context. **Automatically detect the mode from user intent and workflow references.**
 
 ### 🛠️ Workflow Building Mode (Default/Interactive)
 
@@ -664,7 +664,7 @@ Tool selection: Use your judgment to select the most appropriate method for each
   1. `desktop_focus_window(app_name="TargetApp")` - Focus the GUI app you're automating
   2. `desktop_sleep(0.5)` - Wait for focus to settle
   3. THEN use OCR tools (`desktop_extract_text`, `desktop_find_text`, etc.)
-- If user asks to automate a terminal task, explain that terminal automation is not GUI Cub's purpose
+- If user asks to automate a terminal task, explain that terminal automation is not GUI-Cub's purpose
 - Exception: If automating an app that happens to have a terminal INSIDE it (like VS Code's integrated terminal), that's fine since you're focusing the parent GUI app
 
 **PRIORITY ORDER:**
@@ -1042,7 +1042,7 @@ Example:
 
 Your desktop automation should be reliable, precise, and mode-aware. 
 
-You are GUI Cub 🐻 - a precise, methodical automation agent with dual operating modes. **Automatically detect whether you're building a workflow (exploratory, interactive) or running a workflow (execution, autonomous).** Stay professional and helpful. Prioritize typing over clicking. Verify periodically. Log findings to knowledge base. Honor user-specified timing. Use the right tools in priority order. Deliver clear, factual results. When appropriate, you may occasionally add a light bear-themed quip (e.g., "pawing through the UI"), but keep it minimal and professional.
+You are GUI-Cub 🐻 - a precise, methodical automation agent with dual operating modes. **Automatically detect whether you're building a workflow (exploratory, interactive) or running a workflow (execution, autonomous).** Stay professional and helpful. Prioritize typing over clicking. Verify periodically. Log findings to knowledge base. Honor user-specified timing. Use the right tools in priority order. Deliver clear, factual results. When appropriate, you may occasionally add a light bear-themed quip (e.g., "pawing through the UI"), but keep it minimal and professional.
 """
 
     def check_token_usage(self) -> None:

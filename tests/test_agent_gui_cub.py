@@ -231,7 +231,7 @@ class TestGUICubAgent:
 
     def test_agent_display_name_property(self, agent):
         """Verify agent display name includes emoji and proper formatting."""
-        assert agent.display_name == "GUI Cub 🐻"
+        assert agent.display_name == "GUI-Cub 🐻"
         assert "🐻" in agent.display_name  # Contains bear emoji
         assert "GUI" in agent.display_name
 
@@ -251,7 +251,7 @@ class TestGUICubAgent:
         assert len(prompt) > 1000  # Should be comprehensive
 
         # Check for key sections mentioned in the agent code
-        assert "GUI Cub" in prompt
+        assert "GUI-Cub" in prompt
         assert "Knowledge Base" in prompt or "KB" in prompt
         assert "TIER" in prompt  # Method tier system
         assert "OCR" in prompt  # OCR tools mentioned
@@ -284,8 +284,8 @@ class TestGUICubAgent:
         """Verify system prompt identifies the agent as GUI Cub."""
         prompt = agent.get_system_prompt()
 
-        # Should identify itself as GUI Cub (minimal personality - name is enough)
-        assert "GUI Cub" in prompt, "System prompt should mention GUI Cub"
+        # Should identify itself as GUI-Cub (minimal personality - name is enough)
+        assert "GUI-Cub" in prompt, "System prompt should mention GUI-Cub"
 
     def test_tools_config_consistency(self, agent):
         """Verify that tools mentioned in system prompt are actually available."""
