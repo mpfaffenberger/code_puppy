@@ -845,3 +845,47 @@ class TestGUICubAutoResume:
         assert success
         assert not agent.token_monitor.warning_fired
         assert not agent.token_monitor.checkpoint_fired
+
+    def test_auto_resume_only_for_active_agent(self):
+        """Verify auto-resume only triggers when gui-cub is the active agent."""
+        from code_puppy.agents.gui_cub_monitoring import get_gui_cub_base_dir
+        from pydantic_ai.messages import ModelRequest, TextPart
+
+        # Create a mock resume file
+        base_dir = get_gui_cub_base_dir()
+        base_dir.mkdir(parents=True, exist_ok=True)
+        resume_path = base_dir / "resume_prompt.md"
+        resume_path.write_text("Test resume content", encoding="utf-8")
+
+        try:
+            # Mock get_current_agent_name to return a different agent
+            # Patch where it's imported in _try_resume_from_saved_session
+            with patch(
+                "code_puppy.agents.agent_manager.get_current_agent_name",
+                return_value="code-puppy",
+            ):
+                # Create GUI-Cub agent - should NOT auto-resume
+                agent = GUICubAgent()
+
+                # Should have empty history (no auto-resume)
+                assert len(agent.get_message_history()) == 0
+
+            # Now mock to return gui-cub as active agent
+            with patch(
+                "code_puppy.agents.agent_manager.get_current_agent_name",
+                return_value="gui-cub",
+            ):
+                # Create GUI-Cub agent - SHOULD auto-resume
+                agent2 = GUICubAgent()
+
+                # Should have auto-loaded the resume
+                history = agent2.get_message_history()
+                assert len(history) > 0
+                assert isinstance(history[0], ModelRequest)
+                content = str(history[0].parts[0].content)
+                assert "Test resume content" in content
+
+        finally:
+            # Cleanup
+            if resume_path.exists():
+                resume_path.unlink()

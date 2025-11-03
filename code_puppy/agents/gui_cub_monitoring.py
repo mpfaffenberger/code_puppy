@@ -933,10 +933,15 @@ Total messages: {len(agent.get_message_history())}
         except Exception:
             pass  # Non-critical
 
-        # Step 3: REPLACE resume prompt file (not append!)
+        # Step 3: REPLACE resume prompt file (not append!) AND save session ID
         try:
             with open(resume_path, "w", encoding="utf-8") as f:
                 f.write(resume_prompt)
+            
+            # Save session ID marker to prevent cross-session resume
+            session_marker_path = base_dir / ".session_id"
+            with open(session_marker_path, "w", encoding="utf-8") as f:
+                f.write(agent.session_id)
         except Exception:
             pass  # Non-critical
 

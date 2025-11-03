@@ -19,6 +19,11 @@ class GUICubAgent(BaseAgent):
         # TIER 4: Proactive token monitoring
         self.token_monitor = TokenMonitor(context_limit=128000)
         self._last_token_check = 0
+        
+        # Session tracking: Use process ID to identify this specific session
+        # This prevents auto-resume from loading context from previous runs
+        import os
+        self.session_id = f"session_{os.getpid()}"
 
         # TIER 4.5: Auto-resume from saved session if available
         self._try_resume_from_saved_session()
@@ -27,23 +32,50 @@ class GUICubAgent(BaseAgent):
         """Try to load and resume from saved resume_prompt.md if it exists.
 
         This method checks for a saved resume prompt in the GUI-Cub directory
-        and automatically loads it into the message history on startup. This
-        enables seamless context restoration after the agent is restarted.
+        and automatically loads it into the message history ONLY if:
+        1. This is the currently active agent (not during discovery)
+        2. The resume was created in the SAME session (same process ID)
 
-        Fails silently if the resume file doesn't exist or can't be loaded,
-        ensuring a clean fresh start in those cases.
+        This prevents cross-session resume while allowing resume within
+        the same session when hitting token limits.
+
+        Fails silently if the resume file doesn't exist, can't be loaded,
+        or is from a different session.
         """
         from pydantic_ai.messages import ModelRequest, TextPart
         from .gui_cub_monitoring import get_gui_cub_base_dir
         from rich.console import Console
+
+        # CRITICAL: Only auto-resume if we are the currently active agent
+        # This prevents auto-resume from triggering during agent discovery
+        # when all agents are instantiated just to get their names
+        try:
+            from .agent_manager import get_current_agent_name
+            current_agent = get_current_agent_name()
+            if current_agent != self.name:
+                # Silently skip - we're not the active agent
+                return
+        except Exception:
+            # If we can't determine current agent, skip auto-resume to be safe
+            return
 
         console = Console()
 
         try:
             base_dir = get_gui_cub_base_dir()
             resume_path = base_dir / "resume_prompt.md"
+            session_marker_path = base_dir / ".session_id"
 
-            if resume_path.exists():
+            if resume_path.exists() and session_marker_path.exists():
+                # Read the saved session ID
+                with open(session_marker_path, "r", encoding="utf-8") as f:
+                    saved_session_id = f.read().strip()
+                
+                # Only resume if it's the SAME session (same process)
+                if saved_session_id != self.session_id:
+                    # Different session - skip auto-resume silently
+                    return
+                
                 # Read the saved resume prompt
                 with open(resume_path, "r", encoding="utf-8") as f:
                     resume_content = f.read()
