@@ -1,4 +1,4 @@
-"""Tests for GUI Cub agent functionality.
+"""Tests for GUI-Cub agent functionality.
 
 These tests are designed to be OS-agnostic and work on both Windows and macOS.
 They focus on:
@@ -22,11 +22,11 @@ from code_puppy.agents.base_agent import BaseAgent
 
 
 class TestGUICubAgent:
-    """Test suite for GUI Cub agent."""
+    """Test suite for GUI-Cub agent."""
 
     @pytest.fixture
     def agent(self):
-        """Create a GUI Cub agent instance for testing."""
+        """Create a GUI-Cub agent instance for testing."""
         return GUICubAgent()
 
     # ========================================================================
@@ -34,7 +34,7 @@ class TestGUICubAgent:
     # ========================================================================
 
     def test_agent_inherits_from_base_agent(self, agent):
-        """Verify GUI Cub properly inherits from BaseAgent."""
+        """Verify GUI-Cub properly inherits from BaseAgent."""
         assert isinstance(agent, BaseAgent)
         assert hasattr(agent, "get_available_tools")
         assert hasattr(agent, "get_system_prompt")
@@ -132,7 +132,7 @@ class TestGUICubAgent:
             mode="w", suffix="_gui_cub_knowledge_base.md", delete=False
         ) as f:
             # Write initial KB structure with markers
-            f.write("# GUI Cub Knowledge Base\n\n")
+            f.write("# GUI-Cub Knowledge Base\n\n")
             f.write("<!-- KB_START -->\n\n")
             f.write("<!-- KB_END -->\n")
             temp_path = f.name
@@ -281,7 +281,7 @@ class TestGUICubAgent:
         assert "PROHIBITED" in prompt or "ALWAYS" in prompt
 
     def test_system_prompt_mentions_gui_cub(self, agent):
-        """Verify system prompt identifies the agent as GUI Cub."""
+        """Verify system prompt identifies the agent as GUI-Cub."""
         prompt = agent.get_system_prompt()
 
         # Should identify itself as GUI-Cub (minimal personality - name is enough)
@@ -313,7 +313,7 @@ class TestGUICubAgent:
         tools = agent.get_available_tools()
 
         # Should have a substantial toolkit (RPA needs many tools)
-        assert len(tools) > 30, "GUI Cub should have 30+ tools"
+        assert len(tools) > 30, "GUI-Cub should have 30+ tools"
 
         # But not an unreasonable amount (might indicate duplicates)
         assert len(tools) < 200, (
@@ -549,7 +549,7 @@ class TestGUICubAgent:
 
 
 class TestGUICubIntegration:
-    """Integration tests for GUI Cub that test cross-component behavior."""
+    """Integration tests for GUI-Cub that test cross-component behavior."""
 
     def test_agent_can_be_instantiated_without_errors(self):
         """Verify agent can be created without raising exceptions."""
@@ -590,7 +590,7 @@ class TestGUICubTokenMonitoring:
 
     @pytest.fixture
     def agent(self):
-        """Create a GUI Cub agent instance for testing."""
+        """Create a GUI-Cub agent instance for testing."""
         return GUICubAgent()
 
     def test_token_monitor_initialized(self, agent):
@@ -746,34 +746,34 @@ class TestGUICubTokenMonitoring:
                 assert agent.token_monitor.warning_fired
 
 
+
+
 class TestGUICubAutoResume:
     """Test suite for TIER 4.5 autonomous context self-management."""
 
     @pytest.fixture
     def agent(self):
-        """Create a GUI Cub agent instance for testing."""
+        """Create a GUI-Cub agent instance for testing."""
         return GUICubAgent()
 
     def test_generate_resume_prompt(self, agent):
         """Verify resume prompt generation captures context."""
         from code_puppy.agents.gui_cub_monitoring import generate_resume_prompt
+        from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
 
-        # Set up some message history
+        # Set up some message history using proper message objects
         agent.append_to_message_history(
-            {"role": "user", "content": "Click the login button"}
+            ModelRequest([TextPart("Click the login button")])
         )
         agent.append_to_message_history(
-            {
-                "role": "assistant",
-                "content": "Clicking login button with accessibility API",
-            }
+            ModelResponse([TextPart("Clicking login button with accessibility API")])
         )
 
         # Generate resume prompt
         resume_prompt = generate_resume_prompt(agent, "Test automation task")
 
         # Verify it contains key sections
-        assert "GUI Cub Context Resume" in resume_prompt
+        assert "GUI-Cub Context Resume" in resume_prompt
         assert "Session Continuation" in resume_prompt
         assert "Test automation task" in resume_prompt
         assert "Recent User Requests" in resume_prompt
@@ -782,10 +782,11 @@ class TestGUICubAutoResume:
     def test_auto_save_and_resume_clears_history(self, agent):
         """Verify auto-resume clears message history."""
         from code_puppy.agents.gui_cub_monitoring import auto_save_and_resume
+        from pydantic_ai.messages import ModelRequest, TextPart
 
-        # Add some messages
+        # Add some messages using proper ModelRequest format
         for i in range(10):
-            agent.append_to_message_history({"role": "user", "content": f"Message {i}"})
+            agent.append_to_message_history(ModelRequest([TextPart(f"Message {i}")]))
 
         # Should have 10 messages
         assert len(agent.get_message_history()) == 10
@@ -799,8 +800,12 @@ class TestGUICubAutoResume:
         # History should be cleared and replaced with resume prompt
         history = agent.get_message_history()
         assert len(history) == 1
-        assert history[0]["role"] == "user"
-        assert "GUI Cub Context Resume" in history[0]["content"]
+        # The resume message is a ModelRequest with TextPart
+        assert isinstance(history[0], ModelRequest)
+        assert len(history[0].parts) > 0
+        # Check the content contains the resume text
+        content = str(history[0].parts[0].content)
+        assert "GUI-Cub Context Resume" in content
 
     def test_auto_save_and_resume_resets_thresholds(self, agent):
         """Verify auto-resume resets threshold flags."""

@@ -1,4 +1,4 @@
-"""GUI Cub - Desktop automation agent for robotic process automation."""
+"""GUI-Cub - Desktop automation agent for robotic process automation."""
 
 from .base_agent import BaseAgent
 from .gui_cub_monitoring import (
@@ -12,10 +12,10 @@ from .gui_cub_monitoring import (
 
 
 class GUICubAgent(BaseAgent):
-    """GUI Cub - Advanced desktop automation for robotic process automation."""
+    """GUI-Cub - Advanced desktop automation for robotic process automation."""
 
     def __init__(self):
-        """Initialize GUI Cub agent with token monitoring."""
+        """Initialize GUI-Cub agent with token monitoring."""
         super().__init__()
         # TIER 4: Proactive token monitoring
         self.token_monitor = TokenMonitor(context_limit=128000)
@@ -34,7 +34,7 @@ class GUICubAgent(BaseAgent):
         return "Desktop automation and robotic process automation with visual QA, mouse/keyboard control, and workflow automation"
 
     def get_available_tools(self) -> list[str]:
-        """Get the list of tools available to GUI Cub."""
+        """Get the list of tools available to GUI-Cub."""
         import sys
 
         # Base tools (always available)
@@ -141,7 +141,7 @@ class GUICubAgent(BaseAgent):
         return tools
 
     def get_system_prompt(self) -> str:
-        """Get GUI Cub's specialized system prompt."""
+        """Get GUI-Cub's specialized system prompt."""
         return """
 You are GUI-Cub 🐻, an advanced autonomous desktop automation and RPA agent!
 

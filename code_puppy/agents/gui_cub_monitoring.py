@@ -1,4 +1,4 @@
-"""TIER 4: Proactive token monitoring for GUI Cub.
+"""TIER 4: Proactive token monitoring for GUI-Cub.
 
 Provides real-time token usage tracking with threshold-based warnings and
 automatic checkpoint generation to prevent context limit failures.
@@ -12,8 +12,8 @@ No files are EVER written to:
     - ~/.code_puppy/agents/ (agents directory - shared)
     - Any other agent's directory
 
-This ensures GUI Cub monitoring does not interfere with other code-puppy
-components or agents.
+This ensures GUI-Cub monitoring does not interfere with other code-puppy
+agents and state management.
 
 File Structure:
     ~/.code_puppy/agents/gui-cub/
@@ -28,15 +28,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
 from rich.console import Console
 
 console = Console()
 
 
 def get_gui_cub_base_dir() -> "Path":
-    """Get the GUI Cub base directory in user's home, cross-platform.
+    """Get the GUI-Cub base directory in user's home, cross-platform.
 
-    ISOLATION: This path is EXCLUSIVELY for GUI Cub and will never interfere
+    ISOLATION: This path is EXCLUSIVELY for GUI-Cub and will never interfere
     with other code-puppy agents or global directories.
 
     Returns the path: ~/.code_puppy/agents/gui-cub/
@@ -46,7 +47,7 @@ def get_gui_cub_base_dir() -> "Path":
     - macOS: /Users/<username>/.code_puppy/agents/gui-cub
     - Linux: /home/<username>/.code_puppy/agents/gui-cub
 
-    All GUI Cub monitoring files (sessions, KBs, resume prompts) are stored
+    All GUI-Cub monitoring files (sessions, KBs, resume prompts) are stored
     ONLY in this directory and its subdirectories. No files are written to:
     - ~/.code_puppy/ (root)
     - ~/.code_puppy/agents/ (shared agents dir)
@@ -56,7 +57,7 @@ def get_gui_cub_base_dir() -> "Path":
     Last resort: uses temp directory with warning.
 
     Returns:
-        Path object pointing to GUI Cub's base directory
+        Path object pointing to GUI-Cub's base directory
     """
     from pathlib import Path
     import os
@@ -78,12 +79,12 @@ def get_gui_cub_base_dir() -> "Path":
                 "[yellow]Warning: Could not determine home directory, using temp directory[/yellow]"
             )
 
-    # Build the GUI Cub specific path
+    # Build the GUI-Cub specific path
     gui_cub_dir = home_dir / ".code_puppy" / "agents" / "gui-cub"
 
     # SAFETY: Ensure path ends with gui-cub to prevent bleeding into other directories
     assert str(gui_cub_dir).endswith("gui-cub"), (
-        f"Invalid GUI Cub directory: {gui_cub_dir}"
+        f"Invalid GUI-Cub directory: {gui_cub_dir}"
     )
 
     return gui_cub_dir
@@ -302,7 +303,7 @@ def generate_resume_prompt(agent, current_task: str | None = None) -> str:
     used to resume work after clearing message history.
 
     Args:
-        agent: The GUI Cub agent instance
+        agent: The GUI-Cub agent instance
         current_task: Optional description of the current task
 
     Returns:
@@ -320,21 +321,35 @@ def generate_resume_prompt(agent, current_task: str | None = None) -> str:
 
     # Analyze last 10 messages for context
     for msg in messages[-10:]:
-        if isinstance(msg, dict):
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-
-            if role == "user":
-                user_messages.append(content)
-            elif role == "assistant" and content:
-                # Extract tool calls or key actions
-                if "tool" in str(content).lower() or "click" in str(content).lower():
-                    assistant_actions.append(content[:200])  # First 200 chars
+        # Handle proper ModelMessage objects (ModelRequest for user, ModelResponse for assistant)
+        if isinstance(msg, ModelRequest):
+            # User message - extract text from parts
+            for part in msg.parts:
+                if hasattr(part, "content"):
+                    user_messages.append(str(part.content))
+        elif isinstance(msg, ModelResponse):
+            # Assistant message - extract text from parts
+            from pydantic_ai.messages import ToolCallPart, ToolReturnPart
+            
+            for part in msg.parts:
+                # Handle TextPart with content
+                if hasattr(part, "content") and not isinstance(part, (ToolCallPart, ToolReturnPart)):
+                    content = str(part.content)
+                    # Extract tool calls or key actions
+                    if "tool" in content.lower() or "click" in content.lower():
+                        assistant_actions.append(content[:200])  # First 200 chars
+                # Handle ToolCallPart
+                elif isinstance(part, ToolCallPart):
+                    assistant_actions.append(f"Tool: {part.tool_name}"[:200])
+                # Handle ToolReturnPart
+                elif isinstance(part, ToolReturnPart):
+                    if hasattr(part, "content"):
+                        assistant_actions.append(f"Result: {str(part.content)[:150]}"[:200])
 
     # Build resume prompt
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    resume_prompt = f"""# GUI Cub Context Resume - {timestamp}
+    resume_prompt = f"""# GUI-Cub Context Resume - {timestamp}
 
 ## Session Continuation
 This session is resuming after an automatic context clear at {agent.token_monitor.get_percentage():.1f}% token usage.
@@ -385,7 +400,7 @@ def auto_save_and_resume(agent, current_task: str | None = None) -> tuple[bool, 
     - gui_cub_knowledge_base_YYYYMMDD_HHMMSS.md: Archived KBs (when rotated)
 
     Args:
-        agent: The GUI Cub agent instance
+        agent: The GUI-Cub agent instance
         current_task: Optional description of current task
 
     Returns:
@@ -426,7 +441,7 @@ def auto_save_and_resume(agent, current_task: str | None = None) -> tuple[bool, 
         resume_prompt = generate_resume_prompt(agent, current_task)
 
         # Step 2: Save session snapshot (kept for history, never deleted)
-        session_entry = f"""# GUI Cub Session - {session_id}
+        session_entry = f"""# GUI-Cub Session - {session_id}
 
 **Timestamp:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 **Token Usage:** {agent.token_monitor.get_percentage():.1f}% ({agent.token_monitor.current_tokens:,} tokens)
@@ -474,10 +489,12 @@ Total messages: {len(agent.get_message_history())}
                 # If KB > 800 lines, archive and start fresh
                 if len(lines) > 800:
                     archive_path = base_dir / f"gui_cub_knowledge_base_{session_id}.md"
-                    kb_path.rename(archive_path)
-                    # Start fresh KB
+                    # SAFETY: Copy instead of rename to avoid data loss on error
+                    import shutil
+                    shutil.copy2(kb_path, archive_path)
+                    # Start fresh KB (overwrites original)
                     with open(kb_path, "w", encoding="utf-8") as f:
-                        f.write(f"# GUI Cub Knowledge Base\n\n")
+                        f.write(f"# GUI-Cub Knowledge Base\n\n")
                         f.write(
                             f"**Previous KB archived:** `gui_cub_knowledge_base_{session_id}.md`\n\n"
                         )
@@ -492,10 +509,18 @@ Total messages: {len(agent.get_message_history())}
         agent.clear_message_history()
 
         # Step 6: Load resume prompt as first message
-        agent.append_to_message_history({"role": "user", "content": resume_prompt})
+        # Use proper ModelRequest instead of dict to match pydantic_ai message format
+        resume_message = ModelRequest([TextPart(resume_prompt)])
+        agent.append_to_message_history(resume_message)
 
         # Step 7: Reset threshold flags since we cleared context
         agent.token_monitor.reset_threshold_flags()
+
+        # Step 8: Recalculate token count with new resume message
+        new_token_count = sum(
+            agent.estimate_tokens_for_message(msg) for msg in agent.get_message_history()
+        )
+        agent.token_monitor.update(new_token_count)
 
         success_msg = (
             f"\n[bold green]✅ CONTEXT AUTO-RESUMED[/bold green]\n\n"
@@ -503,7 +528,7 @@ Total messages: {len(agent.get_message_history())}
             f"  • Session saved: sessions/session_{session_id}.md\n"
             f"  • Resume prompt: resume_prompt.md (replaced)\n"
             f"  • Message history cleared\n"
-            f"  • Token usage reset to ~{agent.token_monitor.current_tokens:,} tokens\n"
+            f"  • Token usage reset to ~{new_token_count:,} tokens\n"
             f"  • Continuing task seamlessly\n\n"
             f"[dim]Location: ~/.code_puppy/agents/gui-cub/[/dim]\n"
         )
