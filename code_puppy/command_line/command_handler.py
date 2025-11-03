@@ -344,6 +344,7 @@ def handle_command(command: str):
             get_auto_save_session,
             get_compaction_strategy,
             get_compaction_threshold,
+            get_default_agent,
             get_openai_reasoning_effort,
             get_owner_name,
             get_protected_token_count,
@@ -363,12 +364,14 @@ def handle_command(command: str):
 
         # Get current agent info
         current_agent = get_current_agent()
+        default_agent = get_default_agent()
 
         status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
 
 [bold]puppy_name:[/bold]            [cyan]{puppy_name}[/cyan]
 [bold]owner_name:[/bold]            [cyan]{owner_name}[/cyan]
 [bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
+[bold]default_agent:[/bold]        [cyan]{default_agent}[/cyan]
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]DBOS:[/bold]                  {"[green]enabled[/green]" if get_use_dbos() else "[yellow]disabled[/yellow]"} (toggle: /set enable_dbos true|false)

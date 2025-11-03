@@ -4,7 +4,7 @@
 
 **🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
 
-[![Version](https://img.shields.io/badge/Version-0.0.245-purple?style=for-the-badge&logo=git)](https://pypi.org/project/code-puppy/)
+[![Version](https://img.shields.io/badge/Version-0.0.248-purple?style=for-the-badge&logo=git)](https://pypi.org/project/code-puppy/)
 [![Downloads](https://img.shields.io/badge/Downloads-100k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
@@ -21,7 +21,9 @@
 [![Synthetic](https://img.shields.io/badge/Synthetic-MINIMAX_M2-green?style=flat-square)](https://synthetic.new)
 
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
-[![Zero Dependencies](https://img.shields.io/badge/Zero-Dependencies-success?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
+[![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
+
+[![100% privacy](https://img.shields.io/badge/FULL-Privacy%20commitment-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy/blob/main/README.md#code-puppy-privacy-commitment)
 
 [![GitHub stars](https://img.shields.io/github/stars/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/network)
@@ -47,6 +49,7 @@
 
 
 Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor.
+
 
 ## Quick start
 
@@ -706,8 +709,27 @@ Consider contributing agent templates for:
 
 ---
 
+# Code Puppy Privacy Commitment
+
+**Zero-compromise privacy policy. Always.**
+
+Unlike other Agentic Coding software, there is no corporate or investor backing for this project, which means **zero pressure to compromise our principles for profit**. This isn't just a nice-to-have feature – it's fundamental to the project's DNA.
+
+### What Code Puppy _absolutely does not_ collect:
+- ❌ **Zero telemetry** – no usage analytics, crash reports, or behavioral tracking
+- ❌ **Zero prompt logging** – your code, conversations, or project details are never stored
+- ❌ **Zero behavioral profiling** – we don't track what you build, how you code, or when you use the tool
+- ❌ **Zero third-party data sharing** – your information is never sold, traded, or given away
+
+### What data flows where:
+- **LLM Provider Communication**: Your prompts are sent directly to whichever LLM provider you've configured (OpenAI, Anthropic, local models, etc.) – this is unavoidable for AI functionality
+- **Complete Local Option**: Run your own VLLM/SGLang/Llama.cpp server locally → **zero data leaves your network**. Configure this with `~/.code_puppy/extra_models.json`
+- **Direct Developer Contact**: All feature requests, bug reports, and discussions happen directly with me – no middleman analytics platforms or customer data harvesting tools
+
+### Our privacy-first architecture:
+Code Puppy is designed with privacy-by-design principles. Every feature has been evaluated through a privacy lens, and every integration respects user data sovereignty. When you use Code Puppy, you're not the product – you're just a developer getting things done.
+
+**This commitment is enforceable because it's structurally impossible to violate it.** No external pressures, no investor demands, no quarterly earnings targets to hit. Just solid code that respects your privacy.
+
+
 **Happy Agent Building!** 🚀 Code Puppy now supports both Python and JSON agents, making it easy for anyone to create custom AI coding assistants! 🐶✨
-
-
-## Conclusion
-By using Code Puppy, you can maintain code quality and adhere to design guidelines with ease.
