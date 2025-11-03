@@ -182,7 +182,7 @@ async def main():
 
             # Simple blue to green gradient (top to bottom)
             gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
-
+            emit_system_message("\n\n")
             # Apply gradient line by line
             for line_num, line in enumerate(intro_lines):
                 if line.strip():
@@ -320,7 +320,7 @@ async def main():
             emit_system_message(f"[bold red]Error initializing DBOS:[/bold red] {e}")
             sys.exit(1)
     else:
-        emit_system_message("DBOS is disabled. Running without durable execution.")
+        pass
 
     global shutdown_flag
     shutdown_flag = False
@@ -377,21 +377,21 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_info("[bold green]Code Puppy[/bold green] - Interactive Mode")
-    emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
-    emit_system_message("Type 'clear' to reset the conversation history.")
+
+    emit_system_message("[dim]Type '/exit' or '/quit' to exit the interactive mode.[/dim]")
+    emit_system_message("[dim]Type 'clear' to reset the conversation history.[/dim]")
     emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
-        "Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue]."
+        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
     )
     emit_system_message(
-        "Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference."
+        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference.[/dim]"
     )
     emit_system_message(
-        "Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session."
+        "[dim]Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session.[/dim]"
     )
     emit_system_message(
-        "Use [bold blue]/diff[/bold blue] to configure diff highlighting colors for file changes."
+        "[dim]Use [bold blue]/diff[/bold blue] to configure diff highlighting colors for file changes.[/dim]"
     )
     try:
         from code_puppy.command_line.motd import print_motd
@@ -401,9 +401,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
-    from code_puppy.messaging import emit_info
 
-    emit_info("[bold cyan]Initializing agent...[/bold cyan]")
 
     # Initialize the runtime agent manager
     if initial_command:
@@ -491,7 +489,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
 
-        emit_info(f"[bold blue]{user_prompt}[/bold blue]")
+        emit_info(f"[dim][bold blue]{user_prompt}\n[/bold blue][/dim]")
+
 
         try:
             # Use prompt_toolkit for enhanced input with path completion
@@ -546,7 +545,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             new_session_id = finalize_autosave_session()
             agent.clear_message_history()
             emit_warning("Conversation history cleared!")
-            emit_system_message("The agent will not remember previous interactions.\n")
+            emit_system_message("[dim]The agent will not remember previous interactions.[/dim]")
             emit_info(f"[dim]Auto-save session rotated to: {new_session_id}[/dim]")
             continue
 

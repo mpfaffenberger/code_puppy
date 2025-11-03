@@ -608,7 +608,7 @@ def get_compaction_threshold():
     try:
         threshold = float(val) if val else 0.85
         # Clamp between reasonable bounds
-        return max(0.8, min(0.95, threshold))
+        return max(0.5, min(0.95, threshold))
     except (ValueError, TypeError):
         return 0.85
 
