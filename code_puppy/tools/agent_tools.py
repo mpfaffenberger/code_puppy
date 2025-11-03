@@ -3,6 +3,7 @@ import asyncio
 import traceback
 from typing import List, Set
 
+from dbos import DBOS, SetWorkflowID
 from pydantic import BaseModel
 
 # Import Agent from pydantic_ai to create temporary agents for invocation
@@ -163,6 +164,7 @@ def register_invoke_agent(agent):
 
             global _temp_agent_count
             _temp_agent_count += 1
+            subagent_name = f"temp-invoke-agent-{_temp_agent_count}"
             temp_agent = Agent(
                 model=model,
                 instructions=instructions,
@@ -180,22 +182,35 @@ def register_invoke_agent(agent):
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
 
                 dbos_agent = DBOSAgent(
-                    temp_agent, name=f"temp-invoke-agent-{_temp_agent_count}"
+                    temp_agent, name=subagent_name
                 )
                 temp_agent = dbos_agent
 
             # Run the temporary agent with the provided prompt as an asyncio task
-            task = asyncio.create_task(
-                temp_agent.run(
-                    prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+            if get_use_dbos():
+                with SetWorkflowID(group_id):
+                    task = asyncio.create_task(
+                        temp_agent.run(
+                            prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+                        )
+                    )
+                    _active_subagent_tasks.add(task)
+            else:
+                task = asyncio.create_task(
+                    temp_agent.run(
+                        prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+                    )
                 )
-            )
-            _active_subagent_tasks.add(task)
+                _active_subagent_tasks.add(task)
 
             try:
                 result = await task
             finally:
                 _active_subagent_tasks.discard(task)
+                if task.cancelled():
+                    if get_use_dbos():
+                        DBOS.cancel_workflow(group_id)
+
 
             # Extract the response from the result
             response = result.output
