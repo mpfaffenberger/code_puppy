@@ -26,8 +26,15 @@ class TestGUICubAgent:
 
     @pytest.fixture
     def agent(self):
-        """Create a GUI-Cub agent instance for testing."""
-        return GUICubAgent()
+        """Create a GUI-Cub agent instance for testing.
+
+        Note: Clears message history after creation to ensure a clean slate,
+        since GUI-Cub may auto-resume from a saved session on startup.
+        """
+        agent = GUICubAgent()
+        # Clear any auto-loaded resume messages for predictable test state
+        agent.clear_message_history()
+        return agent
 
     # ========================================================================
     # TEST CASE 1: Tool Registration & Platform-Specific Tools
@@ -590,8 +597,15 @@ class TestGUICubTokenMonitoring:
 
     @pytest.fixture
     def agent(self):
-        """Create a GUI-Cub agent instance for testing."""
-        return GUICubAgent()
+        """Create a GUI-Cub agent instance for testing.
+
+        Note: Clears message history after creation to ensure a clean slate,
+        since GUI-Cub may auto-resume from a saved session on startup.
+        """
+        agent = GUICubAgent()
+        # Clear any auto-loaded resume messages for predictable test state
+        agent.clear_message_history()
+        return agent
 
     def test_token_monitor_initialized(self, agent):
         """Verify token monitor is initialized on agent creation."""
@@ -746,15 +760,20 @@ class TestGUICubTokenMonitoring:
                 assert agent.token_monitor.warning_fired
 
 
-
-
 class TestGUICubAutoResume:
     """Test suite for TIER 4.5 autonomous context self-management."""
 
     @pytest.fixture
     def agent(self):
-        """Create a GUI-Cub agent instance for testing."""
-        return GUICubAgent()
+        """Create a GUI-Cub agent instance for testing.
+
+        Note: Clears message history after creation to ensure a clean slate,
+        since GUI-Cub may auto-resume from a saved session on startup.
+        """
+        agent = GUICubAgent()
+        # Clear any auto-loaded resume messages for predictable test state
+        agent.clear_message_history()
+        return agent
 
     def test_generate_resume_prompt(self, agent):
         """Verify resume prompt generation captures context."""
@@ -772,11 +791,13 @@ class TestGUICubAutoResume:
         # Generate resume prompt
         resume_prompt = generate_resume_prompt(agent, "Test automation task")
 
-        # Verify it contains key sections
+        # Verify it contains key sections (new intelligent structure)
         assert "GUI-Cub Context Resume" in resume_prompt
         assert "Session Continuation" in resume_prompt
         assert "Test automation task" in resume_prompt
-        assert "Recent User Requests" in resume_prompt
+        assert "PRIMARY TASK" in resume_prompt  # New structure
+        assert "PROGRESS SUMMARY" in resume_prompt  # New structure
+        assert "RESUME INSTRUCTIONS" in resume_prompt  # New structure
         assert "knowledge base" in resume_prompt.lower()
 
     def test_auto_save_and_resume_clears_history(self, agent):

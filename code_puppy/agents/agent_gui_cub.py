@@ -7,7 +7,6 @@ from .gui_cub_monitoring import (
     emit_checkpoint_threshold,
     emit_emergency_threshold,
     emit_warning_threshold,
-    generate_resume_prompt,
 )
 
 
@@ -20,6 +19,56 @@ class GUICubAgent(BaseAgent):
         # TIER 4: Proactive token monitoring
         self.token_monitor = TokenMonitor(context_limit=128000)
         self._last_token_check = 0
+
+        # TIER 4.5: Auto-resume from saved session if available
+        self._try_resume_from_saved_session()
+
+    def _try_resume_from_saved_session(self) -> None:
+        """Try to load and resume from saved resume_prompt.md if it exists.
+
+        This method checks for a saved resume prompt in the GUI-Cub directory
+        and automatically loads it into the message history on startup. This
+        enables seamless context restoration after the agent is restarted.
+
+        Fails silently if the resume file doesn't exist or can't be loaded,
+        ensuring a clean fresh start in those cases.
+        """
+        from pydantic_ai.messages import ModelRequest, TextPart
+        from .gui_cub_monitoring import get_gui_cub_base_dir
+        from rich.console import Console
+
+        console = Console()
+
+        try:
+            base_dir = get_gui_cub_base_dir()
+            resume_path = base_dir / "resume_prompt.md"
+
+            if resume_path.exists():
+                # Read the saved resume prompt
+                with open(resume_path, "r", encoding="utf-8") as f:
+                    resume_content = f.read()
+
+                # Append it as the first message in history
+                resume_message = ModelRequest([TextPart(resume_content)])
+                self.append_to_message_history(resume_message)
+
+                # Notify the user
+                console.print(
+                    "\n[bold green]✅ CONTEXT AUTO-RESUMED[/bold green]\n"
+                    "[dim]Loaded context from: ~/.code_puppy/agents/gui-cub/resume_prompt.md[/dim]\n"
+                )
+
+                # Update token count
+                token_count = sum(
+                    self.estimate_tokens_for_message(msg)
+                    for msg in self.get_message_history()
+                )
+                self.token_monitor.update(token_count)
+
+        except Exception:
+            # Silently fail - just start fresh if resume fails
+            # Don't spam user with errors on every startup
+            pass
 
     @property
     def name(self) -> str:
