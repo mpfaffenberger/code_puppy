@@ -20,14 +20,12 @@ class StatusBar(Static):
         background: $primary;
         color: $text;
         text-align: right;
-        padding: 0 2;
-        border-bottom: wide $primary-lighten-1;
+        padding: 0 1;
     }
 
     #status-content {
         text-align: right;
         width: 100%;
-        color: $text;
     }
     """
 

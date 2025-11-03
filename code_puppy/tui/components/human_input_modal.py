@@ -31,6 +31,7 @@ class HumanInputModal(ModalScreen):
         self.prompt_text = prompt_text
         self.prompt_id = prompt_id
         self.response = ""
+        print(f"[DEBUG] Created HumanInputModal for prompt_id: {prompt_id}")
 
     DEFAULT_CSS = """
     HumanInputModal {
@@ -108,10 +109,12 @@ class HumanInputModal(ModalScreen):
     def on_mount(self) -> None:
         """Focus the input field when modal opens."""
         try:
+            print("[DEBUG] Modal on_mount called")
             input_field = self.query_one("#response-input", CustomTextArea)
             input_field.focus()
+            print("[DEBUG] Modal input field focused")
         except Exception as e:
-            print(f"Modal on_mount exception: {e}")
+            print(f"[DEBUG] Modal on_mount exception: {e}")
             import traceback
 
             traceback.print_exc()
@@ -146,6 +149,7 @@ class HumanInputModal(ModalScreen):
         try:
             input_field = self.query_one("#response-input", CustomTextArea)
             self.response = input_field.text.strip()
+            print(f"[DEBUG] Modal submitting response: {self.response[:20]}...")
 
             # Provide the response back to the message queue
             from code_puppy.messaging import provide_prompt_response
@@ -155,7 +159,7 @@ class HumanInputModal(ModalScreen):
             # Close the modal using the same method as other modals
             self.app.pop_screen()
         except Exception as e:
-            print(f"Modal error during submit: {e}")
+            print(f"[DEBUG] Modal error during submit: {e}")
             # If something goes wrong, provide empty response
             from code_puppy.messaging import provide_prompt_response
 
@@ -164,6 +168,7 @@ class HumanInputModal(ModalScreen):
 
     def _cancel_response(self) -> None:
         """Cancel the input request."""
+        print("[DEBUG] Modal cancelling response")
         from code_puppy.messaging import provide_prompt_response
 
         provide_prompt_response(self.prompt_id, "")

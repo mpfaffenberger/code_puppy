@@ -39,55 +39,51 @@ class Sidebar(Container):
         width: 30;
         min-width: 20;
         max-width: 50;
-        background: $panel;
-        border-right: wide $primary;
+        background: $surface;
+        border-right: solid $primary;
         display: none;
     }
 
     #sidebar-tabs {
         height: 1fr;
-        background: $panel;
     }
 
     #history-list {
         height: 1fr;
-        background: $panel;
-        scrollbar-background: $panel-lighten-1;
-        scrollbar-color: $primary;
     }
 
     .history-interactive {
-        color: $success;
+        color: #34d399;
     }
 
     .history-tui {
-        color: $primary;
+        color: #60a5fa;
     }
 
     .history-system {
-        color: $warning;
+        color: #fbbf24;
         text-style: italic;
     }
 
     .history-command {
-        color: $text;
+        /* Use default text color from theme */
     }
 
     .history-generic {
-        color: $text-muted;
+        color: #d1d5db;
     }
 
     .history-empty {
-        color: $text-disabled;
+        color: #6b7280;
         text-style: italic;
     }
 
     .history-error {
-        color: $error;
+        color: #ef4444;
     }
 
     .file-item {
-        color: $text-muted;
+        color: #d1d5db;
     }
     """
 

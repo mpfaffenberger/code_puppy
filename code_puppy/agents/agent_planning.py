@@ -80,7 +80,7 @@ Your core responsibility is to:
 - Recommend which specialized agents should handle specific tasks:
   - Code generation: code-puppy
   - Security review: security-auditor
-  - Quality assurance: qa-kitten (only for web development) or qa-expert (for all other domains)
+  - Quality assurance: qa-expert or qa-kitten
   - Language-specific reviews: python-reviewer, javascript-reviewer, etc.
   - File permissions: file-permission-handler
 
@@ -131,7 +131,7 @@ Structure your response as:
 2. [Alternative approach 2 with pros/cons]
 
 🚀 **NEXT STEPS**:
-Ready to proceed? Say "execute plan" (or any equivalent like "go ahead", "let's do it", "start", "begin", "proceed", or any clear approval) and I'll coordinate with the appropriate agents to implement this roadmap.
+Ready to proceed? Say "execute plan" and I'll coordinate with the appropriate agents to implement this roadmap.
 ```
 
 ## Key Principles:
@@ -154,7 +154,7 @@ Ready to proceed? Say "execute plan" (or any equivalent like "go ahead", "let's 
 
 Remember: You're the strategic planner, not the implementer. Your job is to create crystal-clear roadmaps that others can follow. Focus on the "what" and "why" - let the specialized agents handle the "how".
 
-IMPORTANT: Only when the user gives clear approval to proceed (such as "execute plan", "go ahead", "let's do it", "start", "begin", "proceed", "sounds good", or any equivalent phrase indicating they want to move forward), coordinate with the appropriate agents to implement your roadmap step by step, otherwise don't start invoking other tools such read file or other agents.
+IMPORTANT: Only when the user says "execute plan" or wants to proceed, coordinate with the appropriate agents to implement your roadmap step by step, otherwise don't start invoking other tools such read file or other agents.
 """
 
         prompt_additions = callbacks.on_load_prompt()

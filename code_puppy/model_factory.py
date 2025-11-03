@@ -10,7 +10,6 @@ from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
-from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.google import GoogleProvider
@@ -146,11 +145,7 @@ class ModelFactory:
 
     @staticmethod
     def get_model(model_name: str, config: Dict[str, Any]) -> Any:
-        """Returns a configured model instance based on the provided name and config.
-
-        API key validation happens naturally within each model type's initialization,
-        which emits warnings and returns None if keys are missing.
-        """
+        """Returns a configured model instance based on the provided name and config."""
         model_config = config.get(model_name)
         if not model_config:
             raise ValueError(f"Model '{model_name}' not found in configuration.")
@@ -158,27 +153,15 @@ class ModelFactory:
         model_type = model_config.get("type")
 
         if model_type == "gemini":
-            api_key = os.environ.get("GEMINI_API_KEY")
-            if not api_key:
-                emit_warning(
-                    f"GEMINI_API_KEY is not set; skipping Gemini model '{model_config.get('name')}'."
-                )
-                return None
+            provider = GoogleProvider(api_key=os.environ.get("GEMINI_API_KEY", ""))
 
-            provider = GoogleProvider(api_key=api_key)
             model = GoogleModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
 
         elif model_type == "openai":
-            api_key = os.environ.get("OPENAI_API_KEY")
-            if not api_key:
-                emit_warning(
-                    f"OPENAI_API_KEY is not set; skipping OpenAI model '{model_config.get('name')}'."
-                )
-                return None
+            provider = OpenAIProvider(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
-            provider = OpenAIProvider(api_key=api_key)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             if model_name == "gpt-5-codex-api":
                 model = OpenAIResponsesModel(
@@ -200,11 +183,6 @@ class ModelFactory:
 
         elif model_type == "custom_anthropic":
             url, headers, verify, api_key = get_custom_config(model_config)
-            if not api_key:
-                emit_warning(
-                    f"API key is not set for custom Anthropic endpoint; skipping model '{model_config.get('name')}'."
-                )
-                return None
             client = create_async_client(headers=headers, verify=verify)
             anthropic_client = AsyncAnthropic(
                 base_url=url,
@@ -215,11 +193,6 @@ class ModelFactory:
             return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "claude_code":
             url, headers, verify, api_key = get_custom_config(model_config)
-            if not api_key:
-                emit_warning(
-                    f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
-                )
-                return None
             client = create_async_client(headers=headers, verify=verify)
             anthropic_client = AsyncAnthropic(
                 base_url=url, http_client=client, auth_token=api_key
@@ -332,11 +305,6 @@ class ModelFactory:
             return zai_model
         elif model_type == "custom_gemini":
             url, headers, verify, api_key = get_custom_config(model_config)
-            if not api_key:
-                emit_warning(
-                    f"API key is not set for custom Gemini endpoint; skipping model '{model_config.get('name')}'."
-                )
-                return None
             os.environ["GEMINI_API_KEY"] = api_key
 
             class CustomGoogleGLAProvider(GoogleProvider):
@@ -357,28 +325,15 @@ class ModelFactory:
             model = GoogleModel(model_name=model_config["name"], provider=google_gla)
             return model
         elif model_type == "cerebras":
-
-            class ZaiCerebrasProvider(CerebrasProvider):
-                def model_profile(self, model_name: str) -> ModelProfile | None:
-                    profile = super().model_profile(model_name)
-                    if model_name.startswith("zai"):
-                        from pydantic_ai.profiles.qwen import qwen_model_profile
-
-                        profile = profile.update(qwen_model_profile("qwen-3-coder"))
-                    return profile
-
             url, headers, verify, api_key = get_custom_config(model_config)
-            if not api_key:
-                emit_warning(
-                    f"API key is not set for Cerebras endpoint; skipping model '{model_config.get('name')}'."
-                )
-                return None
             client = create_async_client(headers=headers, verify=verify)
             provider_args = dict(
                 api_key=api_key,
                 http_client=client,
             )
-            provider = ZaiCerebrasProvider(**provider_args)
+            if api_key:
+                provider_args["api_key"] = api_key
+            provider = CerebrasProvider(**provider_args)
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
@@ -396,20 +351,14 @@ class ModelFactory:
                     api_key = os.environ.get(env_var_name)
                     if api_key is None:
                         emit_warning(
-                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty; skipping model '{model_config.get('name')}'."
+                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty; proceeding without API key."
                         )
-                        return None
-                else:
-                    # It's a raw API key value
-                    api_key = api_key_config
+                    else:
+                        # It's a raw API key value
+                        api_key = api_key_config
             else:
                 # No API key in config, try to get it from the default environment variable
                 api_key = os.environ.get("OPENROUTER_API_KEY")
-                if api_key is None:
-                    emit_warning(
-                        f"OPENROUTER_API_KEY is not set; skipping OpenRouter model '{model_config.get('name')}'."
-                    )
-                    return None
 
             provider = OpenRouterProvider(api_key=api_key)
 

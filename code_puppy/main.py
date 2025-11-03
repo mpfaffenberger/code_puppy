@@ -4,7 +4,6 @@ import os
 import subprocess
 import sys
 import time
-import traceback
 import webbrowser
 from pathlib import Path
 
@@ -17,6 +16,10 @@ from rich.text import Text
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.command_line.attachments import parse_prompt_attachments
+from code_puppy.command_line.prompt_toolkit_completion import (
+    get_input_with_combined_completion,
+    get_prompt_with_active_model,
+)
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
@@ -74,15 +77,14 @@ async def main():
         help="Specify which agent to use (e.g., --agent code-puppy)",
     )
     parser.add_argument(
-        "--model",
-        "-m",
-        type=str,
-        help="Specify which model to use (e.g., --model gpt-5)",
-    )
-    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     parser.add_argument("--acp", action="store_true", help="Run in ACP mode")
+    parser.add_argument(
+        "--input",
+        action="store_true",
+        help="Run in a simple stdin/stdout interactive mode for diagnostics",
+    )
     args = parser.parse_args()
 
     if args.tui or args.web:
@@ -171,31 +173,7 @@ async def main():
             sys.exit(1)
     from code_puppy.messaging import emit_system_message
 
-    # Show the awesome Code Puppy logo only in interactive mode (never in TUI mode)
-    # Always check both command line args AND runtime TUI state for safety
-    if args.interactive and not args.tui and not args.web and not is_tui_mode():
-        try:
-            import pyfiglet
-
-            intro_lines = pyfiglet.figlet_format(
-                "CODE PUPPY", font="ansi_shadow"
-            ).split("\n")
-
-            # Simple blue to green gradient (top to bottom)
-            gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
-
-            # Apply gradient line by line
-            for line_num, line in enumerate(intro_lines):
-                if line.strip():
-                    # Use line position to determine color (top blue, middle cyan, bottom green)
-                    color_idx = min(line_num // 2, len(gradient_colors) - 1)
-                    color = gradient_colors[color_idx]
-                    emit_system_message(f"[{color}]{line}[/{color}]")
-                else:
-                    emit_system_message("")
-
-        except ImportError:
-            emit_system_message("🐶 Code Puppy is Loading...")
+    emit_system_message("🐶 Code Puppy is Loading...")
 
     available_port = find_available_port()
     if available_port is None:
@@ -203,48 +181,7 @@ async def main():
         emit_system_message(f"[bold red]{error_msg}[/bold red]")
         return
 
-    # Early model setting if specified via command line
-    # This happens before ensure_config_exists() to ensure config is set up correctly
-    early_model = None
-    if args.model:
-        early_model = args.model.strip()
-        from code_puppy.config import set_model_name
-
-        set_model_name(early_model)
-
     ensure_config_exists()
-
-    # Load API keys from puppy.cfg into environment variables
-    from code_puppy.config import load_api_keys_to_environment
-
-    load_api_keys_to_environment()
-
-    # Handle model validation from command line (validation happens here, setting was earlier)
-    if args.model:
-        from code_puppy.config import _validate_model_exists
-
-        model_name = args.model.strip()
-        try:
-            # Validate that the model exists in models.json
-            if not _validate_model_exists(model_name):
-                from code_puppy.model_factory import ModelFactory
-
-                models_config = ModelFactory.load_config()
-                available_models = list(models_config.keys()) if models_config else []
-
-                emit_system_message(
-                    f"[bold red]Error:[/bold red] Model '{model_name}' not found"
-                )
-                emit_system_message(f"Available models: {', '.join(available_models)}")
-                sys.exit(1)
-
-            # Model is valid, show confirmation (already set earlier)
-            emit_system_message(f"🎯 Using model: {model_name}")
-        except Exception as e:
-            emit_system_message(
-                f"[bold red]Error validating model:[/bold red] {str(e)}"
-            )
-            sys.exit(1)
 
     # Handle agent selection from command line
     if args.agent:
@@ -298,6 +235,9 @@ async def main():
 
     # Initialize DBOS if not disabled
     if get_use_dbos():
+        dbos_message = f"Initializing DBOS with database at: {DBOS_DATABASE_URL}"
+        emit_system_message(dbos_message)
+
         dbos_config: DBOSConfig = {
             "name": "dbos-code-puppy",
             "system_database_url": DBOS_DATABASE_URL,
@@ -356,6 +296,8 @@ async def main():
         elif args.acp:
             from code_puppy.acp_server import acp_main
             await acp_main()
+        elif args.input:
+            await simple_interactive_mode()
         elif args.interactive or initial_command:
             await interactive_mode(message_renderer, initial_command=initial_command)
         else:
@@ -451,9 +393,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Check if prompt_toolkit is installed
     try:
-        from code_puppy.command_line.prompt_toolkit_completion import (
-            get_input_with_combined_completion,
-            get_prompt_with_active_model,
+        from code_puppy.messaging import emit_system_message
+
+        emit_system_message(
+            "[dim]Using prompt_toolkit for enhanced tab completion[/dim]"
         )
     except ImportError:
         from code_puppy.messaging import emit_warning
@@ -468,10 +411,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.messaging import emit_success
 
             emit_success("Successfully installed prompt_toolkit")
-            from code_puppy.command_line.prompt_toolkit_completion import (
-                get_input_with_combined_completion,
-                get_prompt_with_active_model,
-            )
         except Exception as e:
             from code_puppy.messaging import emit_error, emit_warning
 
@@ -808,12 +747,31 @@ async def prompt_then_interactive_mode(message_renderer) -> None:
         await interactive_mode(message_renderer)
 
 
+async def simple_interactive_mode():
+    """A minimal interactive mode using basic stdin/stdout."""
+    from code_puppy.agents import get_current_agent
+
+    agent = get_current_agent()
+    while True:
+        try:
+            prompt = input(">>> ")
+            if prompt.lower() in ["exit", "quit"]:
+                break
+            response = await agent.run_with_mcp(prompt)
+            if response and response.output:
+                print(response.output)
+        except (EOFError, KeyboardInterrupt):
+            break
+    print("\nExiting simple interactive mode.")
+
+
 def main_entry():
     """Entry point for the installed CLI tool."""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print(traceback.format_exc())
+        # Just exit gracefully with no error message
+        callbacks.on_shutdown()
         if get_use_dbos():
             DBOS.destroy()
         return 0

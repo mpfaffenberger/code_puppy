@@ -8,7 +8,6 @@ from .settings import SettingsScreen
 from .tools import ToolsScreen
 from .autosave_picker import AutosavePicker
 from .model_picker import ModelPicker
-from .quit_confirmation import QuitConfirmationScreen
 
 __all__ = [
     "HelpScreen",
@@ -17,5 +16,4 @@ __all__ = [
     "MCPInstallWizardScreen",
     "AutosavePicker",
     "ModelPicker",
-    "QuitConfirmationScreen",
 ]
