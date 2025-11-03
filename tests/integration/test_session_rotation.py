@@ -26,7 +26,7 @@ def test_session_rotation(
         harness.wait_for_ready(first_run)
 
         # Set model
-        first_run.sendline("/model Cerebras-GLM-4.6\r")
+        first_run.sendline("/model synthetic-GLM-4.6\r")
         first_run.child.expect(r"Active model set", timeout=60)
         harness.wait_for_ready(first_run)
 

@@ -4,9 +4,10 @@ import asyncio
 import json
 import math
 import signal
+import threading
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import mcp
 import pydantic
@@ -52,7 +53,6 @@ from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
     emit_info,
-    emit_system_message,
     emit_warning,
 )
 from code_puppy.messaging.spinner import (
@@ -61,7 +61,8 @@ from code_puppy.messaging.spinner import (
 )
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
-from code_puppy.tools.common import console
+from code_puppy.tools.agent_tools import _active_subagent_tasks
+from code_puppy.tools.command_runner import kill_all_running_shell_processes
 
 # Global flag to track delayed compaction requests
 _delayed_compaction_requested = False
@@ -837,7 +838,6 @@ class BaseAgent(ABC):
 
         mcp_disabled = get_value("disable_mcp_servers")
         if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
-            emit_system_message("[dim]MCP servers disabled via config[/dim]")
             return []
 
         manager = get_mcp_manager()
@@ -845,7 +845,6 @@ class BaseAgent(ABC):
         if not configs:
             existing_servers = manager.list_servers()
             if not existing_servers:
-                emit_system_message("[dim]No MCP servers configured[/dim]")
                 return []
         else:
             for name, conf in configs.items():
@@ -860,24 +859,13 @@ class BaseAgent(ABC):
                     existing = manager.get_server_by_name(name)
                     if not existing:
                         manager.register_server(server_config)
-                        emit_system_message(f"[dim]Registered MCP server: {name}[/dim]")
                     else:
                         if existing.config != server_config.config:
                             manager.update_server(existing.id, server_config)
-                            emit_system_message(
-                                f"[dim]Updated MCP server: {name}[/dim]"
-                            )
-                except Exception as e:
-                    emit_error(f"Failed to register MCP server '{name}': {str(e)}")
+                except Exception:
                     continue
 
-        servers = manager.get_servers_for_agent()
-        if servers:
-            emit_system_message(
-                f"[green]Successfully loaded {len(servers)} MCP server(s)[/green]"
-            )
-        # Stay silent when there are no servers configured/available
-        return servers
+        return manager.get_servers_for_agent()
 
     def reload_mcp_servers(self):
         """Reload MCP servers and return updated servers."""
@@ -982,7 +970,6 @@ class BaseAgent(ABC):
             2048,
             min(int(0.05 * self.get_model_context_length()) - 1024, 16384),
         )
-        console.print(f"Max output tokens per message: {output_tokens}")
         model_settings_dict["max_tokens"] = output_tokens
 
         model_settings: ModelSettings = ModelSettings(**model_settings_dict)
@@ -1139,6 +1126,111 @@ class BaseAgent(ABC):
             result_messages_filtered_empty_thinking.append(msg)
             self.set_message_history(result_messages_filtered_empty_thinking)
         return self.get_message_history()
+
+    def _spawn_escape_key_listener(
+        self,
+        stop_event: threading.Event,
+        on_escape: Callable[[], None],
+    ) -> Optional[threading.Thread]:
+        """Start an escape-key listener thread for CLI sessions."""
+        try:
+            import sys
+        except ImportError:
+            return None
+
+        stdin = getattr(sys, "stdin", None)
+        if stdin is None or not hasattr(stdin, "isatty"):
+            return None
+        try:
+            if not stdin.isatty():
+                return None
+        except Exception:
+            return None
+
+        def listener() -> None:
+            try:
+                if sys.platform.startswith("win"):
+                    self._listen_for_escape_windows(stop_event, on_escape)
+                else:
+                    self._listen_for_escape_posix(stop_event, on_escape)
+            except Exception:
+                emit_warning(
+                    "Escape key listener stopped unexpectedly; press Ctrl+C to cancel."
+                )
+
+        thread = threading.Thread(
+            target=listener, name="code-puppy-esc-listener", daemon=True
+        )
+        thread.start()
+        return thread
+
+    def _listen_for_escape_windows(
+        self,
+        stop_event: threading.Event,
+        on_escape: Callable[[], None],
+    ) -> None:
+        import msvcrt
+        import time
+
+        while not stop_event.is_set():
+            try:
+                if msvcrt.kbhit():
+                    key = msvcrt.getwch()
+                    if key == "\x1b":
+                        try:
+                            on_escape()
+                        except Exception:
+                            emit_warning(
+                                "Escape handler raised unexpectedly; Ctrl+C still works."
+                            )
+            except Exception:
+                emit_warning(
+                    "Windows escape listener error; Ctrl+C is still available for cancel."
+                )
+                return
+            time.sleep(0.05)
+
+    def _listen_for_escape_posix(
+        self,
+        stop_event: threading.Event,
+        on_escape: Callable[[], None],
+    ) -> None:
+        import select
+        import sys
+        import termios
+        import tty
+
+        stdin = sys.stdin
+        try:
+            fd = stdin.fileno()
+        except (AttributeError, ValueError, OSError):
+            return
+        try:
+            original_attrs = termios.tcgetattr(fd)
+        except Exception:
+            return
+
+        try:
+            tty.setcbreak(fd)
+            while not stop_event.is_set():
+                try:
+                    read_ready, _, _ = select.select([stdin], [], [], 0.05)
+                except Exception:
+                    break
+                if not read_ready:
+                    continue
+                data = stdin.read(1)
+                if not data:
+                    break
+                if data == "\x1b":
+                    try:
+                        on_escape()
+                    except Exception:
+                        emit_warning(
+                            "Escape handler raised unexpectedly; Ctrl+C still works."
+                        )
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
 
     async def run_with_mcp(
         self,
@@ -1306,29 +1398,52 @@ class BaseAgent(ABC):
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())
 
-        # Import shell process killer
-        from code_puppy.tools.command_runner import kill_all_running_shell_processes
+        # Import shell process status helper
 
-        # Ensure the interrupt handler only acts once per task
-        def keyboard_interrupt_handler(sig, frame):
-            """Signal handler for Ctrl+C - replicating exact original logic"""
+        loop = asyncio.get_running_loop()
 
-            # First, nuke any running shell processes triggered by tools
-            try:
-                killed = kill_all_running_shell_processes()
-                if killed:
-                    emit_info(f"Cancelled {killed} running shell process(es).")
-                else:
-                    # Only cancel the agent task if no shell processes were killed
-                    if not agent_task.done():
-                        agent_task.cancel()
-            except Exception as e:
-                emit_info(f"Shell kill error: {e}")
-                if not agent_task.done():
-                    agent_task.cancel()
-            # Don't call the original handler
-            # This prevents the application from exiting
+        esc_listener_stop_event = threading.Event()
+        esc_listener_thread: Optional[threading.Thread] = None
 
+        def schedule_agent_cancel() -> None:
+            from code_puppy.tools.command_runner import _RUNNING_PROCESSES
+
+            if len(_RUNNING_PROCESSES):
+                emit_warning(
+                    "Refusing to cancel Agent while a shell command is currently running - press ESC to cancel the shell command."
+                )
+                return
+            if agent_task.done():
+                return
+
+            # Cancel all active subagent tasks
+            if _active_subagent_tasks:
+                emit_warning(
+                    f"Cancelling {len(_active_subagent_tasks)} active subagent task(s)..."
+                )
+                for task in list(
+                    _active_subagent_tasks
+                ):  # Create a copy since we'll be modifying the set
+                    if not task.done():
+                        loop.call_soon_threadsafe(task.cancel)
+            loop.call_soon_threadsafe(agent_task.cancel)
+
+        def keyboard_interrupt_handler(_sig, _frame):
+            schedule_agent_cancel()
+
+        from code_puppy.tui_state import is_tui_mode
+
+        def handle_escape_press() -> None:
+            emit_warning("Interrupting Shell Command!")
+            kill_all_running_shell_processes()
+
+        if not is_tui_mode():
+            esc_listener_thread = self._spawn_escape_key_listener(
+                esc_listener_stop_event,
+                handle_escape_press,
+            )
+
+        original_handler = None
         try:
             # Save original handler and set our custom one AFTER task is created
             original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
@@ -1342,11 +1457,13 @@ class BaseAgent(ABC):
             # Handle direct keyboard interrupt during await
             if not agent_task.done():
                 agent_task.cancel()
-            try:
-                await agent_task
-            except asyncio.CancelledError:
-                pass
         finally:
             # Restore original signal handler
             if original_handler:
                 signal.signal(signal.SIGINT, original_handler)
+            esc_listener_stop_event.set()
+            if esc_listener_thread and esc_listener_thread.is_alive():
+                try:
+                    await asyncio.to_thread(esc_listener_thread.join, 0.2)
+                except Exception:
+                    pass

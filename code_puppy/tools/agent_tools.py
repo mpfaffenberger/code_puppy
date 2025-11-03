@@ -1,7 +1,9 @@
 # agent_tools.py
+import asyncio
+import traceback
+from typing import List, Set
 
-from typing import List
-
+from dbos import DBOS, SetWorkflowID
 from pydantic import BaseModel
 
 # Import Agent from pydantic_ai to create temporary agents for invocation
@@ -18,6 +20,8 @@ from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.common import generate_group_id
 
 _temp_agent_count = 0
+# Set to track active subagent invocation tasks
+_active_subagent_tasks: Set[asyncio.Task] = set()
 
 
 class AgentInfo(BaseModel):
@@ -104,7 +108,7 @@ def register_invoke_agent(agent):
     """
 
     @agent.tool
-    def invoke_agent(
+    async def invoke_agent(
         context: RunContext, agent_name: str, prompt: str
     ) -> AgentInvokeOutput:
         """Invoke a specific sub-agent with a given prompt.
@@ -160,6 +164,7 @@ def register_invoke_agent(agent):
 
             global _temp_agent_count
             _temp_agent_count += 1
+            subagent_name = f"temp-invoke-agent-{_temp_agent_count}"
             temp_agent = Agent(
                 model=model,
                 instructions=instructions,
@@ -167,24 +172,45 @@ def register_invoke_agent(agent):
                 retries=3,
             )
 
-            if get_use_dbos():
-                from pydantic_ai.durable_exec.dbos import DBOSAgent
-
-                dbos_agent = DBOSAgent(
-                    temp_agent, name=f"temp-invoke-agent-{_temp_agent_count}"
-                )
-                temp_agent = dbos_agent
-
             # Register the tools that the agent needs
             from code_puppy.tools import register_tools_for_agent
 
             agent_tools = agent_config.get_available_tools()
             register_tools_for_agent(temp_agent, agent_tools)
 
-            # Run the temporary agent with the provided prompt
-            result = temp_agent.run_sync(
-                prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
-            )
+            if get_use_dbos():
+                from pydantic_ai.durable_exec.dbos import DBOSAgent
+
+                dbos_agent = DBOSAgent(
+                    temp_agent, name=subagent_name
+                )
+                temp_agent = dbos_agent
+
+            # Run the temporary agent with the provided prompt as an asyncio task
+            if get_use_dbos():
+                with SetWorkflowID(group_id):
+                    task = asyncio.create_task(
+                        temp_agent.run(
+                            prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+                        )
+                    )
+                    _active_subagent_tasks.add(task)
+            else:
+                task = asyncio.create_task(
+                    temp_agent.run(
+                        prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+                    )
+                )
+                _active_subagent_tasks.add(task)
+
+            try:
+                result = await task
+            finally:
+                _active_subagent_tasks.discard(task)
+                if task.cancelled():
+                    if get_use_dbos():
+                        DBOS.cancel_workflow(group_id)
+
 
             # Extract the response from the result
             response = result.output
@@ -194,8 +220,8 @@ def register_invoke_agent(agent):
 
             return AgentInvokeOutput(response=response, agent_name=agent_name)
 
-        except Exception as e:
-            error_msg = f"Error invoking agent '{agent_name}': {str(e)}"
+        except Exception:
+            error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
             emit_divider(message_group=group_id)
             return AgentInvokeOutput(

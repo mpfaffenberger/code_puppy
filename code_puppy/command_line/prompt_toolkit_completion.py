@@ -326,6 +326,11 @@ async def get_input_with_combined_completion(
     # Multiline mode state
     multiline = {"enabled": False}
 
+    # Standalone Escape keybinding - exit with KeyboardInterrupt
+    @bindings.add(Keys.Escape)
+    def _(event):
+        event.app.exit(exception=KeyboardInterrupt)
+
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
     def _(event):
@@ -363,11 +368,6 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text("\n")
         else:
             event.current_buffer.validate_and_handle()
-
-    @bindings.add(Keys.Escape)
-    def _(event):
-        """Cancel the current prompt when the user presses the ESC key alone."""
-        event.app.exit(exception=KeyboardInterrupt)
 
     session = PromptSession(
         completer=completer,
