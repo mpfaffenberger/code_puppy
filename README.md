@@ -4,7 +4,7 @@
 
 **🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
 
-[![Version](https://img.shields.io/badge/Version-0.0.243-purple?style=for-the-badge&logo=git)](https://pypi.org/project/code-puppy/)
+[![Version](https://img.shields.io/badge/Version-0.0.245-purple?style=for-the-badge&logo=git)](https://pypi.org/project/code-puppy/)
 [![Downloads](https://img.shields.io/badge/Downloads-100k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
@@ -20,7 +20,6 @@
 [![Z.AI](https://img.shields.io/badge/Z.AI-GLM%204.6-purple?style=flat-square)](https://z.ai/)
 [![Synthetic](https://img.shields.io/badge/Synthetic-MINIMAX_M2-green?style=flat-square)](https://synthetic.new)
 
-🐶
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
 [![Zero Dependencies](https://img.shields.io/badge/Zero-Dependencies-success?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
 

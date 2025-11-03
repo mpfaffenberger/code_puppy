@@ -170,29 +170,31 @@ async def main():
             sys.exit(1)
     from code_puppy.messaging import emit_system_message
 
-    # Badass Code Puppy intro with pyfiglet and blue-to-green gradient
-    try:
-        import pyfiglet
+    # Show the awesome Code Puppy logo only in interactive mode (never in TUI mode)
+    # Always check both command line args AND runtime TUI state for safety
+    if args.interactive and not args.tui and not args.web and not is_tui_mode():
+        try:
+            import pyfiglet
 
-        intro_lines = pyfiglet.figlet_format("CODE PUPPY", font="ansi_shadow").split(
-            "\n"
-        )
+            intro_lines = pyfiglet.figlet_format(
+                "CODE PUPPY", font="ansi_shadow"
+            ).split("\n")
 
-        # Simple blue to green gradient (top to bottom)
-        gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
+            # Simple blue to green gradient (top to bottom)
+            gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
 
-        # Apply gradient line by line
-        for line_num, line in enumerate(intro_lines):
-            if line.strip():
-                # Use line position to determine color (top blue, middle cyan, bottom green)
-                color_idx = min(line_num // 2, len(gradient_colors) - 1)
-                color = gradient_colors[color_idx]
-                emit_system_message(f"[{color}]{line}[/{color}]")
-            else:
-                emit_system_message("")
+            # Apply gradient line by line
+            for line_num, line in enumerate(intro_lines):
+                if line.strip():
+                    # Use line position to determine color (top blue, middle cyan, bottom green)
+                    color_idx = min(line_num // 2, len(gradient_colors) - 1)
+                    color = gradient_colors[color_idx]
+                    emit_system_message(f"[{color}]{line}[/{color}]")
+                else:
+                    emit_system_message("")
 
-    except ImportError:
-        emit_system_message("🐶 Code Puppy is Loading...")
+        except ImportError:
+            emit_system_message("🐶 Code Puppy is Loading...")
 
     available_port = find_available_port()
     if available_port is None:
