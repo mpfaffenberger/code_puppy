@@ -181,9 +181,7 @@ def register_invoke_agent(agent):
             if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
 
-                dbos_agent = DBOSAgent(
-                    temp_agent, name=subagent_name
-                )
+                dbos_agent = DBOSAgent(temp_agent, name=subagent_name)
                 temp_agent = dbos_agent
 
             # Run the temporary agent with the provided prompt as an asyncio task
@@ -191,14 +189,16 @@ def register_invoke_agent(agent):
                 with SetWorkflowID(group_id):
                     task = asyncio.create_task(
                         temp_agent.run(
-                            prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+                            prompt,
+                            usage_limits=UsageLimits(request_limit=get_message_limit()),
                         )
                     )
                     _active_subagent_tasks.add(task)
             else:
                 task = asyncio.create_task(
                     temp_agent.run(
-                        prompt, usage_limits=UsageLimits(request_limit=get_message_limit())
+                        prompt,
+                        usage_limits=UsageLimits(request_limit=get_message_limit()),
                     )
                 )
                 _active_subagent_tasks.add(task)
@@ -210,7 +210,6 @@ def register_invoke_agent(agent):
                 if task.cancelled():
                     if get_use_dbos():
                         DBOS.cancel_workflow(group_id)
-
 
             # Extract the response from the result
             response = result.output
