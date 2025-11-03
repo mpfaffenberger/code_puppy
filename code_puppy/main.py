@@ -377,8 +377,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
-
-    emit_system_message("[dim]Type '/exit' or '/quit' to exit the interactive mode.[/dim]")
+    emit_system_message(
+        "[dim]Type '/exit' or '/quit' to exit the interactive mode.[/dim]"
+    )
     emit_system_message("[dim]Type 'clear' to reset the conversation history.[/dim]")
     emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
@@ -401,7 +402,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
-
 
     # Initialize the runtime agent manager
     if initial_command:
@@ -491,7 +491,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         emit_info(f"[dim][bold blue]{user_prompt}\n[/bold blue][/dim]")
 
-
         try:
             # Use prompt_toolkit for enhanced input with path completion
             try:
@@ -545,7 +544,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             new_session_id = finalize_autosave_session()
             agent.clear_message_history()
             emit_warning("Conversation history cleared!")
-            emit_system_message("[dim]The agent will not remember previous interactions.[/dim]")
+            emit_system_message(
+                "[dim]The agent will not remember previous interactions.[/dim]"
+            )
             emit_info(f"[dim]Auto-save session rotated to: {new_session_id}[/dim]")
             continue
 
