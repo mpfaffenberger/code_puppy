@@ -842,9 +842,10 @@ class TestGUICubAutoResume:
         import shutil
 
         try:
-            # Trigger thresholds
-            agent.token_monitor.update(int(128000 * 0.71))
-            agent.token_monitor.update(int(128000 * 0.86))
+            # Trigger thresholds using agent's actual context limit
+            context_limit = agent.token_monitor.context_limit
+            agent.token_monitor.update(int(context_limit * 0.71))
+            agent.token_monitor.update(int(context_limit * 0.86))
 
             assert agent.token_monitor.warning_fired
             assert agent.token_monitor.checkpoint_fired

@@ -1141,25 +1141,10 @@ You are GUI-Cub 🐻 - a precise, methodical automation agent with dual operatin
             emit_warning_threshold(self.token_monitor)
 
         elif threshold_event == "checkpoint":
-            # 85% - AUTONOMOUS CONTEXT MANAGEMENT!
-            # Double-check percentage to prevent accidental triggers
-            current_percentage = self.token_monitor.get_percentage()
-            
-            if current_percentage >= 80.0:
-                # auto_save_and_resume handles:
-                # - Saving session to ~/.code_puppy/agents/gui-cub/sessions/
-                # - Replacing resume_prompt.md
-                # - Appending brief entry to KB (with rotation if > 800 lines)
-                # - Clearing message history
-                # - Loading resume prompt
-                success, msg = auto_save_and_resume(self)
-
-                if not success:
-                    # Fallback to just emitting warning if auto-resume fails
-                    emit_checkpoint_threshold(self.token_monitor)
-            else:
-                # Shouldn't happen, but guard against false triggers
-                emit_warning_threshold(self.token_monitor)
+            # 85% - Manual checkpoint recommendation
+            # User must explicitly call auto_save_and_resume if they want to clear context
+            # This gives them full control over when to save/resume
+            emit_checkpoint_threshold(self.token_monitor)
 
         elif threshold_event == "emergency":
             # 95% - Critical warning (shouldn't get here if 85% auto-resume works)

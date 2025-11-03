@@ -260,11 +260,11 @@ def emit_checkpoint_threshold(monitor: TokenMonitor) -> str:
 
     msg = (
         f"\n[bold orange]🟠 CONTEXT HIGH ({percentage:.1f}%)[/bold orange]\n\n"
-        f"[yellow]Context usage is getting high. Consider:[/yellow]\n"
-        f"  • Wrapping up the current workflow\n"
-        f"  • Saving important findings to the knowledge base\n"
-        f"  • Starting a fresh session if needed\n\n"
-        f"[dim]Continuing much further may hit context limits.[/dim]\n"
+        f"[yellow]Context usage is at 85%. You can:[/yellow]\n"
+        f"  • Continue working (you have room until 95%)\n"
+        f"  • Manually save/resume by asking: 'save and resume' or 'checkpoint'\n"
+        f"  • Wrap up and start a fresh session\n\n"
+        f"[dim]Note: Auto-save/resume is disabled. You control when to checkpoint.[/dim]\n"
     )
 
     console.print(msg)
