@@ -29,6 +29,7 @@ dependencies = [
     "textual>=5.0.0",
     "termcolor>=3.1.0",
     "textual-dev>=1.7.0",
+    "pyfiglet>=0.8.post1",
     "openai>=1.99.1",
     "ripgrep==14.1.0",
     "tenacity>=8.2.0",
