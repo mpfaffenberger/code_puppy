@@ -538,21 +538,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         try:
             # Use prompt_toolkit for enhanced input with path completion
-            # Disable prompt_toolkit in test environments (it doesn't work well with pexpect)
-            use_basic_input = os.getenv("CODE_PUPPY_USE_BASIC_INPUT", "0").lower() in {"1", "true", "yes"}
-            
-            if use_basic_input:
-                # Use basic input for pexpect compatibility
+            try:
+                # Use the async version of get_input_with_combined_completion
+                task = await get_input_with_combined_completion(
+                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+                )
+            except ImportError:
+                # Fall back to basic input if prompt_toolkit is not available
                 task = input(">>> ")
-            else:
-                try:
-                    # Use the async version of get_input_with_combined_completion
-                    task = await get_input_with_combined_completion(
-                        get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
-                    )
-                except ImportError:
-                    # Fall back to basic input if prompt_toolkit is not available
-                    task = input(">>> ")
 
         except (KeyboardInterrupt, EOFError):
             # Handle Ctrl+C or Ctrl+D
@@ -638,16 +631,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         if task.strip():
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
-
-            # Also update our enhanced history manager (for future improvements)
-            try:
-                from code_puppy.command_line.history_manager import get_history_manager
-
-                get_history_manager()
-                # Note: save_command_to_history already handles the saving,
-                # this is just to keep our manager in sync if needed
-            except Exception:
-                pass  # Silently handle any import errors
 
             try:
                 prettier_code_blocks()

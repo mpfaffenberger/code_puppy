@@ -55,7 +55,10 @@ from code_puppy.messaging import (
     emit_info,
     emit_warning,
 )
-from code_puppy.messaging.spinner import SpinnerBase, update_spinner_context
+from code_puppy.messaging.spinner import (
+    SpinnerBase,
+    update_spinner_context,
+)
 from code_puppy.model_factory import ModelFactory
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
