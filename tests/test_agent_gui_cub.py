@@ -802,81 +802,103 @@ class TestGUICubAutoResume:
 
     def test_auto_save_and_resume_clears_history(self, agent):
         """Verify auto-resume clears message history."""
-        from code_puppy.agents.gui_cub_monitoring import auto_save_and_resume
+        from code_puppy.agents.gui_cub_monitoring import auto_save_and_resume, get_gui_cub_base_dir
         from pydantic_ai.messages import ModelRequest, TextPart
+        import shutil
 
-        # Add some messages using proper ModelRequest format
-        for i in range(10):
-            agent.append_to_message_history(ModelRequest([TextPart(f"Message {i}")]))
+        try:
+            # Add some messages using proper ModelRequest format
+            for i in range(10):
+                agent.append_to_message_history(ModelRequest([TextPart(f"Message {i}")]))
 
-        # Should have 10 messages
-        assert len(agent.get_message_history()) == 10
+            # Should have 10 messages
+            assert len(agent.get_message_history()) == 10
 
-        # Auto-resume
-        success, msg = auto_save_and_resume(agent)
+            # Auto-resume
+            success, msg = auto_save_and_resume(agent)
 
-        # Should succeed
-        assert success
+            # Should succeed
+            assert success
 
-        # History should be cleared and replaced with resume prompt
-        history = agent.get_message_history()
-        assert len(history) == 1
-        # The resume message is a ModelRequest with TextPart
-        assert isinstance(history[0], ModelRequest)
-        assert len(history[0].parts) > 0
-        # Check the content contains the resume text
-        content = str(history[0].parts[0].content)
-        assert "GUI-Cub Context Resume" in content
+            # History should be cleared and replaced with resume prompt
+            history = agent.get_message_history()
+            assert len(history) == 1
+            # The resume message is a ModelRequest with TextPart
+            assert isinstance(history[0], ModelRequest)
+            assert len(history[0].parts) > 0
+            # Check the content contains the resume text
+            content = str(history[0].parts[0].content)
+            assert "GUI-Cub Context Resume" in content
+        finally:
+            # Clean up session directory
+            base_dir = get_gui_cub_base_dir()
+            session_dir = base_dir / "active_sessions" / agent.session_id
+            if session_dir.exists():
+                shutil.rmtree(session_dir, ignore_errors=True)
 
     def test_auto_save_and_resume_resets_thresholds(self, agent):
         """Verify auto-resume resets threshold flags."""
-        from code_puppy.agents.gui_cub_monitoring import auto_save_and_resume
+        from code_puppy.agents.gui_cub_monitoring import auto_save_and_resume, get_gui_cub_base_dir
+        import shutil
 
-        # Trigger thresholds
-        agent.token_monitor.update(int(128000 * 0.71))
-        agent.token_monitor.update(int(128000 * 0.86))
+        try:
+            # Trigger thresholds
+            agent.token_monitor.update(int(128000 * 0.71))
+            agent.token_monitor.update(int(128000 * 0.86))
 
-        assert agent.token_monitor.warning_fired
-        assert agent.token_monitor.checkpoint_fired
+            assert agent.token_monitor.warning_fired
+            assert agent.token_monitor.checkpoint_fired
 
-        # Auto-resume should reset flags
-        success, msg = auto_save_and_resume(agent)
+            # Auto-resume should reset flags
+            success, msg = auto_save_and_resume(agent)
 
-        assert success
-        assert not agent.token_monitor.warning_fired
-        assert not agent.token_monitor.checkpoint_fired
+            assert success
+            assert not agent.token_monitor.warning_fired
+            assert not agent.token_monitor.checkpoint_fired
+        finally:
+            # Clean up session directory
+            base_dir = get_gui_cub_base_dir()
+            session_dir = base_dir / "active_sessions" / agent.session_id
+            if session_dir.exists():
+                shutil.rmtree(session_dir, ignore_errors=True)
 
     def test_auto_resume_only_for_active_agent(self):
         """Verify auto-resume only triggers when gui-cub is the active agent."""
         from code_puppy.agents.gui_cub_monitoring import get_gui_cub_base_dir
         from pydantic_ai.messages import ModelRequest, TextPart
 
-        # Create a mock resume file
-        base_dir = get_gui_cub_base_dir()
-        base_dir.mkdir(parents=True, exist_ok=True)
-        resume_path = base_dir / "resume_prompt.md"
-        resume_path.write_text("Test resume content", encoding="utf-8")
+        # Mock get_current_agent_name to return code-puppy
+        with patch(
+            "code_puppy.agents.agent_manager.get_current_agent_name",
+            return_value="code-puppy",
+        ):
+            # Create GUI-Cub agent - should NOT auto-resume
+            agent = GUICubAgent()
 
-        try:
-            # Mock get_current_agent_name to return a different agent
-            # Patch where it's imported in _try_resume_from_saved_session
-            with patch(
-                "code_puppy.agents.agent_manager.get_current_agent_name",
-                return_value="code-puppy",
-            ):
-                # Create GUI-Cub agent - should NOT auto-resume
-                agent = GUICubAgent()
+            # Should have empty history (no auto-resume)
+            assert len(agent.get_message_history()) == 0
 
-                # Should have empty history (no auto-resume)
-                assert len(agent.get_message_history()) == 0
+        # Now test with gui-cub as active agent AND a saved resume
+        with patch(
+            "code_puppy.agents.agent_manager.get_current_agent_name",
+            return_value="gui-cub",
+        ):
+            # Create GUI-Cub agent to get its session ID
+            agent2 = GUICubAgent()
+            
+            # Create a mock resume file in THIS session's directory
+            base_dir = get_gui_cub_base_dir()
+            session_dir = base_dir / "active_sessions" / agent2.session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            resume_path = session_dir / "resume_prompt.md"
+            resume_path.write_text("Test resume content", encoding="utf-8")
 
-            # Now mock to return gui-cub as active agent
-            with patch(
-                "code_puppy.agents.agent_manager.get_current_agent_name",
-                return_value="gui-cub",
-            ):
-                # Create GUI-Cub agent - SHOULD auto-resume
-                agent2 = GUICubAgent()
+            try:
+                # Create a NEW agent with the SAME mocked session ID
+                # This simulates the agent being recreated in the same process
+                with patch.object(agent2, 'session_id', agent2.session_id):
+                    # Call the resume method directly
+                    agent2._try_resume_from_saved_session()
 
                 # Should have auto-loaded the resume
                 history = agent2.get_message_history()
@@ -885,7 +907,10 @@ class TestGUICubAutoResume:
                 content = str(history[0].parts[0].content)
                 assert "Test resume content" in content
 
-        finally:
-            # Cleanup
-            if resume_path.exists():
-                resume_path.unlink()
+            finally:
+                # Cleanup
+                if resume_path.exists():
+                    resume_path.unlink()
+                if session_dir.exists():
+                    import shutil
+                    shutil.rmtree(session_dir, ignore_errors=True)

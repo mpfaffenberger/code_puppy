@@ -63,18 +63,13 @@ class GUICubAgent(BaseAgent):
 
         try:
             base_dir = get_gui_cub_base_dir()
-            resume_path = base_dir / "resume_prompt.md"
-            session_marker_path = base_dir / ".session_id"
+            # Use session-specific directory to avoid collisions between concurrent sessions
+            session_dir = base_dir / "active_sessions" / self.session_id
+            resume_path = session_dir / "resume_prompt.md"
 
-            if resume_path.exists() and session_marker_path.exists():
-                # Read the saved session ID
-                with open(session_marker_path, "r", encoding="utf-8") as f:
-                    saved_session_id = f.read().strip()
-                
-                # Only resume if it's the SAME session (same process)
-                if saved_session_id != self.session_id:
-                    # Different session - skip auto-resume silently
-                    return
+            if resume_path.exists():
+                # Session ID is implicit in the directory path - no need to check
+                # If the file exists in our session directory, it's ours!
                 
                 # Read the saved resume prompt
                 with open(resume_path, "r", encoding="utf-8") as f:
@@ -86,8 +81,8 @@ class GUICubAgent(BaseAgent):
 
                 # Notify the user
                 console.print(
-                    "\n[bold green]✅ CONTEXT AUTO-RESUMED[/bold green]\n"
-                    "[dim]Loaded context from: ~/.code_puppy/agents/gui-cub/resume_prompt.md[/dim]\n"
+                    f"\n[bold green]✅ CONTEXT AUTO-RESUMED[/bold green]\n"
+                    f"[dim]Loaded context from: ~/.code_puppy/agents/gui-cub/active_sessions/{self.session_id}/resume_prompt.md[/dim]\n"
                 )
 
                 # Update token count

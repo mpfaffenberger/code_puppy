@@ -850,6 +850,60 @@ Continue the task from where we left off. Check the knowledge base at `~/.code_p
 """
 
 
+def cleanup_old_sessions(ttl_days: int = 14) -> tuple[int, int]:
+    """Clean up stale session directories older than TTL.
+
+    Active session directories are ephemeral and tied to process IDs.
+    Once a process ends, the directory becomes stale. This function
+    removes old session directories to prevent disk bloat.
+
+    Args:
+        ttl_days: Time-to-live in days. Directories older than this are deleted.
+                  Default is 14 days (2 weeks).
+
+    Returns:
+        Tuple of (directories_removed, errors_encountered)
+    """
+    from datetime import datetime, timedelta
+    import shutil
+
+    try:
+        base_dir = get_gui_cub_base_dir()
+        active_sessions_dir = base_dir / "active_sessions"
+
+        if not active_sessions_dir.exists():
+            return 0, 0  # Nothing to clean
+
+        now = datetime.now()
+        cutoff_time = now - timedelta(days=ttl_days)
+        removed_count = 0
+        error_count = 0
+
+        # Iterate through session directories
+        for session_dir in active_sessions_dir.iterdir():
+            if not session_dir.is_dir():
+                continue  # Skip non-directories
+
+            try:
+                # Get directory modification time
+                mtime = datetime.fromtimestamp(session_dir.stat().st_mtime)
+
+                # Remove if older than TTL
+                if mtime < cutoff_time:
+                    shutil.rmtree(session_dir)
+                    removed_count += 1
+
+            except Exception:
+                error_count += 1
+                continue  # Skip problematic directories
+
+        return removed_count, error_count
+
+    except Exception:
+        # If cleanup fails entirely, don't crash - just return 0
+        return 0, 1
+
+
 def auto_save_and_resume(agent, current_task: str | None = None) -> tuple[bool, str]:
     """Automatically save context to knowledge base and resume with fresh context.
 
@@ -875,7 +929,20 @@ def auto_save_and_resume(agent, current_task: str | None = None) -> tuple[bool, 
         Tuple of (success: bool, message: str)
     """
 
+    from rich.console import Console
+    console = Console()
+
     try:
+        # STEP 0: Clean up old session directories (14-day TTL)
+        # This runs ONLY during auto-resume (when hitting 85% tokens),
+        # not on every GUI-Cub initialization, for performance
+        removed, errors = cleanup_old_sessions(ttl_days=14)
+        if removed > 0:
+            console.print(
+                f"[dim]Cleaned up {removed} stale session director{'y' if removed == 1 else 'ies'} "
+                f"(older than 14 days)[/dim]"
+            )
+
         # Get cross-platform base directory
         # Windows: C:\Users\<username>\.code_puppy\agents\gui-cub
         # macOS: /Users/<username>/.code_puppy/agents/gui-cub
@@ -883,15 +950,24 @@ def auto_save_and_resume(agent, current_task: str | None = None) -> tuple[bool, 
         base_dir = get_gui_cub_base_dir()
         base_dir.mkdir(parents=True, exist_ok=True)
 
+        # Session snapshots directory (permanent archive)
         sessions_dir = base_dir / "sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Active sessions directory (ephemeral, per-process)
+        active_sessions_dir = base_dir / "active_sessions"
+        active_sessions_dir.mkdir(parents=True, exist_ok=True)
+        
+        # This session's specific directory (based on process ID)
+        session_dir = active_sessions_dir / agent.session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
 
         kb_path = base_dir / "gui_cub_knowledge_base.md"
-        resume_path = base_dir / "resume_prompt.md"
+        resume_path = session_dir / "resume_prompt.md"  # Session-specific!
 
-        # Create unique session ID
-        session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_path = sessions_dir / f"session_{session_id}.md"
+        # Create unique session ID for archival snapshot
+        snapshot_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_path = sessions_dir / f"session_{snapshot_id}.md"
 
         # SAFETY: Ensure all paths are within gui-cub directory
         assert kb_path.is_relative_to(base_dir), (
@@ -908,9 +984,10 @@ def auto_save_and_resume(agent, current_task: str | None = None) -> tuple[bool, 
         resume_prompt = generate_resume_prompt(agent, current_task)
 
         # Step 2: Save session snapshot (kept for history, never deleted)
-        session_entry = f"""# GUI-Cub Session - {session_id}
+        session_entry = f"""# GUI-Cub Session - {snapshot_id}
 
 **Timestamp:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Process ID:** {agent.session_id}
 **Token Usage:** {agent.token_monitor.get_percentage():.1f}% ({agent.token_monitor.current_tokens:,} tokens)
 **Resume Count:** {agent.token_monitor.metrics.checkpoints_created}
 
@@ -933,23 +1010,20 @@ Total messages: {len(agent.get_message_history())}
         except Exception:
             pass  # Non-critical
 
-        # Step 3: REPLACE resume prompt file (not append!) AND save session ID
+        # Step 3: REPLACE resume prompt file (not append!)
+        # File is written to session-specific directory (active_sessions/{session_id}/)
         try:
             with open(resume_path, "w", encoding="utf-8") as f:
                 f.write(resume_prompt)
-            
-            # Save session ID marker to prevent cross-session resume
-            session_marker_path = base_dir / ".session_id"
-            with open(session_marker_path, "w", encoding="utf-8") as f:
-                f.write(agent.session_id)
         except Exception:
             pass  # Non-critical
 
         # Step 4: Append brief entry to main KB (keep it small!)
-        kb_entry = f"""\n## Auto-Resume {session_id}
+        kb_entry = f"""\n## Auto-Resume {snapshot_id}
 **Tokens:** {agent.token_monitor.current_tokens:,} → Cleared  
-**Session:** See `sessions/session_{session_id}.md`  
-**Resume:** See `resume_prompt.md`\n
+**Process:** {agent.session_id}  
+**Session:** See `sessions/session_{snapshot_id}.md`  
+**Resume:** See `active_sessions/{agent.session_id}/resume_prompt.md`\n
 """
 
         try:
@@ -960,7 +1034,7 @@ Total messages: {len(agent.get_message_history())}
 
                 # If KB > 800 lines, archive and start fresh
                 if len(lines) > 800:
-                    archive_path = base_dir / f"gui_cub_knowledge_base_{session_id}.md"
+                    archive_path = base_dir / f"gui_cub_knowledge_base_{snapshot_id}.md"
                     # SAFETY: Copy instead of rename to avoid data loss on error
                     import shutil
 
@@ -969,7 +1043,7 @@ Total messages: {len(agent.get_message_history())}
                     with open(kb_path, "w", encoding="utf-8") as f:
                         f.write("# GUI-Cub Knowledge Base\n\n")
                         f.write(
-                            f"**Previous KB archived:** `gui_cub_knowledge_base_{session_id}.md`\n\n"
+                            f"**Previous KB archived:** `gui_cub_knowledge_base_{snapshot_id}.md`\n\n"
                         )
 
             # Append brief entry
@@ -999,8 +1073,8 @@ Total messages: {len(agent.get_message_history())}
         success_msg = (
             f"\n[bold green]✅ CONTEXT AUTO-RESUMED[/bold green]\n\n"
             f"[green]Autonomous context management successful:[/green]\n"
-            f"  • Session saved: sessions/session_{session_id}.md\n"
-            f"  • Resume prompt: resume_prompt.md (replaced)\n"
+            f"  • Session saved: sessions/session_{snapshot_id}.md\n"
+            f"  • Resume prompt: active_sessions/{agent.session_id}/resume_prompt.md\n"
             f"  • Message history cleared\n"
             f"  • Token usage reset to ~{new_token_count:,} tokens\n"
             f"  • Continuing task seamlessly\n\n"
