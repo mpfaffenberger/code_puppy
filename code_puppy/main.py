@@ -229,15 +229,17 @@ async def main():
             gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
             emit_system_message("\n\n")
             # Apply gradient line by line
+            logo = []
             for line_num, line in enumerate(intro_lines):
                 if line.strip():
                     # Use line position to determine color (top blue, middle cyan, bottom green)
                     color_idx = min(line_num // 2, len(gradient_colors) - 1)
                     color = gradient_colors[color_idx]
-                    emit_system_message(f"[{color}]{line}[/{color}]")
+                    logo.append(f"[{color}]{line}[/{color}]")
                 else:
-                    emit_system_message("")
+                    logo.append("")
 
+            emit_system_message("\n".join(logo))
         except ImportError:
             emit_system_message("🐶 Code Puppy is Loading...")
 

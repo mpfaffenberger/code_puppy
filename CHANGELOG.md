@@ -4,6 +4,67 @@ All notable changes to Code Puppy will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [0.0.234 -> 0.0.249] - 2025-01-28
+
+### 🎉 Major Features
+
+- **Advanced Agent Cancellation System**
+  - Escape key support for cancelling running shell commands (cross-platform)
+  - Separate escape key behavior: input cancellation vs shell interruption
+  - Extended agent cancellation to handle active sub-agent tasks
+  - Track active sub-agent tasks to enable proper cleanup during nested agent calls
+  - Prevent agent cancellation while shell processes are actively running
+  - Warning messages to notify users about cancelled operations
+
+- **Configurable Default Agent and Model Selection**
+  - Set default agent at startup via configuration
+  - Set default model at startup via configuration
+  - Reduces repetitive configuration on each startup
+
+- **Comprehensive TUI Enhancements** ([@janfeddersen-wq](https://github.com/janfeddersen-wq) in #82, #83)
+  - Implemented Nord theme as default with configurable theme options
+  - Added right sidebar with live updating Rich Text display
+  - Enhanced settings modal with API key management for multiple providers
+  - Added quit confirmation dialog with improved focus handling
+  - Implemented message suppression settings and improved copy mode functionality
+  - Added periodic context updates during agent execution
+  - Support for .env file configuration with priority over puppy.cfg
+  - API key validation integrated into settings screen
+  - Replaced hardcoded colors with Textual CSS variables for better theming
+
+
+### 🐛 Bug Fixes
+
+- **Agent Invocation**
+  - Converted agent invocation to async with improved error handling
+  - Fixed race conditions in sub-agent task management
+
+- **Planning Agent**
+  - Made execute plan trigger less strict for more flexible planning workflows (#75)
+
+### 🔧 Technical Improvements
+
+- **DBOS Integration** ([@Qian Li](https://github.com/Qian Li) in #84)
+  - Upgrades to durable execution using DBOS
+
+- **Memory Management**
+  - Adjusted compaction threshold minimum from 0.8 to 0.5 for more flexible memory management
+
+- **QA Agent**
+  - Updated prompt for QA agent for improved testing capabilities (#79)
+
+### 🎨 UI/UX Enhancements
+
+- **Interactive Mode Improvements**
+  - Improved command line status display showing default agent information
+  - Enhanced spacing in interactive mode prompts
+  - Better visual feedback for running operations
+
+- **TUI Theming**
+  - Nord theme with calming blue/gray palette
+  - Consistent styling across chat view, input area, sidebar, and status bar
+---
+
 ## [0.0.210 -> 0.0.233] - 2025-10-27
 
 ### 🎉 Major Features
