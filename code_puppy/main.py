@@ -439,6 +439,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "[dim]Use [bold blue]/diff[/bold blue] to configure diff highlighting colors for file changes.[/dim]"
     )
+    emit_system_message(
+        "[dim]⚠️  Type [bold blue]/disclaimer[/bold blue] to view important usage terms and data sensitivity guidelines.[/dim]"
+    )
     try:
         from code_puppy.command_line.motd import print_motd
 

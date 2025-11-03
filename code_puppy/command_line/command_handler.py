@@ -36,6 +36,7 @@ def get_commands_help():
         ("/pin_model <agent> <model>", "Pin a specific model to an agent"),
         ("/mcp", "Manage MCP servers (list, start, stop, status, etc.)"),
         ("/motd", "Show the latest message of the day (MOTD)"),
+        ("/disclaimer", "Show usage disclaimer and data sensitivity guidelines"),
         ("/show", "Show puppy config key-values"),
         (
             "/compact",
@@ -246,6 +247,11 @@ def handle_command(command: str):
 
     if command.strip().startswith("/motd"):
         print_motd(force=True)
+        return True
+
+    if command.strip().startswith("/disclaimer"):
+        from code_puppy.plugins.walmart_specific.disclaimer import display_disclaimer
+        display_disclaimer()
         return True
 
     if command.strip().startswith("/compact"):
