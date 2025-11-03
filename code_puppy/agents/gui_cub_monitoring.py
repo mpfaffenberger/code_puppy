@@ -970,15 +970,20 @@ def auto_save_and_resume(agent, current_task: str | None = None) -> tuple[bool, 
         session_path = sessions_dir / f"session_{snapshot_id}.md"
 
         # SAFETY: Ensure all paths are within gui-cub directory
-        assert kb_path.is_relative_to(base_dir), (
-            f"KB path {kb_path} is outside base_dir {base_dir}"
-        )
-        assert resume_path.is_relative_to(base_dir), (
-            f"Resume path {resume_path} is outside base_dir {base_dir}"
-        )
-        assert session_path.is_relative_to(base_dir), (
-            f"Session path {session_path} is outside base_dir {base_dir}"
-        )
+        # Use resolve() to handle Windows paths correctly
+        base_dir_resolved = base_dir.resolve()
+        kb_path_resolved = kb_path.resolve()
+        resume_path_resolved = resume_path.resolve()
+        session_path_resolved = session_path.resolve()
+        
+        try:
+            kb_path_resolved.relative_to(base_dir_resolved)
+            resume_path_resolved.relative_to(base_dir_resolved)
+            session_path_resolved.relative_to(base_dir_resolved)
+        except ValueError as e:
+            error_msg = f"Path validation failed: {e}"
+            console.print(f"[red]❌ {error_msg}[/red]")
+            return False, error_msg
 
         # Step 1: Generate resume prompt BEFORE clearing
         resume_prompt = generate_resume_prompt(agent, current_task)
@@ -1004,19 +1009,23 @@ Total messages: {len(agent.get_message_history())}
 ---
 """
 
+        # Step 2: Write session snapshot
         try:
             with open(session_path, "w", encoding="utf-8") as f:
                 f.write(session_entry)
-        except Exception:
-            pass  # Non-critical
+        except Exception as e:
+            # Non-critical, log but continue
+            pass
 
-        # Step 3: REPLACE resume prompt file (not append!)
+        # Step 3: REPLACE resume prompt file (CRITICAL - must succeed!)
         # File is written to session-specific directory (active_sessions/{session_id}/)
         try:
             with open(resume_path, "w", encoding="utf-8") as f:
                 f.write(resume_prompt)
-        except Exception:
-            pass  # Non-critical
+        except Exception as e:
+            error_msg = f"CRITICAL: Failed to save resume prompt to {resume_path}: {e}"
+            console.print(f"[red]❌ {error_msg}[/red]")
+            return False, error_msg
 
         # Step 4: Append brief entry to main KB (keep it small!)
         kb_entry = f"""\n## Auto-Resume {snapshot_id}

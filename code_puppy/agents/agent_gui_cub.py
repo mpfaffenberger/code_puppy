@@ -1142,17 +1142,24 @@ You are GUI-Cub 🐻 - a precise, methodical automation agent with dual operatin
 
         elif threshold_event == "checkpoint":
             # 85% - AUTONOMOUS CONTEXT MANAGEMENT!
-            # auto_save_and_resume handles:
-            # - Saving session to ~/.code_puppy/agents/gui-cub/sessions/
-            # - Replacing resume_prompt.md
-            # - Appending brief entry to KB (with rotation if > 800 lines)
-            # - Clearing message history
-            # - Loading resume prompt
-            success, msg = auto_save_and_resume(self)
+            # Double-check percentage to prevent accidental triggers
+            current_percentage = self.token_monitor.get_percentage()
+            
+            if current_percentage >= 80.0:
+                # auto_save_and_resume handles:
+                # - Saving session to ~/.code_puppy/agents/gui-cub/sessions/
+                # - Replacing resume_prompt.md
+                # - Appending brief entry to KB (with rotation if > 800 lines)
+                # - Clearing message history
+                # - Loading resume prompt
+                success, msg = auto_save_and_resume(self)
 
-            if not success:
-                # Fallback to just emitting warning if auto-resume fails
-                emit_checkpoint_threshold(self.token_monitor)
+                if not success:
+                    # Fallback to just emitting warning if auto-resume fails
+                    emit_checkpoint_threshold(self.token_monitor)
+            else:
+                # Shouldn't happen, but guard against false triggers
+                emit_warning_threshold(self.token_monitor)
 
         elif threshold_event == "emergency":
             # 95% - Critical warning (shouldn't get here if 85% auto-resume works)
@@ -1173,10 +1180,19 @@ You are GUI-Cub 🐻 - a precise, methodical automation agent with dual operatin
 
     async def run_with_mcp(self, prompt: str, **kwargs):
         """Override to add token monitoring after each run."""
-        # Call parent implementation
-        result = await super().run_with_mcp(prompt, **kwargs)
+        import asyncio
+        
+        try:
+            # Call parent implementation
+            result = await super().run_with_mcp(prompt, **kwargs)
 
-        # Check token usage after execution (TIER 4)
-        self.check_token_usage()
+            # Check token usage after SUCCESSFUL execution (TIER 4)
+            # Only run auto-resume if the agent completed naturally,
+            # not if user cancelled with CTRL+C
+            self.check_token_usage()
 
-        return result
+            return result
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            # User manually interrupted - DO NOT run auto-resume
+            # Preserve current session state
+            raise
