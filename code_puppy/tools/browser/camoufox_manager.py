@@ -81,9 +81,9 @@ class CamoufoxManager:
             await self._prefetch_camoufox()
 
             await self._initialize_camoufox()
-            emit_info(
-                "[green]✅ Camoufox initialized successfully (privacy-focused Firefox)[/green]"
-            )
+            # emit_info(
+            #     "[green]✅ Camoufox initialized successfully (privacy-focused Firefox)[/green]"
+            # )  # Removed to reduce console spam
             self._initialized = True
 
         except Exception:

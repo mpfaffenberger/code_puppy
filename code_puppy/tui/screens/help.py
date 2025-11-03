@@ -88,6 +88,7 @@ Input Controls:
 Keyboard Shortcuts:
 - Ctrl+Q/Ctrl+C: Quit application
 - Ctrl+L: Clear chat history
+- Ctrl+M: Toggle copy mode (select/copy text)
 - Ctrl+1: Show this help
 - Ctrl+2: Toggle History
 - Ctrl+3: Open settings
@@ -113,10 +114,10 @@ Agent responses support syntax highlighting for code blocks.
 Press Ctrl+3 to access all configuration settings.
 
 Copy Feature:
-- 📋 Copy buttons appear after agent responses
-- Click or press Enter/Space on copy button to copy content
-- Raw markdown content is copied to clipboard
-- Visual feedback shows copy success/failure
+- Press Ctrl+M to toggle copy mode
+- 📋 When in copy mode, select any text with your mouse
+- Use your terminal's copy shortcut (e.g., Ctrl+Shift+C, Cmd+C)
+- Press Ctrl+M again to return to interactive mode
 """
 
     @on(Button.Pressed, "#dismiss-button")

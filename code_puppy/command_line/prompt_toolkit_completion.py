@@ -14,6 +14,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, merge_completers
 from prompt_toolkit.filters import is_searching
 from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.processors import Processor, Transformation
@@ -309,23 +310,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:
-    # Use our enhanced history manager for better up/down arrow support
-    history = None
-    if history_file:
-        from prompt_toolkit.history import InMemoryHistory
-
-        from .history_manager import get_history_manager
-
-        # Load history into InMemoryHistory for each prompt
-        # This ensures we always have the latest history including commands from this session
-        history_manager = get_history_manager()
-        commands = history_manager.get_commands_for_prompt_toolkit()
-
-        if commands:
-            history = InMemoryHistory()
-            for command in commands:
-                # Add each command to the in-memory history
-                history.append_string(command)
+    history = FileHistory(history_file) if history_file else None
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),
@@ -340,6 +325,11 @@ async def get_input_with_combined_completion(
 
     # Multiline mode state
     multiline = {"enabled": False}
+
+    # Standalone Escape keybinding - exit with KeyboardInterrupt
+    @bindings.add(Keys.Escape)
+    def _(event):
+        event.app.exit(exception=KeyboardInterrupt)
 
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
@@ -379,18 +369,10 @@ async def get_input_with_combined_completion(
         else:
             event.current_buffer.validate_and_handle()
 
-    @bindings.add(Keys.Escape)
-    def _(event):
-        """Cancel the current prompt when the user presses the ESC key alone."""
-        event.app.exit(exception=KeyboardInterrupt)
-
-    # Disable autocomplete in test environments to avoid dropdown menus blocking pexpect
-    autocomplete_enabled = os.getenv("CODE_PUPPY_NO_AUTOCOMPLETE", "0").lower() not in {"1", "true", "yes"}
-    
     session = PromptSession(
         completer=completer,
         history=history,
-        complete_while_typing=autocomplete_enabled,
+        complete_while_typing=True,
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
     )
@@ -403,13 +385,13 @@ async def get_input_with_combined_completion(
         {
             # Keys must AVOID the 'class:' prefix – that prefix is used only when
             # tagging tokens in `FormattedText`. See prompt_toolkit docs.
-            "puppy": "bold magenta",
-            "owner": "bold white",
-            "agent": "bold blue",
-            "model": "bold cyan",
-            "cwd": "bold green",
-            "arrow": "bold yellow",
-            "attachment-placeholder": "italic cyan",
+            "puppy": "bold ansibrightcyan",
+            "owner": "bold ansibrightblue",
+            "agent": "bold ansibrightblue",
+            "model": "bold ansibrightcyan",
+            "cwd": "bold ansibrightgreen",
+            "arrow": "bold ansibrightblue",
+            "attachment-placeholder": "italic ansicyan",
         }
     )
     text = await session.prompt_async(prompt_str, style=style)
