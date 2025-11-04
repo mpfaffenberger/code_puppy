@@ -1,4 +1,4 @@
-"""Helper functions for RPA tests."""
+"""Helper functions for desktop automation tests."""
 
 from typing import Any, Dict
 

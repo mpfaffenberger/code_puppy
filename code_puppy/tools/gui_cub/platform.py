@@ -1,4 +1,4 @@
-"""Platform detection and helpers for cross-platform RPA tools."""
+"""Platform detection and helpers for cross-platform desktop automation tools."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Callable
 
 
 class Platform(Enum):
-    """Supported platforms for RPA automation."""
+    """Supported platforms for desktop automation automation."""
 
     MACOS = "darwin"
     WINDOWS = "win32"

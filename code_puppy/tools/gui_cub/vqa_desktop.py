@@ -28,7 +28,7 @@ def _load_desktop_vqa_agent(
     model = ModelFactory.get_model(model_name, models_config)
 
     instructions = (
-        "You are a desktop visual analysis specialist for RPA (Robotic Process Automation). "
+        "You are a desktop visual analysis specialist for desktop automation. "
         "Answer the user's question about the provided desktop screenshot. "
         "Always respond using the structured schema: answer, confidence (0-1 float), observations. "
         "Confidence reflects how certain you are about the answer. "

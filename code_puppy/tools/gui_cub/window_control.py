@@ -1,4 +1,4 @@
-"""Window management for desktop RPA automation."""
+"""Window management for desktop automation automation."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
     Internal helper to get active window bounds.
     
     This is extracted as a module-level function so it can be imported
-    for use in other RPA tools (e.g., screen_capture).
+    for use in other desktop automation tools (e.g., screen_capture).
     
     Returns:
         WindowBoundsResult with window position, size, and app name
@@ -176,7 +176,7 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
 
 
 # Public module-level functions that can be imported
-# These are used by other RPA modules (e.g., screen_capture)
+# These are used by other desktop automation modules (e.g., screen_capture)
 
 def get_active_window_bounds() -> WindowBoundsResult:
     """Get the bounds of the active/frontmost window.
@@ -215,7 +215,7 @@ def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
     Internal helper to focus a window by app name.
     
     This is extracted as a module-level function so it can be imported
-    for use in other RPA tools (e.g., screen_capture).
+    for use in other desktop automation tools (e.g., screen_capture).
     
     Args:
         app_name: Name of the application to focus (None to refocus frontmost)
@@ -309,7 +309,7 @@ def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
 
 
 def register_window_control_tools(agent):
-    """Register window control tools for RPA."""
+    """Register window control tools for desktop automation."""
 
     @agent.tool
     @rpa_tool("SLEEP", requires="pyautogui")
@@ -339,7 +339,7 @@ def register_window_control_tools(agent):
     def desktop_alert(
         context: RunContext,
         text: str,
-        title: str = "RPA Alert",
+        title: str = "Desktop Automation Alert",
         timeout: int = DEFAULT_ALERT_TIMEOUT,
     ) -> AlertResult:
         """

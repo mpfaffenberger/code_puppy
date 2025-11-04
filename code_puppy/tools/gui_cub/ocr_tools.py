@@ -1,4 +1,4 @@
-"""OCR (Optical Character Recognition) tools for desktop RPA."""
+"""OCR (Optical Character Recognition) tools for desktop automation."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
 from .constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
-from .result_types import BaseRPAResult
+from .result_types import BaseAutomationResult
 
 # Error message for missing tesseract
 ERROR_TESSERACT_MISSING = (
@@ -55,7 +55,7 @@ class TextBoundingBox(BaseModel):
     center_y: int
 
 
-class OCRExtractResult(BaseRPAResult):
+class OCRExtractResult(BaseAutomationResult):
     """Result from OCR text extraction.
     
     Uses success-conditional compaction:
@@ -81,7 +81,7 @@ class OCRExtractResult(BaseRPAResult):
     )
 
 
-class OCRFindResult(BaseRPAResult):
+class OCRFindResult(BaseAutomationResult):
     """Result from OCR text search.
     
     Uses success-conditional compaction:
@@ -99,7 +99,7 @@ class OCRFindResult(BaseRPAResult):
     full_text_elements: list[TextBoundingBox] = Field(default_factory=list)  # All OCR elements for debugging
 
 
-class OCRVerifyResult(BaseRPAResult):
+class OCRVerifyResult(BaseAutomationResult):
     """Result from OCR text verification."""
 
     expected_text: str = ""
@@ -109,7 +109,7 @@ class OCRVerifyResult(BaseRPAResult):
     location: TextBoundingBox | None = None
 
 
-class OCRDebugVisualization(BaseRPAResult):
+class OCRDebugVisualization(BaseAutomationResult):
     """Result from OCR bounding box visualization."""
 
     screenshot_path: str = ""

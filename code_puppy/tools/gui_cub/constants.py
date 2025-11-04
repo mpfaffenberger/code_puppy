@@ -1,10 +1,10 @@
-"""Constants and error messages for RPA tools."""
+"""Constants and error messages for desktop automation tools."""
 
 from __future__ import annotations
 
 # Error messages for missing dependencies
 ERROR_PYAUTOGUI_MISSING = (
-    "RPA tools require pyautogui. Install with: uv pip install pyautogui"
+    "desktop automation tools require pyautogui. Install with: uv pip install pyautogui"
 )
 ERROR_PILLOW_MISSING = (
     "Screenshot tools require Pillow. Install with: uv pip install pillow"

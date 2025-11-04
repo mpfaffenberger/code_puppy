@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for RPA tests."""
+"""Shared pytest fixtures for desktop automation tests."""
 
 import pytest
 from unittest.mock import MagicMock, Mock

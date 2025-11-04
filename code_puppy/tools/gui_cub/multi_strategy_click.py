@@ -19,7 +19,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
-from .result_types import BaseRPAResult
+from .result_types import BaseAutomationResult
 from .smart_click_calculator import SmartClickCalculator
 
 try:
@@ -31,7 +31,7 @@ except ImportError:
     pyautogui = None
 
 
-class MultiStrategyClickResult(BaseRPAResult):
+class MultiStrategyClickResult(BaseAutomationResult):
     """Result from multi-strategy click attempt."""
 
     search_text: str = ""

@@ -1,4 +1,4 @@
-"""Unit tests for OS-unified RPA tools (ui_list_windows, ui_list_elements, ui_find_element, ui_click_element).
+"""Unit tests for OS-unified desktop automation tools (ui_list_windows, ui_list_elements, ui_find_element, ui_click_element).
 We heavily mock platform-specific functions to make tests OS-agnostic and deterministic.
 """
 

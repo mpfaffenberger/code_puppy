@@ -1,7 +1,7 @@
-"""Coordinate conversion utilities for window-relative RPA operations.
+"""Coordinate conversion utilities for window-relative desktop automation operations.
 
 This module provides utilities for converting between window-relative and
-screen-absolute coordinates, enabling more portable and focused RPA workflows.
+screen-absolute coordinates, enabling more portable and focused desktop automation workflows.
 """
 
 from __future__ import annotations

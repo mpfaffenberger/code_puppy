@@ -1,4 +1,4 @@
-"""Advanced grid calibration and adaptive grid density for desktop RPA."""
+"""Advanced grid calibration and adaptive grid density for desktop automation."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
 from .constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
-from .result_types import BaseRPAResult
+from .result_types import BaseAutomationResult
 
 # Grid density presets
 GRID_DENSITIES = {
@@ -53,7 +53,7 @@ CALIBRATION_GRID_POINTS = [
 ]
 
 
-class GridDensityResult(BaseRPAResult):
+class GridDensityResult(BaseAutomationResult):
     """Result from grid density operations."""
 
     density: str = "normal"
@@ -61,7 +61,7 @@ class GridDensityResult(BaseRPAResult):
     estimated_vqa_time: float = 3.0  # seconds
 
 
-class GridCalibrationResult(BaseRPAResult):
+class GridCalibrationResult(BaseAutomationResult):
     """Result from grid calibration operations."""
 
     calibration_screenshot: str | None = None
@@ -70,7 +70,7 @@ class GridCalibrationResult(BaseRPAResult):
     instructions: str = ""
 
 
-class GridConfidenceResult(BaseRPAResult):
+class GridConfidenceResult(BaseAutomationResult):
     """Result with confidence score."""
 
     answer: str = ""

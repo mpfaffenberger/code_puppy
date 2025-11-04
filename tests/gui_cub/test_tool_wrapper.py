@@ -1,4 +1,4 @@
-"""Comprehensive tests for RPA tool wrapper utilities."""
+"""Comprehensive tests for desktop automation tool wrapper utilities."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ class TestToolEmojis:
             assert len(emoji) > 0
 
 
-class TestRPAToolDecorator:
+class TestDesktopAutomationToolDecorator:
     """Test the rpa_tool decorator."""
 
     def test_decorator_basic_success(self):
@@ -204,7 +204,7 @@ class TestIntegrationScenarios:
     """Test real-world integration scenarios."""
 
     def test_real_tool_pattern(self):
-        """Test a realistic RPA tool pattern."""
+        """Test a realistic desktop automation tool pattern."""
         with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
             mock_check.return_value = (True, None)
 

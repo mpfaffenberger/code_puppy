@@ -1,4 +1,4 @@
-"""Keyboard control for desktop RPA automation."""
+"""Keyboard control for desktop automation automation."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .tool_wrapper import rpa_tool
 
 
 def register_keyboard_control_tools(agent):
-    """Register keyboard control tools for RPA."""
+    """Register keyboard control tools for desktop automation."""
 
     @agent.tool
     @rpa_tool("KEYBOARD TYPE", requires="pyautogui")

@@ -1,4 +1,4 @@
-"""Pydantic models for RPA tool return types."""
+"""Pydantic models for desktop automation tool return types."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-class BaseRPAResult(BaseModel):
-    """Base result type for all RPA operations."""
+class BaseAutomationResult(BaseModel):
+    """Base result type for all desktop automation operations."""
 
     success: bool
     error: str | None = None
 
 
-class MouseActionResult(BaseRPAResult):
+class MouseActionResult(BaseAutomationResult):
     """Result from mouse operations (move, click, drag, scroll)."""
 
     x: int | None = None
@@ -30,7 +30,7 @@ class MousePositionResult(BaseModel):
     y: int
 
 
-class MouseDragResult(BaseRPAResult):
+class MouseDragResult(BaseAutomationResult):
     """Result from mouse drag operation."""
 
     start_x: int | None = None
@@ -40,14 +40,14 @@ class MouseDragResult(BaseRPAResult):
     button: Literal["left", "right", "middle"] | None = None
 
 
-class MouseScrollResult(BaseRPAResult):
+class MouseScrollResult(BaseAutomationResult):
     """Result from mouse scroll operation."""
 
     clicks: int | None = None
     direction: Literal["up", "down"] | None = None
 
 
-class KeyboardActionResult(BaseRPAResult):
+class KeyboardActionResult(BaseAutomationResult):
     """Result from keyboard operations (type, press, hotkey)."""
 
     text_length: int | None = None
@@ -94,7 +94,7 @@ class ScreenshotInfo(BaseModel):
     )
 
 
-class ScreenshotResult(BaseRPAResult):
+class ScreenshotResult(BaseAutomationResult):
     """Result from screenshot operation."""
 
     screenshot_path: str | None = None
@@ -105,7 +105,7 @@ class ScreenshotResult(BaseRPAResult):
     format: str = "PNG"  # Image format: 'PNG' or 'JPEG'
 
 
-class VQAResult(BaseRPAResult):
+class VQAResult(BaseAutomationResult):
     """Result from visual question answering.
     
     Uses success-conditional compaction:
@@ -145,7 +145,7 @@ class ElementInfo(BaseModel):
     auto_id: str | None = None  # Windows
 
 
-class ElementSearchResult(BaseRPAResult):
+class ElementSearchResult(BaseAutomationResult):
     """Result from element search operation."""
 
     found: bool = False
@@ -154,7 +154,7 @@ class ElementSearchResult(BaseRPAResult):
     best_match: ElementInfo | None = None
 
 
-class ElementClickResult(BaseRPAResult):
+class ElementClickResult(BaseAutomationResult):
     """Result from element click operation."""
 
     clicked: bool = False
@@ -165,7 +165,7 @@ class ElementClickResult(BaseRPAResult):
     y: int | None = None
 
 
-class ElementListResult(BaseRPAResult):
+class ElementListResult(BaseAutomationResult):
     """Result from listing elements.
     
     Uses success-conditional compaction:
@@ -187,28 +187,28 @@ class ElementListResult(BaseRPAResult):
     by_type: dict[str, list[dict[str, Any]]] | None = None
 
 
-class WindowFocusResult(BaseRPAResult):
+class WindowFocusResult(BaseAutomationResult):
     """Result from window focus operation."""
 
     focused_app: str | None = None
     window: str | None = None
 
 
-class WindowListResult(BaseRPAResult):
+class WindowListResult(BaseAutomationResult):
     """Result from listing windows."""
 
     count: int = 0
     windows: list[dict[str, Any]] | None = None
 
 
-class AlertResult(BaseRPAResult):
+class AlertResult(BaseAutomationResult):
     """Result from alert/confirm/prompt dialogs."""
 
     response: str | None = None
     cancelled: bool | None = None
 
 
-class ImageLocationResult(BaseRPAResult):
+class ImageLocationResult(BaseAutomationResult):
     """Result from image location operation."""
 
     found: bool = False
@@ -220,7 +220,7 @@ class ImageLocationResult(BaseRPAResult):
     center_y: int | None = None
 
 
-class SleepResult(BaseRPAResult):
+class SleepResult(BaseAutomationResult):
     """Result from sleep operation."""
 
     seconds: float | None = None
@@ -237,7 +237,7 @@ class MonitorInfo(BaseModel):
     is_primary: bool = False
 
 
-class MonitorsResult(BaseRPAResult):
+class MonitorsResult(BaseAutomationResult):
     """Result from getting monitor information."""
 
     count: int = 0
@@ -245,7 +245,7 @@ class MonitorsResult(BaseRPAResult):
     primary_index: int | None = None
 
 
-class MultiImageLocationResult(BaseRPAResult):
+class MultiImageLocationResult(BaseAutomationResult):
     """Result from locating multiple instances of an image."""
 
     found: bool = False
@@ -253,7 +253,7 @@ class MultiImageLocationResult(BaseRPAResult):
     locations: list[dict[str, int]] | None = None
 
 
-class PixelColorResult(BaseRPAResult):
+class PixelColorResult(BaseAutomationResult):
     """Result from pixel color check."""
 
     matches: bool = False
@@ -271,7 +271,7 @@ class PixelColorResult(BaseRPAResult):
     tolerance: int | None = None
 
 
-class WindowBoundsResult(BaseRPAResult):
+class WindowBoundsResult(BaseAutomationResult):
     """Result from getting active window bounds."""
 
     x: int | None = None

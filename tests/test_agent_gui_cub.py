@@ -319,7 +319,7 @@ class TestGUICubAgent:
         """Verify agent has a reasonable number of tools (not empty, not excessive)."""
         tools = agent.get_available_tools()
 
-        # Should have a substantial toolkit (RPA needs many tools)
+        # Should have a substantial toolkit (desktop automation needs many tools)
         assert len(tools) > 30, "GUI-Cub should have 30+ tools"
 
         # But not an unreasonable amount (might indicate duplicates)

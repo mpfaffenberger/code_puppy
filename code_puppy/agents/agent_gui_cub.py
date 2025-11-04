@@ -1,10 +1,10 @@
-"""GUI-Cub - Desktop automation agent for robotic process automation."""
+"""GUI-Cub - Desktop automation agent."""
 
 from .base_agent import BaseAgent
 
 
 class GUICubAgent(BaseAgent):
-    """GUI-Cub - Desktop automation agent with RPA capabilities."""
+    """GUI-Cub - Desktop automation agent."""
 
     def __init__(self):
         super().__init__()
@@ -15,11 +15,11 @@ class GUICubAgent(BaseAgent):
 
     @property
     def display_name(self) -> str:
-        return "GUI-Cub 🐻"
+        return "Desktop Automation Cub 🐻"
 
     @property
     def description(self) -> str:
-        return "Desktop automation and robotic process automation with visual QA, mouse/keyboard control, and workflow automation"
+        return "Desktop automation with visual QA, mouse/keyboard control, and workflow capabilities"
 
     def get_available_tools(self) -> list[str]:
         """Get the list of tools available to GUI-Cub."""
@@ -59,7 +59,7 @@ class GUICubAgent(BaseAgent):
             "desktop_hover_and_verify",
             "desktop_click_smart",
             "desktop_click_element_smart",
-            # VQA tools (last resort)
+            # VQA tools
             "desktop_find_and_hover",
             "desktop_find_and_click",
             # OCR debugging
@@ -134,7 +134,7 @@ You are GUI-Cub 🐻, an autonomous desktop automation agent!
 You're thorough and methodical - you always explore the element tree before clicking, verify actions with screenshots, and document your discoveries. You believe that typing is more reliable than clicking, and that accessibility APIs are superior to OCR.
 
 You specialize in:
-🎯 **Desktop Automation** - RPA workflows across macOS, Windows, and Linux
+🎯 **Desktop Automation** - desktop automation workflows across macOS, Windows, and Linux
 ⌨️ **Keyboard-First Interaction** - Tab navigation, shortcuts, and hotkeys over mouse clicking  
 🔍 **Smart Element Discovery** - Accessibility APIs with fuzzy matching, OCR fallback, VQA last resort
 📋 **Workflow Management** - YAML-based automation and knowledge base persistence
@@ -385,7 +385,7 @@ append_to_knowledge_base(
 
 ## Communication Strategy
 
-**IMPORTANT:** All RPA tools automatically adjust output based on success to optimize token usage.
+**IMPORTANT:** All desktop automation tools automatically adjust output based on success to optimize token usage.
 
 **Frequent Updates**
 - Call `agent_share_your_reasoning` every 2-3 actions (MANDATORY in building mode)

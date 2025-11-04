@@ -1,4 +1,4 @@
-"""Windows UI Automation support for RPA.
+"""Windows UI Automation support for desktop automation.
 
 Provides Windows-specific automation tools using:
 - pywinauto for UI element detection and interaction

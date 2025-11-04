@@ -1,10 +1,10 @@
-"""Tests for RPA result type Pydantic models."""
+"""Tests for desktop automation result type Pydantic models."""
 
 import pytest
 from pydantic import ValidationError
 
 from code_puppy.tools.gui_cub.result_types import (
-    BaseRPAResult,
+    BaseAutomationResult,
     MouseActionResult,
     KeyboardActionResult,
     ScreenshotResult,
@@ -13,25 +13,25 @@ from code_puppy.tools.gui_cub.result_types import (
 )
 
 
-class TestBaseRPAResult:
-    """Test BaseRPAResult model."""
+class TestBaseAutomationResult:
+    """Test BaseAutomationResult model."""
     
     def test_can_create_with_success(self):
         """Test creating result with success=True."""
-        result = BaseRPAResult(success=True)
+        result = BaseAutomationResult(success=True)
         assert result.success is True
         assert result.error is None
     
     def test_can_create_with_error(self):
         """Test creating result with error message."""
-        result = BaseRPAResult(success=False, error="Test error")
+        result = BaseAutomationResult(success=False, error="Test error")
         assert result.success is False
         assert result.error == "Test error"
     
     def test_success_is_required(self):
         """Test that success field is required."""
         with pytest.raises(ValidationError):
-            BaseRPAResult()
+            BaseAutomationResult()
 
 
 class TestMouseActionResult:

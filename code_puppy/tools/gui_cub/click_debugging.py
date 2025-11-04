@@ -1,4 +1,4 @@
-"""Click debugging and coordinate verification tools for RPA."""
+"""Click debugging and coordinate verification tools for desktop automation."""
 
 from __future__ import annotations
 
@@ -22,10 +22,10 @@ from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
 from .constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
-from .result_types import BaseRPAResult
+from .result_types import BaseAutomationResult
 
 
-class ClickDebugResult(BaseRPAResult):
+class ClickDebugResult(BaseAutomationResult):
     """Result from click debugging operations."""
 
     x: int = 0
@@ -39,7 +39,7 @@ class ClickDebugResult(BaseRPAResult):
     message: str = ""
 
 
-class CoordinateVerifyResult(BaseRPAResult):
+class CoordinateVerifyResult(BaseAutomationResult):
     """Result from coordinate verification."""
 
     x: int = 0
@@ -50,7 +50,7 @@ class CoordinateVerifyResult(BaseRPAResult):
     distance_from_edge: dict[str, int] | None = None
 
 
-class HoverVerifyResult(BaseRPAResult):
+class HoverVerifyResult(BaseAutomationResult):
     """Result from hover verification (cursor position check)."""
 
     target_x: int = 0
@@ -64,7 +64,7 @@ class HoverVerifyResult(BaseRPAResult):
     message: str = ""
 
 
-class SmartClickResult(BaseRPAResult):
+class SmartClickResult(BaseAutomationResult):
     """Result from smart click with retry logic."""
 
     target_x: int = 0

@@ -1,1 +1,1 @@
-"""RPA (Robotic Process Automation) tools for desktop automation."""
+"""GUI-Cub tools for desktop automation."""

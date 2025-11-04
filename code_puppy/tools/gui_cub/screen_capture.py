@@ -1,4 +1,4 @@
-"""Screen capture and visual analysis for desktop RPA."""
+"""Screen capture and visual analysis for desktop automation."""
 
 from __future__ import annotations
 
@@ -937,7 +937,7 @@ def register_desktop_screenshot_tools(agent):
         """
         Convenience wrapper for VQA on active window.
 
-        This is the recommended way to use VQA for RPA workflows.
+        This is the recommended way to use VQA for desktop automation workflows.
         Always captures window-only (never full screen).
 
         Args:

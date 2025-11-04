@@ -56,20 +56,13 @@ from code_puppy.tools.browser.browser_workflows import (
     register_save_workflow,
 )
 
-# GUI-Cub workflow and knowledge base tools
-try:
-    from code_puppy.tools.gui_cub.workflows import register_workflow_tools as register_gui_cub_workflows
-    from code_puppy.tools.gui_cub.executor import register_executor_tool as register_gui_cub_executor
-    from code_puppy.tools.gui_cub.knowledge_base import register_knowledge_base_tool as register_gui_cub_kb
-    GUI_CUB_WORKFLOWS_AVAILABLE = True
-except ImportError:
-    GUI_CUB_WORKFLOWS_AVAILABLE = False
-    register_gui_cub_workflows = None
-    register_gui_cub_executor = None
-    register_gui_cub_kb = None
+# GUI-Cub workflow and knowledge base tools (always available)
+from code_puppy.tools.gui_cub.workflows import register_workflow_tools as register_gui_cub_workflows
+from code_puppy.tools.gui_cub.executor import register_executor_tool as register_gui_cub_executor
+from code_puppy.tools.gui_cub.knowledge_base import register_knowledge_base_tool as register_gui_cub_kb
 
-# RPA (Robotic Process Automation) tools - required dependencies
-# Dependencies: pyautogui, pillow, opencv-python, pytesseract, openpyxl (installed via pyproject.toml)
+# GUI-Cub desktop automation tools (always available - required dependencies)
+# Dependencies: pyautogui, pillow, opencv-python, pytesseract, openpyxl
 from code_puppy.tools.gui_cub.keyboard_control import register_keyboard_control_tools
 from code_puppy.tools.gui_cub.keyboard_shortcuts import register_keyboard_shortcut_tools
 from code_puppy.tools.gui_cub.mouse_control import register_mouse_control_tools
@@ -81,9 +74,7 @@ from code_puppy.tools.gui_cub.click_debugging import register_click_debugging_to
 from code_puppy.tools.gui_cub.multi_strategy_click import register_multi_strategy_click_tools
 from code_puppy.tools.gui_cub.vqa_hover_click import register_vqa_hover_tools
 
-RPA_TOOLS_AVAILABLE = True  # Always available - required dependencies
-
-# RPA Accessibility API tools (macOS only) - platform-specific
+# Desktop Automation Accessibility API tools (macOS only) - platform-specific
 # Dependencies: atomacos, pyobjc-framework-Cocoa (installed on macOS via pyproject.toml)
 try:
     from code_puppy.tools.gui_cub.accessibility import register_accessibility_tools
@@ -187,33 +178,31 @@ TOOL_REGISTRY = {
     "browser_read_workflow": register_read_workflow,
 }
 
-# Add GUI-Cub workflow and KB tools if available
-if GUI_CUB_WORKFLOWS_AVAILABLE:
-    TOOL_REGISTRY.update(
-        {
-            "gui_cub_save_workflow": register_gui_cub_workflows,
-            "gui_cub_list_workflows": register_gui_cub_workflows,
-            "gui_cub_read_workflow": register_gui_cub_workflows,
-            "gui_cub_execute_workflow": register_gui_cub_executor,
-            "gui_cub_append_to_knowledge_base": register_gui_cub_kb,
-        }
-    )
+# GUI-Cub workflow and knowledge base tools (always available)
+TOOL_REGISTRY.update(
+    {
+        "gui_cub_save_workflow": register_gui_cub_workflows,
+        "gui_cub_list_workflows": register_gui_cub_workflows,
+        "gui_cub_read_workflow": register_gui_cub_workflows,
+        "gui_cub_execute_workflow": register_gui_cub_executor,
+        "gui_cub_append_to_knowledge_base": register_gui_cub_kb,
+    }
+)
 
-# Add RPA tools if available
-if RPA_TOOLS_AVAILABLE:
-    TOOL_REGISTRY.update(
-        {
-            # RPA - Screen Capture
+# Desktop automation tools (always available - required dependencies)
+TOOL_REGISTRY.update(
+    {
+            # Desktop Automation - Screen Capture
             "desktop_screenshot": register_desktop_screenshot_tools,
             "desktop_screenshot_analyze": register_desktop_screenshot_tools,
             "desktop_get_screen_size": register_desktop_screenshot_tools,
-            # RPA - Mouse Control
+            # Desktop Automation - Mouse Control
             "desktop_mouse_move": register_mouse_control_tools,
             "desktop_mouse_click": register_mouse_control_tools,
             "desktop_mouse_drag": register_mouse_control_tools,
             "desktop_mouse_scroll": register_mouse_control_tools,
             "desktop_mouse_get_position": register_mouse_control_tools,
-            # RPA - Keyboard Shortcuts (platform-aware)
+            # Desktop Automation - Keyboard Shortcuts (platform-aware)
             "desktop_copy": register_keyboard_shortcut_tools,
             "desktop_paste": register_keyboard_shortcut_tools,
             "desktop_cut": register_keyboard_shortcut_tools,
@@ -226,13 +215,13 @@ if RPA_TOOLS_AVAILABLE:
             "desktop_open": register_keyboard_shortcut_tools,
             "desktop_close": register_keyboard_shortcut_tools,
             "desktop_quit": register_keyboard_shortcut_tools,
-            # RPA - Keyboard Control (low-level)
+            # Desktop Automation - Keyboard Control (low-level)
             "desktop_keyboard_type": register_keyboard_control_tools,
             "desktop_keyboard_press": register_keyboard_control_tools,
             "desktop_keyboard_hotkey": register_keyboard_control_tools,
             "desktop_keyboard_hold": register_keyboard_control_tools,
             "desktop_keyboard_release": register_keyboard_control_tools,
-            # RPA - Window and Utility Control
+            # Desktop Automation - Window and Utility Control
             "desktop_sleep": register_window_control_tools,
             "desktop_alert": register_window_control_tools,
             "desktop_confirm": register_window_control_tools,
@@ -242,36 +231,36 @@ if RPA_TOOLS_AVAILABLE:
             "desktop_focus_window": register_window_control_tools,
             "desktop_get_monitors": register_window_control_tools,
             "desktop_check_pixel_color": register_window_control_tools,
-            # RPA - Grid Calibration (NEW!)
+            # Desktop Automation - Grid Calibration (NEW!)
             "desktop_set_grid_density": register_grid_calibration_tools,
             "desktop_show_grid_test_pattern": register_grid_calibration_tools,
             "desktop_screenshot_with_confidence": register_grid_calibration_tools,
-            # RPA - OCR Tools (NEW!)
+            # Desktop Automation - OCR Tools (NEW!)
             "desktop_extract_text": register_ocr_tools,
             "desktop_find_text": register_ocr_tools,
             "desktop_verify_text": register_ocr_tools,
             "desktop_find_text_reliable": register_ocr_tools,
             "desktop_show_all_ocr_boxes": register_ocr_tools,
-            # RPA - Click Debugging Tools (NEW!)
+            # Desktop Automation - Click Debugging Tools (NEW!)
             "desktop_highlight_click_target": register_click_debugging_tools,
             "desktop_verify_coordinates": register_click_debugging_tools,
             "desktop_click_with_verification": register_click_debugging_tools,
             "desktop_hover_and_verify": register_click_debugging_tools,
             "desktop_click_smart": register_click_debugging_tools,
-            # RPA - Multi-Strategy Click (NEW!)
+            # Desktop Automation - Multi-Strategy Click (NEW!)
             "desktop_click_element_smart": register_multi_strategy_click_tools,
 
-            # RPA - Simplified VQA Hover & Click (RECOMMENDED! - Single-shot VQA + hover verification)
+            # Desktop Automation - Simplified VQA Hover & Click (RECOMMENDED! - Single-shot VQA + hover verification)
             "desktop_find_and_hover": register_vqa_hover_tools,
             "desktop_find_and_click": register_vqa_hover_tools,
-        }
-    )
+    }
+)
 
 # Add Accessibility API tools if available (macOS only)
 if ACCESSIBILITY_TOOLS_AVAILABLE:
     TOOL_REGISTRY.update(
         {
-            # RPA - Accessibility API (macOS)
+            # Desktop Automation - Accessibility API (macOS)
             "desktop_find_accessible_element": register_accessibility_tools,
             "desktop_list_accessible_elements": register_accessibility_tools,
             "desktop_click_accessible_element": register_accessibility_tools,
@@ -285,7 +274,7 @@ if ACCESSIBILITY_TOOLS_AVAILABLE:
 if WINDOWS_TOOLS_AVAILABLE:
     TOOL_REGISTRY.update(
         {
-            # RPA - Windows UI Automation
+            # Desktop Automation - Windows UI Automation
             "windows_focus_window": register_windows_tools,
             "windows_find_element": register_windows_tools,
             "windows_click_element": register_windows_tools,

@@ -1,4 +1,4 @@
-"""Mouse control for desktop RPA automation."""
+"""Mouse control for desktop automation automation."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from .tool_wrapper import rpa_tool
 
 
 def register_mouse_control_tools(agent):
-    """Register mouse control tools for RPA."""
+    """Register mouse control tools for desktop automation."""
 
     @agent.tool
     @rpa_tool("MOUSE MOVE", requires="pyautogui")

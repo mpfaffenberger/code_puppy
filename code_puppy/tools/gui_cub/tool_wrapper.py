@@ -1,4 +1,4 @@
-"""Wrapper utilities to reduce boilerplate in RPA tool definitions."""
+"""Wrapper utilities to reduce boilerplate in desktop automation tool definitions."""
 
 from __future__ import annotations
 
@@ -132,7 +132,7 @@ def rpa_tool(
     emit_success: bool = True,
     emit_errors: bool = True,
 ) -> Callable:
-    """Decorator for RPA tools that handles common patterns.
+    """Decorator for desktop automation tools that handles common patterns.
 
     This decorator:
     - Checks required libraries are available
@@ -149,7 +149,7 @@ def rpa_tool(
         emit_errors: Whether to emit error messages
 
     Returns:
-        Decorated function with common RPA tool patterns
+        Decorated function with common desktop automation tool patterns
 
     Example:
         @rpa_tool("MOUSE MOVE", requires="pyautogui")
