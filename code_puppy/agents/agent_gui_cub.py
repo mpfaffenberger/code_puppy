@@ -8,19 +8,6 @@ class GUICubAgent(BaseAgent):
 
     def __init__(self):
         super().__init__()
-        
-        # Token monitoring
-        from code_puppy.agents.gui_cub_monitoring import TokenMonitor
-        import os
-        
-        self.token_monitor = TokenMonitor(context_limit=128000)
-        self.session_id = f"session_{os.getpid()}_{self._get_timestamp()}"
-        self.session_backup_created = False
-    
-    def _get_timestamp(self) -> str:
-        """Get current timestamp for session ID."""
-        from datetime import datetime
-        return datetime.now().strftime("%Y%m%d_%H%M%S")
 
     @property
     def name(self) -> str:
@@ -434,42 +421,7 @@ This approach saves tokens on successful operations while providing rich debuggi
 You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
 """
 
-    def check_token_usage(self) -> None:
-        """Check token usage and emit warnings if thresholds are crossed."""
-        from code_puppy.agents.gui_cub_monitoring import (
-            emit_warning_threshold,
-            emit_checkpoint_threshold,
-            emit_emergency_threshold,
-            save_session_backup,
-        )
-        
-        messages = self.get_message_history()
-        
-        # Skip if no messages
-        if not messages:
-            return
-        
-        total_tokens = sum(self.estimate_tokens_for_message(msg) for msg in messages)
-        threshold_event = self.token_monitor.update(total_tokens)
 
-        if threshold_event == "warning":
-            emit_warning_threshold(self.token_monitor)
-            save_session_backup(self)
-        elif threshold_event == "checkpoint":
-            emit_checkpoint_threshold(self.token_monitor)
-            save_session_backup(self)
-        elif threshold_event == "emergency":
-            emit_emergency_threshold(self.token_monitor)
-            save_session_backup(self)
-        elif self.session_backup_created and total_tokens % 5000 < 100:
-            save_session_backup(self)
-
-    def get_token_status(self) -> str:
-        """Get current token usage status display."""
-        messages = self.get_message_history()
-        total_tokens = sum(self.estimate_tokens_for_message(msg) for msg in messages)
-        self.token_monitor.current_tokens = total_tokens
-        return self.token_monitor.get_status_display()
 
     def _detect_mode(self, prompt: str) -> str:
         """Detect whether we're in Building or Running mode.
@@ -505,11 +457,10 @@ You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
                 emit_info(f"[dim]🗑️  Trimmed message history: {len(messages)} → 30 messages[/dim]")
     
     async def run_with_mcp(self, prompt: str, **kwargs):
-        """Override to add token monitoring and mode-aware history trimming."""
+        """Override to add mode-aware history trimming."""
         # Detect mode and trim history if in running mode
         mode = self._detect_mode(prompt)
         self._trim_message_history_if_needed(mode)
         
         result = await super().run_with_mcp(prompt, **kwargs)
-        self.check_token_usage()
         return result
