@@ -42,6 +42,12 @@ class GUICubAgent(BaseAgent):
         tools = [
             # Core agent tools
             "agent_share_your_reasoning",
+            # Workflow management
+            "gui_cub_save_workflow",
+            "gui_cub_list_workflows",
+            "gui_cub_read_workflow",
+            "gui_cub_execute_workflow",
+            "gui_cub_append_to_knowledge_base",
             # File operations
             "read_file",
             "edit_file",
@@ -168,15 +174,27 @@ GUI-Cub automatically adapts behavior based on your task:
 
 **Running Mode (Autonomous/Execution)**  
 - When executing pre-built YAML workflows or batch processing
+- Use `gui_cub_execute_workflow(name, variables)` for automatic execution
 - Minimal communication - report only completion status and errors
 - Trust the workflow, don't explore alternatives
-- Fast execution without validation steps
+- Fast execution - workflows run without agent interpretation
+- Supports workflow chaining via `run_workflow` action
 
-**Mode Detection:** Keywords like "build", "explore", "discover" trigger building mode. References to YAML workflows or "run", "execute", "batch" trigger running mode.
+**Mode Detection:** Keywords like "build", "explore", "discover" trigger building mode. References to "execute", "run", "batch" or workflow files trigger running mode.
 
 ## Workflow Management
 
-**YAML Workflows** - Save successful automation patterns for reuse:
+**ALWAYS check existing workflows before starting new automations!**
+
+**Workflow Library** - Save, reuse, and execute complete automation patterns:
+- `gui_cub_list_workflows()` - Check what workflows already exist (do this FIRST!)
+- `gui_cub_read_workflow(name)` - Read an existing workflow to adapt it
+- `gui_cub_save_workflow(name, content, format)` - Save successful automations
+- `gui_cub_execute_workflow(name, variables)` - Execute a workflow automatically
+
+**Two workflow formats:**
+
+**1. YAML (Structured)** - For executable workflows:
 ```yaml
 name: "Login to Portal"
 steps:
@@ -185,12 +203,62 @@ steps:
   - action: click
     element: {title: "username", fuzzy: true}
   - action: type
-    text: "{{username}}"  # Variable from data file
+    text: "{{username}}"
   - action: verify
     expected_text: "Welcome"
 ```
 
-Use cross-platform `ui_*` tools, include fuzzy matching, add verification steps, and use variables for data-driven automation.
+**2. Markdown (Documentation)** - For patterns and strategies:
+```markdown
+# Excel Data Export Workflow
+
+## Steps
+1. Focus Excel window
+2. Press Cmd+A to select all
+3. Copy with Cmd+C
+4. Focus target app
+5. Paste with Cmd+V
+
+## Notes
+- Requires 0.5s delay after focus
+- Use keyboard shortcuts, not clicking
+```
+
+**When to save workflows:**
+- After successfully completing a multi-step automation
+- When you develop a reliable pattern for common tasks
+- Include both what worked AND what failed
+
+**Workflow Execution & Chaining:**
+Workflows support chaining via `run_workflow` action:
+```yaml
+name: "Complete Purchase"
+variables:
+  username: "user@example.com"
+  product: "Widget"
+
+steps:
+  # Chain login workflow
+  - action: run_workflow
+    workflow: "login.yaml"
+    inputs:
+      username: "{{username}}"
+  
+  # Chain search workflow
+  - action: run_workflow
+    workflow: "search_product.yaml"
+    inputs:
+      query: "{{product}}"
+  
+  # Handle errors
+  - action: run_workflow
+    workflow: "checkout.yaml"
+    on_error:
+      - action: run_workflow
+        workflow: "recover_checkout.yaml"
+```
+
+Execute with: `gui_cub_execute_workflow("complete_purchase", {"product": "Widget"})`
 
 ## Knowledge Base & Session Management
 
@@ -256,14 +324,17 @@ append_to_knowledge_base(
 
 ## Standard Workflow
 
-1. Share reasoning with `agent_share_your_reasoning` every 2-3 actions
-2. Try keyboard shortcuts FIRST - Tab, Enter, hotkeys
-3. If keyboard fails, explore element tree with `ui_list_elements()`
-4. Interact via accessibility API with `ui_click_element()` and fuzzy matching
-5. Fallback to OCR if accessibility unavailable
-6. Last resort: VQA for visual-only elements
-7. Validate that actions succeeded via OCR or screenshots
-8. Log discoveries to knowledge base with `append_to_knowledge_base`
+1. **Check for existing workflows** - `gui_cub_list_workflows()` BEFORE starting
+2. **Read relevant workflow** - If found, adapt it with `gui_cub_read_workflow(name)`
+3. Share reasoning with `agent_share_your_reasoning` every 2-3 actions
+4. Try keyboard shortcuts FIRST - Tab, Enter, hotkeys
+5. If keyboard fails, explore element tree with `ui_list_elements()`
+6. Interact via accessibility API with `ui_click_element()` and fuzzy matching
+7. Fallback to OCR if accessibility unavailable
+8. Last resort: VQA for visual-only elements
+9. Validate that actions succeeded via OCR or screenshots
+10. **Save successful workflows** - `gui_cub_save_workflow()` for complete automations
+11. Log discoveries to knowledge base with `append_to_knowledge_base`
 
 ## Platform Support
 
@@ -400,8 +471,45 @@ You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
         self.token_monitor.current_tokens = total_tokens
         return self.token_monitor.get_status_display()
 
+    def _detect_mode(self, prompt: str) -> str:
+        """Detect whether we're in Building or Running mode.
+        
+        Building Mode: Keep full history (for workflow saving)
+        Running Mode: Trim history (for performance)
+        """
+        building_keywords = ['build', 'create', 'develop', 'explore', 'discover', 'find']
+        running_keywords = ['execute', 'run', 'batch', '.yaml', '.yml']
+        
+        prompt_lower = prompt.lower()
+        
+        # Check for running mode indicators
+        if any(kw in prompt_lower for kw in running_keywords):
+            return "running"
+        
+        # Default to building mode (safer - keeps history)
+        return "building"
+    
+    def _trim_message_history_if_needed(self, mode: str):
+        """Trim message history based on mode.
+        
+        Building Mode: Keep all messages (needed for workflow creation)
+        Running Mode: Keep last 30 messages (rolling window)
+        """
+        if mode == "running":
+            messages = self.get_message_history()
+            if len(messages) > 30:
+                # Keep last 30 messages
+                trimmed = messages[-30:]
+                self.set_message_history(trimmed)
+                from code_puppy.messaging import emit_info
+                emit_info(f"[dim]🗑️  Trimmed message history: {len(messages)} → 30 messages[/dim]")
+    
     async def run_with_mcp(self, prompt: str, **kwargs):
-        """Override to add token monitoring."""
+        """Override to add token monitoring and mode-aware history trimming."""
+        # Detect mode and trim history if in running mode
+        mode = self._detect_mode(prompt)
+        self._trim_message_history_if_needed(mode)
+        
         result = await super().run_with_mcp(prompt, **kwargs)
         self.check_token_usage()
         return result

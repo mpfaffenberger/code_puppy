@@ -11,7 +11,7 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-from code_puppy.tools.rpa.screen_capture import _resize_image_if_needed
+from code_puppy.tools.gui_cub.screen_capture import _resize_image_if_needed
 
 
 @pytest.mark.skipif(not PIL_AVAILABLE, reason="PIL/Pillow not available")
@@ -150,7 +150,7 @@ class TestImageResizing:
 
 
 try:
-    from code_puppy.tools.rpa.screen_capture import (
+    from code_puppy.tools.gui_cub.screen_capture import (
         _calculate_region,
         _normalize_region,
         _validate_coordinates,
@@ -191,7 +191,7 @@ class TestScreenCaptureUtilities:
 
     def test_calculate_region_with_bounds(self):
         """Test calculating region with window bounds."""
-        from code_puppy.tools.rpa.result_types import WindowBoundsResult
+        from code_puppy.tools.gui_cub.result_types import WindowBoundsResult
         
         bounds = WindowBoundsResult(
             success=True,

@@ -445,21 +445,68 @@ def _list_macos_windows() -> list[dict[str, Any]]:
     return out
 
 
-def _compact_element_list_result(full_result: ElementListResult) -> ElementListResult:
+def _calculate_element_relevance(elem: dict) -> float:
     """
-    Compress element list to actionable elements only.
+    Calculate relevance score for an element (0.0 - 1.0).
+    
+    Prioritizes:
+    - Interactive elements (buttons, fields)
+    - Elements with meaningful titles
+    - Common UI patterns (submit, login, search, etc.)
+    """
+    score = 0.0
+    
+    # Base score by role (0.0 - 0.5)
+    role = elem.get('role') or elem.get('type') or elem.get('control_type') or ''
+    role_scores = {
+        'AXButton': 0.5, 'Button': 0.5,
+        'AXTextField': 0.45, 'Edit': 0.45,
+        'AXMenuItem': 0.4, 'MenuItem': 0.4,
+        'AXLink': 0.35, 'Hyperlink': 0.35,
+        'AXCheckBox': 0.3, 'CheckBox': 0.3,
+    }
+    score += role_scores.get(role, 0.2)
+    
+    # Boost for meaningful title (0.0 - 0.3)
+    title = (elem.get('title') or '').lower().strip()
+    if title:
+        score += 0.1
+        
+        # Boost for common action words (fuzzy matching)
+        action_words = {
+            'submit', 'login', 'sign in', 'search', 'save', 'send',
+            'ok', 'accept', 'continue', 'next', 'cancel', 'close',
+            'delete', 'remove', 'add', 'create', 'edit', 'update'
+        }
+        for action in action_words:
+            if action in title:
+                score += 0.2
+                break
+    
+    # Penalty for very long titles (probably labels, not buttons)
+    if title and len(title) > 50:
+        score -= 0.1
+    
+    return min(1.0, max(0.0, score))
+
+
+def _compact_element_list_result(full_result: ElementListResult, max_elements: int = 20) -> ElementListResult:
+    """
+    Compress element list to most relevant actionable elements.
     
     Strategy:
     - Filter to interactive/actionable elements (buttons, fields, menus)
-    - Remove static text and decorative elements
-    - Limit to top 20 most relevant elements
+    - Calculate relevance score with fuzzy matching on common actions
+    - Sort by relevance (most relevant first)
+    - Limit to top N most relevant elements (default: 20)
     - Generate summary
     
     Args:
         full_result: Full element list with all elements
+        max_elements: Maximum elements to return (default: 20)
     
     Returns:
-        Compact result with filtered actionable elements only
+        Compact result with filtered, sorted actionable elements only
     """
     if not full_result.success or not full_result.elements:
         # Failure or empty - return as-is for debugging
@@ -475,25 +522,31 @@ def _compact_element_list_result(full_result: ElementListResult) -> ElementListR
         'CheckBox', 'RadioButton', 'Hyperlink', 'Document',
     }
     
-    # Filter to actionable elements
-    actionable = []
+    # Filter to actionable elements and calculate relevance
+    actionable_with_scores = []
     for elem in full_result.elements:
         role = elem.get('role') or elem.get('type') or elem.get('control_type')
         if role in actionable_roles:
+            # Calculate relevance score
+            relevance = _calculate_element_relevance(elem)
+            
             # Compact element structure - keep only essential fields
             compact_elem = {
                 'role': role,
                 'title': elem.get('title'),
                 'x': elem.get('center_x') or elem.get('x'),
                 'y': elem.get('center_y') or elem.get('y'),
+                'relevance': round(relevance, 2),  # For debugging
             }
             # Add automation_id if available (Windows)
             if 'auto_id' in elem:
                 compact_elem['auto_id'] = elem['auto_id']
-            actionable.append(compact_elem)
+            
+            actionable_with_scores.append((relevance, compact_elem))
     
-    # Limit to top 20
-    actionable = actionable[:20]
+    # Sort by relevance (highest first) and limit to top N
+    actionable_with_scores.sort(reverse=True, key=lambda x: x[0])
+    actionable = [elem for _score, elem in actionable_with_scores[:max_elements]]
     
     # Extract unique roles
     unique_roles = list(set(elem['role'] for elem in actionable if elem['role']))

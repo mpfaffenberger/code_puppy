@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from code_puppy.tools.rpa.windows_automation import register_windows_tools
-from code_puppy.tools.rpa.result_types import ElementClickResult
+from code_puppy.tools.gui_cub.windows_automation import register_windows_tools
+from code_puppy.tools.gui_cub.result_types import ElementClickResult
 
 
 class DummyAgent:

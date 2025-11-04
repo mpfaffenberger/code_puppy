@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.rpa.vqa_desktop import (
+from code_puppy.tools.gui_cub.vqa_desktop import (
     DesktopVisualAnalysisResult,
     _load_desktop_vqa_agent,
     _get_desktop_vqa_agent,
@@ -66,8 +66,8 @@ class TestDesktopVisualAnalysisResult:
 class TestLoadDesktopVQAAgent:
     """Test agent loading and caching."""
 
-    @patch('code_puppy.tools.rpa.vqa_desktop.ModelFactory')
-    @patch('code_puppy.tools.rpa.vqa_desktop.Agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.ModelFactory')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.Agent')
     def test_load_agent_creates_agent(self, mock_agent_class, mock_factory):
         mock_model = MagicMock()
         mock_factory.load_config.return_value = {}
@@ -85,8 +85,8 @@ class TestLoadDesktopVQAAgent:
         mock_factory.get_model.assert_called_once_with("test-model", {})
         mock_agent_class.assert_called_once()
 
-    @patch('code_puppy.tools.rpa.vqa_desktop.ModelFactory')
-    @patch('code_puppy.tools.rpa.vqa_desktop.Agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.ModelFactory')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.Agent')
     def test_load_agent_caching(self, mock_agent_class, mock_factory):
         mock_model = MagicMock()
         mock_factory.load_config.return_value = {}
@@ -106,8 +106,8 @@ class TestLoadDesktopVQAAgent:
         # Agent should only be created once
         assert mock_agent_class.call_count == 1
 
-    @patch('code_puppy.tools.rpa.vqa_desktop.ModelFactory')
-    @patch('code_puppy.tools.rpa.vqa_desktop.Agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.ModelFactory')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.Agent')
     def test_load_agent_different_models(self, mock_agent_class, mock_factory):
         mock_model = MagicMock()
         mock_factory.load_config.return_value = {}
@@ -129,8 +129,8 @@ class TestLoadDesktopVQAAgent:
 class TestGetDesktopVQAAgent:
     """Test agent getter function."""
 
-    @patch('code_puppy.tools.rpa.vqa_desktop.get_vqa_model_name')
-    @patch('code_puppy.tools.rpa.vqa_desktop._load_desktop_vqa_agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.get_vqa_model_name')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop._load_desktop_vqa_agent')
     def test_get_agent_uses_config_model(self, mock_load, mock_get_model_name):
         mock_get_model_name.return_value = "configured-model"
         mock_agent = MagicMock()
@@ -146,9 +146,9 @@ class TestGetDesktopVQAAgent:
 class TestRunDesktopVQAAnalysis:
     """Test VQA analysis execution."""
 
-    @patch('code_puppy.tools.rpa.vqa_desktop._get_desktop_vqa_agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop._get_desktop_vqa_agent')
     @patch('code_puppy.messaging.emit_info')  # Fixed: Patch at correct location
-    @patch('code_puppy.tools.rpa.vqa_desktop.get_vqa_model_name')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.get_vqa_model_name')
     def test_run_analysis_success(self, mock_get_model, mock_emit, mock_get_agent):
         mock_get_model.return_value = "test-model"
         mock_agent = MagicMock()
@@ -175,10 +175,10 @@ class TestRunDesktopVQAAnalysis:
         # Should emit info messages
         assert mock_emit.call_count >= 2  # Request and response
 
-    @patch('code_puppy.tools.rpa.vqa_desktop._get_desktop_vqa_agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop._get_desktop_vqa_agent')
     @patch('code_puppy.messaging.emit_info')  # Fixed
     @patch('code_puppy.messaging.emit_warning')  # Fixed
-    @patch('code_puppy.tools.rpa.vqa_desktop.get_vqa_model_name')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.get_vqa_model_name')
     def test_run_analysis_failure(self, mock_get_model, mock_emit_warn, mock_emit_info, mock_get_agent):
         mock_get_model.return_value = "test-model"
         mock_agent = MagicMock()
@@ -198,9 +198,9 @@ class TestRunDesktopVQAAnalysis:
         call_args = str(mock_emit_warn.call_args)
         assert "FAILED" in call_args or "Error" in call_args
 
-    @patch('code_puppy.tools.rpa.vqa_desktop._get_desktop_vqa_agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop._get_desktop_vqa_agent')
     @patch('code_puppy.messaging.emit_info')  # Fixed
-    @patch('code_puppy.tools.rpa.vqa_desktop.get_vqa_model_name')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.get_vqa_model_name')
     def test_run_analysis_with_custom_media_type(self, mock_get_model, mock_emit, mock_get_agent):
         mock_get_model.return_value = "test-model"
         mock_agent = MagicMock()
@@ -224,9 +224,9 @@ class TestRunDesktopVQAAnalysis:
         call_args = mock_agent.run_sync.call_args
         assert call_args is not None
 
-    @patch('code_puppy.tools.rpa.vqa_desktop._get_desktop_vqa_agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop._get_desktop_vqa_agent')
     @patch('code_puppy.messaging.emit_info')  # Fixed
-    @patch('code_puppy.tools.rpa.vqa_desktop.get_vqa_model_name')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.get_vqa_model_name')
     def test_run_analysis_emits_image_size(self, mock_get_model, mock_emit, mock_get_agent):
         mock_get_model.return_value = "test-model"
         mock_agent = MagicMock()
@@ -251,9 +251,9 @@ class TestRunDesktopVQAAnalysis:
         size_logged = any("1.00 MB" in call or "size" in call.lower() for call in calls)
         assert size_logged
 
-    @patch('code_puppy.tools.rpa.vqa_desktop._get_desktop_vqa_agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop._get_desktop_vqa_agent')
     @patch('code_puppy.messaging.emit_info')  # Fixed
-    @patch('code_puppy.tools.rpa.vqa_desktop.get_vqa_model_name')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.get_vqa_model_name')
     def test_run_analysis_truncates_long_question(self, mock_get_model, mock_emit, mock_get_agent):
         mock_get_model.return_value = "test-model"
         mock_agent = MagicMock()
@@ -278,9 +278,9 @@ class TestRunDesktopVQAAnalysis:
         any_truncated = any("..." in call for call in calls)
         assert any_truncated
 
-    @patch('code_puppy.tools.rpa.vqa_desktop._get_desktop_vqa_agent')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop._get_desktop_vqa_agent')
     @patch('code_puppy.messaging.emit_info')  # Fixed
-    @patch('code_puppy.tools.rpa.vqa_desktop.get_vqa_model_name')
+    @patch('code_puppy.tools.gui_cub.vqa_desktop.get_vqa_model_name')
     def test_run_analysis_truncates_long_answer(self, mock_get_model, mock_emit, mock_get_agent):
         mock_get_model.return_value = "test-model"
         mock_agent = MagicMock()

@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-import code_puppy.tools.rpa.accessibility as acc
-from code_puppy.tools.rpa.result_types import ElementSearchResult, ElementListResult
+import code_puppy.tools.gui_cub.accessibility as acc
+from code_puppy.tools.gui_cub.result_types import ElementSearchResult, ElementListResult
 
 
 @patch("sys.platform", "darwin")
@@ -176,7 +176,7 @@ def test_find_accessible_element_multiple_matches_fuzzy(monkeypatch):
             return [(candidates[1], 1.0), (candidates[0], 0.7)]
         return [(candidates[0], 0.9)] if candidates else []
 
-    import code_puppy.tools.rpa.fuzzy_matching as fm
+    import code_puppy.tools.gui_cub.fuzzy_matching as fm
     monkeypatch.setattr(fm, "fuzzy_match", fake_fuzzy_match)
     monkeypatch.setattr(fm, "explain_match", lambda a, b, s: f"{a}~{b}")
 

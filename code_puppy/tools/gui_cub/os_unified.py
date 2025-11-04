@@ -12,7 +12,7 @@ from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
-from code_puppy.tools.rpa.result_types import (
+from code_puppy.tools.gui_cub.result_types import (
     ElementClickResult,
     ElementListResult,
     ElementSearchResult,
@@ -20,7 +20,7 @@ from code_puppy.tools.rpa.result_types import (
 )
 
 if sys.platform == "win32":
-    from code_puppy.tools.rpa.windows_automation import (
+    from code_puppy.tools.gui_cub.windows_automation import (
         list_elements_in_window as _win_list_elements,
         find_element as _win_find_element,
         click_element as _win_click_element,
@@ -31,7 +31,7 @@ else:
     _WIN = False
 
 if sys.platform == "darwin":
-    from code_puppy.tools.rpa.accessibility import (
+    from code_puppy.tools.gui_cub.accessibility import (
         list_accessible_elements as _mac_list_elements,
         find_accessible_element as _mac_find_element,
         _list_macos_windows as _mac_list_windows,
@@ -101,9 +101,9 @@ def register_os_unified_tools(agent):
                 # macOS: choose between flat grouped list or hierarchical tree
                 if mode == "tree":
                     try:
-                        from code_puppy.tools.rpa.accessibility import _build_element_tree
-                        from code_puppy.tools.rpa.result_types import ElementListResult as _ELR
-                        from code_puppy.tools.rpa.accessibility import get_frontmost_app
+                        from code_puppy.tools.gui_cub.accessibility import _build_element_tree
+                        from code_puppy.tools.gui_cub.result_types import ElementListResult as _ELR
+                        from code_puppy.tools.gui_cub.accessibility import get_frontmost_app
                         app = get_frontmost_app()
                         if not app:
                             return _ELR(success=False, error="No frontmost app")
@@ -156,7 +156,7 @@ def register_os_unified_tools(agent):
                 # If window_title is provided, focus window first
                 if window_title:
                     try:
-                        from code_puppy.tools.rpa.windows_automation import focus_window as _focus
+                        from code_puppy.tools.gui_cub.windows_automation import focus_window as _focus
                         _focus(window_title=window_title)
                     except Exception:
                         pass
@@ -206,7 +206,7 @@ def register_os_unified_tools(agent):
             if _WIN:
                 if window_title:
                     try:
-                        from code_puppy.tools.rpa.windows_automation import focus_window as _focus
+                        from code_puppy.tools.gui_cub.windows_automation import focus_window as _focus
                         _focus(window_title=window_title)
                     except Exception:
                         pass
@@ -233,7 +233,7 @@ def register_os_unified_tools(agent):
                     if _atomacos is not None:
                         app = None
                         try:
-                            from code_puppy.tools.rpa.accessibility import get_frontmost_app
+                            from code_puppy.tools.gui_cub.accessibility import get_frontmost_app
                             app = get_frontmost_app()
                         except Exception:
                             app = None

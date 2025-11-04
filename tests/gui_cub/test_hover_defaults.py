@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from code_puppy.tools.rpa.click_debugging import register_click_debugging_tools
+from code_puppy.tools.gui_cub.click_debugging import register_click_debugging_tools
 
 
 def test_hover_duration_default_value():
@@ -18,7 +18,7 @@ def test_hover_duration_default_value():
     import inspect
     # Retrieve function from closure: we re-register and fetch from module
     # To keep it simple, import the module and inspect the function default
-    from code_puppy.tools.rpa.click_debugging import register_click_debugging_tools as reg
+    from code_puppy.tools.gui_cub.click_debugging import register_click_debugging_tools as reg
     # Register on a dummy and inspect
     class Collector:
         def __init__(self):

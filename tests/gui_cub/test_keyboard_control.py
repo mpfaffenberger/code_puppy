@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.rpa.keyboard_control import register_keyboard_control_tools
-from code_puppy.tools.rpa.result_types import KeyboardActionResult
+from code_puppy.tools.gui_cub.keyboard_control import register_keyboard_control_tools
+from code_puppy.tools.gui_cub.result_types import KeyboardActionResult
 
 
 class DummyAgent:
@@ -27,8 +27,8 @@ def agent():
     """Create a mock agent with keyboard tools registered."""
     mock_agent = DummyAgent()
     
-    with patch('code_puppy.tools.rpa.keyboard_control.PYAUTOGUI_AVAILABLE', True):
-        with patch('code_puppy.tools.rpa.keyboard_control.pyautogui') as mock_pyautogui:
+    with patch('code_puppy.tools.gui_cub.keyboard_control.PYAUTOGUI_AVAILABLE', True):
+        with patch('code_puppy.tools.gui_cub.keyboard_control.pyautogui') as mock_pyautogui:
             register_keyboard_control_tools(mock_agent)
             yield mock_agent, mock_pyautogui
 

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.rpa.tool_wrapper import (
+from code_puppy.tools.gui_cub.tool_wrapper import (
     check_library_available,
     rpa_tool,
     TOOL_EMOJIS,
@@ -96,7 +96,7 @@ class TestRPAToolDecorator:
         assert result["value"] == 42
 
     def test_decorator_with_required_library(self):
-        with patch('code_puppy.tools.rpa.tool_wrapper.check_library_available') as mock_check:
+        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
             mock_check.return_value = (True, None)
 
             @rpa_tool("TEST TOOL", requires="pyautogui")
@@ -108,7 +108,7 @@ class TestRPAToolDecorator:
             mock_check.assert_called_with("pyautogui")
 
     def test_decorator_missing_required_library(self):
-        with patch('code_puppy.tools.rpa.tool_wrapper.check_library_available') as mock_check:
+        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
             mock_check.return_value = (False, "Library not found")
 
             @rpa_tool("TEST TOOL", requires="pyautogui", emit_errors=False)
@@ -120,7 +120,7 @@ class TestRPAToolDecorator:
             assert "Library not found" in result["error"]
 
     def test_decorator_multiple_required_libraries(self):
-        with patch('code_puppy.tools.rpa.tool_wrapper.check_library_available') as mock_check:
+        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
             mock_check.return_value = (True, None)
 
             @rpa_tool("TEST TOOL", requires=["pyautogui", "pillow"])
@@ -175,7 +175,7 @@ class TestRPAToolDecorator:
         def test_function(context) -> dict:
             return {"success": True, "x": 100, "y": 200}
 
-        with patch('code_puppy.tools.rpa.tool_wrapper.emit_info'):
+        with patch('code_puppy.tools.gui_cub.tool_wrapper.emit_info'):
             result = test_function(None)
             assert result["success"] is True
             assert result["x"] == 100
@@ -186,7 +186,7 @@ class TestRPAToolDecorator:
         def test_function(context) -> dict:
             return {"success": True, "element": "Button1"}
 
-        with patch('code_puppy.tools.rpa.tool_wrapper.emit_info'):
+        with patch('code_puppy.tools.gui_cub.tool_wrapper.emit_info'):
             result = test_function(None)
             assert result["success"] is True
 
@@ -195,7 +195,7 @@ class TestRPAToolDecorator:
         def test_function(context, value: int, _internal: str = "hidden") -> dict:
             return {"success": True}
 
-        with patch('code_puppy.tools.rpa.tool_wrapper.emit_info'):
+        with patch('code_puppy.tools.gui_cub.tool_wrapper.emit_info'):
             result = test_function(None, value=42, _internal="secret")
             assert result["success"] is True
 
@@ -205,7 +205,7 @@ class TestIntegrationScenarios:
 
     def test_real_tool_pattern(self):
         """Test a realistic RPA tool pattern."""
-        with patch('code_puppy.tools.rpa.tool_wrapper.check_library_available') as mock_check:
+        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
             mock_check.return_value = (True, None)
 
             @rpa_tool("MOUSE CLICK", requires="pyautogui")
@@ -226,7 +226,7 @@ class TestIntegrationScenarios:
 
     def test_tool_with_multiple_dependencies(self):
         """Test tool requiring multiple libraries."""
-        with patch('code_puppy.tools.rpa.tool_wrapper.check_library_available') as mock_check:
+        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
             mock_check.return_value = (True, None)
 
             @rpa_tool("SCREENSHOT ANALYZE", requires=["pyautogui", "pillow", "opencv"])

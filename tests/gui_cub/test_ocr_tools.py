@@ -9,7 +9,7 @@ class DummyImage:
         self.height = h
 
 try:
-    from code_puppy.tools.rpa.ocr_tools import (
+    from code_puppy.tools.gui_cub.ocr_tools import (
         TextBoundingBox,
         OCRExtractResult,
         OCRFindResult,
@@ -131,15 +131,15 @@ class TestFindTextInElements:
 # Extended coverage: high-level desktop_* flows with mocks
 from types import SimpleNamespace
 from unittest.mock import patch
-from code_puppy.tools.rpa import ocr_tools
+from code_puppy.tools.gui_cub import ocr_tools
 
 
-@patch("code_puppy.tools.rpa.ocr_tools.PYAUTOGUI_AVAILABLE", True)
-@patch("code_puppy.tools.rpa.ocr_tools.TESSERACT_AVAILABLE", True)
+@patch("code_puppy.tools.gui_cub.ocr_tools.PYAUTOGUI_AVAILABLE", True)
+@patch("code_puppy.tools.gui_cub.ocr_tools.TESSERACT_AVAILABLE", True)
 def test_desktop_extract_text_active_window(monkeypatch):
     # Mock screenshot and scaling
     monkeypatch.setattr(ocr_tools, "pyautogui", SimpleNamespace(screenshot=lambda region=None: DummyImage()))
-    import code_puppy.tools.rpa.platform as platform
+    import code_puppy.tools.gui_cub.platform as platform
     monkeypatch.setattr(platform, "get_screen_scale_factor", lambda: 1.0)
 
     # Fake extractor
@@ -169,11 +169,11 @@ def test_desktop_extract_text_active_window(monkeypatch):
     assert res.summary != ""  # Should have summary
 
 
-@patch("code_puppy.tools.rpa.ocr_tools.PYAUTOGUI_AVAILABLE", True)
-@patch("code_puppy.tools.rpa.ocr_tools.TESSERACT_AVAILABLE", True)
+@patch("code_puppy.tools.gui_cub.ocr_tools.PYAUTOGUI_AVAILABLE", True)
+@patch("code_puppy.tools.gui_cub.ocr_tools.TESSERACT_AVAILABLE", True)
 def test_desktop_find_text_with_fuzzy(monkeypatch):
     monkeypatch.setattr(ocr_tools, "pyautogui", SimpleNamespace(screenshot=lambda region=None: DummyImage()))
-    import code_puppy.tools.rpa.platform as platform
+    import code_puppy.tools.gui_cub.platform as platform
     monkeypatch.setattr(platform, "get_screen_scale_factor", lambda: 1.0)
 
     def fake_extract(image, language, scale_factor, region_offset):
@@ -201,11 +201,11 @@ def test_desktop_find_text_with_fuzzy(monkeypatch):
     assert res.found is True
 
 
-@patch("code_puppy.tools.rpa.ocr_tools.PYAUTOGUI_AVAILABLE", True)
-@patch("code_puppy.tools.rpa.ocr_tools.TESSERACT_AVAILABLE", True)
+@patch("code_puppy.tools.gui_cub.ocr_tools.PYAUTOGUI_AVAILABLE", True)
+@patch("code_puppy.tools.gui_cub.ocr_tools.TESSERACT_AVAILABLE", True)
 def test_desktop_verify_text_fails_then_reports_text(monkeypatch):
     monkeypatch.setattr(ocr_tools, "pyautogui", SimpleNamespace(screenshot=lambda region=None: DummyImage()))
-    import code_puppy.tools.rpa.platform as platform
+    import code_puppy.tools.gui_cub.platform as platform
     monkeypatch.setattr(platform, "get_screen_scale_factor", lambda: 1.0)
 
     def fake_extract(image, language, scale_factor, region_offset):

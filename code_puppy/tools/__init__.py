@@ -56,25 +56,37 @@ from code_puppy.tools.browser.browser_workflows import (
     register_save_workflow,
 )
 
+# GUI-Cub workflow and knowledge base tools
+try:
+    from code_puppy.tools.gui_cub.workflows import register_workflow_tools as register_gui_cub_workflows
+    from code_puppy.tools.gui_cub.executor import register_executor_tool as register_gui_cub_executor
+    from code_puppy.tools.gui_cub.knowledge_base import register_knowledge_base_tool as register_gui_cub_kb
+    GUI_CUB_WORKFLOWS_AVAILABLE = True
+except ImportError:
+    GUI_CUB_WORKFLOWS_AVAILABLE = False
+    register_gui_cub_workflows = None
+    register_gui_cub_executor = None
+    register_gui_cub_kb = None
+
 # RPA (Robotic Process Automation) tools - required dependencies
 # Dependencies: pyautogui, pillow, opencv-python, pytesseract, openpyxl (installed via pyproject.toml)
-from code_puppy.tools.rpa.keyboard_control import register_keyboard_control_tools
-from code_puppy.tools.rpa.keyboard_shortcuts import register_keyboard_shortcut_tools
-from code_puppy.tools.rpa.mouse_control import register_mouse_control_tools
-from code_puppy.tools.rpa.screen_capture import register_desktop_screenshot_tools
-from code_puppy.tools.rpa.window_control import register_window_control_tools
-from code_puppy.tools.rpa.grid_calibration import register_grid_calibration_tools
-from code_puppy.tools.rpa.ocr_tools import register_ocr_tools
-from code_puppy.tools.rpa.click_debugging import register_click_debugging_tools
-from code_puppy.tools.rpa.multi_strategy_click import register_multi_strategy_click_tools
-from code_puppy.tools.rpa.vqa_hover_click import register_vqa_hover_tools
+from code_puppy.tools.gui_cub.keyboard_control import register_keyboard_control_tools
+from code_puppy.tools.gui_cub.keyboard_shortcuts import register_keyboard_shortcut_tools
+from code_puppy.tools.gui_cub.mouse_control import register_mouse_control_tools
+from code_puppy.tools.gui_cub.screen_capture import register_desktop_screenshot_tools
+from code_puppy.tools.gui_cub.window_control import register_window_control_tools
+from code_puppy.tools.gui_cub.grid_calibration import register_grid_calibration_tools
+from code_puppy.tools.gui_cub.ocr_tools import register_ocr_tools
+from code_puppy.tools.gui_cub.click_debugging import register_click_debugging_tools
+from code_puppy.tools.gui_cub.multi_strategy_click import register_multi_strategy_click_tools
+from code_puppy.tools.gui_cub.vqa_hover_click import register_vqa_hover_tools
 
 RPA_TOOLS_AVAILABLE = True  # Always available - required dependencies
 
 # RPA Accessibility API tools (macOS only) - platform-specific
 # Dependencies: atomacos, pyobjc-framework-Cocoa (installed on macOS via pyproject.toml)
 try:
-    from code_puppy.tools.rpa.accessibility import register_accessibility_tools
+    from code_puppy.tools.gui_cub.accessibility import register_accessibility_tools
 
     ACCESSIBILITY_TOOLS_AVAILABLE = True
 except ImportError:
@@ -88,7 +100,7 @@ import sys
 
 if sys.platform == "win32":
     try:
-        from code_puppy.tools.rpa.windows_automation import register_windows_tools
+        from code_puppy.tools.gui_cub.windows_automation import register_windows_tools
 
         WINDOWS_TOOLS_AVAILABLE = True
     except ImportError:
@@ -104,7 +116,7 @@ from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
 )
-from code_puppy.tools.rpa.os_unified import register_os_unified_tools
+from code_puppy.tools.gui_cub.os_unified import register_os_unified_tools
 from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
 from code_puppy.tools.file_operations import (
     register_grep,
@@ -174,6 +186,18 @@ TOOL_REGISTRY = {
     "browser_list_workflows": register_list_workflows,
     "browser_read_workflow": register_read_workflow,
 }
+
+# Add GUI-Cub workflow and KB tools if available
+if GUI_CUB_WORKFLOWS_AVAILABLE:
+    TOOL_REGISTRY.update(
+        {
+            "gui_cub_save_workflow": register_gui_cub_workflows,
+            "gui_cub_list_workflows": register_gui_cub_workflows,
+            "gui_cub_read_workflow": register_gui_cub_workflows,
+            "gui_cub_execute_workflow": register_gui_cub_executor,
+            "gui_cub_append_to_knowledge_base": register_gui_cub_kb,
+        }
+    )
 
 # Add RPA tools if available
 if RPA_TOOLS_AVAILABLE:

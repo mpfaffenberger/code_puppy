@@ -320,27 +320,35 @@ def capture_screen(
         return ScreenshotResult(success=False, error=str(e))
 
 
-def _compact_vqa_result(full_result: 'VQAResult') -> 'VQAResult':
+def _compact_vqa_result(full_result: 'VQAResult', truncate_answer: bool = True, max_answer_length: int = 500) -> 'VQAResult':
     """
     Compress VQA result to minimal data.
     
     Strategy:
     - Keep question, answer, confidence
+    - Truncate answer to max_answer_length (default: 500 chars)
     - Keep screenshot path only (strip full metadata)
     - Remove verbose screenshot_info details
     
     Args:
         full_result: Full VQA result with all metadata
+        truncate_answer: Whether to truncate long answers (default: True)
+        max_answer_length: Maximum answer length in chars (default: 500)
     
     Returns:
         Compact VQA result with essentials only
     """
     from .result_types import VQAResult
     
+    # Truncate answer if needed
+    answer = full_result.answer
+    if truncate_answer and answer and len(answer) > max_answer_length:
+        answer = answer[:max_answer_length] + "... (truncated. Use truncate_answer=False for full response)"
+    
     return VQAResult(
         success=full_result.success,
         question=full_result.question,
-        answer=full_result.answer,
+        answer=answer,
         confidence=full_result.confidence,
         screenshot_path=full_result.screenshot_info.path if full_result.screenshot_info else None,
         error=full_result.error,
@@ -361,6 +369,7 @@ async def take_desktop_screenshot_and_analyze(
     use_grid: bool = False,  # Changed from True to False for cleaner UI
     grid_spacing: int = DEFAULT_GRID_SPACING,
     max_vqa_resolution: tuple[int, int] | None = None,
+    truncate_answer: bool = True,  # NEW: Truncate answers by default
 ) -> VQAResult:
     """
     Take a desktop screenshot and analyze it using visual understanding.
@@ -650,9 +659,10 @@ async def take_desktop_screenshot_and_analyze(
         )
         
         # Success-conditional compaction: Return compact result
-        compact_result = _compact_vqa_result(full_result)
+        compact_result = _compact_vqa_result(full_result, truncate_answer=truncate_answer)
+        truncate_msg = "answer truncated" if truncate_answer else "full answer"
         emit_info(
-            f"[dim]💾 Compacted VQA result: screenshot metadata stripped[/dim]",
+            f"[dim]💾 Compacted VQA result: screenshot metadata stripped, {truncate_msg}[/dim]",
             message_group=group_id,
         )
         return compact_result

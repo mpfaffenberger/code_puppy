@@ -12,7 +12,7 @@ import pytest
 
 # Only import if pyautogui is available
 try:
-    from code_puppy.tools.rpa.keyboard_shortcuts import (
+    from code_puppy.tools.gui_cub.keyboard_shortcuts import (
         parse_shortcut,
         validate_shortcut,
     )

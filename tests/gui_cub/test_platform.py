@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.rpa.platform import (
+from code_puppy.tools.gui_cub.platform import (
     Platform,
     IS_MACOS,
     IS_WINDOWS,
@@ -81,7 +81,7 @@ class TestGetPlatform:
         elif sys.platform == "linux":
             assert platform == Platform.LINUX
 
-    @patch('code_puppy.tools.rpa.platform.sys')
+    @patch('code_puppy.tools.gui_cub.platform.sys')
     def test_get_unsupported_platform(self, mock_sys):
         mock_sys.platform = "unsupported_os"
         platform = get_platform()
@@ -208,7 +208,7 @@ class TestConvertScreenshotToScreenCoords:
 class TestCheckMacOSAccessibilityPermission:
     """Test macOS accessibility permission checking."""
 
-    @patch('code_puppy.tools.rpa.platform.IS_MACOS', False)
+    @patch('code_puppy.tools.gui_cub.platform.IS_MACOS', False)
     def test_non_macos_returns_true(self):
         has_permission, error = check_macos_accessibility_permission()
         assert has_permission is True

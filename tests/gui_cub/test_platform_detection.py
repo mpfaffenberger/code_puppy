@@ -3,7 +3,7 @@
 import pytest
 import sys
 
-from code_puppy.tools.rpa.platform import IS_MACOS, IS_WINDOWS, IS_LINUX
+from code_puppy.tools.gui_cub.platform import IS_MACOS, IS_WINDOWS, IS_LINUX
 
 
 class TestPlatformDetection:

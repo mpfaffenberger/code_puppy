@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from code_puppy.tools.rpa.pixel_utils import match_rgb
+from code_puppy.tools.gui_cub.pixel_utils import match_rgb
 
 
 class TestPixelUtils:

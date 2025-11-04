@@ -1,7 +1,7 @@
 """Tests for mouse control tools."""
 
 import pytest
-from code_puppy.tools.rpa.result_types import MouseActionResult, MouseDragResult, MouseScrollResult
+from code_puppy.tools.gui_cub.result_types import MouseActionResult, MouseDragResult, MouseScrollResult
 from tests.rpa.helpers import validate_result_type, assert_valid_coordinates
 
 

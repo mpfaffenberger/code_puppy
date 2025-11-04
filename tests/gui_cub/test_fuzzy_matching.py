@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from code_puppy.tools.rpa.fuzzy_matching import (
+from code_puppy.tools.gui_cub.fuzzy_matching import (
     normalize_text,
     extract_identifier_variants,
     levenshtein_distance,

@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from code_puppy.tools.rpa import os_unified
-from code_puppy.tools.rpa.result_types import (
+from code_puppy.tools.gui_cub import os_unified
+from code_puppy.tools.gui_cub.result_types import (
     ElementClickResult,
     ElementListResult,
     ElementSearchResult,
@@ -78,7 +78,7 @@ def test_ui_find_element_win32_fuzzy(agent: DummyAgent) -> None:
     os_unified._WIN = True
     os_unified._MAC = False
     # Return a simple match struct
-    from code_puppy.tools.rpa.result_types import ElementInfo
+    from code_puppy.tools.gui_cub.result_types import ElementInfo
     def fake_win_find_element(**kwargs):
         assert kwargs.get("fuzzy") is True
         assert kwargs.get("fuzzy_threshold") == 0.6
@@ -146,7 +146,7 @@ def test_ui_list_elements_tree_mode(agent: DummyAgent, monkeypatch) -> None:
     os_unified._WIN = False
     os_unified._MAC = True
     # Monkeypatch accessibility functions imported in function body
-    import code_puppy.tools.rpa.accessibility as acc
+    import code_puppy.tools.gui_cub.accessibility as acc
     monkeypatch.setattr(acc, "get_frontmost_app", lambda: object())
     monkeypatch.setattr(acc, "_build_element_tree", lambda app, max_depth=5: [
         {"type": "AXButton", "name": "OK", "depth": 0},
@@ -170,7 +170,7 @@ def test_ui_list_elements_windows(agent: DummyAgent) -> None:
     os_unified._MAC = False
     
     def fake_win_list_elements(**kwargs):
-        from code_puppy.tools.rpa.result_types import ElementListResult
+        from code_puppy.tools.gui_cub.result_types import ElementListResult
         elements = [
             {"center_x": 100, "center_y": 200, "title": "Button1", "control_type": "Button"},
             {"center_x": 150, "center_y": 250, "title": "Button2", "control_type": "Button"},

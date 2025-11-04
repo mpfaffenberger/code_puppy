@@ -13,11 +13,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.rpa.coordinates import (
+from code_puppy.tools.gui_cub.coordinates import (
     screen_to_window_coords,
     window_to_screen_coords,
 )
-from code_puppy.tools.rpa.result_types import WindowBoundsResult
+from code_puppy.tools.gui_cub.result_types import WindowBoundsResult
 
 
 class TestCoordinateConversion:
@@ -104,7 +104,7 @@ class TestCoordinateConversion:
         with pytest.raises(ValueError, match="Window bounds missing x/y coordinates"):
             window_to_screen_coords(100, 100, window_bounds)
 
-    @patch("code_puppy.tools.rpa.window_control._get_active_window_bounds_impl")
+    @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
     def test_window_to_screen_coords_auto_fetch_bounds(self, mock_get_window):
         """Test automatic fetching of window bounds when not provided."""
         # Mock the window bounds fetch
@@ -120,7 +120,7 @@ class TestCoordinateConversion:
         assert screen_x == 300
         assert screen_y == 200
 
-    @patch("code_puppy.tools.rpa.window_control._get_active_window_bounds_impl")
+    @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
     def test_window_to_screen_coords_auto_fetch_fails(self, mock_get_window):
         """Test error handling when auto-fetching window bounds fails."""
         # Mock a failed window bounds fetch
@@ -158,14 +158,14 @@ class TestWindowFocusedVQA:
     """Test window-focused VQA behavior."""
 
     @pytest.mark.asyncio
-    @patch("code_puppy.tools.rpa.window_control._get_active_window_bounds_impl")
-    @patch("code_puppy.tools.rpa.screen_capture.capture_screen")
-    @patch("code_puppy.tools.rpa.screen_capture.run_desktop_vqa_analysis")
+    @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
+    @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
+    @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
     async def test_default_captures_active_window(
         self, mock_vqa, mock_capture, mock_get_window
     ):
         """Verify default behavior captures active window, not full screen."""
-        from code_puppy.tools.rpa.screen_capture import (
+        from code_puppy.tools.gui_cub.screen_capture import (
             take_desktop_screenshot_and_analyze,
         )
 
@@ -181,7 +181,7 @@ class TestWindowFocusedVQA:
         )
 
         # Mock screenshot result
-        from code_puppy.tools.rpa.result_types import ScreenshotResult
+        from code_puppy.tools.gui_cub.result_types import ScreenshotResult
 
         mock_capture.return_value = ScreenshotResult(
             success=True,
@@ -191,7 +191,7 @@ class TestWindowFocusedVQA:
         )
 
         # Mock VQA result
-        from code_puppy.tools.rpa.result_types import VQAResult
+        from code_puppy.tools.gui_cub.result_types import VQAResult
 
         mock_vqa.return_value = VQAResult(
             success=True,
@@ -219,18 +219,18 @@ class TestWindowFocusedVQA:
         assert result.window_bounds.window_title == "Safari"
 
     @pytest.mark.asyncio
-    @patch("code_puppy.tools.rpa.screen_capture.capture_screen")
-    @patch("code_puppy.tools.rpa.screen_capture.run_desktop_vqa_analysis")
+    @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
+    @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
     async def test_full_screen_opt_in(
         self, mock_vqa, mock_capture
     ):
         """Verify full screen capture requires explicit opt-in."""
-        from code_puppy.tools.rpa.screen_capture import (
+        from code_puppy.tools.gui_cub.screen_capture import (
             take_desktop_screenshot_and_analyze,
         )
 
         # Mock screenshot result
-        from code_puppy.tools.rpa.result_types import ScreenshotResult
+        from code_puppy.tools.gui_cub.result_types import ScreenshotResult
 
         mock_capture.return_value = ScreenshotResult(
             success=True,
@@ -240,7 +240,7 @@ class TestWindowFocusedVQA:
         )
 
         # Mock VQA result
-        from code_puppy.tools.rpa.result_types import VQAResult
+        from code_puppy.tools.gui_cub.result_types import VQAResult
 
         mock_vqa.return_value = VQAResult(
             success=True,
@@ -264,18 +264,18 @@ class TestWindowFocusedVQA:
         assert result.window_bounds is None
 
     @pytest.mark.asyncio
-    @patch("code_puppy.tools.rpa.window_control._focus_window_impl")
-    @patch("code_puppy.tools.rpa.window_control._get_active_window_bounds_impl")
-    @patch("code_puppy.tools.rpa.screen_capture.capture_screen")
-    @patch("code_puppy.tools.rpa.screen_capture.run_desktop_vqa_analysis")
+    @patch("code_puppy.tools.gui_cub.window_control._focus_window_impl")
+    @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
+    @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
+    @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
     async def test_window_title_focuses_window(
         self, mock_vqa, mock_capture, mock_get_window, mock_focus
     ):
         """Verify window_title parameter focuses the specified window."""
-        from code_puppy.tools.rpa.screen_capture import (
+        from code_puppy.tools.gui_cub.screen_capture import (
             take_desktop_screenshot_and_analyze,
         )
-        from code_puppy.tools.rpa.result_types import WindowFocusResult
+        from code_puppy.tools.gui_cub.result_types import WindowFocusResult
 
         # Mock focus result
         mock_focus.return_value = WindowFocusResult(
@@ -294,14 +294,14 @@ class TestWindowFocusedVQA:
         )
 
         # Mock screenshot
-        from code_puppy.tools.rpa.result_types import ScreenshotResult
+        from code_puppy.tools.gui_cub.result_types import ScreenshotResult
 
         mock_capture.return_value = ScreenshotResult(
             success=True, screenshot_data=b"fake_png_data", width=800, height=600
         )
 
         # Mock VQA
-        from code_puppy.tools.rpa.result_types import VQAResult
+        from code_puppy.tools.gui_cub.result_types import VQAResult
 
         mock_vqa.return_value = VQAResult(
             success=True, question="test", answer="Found terminal", confidence=0.95
@@ -320,14 +320,14 @@ class TestWindowFocusedVQA:
         assert result.window_bounds.window_title == "Terminal"
 
     @pytest.mark.asyncio
-    @patch("code_puppy.tools.rpa.window_control._get_active_window_bounds_impl")
-    @patch("code_puppy.tools.rpa.screen_capture.capture_screen")
-    @patch("code_puppy.tools.rpa.screen_capture.run_desktop_vqa_analysis")
+    @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
+    @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
+    @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
     async def test_window_bounds_fallback_on_error(
         self, mock_vqa, mock_capture, mock_get_window
     ):
         """Test fallback to full screen when window bounds cannot be obtained."""
-        from code_puppy.tools.rpa.screen_capture import (
+        from code_puppy.tools.gui_cub.screen_capture import (
             take_desktop_screenshot_and_analyze,
         )
 
@@ -337,7 +337,7 @@ class TestWindowFocusedVQA:
         )
 
         # Mock screenshot
-        from code_puppy.tools.rpa.result_types import ScreenshotResult
+        from code_puppy.tools.gui_cub.result_types import ScreenshotResult
 
         mock_capture.return_value = ScreenshotResult(
             success=True,
@@ -347,7 +347,7 @@ class TestWindowFocusedVQA:
         )
 
         # Mock VQA
-        from code_puppy.tools.rpa.result_types import VQAResult
+        from code_puppy.tools.gui_cub.result_types import VQAResult
 
         mock_vqa.return_value = VQAResult(
             success=True, question="test", answer="Fallback result", confidence=0.8
@@ -367,25 +367,25 @@ class TestWindowFocusedVQA:
         assert result.coordinate_system == "screen_absolute"
 
     @pytest.mark.asyncio
-    @patch("code_puppy.tools.rpa.screen_capture.capture_screen")
-    @patch("code_puppy.tools.rpa.screen_capture.run_desktop_vqa_analysis")
+    @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
+    @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
     async def test_explicit_region_overrides_window(
         self, mock_vqa, mock_capture
     ):
         """Test that explicit region parameter overrides window capture."""
-        from code_puppy.tools.rpa.screen_capture import (
+        from code_puppy.tools.gui_cub.screen_capture import (
             take_desktop_screenshot_and_analyze,
         )
 
         # Mock screenshot
-        from code_puppy.tools.rpa.result_types import ScreenshotResult
+        from code_puppy.tools.gui_cub.result_types import ScreenshotResult
 
         mock_capture.return_value = ScreenshotResult(
             success=True, screenshot_data=b"fake_png_data", width=500, height=400
         )
 
         # Mock VQA
-        from code_puppy.tools.rpa.result_types import VQAResult
+        from code_puppy.tools.gui_cub.result_types import VQAResult
 
         mock_vqa.return_value = VQAResult(
             success=True, question="test", answer="Found in region", confidence=0.9

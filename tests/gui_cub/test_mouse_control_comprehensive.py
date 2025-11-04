@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.rpa.mouse_control import register_mouse_control_tools
-from code_puppy.tools.rpa.result_types import (
+from code_puppy.tools.gui_cub.mouse_control import register_mouse_control_tools
+from code_puppy.tools.gui_cub.result_types import (
     MouseActionResult,
     MouseDragResult,
     MousePositionResult,
@@ -32,9 +32,9 @@ def agent():
     """Create a mock agent with mouse tools registered."""
     mock_agent = DummyAgent()
     
-    with patch('code_puppy.tools.rpa.mouse_control.PYAUTOGUI_AVAILABLE', True):
-        with patch('code_puppy.tools.rpa.mouse_control.pyautogui') as mock_pyautogui:
-            with patch('code_puppy.tools.rpa.mouse_control.IS_MACOS', False):
+    with patch('code_puppy.tools.gui_cub.mouse_control.PYAUTOGUI_AVAILABLE', True):
+        with patch('code_puppy.tools.gui_cub.mouse_control.pyautogui') as mock_pyautogui:
+            with patch('code_puppy.tools.gui_cub.mouse_control.IS_MACOS', False):
                 mock_pyautogui.position.return_value = (100, 100)
                 register_mouse_control_tools(mock_agent)
                 yield mock_agent, mock_pyautogui
@@ -317,8 +317,8 @@ class TestDesktopCheckAutomationPermissions:
         mock_agent, mock_pyautogui = agent
         tool = mock_agent.tools['desktop_check_automation_permissions']
         
-        with patch('code_puppy.tools.rpa.mouse_control.IS_MACOS', False):
-            with patch('code_puppy.tools.rpa.mouse_control.pyautogui.position') as mock_pos:
+        with patch('code_puppy.tools.gui_cub.mouse_control.IS_MACOS', False):
+            with patch('code_puppy.tools.gui_cub.mouse_control.pyautogui.position') as mock_pos:
                 mock_pos.return_value = (100, 200)
                 result = tool(context=None)
         
@@ -329,8 +329,8 @@ class TestDesktopCheckAutomationPermissions:
         mock_agent, mock_pyautogui = agent
         tool = mock_agent.tools['desktop_check_automation_permissions']
         
-        with patch('code_puppy.tools.rpa.mouse_control.IS_MACOS', True):
-            with patch('code_puppy.tools.rpa.mouse_control.check_macos_accessibility_permission') as mock_check:
+        with patch('code_puppy.tools.gui_cub.mouse_control.IS_MACOS', True):
+            with patch('code_puppy.tools.gui_cub.mouse_control.check_macos_accessibility_permission') as mock_check:
                 mock_check.return_value = (True, None)
                 result = tool(context=None)
         
@@ -340,8 +340,8 @@ class TestDesktopCheckAutomationPermissions:
         mock_agent, mock_pyautogui = agent
         tool = mock_agent.tools['desktop_check_automation_permissions']
         
-        with patch('code_puppy.tools.rpa.mouse_control.IS_MACOS', True):
-            with patch('code_puppy.tools.rpa.platform.get_display_info') as mock_display:
+        with patch('code_puppy.tools.gui_cub.mouse_control.IS_MACOS', True):
+            with patch('code_puppy.tools.gui_cub.platform.get_display_info') as mock_display:
                 mock_display.return_value = {
                     "platform": "macOS",
                     "macos_accessibility_permission": False,
@@ -360,8 +360,8 @@ class TestMacOSPermissionHandling:
         mock_agent, mock_pyautogui = agent
         tool = mock_agent.tools['desktop_mouse_move']
         
-        with patch('code_puppy.tools.rpa.mouse_control.IS_MACOS', True):
-            with patch('code_puppy.tools.rpa.mouse_control.check_macos_accessibility_permission') as mock_check:
+        with patch('code_puppy.tools.gui_cub.mouse_control.IS_MACOS', True):
+            with patch('code_puppy.tools.gui_cub.mouse_control.check_macos_accessibility_permission') as mock_check:
                 mock_check.return_value = (False, "Permission required")
                 
                 result = tool(context=None, x=500, y=300)

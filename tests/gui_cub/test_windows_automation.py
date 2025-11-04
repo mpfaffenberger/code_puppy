@@ -7,8 +7,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import code_puppy.tools.rpa.windows_automation as winauto
-from code_puppy.tools.rpa.result_types import ElementClickResult, ElementSearchResult
+import code_puppy.tools.gui_cub.windows_automation as winauto
+from code_puppy.tools.gui_cub.result_types import ElementClickResult, ElementSearchResult
 
 
 class DummyRect:
@@ -70,7 +70,7 @@ def test_click_element_coordinate_fallback(monkeypatch):
     monkeypatch.setattr(winauto, "WINDOWS_AUTOMATION_AVAILABLE", True)
 
     # Return an ElementSearchResult with center coords, but make native click throw
-    from code_puppy.tools.rpa.result_types import ElementInfo
+    from code_puppy.tools.gui_cub.result_types import ElementInfo
 
     def fake_find_element(**kwargs):
         return ElementSearchResult(
@@ -117,7 +117,7 @@ def test_click_element_fuzzy_signature(monkeypatch):
     monkeypatch.setattr(winauto, "WINDOWS_AUTOMATION_AVAILABLE", True)
 
     # Make native click pass straight through
-    from code_puppy.tools.rpa.result_types import ElementInfo
+    from code_puppy.tools.gui_cub.result_types import ElementInfo
 
     def fake_find_element(**kwargs):
         return ElementSearchResult(

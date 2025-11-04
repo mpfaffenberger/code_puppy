@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from code_puppy.tools.rpa.result_types import (
+from code_puppy.tools.gui_cub.result_types import (
     BaseRPAResult,
     MouseActionResult,
     KeyboardActionResult,

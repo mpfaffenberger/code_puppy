@@ -11,7 +11,7 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-from code_puppy.tools.rpa.pixel_utils import match_rgb, sample_neighborhood_rgb
+from code_puppy.tools.gui_cub.pixel_utils import match_rgb, sample_neighborhood_rgb
 
 
 @pytest.mark.skipif(not PIL_AVAILABLE, reason="PIL/Pillow not available")
@@ -54,7 +54,7 @@ class TestPixelColorDetection:
     def test_sample_single_pixel_1x_display(self):
         """Test single pixel sampling on 1x (non-Retina) display."""
         # Mock pyautogui to simulate 1x display
-        with patch('code_puppy.tools.rpa.pixel_utils.pyautogui') as mock_pg:
+        with patch('code_puppy.tools.gui_cub.pixel_utils.pyautogui') as mock_pg:
             # Logical size = Physical size (1x display)
             mock_pg.size.return_value = (1000, 800)
             
@@ -74,7 +74,7 @@ class TestPixelColorDetection:
         
         This is the critical test for the HiDPI bug fix!
         """
-        with patch('code_puppy.tools.rpa.pixel_utils.pyautogui') as mock_pg:
+        with patch('code_puppy.tools.gui_cub.pixel_utils.pyautogui') as mock_pg:
             # Logical size = 1000x800, Physical size = 2000x1600 (2x Retina)
             mock_pg.size.return_value = (1000, 800)
             
@@ -93,7 +93,7 @@ class TestPixelColorDetection:
 
     def test_sample_all_quadrants_2x_display(self):
         """Test sampling from all four quadrants on 2x display."""
-        with patch('code_puppy.tools.rpa.pixel_utils.pyautogui') as mock_pg:
+        with patch('code_puppy.tools.gui_cub.pixel_utils.pyautogui') as mock_pg:
             mock_pg.size.return_value = (1000, 800)
             test_image = self.create_pattern_image(2000, 1600)
             mock_pg.screenshot.return_value = test_image
@@ -117,7 +117,7 @@ class TestPixelColorDetection:
 
     def test_neighborhood_sampling_3x3(self):
         """Test 3x3 neighborhood sampling (neighborhood=1)."""
-        with patch('code_puppy.tools.rpa.pixel_utils.pyautogui') as mock_pg:
+        with patch('code_puppy.tools.gui_cub.pixel_utils.pyautogui') as mock_pg:
             mock_pg.size.return_value = (100, 100)
             test_image = self.create_test_image(100, 100, (128, 128, 128))
             mock_pg.screenshot.return_value = test_image
@@ -141,7 +141,7 @@ class TestPixelColorDetection:
         
         This is correct! The physical neighborhood scales with the display.
         """
-        with patch('code_puppy.tools.rpa.pixel_utils.pyautogui') as mock_pg:
+        with patch('code_puppy.tools.gui_cub.pixel_utils.pyautogui') as mock_pg:
             mock_pg.size.return_value = (100, 100)
             # 2x display
             test_image = self.create_test_image(200, 200, (64, 64, 64))
@@ -157,7 +157,7 @@ class TestPixelColorDetection:
 
     def test_edge_clamping(self):
         """Test that coordinates near edges are clamped to image bounds."""
-        with patch('code_puppy.tools.rpa.pixel_utils.pyautogui') as mock_pg:
+        with patch('code_puppy.tools.gui_cub.pixel_utils.pyautogui') as mock_pg:
             mock_pg.size.return_value = (100, 100)
             test_image = self.create_test_image(100, 100, (200, 200, 200))
             mock_pg.screenshot.return_value = test_image
@@ -268,7 +268,7 @@ class TestRealWorldScenarios:
         - Convert logical (1075, 473) to physical (2150, 946)
         - Sample correct pixel
         """
-        with patch('code_puppy.tools.rpa.pixel_utils.pyautogui') as mock_pg:
+        with patch('code_puppy.tools.gui_cub.pixel_utils.pyautogui') as mock_pg:
             # Simulate term1-todo.md test environment
             # Display: 1728×1117 logical, 3456×2234 physical (2.0x Retina)
             mock_pg.size.return_value = (1728, 1117)
@@ -301,7 +301,7 @@ class TestRealWorldScenarios:
     @pytest.mark.skipif(not PIL_AVAILABLE, reason="PIL/Pillow not available")
     def test_neighborhood_strategy_for_anti_aliasing(self):
         """Test that neighborhood sampling helps with anti-aliased UI elements."""
-        with patch('code_puppy.tools.rpa.pixel_utils.pyautogui') as mock_pg:
+        with patch('code_puppy.tools.gui_cub.pixel_utils.pyautogui') as mock_pg:
             mock_pg.size.return_value = (100, 100)
             
             # Create image with anti-aliased edge
