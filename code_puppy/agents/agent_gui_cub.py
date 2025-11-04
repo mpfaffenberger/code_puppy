@@ -3,10 +3,10 @@
 from .base_agent import BaseAgent
 from .gui_cub_monitoring import (
     TokenMonitor,
-    auto_save_and_resume,
     emit_checkpoint_threshold,
     emit_emergency_threshold,
     emit_warning_threshold,
+    save_session_backup,
 )
 
 
@@ -16,86 +16,16 @@ class GUICubAgent(BaseAgent):
     def __init__(self):
         """Initialize GUI-Cub agent with token monitoring."""
         super().__init__()
-        # TIER 4: Proactive token monitoring
+        # Token monitoring - warns but never auto-clears context
         self.token_monitor = TokenMonitor(context_limit=128000)
         self._last_token_check = 0
         
-        # Session tracking: Use process ID to identify this specific session
-        # This prevents auto-resume from loading context from previous runs
+        # Session tracking - consistent ID for this session's backup file
         import os
-        self.session_id = f"session_{os.getpid()}"
-
-        # TIER 4.5: Auto-resume from saved session if available
-        self._try_resume_from_saved_session()
-
-    def _try_resume_from_saved_session(self) -> None:
-        """Try to load and resume from saved resume_prompt.md if it exists.
-
-        This method checks for a saved resume prompt in the GUI-Cub directory
-        and automatically loads it into the message history ONLY if:
-        1. This is the currently active agent (not during discovery)
-        2. The resume was created in the SAME session (same process ID)
-
-        This prevents cross-session resume while allowing resume within
-        the same session when hitting token limits.
-
-        Fails silently if the resume file doesn't exist, can't be loaded,
-        or is from a different session.
-        """
-        from pydantic_ai.messages import ModelRequest, TextPart
-        from .gui_cub_monitoring import get_gui_cub_base_dir
-        from rich.console import Console
-
-        # CRITICAL: Only auto-resume if we are the currently active agent
-        # This prevents auto-resume from triggering during agent discovery
-        # when all agents are instantiated just to get their names
-        try:
-            from .agent_manager import get_current_agent_name
-            current_agent = get_current_agent_name()
-            if current_agent != self.name:
-                # Silently skip - we're not the active agent
-                return
-        except Exception:
-            # If we can't determine current agent, skip auto-resume to be safe
-            return
-
-        console = Console()
-
-        try:
-            base_dir = get_gui_cub_base_dir()
-            # Use session-specific directory to avoid collisions between concurrent sessions
-            session_dir = base_dir / "active_sessions" / self.session_id
-            resume_path = session_dir / "resume_prompt.md"
-
-            if resume_path.exists():
-                # Session ID is implicit in the directory path - no need to check
-                # If the file exists in our session directory, it's ours!
-                
-                # Read the saved resume prompt
-                with open(resume_path, "r", encoding="utf-8") as f:
-                    resume_content = f.read()
-
-                # Append it as the first message in history
-                resume_message = ModelRequest([TextPart(resume_content)])
-                self.append_to_message_history(resume_message)
-
-                # Notify the user
-                console.print(
-                    f"\n[bold green]✅ CONTEXT AUTO-RESUMED[/bold green]\n"
-                    f"[dim]Loaded context from: ~/.code_puppy/agents/gui-cub/active_sessions/{self.session_id}/resume_prompt.md[/dim]\n"
-                )
-
-                # Update token count
-                token_count = sum(
-                    self.estimate_tokens_for_message(msg)
-                    for msg in self.get_message_history()
-                )
-                self.token_monitor.update(token_count)
-
-        except Exception:
-            # Silently fail - just start fresh if resume fails
-            # Don't spam user with errors on every startup
-            pass
+        from datetime import datetime
+        # Use PID + timestamp for unique but persistent session ID
+        self.session_id = f"session_{os.getpid()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.session_backup_created = False
 
     @property
     def name(self) -> str:
@@ -357,11 +287,87 @@ If user asks "how do I build workflows?" or "how does this work?", explain:
 - macOS/Linux: `~/.code_puppy/agents/gui-cub/`
 
 **Files:**
-- `gui_cub_knowledge_base.md` - Main working memory (kept < 1000 lines)
-- `resume_prompt.md` - Latest auto-resume prompt (replaced each time)
-- `sessions/session_YYYYMMDD_HHMMSS.md` - Session snapshots (kept forever)
+- `~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md` - Long-term accumulated learnings (diary-style entries)
+- `~/.code_puppy/agents/gui-cub/sessions/session_YYYYMMDD_HHMMSS.md` - Session state backups (created at 70%, 85%, 95% thresholds)
 
-**Purpose:** Persistent working memory for findings, element locations, timing data, and observations.
+**Knowledge Base (Long-term Learning):**
+Your persistent lab notebook - discoveries that persist across ALL sessions.
+
+**When to write KB entries:**
+- ✅ Discovered a reusable pattern (login flows, form patterns)
+- ✅ Learned app-specific behavior (Calculator needs 0.3s delay)
+- ✅ Created workflow file worth documenting
+- ✅ Found what works/fails for common tasks
+- ✅ Made architectural decisions with rationale
+
+**When NOT to write KB entries:**
+- ❌ Routine work (already in session backup)
+- ❌ Single-use, non-reusable actions
+- ❌ Work still in progress
+- ❌ Information specific to current session only
+
+**KB Entry Format (use append_to_knowledge_base tool):**
+```python
+append_to_knowledge_base(
+    context="Calculator app automation",
+    discovery="Requires 0.3s delay between button clicks",
+    what_worked="Accessibility API with AXButton elements",
+    what_failed="OCR unreliable for small number buttons",
+    reusable="workflows/calculator_operations.yaml",
+    tags="#calculator #timing #accessibility"
+)
+```
+
+**Be considerate:** Only write when something is truly worth preserving for future sessions. Quality over quantity.
+
+**KB is searchable:** Entries include tags like `#login #forms #timing` for easy grep searching.
+
+**KB is self-pruning:** When it reaches 1000 lines, oldest entries are automatically removed (FIFO).
+
+**Session Backups (Auto-saved at thresholds):**
+Your current session's working state - NOT conversation transcript (that's in global code-puppy autosave).
+
+**Session Backups (Auto-saved at 70% tokens):**
+- Automatically saved to `~/.code_puppy/agents/gui-cub/sessions/session_YYYYMMDD_HHMMSS.md`
+- Contains rich context: user goal, progress summary, key discoveries, recent activity, next actions
+
+**How to Resume from a Previous Session:**
+When user asks to resume (e.g., "the session restarted, can we resume?"), follow this pattern:
+
+1. **List recent backups:** Use `list_files` on `~/.code_puppy/agents/gui-cub/sessions/` to find session files
+2. **Read the most recent:** Use `read_file` to read the latest `session_YYYYMMDD_HHMMSS.md` file
+3. **Extract key info from the backup:**
+   - Timestamp (when was this backup made?)
+   - User Goal (what were they trying to do?)
+   - Progress Summary (what was completed?)
+   - Key Discoveries (element locators, patterns found)
+   - Next Immediate Action (what was planned next?)
+4. **Present summary to user:** Show them:
+   - "I found a backup from [timestamp]"
+   - "You were working on: [user goal from backup]"
+   - "Progress: [brief 2-sentence summary]"
+   - "Would you like me to continue from there?"
+5. **If user confirms:** Use the context from the backup to continue the work
+   - Reference the element locators, timing data, and discoveries from the backup
+   - Pick up from the "Next Immediate Action" step
+   - Acknowledge what was already done and continue forward
+
+**Example resume flow:**
+```
+User: "The session restarted, can we resume where we left off?"
+
+You: [reads most recent backup]
+"I found a backup from 2025-11-04 09:03:07.
+You were working on: Automate logging into the company portal.
+Progress: Successfully entered username (john.doe@example.com) and clicked login button. Was verifying login success.
+
+Would you like me to continue from there?"
+
+User: "Yes please"
+
+You: [references backup context]
+"Got it! I'll continue by verifying the login succeeded (checking for 'Dashboard' text) and then proceed with the next steps of the automation..."
+```
 
 **Autonomous logging (append to KB automatically):**
 - Element discovery results: "Submit button found at (500, 300) via OCR"
@@ -599,7 +605,7 @@ Then for any desktop task:
 
 7. **Verify Periodically** - Every 3-5 actions, pulse check with `desktop_extract_text()` or screenshots
 8. **Report Back** - MANDATORY: Call `agent_share_your_reasoning` every 2-3 actions!
-9. **Log Findings** - Append discoveries to knowledge base with `edit_file`
+9. **Log Findings** - When you discover something reusable, use `append_to_knowledge_base`
 10. **Handle Errors** - Try alternative tiers, adjust fuzzy_threshold, log failures to KB
 
 ## Platform-Specific Tool Selection
@@ -644,9 +650,15 @@ desktop_keyboard_press("tab")
 desktop_keyboard_type(email)
 desktop_keyboard_press("enter")
 desktop_sleep(0.1)
-# Verify and log
+# Verify and log reusable pattern
 result = desktop_verify_text(expected_text="Submitted")
-edit_file(payload={"file_path": "~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md", "replacements": [{"old_str": "\n", "new_str": "\nForm submission verified for user {username}\n"}]})
+# If this is a reusable pattern, log to KB:
+append_to_knowledge_base(
+    context="Form submission pattern",
+    discovery="Tab navigation through fields works reliably",
+    what_worked="Focus app, Tab key, type values, Enter to submit",
+    tags="#forms #pattern"
+)
 ```
 
 **Multi-step verification:**
@@ -656,21 +668,21 @@ desktop_sleep(0.1)
 result = desktop_extract_text()
 if "40" in result.full_text:
     print("Step 1 verified: 40")
-    # Log to KB
-    edit_file(payload={"file_path": "~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md", "replacements": [{"old_str": "\n", "new_str": "\nCalculator operation verified\n"}]})
+    # Log reusable discovery if appropriate
+    # (only if this reveals a pattern worth saving)
 else:
     print(f"Step 1 FAILED: Expected 40, got {result.full_text[:50]}")
 ```
 
-**Knowledge base entry:**
+**Knowledge base entry (when you discover something reusable):**
 ```python
-# Append finding to KB
-edit_file(
-    payload={
-        "file_path": "~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md",
-        "replacements": [{
-            "old_str": "\n",
-            "new_str": "\n## [2024-01-15] App XYZ Notes\n- Submit button: (520, 340) via OCR\n- Launch time: 2.8s\n- Requires 0.4s delay after login\n"
+# Only write to KB when you learn something valuable for future sessions
+append_to_knowledge_base(
+    context="App XYZ automation",
+    discovery="Requires 0.4s delay after login before next action",
+    what_worked="Submit button accessible via OCR at (520, 340); launch time 2.8s",
+    what_failed="Clicking too fast after login causes errors",
+    tags="#appxyz #timing"
         }]
     }
 )
@@ -1125,11 +1137,16 @@ You are GUI-Cub 🐻 - a precise, methodical automation agent with dual operatin
         """Check token usage and emit warnings if thresholds are crossed.
 
         Called periodically during agent execution to monitor context usage.
-        TIER 4: Proactive token monitoring.
-        TIER 4.5: Autonomous context self-management (auto-resume at 85%).
+        This method ONLY warns - it never clears context or auto-resumes.
+        User stays in full control of when to save/clear/resume.
         """
         # Calculate total tokens from message history
         messages = self.get_message_history()
+        
+        # Skip if no messages (for testing scenarios where tokens are manually set)
+        if not messages:
+            return
+        
         total_tokens = sum(self.estimate_tokens_for_message(msg) for msg in messages)
 
         # Update monitor and check thresholds
@@ -1137,18 +1154,24 @@ You are GUI-Cub 🐻 - a precise, methodical automation agent with dual operatin
 
         # Handle threshold events
         if threshold_event == "warning":
-            # 70% - Just warn
+            # 70% - Warn and auto-backup (but don't clear context)
             emit_warning_threshold(self.token_monitor)
+            save_session_backup(self)
 
         elif threshold_event == "checkpoint":
-            # 85% - Manual checkpoint recommendation
-            # User must explicitly call auto_save_and_resume if they want to clear context
-            # This gives them full control over when to save/resume
+            # 85% - Suggest wrapping up AND update backup
             emit_checkpoint_threshold(self.token_monitor)
+            save_session_backup(self)  # Update session file
 
         elif threshold_event == "emergency":
-            # 95% - Critical warning (shouldn't get here if 85% auto-resume works)
+            # 95% - Critical warning AND final backup update
             emit_emergency_threshold(self.token_monitor)
+            save_session_backup(self)  # Final update before likely restart
+        
+        # Also update backup periodically even without threshold events
+        # Every 5000 tokens, update the session file
+        elif self.session_backup_created and total_tokens % 5000 < 100:
+            save_session_backup(self)  # Periodic update
 
     def get_token_status(self) -> str:
         """Get current token usage status display.
@@ -1171,13 +1194,11 @@ You are GUI-Cub 🐻 - a precise, methodical automation agent with dual operatin
             # Call parent implementation
             result = await super().run_with_mcp(prompt, **kwargs)
 
-            # Check token usage after SUCCESSFUL execution (TIER 4)
-            # Only run auto-resume if the agent completed naturally,
-            # not if user cancelled with CTRL+C
+            # Check token usage after SUCCESSFUL execution
+            # This only warns - never auto-clears or auto-resumes
             self.check_token_usage()
 
             return result
         except (KeyboardInterrupt, asyncio.CancelledError):
-            # User manually interrupted - DO NOT run auto-resume
-            # Preserve current session state
+            # User manually interrupted - preserve session state
             raise

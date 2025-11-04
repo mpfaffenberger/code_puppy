@@ -257,14 +257,19 @@ def emit_checkpoint_threshold(monitor: TokenMonitor) -> str:
         Formatted checkpoint message
     """
     percentage = monitor.get_percentage()
+    remaining = monitor.get_remaining()
 
     msg = (
         f"\n[bold orange]🟠 CONTEXT HIGH ({percentage:.1f}%)[/bold orange]\n\n"
-        f"[yellow]Context usage is at 85%. You can:[/yellow]\n"
-        f"  • Continue working (you have room until 95%)\n"
-        f"  • Manually save/resume by asking: 'save and resume' or 'checkpoint'\n"
-        f"  • Wrap up and start a fresh session\n\n"
-        f"[dim]Note: Auto-save/resume is disabled. You control when to checkpoint.[/dim]\n"
+        f"[dim]   Usage: {percentage:.1f}% ({monitor.current_tokens:,} / "
+        f"{monitor.context_limit:,} tokens)[/dim]\n"
+        f"[dim]   Remaining: {remaining:,} tokens[/dim]\n\n"
+        f"[yellow]Recommendations:[/yellow]\n"
+        f"  • Consider wrapping up the current task\n"
+        f"  • Summarize key findings to the knowledge base\n"
+        f"  • You can continue to 95%, but plan accordingly\n"
+        f"  • Start a fresh session when ready\n\n"
+        f"[dim]Note: Context will NOT be cleared automatically. You're in control.[/dim]\n"
     )
 
     console.print(msg)
@@ -295,6 +300,223 @@ def emit_emergency_threshold(monitor: TokenMonitor) -> str:
 
     console.print(msg)
     return msg
+
+
+def get_session_backups_dir() -> "Path":
+    """Get the session backups directory.
+    
+    Returns:
+        Path to ~/.code_puppy/agents/gui-cub/sessions/
+    """
+    from pathlib import Path
+    home_dir = Path.home()
+    return home_dir / ".code_puppy" / "agents" / "gui-cub" / "sessions"
+
+
+def list_recent_session_backups(limit: int = 5) -> list[dict]:
+    """List recent session backups with summaries.
+    
+    Args:
+        limit: Maximum number of backups to return (default: 5)
+        
+    Returns:
+        List of dicts with keys: filename, timestamp, token_usage, message_count, summary
+    """
+    from pathlib import Path
+    import re
+    from datetime import datetime
+    
+    sessions_dir = get_session_backups_dir()
+    
+    if not sessions_dir.exists():
+        return []
+    
+    backups = []
+    
+    # Get all session files sorted by modification time (newest first)
+    session_files = sorted(
+        sessions_dir.glob("session_*.md"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True
+    )
+    
+    for session_file in session_files[:limit]:
+        try:
+            # Read the file
+            content = session_file.read_text(encoding="utf-8")
+            
+            # Extract metadata
+            timestamp_match = re.search(r"\*\*Timestamp:\*\* (.+)", content)
+            token_match = re.search(r"\*\*Token Usage:\*\* ([0-9.]+)% \(([0-9,]+) tokens\)", content)
+            message_match = re.search(r"\*\*Message Count:\*\* (\d+) messages", content)
+            
+            # Extract first 2 lines of context summary as a brief summary
+            summary_section = re.search(r"## Context Summary\n\n(.+?)\n\n", content, re.DOTALL)
+            summary = "No summary available"
+            if summary_section:
+                lines = summary_section.group(1).strip().split("\n")
+                summary = " ".join(lines[:2])  # First 2 sentences
+            
+            backups.append({
+                "filename": session_file.name,
+                "path": str(session_file),
+                "timestamp": timestamp_match.group(1) if timestamp_match else "Unknown",
+                "token_usage": token_match.group(1) if token_match else "Unknown",
+                "tokens": token_match.group(2) if token_match else "Unknown",
+                "message_count": message_match.group(1) if message_match else "Unknown",
+                "summary": summary,
+            })
+        except Exception:
+            # Skip files we can't parse
+            continue
+    
+    return backups
+
+
+def get_most_recent_backup_summary() -> dict | None:
+    """Get a summary of the most recent session backup.
+    
+    Returns:
+        Dict with backup info, or None if no backups exist
+    """
+    backups = list_recent_session_backups(limit=1)
+    return backups[0] if backups else None
+
+
+def extract_workflow_files(messages: list) -> list[dict]:
+    """Extract workflow files that were saved during the session.
+    
+    Args:
+        messages: Full message history
+        
+    Returns:
+        List of dicts with workflow file info: {path, type, timestamp}
+    """
+    from pydantic_ai.messages import ToolCallPart
+    import re
+    
+    workflows = []
+    
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart):
+                    if part.tool_name == "edit_file":
+                        if hasattr(part, "args") and isinstance(part.args, dict):
+                            path = part.args.get("file_path", "")
+                            # Check if it's a workflow file (.yaml, .yml, .json workflow)
+                            if path and (path.endswith('.yaml') or path.endswith('.yml') or 
+                                       'workflow' in path.lower() or 'recipe' in path.lower()):
+                                workflows.append({
+                                    "path": path,
+                                    "type": "workflow",
+                                })
+    
+    # Return unique workflows
+    seen = set()
+    unique_workflows = []
+    for w in workflows:
+        if w["path"] not in seen:
+            seen.add(w["path"])
+            unique_workflows.append(w)
+    
+    return unique_workflows
+
+
+def save_session_backup(agent) -> tuple[bool, str]:
+    """Save or update the session backup file for this session.
+
+    This maintains ONE session file per session, updating it as the session progresses.
+    Uses agent.session_id to identify the consistent file for this session.
+
+    Workflow deduplication:
+    - If workflows were saved (e.g., login.yaml), replaces verbose steps with:
+      "Created login.yaml workflow at PATH"
+    - Agent can read the workflow file later for details
+
+    The backup is saved to sessions/ directory and can be read later to resume work.
+    This does NOT clear message history - the agent continues with full context.
+
+    Args:
+        agent: The GUI-Cub agent instance
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    from datetime import datetime
+    from pathlib import Path
+
+    try:
+        # Get the base directory
+        sessions_dir = get_session_backups_dir()
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use consistent session file (one file per session)
+        session_path = sessions_dir / f"{agent.session_id}.md"
+        is_update = session_path.exists()
+
+        # Get metadata
+        messages = agent.get_message_history()
+        message_count = len(messages)
+        token_count = agent.token_monitor.current_tokens
+        percentage = agent.token_monitor.get_percentage()
+        
+        # Check for workflow files that were saved
+        workflow_files = extract_workflow_files(messages)
+        
+        # Generate concise context (max 600 lines)
+        # If workflows exist, the context will be compressed
+        context = generate_resume_prompt(agent)
+        
+        # Create compact header
+        action = "Updated" if is_update else "Created"
+        header = f"""# GUI-Cub Session - {agent.session_id}
+**Last Updated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Tokens:** {percentage:.1f}% ({token_count:,}) | Messages: {message_count}
+**Status:** Active session ({action} at {percentage:.1f}% threshold)
+---
+"""
+        
+        # Add workflow references if any were saved (deduplication)
+        workflow_section = ""
+        if workflow_files:
+            workflow_section = "## Workflows Created\n"
+            for wf in workflow_files:
+                workflow_section += f"- Created workflow: {wf['path']}\n"
+            workflow_section += "(Read workflow files for detailed steps - not duplicated here)\n---\n"
+        
+        # Combine header + workflows + context
+        session_entry = header + workflow_section + context
+
+        # Add footer
+        session_entry += f"\n---\n**Location:** ~/.code_puppy/agents/gui-cub/sessions/{agent.session_id}.md\n**Resume:** Read this file to continue from this point"
+        
+        # Enforce 600-line hard limit
+        entry_lines = session_entry.split("\n")
+        if len(entry_lines) > 600:
+            # Truncate and note
+            session_entry = "\n".join(entry_lines[:597])
+            session_entry += "\n[Truncated at 600 lines]\n---"
+            session_entry += f"\n**Location:** ~/.code_puppy/agents/gui-cub/sessions/{agent.session_id}.md"
+
+        # Write the backup (overwrite if updating)
+        with open(session_path, "w", encoding="utf-8") as f:
+            f.write(session_entry)
+        
+        # Mark that backup was created
+        agent.session_backup_created = True
+
+        action_verb = "updated" if is_update else "created"
+        success_msg = f"[dim]📁 Session backup {action_verb}: sessions/{agent.session_id}.md[/dim]\n"
+        console.print(success_msg)
+
+        return True, success_msg
+
+    except Exception as e:
+        error_msg = f"Failed to save session backup: {str(e)}"
+        console.print(f"[yellow]⚠️  {error_msg}[/yellow]")
+        # Don't fail hard - backup is optional
+        return False, error_msg
 
 
 # ============================================================================
@@ -651,203 +873,302 @@ def summarize_recent_activity(messages: list, limit: int = 10) -> list[str]:
     return actions[-limit:]
 
 
+def extract_file_paths(messages: list) -> list[str]:
+    """Extract file paths that were read or edited during the session.
+    
+    Args:
+        messages: Full message history
+        
+    Returns:
+        List of unique file paths
+    """
+    from pydantic_ai.messages import ToolCallPart
+    
+    file_paths = set()
+    
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart):
+                    if part.tool_name in ["read_file", "edit_file", "grep"]:
+                        if hasattr(part, "args") and isinstance(part.args, dict):
+                            # Extract file_path or directory
+                            path = part.args.get("file_path") or part.args.get("directory")
+                            if path and isinstance(path, str):
+                                file_paths.add(path)
+    
+    return sorted(list(file_paths))
+
+
+def extract_agent_reasoning_and_decisions(messages: list) -> dict:
+    """Extract the agent's reasoning, decisions, and understanding from responses.
+    
+    This captures what the agent THINKS, not what was said.
+    
+    Args:
+        messages: Message history
+        
+    Returns:
+        Dict with: goals, strategies, learnings, decisions, blockers
+    """
+    state = {
+        "current_goals": [],
+        "strategies_approaches": [],
+        "learnings_insights": [],
+        "decisions_made": [],
+        "blockers_challenges": [],
+        "next_planned_steps": [],
+    }
+    
+    # Extract from agent responses (their reasoning)
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if hasattr(part, "content"):
+                    content = str(part.content).strip()
+                    if not content:
+                        continue
+                    
+                    content_lower = content.lower()
+                    
+                    # Extract goals/objectives
+                    if any(kw in content_lower for kw in ["goal", "objective", "trying to", "need to", "will", "going to"]):
+                        if len(content) < 300:
+                            state["current_goals"].append(content)
+                    
+                    # Extract strategies/approaches
+                    if any(kw in content_lower for kw in ["approach", "strategy", "using", "via", "method", "technique"]):
+                        if len(content) < 300:
+                            state["strategies_approaches"].append(content)
+                    
+                    # Extract learnings/insights
+                    if any(kw in content_lower for kw in ["found", "discovered", "learned", "observed", "noticed"]):
+                        if len(content) < 300:
+                            state["learnings_insights"].append(content)
+                    
+                    # Extract decisions
+                    if any(kw in content_lower for kw in ["decided", "choosing", "opted", "selected", "will use"]):
+                        if len(content) < 300:
+                            state["decisions_made"].append(content)
+                    
+                    # Extract blockers/challenges
+                    if any(kw in content_lower for kw in ["issue", "problem", "error", "failed", "challenge", "blocker"]):
+                        if len(content) < 300:
+                            state["blockers_challenges"].append(content)
+                    
+                    # Extract next steps
+                    if any(kw in content_lower for kw in ["next", "then", "after", "will now", "proceeding to"]):
+                        if len(content) < 300:
+                            state["next_planned_steps"].append(content)
+    
+    # Deduplicate and limit
+    for key in state:
+        state[key] = list(dict.fromkeys(state[key]))  # Remove duplicates
+        state[key] = state[key][-20:]  # Keep last 20 per category
+    
+    return state
+
+
+def extract_work_artifacts(messages: list) -> dict:
+    """Extract concrete artifacts created/modified during the session.
+    
+    Args:
+        messages: Message history
+        
+    Returns:
+        Dict with: files_modified, code_snippets, workflows_created, etc.
+    """
+    from pydantic_ai.messages import ToolCallPart
+    
+    artifacts = {
+        "files_edited": {},  # file -> list of what was done
+        "files_read": [],
+        "searches_performed": [],
+        "code_snippets": [],
+    }
+    
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart):
+                    if part.tool_name == "edit_file" and hasattr(part, "args"):
+                        file_path = part.args.get("file_path")
+                        if file_path:
+                            if file_path not in artifacts["files_edited"]:
+                                artifacts["files_edited"][file_path] = []
+                            # Try to extract what was done
+                            replacements = part.args.get("replacements", [])
+                            if replacements:
+                                for repl in replacements[:3]:  # First 3 changes
+                                    old = repl.get("old_str", "")[:100]
+                                    new = repl.get("new_str", "")[:100]
+                                    artifacts["files_edited"][file_path].append(f"Changed: {old}... -> {new}...")
+                    
+                    elif part.tool_name == "read_file" and hasattr(part, "args"):
+                        file_path = part.args.get("file_path")
+                        if file_path and file_path not in artifacts["files_read"]:
+                            artifacts["files_read"].append(file_path)
+                    
+                    elif part.tool_name == "grep" and hasattr(part, "args"):
+                        search = part.args.get("search_string", "")
+                        if search:
+                            artifacts["searches_performed"].append(search)
+    
+    return artifacts
+
+
 def generate_resume_prompt(agent, current_task: str | None = None) -> str:
-    """Generate an intelligent, context-rich resume prompt.
+    """Generate agent's internal state and self-reflection.
 
-    This creates a comprehensive summary of the agent's current state with:
-    - User's primary goal/task
-    - Progress summary (completed, in-progress, remaining)
-    - Key discoveries (element locators, patterns, timing)
-    - Important context and decisions
-    - Recent activity summary
-    - Next action to take
+    This is NOT a conversation transcript (code-puppy already saves that).
+    This is the agent's WORKING MEMORY:
+    - What am I trying to accomplish?
+    - What's my current understanding/strategy?
+    - What have I learned/discovered?
+    - What decisions have I made?
+    - What's the current state of work?
+    - What are my concrete next steps?
 
-    The resume is designed to enable seamless continuation after context clear,
-    providing enough information to resume work without losing critical details.
+    Fills up to 600 lines with dense, useful state information.
 
     Args:
         agent: The GUI-Cub agent instance
-        current_task: Optional task override (if None, extracts from messages)
+        current_task: Optional task override
 
     Returns:
-        Structured resume prompt (target: 200-800 lines, max: 1000 lines)
+        Agent's internal state dump (max 600 lines)
     """
     from datetime import datetime
 
     try:
-        # Get full message history
         messages = agent.get_message_history()
-
-        # Extract context using helper functions
-        user_goal = current_task or extract_user_goal(messages)
-        progress = analyze_progress(messages)
-        discoveries = extract_key_findings(messages)
-        next_action = infer_next_action(messages, progress)
-        recent_activity = summarize_recent_activity(messages, limit=10)
-
-        # Build timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         percentage = agent.token_monitor.get_percentage()
-
-        # Build comprehensive resume prompt
+        
+        # Extract agent's internal state (not conversation)
+        agent_state = extract_agent_reasoning_and_decisions(messages)
+        artifacts = extract_work_artifacts(messages)
+        file_paths = extract_file_paths(messages)
+        discoveries = extract_key_findings(messages)
+        
+        # Build agent's working memory dump
         lines = []
-        lines.append(f"# GUI-Cub Context Resume - {timestamp}")
-        lines.append("")
-        lines.append("## Session Continuation")
-        lines.append(
-            f"This session is resuming after an automatic context clear at {percentage:.1f}% token usage."
-        )
-        lines.append("")
+        lines.append(f"# GUI-Cub Agent State - {timestamp}")
+        lines.append(f"**Context:** {percentage:.1f}% tokens | {len(messages)} messages")
+        lines.append("**Note:** This is the agent's working memory, not conversation transcript")
         lines.append("---")
-        lines.append("")
-
-        # PRIMARY TASK section
-        lines.append("## 🎯 PRIMARY TASK")
-        lines.append("")
-        lines.append(f"**User Goal:** {user_goal}")
-        lines.append("")
-        lines.append(f"**Current Status:** {progress['percentage']}% complete")
-        lines.append("")
-        lines.append(f"**Next Immediate Action:** {next_action}")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
-
-        # PROGRESS SUMMARY section
-        lines.append("## 📊 PROGRESS SUMMARY")
-        lines.append("")
-
-        if progress["completed"]:
-            lines.append("### Completed ✅")
-            for item in progress["completed"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        if progress["in_progress"]:
-            lines.append("### In Progress ⏳")
-            for item in progress["in_progress"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        if progress["remaining"]:
-            lines.append("### Remaining ⏸️")
-            for item in progress["remaining"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        lines.append("---")
-        lines.append("")
-
-        # KEY DISCOVERIES section
-        lines.append("## 🔍 KEY DISCOVERIES")
-        lines.append("")
-
-        has_discoveries = any(discoveries.values())
-
-        if discoveries["element_locators"]:
-            lines.append("### Element Locators")
-            for item in discoveries["element_locators"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        if discoveries["keyboard_shortcuts"]:
-            lines.append("### Keyboard Shortcuts")
-            for item in discoveries["keyboard_shortcuts"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        if discoveries["timing_info"]:
-            lines.append("### Timing & Delays")
-            for item in discoveries["timing_info"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        if discoveries["patterns"]:
-            lines.append("### Workflow Patterns")
-            for item in discoveries["patterns"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        if discoveries["successful_approaches"]:
-            lines.append("### Successful Approaches")
-            for item in discoveries["successful_approaches"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        if discoveries["failed_approaches"]:
-            lines.append("### Failed Approaches (Avoid)")
-            for item in discoveries["failed_approaches"]:
-                lines.append(f"- {item}")
-            lines.append("")
-
-        if not has_discoveries:
-            lines.append("*No specific discoveries documented yet*")
-            lines.append("")
-
-        lines.append("---")
-        lines.append("")
-
-        # RECENT ACTIVITY section
-        lines.append("## 📝 RECENT ACTIVITY SUMMARY")
-        lines.append("")
-        if recent_activity:
-            for i, activity in enumerate(recent_activity, 1):
-                lines.append(f"{i}. {activity}")
+        
+        # CURRENT OBJECTIVES - What am I trying to do?
+        lines.append("## CURRENT OBJECTIVES")
+        if agent_state["current_goals"]:
+            for i, goal in enumerate(agent_state["current_goals"][-10:], 1):
+                lines.append(f"{i}. {goal}")
         else:
-            lines.append("*No recent activity recorded*")
-        lines.append("")
+            lines.append("No explicit goals captured yet")
         lines.append("---")
-        lines.append("")
-
-        # RESUME INSTRUCTIONS section
-        lines.append("## 🚀 RESUME INSTRUCTIONS")
-        lines.append("")
-        lines.append("1. Review the PRIMARY TASK and current status above")
-        lines.append("2. Check KEY DISCOVERIES for element locators and patterns")
-        lines.append("3. Execute the NEXT IMMEDIATE ACTION")
-        lines.append("4. Continue following the workflow until goal is achieved")
-        lines.append(
-            "5. Refer to knowledge base if needed: `~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md`"
-        )
-        lines.append("")
-        lines.append(f"**Ready to continue from:** {next_action}")
-        lines.append("")
-
-        # Join and enforce length limit
-        resume_prompt = "\n".join(lines)
-
-        # Enforce hard cap of 1000 lines
-        line_count = len(lines)
-        if line_count > 1000:
-            # Trim to 1000 lines, prioritizing essential sections
-            # Keep header, task, progress, instructions
-            # Trim discoveries and recent activity if needed
-            trimmed_lines = lines[:50]  # Header + PRIMARY TASK
-            trimmed_lines.extend(lines[-30:])  # RESUME INSTRUCTIONS
-            resume_prompt = "\n".join(trimmed_lines)
-            resume_prompt += (
-                "\n\n[Note: Resume prompt was trimmed to stay under 1000 lines]\n"
-            )
-
-        return resume_prompt
-
+        
+        # STRATEGY & APPROACH - How am I approaching this?
+        lines.append("## STRATEGY & APPROACH")
+        if agent_state["strategies_approaches"]:
+            for approach in agent_state["strategies_approaches"][-15:]:
+                lines.append(f"- {approach}")
+        else:
+            lines.append("No strategy notes captured yet")
+        lines.append("---")
+        
+        # DECISIONS MADE - What choices have I locked in?
+        lines.append("## DECISIONS MADE")
+        if agent_state["decisions_made"]:
+            for decision in agent_state["decisions_made"][-15:]:
+                lines.append(f"- {decision}")
+        else:
+            lines.append("No explicit decisions captured yet")
+        lines.append("---")
+        
+        # LEARNINGS & INSIGHTS - What have I discovered?
+        lines.append("## LEARNINGS & INSIGHTS")
+        if agent_state["learnings_insights"]:
+            for learning in agent_state["learnings_insights"][-20:]:
+                lines.append(f"- {learning}")
+        else:
+            lines.append("No learnings captured yet")
+        
+        # Add technical discoveries
+        if discoveries["element_locators"]:
+            lines.append("**Element Locators Found:**")
+            for loc in discoveries["element_locators"][:10]:
+                lines.append(f"- {loc}")
+        if discoveries["keyboard_shortcuts"]:
+            lines.append("**Keyboard Shortcuts Used:**")
+            for shortcut in discoveries["keyboard_shortcuts"][:10]:
+                lines.append(f"- {shortcut}")
+        if discoveries["timing_info"]:
+            lines.append("**Timing Observations:**")
+            for timing in discoveries["timing_info"][:10]:
+                lines.append(f"- {timing}")
+        
+        lines.append("---")
+        
+        # BLOCKERS & CHALLENGES - What's in my way?
+        lines.append("## BLOCKERS & CHALLENGES")
+        if agent_state["blockers_challenges"]:
+            for blocker in agent_state["blockers_challenges"][-10:]:
+                lines.append(f"- {blocker}")
+        else:
+            lines.append("No blockers captured")
+        lines.append("---")
+        
+        # WORK ARTIFACTS - What have I created/modified?
+        lines.append("## WORK ARTIFACTS")
+        if artifacts["files_edited"]:
+            lines.append("**Files Edited:**")
+            for file_path, changes in list(artifacts["files_edited"].items())[:20]:
+                lines.append(f"- {file_path}")
+                for change in changes[:3]:  # First 3 changes per file
+                    lines.append(f"  {change}")
+        
+        if artifacts["files_read"]:
+            lines.append("**Files Read:**")
+            for file_path in artifacts["files_read"][:20]:
+                lines.append(f"- {file_path}")
+        
+        if artifacts["searches_performed"]:
+            lines.append("**Searches Performed:**")
+            for search in artifacts["searches_performed"][:10]:
+                lines.append(f"- grep: {search}")
+        
+        lines.append("---")
+        
+        # NEXT PLANNED STEPS - What should I do when I resume?
+        lines.append("## NEXT PLANNED STEPS")
+        if agent_state["next_planned_steps"]:
+            for i, step in enumerate(agent_state["next_planned_steps"][-10:], 1):
+                lines.append(f"{i}. {step}")
+        else:
+            lines.append("No next steps explicitly captured")
+        
+        # Add inferred next step from context
+        lines.append("**Inferred from context:**")
+        lines.append("Resume by continuing with the current task objectives listed above.")
+        lines.append("Review files edited and learnings to understand current state.")
+        
+        lines.append("---")
+        lines.append(f"**Total state lines:** {len(lines)}")
+        lines.append("**Resume strategy:** Read this state dump, then ask user for current request")
+        
+        # Enforce 600-line limit (but use all available space)
+        if len(lines) > 600:
+            lines = lines[:597]
+            lines.append("---")
+            lines.append("[State truncated at 600 lines]")
+            lines.append("Review objectives, decisions, and next steps above to resume")
+        
+        return "\n".join(lines)
+    
     except Exception as e:
-        # Graceful fallback: return basic resume if analysis fails
-        console.print(
-            f"[yellow]Warning: Resume generation failed ({e}), using fallback[/yellow]"
-        )
+        console.print(f"[yellow]State generation failed ({e}), using fallback[/yellow]")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        return f"""# GUI-Cub Context Resume - {timestamp}
-
-## Session Continuation
-This session is resuming after an automatic context clear at {agent.token_monitor.get_percentage():.1f}% token usage.
-
-## Current Task
-{current_task or "Continue previous automation task"}
-
-## Instructions
-Continue the task from where we left off. Check the knowledge base at `~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md` for context.
-"""
+        return f"# GUI-Cub Agent State - {timestamp}\n**Error:** State extraction failed\n**Action:** Review full message history to resume"
 
 
 def cleanup_old_sessions(ttl_days: int = 14) -> tuple[int, int]:
@@ -902,6 +1223,116 @@ def cleanup_old_sessions(ttl_days: int = 14) -> tuple[int, int]:
     except Exception:
         # If cleanup fails entirely, don't crash - just return 0
         return 0, 1
+
+
+def append_to_knowledge_base(
+    context: str,
+    discovery: str,
+    what_worked: str | None = None,
+    what_failed: str | None = None,
+    reusable: str | None = None,
+    tags: str | None = None,
+) -> tuple[bool, str]:
+    """Append a diary-style entry to the knowledge base.
+    
+    The KB is a living document - accumulates reusable learnings across sessions.
+    When it reaches 1000 lines, oldest entries are pruned (FIFO).
+    
+    Args:
+        context: What was the agent doing? (e.g., "Automating Calculator app")
+        discovery: What did the agent learn that's reusable?
+        what_worked: Successful approaches (optional)
+        what_failed: Failed approaches to avoid (optional)
+        reusable: Links to workflows/files created (optional)
+        tags: Searchable keywords like "#calculator #timing" (optional)
+        
+    Returns:
+        Tuple of (success: bool, message: str)
+        
+    Example:
+        append_to_knowledge_base(
+            context="Calculator app automation",
+            discovery="Requires 0.3s delay between button clicks",
+            what_worked="Accessibility API with AXButton elements",
+            what_failed="OCR unreliable for small number buttons",
+            reusable="workflows/calculator_operations.yaml",
+            tags="#calculator #accessibility #timing"
+        )
+    """
+    try:
+        base_dir = get_gui_cub_base_dir()
+        kb_path = base_dir / "gui_cub_knowledge_base.md"
+        
+        # Build diary entry
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        entry_lines = []
+        entry_lines.append(f"## {date_str} | {context}")
+        entry_lines.append(f"**Discovery:** {discovery}")
+        
+        if what_worked:
+            entry_lines.append(f"**What worked:** {what_worked}")
+        
+        if what_failed:
+            entry_lines.append(f"**What failed:** {what_failed}")
+        
+        if reusable:
+            entry_lines.append(f"**Reusable:** {reusable}")
+        
+        if tags:
+            entry_lines.append(f"**Tags:** {tags}")
+        
+        entry_lines.append("---")
+        entry = "\n".join(entry_lines) + "\n"
+        
+        # Initialize KB if it doesn't exist
+        if not kb_path.exists():
+            header = "# GUI-Cub Knowledge Base\n"
+            header += "Accumulated learnings across sessions - searchable, reusable wisdom\n\n"
+            header += "---\n\n"
+            kb_path.write_text(header, encoding="utf-8")
+        
+        # Read current KB
+        current_content = kb_path.read_text(encoding="utf-8")
+        lines = current_content.split("\n")
+        
+        # Append new entry
+        updated_content = current_content + entry
+        
+        # FIFO pruning: if > 1000 lines, remove oldest diary entry
+        if len(updated_content.split("\n")) > 1000:
+            # Find first diary entry (## YYYY-MM-DD)
+            first_entry_idx = None
+            second_entry_idx = None
+            
+            for i, line in enumerate(lines):
+                if line.startswith("## 20"):  # Diary entries start with ## 20XX-XX-XX
+                    if first_entry_idx is None:
+                        first_entry_idx = i
+                    elif second_entry_idx is None:
+                        second_entry_idx = i
+                        break
+            
+            # Remove first entry (between first_entry_idx and second_entry_idx)
+            if first_entry_idx is not None and second_entry_idx is not None:
+                # Keep header + everything after first entry
+                pruned_lines = lines[:first_entry_idx] + lines[second_entry_idx:]
+                updated_content = "\n".join(pruned_lines) + "\n" + entry
+                console.print("[dim]📝 Knowledge base pruned (FIFO): removed oldest entry[/dim]")
+            elif first_entry_idx is not None:
+                # Only one entry exists, keep it and add new one
+                pass
+        
+        # Write updated KB
+        kb_path.write_text(updated_content, encoding="utf-8")
+        
+        success_msg = f"[dim]📚 Knowledge base updated: {context}[/dim]"
+        console.print(success_msg)
+        return True, success_msg
+        
+    except Exception as e:
+        error_msg = f"Failed to update knowledge base: {e}"
+        console.print(f"[yellow]⚠️  {error_msg}[/yellow]")
+        return False, error_msg
 
 
 def auto_save_and_resume(agent, current_task: str | None = None) -> tuple[bool, str]:
