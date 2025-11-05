@@ -344,6 +344,250 @@ def _is_admin() -> bool:
         return False  # Assume not admin if check fails
 
 
+def _install_tesseract_portable(group_id: str) -> tuple[bool, bool, bool]:
+    """Install Tesseract as a portable application (no admin required).
+    
+    Downloads portable ZIP, extracts to user's AppData, downloads tessdata.
+    
+    Args:
+        group_id: Message group ID for logging
+        
+    Returns:
+        Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
+    """
+    import os
+    import subprocess
+    import tempfile
+    import zipfile
+    from pathlib import Path
+    
+    from code_puppy.messaging import emit_info, emit_warning
+    from code_puppy.http_utils import download_with_walmart_fallback
+    
+    emit_info(
+        "  • Attempting portable installation (no admin required)...",
+        message_group=group_id,
+    )
+    
+    # Determine installation directory in user's AppData
+    install_dir = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~/.local"))) / "code-puppy" / "tesseract"
+    
+    emit_info(
+        f"  • Install location: {install_dir}",
+        message_group=group_id,
+    )
+    
+    try:
+        # Create installation directory
+        install_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Download portable Tesseract ZIP (w64 build from UB Mannheim)
+        # Using a specific version that has portable builds
+        tesseract_zip_url = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.5.0/tesseract-5.5.0-w64.zip"
+        
+        emit_info(
+            "  • Downloading Tesseract portable...",
+            message_group=group_id,
+        )
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+            tmp_path = Path(tmp_file.name)
+        
+        try:
+            # Download with Walmart fallback
+            download_result = download_with_walmart_fallback(
+                tesseract_zip_url,
+                tmp_path,
+                group_id=group_id
+            )
+            
+            if not download_result:
+                emit_warning(
+                    "[yellow]  • Download failed[/yellow]",
+                    message_group=group_id,
+                )
+                return False, False, False
+            
+            emit_info(
+                "  • Extracting Tesseract...",
+                message_group=group_id,
+            )
+            
+            # Extract ZIP
+            with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
+                zip_ref.extractall(install_dir)
+            
+            # Find tesseract.exe in extracted files
+            tesseract_exe = None
+            for exe_path in install_dir.rglob("tesseract.exe"):
+                tesseract_exe = exe_path
+                break
+            
+            if not tesseract_exe or not tesseract_exe.exists():
+                emit_warning(
+                    "[yellow]  • Could not find tesseract.exe after extraction[/yellow]",
+                    message_group=group_id,
+                )
+                return False, False, False
+            
+            emit_info(
+                f"  • Tesseract extracted to: {tesseract_exe.parent}",
+                message_group=group_id,
+            )
+            
+            # Download English training data (tessdata)
+            tessdata_dir = tesseract_exe.parent / "tessdata"
+            tessdata_dir.mkdir(exist_ok=True)
+            
+            eng_traineddata = tessdata_dir / "eng.traineddata"
+            if not eng_traineddata.exists():
+                emit_info(
+                    "  • Downloading English language data...",
+                    message_group=group_id,
+                )
+                
+                tessdata_url = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
+                
+                download_result = download_with_walmart_fallback(
+                    tessdata_url,
+                    eng_traineddata,
+                    group_id=group_id
+                )
+                
+                if download_result:
+                    emit_info(
+                        "[green]  • Language data downloaded[/green]",
+                        message_group=group_id,
+                    )
+                else:
+                    emit_warning(
+                        "[yellow]  • Could not download language data (OCR may not work)[/yellow]",
+                        message_group=group_id,
+                    )
+            
+            # Add to user PATH (HKEY_CURRENT_USER - no admin needed)
+            bin_dir = str(tesseract_exe.parent)
+            path_success, message = _update_user_path(bin_dir)
+            
+            if path_success:
+                emit_info(
+                    "[green]✓ Tesseract installed successfully (portable)[/green]",
+                    message_group=group_id,
+                )
+                emit_info(
+                    f"[green]  • {message}[/green]",
+                    message_group=group_id,
+                )
+                
+                # Check if we need restart (PATH update requires new terminal)
+                needs_restart = "Already" not in message
+                
+                return True, path_success, needs_restart
+            else:
+                emit_warning(
+                    f"[yellow]  • Could not update PATH: {message}[/yellow]",
+                    message_group=group_id,
+                )
+                emit_info(
+                    f"  • Please manually add to user PATH: {bin_dir}",
+                    message_group=group_id,
+                )
+                return True, False, False  # Installed but PATH failed
+        
+        finally:
+            # Clean up temp file
+            if tmp_path.exists():
+                tmp_path.unlink()
+    
+    except Exception as e:
+        emit_warning(
+            f"[yellow]  • Portable installation failed: {str(e)[:200]}[/yellow]",
+            message_group=group_id,
+        )
+        return False, False, False
+
+
+def _update_user_path(new_path: str) -> tuple[bool, str]:
+    """Update user PATH (HKEY_CURRENT_USER) - no admin required.
+    
+    Args:
+        new_path: Path to add to user PATH
+        
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    if sys.platform != "win32":
+        return False, "Not Windows"
+    
+    try:
+        import winreg
+        
+        # Open user environment key (no admin needed)
+        key_path = r"Environment"
+        
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            key_path,
+            0,
+            winreg.KEY_READ | winreg.KEY_WRITE
+        ) as key:
+            # Get current PATH
+            try:
+                current_path, _ = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                current_path = ""
+            
+            # Check if already in PATH (case-insensitive)
+            path_entries = current_path.split(";") if current_path else []
+            path_entries_lower = [p.lower() for p in path_entries]
+            
+            if new_path.lower() in path_entries_lower:
+                return True, "Already in user PATH"
+            
+            # Add to PATH
+            if current_path and not current_path.endswith(";"):
+                new_full_path = f"{current_path};{new_path}"
+            elif current_path:
+                new_full_path = f"{current_path}{new_path}"
+            else:
+                new_full_path = new_path
+            
+            # Update registry
+            winreg.SetValueEx(
+                key,
+                "Path",
+                0,
+                winreg.REG_EXPAND_SZ,
+                new_full_path
+            )
+            
+            # Broadcast WM_SETTINGCHANGE (optional, may not work without admin)
+            try:
+                import ctypes
+                HWND_BROADCAST = 0xFFFF
+                WM_SETTINGCHANGE = 0x1A
+                SMTO_ABORTIFHUNG = 0x0002
+                result = ctypes.c_long()
+                ctypes.windll.user32.SendMessageTimeoutW(
+                    HWND_BROADCAST,
+                    WM_SETTINGCHANGE,
+                    0,
+                    "Environment",
+                    SMTO_ABORTIFHUNG,
+                    5000,
+                    ctypes.byref(result)
+                )
+            except Exception:
+                pass  # Broadcast failed, not critical
+            
+            return True, "Added to user PATH (restart terminal to use)"
+    
+    except PermissionError:
+        return False, "Access denied (unlikely for user PATH)"
+    except Exception as e:
+        return False, f"Registry error: {str(e)}"
+
+
 def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool, bool]:
     """Download and silently install Tesseract from a URL.
     
@@ -520,11 +764,12 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
 def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
     """Attempt to install Tesseract OCR on Windows.
     
-    Tries multiple strategies:
-    1. Check WALMART_TESSERACT_URL env var for internal mirror
-    2. Try direct download and silent install from official release
-    3. Try winget install (Windows 10+ only)
-    4. Show download instructions if all fail
+    Tries multiple strategies (in order):
+    1. Portable installation (no admin required) - PREFERRED
+    2. Check WALMART_TESSERACT_URL env var for internal mirror
+    3. Try direct download and silent install from official release
+    4. Try winget install (Windows 10+ only)
+    5. Show download instructions if all fail
     
     Returns:
         Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
@@ -544,14 +789,28 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
         message_group=group_id,
     )
     
-    # Strategy 1: Check for Walmart internal binary
+    # Strategy 1: Try portable installation (NO ADMIN REQUIRED)
+    emit_info(
+        "  • Trying portable installation (no admin needed)...",
+        message_group=group_id,
+    )
+    install_success, path_success, needs_restart = _install_tesseract_portable(group_id)
+    if install_success:
+        return install_success, path_success, needs_restart
+    
+    emit_info(
+        "  • Portable installation failed, trying other methods...",
+        message_group=group_id,
+    )
+    
+    # Strategy 2: Check for Walmart internal binary
     walmart_url = os.environ.get("WALMART_TESSERACT_URL")
     if walmart_url:
         emit_info(
             f"  • Found WALMART_TESSERACT_URL: {walmart_url}",
             message_group=group_id,
         )
-        # Try to download and install from Walmart mirror
+        # Try to download and install from Walmart mirror (may need admin)
         install_success, path_success, needs_restart = _download_and_install_tesseract(walmart_url, group_id)
         if install_success:
             return install_success, path_success, needs_restart
@@ -561,9 +820,9 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
                 message_group=group_id,
             )
     
-    # Strategy 2: Direct download from official GitHub release
+    # Strategy 3: Direct download from official GitHub release (may need admin)
     emit_info(
-        "  • Attempting direct download from GitHub...",
+        "  • Attempting direct download from GitHub (may require admin)...",
         message_group=group_id,
     )
     
