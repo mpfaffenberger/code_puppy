@@ -934,7 +934,7 @@ async def run_calibration() -> Dict[str, Any]:
             message_group=group_id,
         )
         emit_info(
-            "[bold white]  3. Run 'pup' again[/bold white]",
+            "[bold white]  3. Restart code-puppy[/bold white]",
             message_group=group_id,
         )
         emit_info("", message_group=group_id)

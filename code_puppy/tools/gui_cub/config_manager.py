@@ -147,10 +147,22 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
             except Exception:
                 return False, "Tesseract OCR missing or broken, will attempt reinstallation"
         
-        # If pytesseract was marked unavailable, check if we should retry installation
-        # Only retry if missing_capabilities indicates it was due to admin_required
-        # and user might have gained admin rights
+        # If pytesseract was marked unavailable, check if it's actually available now
+        # (e.g., after terminal restart following installation)
         if not capabilities.get("pytesseract", False):
+            # Check if we previously installed it successfully
+            if capabilities.get("pytesseract_install_success", False):
+                # Check if it works now (after terminal restart)
+                try:
+                    import pytesseract
+                    pytesseract.get_tesseract_version()
+                    # It works now! Update config
+                    return False, "Tesseract now available after restart, updating config"
+                except Exception:
+                    # Still doesn't work, keep as-is
+                    pass
+            
+            # Check if we should retry installation (e.g., user has admin now)
             missing = config.get("missing_capabilities", {}).get("pytesseract", {})
             if missing.get("reason") == "admin_required":
                 # User might have admin now, let's retry
