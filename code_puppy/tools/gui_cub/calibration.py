@@ -733,6 +733,57 @@ async def run_calibration() -> Dict[str, Any]:
             message_group=group_id,
         )
     
+    # If there are missing capabilities, pause so user can read the messages
+    if missing_capabilities:
+        emit_info(
+            "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
+            message_group=group_id,
+        )
+        emit_warning(
+            "[bold yellow]⚠️  IMPORTANT: Some features are unavailable[/bold yellow]",
+            message_group=group_id,
+        )
+        
+        for capability_name, info in missing_capabilities.items():
+            emit_info(
+                f"\n[yellow]Missing:[/yellow] {capability_name}",
+                message_group=group_id,
+            )
+            emit_info(
+                f"[yellow]Reason:[/yellow] {info['message']}",
+                message_group=group_id,
+            )
+            emit_info(
+                f"[yellow]Affects:[/yellow] {', '.join(info['affects'])}",
+                message_group=group_id,
+            )
+            emit_info(
+                f"[yellow]Solution:[/yellow] {info['solution']}",
+                message_group=group_id,
+            )
+            
+            # For Tesseract, add direct download link
+            if capability_name == "pytesseract":
+                emit_info(
+                    "[yellow]Download:[/yellow] https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe",
+                    message_group=group_id,
+                )
+        
+        emit_info(
+            "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[dim]Press Enter to continue...[/dim]",
+            message_group=group_id,
+        )
+        
+        # Pause for user to read
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            pass  # Allow Ctrl+C or EOF to continue
+    
     return {
         "success": True,
         "config": config,
