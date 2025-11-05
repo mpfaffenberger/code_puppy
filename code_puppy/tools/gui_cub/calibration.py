@@ -314,7 +314,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
         urllib.request.urlretrieve(url, installer_path)
         
         emit_info(
-            "  • Download complete, installing silently...",
+            "  • Download complete, installing...",
             message_group=group_id,
         )
         
@@ -339,10 +339,63 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
                 "[green]✅ Tesseract installed successfully[/green]",
                 message_group=group_id,
             )
-            emit_info(
-                "  • Please restart your terminal for PATH changes to take effect",
-                message_group=group_id,
-            )
+            
+            # Add Tesseract to system PATH
+            tesseract_path = "C:\\Program Files\\Tesseract-OCR"
+            try:
+                emit_info(
+                    "  • Adding Tesseract to system PATH...",
+                    message_group=group_id,
+                )
+                
+                # Use setx to add to system PATH (requires admin, which we have)
+                # Note: setx has a 1024 character limit, so we check PATH length first
+                import os
+                current_path = os.environ.get("PATH", "")
+                
+                # Check if already in PATH
+                if tesseract_path not in current_path:
+                    # Add to system PATH using setx /M (machine-level, requires admin)
+                    path_result = subprocess.run(
+                        ["setx", "/M", "PATH", f"{current_path};{tesseract_path}"],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    
+                    if path_result.returncode == 0:
+                        emit_info(
+                            "[green]  • PATH updated successfully[/green]",
+                            message_group=group_id,
+                        )
+                        emit_info(
+                            "  • Please restart your terminal for PATH changes to take effect",
+                            message_group=group_id,
+                        )
+                    else:
+                        emit_warning(
+                            "[yellow]  • Could not update PATH automatically, please add manually[/yellow]",
+                            message_group=group_id,
+                        )
+                        emit_info(
+                            f"  • Add to PATH: {tesseract_path}",
+                            message_group=group_id,
+                        )
+                else:
+                    emit_info(
+                        "  • Tesseract already in PATH",
+                        message_group=group_id,
+                    )
+            except Exception as e:
+                emit_warning(
+                    f"[yellow]  • Could not update PATH: {str(e)[:100]}[/yellow]",
+                    message_group=group_id,
+                )
+                emit_info(
+                    f"  • Please manually add to PATH: {tesseract_path}",
+                    message_group=group_id,
+                )
+            
             return True
         else:
             emit_warning(
@@ -686,7 +739,7 @@ async def run_calibration() -> Dict[str, Any]:
             missing_capabilities["pytesseract"] = {
                 "reason": "admin_required",
                 "message": "Tesseract installation requires administrator privileges",
-                "solution": "Run PowerShell/Terminal as Administrator and restart code-puppy",
+                "solution": "Run PowerShell/Terminal as Administrator and restart code-puppy, or manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe",
                 "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
             }
         else:
@@ -761,13 +814,6 @@ async def run_calibration() -> Dict[str, Any]:
                 f"[yellow]Solution:[/yellow] {info['solution']}",
                 message_group=group_id,
             )
-            
-            # For Tesseract, add direct download link
-            if capability_name == "pytesseract":
-                emit_info(
-                    "[yellow]Download:[/yellow] https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe",
-                    message_group=group_id,
-                )
         
         emit_info(
             "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
