@@ -256,6 +256,18 @@ def _attempt_install_windows_dependencies() -> bool:
         return False
 
 
+def _is_admin() -> bool:
+    """Check if running with administrator privileges on Windows."""
+    if sys.platform != "win32":
+        return True  # Not Windows, don't care
+    
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False  # Assume not admin if check fails
+
+
 def _download_and_install_tesseract(url: str, group_id: str) -> bool:
     """Download and silently install Tesseract from a URL.
     
@@ -273,6 +285,22 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
     from code_puppy.messaging import emit_info, emit_warning
     
     try:
+        # Check admin rights on Windows
+        if sys.platform == "win32" and not _is_admin():
+            emit_warning(
+                "[yellow]⚠️ Installation requires administrator privileges[/yellow]",
+                message_group=group_id,
+            )
+            emit_info(
+                "  • Please restart PowerShell/Terminal as Administrator",
+                message_group=group_id,
+            )
+            emit_info(
+                "  • Then run: pup",
+                message_group=group_id,
+            )
+            return False
+        
         # Download the installer
         emit_info(
             f"  • Downloading from {url}...",
@@ -324,10 +352,27 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
             return False
     
     except Exception as e:
-        emit_warning(
-            f"[yellow]⚠️ Download/install error: {str(e)[:200]}[/yellow]",
-            message_group=group_id,
-        )
+        error_msg = str(e)
+        
+        # Check for admin rights issue (WinError 740)
+        if "740" in error_msg or "elevation" in error_msg.lower():
+            emit_warning(
+                "[yellow]⚠️ Installation requires administrator privileges[/yellow]",
+                message_group=group_id,
+            )
+            emit_info(
+                "  • Please run PowerShell/Terminal as Administrator",
+                message_group=group_id,
+            )
+            emit_info(
+                "  • Or manually download and install Tesseract",
+                message_group=group_id,
+            )
+        else:
+            emit_warning(
+                f"[yellow]⚠️ Download/install error: {error_msg[:200]}[/yellow]",
+                message_group=group_id,
+            )
         return False
 
 
@@ -634,6 +679,24 @@ async def run_calibration() -> Dict[str, Any]:
             message_group=group_id,
         )
     
+    # Build list of missing capabilities with reasons
+    missing_capabilities = {}
+    if not capabilities.get("pytesseract", False):
+        if sys.platform == "win32" and not _is_admin():
+            missing_capabilities["pytesseract"] = {
+                "reason": "admin_required",
+                "message": "Tesseract installation requires administrator privileges",
+                "solution": "Run PowerShell/Terminal as Administrator and restart code-puppy",
+                "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
+            }
+        else:
+            missing_capabilities["pytesseract"] = {
+                "reason": "installation_failed",
+                "message": "Tesseract OCR could not be installed automatically",
+                "solution": "Manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe",
+                "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
+            }
+    
     # Build config
     config = {
         "success": True,
@@ -643,6 +706,7 @@ async def run_calibration() -> Dict[str, Any]:
         "platform": platform_info,
         "display": display_info,
         "capabilities": capabilities,
+        "missing_capabilities": missing_capabilities,
         "permissions": permissions,
         "performance": performance,
         "metadata": {

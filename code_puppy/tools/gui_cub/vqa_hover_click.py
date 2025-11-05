@@ -299,6 +299,29 @@ def _vqa_hover_and_click_impl(
     )
 
 
+def _check_vqa_capability() -> tuple[bool, str]:
+    """Check if VQA is available (requires OCR/Tesseract).
+    
+    Returns:
+        Tuple of (is_available, error_message)
+    """
+    from code_puppy.tools.gui_cub.config_manager import load_config
+    
+    config = load_config()
+    if not config:
+        return False, "Platform not calibrated. Run gui_cub_calibrate() first."
+    
+    # VQA doesn't strictly require Tesseract, but check anyway for consistency
+    capabilities = config.get("capabilities", {})
+    
+    # Note: VQA uses vision models, not Tesseract, so we don't block it
+    # But we can warn if pyautogui is missing
+    if not capabilities.get("pyautogui", False):
+        return False, "⚠️ PyAutoGUI not available. VQA/screenshot features won't work."
+    
+    return True, ""
+
+
 def register_vqa_hover_tools(agent):
     """Register VQA hover & click tool with an agent."""
     
@@ -352,6 +375,14 @@ def register_vqa_hover_tools(agent):
         - Simpler logic, fewer points of failure
         - Faster (single pass)
         """
+        # Check capabilities
+        is_available, error_msg = _check_vqa_capability()
+        if not is_available:
+            return {
+                "success": False,
+                "error": error_msg,
+            }
+        
         result = _vqa_hover_and_click_impl(
             element_description=element_description,
             window_title=window_title,
@@ -397,6 +428,14 @@ def register_vqa_hover_tools(agent):
                 window_title="Spotify"
             )
         """
+        # Check capabilities
+        is_available, error_msg = _check_vqa_capability()
+        if not is_available:
+            return {
+                "success": False,
+                "error": error_msg,
+            }
+        
         result = _vqa_hover_and_click_impl(
             element_description=element_description,
             window_title=window_title,

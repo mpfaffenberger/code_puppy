@@ -17,9 +17,31 @@ class GUICubAgent(BaseAgent):
         This is fast if config is cached (~0.1s), slower on first run (~2-5s).
         """
         if not self._calibrated:
-            from code_puppy.tools.gui_cub.config_manager import ensure_calibrated
-            await ensure_calibrated()
+            from code_puppy.tools.gui_cub.config_manager import ensure_calibrated, load_config
+            from code_puppy.messaging import emit_warning, emit_info
+            
+            result = await ensure_calibrated()
             self._calibrated = True
+            
+            # Check for missing capabilities and warn user
+            config = load_config()
+            if config and config.get("missing_capabilities"):
+                missing = config["missing_capabilities"]
+                
+                if "pytesseract" in missing:
+                    info = missing["pytesseract"]
+                    emit_warning(
+                        f"[yellow]⚠️ {info['message']}[/yellow]"
+                    )
+                    emit_info(
+                        f"[dim]  Affected features: {', '.join(info['affects'])}[/dim]"
+                    )
+                    emit_info(
+                        f"[dim]  Solution: {info['solution']}[/dim]"
+                    )
+                    emit_info(
+                        "[dim]  You can still use mouse/keyboard automation, but OCR/VQA won't work.[/dim]"
+                    )
 
     @property
     def name(self) -> str:

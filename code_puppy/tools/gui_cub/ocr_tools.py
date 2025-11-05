@@ -485,6 +485,35 @@ def find_text_in_elements(
     )
 
 
+def _check_ocr_capability() -> tuple[bool, str]:
+    """Check if OCR/Tesseract is available.
+    
+    Returns:
+        Tuple of (is_available, error_message)
+    """
+    from code_puppy.tools.gui_cub.config_manager import load_config
+    
+    config = load_config()
+    if not config:
+        return False, "Platform not calibrated. Run gui_cub_calibrate() first."
+    
+    # Check if pytesseract is available
+    capabilities = config.get("capabilities", {})
+    if not capabilities.get("pytesseract", False):
+        missing = config.get("missing_capabilities", {}).get("pytesseract", {})
+        
+        if missing:
+            message = f"\u26a0\ufe0f {missing.get('message', 'Tesseract OCR not available')}\n"
+            message += f"Affected features: {', '.join(missing.get('affects', ['OCR']))}\n"
+            message += f"Solution: {missing.get('solution', 'Install Tesseract manually')}"
+        else:
+            message = "⚠️ Tesseract OCR not available. OCR/text recognition features won't work."
+        
+        return False, message
+    
+    return True, ""
+
+
 def register_ocr_tools(agent):
     """Register OCR (Optical Character Recognition) tools."""
 
@@ -526,6 +555,14 @@ def register_ocr_tools(agent):
             - desktop_extract_text(x=100, y=100, width=500, height=300) - Extract from specific region
             - desktop_extract_text(language="spa") - Extract Spanish text from active window
         """
+        # Check capabilities from config
+        is_available, error_msg = _check_ocr_capability()
+        if not is_available:
+            return OCRExtractResult(
+                success=False,
+                error=error_msg,
+            )
+        
         if not PYAUTOGUI_AVAILABLE:
             return OCRExtractResult(
                 success=False,
