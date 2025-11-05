@@ -1,0 +1,586 @@
+"""Platform calibration for GUI-Cub - detects and caches all automation-relevant info.
+
+Runs on first use (like QA-Kitten downloading Camoufox) to detect:
+- Platform (OS, version, architecture)
+- Displays (all monitors, resolutions, DPI, scaling)
+- Libraries (atomacos, pywinauto, pytesseract, opencv)
+- Performance (screenshot, mouse, keyboard latencies)
+- Permissions (accessibility, screen recording on macOS)
+"""
+
+import asyncio
+import os
+import platform
+import subprocess
+import sys
+import time
+from datetime import datetime
+from typing import Any, Dict, List
+
+import pyautogui
+from PIL import Image
+
+from code_puppy.messaging import emit_info, emit_warning
+from code_puppy.tools.common import generate_group_id
+
+try:
+    from code_puppy import __version__ as code_puppy_version
+except ImportError:
+    code_puppy_version = "unknown"
+
+
+def detect_platform() -> Dict[str, Any]:
+    """Detect OS platform information."""
+    os_name = sys.platform
+    os_display = {
+        "darwin": "macOS",
+        "win32": "Windows",
+        "linux": "Linux",
+    }.get(os_name, os_name)
+    
+    return {
+        "os": os_name,
+        "os_display": os_display,
+        "version": platform.release(),
+        "machine": platform.machine(),
+        "processor": platform.processor() or "unknown",
+    }
+
+
+def detect_displays() -> Dict[str, Any]:
+    """Detect all displays, resolutions, and scaling."""
+    # Get primary display
+    try:
+        from code_puppy.tools.gui_cub.platform import get_screen_scale_factor
+        scale_factor = get_screen_scale_factor()
+    except Exception:
+        scale_factor = 1.0
+    
+    primary_width, primary_height = pyautogui.size()
+    
+    # Try to get all monitors
+    monitors = []
+    try:
+        # pyautogui doesn't have built-in multi-monitor support
+        # We'll use the platform-specific code if available
+        if sys.platform == "darwin":
+            monitors = _detect_macos_monitors()
+        elif sys.platform == "win32":
+            monitors = _detect_windows_monitors()
+        else:
+            monitors = _detect_linux_monitors()
+    except Exception as e:
+        # Fallback to primary display only
+        monitors = [{
+            "id": 0,
+            "resolution": [primary_width, primary_height],
+            "scale": scale_factor,
+            "primary": True,
+            "bounds": {"x": 0, "y": 0, "width": primary_width, "height": primary_height},
+        }]
+    
+    return {
+        "primary_resolution": [primary_width, primary_height],
+        "scale_factor": scale_factor,
+        "dpi": int(96 * scale_factor),  # Approximate DPI
+        "monitors": monitors,
+        "monitor_count": len(monitors),
+    }
+
+
+def _detect_macos_monitors() -> List[Dict[str, Any]]:
+    """Detect monitors on macOS using NSScreen."""
+    try:
+        from AppKit import NSScreen
+        
+        monitors = []
+        screens = NSScreen.screens()
+        
+        for i, screen in enumerate(screens):
+            frame = screen.frame()
+            scale = screen.backingScaleFactor()
+            
+            monitors.append({
+                "id": i,
+                "resolution": [int(frame.size.width), int(frame.size.height)],
+                "scale": float(scale),
+                "primary": i == 0,
+                "bounds": {
+                    "x": int(frame.origin.x),
+                    "y": int(frame.origin.y),
+                    "width": int(frame.size.width),
+                    "height": int(frame.size.height),
+                },
+            })
+        
+        return monitors
+    except ImportError:
+        # NSScreen not available, fall back to pyautogui
+        width, height = pyautogui.size()
+        return [{
+            "id": 0,
+            "resolution": [width, height],
+            "scale": 1.0,
+            "primary": True,
+            "bounds": {"x": 0, "y": 0, "width": width, "height": height},
+        }]
+
+
+def _detect_windows_monitors() -> List[Dict[str, Any]]:
+    """Detect monitors on Windows."""
+    try:
+        import win32api
+        
+        monitors = []
+        for i, monitor in enumerate(win32api.EnumDisplayMonitors()):
+            info = win32api.GetMonitorInfo(monitor[0])
+            rect = info['Monitor']
+            
+            width = rect[2] - rect[0]
+            height = rect[3] - rect[1]
+            
+            monitors.append({
+                "id": i,
+                "resolution": [width, height],
+                "scale": 1.0,  # TODO: Get actual DPI
+                "primary": info.get('Flags', 0) == 1,
+                "bounds": {
+                    "x": rect[0],
+                    "y": rect[1],
+                    "width": width,
+                    "height": height,
+                },
+            })
+        
+        return monitors
+    except ImportError:
+        # win32api not available
+        width, height = pyautogui.size()
+        return [{
+            "id": 0,
+            "resolution": [width, height],
+            "scale": 1.0,
+            "primary": True,
+            "bounds": {"x": 0, "y": 0, "width": width, "height": height},
+        }]
+
+
+def _detect_linux_monitors() -> List[Dict[str, Any]]:
+    """Detect monitors on Linux (basic support)."""
+    # Linux multi-monitor detection is complex and varies by display server
+    # For now, return primary display only
+    width, height = pyautogui.size()
+    return [{
+        "id": 0,
+        "resolution": [width, height],
+        "scale": 1.0,
+        "primary": True,
+        "bounds": {"x": 0, "y": 0, "width": width, "height": height},
+    }]
+
+
+def _attempt_install_windows_dependencies() -> bool:
+    """Attempt to install Windows-specific dependencies (pywinauto, pywin32).
+    
+    Returns:
+        True if installation succeeded, False otherwise
+    """
+    import subprocess
+    
+    from code_puppy.messaging import emit_info, emit_warning
+    from code_puppy.tools.common import generate_group_id
+    
+    group_id = generate_group_id("windows_deps")
+    
+    emit_info(
+        "[cyan]📦 Installing Windows automation dependencies...[/cyan]",
+        message_group=group_id,
+    )
+    
+    packages = ["pywinauto>=0.6.8", "pywin32>=306"]
+    
+    try:
+        # Try to install using pip
+        emit_info(
+            "  • Installing pywinauto and pywin32...",
+            message_group=group_id,
+        )
+        
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install"] + packages,
+            capture_output=True,
+            text=True,
+            timeout=120,  # 2 minute timeout
+        )
+        
+        if result.returncode == 0:
+            emit_info(
+                "[green]✅ Windows dependencies installed successfully[/green]",
+                message_group=group_id,
+            )
+            
+            # Run pywin32 post-install script if needed
+            try:
+                emit_info(
+                    "  • Running pywin32 post-install...",
+                    message_group=group_id,
+                )
+                subprocess.run(
+                    [sys.executable, "-m", "pywin32_postinstall", "-install"],
+                    capture_output=True,
+                    timeout=30,
+                )
+            except Exception:
+                # Post-install script is optional
+                pass
+            
+            return True
+        else:
+            emit_warning(
+                f"[yellow]⚠️ Installation failed: {result.stderr[:200]}[/yellow]",
+                message_group=group_id,
+            )
+            return False
+    
+    except subprocess.TimeoutExpired:
+        emit_warning(
+            "[yellow]⚠️ Installation timed out[/yellow]",
+            message_group=group_id,
+        )
+        return False
+    except Exception as e:
+        emit_warning(
+            f"[yellow]⚠️ Installation error: {str(e)[:200]}[/yellow]",
+            message_group=group_id,
+        )
+        return False
+
+
+def _attempt_install_tesseract_windows() -> bool:
+    """Attempt to install Tesseract OCR on Windows.
+    
+    Tries multiple strategies:
+    1. Check WALMART_TESSERACT_URL env var for internal mirror
+    2. Try winget install (Windows 10+ only)
+    3. Show download instructions if both fail
+    
+    Returns:
+        True if installation succeeded, False otherwise
+    """
+    import os
+    import subprocess
+    
+    from code_puppy.messaging import emit_info, emit_warning
+    from code_puppy.tools.common import generate_group_id
+    
+    group_id = generate_group_id("tesseract_install")
+    
+    emit_info(
+        "[cyan]📦 Tesseract OCR not found, attempting installation...[/cyan]",
+        message_group=group_id,
+    )
+    
+    # Strategy 1: Check for Walmart internal binary
+    walmart_url = os.environ.get("WALMART_TESSERACT_URL")
+    if walmart_url:
+        emit_info(
+            f"  • Found WALMART_TESSERACT_URL: {walmart_url}",
+            message_group=group_id,
+        )
+        emit_info(
+            "  • Please download and install from the Walmart internal mirror",
+            message_group=group_id,
+        )
+        emit_info(
+            "  • After installation, restart your terminal and try again",
+            message_group=group_id,
+        )
+        return False
+    
+    # Strategy 2: Try winget (Windows 10+ package manager)
+    try:
+        emit_info(
+            "  • Attempting winget installation...",
+            message_group=group_id,
+        )
+        
+        result = subprocess.run(
+            ["winget", "install", "--id=UB-Mannheim.TesseractOCR", "--silent", "--accept-source-agreements"],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout for download
+        )
+        
+        if result.returncode == 0:
+            emit_info(
+                "[green]✅ Tesseract installed via winget[/green]",
+                message_group=group_id,
+            )
+            emit_info(
+                "  • Please restart your terminal for PATH changes to take effect",
+                message_group=group_id,
+            )
+            return True
+        else:
+            emit_info(
+                "  • winget installation failed, falling back to manual instructions",
+                message_group=group_id,
+            )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        emit_info(
+            "  • winget not available or timed out",
+            message_group=group_id,
+        )
+    
+    # Strategy 3: Show download instructions
+    emit_info(
+        "[yellow]⚠️ Tesseract OCR installation required for OCR features[/yellow]",
+        message_group=group_id,
+    )
+    emit_info(
+        "  • Download from: https://github.com/UB-Mannheim/tesseract/wiki",
+        message_group=group_id,
+    )
+    emit_info(
+        "  • Or ask IT for the Walmart internal mirror",
+        message_group=group_id,
+    )
+    emit_info(
+        "  • After installation, run: gui_cub_calibrate() to re-detect",
+        message_group=group_id,
+    )
+    
+    return False
+
+
+def detect_capabilities() -> Dict[str, bool]:
+    """Detect which libraries are available.
+    
+    On Windows, attempts to auto-install pywinauto and pywin32 if missing.
+    """
+    capabilities = {}
+    
+    # Always available (required dependencies)
+    capabilities["pyautogui"] = True
+    capabilities["pillow"] = True
+    
+    # Test atomacos (macOS accessibility)
+    try:
+        import atomacos
+        capabilities["atomacos"] = True
+    except ImportError:
+        capabilities["atomacos"] = False
+    
+    # Test pywinauto (Windows automation)
+    # If on Windows and not installed, attempt auto-install
+    try:
+        import pywinauto
+        capabilities["pywinauto"] = True
+    except ImportError:
+        if sys.platform == "win32":
+            # Attempt to install Windows dependencies
+            if _attempt_install_windows_dependencies():
+                # Try importing again after installation
+                try:
+                    import pywinauto
+                    capabilities["pywinauto"] = True
+                except ImportError:
+                    capabilities["pywinauto"] = False
+            else:
+                capabilities["pywinauto"] = False
+        else:
+            capabilities["pywinauto"] = False
+    
+    # Test pytesseract (OCR)
+    # If on Windows and tesseract binary is missing, attempt auto-install
+    try:
+        import pytesseract
+        # Try to run a test to ensure tesseract binary is available
+        pytesseract.get_tesseract_version()
+        capabilities["pytesseract"] = True
+    except Exception:
+        if sys.platform == "win32":
+            # Attempt to install Tesseract binary
+            if _attempt_install_tesseract_windows():
+                # Try checking again after installation
+                # Note: May still fail if PATH not updated until terminal restart
+                try:
+                    import pytesseract
+                    pytesseract.get_tesseract_version()
+                    capabilities["pytesseract"] = True
+                except Exception:
+                    capabilities["pytesseract"] = False
+            else:
+                capabilities["pytesseract"] = False
+        else:
+            capabilities["pytesseract"] = False
+    
+    # Test opencv
+    try:
+        import cv2
+        capabilities["opencv"] = True
+    except ImportError:
+        capabilities["opencv"] = False
+    
+    return capabilities
+
+
+def detect_permissions() -> Dict[str, Any]:
+    """Detect accessibility permissions (macOS only)."""
+    permissions = {}
+    
+    if sys.platform == "darwin":
+        try:
+            from code_puppy.tools.gui_cub.platform import check_macos_accessibility_permission
+            has_access, message = check_macos_accessibility_permission()
+            permissions["accessibility"] = has_access
+            permissions["accessibility_message"] = message
+        except Exception as e:
+            permissions["accessibility"] = False
+            permissions["accessibility_message"] = f"Failed to check: {e}"
+    
+    return permissions
+
+
+async def test_performance() -> Dict[str, Any]:
+    """Test performance of key operations."""
+    performance = {}
+    
+    # Test screenshot latency
+    try:
+        start = time.perf_counter()
+        screenshot = pyautogui.screenshot()
+        end = time.perf_counter()
+        performance["screenshot_ms"] = int((end - start) * 1000)
+    except Exception:
+        performance["screenshot_ms"] = -1
+    
+    # Test mouse movement latency (small movement)
+    try:
+        current_pos = pyautogui.position()
+        start = time.perf_counter()
+        pyautogui.moveTo(current_pos[0] + 1, current_pos[1])
+        end = time.perf_counter()
+        performance["mouse_move_ms"] = int((end - start) * 1000)
+        # Move back
+        pyautogui.moveTo(current_pos[0], current_pos[1])
+    except Exception:
+        performance["mouse_move_ms"] = -1
+    
+    # Test click latency (no actual click, just timing)
+    try:
+        start = time.perf_counter()
+        # Don't actually click, just measure the time
+        end = time.perf_counter()
+        # Click typically takes 50-200ms
+        performance["click_estimate_ms"] = 100  # Default estimate
+    except Exception:
+        performance["click_estimate_ms"] = -1
+    
+    # Test keyboard latency estimate
+    performance["keyboard_estimate_ms"] = 50  # Default estimate
+    
+    return performance
+
+
+async def run_calibration() -> Dict[str, Any]:
+    """Run full platform calibration (QA-Kitten pattern).
+    
+    This is called:
+    - On first run (no config.json exists)
+    - When config is invalid (resolution changed, etc.)
+    - When user manually calls gui_cub_calibrate()
+    
+    Returns:
+        Dict with success, config, and calibration timestamp
+    """
+    group_id = generate_group_id("calibration")
+    emit_info(
+        "[bold green]🔍 Detecting platform capabilities...[/bold green]",
+        message_group=group_id,
+    )
+    
+    # Detect platform
+    emit_info("  • Detecting OS and version...", message_group=group_id)
+    platform_info = detect_platform()
+    emit_info(
+        f"    → {platform_info['os_display']} {platform_info['version']} ({platform_info['machine']})",
+        message_group=group_id,
+    )
+    
+    # Detect displays
+    emit_info("  • Detecting displays and resolution...", message_group=group_id)
+    display_info = detect_displays()
+    emit_info(
+        f"    → {display_info['monitor_count']} monitor(s), primary: {display_info['primary_resolution'][0]}x{display_info['primary_resolution'][1]} @ {display_info['scale_factor']}x scale",
+        message_group=group_id,
+    )
+    
+    # Detect libraries
+    emit_info("  • Checking library availability...", message_group=group_id)
+    capabilities = detect_capabilities()
+    available = [k for k, v in capabilities.items() if v]
+    emit_info(
+        f"    → Available: {', '.join(available)}",
+        message_group=group_id,
+    )
+    
+    # Detect permissions
+    permissions = detect_permissions()
+    if permissions:
+        emit_info("  • Checking permissions...", message_group=group_id)
+        for key, value in permissions.items():
+            if isinstance(value, bool):
+                status = "✅" if value else "❌"
+                emit_info(f"    → {key}: {status}", message_group=group_id)
+    
+    # Test performance
+    emit_info("  • Testing performance...", message_group=group_id)
+    performance = await test_performance()
+    if performance.get("screenshot_ms", -1) > 0:
+        emit_info(
+            f"    → Screenshot: {performance['screenshot_ms']}ms, Mouse: {performance['mouse_move_ms']}ms",
+            message_group=group_id,
+        )
+    
+    # Build config
+    config = {
+        "success": True,
+        "calibrated_at": datetime.now().isoformat(),
+        "version": "1.0.0",
+        "code_puppy_version": code_puppy_version,
+        "platform": platform_info,
+        "display": display_info,
+        "capabilities": capabilities,
+        "permissions": permissions,
+        "performance": performance,
+        "metadata": {
+            "last_validated": datetime.now().isoformat(),
+            "calibration_count": 1,
+        },
+    }
+    
+    # Save config
+    from code_puppy.tools.gui_cub.config_manager import get_config_path, save_config
+    
+    if save_config(config):
+        emit_info(
+            f"[green]✅ Platform calibrated successfully[/green]",
+            message_group=group_id,
+        )
+        emit_info(
+            f"[dim]   Config saved to: {get_config_path()}[/dim]",
+            message_group=group_id,
+        )
+    else:
+        emit_info(
+            "[yellow]⚠️ Warning: Failed to save config (will re-calibrate next time)[/yellow]",
+            message_group=group_id,
+        )
+    
+    return {
+        "success": True,
+        "config": config,
+        "calibrated": True,
+        "path": str(get_config_path()),
+    }

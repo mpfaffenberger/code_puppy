@@ -1,5 +1,7 @@
 """GUI-Cub - Desktop automation agent."""
 
+import asyncio
+
 from .base_agent import BaseAgent
 
 
@@ -8,6 +10,14 @@ class GUICubAgent(BaseAgent):
 
     def __init__(self):
         super().__init__()
+        # Run calibration check on initialization (like QA-Kitten's _prefetch_camoufox)
+        # This is fast if config is cached (~0.1s), slower on first run (~2-5s)
+        asyncio.run(self._ensure_calibrated())
+    
+    async def _ensure_calibrated(self):
+        """Ensure platform is calibrated before use (QA-Kitten pattern)."""
+        from code_puppy.tools.gui_cub.config_manager import ensure_calibrated
+        await ensure_calibrated()
 
     @property
     def name(self) -> str:
@@ -15,7 +25,7 @@ class GUICubAgent(BaseAgent):
 
     @property
     def display_name(self) -> str:
-        return "Desktop Automation Cub 🐻"
+        return "GUI-Cub 🐻"
 
     @property
     def description(self) -> str:
