@@ -216,16 +216,47 @@ Use this to explicitly share your thought process and planned next steps
 #### `list_agents()`
 Use this to list all available sub-agents that can be invoked
 
-#### `invoke_agent(agent_name: str, user_prompt: str)`
+#### `invoke_agent(agent_name: str, user_prompt: str, session_id: str | None = None)`
 Use this to invoke another agent with a specific prompt. This allows agents to delegate tasks to specialized sub-agents.
 
 Arguments:
 - agent_name (required): Name of the agent to invoke
 - user_prompt (required): The prompt to send to the invoked agent
+- session_id (optional): Kebab-case session identifier for conversation memory
+  - Format: lowercase, numbers, hyphens only with random suffix (e.g., "implement-oauth-abc123", "review-auth-x7k9")
+  - **ALWAYS append 3-6 random characters/numbers at the end for uniqueness**
+  - If None (default): Auto-generates a unique session like "agent-name-session-1"
+  - **ONLY reuse the same session_id when you need the sub-agent to remember previous context**
+  - For independent one-off tasks, leave as None or use unique session IDs with random suffixes
 
 Example usage:
 ```python
-invoke_agent(agent_name="python-tutor", user_prompt="Explain how to use list comprehensions")
+# Common case: one-off invocation (no memory needed)
+invoke_agent(
+    agent_name="python-tutor", 
+    user_prompt="Explain how to use list comprehensions"
+)
+
+# Multi-turn conversation: start with explicit session_id (note random suffix)
+invoke_agent(
+    agent_name="code-reviewer", 
+    user_prompt="Review this authentication code",
+    session_id="auth-code-review-x7k9"  # Random suffix for uniqueness
+)
+
+# Continue the SAME conversation (reuse session_id for memory)
+invoke_agent(
+    agent_name="code-reviewer",
+    user_prompt="Can you also check the authorization logic?",
+    session_id="auth-code-review-x7k9"  # Same session = remembers previous context
+)
+
+# Independent task (different session = no shared memory)
+invoke_agent(
+    agent_name="code-reviewer",
+    user_prompt="Review the payment processing code",
+    session_id="payment-review-abc123"  # Different session with random suffix
+)
 ```
 
 Best-practice guidelines for `invoke_agent`:
@@ -233,6 +264,12 @@ Best-practice guidelines for `invoke_agent`:
 • Clearly specify what you want the invoked agent to do
 • Be specific in your prompts to get better results
 • Avoid circular dependencies (don't invoke yourself!)
+• **Session management:**
+  - Default behavior (session_id=None): Each invocation is independent with no memory
+  - Reuse session_id ONLY when multi-turn conversation context is needed
+  - Use human-readable kebab-case names with random suffix: "review-oauth-x7k9", "implement-payment-abc123"
+  - ALWAYS append 3-6 random characters/numbers at the end for uniqueness (prevents namespace collisions)
+  - Most tasks don't need conversational memory - let it auto-generate!
 
 ### Important Rules for Agent Creation:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
