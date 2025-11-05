@@ -255,31 +255,58 @@ def register_invoke_agent(agent):
         Args:
             agent_name: The name of the agent to invoke
             prompt: The prompt to send to the agent
-            session_id: Optional session ID to maintain conversation state across invocations.
-                       If None, a new session will be auto-generated in kebab-case format.
-                       If provided, must be kebab-case (lowercase, numbers, hyphens only).
-                       The sub-agent will continue from the previous conversation in that session.
+            session_id: Optional session ID for maintaining conversation memory across invocations.
+
+                       **Session ID Format:**
+                       - Must be kebab-case (lowercase letters, numbers, hyphens only)
+                       - Should be human-readable with random suffix: e.g., "implement-oauth-abc123", "review-auth-x7k9"
+                       - Add 3-6 random characters/numbers at the end to prevent namespace collisions
+                       - If None (default), auto-generates like "agent-name-session-1"
+
+                       **When to use session_id:**
+                       - **REUSE** the same session_id ONLY when you need the sub-agent to remember
+                         previous conversation context (e.g., multi-turn discussions, iterative reviews)
+                       - **DO NOT REUSE** for independent, one-off tasks - let it auto-generate or use
+                         unique IDs for each invocation
+
+                       **Most common pattern:** Leave session_id as None (auto-generate) unless you
+                       specifically need conversational memory.
 
         Returns:
             AgentInvokeOutput: The agent's response to the prompt
 
-        Example:
-            # First invocation - creates new session with auto-generated ID
-            result1 = invoke_agent("qa-expert", "Review this function: def add(a, b): return a + b")
-            # session_id is auto-generated (e.g., "qa-expert-session-1")
+        Examples:
+            # COMMON CASE: One-off invocation, no memory needed (auto-generate session)
+            result = invoke_agent(
+                "qa-expert",
+                "Review this function: def add(a, b): return a + b"
+            )
 
-            # Continue the conversation in the same session
+            # MULTI-TURN: Start a conversation with explicit session ID (note random suffix)
+            result1 = invoke_agent(
+                "qa-expert",
+                "Review this function: def add(a, b): return a + b",
+                session_id="review-add-function-x7k9"  # Random suffix prevents collisions
+            )
+
+            # Continue the SAME conversation (reuse session_id to maintain memory)
             result2 = invoke_agent(
                 "qa-expert",
                 "Can you suggest edge cases for that function?",
-                session_id="qa-expert-session-1"  # Same session ID to maintain context
+                session_id="review-add-function-x7k9"  # SAME session_id = conversation memory
             )
 
-            # Custom session names
-            result3 = invoke_agent(
+            # Multiple INDEPENDENT reviews (unique session IDs with random suffixes)
+            auth_review = invoke_agent(
                 "code-reviewer",
                 "Review my authentication code",
-                session_id="auth-review-2024"  # Must be kebab-case
+                session_id="auth-review-abc123"  # Random suffix for uniqueness
+            )
+
+            payment_review = invoke_agent(
+                "code-reviewer",
+                "Review my payment processing code",
+                session_id="payment-review-def456"  # Different session = no shared context
             )
         """
         global _temp_agent_count
