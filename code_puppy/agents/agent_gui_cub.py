@@ -53,7 +53,7 @@ class GUICubAgent(BaseAgent):
 
     @property
     def display_name(self) -> str:
-        return "GUI-Cub 🐻"
+        return "Desktop Automation Cub 🐻"
 
     @property
     def description(self) -> str:
