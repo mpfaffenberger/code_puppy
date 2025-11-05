@@ -60,14 +60,20 @@ class WorkflowExecutor:
         """Execute a single workflow action.
         
         Supported actions:
-        - focus_window
-        - click
-        - type
-        - press
-        - hotkey
-        - sleep
-        - run_workflow
-        - verify
+        - focus_window: Focus a window by app name
+        - click: Click element using accessibility API (basic)
+        - smart_click: Multi-strategy click (UIA → OCR → VQA)
+        - ocr_click: Click using OCR text recognition
+        - ui_click: Click using UI automation with automation_id/name
+        - mouse_click: Click at specific coordinates
+        - type: Type text using keyboard
+        - press: Press a single key
+        - hotkey: Press keyboard shortcut combination
+        - sleep: Wait for specified duration
+        - run_workflow: Execute another workflow (chaining)
+        - verify: Verify text appears on screen
+        - screenshot: Take a screenshot for debugging
+        - manual_step: Pause for user intervention (input/confirmation)
         """
         action_type = action.get("action")
         
@@ -97,6 +103,14 @@ class WorkflowExecutor:
                 return await self._execute_focus_window(interpolated_action)
             elif action_type == "click":
                 return await self._execute_click(interpolated_action)
+            elif action_type == "smart_click":
+                return await self._execute_smart_click(interpolated_action)
+            elif action_type == "ocr_click":
+                return await self._execute_ocr_click(interpolated_action)
+            elif action_type == "ui_click":
+                return await self._execute_ui_click(interpolated_action)
+            elif action_type == "mouse_click":
+                return await self._execute_mouse_click(interpolated_action)
             elif action_type == "type":
                 return await self._execute_type(interpolated_action)
             elif action_type == "press":
@@ -109,6 +123,10 @@ class WorkflowExecutor:
                 return await self._execute_run_workflow(interpolated_action)
             elif action_type == "verify":
                 return await self._execute_verify(interpolated_action)
+            elif action_type == "screenshot":
+                return await self._execute_screenshot(interpolated_action)
+            elif action_type == "manual_step":
+                return await self._execute_manual_step(interpolated_action)
             else:
                 raise WorkflowExecutionError(f"Unknown action type: {action_type}")
         
@@ -221,19 +239,129 @@ class WorkflowExecutor:
         
         return result
 
+    async def _execute_smart_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Click using multi-strategy approach (UIA → OCR → VQA)."""
+        from code_puppy.tools.gui_cub.multi_strategy_click import desktop_click_element_smart
+        
+        text = action.get("text") or action.get("label")
+        if not text:
+            raise WorkflowExecutionError("smart_click requires 'text' or 'label' parameter")
+        
+        result = await desktop_click_element_smart(self.context, text=text)
+        return result
+
+    async def _execute_ocr_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Click using OCR text recognition."""
+        from code_puppy.tools.gui_cub.ocr_tools import desktop_find_text
+        from code_puppy.tools.gui_cub.mouse_control import mouse_click
+        
+        text = action.get("text") or action.get("label")
+        if not text:
+            raise WorkflowExecutionError("ocr_click requires 'text' or 'label' parameter")
+        
+        # Find text using OCR
+        find_result = await desktop_find_text(
+            self.context,
+            search_text=text,
+            use_active_window=True
+        )
+        
+        if not find_result.get("found"):
+            raise WorkflowExecutionError(f"OCR could not find text: {text}")
+        
+        # Get first match and click
+        matches = find_result.get("matches", [])
+        if matches:
+            match = matches[0]
+            x, y = match.get("center_x"), match.get("center_y")
+            await mouse_click(x, y)
+            return {"success": True, "text": text, "x": x, "y": y}
+        
+        raise WorkflowExecutionError(f"No OCR matches for: {text}")
+
+    async def _execute_ui_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Click using UI automation with automation_id or name."""
+        from code_puppy.tools.gui_cub.os_unified import ui_click_element
+        
+        # Support multiple parameter names
+        automation_id = action.get("automation_id") or action.get("auto_id")
+        name = action.get("name") or action.get("title")
+        control_type = action.get("control_type") or action.get("type")
+        fuzzy = action.get("fuzzy", True)
+        
+        if not (automation_id or name):
+            raise WorkflowExecutionError("ui_click requires 'automation_id' or 'name' parameter")
+        
+        result = await ui_click_element(
+            self.context,
+            auto_id=automation_id,
+            title=name,
+            control_type=control_type,
+            fuzzy=fuzzy
+        )
+        return result
+
+    async def _execute_mouse_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Click at specific coordinates."""
+        from code_puppy.tools.gui_cub.mouse_control import mouse_click
+        
+        x = action.get("x")
+        y = action.get("y")
+        
+        if x is None or y is None:
+            raise WorkflowExecutionError("mouse_click requires 'x' and 'y' parameters")
+        
+        await mouse_click(int(x), int(y))
+        return {"success": True, "x": x, "y": y}
+
+    async def _execute_screenshot(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Take a screenshot for debugging."""
+        from code_puppy.tools.gui_cub.screen_capture import capture_screen
+        
+        result = await capture_screen(self.context)
+        return result
+
+    async def _execute_manual_step(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Pause workflow for manual user intervention.
+        
+        User performs the action manually in the application (type password,
+        solve CAPTCHA, make a decision, etc.) then clicks Continue to resume.
+        """
+        import pyautogui
+        
+        message = action.get("message") or action.get("instruction")
+        
+        if not message:
+            message = "Please complete the manual action and click Continue..."
+        
+        emit_info(f"\n{'='*60}")
+        emit_info(f"⏸️  MANUAL STEP REQUIRED")
+        emit_info(f"{'='*60}")
+        emit_info(f"📝 {message}")
+        emit_info("")
+        emit_info("🎯 Do the action in the application, then click Continue below.")
+        emit_info(f"{'='*60}\n")
+        
+        # Show dialog and wait for user to click Continue
+        pyautogui.confirm(message, buttons=['Continue'])
+        
+        emit_info("✅ Manual step completed, continuing workflow...\n")
+        return {"success": True, "action": "confirmed"}
+
     async def _execute_verify(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Verify expected text appears on screen."""
-        from code_puppy.tools.gui_cub.ocr_tools import ocr_extract_text
+        from code_puppy.tools.gui_cub.ocr_tools import desktop_extract_text
         
         expected_text = action.get("expected_text") or action.get("text")
         if not expected_text:
             raise WorkflowExecutionError("verify requires 'expected_text' parameter")
         
-        result = await ocr_extract_text()
-        found = expected_text in result.get("full_text", "")
+        result = await desktop_extract_text(self.context, use_active_window=True)
+        full_text = result.get("full_text", "")
+        found = expected_text.lower() in full_text.lower()
         
         if not found:
-            raise WorkflowExecutionError(f"Verification failed: '{expected_text}' not found")
+            raise WorkflowExecutionError(f"Verification failed: '{expected_text}' not found on screen")
         
         return {"success": True, "verified": expected_text}
 

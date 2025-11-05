@@ -227,16 +227,87 @@ GUI-Cub automatically adapts behavior based on your task:
 **1. YAML (Structured)** - For executable workflows:
 ```yaml
 name: "Login to Portal"
+variables:
+  username: "user@example.com"
 steps:
+  # Focus the window
   - action: focus_window
     app: "Chrome"
-  - action: click
-    element: {title: "username", fuzzy: true}
+  
+  # Try keyboard shortcut first, then UI automation if that fails
+  - action: hotkey
+    keys: ["cmd", "l"]  # Focus address bar
+  - action: type
+    text: "https://portal.example.com"
+  - action: press
+    key: "enter"
+  - action: sleep
+    duration: 2
+  
+  # Click username field using UI automation (PREFERRED)
+  - action: ui_click
+    automation_id: "txtUsername"  # Windows automation ID
+    name: "Username"  # Fallback to name
+    fuzzy: true
   - action: type
     text: "{{username}}"
+  
+  # Click using OCR as fallback
+  - action: ocr_click
+    text: "Password"  # Find "Password" label via OCR
+  - action: type
+    text: "{{password}}"
+  
+  # Smart click tries multiple strategies automatically
+  - action: smart_click
+    text: "Sign In"  # Tries UIA → OCR → VQA
+  
+  # Verify success
   - action: verify
     expected_text: "Welcome"
+  
+  # Take screenshot for confirmation
+  - action: screenshot
 ```
+
+**Supported Actions:**
+- `focus_window` - Focus window by app name
+- `click` - Basic accessibility click (element.title + fuzzy)
+- `smart_click` - Multi-strategy (UIA → OCR → VQA) - RECOMMENDED for unknown elements
+- `ocr_click` - OCR-based clicking by text label
+- `ui_click` - UI automation with automation_id/name/control_type
+- `mouse_click` - Click at specific x,y coordinates
+- `type` - Type text
+- `press` - Press single key
+- `hotkey` - Keyboard shortcut (e.g., ["cmd", "s"])
+- `sleep` - Wait (duration in seconds)
+- `verify` - Verify text on screen
+- `screenshot` - Take screenshot for debugging
+- `manual_step` - Pause for user intervention (login, CAPTCHA, decisions)
+- `run_workflow` - Execute another workflow (chaining)
+
+**Manual Steps (User Intervention):**
+```yaml
+# Pause workflow for user to handle sensitive/manual tasks
+- action: focus_window
+  app: "Chrome"
+- action: manual_step
+  message: "Please type your password and solve the CAPTCHA, then click Continue"
+# Workflow resumes after user clicks Continue
+- action: smart_click
+  text: "Login"
+- action: verify
+  expected_text: "Welcome"
+```
+
+**When to use manual_step:**
+- 🔒 Security-sensitive inputs (passwords, MFA codes, API keys)
+- 🤖 CAPTCHA solving or visual verification
+- 🎯 User decisions that can't be automated
+- ✅ Visual confirmation before proceeding
+- 📋 Compliance/privacy (user types directly in app, not captured by workflow)
+
+The user performs the action in the actual application, then clicks "Continue" to resume automation.
 
 **2. Markdown (Documentation)** - For patterns and strategies:
 ```markdown
@@ -485,19 +556,17 @@ You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
         return "building"
     
     def _trim_message_history_if_needed(self, mode: str):
-        """Trim message history based on mode.
+        """Trim message history to last 500 messages for both modes.
         
-        Building Mode: Keep all messages (needed for workflow creation)
-        Running Mode: Keep last 30 messages (rolling window)
+        Keeps a rolling window of 500 messages for both building and running modes.
         """
-        if mode == "running":
-            messages = self.get_message_history()
-            if len(messages) > 30:
-                # Keep last 30 messages
-                trimmed = messages[-30:]
-                self.set_message_history(trimmed)
-                from code_puppy.messaging import emit_info
-                emit_info(f"[dim]🗑️  Trimmed message history: {len(messages)} → 30 messages[/dim]")
+        messages = self.get_message_history()
+        if len(messages) > 500:
+            # Keep last 500 messages
+            trimmed = messages[-500:]
+            self.set_message_history(trimmed)
+            from code_puppy.messaging import emit_info
+            emit_info(f"[dim]🗑️  Trimmed message history: {len(messages)} → 500 messages[/dim]")
     
     async def run_with_mcp(self, prompt: str, **kwargs):
         """Override to add mode-aware history trimming and lazy calibration."""
