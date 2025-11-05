@@ -43,31 +43,9 @@ class GUICubAgent(BaseAgent):
                         "[dim]  You can still use mouse/keyboard automation, but OCR/VQA won't work.[/dim]"
                     )
             
-            # Check if Tesseract was just installed (available but calibrated in last 60 seconds)
-            # If so, remind user to restart terminal
-            if config:
-                capabilities = config.get("capabilities", {})
-                calibrated_at = config.get("calibrated_at", "")
-                
-                if capabilities.get("pytesseract", False) and calibrated_at:
-                    try:
-                        from datetime import datetime, timedelta
-                        calibrated_time = datetime.fromisoformat(calibrated_at)
-                        now = datetime.now()
-                        
-                        # If calibrated in the last 60 seconds, likely just installed
-                        if (now - calibrated_time) < timedelta(seconds=60):
-                            emit_warning(
-                                "[bold yellow]⚠️ IMPORTANT: Tesseract was just installed[/bold yellow]"
-                            )
-                            emit_info(
-                                "[yellow]  Please restart your terminal for PATH changes to take effect[/yellow]"
-                            )
-                            emit_info(
-                                "[dim]  OCR features won't work until you restart the terminal[/dim]"
-                            )
-                    except Exception:
-                        pass  # If parsing fails, skip the warning
+            # Removed the "Tesseract was just installed" warning
+            # User already sees the clear exit message during installation
+            # and knows to restart terminal
 
     @property
     def name(self) -> str:
