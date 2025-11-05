@@ -138,6 +138,25 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
         # If pywinauto was marked unavailable, we should try to install it
         if not capabilities.get("pywinauto", False):
             return False, "Windows dependencies not installed, will attempt installation"
+        
+        # Check if pytesseract/Tesseract is marked as available but isn't actually installed
+        if capabilities.get("pytesseract", False):
+            try:
+                import pytesseract
+                pytesseract.get_tesseract_version()
+            except Exception:
+                return False, "Tesseract OCR missing or broken, will attempt reinstallation"
+        
+        # If pytesseract was marked unavailable, check if we should retry installation
+        # Only retry if missing_capabilities indicates it was due to admin_required
+        # and user might have gained admin rights
+        if not capabilities.get("pytesseract", False):
+            missing = config.get("missing_capabilities", {}).get("pytesseract", {})
+            if missing.get("reason") == "admin_required":
+                # User might have admin now, let's retry
+                return False, "Tesseract not installed, will retry installation (you may have admin now)"
+            # If it failed for other reasons, still valid but keep the missing capability info
+            # Don't force re-calibration every time for non-admin failures
     
     # Config is valid
     return True, "Config is valid"
