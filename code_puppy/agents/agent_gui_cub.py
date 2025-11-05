@@ -1,7 +1,5 @@
 """GUI-Cub - Desktop automation agent."""
 
-import asyncio
-
 from .base_agent import BaseAgent
 
 
@@ -10,14 +8,18 @@ class GUICubAgent(BaseAgent):
 
     def __init__(self):
         super().__init__()
-        # Run calibration check on initialization (like QA-Kitten's _prefetch_camoufox)
-        # This is fast if config is cached (~0.1s), slower on first run (~2-5s)
-        asyncio.run(self._ensure_calibrated())
+        self._calibrated = False
     
     async def _ensure_calibrated(self):
-        """Ensure platform is calibrated before use (QA-Kitten pattern)."""
-        from code_puppy.tools.gui_cub.config_manager import ensure_calibrated
-        await ensure_calibrated()
+        """Ensure platform is calibrated before use (QA-Kitten pattern).
+        
+        Lazy initialization - only runs once on first agent execution.
+        This is fast if config is cached (~0.1s), slower on first run (~2-5s).
+        """
+        if not self._calibrated:
+            from code_puppy.tools.gui_cub.config_manager import ensure_calibrated
+            await ensure_calibrated()
+            self._calibrated = True
 
     @property
     def name(self) -> str:
@@ -467,7 +469,10 @@ You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
                 emit_info(f"[dim]🗑️  Trimmed message history: {len(messages)} → 30 messages[/dim]")
     
     async def run_with_mcp(self, prompt: str, **kwargs):
-        """Override to add mode-aware history trimming."""
+        """Override to add mode-aware history trimming and lazy calibration."""
+        # Ensure calibration happens on first run (lazy initialization)
+        await self._ensure_calibrated()
+        
         # Detect mode and trim history if in running mode
         mode = self._detect_mode(prompt)
         self._trim_message_history_if_needed(mode)
