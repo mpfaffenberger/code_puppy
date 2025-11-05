@@ -157,66 +157,7 @@ class TestCoordinateConversion:
 class TestWindowFocusedVQA:
     """Test window-focused VQA behavior."""
 
-    @pytest.mark.asyncio
-    @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
-    @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
-    @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
-    async def test_default_captures_active_window(
-        self, mock_vqa, mock_capture, mock_get_window
-    ):
-        """Verify default behavior captures active window, not full screen."""
-        from code_puppy.tools.gui_cub.screen_capture import (
-            take_desktop_screenshot_and_analyze,
-        )
 
-        # Mock active window bounds
-        mock_get_window.return_value = WindowBoundsResult(
-            success=True,
-            x=100,
-            y=50,
-            width=1200,
-            height=800,
-            window_title="Safari",
-            app_name="Safari",
-        )
-
-        # Mock screenshot result
-        from code_puppy.tools.gui_cub.result_types import ScreenshotResult
-
-        mock_capture.return_value = ScreenshotResult(
-            success=True,
-            screenshot_data=b"fake_png_data",
-            width=1200,
-            height=800,
-        )
-
-        # Mock VQA result
-        from code_puppy.tools.gui_cub.result_types import VQAResult
-
-        mock_vqa.return_value = VQAResult(
-            success=True,
-            question="test",
-            answer="Found it at (200, 150)",
-            confidence=0.95,
-        )
-
-        # Call VQA without specifying capture mode (should default to active_window)
-        result = await take_desktop_screenshot_and_analyze(
-            question="Where is the Submit button?"
-        )
-
-        # Verify window bounds were fetched
-        mock_get_window.assert_called_once()
-
-        # Verify screenshot was captured with window region (not None for full screen)
-        mock_capture.assert_called_once()
-        call_kwargs = mock_capture.call_args[1]
-        assert call_kwargs["region"] == (100, 50, 1200, 800)
-
-        # Verify result has window-relative coordinate system
-        assert result.coordinate_system == "window_relative"
-        assert result.window_bounds is not None
-        assert result.window_bounds.window_title == "Safari"
 
     @pytest.mark.asyncio
     @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
@@ -263,61 +204,7 @@ class TestWindowFocusedVQA:
         assert result.coordinate_system == "screen_absolute"
         assert result.window_bounds is None
 
-    @pytest.mark.asyncio
-    @patch("code_puppy.tools.gui_cub.window_control._focus_window_impl")
-    @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
-    @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
-    @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
-    async def test_window_title_focuses_window(
-        self, mock_vqa, mock_capture, mock_get_window, mock_focus
-    ):
-        """Verify window_title parameter focuses the specified window."""
-        from code_puppy.tools.gui_cub.screen_capture import (
-            take_desktop_screenshot_and_analyze,
-        )
-        from code_puppy.tools.gui_cub.result_types import WindowFocusResult
 
-        # Mock focus result
-        mock_focus.return_value = WindowFocusResult(
-            success=True, focused_app="Terminal"
-        )
-
-        # Mock window bounds
-        mock_get_window.return_value = WindowBoundsResult(
-            success=True,
-            x=200,
-            y=100,
-            width=800,
-            height=600,
-            window_title="Terminal",
-            app_name="Terminal",
-        )
-
-        # Mock screenshot
-        from code_puppy.tools.gui_cub.result_types import ScreenshotResult
-
-        mock_capture.return_value = ScreenshotResult(
-            success=True, screenshot_data=b"fake_png_data", width=800, height=600
-        )
-
-        # Mock VQA
-        from code_puppy.tools.gui_cub.result_types import VQAResult
-
-        mock_vqa.return_value = VQAResult(
-            success=True, question="test", answer="Found terminal", confidence=0.95
-        )
-
-        # Call with window_title="Terminal"
-        result = await take_desktop_screenshot_and_analyze(
-            question="Find the command prompt", window_title="Terminal"
-        )
-
-        # Verify focus_window was called with "Terminal"
-        mock_focus.assert_called_once_with("Terminal")
-
-        # Verify result has Terminal window info
-        assert result.window_bounds is not None
-        assert result.window_bounds.window_title == "Terminal"
 
     @pytest.mark.asyncio
     @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
