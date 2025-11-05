@@ -353,42 +353,114 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
                 import os
                 current_path = os.environ.get("PATH", "")
                 
+                # Log current PATH for debugging
+                emit_info(
+                    f"[dim]  • Current PATH length: {len(current_path)} chars[/dim]",
+                    message_group=group_id,
+                )
+                emit_info(
+                    f"[dim]  • Tesseract path to add: {tesseract_path}[/dim]",
+                    message_group=group_id,
+                )
+                
                 # Check if already in PATH
                 if tesseract_path not in current_path:
-                    # Add to system PATH using setx /M (machine-level, requires admin)
-                    path_result = subprocess.run(
-                        ["setx", "/M", "PATH", f"{current_path};{tesseract_path}"],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
+                    emit_info(
+                        "[dim]  • Tesseract not found in PATH, adding...[/dim]",
+                        message_group=group_id,
                     )
                     
-                    if path_result.returncode == 0:
-                        emit_info(
-                            "[green]  • PATH updated successfully[/green]",
+                    # Build new PATH
+                    new_path = f"{current_path};{tesseract_path}"
+                    emit_info(
+                        f"[dim]  • New PATH length: {len(new_path)} chars[/dim]",
+                        message_group=group_id,
+                    )
+                    
+                    # Check if PATH is too long for setx (1024 char limit)
+                    if len(new_path) > 1024:
+                        emit_warning(
+                            "[yellow]  • PATH is too long for setx (>1024 chars), cannot update automatically[/yellow]",
                             message_group=group_id,
                         )
                         emit_info(
-                            "  • Please restart your terminal for PATH changes to take effect",
+                            f"  • Please manually add to PATH: {tesseract_path}",
                             message_group=group_id,
                         )
                     else:
-                        emit_warning(
-                            "[yellow]  • Could not update PATH automatically, please add manually[/yellow]",
-                            message_group=group_id,
-                        )
+                        # Add to system PATH using setx /M (machine-level, requires admin)
+                        setx_command = ["setx", "/M", "PATH", new_path]
                         emit_info(
-                            f"  • Add to PATH: {tesseract_path}",
+                            f"[dim]  • Running: setx /M PATH <{len(new_path)} chars>[/dim]",
                             message_group=group_id,
                         )
+                        
+                        path_result = subprocess.run(
+                            setx_command,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                        
+                        emit_info(
+                            f"[dim]  • setx return code: {path_result.returncode}[/dim]",
+                            message_group=group_id,
+                        )
+                        
+                        if path_result.returncode == 0:
+                            emit_info(
+                                "[green]  • PATH updated successfully via setx[/green]",
+                                message_group=group_id,
+                            )
+                            if path_result.stdout:
+                                emit_info(
+                                    f"[dim]  • setx output: {path_result.stdout.strip()[:100]}[/dim]",
+                                    message_group=group_id,
+                                )
+                            emit_info(
+                                "  • Please restart your terminal for PATH changes to take effect",
+                                message_group=group_id,
+                            )
+                        else:
+                            emit_warning(
+                                f"[yellow]  • setx failed with code {path_result.returncode}[/yellow]",
+                                message_group=group_id,
+                            )
+                            if path_result.stderr:
+                                emit_warning(
+                                    f"[yellow]  • Error: {path_result.stderr.strip()[:200]}[/yellow]",
+                                    message_group=group_id,
+                                )
+                            if path_result.stdout:
+                                emit_info(
+                                    f"[dim]  • Output: {path_result.stdout.strip()[:200]}[/dim]",
+                                    message_group=group_id,
+                                )
+                            emit_info(
+                                f"  • Please manually add to PATH: {tesseract_path}",
+                                message_group=group_id,
+                            )
                 else:
                     emit_info(
-                        "  • Tesseract already in PATH",
+                        "[green]  • Tesseract already in current PATH[/green]",
+                        message_group=group_id,
+                    )
+                    emit_info(
+                        "[dim]  • Note: This is the current process PATH, system PATH might differ[/dim]",
                         message_group=group_id,
                     )
             except Exception as e:
                 emit_warning(
-                    f"[yellow]  • Could not update PATH: {str(e)[:100]}[/yellow]",
+                    f"[yellow]  • Exception during PATH update: {type(e).__name__}[/yellow]",
+                    message_group=group_id,
+                )
+                emit_warning(
+                    f"[yellow]  • Error details: {str(e)[:200]}[/yellow]",
+                    message_group=group_id,
+                )
+                import traceback
+                emit_info(
+                    f"[dim]  • Traceback: {traceback.format_exc()[:300]}[/dim]",
                     message_group=group_id,
                 )
                 emit_info(
@@ -705,9 +777,21 @@ async def run_calibration() -> Dict[str, Any]:
         message_group=group_id,
     )
     
-    # Detect libraries
+    # Detect libraries (this may attempt installations on Windows)
     emit_info("  • Checking library availability...", message_group=group_id)
     capabilities = detect_capabilities()
+    
+    # After detect_capabilities runs (which includes installation attempts),
+    # we need to re-check pytesseract availability since it might have just been installed
+    if sys.platform == "win32" and not capabilities.get("pytesseract", False):
+        # If it was marked unavailable initially, check again in case installation just succeeded
+        try:
+            import pytesseract
+            pytesseract.get_tesseract_version()
+            capabilities["pytesseract"] = True  # Update to reflect successful installation
+        except Exception:
+            pass  # Still not available, keep as False
+    
     available = [k for k, v in capabilities.items() if v]
     emit_info(
         f"    → Available: {', '.join(available)}",
