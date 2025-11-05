@@ -952,7 +952,7 @@ async def run_calibration() -> Dict[str, Any]:
         except (KeyboardInterrupt, EOFError):
             pass
         
-        import sys
+        # sys is already imported at module level
         sys.exit(0)
     
     # If there are missing capabilities, pause so user can read the messages
