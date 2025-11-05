@@ -350,6 +350,14 @@ Would keep the system message plus the 19 most recent messages, removing older o
 
 This is useful for managing context length when you have a long conversation history but only need the most recent interactions.
 
+### Confluence Authentication
+```bash
+/confluence_auth
+```
+Authenticates with Walmart Confluence by capturing session cookies from your browser. Required before using the `confluence-search` agent.
+
+This command opens a browser window for you to log in to Confluence, then captures and stores your authenticated session. The session persists in `~/.code_puppy/confluence.json` and typically lasts 12-24 hours before requiring re-authentication.
+
 ## Available Agents
 
 ### Code-Puppy 🐶 (Default)

@@ -108,6 +108,12 @@ from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
 )
+from code_puppy.tools.confluence_tools import (
+    register_confluence_search,
+    register_confluence_read_page,
+    register_confluence_search_by_space,
+)
+
 from code_puppy.tools.gui_cub.os_unified import register_os_unified_tools
 from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
 from code_puppy.tools.file_operations import (
@@ -177,6 +183,10 @@ TOOL_REGISTRY = {
     "browser_save_workflow": register_save_workflow,
     "browser_list_workflows": register_list_workflows,
     "browser_read_workflow": register_read_workflow,
+    # Confluence Tools
+    "confluence_search": register_confluence_search,
+    "confluence_read_page": register_confluence_read_page,
+    "confluence_search_by_space": register_confluence_search_by_space,
 }
 
 # GUI-Cub workflow and knowledge base tools (always available)

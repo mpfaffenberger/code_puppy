@@ -323,7 +323,7 @@ class BaseAgent(ABC):
         Simple token estimation using len(message) / 3.
         This replaces tiktoken with a much simpler approach.
         """
-        return max(1, math.floor((len(text) / 3)))
+        return max(1, math.floor((len(text) / 2.5)))
 
     def estimate_tokens_for_message(self, message: ModelMessage) -> int:
         """

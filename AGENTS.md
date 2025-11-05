@@ -62,3 +62,41 @@ code_puppy.command_line
 - Show a single issue: `bd show bd-123`.
 - Keep commands under 60s; long multi-line acceptance text can time out—compact it or rerun with shorter strings.
 - Remember: `bd update` does *not* change descriptions directly; use notes/design fields when you need to tweak narrative details.
+
+## Available Agents
+
+### Confluence Search 📚
+
+**Purpose:** Search and extract content from Walmart's corporate Confluence instance using session-based authentication (since Personal Access Tokens are disabled).
+
+**Key Capabilities:**
+- Search Confluence using CQL (Confluence Query Language)
+- Read full page content with markdown conversion
+- Browse specific Confluence spaces
+- Extract documentation and knowledge base content
+
+**Getting Started:**
+
+1. First, authenticate with `/confluence_auth` command (opens browser to capture session cookies)
+2. Switch to agent: `/agent confluence-search`
+3. Start searching!
+
+**Example Usage:**
+
+- "Search for documentation about kubernetes deployments"
+- "Find pages in the ENG space about API design"
+- "Read page ID 123456 and summarize it"
+- "What's in the TECH space about CI/CD pipelines?"
+
+**Technical Details:**
+
+- Uses browser automation to capture authenticated session cookies
+- Session persists in `~/.code_puppy/confluence.json`
+- Re-run `/confluence_auth` if session expires (typically after 12-24 hours)
+- Supports CQL queries for advanced filtering
+
+**Available Tools:**
+
+- `confluence_search` - CQL-powered search
+- `confluence_read_page` - Full page content retrieval
+- `confluence_search_by_space` - Space-specific browsing

@@ -79,13 +79,13 @@ class SpawnResult:
 
     def sendline(self, txt: str) -> None:
         """Send text with Enter key for prompt_toolkit apps.
-        
+
         Automatically strips any trailing \r or \n from txt to avoid double line endings.
         Sends Control+M (\r) which is the actual Enter key code that prompt_toolkit expects.
         Waits 2 seconds for the CLI to process the command (important for async operations).
         """
-        # Strip any existing line endings to avoid duplication  
-        clean_txt = txt.rstrip('\r\n')
+        # Strip any existing line endings to avoid duplication
+        clean_txt = txt.rstrip("\r\n")
         # Send text followed by Control+M (carriage return = Enter key)
         # Prompt_toolkit expects \r for Enter, not \n
         self.child.send(clean_txt + "\r")
@@ -392,7 +392,7 @@ class CliHarness:
 @pytest.fixture(scope="session")
 def integration_env() -> dict[str, str]:
     """Return a basic environment for integration tests.
-    
+
     Session-scoped to ensure auth only runs once per test session.
     """
     return {

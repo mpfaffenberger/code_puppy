@@ -20,8 +20,15 @@ import code_puppy.plugins.walmart_specific  # noqa: F401
 from code_puppy.plugins.walmart_specific.agent_prompt import prompt
 from code_puppy.plugins.walmart_specific.auth import authenticate_puppy
 from code_puppy.plugins.walmart_specific.auto_update import _handle_update
-from code_puppy.plugins.walmart_specific.disclaimer import display_disclaimer
 from code_puppy.plugins.walmart_specific.model_config_fetcher import ModelConfigFetcher
+from code_puppy.plugins.walmart_specific.pingfed_auth import (
+    get_pingfed_auth_help,
+    handle_pingfed_auth_command,
+)
+from code_puppy.plugins.walmart_specific.confluence_auth import (
+    get_confluence_auth_help,
+    handle_confluence_auth_command,
+)
 from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_delete_file_telemetry_data,
     build_shell_command_telemetry_data,
@@ -29,7 +36,6 @@ from code_puppy.plugins.walmart_specific.telemetry_utils import (
     enqueue_telemetry_data,
 )
 from code_puppy.tools.command_runner import ShellCommandOutput
-from code_puppy.tools.file_modifications import EditFilePayload
 
 
 def set_cert_bundle() -> None:
@@ -185,3 +191,9 @@ register_callback("run_shell_command", collect_shell_command_telemetry)
 register_callback("shutdown", shutdown_telemetry)
 
 atexit.register(shutdown_telemetry)
+
+# Register custom command handlers
+register_callback("custom_command_help", get_pingfed_auth_help)
+register_callback("custom_command", handle_pingfed_auth_command)
+register_callback("custom_command_help", get_confluence_auth_help)
+register_callback("custom_command", handle_confluence_auth_command)

@@ -128,7 +128,10 @@ Reasoning & Explanation:
 
 Agent Management:
    - list_agents(): Use this to list all available sub-agents that can be invoked
-   - invoke_agent(agent_name: str, prompt: str): Use this to invoke a specific sub-agent with a given prompt
+   - invoke_agent(agent_name: str, prompt: str, session_id: str | None = None): Use this to invoke a specific sub-agent with a given prompt. 
+     The optional session_id (kebab-case with random suffix like "implement-oauth-abc123" or "review-auth-x7k9") should ONLY be reused 
+     when you need the sub-agent to remember previous conversation context. Always append 3-6 random chars/numbers for uniqueness. 
+     For one-off tasks, leave it as None (auto-generates).
 
 Important rules:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
