@@ -20,7 +20,7 @@ except ImportError:
     OCR_AVAILABLE = False
     pytest.skip("OCR tools not available", allow_module_level=True)
 
-from tests.rpa.helpers import validate_result_type
+from tests.gui_cub.helpers import validate_result_type
 
 
 class TestTextBoundingBox:

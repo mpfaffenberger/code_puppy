@@ -2,7 +2,7 @@
 
 import pytest
 from code_puppy.tools.gui_cub.result_types import MouseActionResult, MouseDragResult, MouseScrollResult
-from tests.rpa.helpers import validate_result_type, assert_valid_coordinates
+from tests.gui_cub.helpers import validate_result_type, assert_valid_coordinates
 
 
 class TestMouseControlValidation:
