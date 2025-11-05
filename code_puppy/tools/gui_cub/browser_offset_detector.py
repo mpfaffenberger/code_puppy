@@ -56,7 +56,7 @@ BROWSER_CHROME_HEIGHTS = {
     },
     "safari": {
         "macos": 82,  # Title bar + unified tab/address bar
-        "windows": 0,  # Safari not on Windows
+        "windows": 0,  # Not applicable on Windows
         "linux": 0,
     },
     "edge": {
@@ -131,9 +131,9 @@ def detect_browser_from_window_title(window_title: str) -> Tuple[str | None, flo
         Tuple of (browser_name, confidence) where confidence is 0.0-1.0
 
     Examples:
-        >>> detect_browser_from_window_title("Google Chrome")
+        >>> detect_browser_from_window_title("Application Window")
         ('chrome', 0.95)
-        >>> detect_browser_from_window_title("My Page - Mozilla Firefox")
+        >>> detect_browser_from_window_title("My Document - Application")
         ('firefox', 0.90)
     """
     if not window_title:
@@ -280,10 +280,10 @@ def calculate_window_chrome_offset() -> int:
     Calculate the window chrome offset for the active window.
 
     This is a simplified version that returns the OS title bar height
-    for non-browser windows.
+    for application windows.
 
     Returns:
-        Chrome offset in pixels
+        Window chrome offset in pixels
     """
     platform_key = "macos" if IS_MACOS else "windows" if IS_WINDOWS else "linux"
     return OS_TITLE_BAR_HEIGHTS.get(platform_key, 25)

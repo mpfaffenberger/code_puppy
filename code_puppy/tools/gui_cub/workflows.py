@@ -247,7 +247,7 @@ def register_workflow_tools(agent):
         
         steps:
           - action: focus_window
-            app: "Chrome"
+            app: "TextEdit"
           - action: click
             element: {title: "Username"}
           - action: type

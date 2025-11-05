@@ -438,7 +438,7 @@ def register_window_control_tools(agent):
         - Mouse clicks and keyboard input
 
         Args:
-            app_name: Name of application to focus (e.g., "Finder", "Safari", "Terminal")
+            app_name: Name of application to focus (e.g., "Finder", "TextEdit", "Terminal")
                       If None, re-focuses the current frontmost application
 
         Returns:
@@ -446,7 +446,7 @@ def register_window_control_tools(agent):
 
         Examples:
             - desktop_focus_window(app_name="Finder") - Bring Finder to front
-            - desktop_focus_window(app_name="Safari") - Activate Safari
+            - desktop_focus_window(app_name="TextEdit") - Activate TextEdit
             - desktop_focus_window() - Re-focus current app (useful to ensure focus)
 
         Best Practice:
@@ -460,8 +460,8 @@ def register_window_control_tools(agent):
         Note: Cross-platform! Uses AppleScript on macOS, Win32 API on Windows.
 
         Platform-specific args:
-            macOS: Use app_name ("Finder", "Safari")
-            Windows: Use app_name as window title ("Notepad", "Chrome")
+            macOS: Use app_name ("Finder", "TextEdit")
+            Windows: Use app_name as window title ("Notepad", "Calculator")
         """
         # Use the platform-independent helper function
         return _focus_window_impl(app_name)

@@ -232,39 +232,39 @@ variables:
 steps:
   # Focus the window
   - action: focus_window
-    app: "Chrome"
+    app: "Calculator"
   
   # Try keyboard shortcut first, then UI automation if that fails
   - action: hotkey
-    keys: ["cmd", "l"]  # Focus address bar
+    keys: ["cmd", "n"]  # New calculation
   - action: type
-    text: "https://portal.example.com"
+    text: "25 + 37"
   - action: press
     key: "enter"
   - action: sleep
-    duration: 2
+    duration: 0.5
   
-  # Click username field using UI automation (PREFERRED)
+  # Click a button using UI automation (PREFERRED)
   - action: ui_click
-    automation_id: "txtUsername"  # Windows automation ID
-    name: "Username"  # Fallback to name
+    automation_id: "btnClear"  # Windows automation ID
+    name: "Clear"  # Fallback to name
     fuzzy: true
+  
+  # Type calculation
   - action: type
-    text: "{{username}}"
+    text: "{{calculation}}"
   
   # Click using OCR as fallback
   - action: ocr_click
-    text: "Password"  # Find "Password" label via OCR
-  - action: type
-    text: "{{password}}"
+    text: "Equals"  # Find "Equals" button via OCR
   
   # Smart click tries multiple strategies automatically
   - action: smart_click
-    text: "Sign In"  # Tries UIA → OCR → VQA
+    text: "Copy"  # Tries UIA → OCR → VQA
   
   # Verify success
   - action: verify
-    expected_text: "Welcome"
+    expected_text: "Result"
   
   # Take screenshot for confirmation
   - action: screenshot
@@ -290,14 +290,14 @@ steps:
 ```yaml
 # Pause workflow for user to handle sensitive/manual tasks
 - action: focus_window
-  app: "Chrome"
+  app: "TextEdit"
 - action: manual_step
-  message: "Please type your password and solve the CAPTCHA, then click Continue"
+  message: "Please review the document and make any necessary edits, then click Continue"
 # Workflow resumes after user clicks Continue
 - action: smart_click
-  text: "Login"
+  text: "Save"
 - action: verify
-  expected_text: "Welcome"
+  expected_text: "Saved"
 ```
 
 **When to use manual_step:**
@@ -460,11 +460,11 @@ append_to_knowledge_base(
 
 **Form filling (keyboard-first):**
 ```python
-desktop_focus_window("Chrome")
-desktop_keyboard_press("tab")  # Navigate to username
-desktop_keyboard_type("user@example.com")
-desktop_keyboard_press("tab")  # Navigate to password  
-desktop_keyboard_type("SecurePass123")
+desktop_focus_window("Settings")
+desktop_keyboard_press("tab")  # Navigate to first field
+desktop_keyboard_type("John Doe")
+desktop_keyboard_press("tab")  # Navigate to next field  
+desktop_keyboard_type("john@example.com")
 desktop_keyboard_press("enter")  # Submit (no clicking!)
 ```
 

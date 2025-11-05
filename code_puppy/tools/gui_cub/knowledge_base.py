@@ -150,23 +150,23 @@ def register_knowledge_base_tool(agent):
         pruned to keep the most recent learnings.
         
         Args:
-            context_description: What were you doing? (e.g., "Automating Chrome login")
+            context_description: What were you doing? (e.g., "Automating Settings workflow")
             discovery: What reusable insight did you learn?
             what_worked: Successful approaches (optional)
             what_failed: Failed approaches to avoid (optional)
             reusable: Links to workflows/scripts created (optional)
-            tags: Searchable tags like "#chrome #login #timing" (optional)
+            tags: Searchable tags like "#calculator #automation #timing" (optional)
         
         Returns:
             Dict with success status and message
         
         Example:
             gui_cub_append_to_knowledge_base(
-                context_description="Chrome login automation",
-                discovery="Username field requires 0.5s delay after focus",
+                context_description="Calculator automation",
+                discovery="Number buttons require 0.5s delay after focus",
                 what_worked="Focus → Sleep 0.5s → Type works reliably",
                 what_failed="Immediate typing after focus drops first 2 chars",
-                tags="#chrome #login #timing #focus"
+                tags="#calculator #automation #timing #focus"
             )
         """
         success, message = append_to_knowledge_base(

@@ -407,7 +407,7 @@ async def take_desktop_screenshot_and_analyze(
         # Capture specific app window
         >>> vqa = await desktop_screenshot_analyze(
         ...     question="Find the OK button",
-        ...     window_title="Safari"
+        ...     window_title="TextEdit"
         ... )
 
         # Full screen (old behavior)
@@ -760,7 +760,7 @@ def register_desktop_screenshot_tools(agent):
             y: Optional top coordinate of region to capture (overrides window capture)
             width: Optional width of region to capture (overrides window capture)
             height: Optional height of region to capture (overrides window capture)
-            window_title: Optional window/app to focus and capture (e.g., "Safari", "Finder")
+            window_title: Optional window/app to focus and capture (e.g., "TextEdit", "Finder")
             capture_mode: "active_window" (default), "full_screen", or "region"
             save_screenshot: Save screenshot to disk
             use_grid: Add coordinate grid overlay (default: False)
@@ -955,7 +955,7 @@ def register_desktop_screenshot_tools(agent):
             # Find element in specific app
             - desktop_vqa_window(
                 question="Locate the address bar",
-                window_title="Safari"
+                window_title="TextEdit"
               )
         """
         return await desktop_screenshot_analyze(
