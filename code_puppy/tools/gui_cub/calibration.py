@@ -33,6 +33,98 @@ except ImportError:
     code_puppy_version = "unknown"
 
 
+def download_with_walmart_fallback(
+    url: str,
+    destination_path: "os.PathLike[str]",
+    group_id: str | None = None,
+    chunk_size: int = 8192,
+) -> bool:
+    """Download a file with Walmart-friendly settings (proxy + cert bundle).
+    
+    Uses Walmart proxy and cert bundle by default, which works both inside
+    and outside the corporate network. Falls back to direct download if needed.
+    
+    Args:
+        url: URL to download from
+        destination_path: Where to save the downloaded file
+        group_id: Optional message group ID for emit_info calls
+        chunk_size: Download chunk size in bytes
+    
+    Returns:
+        True if download succeeded, False otherwise
+    """
+    import os
+    from pathlib import Path
+    
+    import requests
+    
+    dest = Path(destination_path)
+    
+    # First try: Walmart settings (proxy + cert bundle)
+    try:
+        # Get Walmart cert bundle path if available
+        cert_bundle = os.environ.get("_SSL_CERT_FILE")
+        if cert_bundle and not os.path.exists(cert_bundle):
+            cert_bundle = None
+        
+        # Create session with Walmart settings
+        session = requests.Session()
+        if cert_bundle:
+            session.verify = cert_bundle
+        
+        # Add Walmart proxy settings
+        session.proxies.update({
+            "http": "http://sysproxy.wal-mart.com:8080",
+            "https": "http://sysproxy.wal-mart.com:8080",
+        })
+        
+        response = session.get(url, stream=True, timeout=60.0)
+        response.raise_for_status()
+        
+        with open(dest, "wb") as f:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+        
+        return True
+        
+    except Exception as e:
+        emit_info(
+            f"  • Download with Walmart settings failed: {e}",
+            message_group=group_id,
+        )
+        emit_info(
+            "  • Retrying without proxy/cert...",
+            message_group=group_id,
+        )
+    
+    # Second try: direct download without Walmart settings
+    try:
+        session = requests.Session()
+        session.verify = True  # Use default system certs
+        
+        response = session.get(url, stream=True, timeout=60.0)
+        response.raise_for_status()
+        
+        with open(dest, "wb") as f:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+        
+        emit_info(
+            "  • Download succeeded without proxy",
+            message_group=group_id,
+        )
+        return True
+        
+    except Exception as e:
+        emit_info(
+            f"  • Direct download also failed: {e}",
+            message_group=group_id,
+        )
+        return False
+
+
 def _update_system_path_registry(path_to_add: str) -> tuple[bool, str]:
     """Update system PATH via Windows registry (no 1024 char limit).
     
@@ -362,7 +454,6 @@ def _install_tesseract_portable(group_id: str) -> tuple[bool, bool, bool]:
     from pathlib import Path
     
     from code_puppy.messaging import emit_info, emit_warning
-    from code_puppy.http_utils import download_with_walmart_fallback
     
     emit_info(
         "  • Attempting portable installation (no admin required)...",
