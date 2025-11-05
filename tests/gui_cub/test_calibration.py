@@ -1,0 +1,91 @@
+"""Tests for GUI-Cub calibration."""
+
+import pytest
+from unittest.mock import patch
+from code_puppy.tools.gui_cub.calibration import (
+    detect_platform,
+    detect_displays,
+    _is_admin,
+    _update_system_path_registry,
+)
+
+
+class TestDetectPlatform:
+    """Test platform detection."""
+
+    @patch("sys.platform", "darwin")
+    @patch("platform.release", return_value="22.1.0")
+    @patch("platform.machine", return_value="arm64")
+    def test_detect_platform_macos(self, mock_machine, mock_release):
+        """Should detect macOS correctly."""
+        result = detect_platform()
+        assert result["os"] == "darwin"
+        assert result["os_display"] == "macOS"
+        assert result["version"] == "22.1.0"
+        assert result["machine"] == "arm64"
+
+    @patch("sys.platform", "win32")
+    @patch("platform.release", return_value="11")
+    @patch("platform.machine", return_value="AMD64")
+    def test_detect_platform_windows(self, mock_machine, mock_release):
+        """Should detect Windows correctly."""
+        result = detect_platform()
+        assert result["os"] == "win32"
+        assert result["os_display"] == "Windows"
+        assert result["version"] == "11"
+        assert result["machine"] == "AMD64"
+
+    @patch("sys.platform", "linux")
+    @patch("platform.release", return_value="5.15.0")
+    @patch("platform.machine", return_value="x86_64")
+    def test_detect_platform_linux(self, mock_machine, mock_release):
+        """Should detect Linux correctly."""
+        result = detect_platform()
+        assert result["os"] == "linux"
+        assert result["os_display"] == "Linux"
+        assert result["version"] == "5.15.0"
+        assert result["machine"] == "x86_64"
+
+
+class TestDetectDisplays:
+    """Test display detection."""
+
+    @patch("pyautogui.size", return_value=(1920, 1080))
+    def test_detect_displays_basic(self, mock_size):
+        """Should detect basic display info."""
+        result = detect_displays()
+        assert result["monitor_count"] == 1
+        assert result["primary_resolution"] == [1920, 1080]
+
+    @patch("pyautogui.size", return_value=(2560, 1440))
+    def test_detect_displays_different_resolution(self, mock_size):
+        """Should handle different resolutions."""
+        result = detect_displays()
+        assert result["primary_resolution"] == [2560, 1440]
+
+
+class TestIsAdmin:
+    """Test admin detection."""
+
+    @patch("sys.platform", "darwin")
+    def test_is_admin_returns_true_on_macos(self):
+        """Should return True on macOS (doesn't check admin)."""
+        result = _is_admin()
+        assert result is True
+
+    @patch("sys.platform", "linux")
+    def test_is_admin_returns_true_on_linux(self):
+        """Should return True on Linux (doesn't check admin)."""
+        result = _is_admin()
+        assert result is True
+
+
+class TestUpdateSystemPathRegistry:
+    """Test Windows PATH update via registry."""
+
+    @patch("sys.platform", "darwin")
+    def test_update_path_returns_false_on_non_windows(self):
+        """Should return False on non-Windows platforms."""
+        success, message = _update_system_path_registry("C:\\\\Test")
+        assert success is False
+        assert "Not Windows" in message
