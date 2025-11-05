@@ -58,5 +58,5 @@ class TestConfluenceAgentIntegration:
         """Test ConfluenceSearchAgent initialization."""
         agent = ConfluenceSearchAgent()
 
-        assert agent.name == "confluence_search"
+        assert agent.name == "confluence-search"
         assert agent.display_name == "Confluence Search 📚"

@@ -8,7 +8,7 @@ class ConfluenceSearchAgent(BaseAgent):
 
     @property
     def name(self) -> str:
-        return "confluence_search"
+        return "confluence-search"
 
     @property
     def display_name(self) -> str:

@@ -145,13 +145,15 @@ def confluence_search(
             - total_count (int): Total number of results found
             - error (str, optional): Error message if search failed
     """
-    emit_info(f"Searching Confluence for: '{query}'")
+    emit_info(
+        f"\n[bold white on blue] CONFLUENCE SEARCH [/bold white on blue] 🔍 [bold cyan]'{query}'[/bold cyan]"
+    )
 
     try:
         client = ConfluenceClient()
         # Use search_content with CQL query
         cql = f"type=page AND text~'{query}'"
-        raw_results = client.search_content(cql=cql, limit=limit, start=start)
+        raw_results = client.search_content(cql=cql, limit=limit, start=0)
 
         # Format results for better readability
         formatted_results = [
@@ -210,7 +212,9 @@ def confluence_read_page(ctx: RunContext, page_id: str) -> dict:
             - version (int): Current page version
             - error (str, optional): Error message if read failed
     """
-    emit_info(f"Reading Confluence page: {page_id}")
+    emit_info(
+        f"\n[bold white on blue] CONFLUENCE READ PAGE [/bold white on blue] 📄 [bold cyan]{page_id}[/bold cyan]"
+    )
 
     try:
         client = ConfluenceClient()
@@ -281,9 +285,13 @@ def confluence_search_by_space(
             - error (str, optional): Error message if search failed
     """
     if query:
-        emit_info(f"Searching space '{space_key}' for: '{query}'")
+        emit_info(
+            f"\n[bold white on blue] CONFLUENCE SEARCH SPACE [/bold white on blue] 📚 [bold cyan]{space_key}[/bold cyan] [dim]for '{query}'[/dim]"
+        )
     else:
-        emit_info(f"Listing pages in space '{space_key}'")
+        emit_info(
+            f"\n[bold white on blue] CONFLUENCE SEARCH SPACE [/bold white on blue] 📚 [bold cyan]{space_key}[/bold cyan]"
+        )
 
     try:
         client = ConfluenceClient()
@@ -293,7 +301,7 @@ def confluence_search_by_space(
         else:
             cql = f"type=page AND space='{space_key}'"
 
-        raw_results = client.search_content(cql=cql, limit=limit, start=start)
+        raw_results = client.search_content(cql=cql, limit=limit, start=0)
 
         # Format results for better readability
         formatted_results = [
@@ -346,13 +354,15 @@ async def search_confluence(query: str, limit: int = 10) -> str:
     Returns:
         Formatted string with search results
     """
-    emit_info(f"Searching Confluence for: '{query}'")
+    emit_info(
+        f"\n[bold white on blue] CONFLUENCE SEARCH [/bold white on blue] 🔍 [bold cyan]'{query}'[/bold cyan]"
+    )
 
     try:
         client = get_confluence_client()
         # Use search_content with CQL query
         cql = f"type=page AND text~'{query}'"
-        raw_results = client.search_content(cql=cql, limit=limit, start=start)
+        raw_results = client.search_content(cql=cql, limit=limit, start=0)
 
         # Format results
         results_list: List[str] = []
