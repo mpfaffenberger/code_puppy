@@ -70,15 +70,13 @@ def escape_system32_if_needed():
             f"🚨 Whoa there! You're running Code Puppy from a system directory: {cwd}"
         )
         emit_system_message(
-            f"[yellow]This can cause permission issues and other weirdness.[/yellow]"
+            "[yellow]This can cause permission issues and other weirdness.[/yellow]"
         )
         emit_system_message(
             f"[bold green]Auto-relocating to your home directory: {home_dir}[/bold green]"
         )
         os.chdir(home_dir)
-        emit_system_message(
-            f"[dim]New working directory: {Path.cwd()}[/dim]"
-        )
+        emit_system_message(f"[dim]New working directory: {Path.cwd()}[/dim]")
 
 
 async def main():

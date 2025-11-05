@@ -117,10 +117,7 @@ auto_save_session = false
 
         # Look for round-robin indicators in the log
         # The model name should contain round_robin identifier or claude
-        assert (
-            "round_robin" in full_log
-            or "claude" in full_log.lower()
-        )
+        assert "round_robin" in full_log or "claude" in full_log.lower()
 
         # Count number of responses to ensure we got responses for all prompts
         response_count = (

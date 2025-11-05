@@ -251,6 +251,7 @@ def handle_command(command: str):
 
     if command.strip().startswith("/disclaimer"):
         from code_puppy.plugins.walmart_specific.disclaimer import display_disclaimer
+
         display_disclaimer()
         return True
 

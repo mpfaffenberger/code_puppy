@@ -72,7 +72,9 @@ def test_cli_happy_path_interactive_flow(
     prompt_text = "Explain the benefits of unit testing in Python"
     result.sendline(f"{prompt_text}\r")
     try:
-        result.child.expect(r"Auto-saved session", timeout=150)  # Increased from 120 to 150
+        result.child.expect(
+            r"Auto-saved session", timeout=150
+        )  # Increased from 120 to 150
     except pexpect.exceptions.TIMEOUT:
         raise AssertionError(
             f"Timeout waiting for AI response and autosave. Log: {result.read_log()[-1000:]}"
