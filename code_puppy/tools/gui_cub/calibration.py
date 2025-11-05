@@ -256,19 +256,97 @@ def _attempt_install_windows_dependencies() -> bool:
         return False
 
 
+def _download_and_install_tesseract(url: str, group_id: str) -> bool:
+    """Download and silently install Tesseract from a URL.
+    
+    Args:
+        url: Download URL for Tesseract installer
+        group_id: Message group ID for logging
+        
+    Returns:
+        True if installation succeeded, False otherwise
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    
+    from code_puppy.messaging import emit_info, emit_warning
+    
+    try:
+        # Download the installer
+        emit_info(
+            f"  • Downloading from {url}...",
+            message_group=group_id,
+        )
+        
+        import urllib.request
+        temp_dir = tempfile.gettempdir()
+        installer_path = Path(temp_dir) / "tesseract-installer.exe"
+        
+        urllib.request.urlretrieve(url, installer_path)
+        
+        emit_info(
+            "  • Download complete, installing silently...",
+            message_group=group_id,
+        )
+        
+        # Run silent installation
+        # /S = silent mode
+        # /D = installation directory (must be last parameter)
+        install_result = subprocess.run(
+            [str(installer_path), "/S", "/D=C:\\Program Files\\Tesseract-OCR"],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+        )
+        
+        # Clean up installer
+        try:
+            installer_path.unlink()
+        except Exception:
+            pass
+        
+        if install_result.returncode == 0:
+            emit_info(
+                "[green]✅ Tesseract installed successfully[/green]",
+                message_group=group_id,
+            )
+            emit_info(
+                "  • Please restart your terminal for PATH changes to take effect",
+                message_group=group_id,
+            )
+            return True
+        else:
+            emit_warning(
+                f"[yellow]⚠️ Installation failed: {install_result.stderr[:200]}[/yellow]",
+                message_group=group_id,
+            )
+            return False
+    
+    except Exception as e:
+        emit_warning(
+            f"[yellow]⚠️ Download/install error: {str(e)[:200]}[/yellow]",
+            message_group=group_id,
+        )
+        return False
+
+
 def _attempt_install_tesseract_windows() -> bool:
     """Attempt to install Tesseract OCR on Windows.
     
     Tries multiple strategies:
     1. Check WALMART_TESSERACT_URL env var for internal mirror
-    2. Try winget install (Windows 10+ only)
-    3. Show download instructions if both fail
+    2. Try direct download and silent install from official release
+    3. Try winget install (Windows 10+ only)
+    4. Show download instructions if all fail
     
     Returns:
         True if installation succeeded, False otherwise
     """
     import os
     import subprocess
+    import tempfile
+    from pathlib import Path
     
     from code_puppy.messaging import emit_info, emit_warning
     from code_puppy.tools.common import generate_group_id
@@ -287,17 +365,26 @@ def _attempt_install_tesseract_windows() -> bool:
             f"  • Found WALMART_TESSERACT_URL: {walmart_url}",
             message_group=group_id,
         )
-        emit_info(
-            "  • Please download and install from the Walmart internal mirror",
-            message_group=group_id,
-        )
-        emit_info(
-            "  • After installation, restart your terminal and try again",
-            message_group=group_id,
-        )
-        return False
+        # Try to download and install from Walmart mirror
+        if _download_and_install_tesseract(walmart_url, group_id):
+            return True
+        else:
+            emit_info(
+                "  • Walmart mirror installation failed, trying other methods...",
+                message_group=group_id,
+            )
     
-    # Strategy 2: Try winget (Windows 10+ package manager)
+    # Strategy 2: Direct download from official GitHub release
+    emit_info(
+        "  • Attempting direct download from GitHub...",
+        message_group=group_id,
+    )
+    
+    tesseract_url = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
+    if _download_and_install_tesseract(tesseract_url, group_id):
+        return True
+    
+    # Strategy 3: Try winget (Windows 10+ package manager)
     try:
         emit_info(
             "  • Attempting winget installation...",
@@ -332,13 +419,17 @@ def _attempt_install_tesseract_windows() -> bool:
             message_group=group_id,
         )
     
-    # Strategy 3: Show download instructions
+    # Strategy 4: Show manual download instructions
     emit_info(
-        "[yellow]⚠️ Tesseract OCR installation required for OCR features[/yellow]",
+        "[yellow]⚠️ All automatic installation methods failed[/yellow]",
         message_group=group_id,
     )
     emit_info(
-        "  • Download from: https://github.com/UB-Mannheim/tesseract/wiki",
+        "[yellow]Tesseract OCR installation required for OCR features[/yellow]",
+        message_group=group_id,
+    )
+    emit_info(
+        "  • Manual download: https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe",
         message_group=group_id,
     )
     emit_info(
@@ -346,7 +437,7 @@ def _attempt_install_tesseract_windows() -> bool:
         message_group=group_id,
     )
     emit_info(
-        "  • After installation, run: gui_cub_calibrate() to re-detect",
+        "  • After installation, restart terminal and agent will auto-detect",
         message_group=group_id,
     )
     
