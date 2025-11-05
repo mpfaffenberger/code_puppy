@@ -158,3 +158,84 @@ def find_available_port(start_port=8090, end_port=9010, host="127.0.0.1"):
             # Port is in use, try the next one
             continue
     return None
+
+
+def download_with_walmart_fallback(
+    url: str,
+    destination_path: Union[str, "os.PathLike[str]"],
+    group_id: Optional[str] = None,
+    chunk_size: int = 8192,
+) -> bool:
+    """
+    Download a file with automatic Walmart proxy fallback.
+    
+    First attempts a direct download. If that fails (common behind Walmart corporate
+    firewalls), retries with Walmart-specific proxy settings.
+    
+    Args:
+        url: URL to download from
+        destination_path: Where to save the downloaded file
+        group_id: Optional message group ID for emit_info calls
+        chunk_size: Download chunk size in bytes
+    
+    Returns:
+        True if download succeeded, False otherwise
+    """
+    from pathlib import Path
+    
+    dest = Path(destination_path)
+    
+    # First try: direct download without proxy
+    try:
+        session = create_requests_session(timeout=60.0)
+        response = session.get(url, stream=True, timeout=60.0)
+        response.raise_for_status()
+        
+        with open(dest, "wb") as f:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+        
+        return True
+        
+    except Exception as e:
+        emit_info(
+            f"  • Direct download failed: {e}",
+            message_group=group_id,
+        )
+        emit_info(
+            "  • Retrying with Walmart proxy settings...",
+            message_group=group_id,
+        )
+    
+    # Second try: with Walmart proxy
+    try:
+        # Create session with Walmart proxy settings
+        proxies = {
+            "http": "http://sysproxy.wal-mart.com:8080",
+            "https": "http://sysproxy.wal-mart.com:8080",
+        }
+        
+        session = create_requests_session(timeout=60.0)
+        session.proxies.update(proxies)
+        
+        response = session.get(url, stream=True, timeout=60.0)
+        response.raise_for_status()
+        
+        with open(dest, "wb") as f:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+        
+        emit_info(
+            "  • Download succeeded with proxy",
+            message_group=group_id,
+        )
+        return True
+        
+    except Exception as e:
+        emit_info(
+            f"  • Download with proxy also failed: {e}",
+            message_group=group_id,
+        )
+        return False
