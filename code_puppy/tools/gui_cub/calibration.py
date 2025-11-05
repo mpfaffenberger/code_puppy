@@ -344,7 +344,7 @@ def _is_admin() -> bool:
         return False  # Assume not admin if check fails
 
 
-def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool]:
+def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool, bool]:
     """Download and silently install Tesseract from a URL.
     
     Args:
@@ -352,7 +352,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
         group_id: Message group ID for logging
         
     Returns:
-        Tuple of (install_success: bool, path_success: bool)
+        Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
     """
     import subprocess
     import tempfile
@@ -375,7 +375,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                 "  • Then run: pup",
                 message_group=group_id,
             )
-            return False, False  # install_success=False, path_success=False
+            return False, False, False  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
         
         # Download the installer
         emit_info(
@@ -477,7 +477,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                 f"[yellow]⚠️ Installation failed: {install_result.stderr[:200]}[/yellow]",
                 message_group=group_id,
             )
-            return False, False  # install_success=False, path_success=False
+            return False, False, False  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
     
     except Exception as e:
         error_msg = str(e)
@@ -501,10 +501,10 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                 f"[yellow]⚠️ Download/install error: {error_msg[:200]}[/yellow]",
                 message_group=group_id,
             )
-        return False, False  # install_success=False, path_success=False
+        return False, False, False  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
 
 
-def _attempt_install_tesseract_windows() -> tuple[bool, bool]:
+def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
     """Attempt to install Tesseract OCR on Windows.
     
     Tries multiple strategies:
@@ -514,7 +514,7 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool]:
     4. Show download instructions if all fail
     
     Returns:
-        Tuple of (install_success: bool, path_success: bool)
+        Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
     """
     import os
     import subprocess
@@ -539,9 +539,9 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool]:
             message_group=group_id,
         )
         # Try to download and install from Walmart mirror
-        install_success, path_success = _download_and_install_tesseract(walmart_url, group_id)
+        install_success, path_success, needs_restart = _download_and_install_tesseract(walmart_url, group_id)
         if install_success:
-            return install_success, path_success
+            return install_success, path_success, needs_restart
         else:
             emit_info(
                 "  • Walmart mirror installation failed, trying other methods...",
@@ -555,9 +555,9 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool]:
     )
     
     tesseract_url = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
-    install_success, path_success = _download_and_install_tesseract(tesseract_url, group_id)
+    install_success, path_success, needs_restart = _download_and_install_tesseract(tesseract_url, group_id)
     if install_success:
-        return install_success, path_success
+        return install_success, path_success, needs_restart
     
     # Strategy 3: Try winget (Windows 10+ package manager)
     try:
@@ -582,8 +582,8 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool]:
                 "  • Please restart your terminal for PATH changes to take effect",
                 message_group=group_id,
             )
-            # winget handles PATH automatically
-            return True, True
+            # winget handles PATH automatically (but still need restart)
+            return True, True, True  # install_success, path_success, needs_restart
         else:
             emit_info(
                 "  • winget installation failed, falling back to manual instructions",
@@ -614,7 +614,7 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool]:
         message_group=group_id,
     )
     
-    return False, False
+    return False, False, False  # install_success, path_success, needs_restart
 
 
 def detect_capabilities() -> Dict[str, bool]:
@@ -665,11 +665,12 @@ def detect_capabilities() -> Dict[str, bool]:
     except Exception:
         if sys.platform == "win32":
             # Attempt to install Tesseract binary
-            install_success, path_success = _attempt_install_tesseract_windows()
+            install_success, path_success, needs_restart = _attempt_install_tesseract_windows()
             if install_success:
-                # Installation succeeded, track PATH status
+                # Installation succeeded, track PATH status and restart requirement
                 capabilities["pytesseract_install_success"] = True
                 capabilities["pytesseract_path_success"] = path_success
+                capabilities["pytesseract_needs_restart"] = needs_restart
                 
                 # Try checking again after installation
                 # Note: May still fail if PATH not updated until terminal restart
@@ -683,6 +684,7 @@ def detect_capabilities() -> Dict[str, bool]:
                 capabilities["pytesseract"] = False
                 capabilities["pytesseract_install_success"] = False
                 capabilities["pytesseract_path_success"] = False
+                capabilities["pytesseract_needs_restart"] = False
         else:
             capabilities["pytesseract"] = False
     
@@ -833,7 +835,9 @@ async def run_calibration() -> Dict[str, Any]:
     # with immediate user prompt, so we don't add them to missing_capabilities
     # to avoid duplicate pause screens
     
-    if not capabilities.get("pytesseract", False):
+    # Only show pytesseract warning if installation didn't succeed
+    # If it just installed successfully, user will restart terminal and it will work
+    if not capabilities.get("pytesseract", False) and not capabilities.get("pytesseract_install_success", False):
         if sys.platform == "win32" and not _is_admin():
             missing_capabilities["pytesseract"] = {
                 "reason": "admin_required",
@@ -884,6 +888,59 @@ async def run_calibration() -> Dict[str, Any]:
             "[yellow]⚠️ Warning: Failed to save config (will re-calibrate next time)[/yellow]",
             message_group=group_id,
         )
+    
+    # Check if terminal restart is required (PATH was updated)
+    if capabilities.get("pytesseract_needs_restart", False):
+        emit_info(
+            "\n[bold yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold yellow]",
+            message_group=group_id,
+        )
+        emit_warning(
+            "[bold yellow]⚠️  TERMINAL RESTART REQUIRED ⚠️[/bold yellow]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[bold yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold yellow]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[yellow]Tesseract installed and PATH updated successfully![/yellow]",
+            message_group=group_id,
+        )
+        emit_info("", message_group=group_id)
+        emit_info(
+            "[bold white]To use OCR features, you MUST:[/bold white]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[bold white]  1. Close this terminal window[/bold white]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[bold white]  2. Open a new terminal[/bold white]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[bold white]  3. Run 'pup' again[/bold white]",
+            message_group=group_id,
+        )
+        emit_info("", message_group=group_id)
+        emit_info(
+            "[dim](The new PATH will be active in the new terminal)[/dim]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[bold yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold yellow]",
+            message_group=group_id,
+        )
+        
+        try:
+            input("\nPress Enter to exit...")
+        except (KeyboardInterrupt, EOFError):
+            pass
+        
+        import sys
+        sys.exit(0)
     
     # If there are missing capabilities, pause so user can read the messages
     if missing_capabilities:
