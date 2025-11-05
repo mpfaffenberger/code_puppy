@@ -428,6 +428,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
             )
             
             path_success, message = _update_system_path_registry(tesseract_path)
+            needs_restart = False  # Default to no restart needed
             
             if path_success:
                 if "Already" in message:
@@ -435,6 +436,21 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                         f"[green]  • {message}[/green]",
                         message_group=group_id,
                     )
+                    # Check if tesseract is actually accessible in current process
+                    try:
+                        subprocess.run(
+                            ["tesseract", "--version"],
+                            capture_output=True,
+                            timeout=5,
+                            check=True
+                        )
+                        needs_restart = False  # Works now
+                    except Exception:
+                        emit_info(
+                            "[yellow]  • Restart needed to use tesseract in this terminal[/yellow]",
+                            message_group=group_id,
+                        )
+                        needs_restart = True  # In PATH but current process can't see it
                 else:
                     emit_info(
                         f"[green]  • PATH updated successfully via registry[/green]",
@@ -444,10 +460,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                         f"[dim]  • {message}[/dim]",
                         message_group=group_id,
                     )
-                    emit_info(
-                        "  • Please restart your terminal for PATH changes to take effect",
-                        message_group=group_id,
-                    )
+                    needs_restart = True  # PATH just updated
             else:
                 emit_warning(
                     f"[yellow]  • Could not update PATH: {message}[/yellow]",
@@ -470,8 +483,8 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                 except (KeyboardInterrupt, EOFError):
                     pass  # User pressed Ctrl+C or EOF, continue anyway
             
-            # Return (install_success=True, path_success=True/False)
-            return True, path_success
+            # Return (install_success=True, path_success=True/False, needs_restart=True/False)
+            return True, path_success, needs_restart
         else:
             emit_warning(
                 f"[yellow]⚠️ Installation failed: {install_result.stderr[:200]}[/yellow]",
