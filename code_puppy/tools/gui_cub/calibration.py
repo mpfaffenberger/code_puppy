@@ -607,7 +607,7 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
     
     # All strategies failed
     emit_warning(
-        "[⚠️ yellow]⚠️ Could not install Tesseract automatically[/yellow]",
+        "[yellow]⚠️ Could not install Tesseract automatically[/yellow]",
         message_group=group_id,
     )
     emit_info(
