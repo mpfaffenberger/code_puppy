@@ -13,7 +13,7 @@ from code_puppy.tools.common import generate_group_id
 def get_workflows_directory() -> Path:
     """Get the GUI-Cub workflows directory, creating it if it doesn't exist."""
     home_dir = Path.home()
-    workflows_dir = home_dir / ".code_puppy" / "gui_cub_workflows"
+    workflows_dir = home_dir / ".code_puppy" / "agents" / "gui_cub" / "workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
     return workflows_dir
 

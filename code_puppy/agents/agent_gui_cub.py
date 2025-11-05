@@ -47,6 +47,11 @@ class GUICubAgent(BaseAgent):
             "gui_cub_read_workflow",
             "gui_cub_execute_workflow",
             "gui_cub_append_to_knowledge_base",
+            # Config management
+            "gui_cub_get_config",
+            "gui_cub_calibrate",
+            "gui_cub_validate_config",
+            "gui_cub_reset_config",
             # File operations
             "read_file",
             "edit_file",

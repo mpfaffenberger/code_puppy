@@ -22,7 +22,7 @@ from code_puppy.tools.common import generate_group_id
 
 def get_gui_cub_base_dir() -> Path:
     """Get the base directory for GUI-Cub data storage."""
-    base_dir = Path.home() / ".code_puppy" / "gui_cub"
+    base_dir = Path.home() / ".code_puppy" / "agents" / "gui_cub"
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir
 
