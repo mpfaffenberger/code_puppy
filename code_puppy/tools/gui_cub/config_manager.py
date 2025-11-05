@@ -124,6 +124,21 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
     if current_os != cached_os:
         return False, f"OS changed: {cached_os} → {current_os}"
     
+    # On Windows, check if dependencies are actually installed
+    if sys.platform == "win32":
+        capabilities = config.get("capabilities", {})
+        
+        # Check if pywinauto is marked as available but isn't actually installed
+        if capabilities.get("pywinauto", False):
+            try:
+                import pywinauto
+            except ImportError:
+                return False, "Windows dependencies missing (pywinauto not installed)"
+        
+        # If pywinauto was marked unavailable, we should try to install it
+        if not capabilities.get("pywinauto", False):
+            return False, "Windows dependencies not installed, will attempt installation"
+    
     # Config is valid
     return True, "Config is valid"
 
