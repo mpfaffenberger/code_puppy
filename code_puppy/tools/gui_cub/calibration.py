@@ -461,6 +461,14 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                     "[dim]  • Instructions: System Properties > Environment Variables > System PATH > Edit > New[/dim]",
                     message_group=group_id,
                 )
+                emit_info(
+                    "[dim]Press Enter to continue...[/dim]",
+                    message_group=group_id,
+                )
+                try:
+                    input()
+                except (KeyboardInterrupt, EOFError):
+                    pass  # User pressed Ctrl+C or EOF, continue anyway
             
             # Return (install_success=True, path_success=True/False)
             return True, path_success
@@ -821,18 +829,9 @@ async def run_calibration() -> Dict[str, Any]:
     # Build list of missing capabilities with reasons
     missing_capabilities = {}
     
-    # Check for PATH update failures (Tesseract installed but PATH not updated)
-    if (
-        capabilities.get("pytesseract_install_success", False)
-        and not capabilities.get("pytesseract_path_success", False)
-    ):
-        missing_capabilities["tesseract_path"] = {
-            "reason": "path_update_failed",
-            "message": "Tesseract installed successfully but PATH update failed",
-            "solution": "Manually add to system PATH: C:\\Program Files\\Tesseract-OCR",
-            "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
-            "instructions": "System Properties > Environment Variables > System PATH > Edit > New > Add: C:\\Program Files\\Tesseract-OCR",
-        }
+    # Note: PATH update failures are handled inline during installation
+    # with immediate user prompt, so we don't add them to missing_capabilities
+    # to avoid duplicate pause screens
     
     if not capabilities.get("pytesseract", False):
         if sys.platform == "win32" and not _is_admin():
