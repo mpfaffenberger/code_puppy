@@ -18,6 +18,10 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 import pyautogui
+
+if sys.platform == "win32":
+    import winreg
+    import ctypes
 from PIL import Image
 
 from code_puppy.messaging import emit_info, emit_warning
@@ -27,6 +31,78 @@ try:
     from code_puppy import __version__ as code_puppy_version
 except ImportError:
     code_puppy_version = "unknown"
+
+
+def _update_system_path_registry(path_to_add: str) -> tuple[bool, str]:
+    """Update system PATH via Windows registry (no 1024 char limit).
+    
+    Args:
+        path_to_add: Path to add to system PATH
+        
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    if sys.platform != "win32":
+        return False, "Not Windows"
+    
+    try:
+        # Open registry key for system environment variables
+        key_path = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+        
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            key_path,
+            0,
+            winreg.KEY_READ | winreg.KEY_WRITE
+        ) as key:
+            # Read current PATH
+            try:
+                current_path, reg_type = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                current_path = ""
+                reg_type = winreg.REG_EXPAND_SZ
+            
+            # Check if already in PATH (case-insensitive)
+            path_entries = [p.strip() for p in current_path.split(";") if p.strip()]
+            path_to_add_lower = path_to_add.lower()
+            
+            if any(entry.lower() == path_to_add_lower for entry in path_entries):
+                return True, "Already in system PATH"
+            
+            # Add to PATH
+            if current_path and not current_path.endswith(";"):
+                new_path = f"{current_path};{path_to_add}"
+            else:
+                new_path = f"{current_path}{path_to_add}"
+            
+            # Write back to registry
+            winreg.SetValueEx(key, "Path", 0, reg_type, new_path)
+            
+            # Broadcast WM_SETTINGCHANGE to notify system of environment change
+            try:
+                HWND_BROADCAST = 0xFFFF
+                WM_SETTINGCHANGE = 0x001A
+                SMTO_ABORTIFHUNG = 0x0002
+                result = ctypes.c_long()
+                
+                ctypes.windll.user32.SendMessageTimeoutW(
+                    HWND_BROADCAST,
+                    WM_SETTINGCHANGE,
+                    0,
+                    "Environment",
+                    SMTO_ABORTIFHUNG,
+                    5000,
+                    ctypes.byref(result)
+                )
+            except Exception:
+                pass  # Broadcast is optional, PATH update still worked
+            
+            return True, f"Added to system PATH (new length: {len(new_path)} chars)"
+    
+    except PermissionError:
+        return False, "Access denied (requires administrator privileges)"
+    except Exception as e:
+        return False, f"Registry error: {type(e).__name__}: {str(e)[:100]}"
 
 
 def detect_platform() -> Dict[str, Any]:
@@ -268,7 +344,7 @@ def _is_admin() -> bool:
         return False  # Assume not admin if check fails
 
 
-def _download_and_install_tesseract(url: str, group_id: str) -> bool:
+def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool]:
     """Download and silently install Tesseract from a URL.
     
     Args:
@@ -276,7 +352,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
         group_id: Message group ID for logging
         
     Returns:
-        True if installation succeeded, False otherwise
+        Tuple of (install_success: bool, path_success: bool)
     """
     import subprocess
     import tempfile
@@ -299,7 +375,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
                 "  • Then run: pup",
                 message_group=group_id,
             )
-            return False
+            return False, False  # install_success=False, path_success=False
         
         # Download the installer
         emit_info(
@@ -340,141 +416,60 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
                 message_group=group_id,
             )
             
-            # Add Tesseract to system PATH
+            # Add Tesseract to system PATH using Windows registry (no 1024 char limit)
             tesseract_path = "C:\\Program Files\\Tesseract-OCR"
-            try:
-                emit_info(
-                    "  • Adding Tesseract to system PATH...",
-                    message_group=group_id,
-                )
-                
-                # Use setx to add to system PATH (requires admin, which we have)
-                # Note: setx has a 1024 character limit, so we check PATH length first
-                import os
-                current_path = os.environ.get("PATH", "")
-                
-                # Log current PATH for debugging
-                emit_info(
-                    f"[dim]  • Current PATH length: {len(current_path)} chars[/dim]",
-                    message_group=group_id,
-                )
-                emit_info(
-                    f"[dim]  • Tesseract path to add: {tesseract_path}[/dim]",
-                    message_group=group_id,
-                )
-                
-                # Check if already in PATH
-                if tesseract_path not in current_path:
+            emit_info(
+                "  • Adding Tesseract to system PATH via registry...",
+                message_group=group_id,
+            )
+            emit_info(
+                f"[dim]  • Path to add: {tesseract_path}[/dim]",
+                message_group=group_id,
+            )
+            
+            path_success, message = _update_system_path_registry(tesseract_path)
+            
+            if path_success:
+                if "Already" in message:
                     emit_info(
-                        "[dim]  • Tesseract not found in PATH, adding...[/dim]",
+                        f"[green]  • {message}[/green]",
                         message_group=group_id,
                     )
-                    
-                    # Build new PATH
-                    new_path = f"{current_path};{tesseract_path}"
-                    emit_info(
-                        f"[dim]  • New PATH length: {len(new_path)} chars[/dim]",
-                        message_group=group_id,
-                    )
-                    
-                    # Check if PATH is too long for setx (1024 char limit)
-                    if len(new_path) > 1024:
-                        emit_warning(
-                            "[yellow]  • PATH is too long for setx (>1024 chars), cannot update automatically[/yellow]",
-                            message_group=group_id,
-                        )
-                        emit_info(
-                            f"  • Please manually add to PATH: {tesseract_path}",
-                            message_group=group_id,
-                        )
-                    else:
-                        # Add to system PATH using setx /M (machine-level, requires admin)
-                        setx_command = ["setx", "/M", "PATH", new_path]
-                        emit_info(
-                            f"[dim]  • Running: setx /M PATH <{len(new_path)} chars>[/dim]",
-                            message_group=group_id,
-                        )
-                        
-                        path_result = subprocess.run(
-                            setx_command,
-                            capture_output=True,
-                            text=True,
-                            timeout=30,
-                        )
-                        
-                        emit_info(
-                            f"[dim]  • setx return code: {path_result.returncode}[/dim]",
-                            message_group=group_id,
-                        )
-                        
-                        if path_result.returncode == 0:
-                            emit_info(
-                                "[green]  • PATH updated successfully via setx[/green]",
-                                message_group=group_id,
-                            )
-                            if path_result.stdout:
-                                emit_info(
-                                    f"[dim]  • setx output: {path_result.stdout.strip()[:100]}[/dim]",
-                                    message_group=group_id,
-                                )
-                            emit_info(
-                                "  • Please restart your terminal for PATH changes to take effect",
-                                message_group=group_id,
-                            )
-                        else:
-                            emit_warning(
-                                f"[yellow]  • setx failed with code {path_result.returncode}[/yellow]",
-                                message_group=group_id,
-                            )
-                            if path_result.stderr:
-                                emit_warning(
-                                    f"[yellow]  • Error: {path_result.stderr.strip()[:200]}[/yellow]",
-                                    message_group=group_id,
-                                )
-                            if path_result.stdout:
-                                emit_info(
-                                    f"[dim]  • Output: {path_result.stdout.strip()[:200]}[/dim]",
-                                    message_group=group_id,
-                                )
-                            emit_info(
-                                f"  • Please manually add to PATH: {tesseract_path}",
-                                message_group=group_id,
-                            )
                 else:
                     emit_info(
-                        "[green]  • Tesseract already in current PATH[/green]",
+                        f"[green]  • PATH updated successfully via registry[/green]",
                         message_group=group_id,
                     )
                     emit_info(
-                        "[dim]  • Note: This is the current process PATH, system PATH might differ[/dim]",
+                        f"[dim]  • {message}[/dim]",
                         message_group=group_id,
                     )
-            except Exception as e:
+                    emit_info(
+                        "  • Please restart your terminal for PATH changes to take effect",
+                        message_group=group_id,
+                    )
+            else:
                 emit_warning(
-                    f"[yellow]  • Exception during PATH update: {type(e).__name__}[/yellow]",
-                    message_group=group_id,
-                )
-                emit_warning(
-                    f"[yellow]  • Error details: {str(e)[:200]}[/yellow]",
-                    message_group=group_id,
-                )
-                import traceback
-                emit_info(
-                    f"[dim]  • Traceback: {traceback.format_exc()[:300]}[/dim]",
+                    f"[yellow]  • Could not update PATH: {message}[/yellow]",
                     message_group=group_id,
                 )
                 emit_info(
-                    f"  • Please manually add to PATH: {tesseract_path}",
+                    f"  • Please manually add to system PATH: {tesseract_path}",
+                    message_group=group_id,
+                )
+                emit_info(
+                    "[dim]  • Instructions: System Properties > Environment Variables > System PATH > Edit > New[/dim]",
                     message_group=group_id,
                 )
             
-            return True
+            # Return (install_success=True, path_success=True/False)
+            return True, path_success
         else:
             emit_warning(
                 f"[yellow]⚠️ Installation failed: {install_result.stderr[:200]}[/yellow]",
                 message_group=group_id,
             )
-            return False
+            return False, False  # install_success=False, path_success=False
     
     except Exception as e:
         error_msg = str(e)
@@ -498,10 +493,10 @@ def _download_and_install_tesseract(url: str, group_id: str) -> bool:
                 f"[yellow]⚠️ Download/install error: {error_msg[:200]}[/yellow]",
                 message_group=group_id,
             )
-        return False
+        return False, False  # install_success=False, path_success=False
 
 
-def _attempt_install_tesseract_windows() -> bool:
+def _attempt_install_tesseract_windows() -> tuple[bool, bool]:
     """Attempt to install Tesseract OCR on Windows.
     
     Tries multiple strategies:
@@ -511,7 +506,7 @@ def _attempt_install_tesseract_windows() -> bool:
     4. Show download instructions if all fail
     
     Returns:
-        True if installation succeeded, False otherwise
+        Tuple of (install_success: bool, path_success: bool)
     """
     import os
     import subprocess
@@ -536,8 +531,9 @@ def _attempt_install_tesseract_windows() -> bool:
             message_group=group_id,
         )
         # Try to download and install from Walmart mirror
-        if _download_and_install_tesseract(walmart_url, group_id):
-            return True
+        install_success, path_success = _download_and_install_tesseract(walmart_url, group_id)
+        if install_success:
+            return install_success, path_success
         else:
             emit_info(
                 "  • Walmart mirror installation failed, trying other methods...",
@@ -551,8 +547,9 @@ def _attempt_install_tesseract_windows() -> bool:
     )
     
     tesseract_url = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
-    if _download_and_install_tesseract(tesseract_url, group_id):
-        return True
+    install_success, path_success = _download_and_install_tesseract(tesseract_url, group_id)
+    if install_success:
+        return install_success, path_success
     
     # Strategy 3: Try winget (Windows 10+ package manager)
     try:
@@ -577,21 +574,19 @@ def _attempt_install_tesseract_windows() -> bool:
                 "  • Please restart your terminal for PATH changes to take effect",
                 message_group=group_id,
             )
-            return True
+            # winget handles PATH automatically
+            return True, True
         else:
             emit_info(
                 "  • winget installation failed, falling back to manual instructions",
                 message_group=group_id,
             )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        emit_info(
-            "  • winget not available or timed out",
-            message_group=group_id,
-        )
+    except Exception:
+        pass  # winget might not be available
     
-    # Strategy 4: Show manual download instructions
-    emit_info(
-        "[yellow]⚠️ All automatic installation methods failed[/yellow]",
+    # All strategies failed
+    emit_warning(
+        "[⚠️ yellow]⚠️ Could not install Tesseract automatically[/yellow]",
         message_group=group_id,
     )
     emit_info(
@@ -611,7 +606,7 @@ def _attempt_install_tesseract_windows() -> bool:
         message_group=group_id,
     )
     
-    return False
+    return False, False
 
 
 def detect_capabilities() -> Dict[str, bool]:
@@ -662,7 +657,12 @@ def detect_capabilities() -> Dict[str, bool]:
     except Exception:
         if sys.platform == "win32":
             # Attempt to install Tesseract binary
-            if _attempt_install_tesseract_windows():
+            install_success, path_success = _attempt_install_tesseract_windows()
+            if install_success:
+                # Installation succeeded, track PATH status
+                capabilities["pytesseract_install_success"] = True
+                capabilities["pytesseract_path_success"] = path_success
+                
                 # Try checking again after installation
                 # Note: May still fail if PATH not updated until terminal restart
                 try:
@@ -673,6 +673,8 @@ def detect_capabilities() -> Dict[str, bool]:
                     capabilities["pytesseract"] = False
             else:
                 capabilities["pytesseract"] = False
+                capabilities["pytesseract_install_success"] = False
+                capabilities["pytesseract_path_success"] = False
         else:
             capabilities["pytesseract"] = False
     
@@ -818,19 +820,33 @@ async def run_calibration() -> Dict[str, Any]:
     
     # Build list of missing capabilities with reasons
     missing_capabilities = {}
+    
+    # Check for PATH update failures (Tesseract installed but PATH not updated)
+    if (
+        capabilities.get("pytesseract_install_success", False)
+        and not capabilities.get("pytesseract_path_success", False)
+    ):
+        missing_capabilities["tesseract_path"] = {
+            "reason": "path_update_failed",
+            "message": "Tesseract installed successfully but PATH update failed",
+            "solution": "Manually add to system PATH: C:\\Program Files\\Tesseract-OCR",
+            "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
+            "instructions": "System Properties > Environment Variables > System PATH > Edit > New > Add: C:\\Program Files\\Tesseract-OCR",
+        }
+    
     if not capabilities.get("pytesseract", False):
         if sys.platform == "win32" and not _is_admin():
             missing_capabilities["pytesseract"] = {
                 "reason": "admin_required",
                 "message": "Tesseract installation requires administrator privileges",
-                "solution": "Run PowerShell/Terminal as Administrator and restart code-puppy, or manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe",
+                "solution": "Run PowerShell/Terminal as Administrator and restart code-puppy, or manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe and manually add to PATH: C:\\Program Files\\Tesseract-OCR",
                 "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
             }
         else:
             missing_capabilities["pytesseract"] = {
                 "reason": "installation_failed",
                 "message": "Tesseract OCR could not be installed automatically",
-                "solution": "Manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe",
+                "solution": "Manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe and manually add to PATH: C:\\Program Files\\Tesseract-OCR",
                 "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
             }
     
@@ -898,6 +914,13 @@ async def run_calibration() -> Dict[str, Any]:
                 f"[yellow]Solution:[/yellow] {info['solution']}",
                 message_group=group_id,
             )
+            
+            # Show instructions if available (for PATH issues)
+            if "instructions" in info:
+                emit_info(
+                    f"[yellow]Instructions:[/yellow] {info['instructions']}",
+                    message_group=group_id,
+                )
         
         emit_info(
             "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
