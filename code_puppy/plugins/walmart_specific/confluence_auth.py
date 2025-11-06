@@ -70,12 +70,15 @@ async def _scrape_confluence_session_playwright() -> Dict[str, Any]:
     profile_path = _get_code_puppy_chrome_profile_path()
 
     async with async_playwright() as p:
-        # Launch browser with persistent context
+        # Launch browser with persistent context and Walmart proxy
         context = await p.chromium.launch_persistent_context(
             user_data_dir=str(profile_path),
             headless=False,
             channel="chrome",  # Use system Chrome if available
             viewport={"width": 1280, "height": 720},
+            proxy={
+                "server": "http://sysproxy.wal-mart.com:8080"
+            },
             args=[
                 "--disable-blink-features=AutomationControlled",  # Make it less detectable
             ],
@@ -85,6 +88,10 @@ async def _scrape_confluence_session_playwright() -> Dict[str, Any]:
         page = context.pages[0] if context.pages else await context.new_page()
 
         try:
+            # Wait for browser to fully initialize before navigating
+            emit_info("⏳ Waiting for browser to initialize...")
+            await asyncio.sleep(4)
+            
             emit_info(f"📍 Navigating to {CONFLUENCE_URL}...")
             await page.goto(CONFLUENCE_URL, timeout=30000)
 
@@ -121,7 +128,7 @@ async def _scrape_confluence_session_playwright() -> Dict[str, Any]:
                     and "login" not in current_url.lower()
                 ):
                     # Wait a bit for cookies to be set
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(3)
                     cookies = await context.cookies()
                     cookie_names = [cookie["name"] for cookie in cookies]
                     if any(
@@ -144,6 +151,8 @@ async def _scrape_confluence_session_playwright() -> Dict[str, Any]:
             current_url = page.url
 
             emit_success("✅ Authentication successful!")
+            emit_info("⏳ Waiting 15 seconds for all cookies to be set...")
+            await asyncio.sleep(15)  # Wait for page to fully load and set all cookies
             emit_info("🍪 Extracting session cookies...")
 
             # Get all cookies
