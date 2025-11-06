@@ -51,7 +51,35 @@ class WorkflowExecutionResult(BaseModel):
 
 
 class WorkflowExecutor:
-    """Execute YAML workflows with variable interpolation and chaining."""
+    """Execute YAML workflows with variable interpolation and chaining.
+    
+    ARCHITECTURE NOTE - Tool Naming Convention:
+    ==========================================
+    This executor calls GUI-Cub desktop automation tools which follow a specific
+    naming pattern:
+    
+    - Agent Tools (registered via @agent.tool): Use `desktop_*` prefix
+      Examples: desktop_keyboard_type, desktop_mouse_click, desktop_find_text
+      These are callable by the AI agent and wrapped with @desktop_tool decorator.
+    
+    - Executor Methods (internal): Use `_execute_*` prefix
+      Examples: _execute_type, _execute_click, _execute_hotkey
+      These are internal workflow step handlers that call the desktop_* tools.
+    
+    WHY: The desktop_* functions are designed as agent tools with rich logging,
+    error handling, and user-facing output. The executor reuses these tools
+    directly rather than duplicating logic.
+    
+    ASYNC/SYNC PATTERN:
+    ===================
+    - Executor methods are async (support await for other async operations)
+    - Desktop tool functions are sync (wrapped with @desktop_tool decorator)
+    - Executor calls sync tools directly without await (correct pattern)
+    - Some executor methods await other async functions (focus_window, ui_click_element)
+    
+    This mixed pattern is intentional and correct - async executor methods can
+    call both sync tools (direct call) and async tools (with await).
+    """
 
     def __init__(self, context: RunContext):
         self.context = context
@@ -270,18 +298,24 @@ class WorkflowExecutor:
                 raise
 
     async def _execute_focus_window(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Focus a window by app name."""
+        """Focus a window by app name.
+        
+        Calls focus_window (sync function) directly without await.
+        """
         from code_puppy.tools.gui_cub.window_control import focus_window
 
         app_name = action.get("app") or action.get("window")
         if not app_name:
             raise WorkflowExecutionError("focus_window requires 'app' parameter")
 
-        result = await focus_window(app_name)
-        return {"success": result, "app": app_name}
+        result = focus_window(app_name)
+        return {"success": result.success if hasattr(result, 'success') else result, "app": app_name}
 
     async def _execute_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Click an element using accessibility API."""
+        """Click an element using accessibility API.
+        
+        Calls ui_click_element (sync tool) directly without await.
+        """
         from code_puppy.tools.gui_cub.os_unified import ui_click_element
 
         element = action.get("element", {})
@@ -291,34 +325,43 @@ class WorkflowExecutor:
         title = element.get("title")
         fuzzy = element.get("fuzzy", True)
 
-        result = await ui_click_element(self.context, title=title, fuzzy=fuzzy)
+        result = ui_click_element(self.context, title=title, fuzzy=fuzzy)
         return result
 
     async def _execute_type(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Type text using keyboard."""
-        from code_puppy.tools.gui_cub.keyboard_control import keyboard_type
+        """Type text using keyboard.
+        
+        Calls desktop_keyboard_type (sync tool) directly without await.
+        """
+        from code_puppy.tools.gui_cub.keyboard_control import desktop_keyboard_type
 
         text = action.get("text")
         if text is None:
             raise WorkflowExecutionError("type requires 'text' parameter")
 
-        await keyboard_type(text)
+        desktop_keyboard_type(self.context, text)
         return {"success": True, "text": text}
 
     async def _execute_press(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Press a key."""
-        from code_puppy.tools.gui_cub.keyboard_control import keyboard_press
+        """Press a key.
+        
+        Calls desktop_keyboard_press (sync tool) directly without await.
+        """
+        from code_puppy.tools.gui_cub.keyboard_control import desktop_keyboard_press
 
         key = action.get("key")
         if not key:
             raise WorkflowExecutionError("press requires 'key' parameter")
 
-        await keyboard_press(key)
+        desktop_keyboard_press(self.context, key)
         return {"success": True, "key": key}
 
     async def _execute_hotkey(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Press a keyboard shortcut."""
-        from code_puppy.tools.gui_cub.keyboard_control import keyboard_hotkey
+        """Press a keyboard shortcut.
+        
+        Calls desktop_keyboard_hotkey (sync tool) directly without await.
+        """
+        from code_puppy.tools.gui_cub.keyboard_control import desktop_keyboard_hotkey
 
         keys = action.get("keys")
         if not keys:
@@ -327,7 +370,7 @@ class WorkflowExecutor:
         if isinstance(keys, str):
             keys = [keys]
 
-        await keyboard_hotkey(*keys)
+        desktop_keyboard_hotkey(self.context, *keys)
         return {"success": True, "keys": keys}
 
     async def _execute_sleep(self, action: Dict[str, Any]) -> Dict[str, Any]:
@@ -369,7 +412,10 @@ class WorkflowExecutor:
         return result
 
     async def _execute_smart_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Click using multi-strategy approach (UIA → OCR → VQA)."""
+        """Click using multi-strategy approach (UIA → OCR → VQA).
+        
+        Calls desktop_click_element_smart (sync tool) directly without await.
+        """
         from code_puppy.tools.gui_cub.multi_strategy_click import (
             desktop_click_element_smart,
         )
@@ -380,13 +426,16 @@ class WorkflowExecutor:
                 "smart_click requires 'text' or 'label' parameter"
             )
 
-        result = await desktop_click_element_smart(self.context, text=text)
+        result = desktop_click_element_smart(self.context, text=text)
         return result
 
     async def _execute_ocr_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Click using OCR text recognition."""
+        """Click using OCR text recognition.
+        
+        Uses desktop_find_text (async) then desktop_mouse_click (sync).
+        """
         from code_puppy.tools.gui_cub.ocr_tools import desktop_find_text
-        from code_puppy.tools.gui_cub.mouse_control import mouse_click
+        from code_puppy.tools.gui_cub.mouse_control import desktop_mouse_click
 
         text = action.get("text") or action.get("label")
         if not text:
@@ -395,7 +444,7 @@ class WorkflowExecutor:
             )
 
         # Find text using OCR
-        find_result = await desktop_find_text(
+        find_result = desktop_find_text(
             self.context, search_text=text, use_active_window=True
         )
 
@@ -407,13 +456,16 @@ class WorkflowExecutor:
         if matches:
             match = matches[0]
             x, y = match.get("center_x"), match.get("center_y")
-            await mouse_click(x, y)
+            desktop_mouse_click(self.context, x=x, y=y)
             return {"success": True, "text": text, "x": x, "y": y}
 
         raise WorkflowExecutionError(f"No OCR matches for: {text}")
 
     async def _execute_ui_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Click using UI automation with automation_id or name."""
+        """Click using UI automation with automation_id or name.
+        
+        Calls ui_click_element (sync tool) directly without await.
+        """
         from code_puppy.tools.gui_cub.os_unified import ui_click_element
 
         # Support multiple parameter names
@@ -427,7 +479,7 @@ class WorkflowExecutor:
                 "ui_click requires 'automation_id' or 'name' parameter"
             )
 
-        result = await ui_click_element(
+        result = ui_click_element(
             self.context,
             auto_id=automation_id,
             title=name,
@@ -437,8 +489,11 @@ class WorkflowExecutor:
         return result
 
     async def _execute_mouse_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Click at specific coordinates."""
-        from code_puppy.tools.gui_cub.mouse_control import mouse_click
+        """Click at specific coordinates.
+        
+        Calls desktop_mouse_click (sync tool) directly without await.
+        """
+        from code_puppy.tools.gui_cub.mouse_control import desktop_mouse_click
 
         x = action.get("x")
         y = action.get("y")
@@ -446,14 +501,17 @@ class WorkflowExecutor:
         if x is None or y is None:
             raise WorkflowExecutionError("mouse_click requires 'x' and 'y' parameters")
 
-        await mouse_click(int(x), int(y))
+        desktop_mouse_click(self.context, x=int(x), y=int(y))
         return {"success": True, "x": x, "y": y}
 
     async def _execute_screenshot(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Take a screenshot for debugging."""
+        """Take a screenshot for debugging.
+        
+        Calls capture_screen (sync tool) directly without await.
+        """
         from code_puppy.tools.gui_cub.screen_capture import capture_screen
 
-        result = await capture_screen(self.context)
+        result = capture_screen(self.context)
         return result
 
     async def _execute_extract_text(self, action: Dict[str, Any]) -> Dict[str, Any]:
@@ -471,7 +529,7 @@ class WorkflowExecutor:
         height = region.get("height")
 
         # Extract text
-        result = await desktop_extract_text(
+        result = desktop_extract_text(
             self.context,
             use_active_window=action.get("use_active_window", True),
             use_full_screen=action.get("use_full_screen", False),
@@ -517,14 +575,17 @@ class WorkflowExecutor:
         return {"success": True, "action": "confirmed"}
 
     async def _execute_verify(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Verify expected text appears on screen."""
+        """Verify expected text appears on screen.
+        
+        Calls desktop_extract_text (sync tool) directly without await.
+        """
         from code_puppy.tools.gui_cub.ocr_tools import desktop_extract_text
 
         expected_text = action.get("expected_text") or action.get("text")
         if not expected_text:
             raise WorkflowExecutionError("verify requires 'expected_text' parameter")
 
-        result = await desktop_extract_text(self.context, use_active_window=True)
+        result = desktop_extract_text(self.context, use_active_window=True)
         full_text = result.get("full_text", "")
         found = expected_text.lower() in full_text.lower()
 

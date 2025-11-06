@@ -262,6 +262,8 @@ def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
                     ["osascript", "-e", script],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=DEFAULT_WINDOW_FOCUS_TIMEOUT,
                 )
 
