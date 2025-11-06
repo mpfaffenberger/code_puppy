@@ -643,47 +643,15 @@ This approach saves tokens on successful operations while providing rich debuggi
 You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
 """
 
-    def _detect_mode(self, prompt: str) -> str:
-        """Detect whether we're in Building or Running mode.
-
-        Building Mode: Keep full history (for workflow saving)
-        Running Mode: Trim history (for performance)
-        """
-        running_keywords = ["execute", "run", "batch", ".yaml", ".yml"]
-
-        prompt_lower = prompt.lower()
-
-        # Check for running mode indicators
-        if any(kw in prompt_lower for kw in running_keywords):
-            return "running"
-
-        # Default to building mode (safer - keeps history)
-        return "building"
-
-    def _trim_message_history_if_needed(self, mode: str):
-        """Trim message history to last 500 messages for both modes.
-
-        Keeps a rolling window of 500 messages for both building and running modes.
-        """
-        messages = self.get_message_history()
-        if len(messages) > 500:
-            # Keep last 500 messages
-            trimmed = messages[-500:]
-            self.set_message_history(trimmed)
-            from code_puppy.messaging import emit_info
-
-            emit_info(
-                f"[dim]🗑️  Trimmed message history: {len(messages)} → 500 messages[/dim]"
-            )
-
     async def run_with_mcp(self, prompt: str, **kwargs):
-        """Override to add mode-aware history trimming and lazy calibration."""
+        """Override to add lazy calibration.
+        
+        Note: Message history context management is now handled by the base agent's
+        token-based compaction system (see BaseAgent.message_history_processor).
+        This provides intelligent summarization/truncation based on actual token usage
+        """
         # Ensure calibration happens on first run (lazy initialization)
         await self._ensure_calibrated()
-
-        # Detect mode and trim history if in running mode
-        mode = self._detect_mode(prompt)
-        self._trim_message_history_if_needed(mode)
 
         result = await super().run_with_mcp(prompt, **kwargs)
         return result
