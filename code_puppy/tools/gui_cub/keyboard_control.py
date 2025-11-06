@@ -13,14 +13,14 @@ except ImportError:
 from pydantic_ai import RunContext
 
 from .result_types import KeyboardActionResult
-from .tool_wrapper import rpa_tool
+from .tool_wrapper import desktop_tool
 
 
 def register_keyboard_control_tools(agent):
     """Register keyboard control tools for desktop automation."""
 
     @agent.tool
-    @rpa_tool("KEYBOARD TYPE", requires="pyautogui")
+    @desktop_tool("KEYBOARD TYPE", requires="pyautogui")
     def desktop_keyboard_type(
         context: RunContext,
         text: str,
@@ -47,7 +47,7 @@ def register_keyboard_control_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("KEYBOARD PRESS", requires="pyautogui")
+    @desktop_tool("KEYBOARD PRESS", requires="pyautogui")
     def desktop_keyboard_press(
         context: RunContext,
         key: str,
@@ -82,7 +82,7 @@ def register_keyboard_control_tools(agent):
         return KeyboardActionResult(success=True, key=key, presses=presses)
 
     @agent.tool
-    @rpa_tool("KEYBOARD HOTKEY", requires="pyautogui")
+    @desktop_tool("KEYBOARD HOTKEY", requires="pyautogui")
     def desktop_keyboard_hotkey(
         context: RunContext,
         *keys: str,
@@ -107,12 +107,10 @@ def register_keyboard_control_tools(agent):
         """
         pyautogui.hotkey(*keys)
         hotkey_str = "+".join(keys)
-        return KeyboardActionResult(
-            success=True, hotkey=hotkey_str, keys=list(keys)
-        )
+        return KeyboardActionResult(success=True, hotkey=hotkey_str, keys=list(keys))
 
     @agent.tool
-    @rpa_tool("KEYBOARD HOLD", requires="pyautogui", emit_success=False)
+    @desktop_tool("KEYBOARD HOLD", requires="pyautogui", emit_success=False)
     def desktop_keyboard_hold(
         context: RunContext,
         key: str,
@@ -136,7 +134,7 @@ def register_keyboard_control_tools(agent):
         return KeyboardActionResult(success=True, key=key, status="held")
 
     @agent.tool
-    @rpa_tool("KEYBOARD RELEASE", requires="pyautogui")
+    @desktop_tool("KEYBOARD RELEASE", requires="pyautogui")
     def desktop_keyboard_release(
         context: RunContext,
         key: str,

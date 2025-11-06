@@ -17,7 +17,7 @@ from code_puppy.tools.common import generate_group_id
 
 from .platform import IS_MACOS, get_platform_display_name
 from .result_types import KeyboardActionResult
-from .tool_wrapper import rpa_tool
+from .tool_wrapper import desktop_tool
 
 
 def get_modifier_key() -> str:
@@ -33,7 +33,7 @@ def register_keyboard_shortcut_tools(agent):
     """Register platform-aware keyboard shortcut tools."""
 
     @agent.tool
-    @rpa_tool("COPY", requires="pyautogui")
+    @desktop_tool("COPY", requires="pyautogui")
     def desktop_copy(context: RunContext) -> KeyboardActionResult:
         """
         Copy selected content to clipboard (platform-aware).
@@ -64,7 +64,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("PASTE", requires="pyautogui")
+    @desktop_tool("PASTE", requires="pyautogui")
     def desktop_paste(context: RunContext) -> KeyboardActionResult:
         """
         Paste clipboard content (platform-aware).
@@ -95,7 +95,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("CUT", requires="pyautogui")
+    @desktop_tool("CUT", requires="pyautogui")
     def desktop_cut(context: RunContext) -> KeyboardActionResult:
         """
         Cut selected content to clipboard (platform-aware).
@@ -126,7 +126,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("SELECT ALL", requires="pyautogui")
+    @desktop_tool("SELECT ALL", requires="pyautogui")
     def desktop_select_all(context: RunContext) -> KeyboardActionResult:
         """
         Select all content (platform-aware).
@@ -157,7 +157,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("SAVE", requires="pyautogui")
+    @desktop_tool("SAVE", requires="pyautogui")
     def desktop_save(context: RunContext) -> KeyboardActionResult:
         """
         Save current document (platform-aware).
@@ -188,7 +188,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("UNDO", requires="pyautogui")
+    @desktop_tool("UNDO", requires="pyautogui")
     def desktop_undo(context: RunContext) -> KeyboardActionResult:
         """
         Undo last action (platform-aware).
@@ -219,7 +219,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("REDO", requires="pyautogui")
+    @desktop_tool("REDO", requires="pyautogui")
     def desktop_redo(context: RunContext) -> KeyboardActionResult:
         """
         Redo last undone action (platform-aware).
@@ -264,7 +264,7 @@ def register_keyboard_shortcut_tools(agent):
             )
 
     @agent.tool
-    @rpa_tool("FIND", requires="pyautogui")
+    @desktop_tool("FIND", requires="pyautogui")
     def desktop_find(context: RunContext) -> KeyboardActionResult:
         """
         Open find/search dialog (platform-aware).
@@ -295,7 +295,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("NEW", requires="pyautogui")
+    @desktop_tool("NEW", requires="pyautogui")
     def desktop_new(context: RunContext) -> KeyboardActionResult:
         """
         Create new document/window (platform-aware).
@@ -326,7 +326,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("OPEN", requires="pyautogui")
+    @desktop_tool("OPEN", requires="pyautogui")
     def desktop_open(context: RunContext) -> KeyboardActionResult:
         """
         Open file dialog (platform-aware).
@@ -357,7 +357,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("CLOSE", requires="pyautogui")
+    @desktop_tool("CLOSE", requires="pyautogui")
     def desktop_close(context: RunContext) -> KeyboardActionResult:
         """
         Close current window/document (platform-aware).
@@ -388,7 +388,7 @@ def register_keyboard_shortcut_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("QUIT", requires="pyautogui")
+    @desktop_tool("QUIT", requires="pyautogui")
     def desktop_quit(context: RunContext) -> KeyboardActionResult:
         """
         Quit current application (platform-aware).

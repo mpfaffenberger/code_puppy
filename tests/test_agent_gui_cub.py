@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -60,25 +60,21 @@ class TestGUICubAgent:
         assert "grep" in tools
 
         # Screen capture (should work on all platforms)
+        # Note: desktop_screenshot is a representative name that registers multiple tools
         assert "desktop_screenshot" in tools
-        assert "desktop_screenshot_analyze" in tools
-        assert "desktop_get_screen_size" in tools
 
         # OCR tools (should work on all platforms)
-        assert "desktop_extract_text" in tools
-        assert "desktop_find_text" in tools
-        assert "desktop_verify_text" in tools
+        # Note: desktop_ocr is a representative name that registers multiple tools
+        assert "desktop_ocr" in tools
 
         # Mouse control (should work on all platforms)
-        assert "desktop_mouse_move" in tools
-        assert "desktop_mouse_click" in tools
-        assert "desktop_mouse_drag" in tools
+        # Note: desktop_mouse is a representative name that registers multiple tools
+        assert "desktop_mouse" in tools
 
         # Keyboard control (should work on all platforms)
-        assert "desktop_keyboard_type" in tools
-        assert "desktop_keyboard_press" in tools
-        assert "desktop_copy" in tools
-        assert "desktop_paste" in tools
+        # Note: desktop_keyboard and desktop_shortcuts are representative names
+        assert "desktop_keyboard" in tools
+        assert "desktop_shortcuts" in tools
 
     @patch("sys.platform", "darwin")
     def test_macos_specific_tools_on_darwin(self, agent):
@@ -88,13 +84,11 @@ class TestGUICubAgent:
         tools = agent.get_available_tools()
 
         # macOS-specific accessibility tools
-        assert "desktop_find_accessible_element" in tools
-        assert "desktop_list_accessible_elements" in tools
-        assert "desktop_click_accessible_element" in tools
+        # Note: desktop_accessibility is a representative name that registers multiple tools
+        assert "desktop_accessibility" in tools
 
         # Windows-specific tools should NOT be present
-        assert "windows_focus_window" not in tools
-        assert "windows_find_element" not in tools
+        assert "windows_automation" not in tools
 
     @patch("sys.platform", "win32")
     def test_windows_specific_tools_on_win32(self, agent):
@@ -104,29 +98,23 @@ class TestGUICubAgent:
         tools = agent.get_available_tools()
 
         # Windows-specific tools
-        assert "windows_focus_window" in tools
-        assert "windows_find_element" in tools
-        assert "windows_click_element" in tools
-        assert "windows_list_elements" in tools
-        assert "windows_list_windows" in tools
+        # Note: windows_automation is a representative name that registers multiple tools
+        assert "windows_automation" in tools
 
         # macOS-specific tools should NOT be present
-        assert "desktop_find_accessible_element" not in tools
-        assert "desktop_list_accessible_elements" not in tools
+        assert "desktop_accessibility" not in tools
 
     def test_verification_and_debugging_tools_available(self, agent):
         """Verify verification and debugging tools are registered."""
         tools = agent.get_available_tools()
 
         # Grid calibration tools
-        assert "desktop_set_grid_density" in tools
-        assert "desktop_show_grid_test_pattern" in tools
-        assert "desktop_screenshot_with_confidence" in tools
+        # Note: desktop_grid_calibration is a representative name
+        assert "desktop_grid_calibration" in tools
 
         # Click debugging and verification
-        assert "desktop_highlight_click_target" in tools
-        assert "desktop_verify_coordinates" in tools
-        assert "desktop_click_with_verification" in tools
+        # Note: desktop_click_debugging is a representative name
+        assert "desktop_click_debugging" in tools
 
     # ========================================================================
     # TEST CASE 2: Knowledge Base Management
@@ -238,9 +226,9 @@ class TestGUICubAgent:
 
     def test_agent_display_name_property(self, agent):
         """Verify agent display name includes emoji and proper formatting."""
-        assert agent.display_name == "GUI-Cub 🐻"
+        assert agent.display_name == "Desktop Automation Cub 🐻"
         assert "🐻" in agent.display_name  # Contains bear emoji
-        assert "GUI" in agent.display_name
+        assert "Cub" in agent.display_name
 
     def test_agent_description_property(self, agent):
         """Verify agent description covers main capabilities."""
@@ -262,7 +250,9 @@ class TestGUICubAgent:
         assert "Knowledge Base" in prompt or "append_to_knowledge_base" in prompt
         assert "Tier" in prompt or "tier" in prompt  # Method tier system
         assert "OCR" in prompt  # OCR tools mentioned
-        assert "accessibility" in prompt.lower() or "Accessibility" in prompt  # Accessibility API
+        assert (
+            "accessibility" in prompt.lower() or "Accessibility" in prompt
+        )  # Accessibility API
         assert "verify" in prompt.lower() or "Verify" in prompt  # Verification strategy
 
     def test_system_prompt_includes_platform_awareness(self, agent):
@@ -296,34 +286,32 @@ class TestGUICubAgent:
 
     def test_tools_config_consistency(self, agent):
         """Verify that tools mentioned in system prompt are actually available."""
-        prompt = agent.get_system_prompt()
         tools = agent.get_available_tools()
 
-        # Key tools that should be both mentioned and available
+        # Key representative tool groups that should be available
         critical_tools = [
             "desktop_screenshot",
-            "desktop_find_text",
-            "desktop_mouse_click",
-            "desktop_keyboard_type",
-            "desktop_click_with_verification",
-            "desktop_highlight_click_target",
+            "desktop_ocr",
+            "desktop_mouse",
+            "desktop_keyboard",
+            "desktop_click_debugging",
         ]
 
         for tool in critical_tools:
-            # Tool should be available
+            # Tool group should be available
             assert tool in tools, (
-                f"Tool '{tool}' mentioned in prompt but not in available tools"
+                f"Tool group '{tool}' mentioned in prompt but not in available tools"
             )
 
     def test_agent_tool_count_reasonable(self, agent):
         """Verify agent has a reasonable number of tools (not empty, not excessive)."""
         tools = agent.get_available_tools()
 
-        # Should have a substantial toolkit (desktop automation needs many tools)
-        assert len(tools) > 30, "GUI-Cub should have 30+ tools"
+        # With representative names, we should have ~20-30 tool groups
+        assert len(tools) >= 15, "GUI-Cub should have at least 15 tool groups"
 
         # But not an unreasonable amount (might indicate duplicates)
-        assert len(tools) < 200, (
+        assert len(tools) < 50, (
             "Tool count seems excessive, check for duplicates or errors"
         )
 
@@ -350,47 +338,22 @@ class TestGUICubAgent:
     def test_unified_ui_tools_present(self, agent):
         """Verify unified UI tools are registered."""
         tools = set(agent.get_available_tools())
-        expected = {
-            "ui_list_windows",
-            "ui_list_elements",
-            "ui_find_element",
-            "ui_click_element",
-        }
-        missing = expected - tools
-        assert not missing, f"Missing unified UI tools: {sorted(missing)}"
+        # ui_automation is a representative name that registers multiple tools
+        assert "ui_automation" in tools, "Missing ui_automation tool group"
 
     def test_keyboard_shortcut_tools_present(self, agent):
         """Verify keyboard shortcut tools are registered."""
         tools = set(agent.get_available_tools())
-        expected = {
-            "desktop_copy",
-            "desktop_paste",
-            "desktop_cut",
-            "desktop_select_all",
-            "desktop_save",
-            "desktop_undo",
-            "desktop_redo",
-            "desktop_find",
-            "desktop_new",
-            "desktop_open",
-            "desktop_close",
-            "desktop_quit",
-        }
-        assert expected.issubset(tools)
+        # desktop_shortcuts is a representative name that registers multiple tools
+        assert "desktop_shortcuts" in tools, "Missing desktop_shortcuts tool group"
 
     def test_window_and_utility_tools_present(self, agent):
         """Verify window and utility tools are registered."""
         tools = set(agent.get_available_tools())
-        expected = {
-            "desktop_sleep",
-            "desktop_alert",
-            "desktop_confirm",
-            "desktop_prompt",
-            "desktop_focus_window",
-            "desktop_get_monitors",
-            "desktop_check_pixel_color",
-        }
-        assert expected.issubset(tools)
+        # desktop_window_control is a representative name that registers multiple tools
+        assert "desktop_window_control" in tools, (
+            "Missing desktop_window_control tool group"
+        )
 
     @patch("sys.platform", "linux")
     def test_linux_platform_has_no_macos_or_windows_specific_tools(self):
@@ -398,20 +361,9 @@ class TestGUICubAgent:
         agent = GUICubAgent()
         tools = set(agent.get_available_tools())
 
-        mac_specific = {
-            "desktop_find_accessible_element",
-            "desktop_list_accessible_elements",
-            "desktop_click_accessible_element",
-            "desktop_get_accessible_element_value",
-            "desktop_list_accessible_tree",
-        }
-        win_specific = {
-            "windows_focus_window",
-            "windows_find_element",
-            "windows_click_element",
-            "windows_list_elements",
-            "windows_list_windows",
-        }
+        # Representative names for platform-specific tools
+        mac_specific = {"desktop_accessibility"}
+        win_specific = {"windows_automation"}
 
         assert tools.isdisjoint(mac_specific), (
             "Linux should not include macOS-only tools"
@@ -425,31 +377,31 @@ class TestGUICubAgent:
         """Verify complete macOS accessibility toolset is registered."""
         agent = GUICubAgent()
         tools = set(agent.get_available_tools())
-        expected = {
-            "desktop_find_accessible_element",
-            "desktop_list_accessible_elements",
-            "desktop_click_accessible_element",
-            "desktop_get_accessible_element_value",
-            "desktop_list_accessible_tree",
-        }
-        missing = expected - tools
-        assert not missing, f"Missing macOS tools: {sorted(missing)}"
+        # desktop_accessibility is a representative name for macOS tools
+        assert "desktop_accessibility" in tools, (
+            "Missing desktop_accessibility tool group"
+        )
 
     def test_critical_prompt_tools_are_available(self, agent):
         """Verify critical tools mentioned in prompt are actually registered."""
         tools = set(agent.get_available_tools())
-        # Mentioned as NEW or critical in prompt
+        # Individual tools that don't belong to groups
         expected = {
-            "desktop_hover_and_verify",
-            "desktop_click_smart",
             "desktop_click_element_smart",
-            "desktop_find_and_hover",
-            "desktop_find_and_click",
-            "desktop_show_all_ocr_boxes",
+        }
+        # Representative tool groups that register multiple tools
+        expected_groups = {
+            "desktop_click_debugging",  # includes hover_and_verify, click_smart
+            "desktop_vqa",  # includes find_and_hover, find_and_click
+            "desktop_ocr",  # includes show_all_ocr_boxes
         }
         missing = expected - tools
+        missing_groups = expected_groups - tools
         assert not missing, (
-            f"Prompt mentions tools missing from registry: {sorted(missing)}"
+            f"Prompt mentions individual tools missing from registry: {sorted(missing)}"
+        )
+        assert not missing_groups, (
+            f"Prompt mentions tool groups missing from registry: {sorted(missing_groups)}"
         )
 
     # ========================================================================
@@ -470,7 +422,7 @@ class TestGUICubAgent:
         p = agent.get_system_prompt()
         # Tier system with fallback
         assert "Tier" in p or "tier" in p
-        # Should mention keyboard, accessibility, OCR, VQA hierarchy  
+        # Should mention keyboard, accessibility, OCR, VQA hierarchy
         assert "Keyboard" in p or "keyboard" in p
         assert "Accessibility" in p or "accessibility" in p.lower()
         assert "fallback" in p.lower() or "LAST RESORT" in p

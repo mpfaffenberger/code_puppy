@@ -27,14 +27,14 @@ from .result_types import (
     MousePositionResult,
     MouseScrollResult,
 )
-from .tool_wrapper import rpa_tool
+from .tool_wrapper import desktop_tool
 
 
 def register_mouse_control_tools(agent):
     """Register mouse control tools for desktop automation."""
 
     @agent.tool
-    @rpa_tool("MOUSE MOVE", requires="pyautogui")
+    @desktop_tool("MOUSE MOVE", requires="pyautogui")
     def desktop_mouse_move(
         context: RunContext,
         x: int,
@@ -88,9 +88,7 @@ def register_mouse_control_tools(agent):
         )
 
         if not moved_successfully:
-            error_msg = (
-                f"Mouse movement failed! Target: ({x}, {y}), Actual: ({final_x}, {final_y}). "
-            )
+            error_msg = f"Mouse movement failed! Target: ({x}, {y}), Actual: ({final_x}, {final_y}). "
             if IS_MACOS:
                 error_msg += (
                     "This is usually a macOS Accessibility permission issue. "
@@ -107,7 +105,7 @@ def register_mouse_control_tools(agent):
         return MouseActionResult(success=True, x=final_x, y=final_y)
 
     @agent.tool
-    @rpa_tool("MOUSE CLICK", requires="pyautogui")
+    @desktop_tool("MOUSE CLICK", requires="pyautogui")
     def desktop_mouse_click(
         context: RunContext,
         x: int | None = None,
@@ -146,7 +144,7 @@ def register_mouse_control_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("MOUSE DRAG", requires="pyautogui")
+    @desktop_tool("MOUSE DRAG", requires="pyautogui")
     def desktop_mouse_drag(
         context: RunContext,
         x: int,
@@ -183,7 +181,7 @@ def register_mouse_control_tools(agent):
         )
 
     @agent.tool
-    @rpa_tool("MOUSE SCROLL", requires="pyautogui")
+    @desktop_tool("MOUSE SCROLL", requires="pyautogui")
     def desktop_mouse_scroll(
         context: RunContext,
         clicks: int,
@@ -258,7 +256,9 @@ def register_mouse_control_tools(agent):
         }
 
         if not PYAUTOGUI_AVAILABLE:
-            result["error"] = "pyautogui not installed. Install with: uv pip install pyautogui"
+            result["error"] = (
+                "pyautogui not installed. Install with: uv pip install pyautogui"
+            )
             return result
 
         # Get display info (includes permission check on macOS)

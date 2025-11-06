@@ -57,10 +57,18 @@ from code_puppy.tools.browser.browser_workflows import (
 )
 
 # GUI-Cub workflow and knowledge base tools (always available)
-from code_puppy.tools.gui_cub.workflows import register_workflow_tools as register_gui_cub_workflows
-from code_puppy.tools.gui_cub.executor import register_executor_tool as register_gui_cub_executor
-from code_puppy.tools.gui_cub.knowledge_base import register_knowledge_base_tool as register_gui_cub_kb
-from code_puppy.tools.gui_cub.config_manager import register_config_tools as register_gui_cub_config
+from code_puppy.tools.gui_cub.workflows import (
+    register_workflow_tools as register_gui_cub_workflows,
+)
+from code_puppy.tools.gui_cub.executor import (
+    register_executor_tool as register_gui_cub_executor,
+)
+from code_puppy.tools.gui_cub.knowledge_base import (
+    register_knowledge_base_tool as register_gui_cub_kb,
+)
+from code_puppy.tools.gui_cub.config_manager import (
+    register_config_tools as register_gui_cub_config,
+)
 
 # GUI-Cub desktop automation tools (always available - required dependencies)
 # Dependencies: pyautogui, pillow, opencv-python, pytesseract, openpyxl
@@ -72,7 +80,9 @@ from code_puppy.tools.gui_cub.window_control import register_window_control_tool
 from code_puppy.tools.gui_cub.grid_calibration import register_grid_calibration_tools
 from code_puppy.tools.gui_cub.ocr_tools import register_ocr_tools
 from code_puppy.tools.gui_cub.click_debugging import register_click_debugging_tools
-from code_puppy.tools.gui_cub.multi_strategy_click import register_multi_strategy_click_tools
+from code_puppy.tools.gui_cub.multi_strategy_click import (
+    register_multi_strategy_click_tools,
+)
 from code_puppy.tools.gui_cub.vqa_hover_click import register_vqa_hover_tools
 
 # Desktop Automation Accessibility API tools (macOS only) - platform-specific
@@ -192,12 +202,15 @@ TOOL_REGISTRY = {
 # GUI-Cub workflow and knowledge base tools (always available)
 TOOL_REGISTRY.update(
     {
+        # Representative names (NEW - preferred)
+        "gui_cub_workflows": register_gui_cub_workflows,  # Registers: save, list, read
+        "gui_cub_config": register_gui_cub_config,  # Registers: get, calibrate, validate, reset
+        # Individual tool names (backward compatibility)
         "gui_cub_save_workflow": register_gui_cub_workflows,
         "gui_cub_list_workflows": register_gui_cub_workflows,
         "gui_cub_read_workflow": register_gui_cub_workflows,
         "gui_cub_execute_workflow": register_gui_cub_executor,
         "gui_cub_append_to_knowledge_base": register_gui_cub_kb,
-        # Config management tools
         "gui_cub_get_config": register_gui_cub_config,
         "gui_cub_calibrate": register_gui_cub_config,
         "gui_cub_validate_config": register_gui_cub_config,
@@ -208,67 +221,64 @@ TOOL_REGISTRY.update(
 # Desktop automation tools (always available - required dependencies)
 TOOL_REGISTRY.update(
     {
-            # Desktop Automation - Screen Capture
-            "desktop_screenshot": register_desktop_screenshot_tools,
-            "desktop_screenshot_analyze": register_desktop_screenshot_tools,
-            "desktop_get_screen_size": register_desktop_screenshot_tools,
-            # Desktop Automation - Mouse Control
-            "desktop_mouse_move": register_mouse_control_tools,
-            "desktop_mouse_click": register_mouse_control_tools,
-            "desktop_mouse_drag": register_mouse_control_tools,
-            "desktop_mouse_scroll": register_mouse_control_tools,
-            "desktop_mouse_get_position": register_mouse_control_tools,
-            # Desktop Automation - Keyboard Shortcuts (platform-aware)
-            "desktop_copy": register_keyboard_shortcut_tools,
-            "desktop_paste": register_keyboard_shortcut_tools,
-            "desktop_cut": register_keyboard_shortcut_tools,
-            "desktop_select_all": register_keyboard_shortcut_tools,
-            "desktop_save": register_keyboard_shortcut_tools,
-            "desktop_undo": register_keyboard_shortcut_tools,
-            "desktop_redo": register_keyboard_shortcut_tools,
-            "desktop_find": register_keyboard_shortcut_tools,
-            "desktop_new": register_keyboard_shortcut_tools,
-            "desktop_open": register_keyboard_shortcut_tools,
-            "desktop_close": register_keyboard_shortcut_tools,
-            "desktop_quit": register_keyboard_shortcut_tools,
-            # Desktop Automation - Keyboard Control (low-level)
-            "desktop_keyboard_type": register_keyboard_control_tools,
-            "desktop_keyboard_press": register_keyboard_control_tools,
-            "desktop_keyboard_hotkey": register_keyboard_control_tools,
-            "desktop_keyboard_hold": register_keyboard_control_tools,
-            "desktop_keyboard_release": register_keyboard_control_tools,
-            # Desktop Automation - Window and Utility Control
-            "desktop_sleep": register_window_control_tools,
-            "desktop_alert": register_window_control_tools,
-            "desktop_confirm": register_window_control_tools,
-            "desktop_prompt": register_window_control_tools,
-
-
-            "desktop_focus_window": register_window_control_tools,
-            "desktop_get_monitors": register_window_control_tools,
-            "desktop_check_pixel_color": register_window_control_tools,
-            # Desktop Automation - Grid Calibration (NEW!)
-            "desktop_set_grid_density": register_grid_calibration_tools,
-            "desktop_show_grid_test_pattern": register_grid_calibration_tools,
-            "desktop_screenshot_with_confidence": register_grid_calibration_tools,
-            # Desktop Automation - OCR Tools (NEW!)
-            "desktop_extract_text": register_ocr_tools,
-            "desktop_find_text": register_ocr_tools,
-            "desktop_verify_text": register_ocr_tools,
-            "desktop_find_text_reliable": register_ocr_tools,
-            "desktop_show_all_ocr_boxes": register_ocr_tools,
-            # Desktop Automation - Click Debugging Tools (NEW!)
-            "desktop_highlight_click_target": register_click_debugging_tools,
-            "desktop_verify_coordinates": register_click_debugging_tools,
-            "desktop_click_with_verification": register_click_debugging_tools,
-            "desktop_hover_and_verify": register_click_debugging_tools,
-            "desktop_click_smart": register_click_debugging_tools,
-            # Desktop Automation - Multi-Strategy Click (NEW!)
-            "desktop_click_element_smart": register_multi_strategy_click_tools,
-
-            # Desktop Automation - Simplified VQA Hover & Click (RECOMMENDED! - Single-shot VQA + hover verification)
-            "desktop_find_and_hover": register_vqa_hover_tools,
-            "desktop_find_and_click": register_vqa_hover_tools,
+        # Representative names (NEW - preferred)
+        "desktop_screenshot": register_desktop_screenshot_tools,  # Registers: screenshot, analyze, get_screen_size
+        "desktop_mouse": register_mouse_control_tools,  # Registers: move, click, drag, scroll, get_position
+        "desktop_shortcuts": register_keyboard_shortcut_tools,  # Registers: copy, paste, cut, select_all, save, undo, redo, find, new, open, close, quit
+        "desktop_keyboard": register_keyboard_control_tools,  # Registers: type, press, hotkey, hold, release
+        "desktop_window_control": register_window_control_tools,  # Registers: sleep, alert, confirm, prompt, focus_window, get_monitors, check_pixel_color
+        "desktop_grid_calibration": register_grid_calibration_tools,  # Registers: set_density, show_test_pattern, screenshot_with_confidence
+        "desktop_ocr": register_ocr_tools,  # Registers: extract_text, find_text, verify_text, find_text_reliable, show_all_ocr_boxes
+        "desktop_click_debugging": register_click_debugging_tools,  # Registers: highlight, verify_coordinates, click_with_verification, hover_and_verify, click_smart
+        "desktop_vqa": register_vqa_hover_tools,  # Registers: find_and_hover, find_and_click
+        # Individual tool names (backward compatibility)
+        "desktop_screenshot_analyze": register_desktop_screenshot_tools,
+        "desktop_get_screen_size": register_desktop_screenshot_tools,
+        "desktop_mouse_move": register_mouse_control_tools,
+        "desktop_mouse_click": register_mouse_control_tools,
+        "desktop_mouse_drag": register_mouse_control_tools,
+        "desktop_mouse_scroll": register_mouse_control_tools,
+        "desktop_mouse_get_position": register_mouse_control_tools,
+        "desktop_copy": register_keyboard_shortcut_tools,
+        "desktop_paste": register_keyboard_shortcut_tools,
+        "desktop_cut": register_keyboard_shortcut_tools,
+        "desktop_select_all": register_keyboard_shortcut_tools,
+        "desktop_save": register_keyboard_shortcut_tools,
+        "desktop_undo": register_keyboard_shortcut_tools,
+        "desktop_redo": register_keyboard_shortcut_tools,
+        "desktop_find": register_keyboard_shortcut_tools,
+        "desktop_new": register_keyboard_shortcut_tools,
+        "desktop_open": register_keyboard_shortcut_tools,
+        "desktop_close": register_keyboard_shortcut_tools,
+        "desktop_quit": register_keyboard_shortcut_tools,
+        "desktop_keyboard_type": register_keyboard_control_tools,
+        "desktop_keyboard_press": register_keyboard_control_tools,
+        "desktop_keyboard_hotkey": register_keyboard_control_tools,
+        "desktop_keyboard_hold": register_keyboard_control_tools,
+        "desktop_keyboard_release": register_keyboard_control_tools,
+        "desktop_sleep": register_window_control_tools,
+        "desktop_alert": register_window_control_tools,
+        "desktop_confirm": register_window_control_tools,
+        "desktop_prompt": register_window_control_tools,
+        "desktop_focus_window": register_window_control_tools,
+        "desktop_get_monitors": register_window_control_tools,
+        "desktop_check_pixel_color": register_window_control_tools,
+        "desktop_set_grid_density": register_grid_calibration_tools,
+        "desktop_show_grid_test_pattern": register_grid_calibration_tools,
+        "desktop_screenshot_with_confidence": register_grid_calibration_tools,
+        "desktop_extract_text": register_ocr_tools,
+        "desktop_find_text": register_ocr_tools,
+        "desktop_verify_text": register_ocr_tools,
+        "desktop_find_text_reliable": register_ocr_tools,
+        "desktop_show_all_ocr_boxes": register_ocr_tools,
+        "desktop_highlight_click_target": register_click_debugging_tools,
+        "desktop_verify_coordinates": register_click_debugging_tools,
+        "desktop_click_with_verification": register_click_debugging_tools,
+        "desktop_hover_and_verify": register_click_debugging_tools,
+        "desktop_click_smart": register_click_debugging_tools,
+        "desktop_click_element_smart": register_multi_strategy_click_tools,
+        "desktop_find_and_hover": register_vqa_hover_tools,
+        "desktop_find_and_click": register_vqa_hover_tools,
     }
 )
 
@@ -276,7 +286,9 @@ TOOL_REGISTRY.update(
 if ACCESSIBILITY_TOOLS_AVAILABLE:
     TOOL_REGISTRY.update(
         {
-            # Desktop Automation - Accessibility API (macOS)
+            # Representative name (NEW - preferred)
+            "desktop_accessibility": register_accessibility_tools,  # Registers: find, list, click, get_value, list_tree, list_windows
+            # Individual tool names (backward compatibility)
             "desktop_find_accessible_element": register_accessibility_tools,
             "desktop_list_accessible_elements": register_accessibility_tools,
             "desktop_click_accessible_element": register_accessibility_tools,
@@ -290,7 +302,9 @@ if ACCESSIBILITY_TOOLS_AVAILABLE:
 if WINDOWS_TOOLS_AVAILABLE:
     TOOL_REGISTRY.update(
         {
-            # Desktop Automation - Windows UI Automation
+            # Representative name (NEW - preferred)
+            "windows_automation": register_windows_tools,  # Registers: focus_window, find, click, list_elements, list_windows, get_focused, get_value
+            # Individual tool names (backward compatibility)
             "windows_focus_window": register_windows_tools,
             "windows_find_element": register_windows_tools,
             "windows_click_element": register_windows_tools,
@@ -303,12 +317,18 @@ if WINDOWS_TOOLS_AVAILABLE:
 
 
 # Unified OS-aware tool names
-TOOL_REGISTRY.update({
-    "ui_list_windows": register_os_unified_tools,
-    "ui_list_elements": register_os_unified_tools,
-    "ui_find_element": register_os_unified_tools,
-    "ui_click_element": register_os_unified_tools,
-})
+TOOL_REGISTRY.update(
+    {
+        # Representative name (NEW - preferred)
+        "ui_automation": register_os_unified_tools,  # Registers: ui_list_windows, ui_list_elements, ui_find_element, ui_click_element
+        # Individual tool names (backward compatibility)
+        "ui_list_windows": register_os_unified_tools,
+        "ui_list_elements": register_os_unified_tools,
+        "ui_find_element": register_os_unified_tools,
+        "ui_click_element": register_os_unified_tools,
+    }
+)
+
 
 def register_tools_for_agent(agent, tool_names: list[str]):
     """Register specific tools for an agent based on tool names.
@@ -317,9 +337,6 @@ def register_tools_for_agent(agent, tool_names: list[str]):
         agent: The agent to register tools to.
         tool_names: List of tool names to register.
     """
-    # Track which registration functions we've already called to avoid duplicates
-    registered_funcs = set()
-
     for tool_name in tool_names:
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
@@ -328,11 +345,7 @@ def register_tools_for_agent(agent, tool_names: list[str]):
 
         # Register the individual tool
         register_func = TOOL_REGISTRY[tool_name]
-
-        # Only call each registration function once (some functions register multiple tools)
-        if register_func not in registered_funcs:
-            register_func(agent)
-            registered_funcs.add(register_func)
+        register_func(agent)
 
 
 def register_all_tools(agent):

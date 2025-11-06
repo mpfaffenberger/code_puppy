@@ -26,16 +26,16 @@ from .result_types import (
     WindowFocusResult,
     WindowBoundsResult,
 )
-from .tool_wrapper import rpa_tool
+from .tool_wrapper import desktop_tool
 
 
 def _get_active_window_bounds_impl() -> WindowBoundsResult:
     """
     Internal helper to get active window bounds.
-    
+
     This is extracted as a module-level function so it can be imported
     for use in other desktop automation tools (e.g., screen_capture).
-    
+
     Returns:
         WindowBoundsResult with window position, size, and app name
     """
@@ -114,44 +114,49 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
                         height = int(bounds["Height"])
                         # Filter out tiny windows (< 100x100) - likely helpers/notifications
                         if width >= 100 and height >= 100:
-                            candidate_windows.append({
-                                "bounds": bounds,
-                                "title": window.get("kCGWindowName"),
-                                "area": width * height,
-                                "layer": window.get("kCGWindowLayer", 0),
-                            })
-            
+                            candidate_windows.append(
+                                {
+                                    "bounds": bounds,
+                                    "title": window.get("kCGWindowName"),
+                                    "area": width * height,
+                                    "layer": window.get("kCGWindowLayer", 0),
+                                }
+                            )
+
             # Debug logging
             from code_puppy.messaging import emit_info
+
             if len(candidate_windows) > 1:
                 emit_info(
-                    f"[dim]🔍 Found {len(candidate_windows)} windows for {app_name}:[/dim]\n" +
-                    "\n".join(
+                    f"[dim]🔍 Found {len(candidate_windows)} windows for {app_name}:[/dim]\n"
+                    + "\n".join(
                         f"[dim]   • {w['title'] or 'Untitled'}: {int(w['bounds']['Width'])}x{int(w['bounds']['Height'])} "
                         f"at ({int(w['bounds']['X'])}, {int(w['bounds']['Y'])}) - area: {w['area']:,}px²[/dim]"
-                        for w in sorted(candidate_windows, key=lambda x: x['area'], reverse=True)
+                        for w in sorted(
+                            candidate_windows, key=lambda x: x["area"], reverse=True
+                        )
                     )
                 )
-            
+
             if not candidate_windows:
                 return WindowBoundsResult(
                     success=False,
                     error=f"No visible windows found for {app_name} (might be minimized or menu bar app)",
                 )
-            
+
             # Sort by area (largest first), then by layer (lower layer = more visible)
             candidate_windows.sort(key=lambda w: (w["area"], -w["layer"]), reverse=True)
-            
+
             # Return the largest window
             best_window = candidate_windows[0]
             bounds = best_window["bounds"]
-            
+
             if len(candidate_windows) > 1:
                 emit_info(
                     f"[green]✓ Selected largest window: {best_window['title'] or 'Untitled'} "
                     f"({int(bounds['Width'])}x{int(bounds['Height'])})[/green]"
                 )
-            
+
             return WindowBoundsResult(
                 success=True,
                 x=int(bounds["X"]),
@@ -178,12 +183,13 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
 # Public module-level functions that can be imported
 # These are used by other desktop automation modules (e.g., screen_capture)
 
+
 def get_active_window_bounds() -> WindowBoundsResult:
     """Get the bounds of the active/frontmost window.
-    
+
     Public API for getting window bounds. Can be imported and used
     directly without needing agent tool registration.
-    
+
     Returns:
         WindowBoundsResult with window position, size, and app name
     """
@@ -192,13 +198,13 @@ def get_active_window_bounds() -> WindowBoundsResult:
 
 def focus_window(app_name: str | None = None) -> WindowFocusResult:
     """Focus (activate) a window by app name.
-    
+
     Public API for focusing windows. Can be imported and used
     directly without needing agent tool registration.
-    
+
     Args:
         app_name: Name of application to focus (None to refocus frontmost)
-        
+
     Returns:
         WindowFocusResult with success status and focused app name
     """
@@ -213,13 +219,13 @@ desktop_focus_window = focus_window
 def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
     """
     Internal helper to focus a window by app name.
-    
+
     This is extracted as a module-level function so it can be imported
     for use in other desktop automation tools (e.g., screen_capture).
-    
+
     Args:
         app_name: Name of the application to focus (None to refocus frontmost)
-        
+
     Returns:
         WindowFocusResult with success status and focused app name
     """
@@ -285,14 +291,10 @@ def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
                     # Re-activate it
                     app.activateWithOptions_(0)
 
-                    return WindowFocusResult(
-                        success=True, focused_app=app_name_current
-                    )
+                    return WindowFocusResult(success=True, focused_app=app_name_current)
 
                 except ImportError:
-                    return WindowFocusResult(
-                        success=False, error=ERROR_APPKIT_MISSING
-                    )
+                    return WindowFocusResult(success=False, error=ERROR_APPKIT_MISSING)
 
         except subprocess.TimeoutExpired:
             return WindowFocusResult(
@@ -312,7 +314,7 @@ def register_window_control_tools(agent):
     """Register window control tools for desktop automation."""
 
     @agent.tool
-    @rpa_tool("SLEEP", requires="pyautogui")
+    @desktop_tool("SLEEP", requires="pyautogui")
     def desktop_sleep(
         context: RunContext,
         seconds: float,
@@ -335,7 +337,7 @@ def register_window_control_tools(agent):
         return SleepResult(success=True, seconds=seconds)
 
     @agent.tool
-    @rpa_tool("ALERT", requires="pyautogui")
+    @desktop_tool("ALERT", requires="pyautogui")
     def desktop_alert(
         context: RunContext,
         text: str,
@@ -363,7 +365,7 @@ def register_window_control_tools(agent):
         return AlertResult(success=True, response=response)
 
     @agent.tool
-    @rpa_tool("CONFIRM", requires="pyautogui")
+    @desktop_tool("CONFIRM", requires="pyautogui")
     def desktop_confirm(
         context: RunContext,
         text: str,
@@ -395,7 +397,7 @@ def register_window_control_tools(agent):
         return AlertResult(success=True, response=response)
 
     @agent.tool
-    @rpa_tool("PROMPT", requires="pyautogui")
+    @desktop_tool("PROMPT", requires="pyautogui")
     def desktop_prompt(
         context: RunContext,
         text: str,
@@ -422,7 +424,6 @@ def register_window_control_tools(agent):
         response = pyautogui.prompt(text=text, title=title, default=default)
         cancelled = response is None
         return AlertResult(success=True, response=response, cancelled=cancelled)
-
 
     @agent.tool
     def desktop_focus_window(
@@ -547,9 +548,8 @@ def register_window_control_tools(agent):
         except Exception as e:
             return MonitorsResult(success=False, error=str(e))
 
-
     @agent.tool
-    @rpa_tool("CHECK PIXEL COLOR", requires="pyautogui")
+    @desktop_tool("CHECK PIXEL COLOR", requires="pyautogui")
     def desktop_check_pixel_color(
         context: RunContext,
         x: int,
@@ -601,8 +601,15 @@ def register_window_control_tools(agent):
             # Use DPI-safe neighborhood sampling utilities
             from .pixel_utils import sample_neighborhood_rgb, match_rgb
 
-            samples, center_rgb = sample_neighborhood_rgb(x=x, y=y, neighborhood=neighborhood)
-            matches = match_rgb(samples, expected=expected_color, tolerance=int(tolerance), strategy=strategy)
+            samples, center_rgb = sample_neighborhood_rgb(
+                x=x, y=y, neighborhood=neighborhood
+            )
+            matches = match_rgb(
+                samples,
+                expected=expected_color,
+                tolerance=int(tolerance),
+                strategy=strategy,
+            )
 
             return PixelColorResult(
                 success=True,
@@ -617,9 +624,12 @@ def register_window_control_tools(agent):
             try:
                 actual = pyautogui.pixel(x, y)
                 # actual may be a RGB or RGBA tuple
-                actual_rgb = list(actual[:3]) if hasattr(actual, "__len__") else [int(actual)]
+                actual_rgb = (
+                    list(actual[:3]) if hasattr(actual, "__len__") else [int(actual)]
+                )
                 matches = all(
-                    abs(a - e) <= int(tolerance) for a, e in zip(actual_rgb, list(expected_color))
+                    abs(a - e) <= int(tolerance)
+                    for a, e in zip(actual_rgb, list(expected_color))
                 )
                 return PixelColorResult(
                     success=True,

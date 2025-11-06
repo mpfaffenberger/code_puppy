@@ -125,7 +125,7 @@ TOOL_EMOJIS = {
 }
 
 
-def rpa_tool(
+def desktop_tool(
     tool_name: str,
     requires: str | list[str] | None = None,
     emit_start: bool = True,
@@ -152,7 +152,7 @@ def rpa_tool(
         Decorated function with common desktop automation tool patterns
 
     Example:
-        @rpa_tool("MOUSE MOVE", requires="pyautogui")
+        @desktop_tool("MOUSE MOVE", requires="pyautogui")
         def desktop_mouse_move(x: int, y: int) -> MouseActionResult:
             pyautogui.moveTo(x, y)
             return MouseActionResult(success=True, x=x, y=y)

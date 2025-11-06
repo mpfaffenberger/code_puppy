@@ -9,40 +9,39 @@ class GUICubAgent(BaseAgent):
     def __init__(self):
         super().__init__()
         self._calibrated = False
-    
+
     async def _ensure_calibrated(self):
         """Ensure platform is calibrated before use (QA-Kitten pattern).
-        
+
         Lazy initialization - only runs once on first agent execution.
         This is fast if config is cached (~0.1s), slower on first run (~2-5s).
         """
         if not self._calibrated:
-            from code_puppy.tools.gui_cub.config_manager import ensure_calibrated, load_config
+            from code_puppy.tools.gui_cub.config_manager import (
+                ensure_calibrated,
+                load_config,
+            )
             from code_puppy.messaging import emit_warning, emit_info
-            
-            result = await ensure_calibrated()
+
+            await ensure_calibrated()
             self._calibrated = True
-            
+
             # Check for missing capabilities and warn user
             config = load_config()
             if config and config.get("missing_capabilities"):
                 missing = config["missing_capabilities"]
-                
+
                 if "pytesseract" in missing:
                     info = missing["pytesseract"]
-                    emit_warning(
-                        f"[yellow]⚠️ {info['message']}[/yellow]"
-                    )
+                    emit_warning(f"[yellow]⚠️ {info['message']}[/yellow]")
                     emit_info(
                         f"[dim]  Affected features: {', '.join(info['affects'])}[/dim]"
                     )
-                    emit_info(
-                        f"[dim]  Solution: {info['solution']}[/dim]"
-                    )
+                    emit_info(f"[dim]  Solution: {info['solution']}[/dim]")
                     emit_info(
                         "[dim]  You can still use mouse/keyboard automation, but OCR/VQA won't work.[/dim]"
                     )
-            
+
             # Removed the "Tesseract was just installed" warning
             # User already sees the clear exit message during installation
             # and knows to restart terminal
@@ -60,112 +59,58 @@ class GUICubAgent(BaseAgent):
         return "Desktop automation with visual QA, mouse/keyboard control, and workflow capabilities"
 
     def get_available_tools(self) -> list[str]:
-        """Get the list of tools available to GUI-Cub."""
+        """Get the list of tools available to GUI-Cub.
+
+        Uses representative names for tool groups - each name registers multiple related tools.
+        No deduplication logic needed.
+        """
         import sys
 
         # Base tools (always available)
         tools = [
             # Core agent tools
             "agent_share_your_reasoning",
-            # Workflow management
-            "gui_cub_save_workflow",
-            "gui_cub_list_workflows",
-            "gui_cub_read_workflow",
+            # Workflow management (registers: save, list, read)
+            "gui_cub_workflows",
             "gui_cub_execute_workflow",
             "gui_cub_append_to_knowledge_base",
-            # Config management
-            "gui_cub_get_config",
-            "gui_cub_calibrate",
-            "gui_cub_validate_config",
-            "gui_cub_reset_config",
+            # Config management (registers: get, calibrate, validate, reset)
+            "gui_cub_config",
             # File operations
             "read_file",
             "edit_file",
             "list_files",
             "grep",
-            # Screen and visual
+            # Screenshot tools (registers: screenshot, analyze, get_screen_size, plus coordinate conversion utilities)
             "desktop_screenshot",
-            "desktop_screenshot_analyze",
-            "desktop_get_screen_size",
-            "desktop_set_grid_density",
-            "desktop_show_grid_test_pattern",
-            "desktop_screenshot_with_confidence",
-            # OCR tools
-            "desktop_extract_text",
-            "desktop_find_text",
-            "desktop_verify_text",
-            "desktop_find_text_reliable",
-            # Click debugging
-            "desktop_highlight_click_target",
-            "desktop_verify_coordinates",
-            "desktop_click_with_verification",
-            "desktop_hover_and_verify",
-            "desktop_click_smart",
+            # Grid calibration (registers: set_density, show_test_pattern, screenshot_with_confidence)
+            "desktop_grid_calibration",
+            # OCR tools (registers: extract_text, find_text, verify_text, find_text_reliable, show_all_ocr_boxes)
+            "desktop_ocr",
+            # Click debugging (registers: highlight, verify_coordinates, click_with_verification, hover_and_verify, click_smart)
+            "desktop_click_debugging",
             "desktop_click_element_smart",
-            # VQA tools
-            "desktop_find_and_hover",
-            "desktop_find_and_click",
-            # OCR debugging
-            "desktop_show_all_ocr_boxes",
-            # Mouse control
-            "desktop_mouse_move",
-            "desktop_mouse_click",
-            "desktop_mouse_drag",
-            "desktop_mouse_scroll",
-            "desktop_mouse_get_position",
-            # Keyboard shortcuts
-            "desktop_copy",
-            "desktop_paste",
-            "desktop_cut",
-            "desktop_select_all",
-            "desktop_save",
-            "desktop_undo",
-            "desktop_redo",
-            "desktop_find",
-            "desktop_new",
-            "desktop_open",
-            "desktop_close",
-            "desktop_quit",
-            # Keyboard control
-            "desktop_keyboard_type",
-            "desktop_keyboard_press",
-            "desktop_keyboard_hotkey",
-            "desktop_keyboard_hold",
-            "desktop_keyboard_release",
-            # Utilities
-            "desktop_sleep",
-            "desktop_alert",
-            "desktop_confirm",
-            "desktop_prompt",
-            "desktop_focus_window",
-            "desktop_get_monitors",
-            "desktop_check_pixel_color",
-            # Cross-platform UI tools (PREFERRED)
-            "ui_list_windows",
-            "ui_list_elements",
-            "ui_find_element",
-            "ui_click_element",
+            # VQA tools (registers: find_and_hover, find_and_click)
+            "desktop_vqa",
+            # Mouse control (registers: move, click, drag, scroll, get_position)
+            "desktop_mouse",
+            # Keyboard shortcuts (registers: copy, paste, cut, select_all, save, undo, redo, find, new, open, close, quit)
+            "desktop_shortcuts",
+            # Keyboard control (registers: type, press, hotkey, hold, release)
+            "desktop_keyboard",
+            # Window control (registers: sleep, alert, confirm, prompt, focus_window, get_monitors, check_pixel_color)
+            "desktop_window_control",
+            # Cross-platform UI automation (registers: ui_list_windows, ui_list_elements, ui_find_element, ui_click_element)
+            "ui_automation",
         ]
 
         # Add platform-specific accessibility tools
         if sys.platform == "darwin":
-            tools.extend([
-                "desktop_find_accessible_element",
-                "desktop_list_accessible_elements",
-                "desktop_click_accessible_element",
-                "desktop_get_accessible_element_value",
-                "desktop_list_accessible_tree",
-            ])
+            # macOS accessibility API (registers: find, list, click, get_value, list_tree, list_windows)
+            tools.append("desktop_accessibility")
         elif sys.platform == "win32":
-            tools.extend([
-                "windows_focus_window",
-                "windows_find_element",
-                "windows_click_element",
-                "windows_list_elements",
-                "windows_list_windows",
-                "windows_get_focused_element",
-                "windows_get_element_value",
-            ])
+            # Windows automation (registers: focus_window, find, click, list_elements, list_windows, get_focused, get_value)
+            tools.append("windows_automation")
 
         return tools
 
@@ -535,29 +480,26 @@ This approach saves tokens on successful operations while providing rich debuggi
 You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
 """
 
-
-
     def _detect_mode(self, prompt: str) -> str:
         """Detect whether we're in Building or Running mode.
-        
+
         Building Mode: Keep full history (for workflow saving)
         Running Mode: Trim history (for performance)
         """
-        building_keywords = ['build', 'create', 'develop', 'explore', 'discover', 'find']
-        running_keywords = ['execute', 'run', 'batch', '.yaml', '.yml']
-        
+        running_keywords = ["execute", "run", "batch", ".yaml", ".yml"]
+
         prompt_lower = prompt.lower()
-        
+
         # Check for running mode indicators
         if any(kw in prompt_lower for kw in running_keywords):
             return "running"
-        
+
         # Default to building mode (safer - keeps history)
         return "building"
-    
+
     def _trim_message_history_if_needed(self, mode: str):
         """Trim message history to last 500 messages for both modes.
-        
+
         Keeps a rolling window of 500 messages for both building and running modes.
         """
         messages = self.get_message_history()
@@ -566,16 +508,19 @@ You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
             trimmed = messages[-500:]
             self.set_message_history(trimmed)
             from code_puppy.messaging import emit_info
-            emit_info(f"[dim]🗑️  Trimmed message history: {len(messages)} → 500 messages[/dim]")
-    
+
+            emit_info(
+                f"[dim]🗑️  Trimmed message history: {len(messages)} → 500 messages[/dim]"
+            )
+
     async def run_with_mcp(self, prompt: str, **kwargs):
         """Override to add mode-aware history trimming and lazy calibration."""
         # Ensure calibration happens on first run (lazy initialization)
         await self._ensure_calibrated()
-        
+
         # Detect mode and trim history if in running mode
         mode = self._detect_mode(prompt)
         self._trim_message_history_if_needed(mode)
-        
+
         result = await super().run_with_mcp(prompt, **kwargs)
         return result
