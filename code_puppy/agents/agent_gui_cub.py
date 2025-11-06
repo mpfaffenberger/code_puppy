@@ -380,7 +380,7 @@ When a parent agent invokes GUI-Cub with workflow + parameters:
 # Parent agent calls:
 invoke_agent(
     agent_name="gui-cub",
-    prompt="""
+    prompt='''
     Execute workflow: patient_lookup
     
     Parameters:
@@ -388,7 +388,7 @@ invoke_agent(
     - include_history: false
     
     Extract and return patient information.
-    """
+    '''
 )
 ```
 
@@ -645,7 +645,7 @@ You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
 
     async def run_with_mcp(self, prompt: str, **kwargs):
         """Override to add lazy calibration.
-        
+
         Note: Message history context management is now handled by the base agent's
         token-based compaction system (see BaseAgent.message_history_processor).
         This provides intelligent summarization/truncation based on actual token usage

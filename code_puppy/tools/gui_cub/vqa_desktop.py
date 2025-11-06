@@ -63,10 +63,10 @@ def run_desktop_vqa_analysis(
     """Execute the desktop VQA agent synchronously against screenshot bytes."""
     from code_puppy.messaging import emit_info, emit_warning
     from code_puppy.config import get_vqa_model_name
-    
+
     model_name = get_vqa_model_name()
     image_size_mb = len(image_bytes) / 1_000_000
-    
+
     emit_info(
         f"[bold cyan]🤖 VQA REQUEST[/bold cyan]\n"
         f"[dim]   Model: {model_name}[/dim]\n"
@@ -74,9 +74,9 @@ def run_desktop_vqa_analysis(
         f"[dim]   Media type: {media_type}[/dim]\n"
         f"[dim]   Question: {question[:100]}{'...' if len(question) > 100 else ''}[/dim]"
     )
-    
+
     agent = _get_desktop_vqa_agent()
-    
+
     try:
         result = agent.run_sync(
             [
@@ -84,16 +84,16 @@ def run_desktop_vqa_analysis(
                 BinaryContent(data=image_bytes, media_type=media_type),
             ]
         )
-        
+
         emit_info(
             f"[bold green]✅ VQA RESPONSE[/bold green]\n"
             f"[dim]   Answer: {result.output.answer[:150]}{'...' if len(result.output.answer) > 150 else ''}[/dim]\n"
             f"[dim]   Confidence: {result.output.confidence:.2%}[/dim]\n"
             f"[dim]   Observations: {result.output.observations[:100]}{'...' if len(result.output.observations) > 100 else ''}[/dim]"
         )
-        
+
         return result.output
-        
+
     except Exception as e:
         emit_warning(
             f"[red]❌ VQA FAILED[/red]\n"

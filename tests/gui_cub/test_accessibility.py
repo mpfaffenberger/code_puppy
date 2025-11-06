@@ -4,10 +4,8 @@ Covers find_accessible_element and list_accessible_elements with role filters an
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
 
 import code_puppy.tools.gui_cub.accessibility as acc
 from code_puppy.tools.gui_cub.result_types import ElementSearchResult, ElementListResult
@@ -29,14 +27,18 @@ def test_find_accessible_element_fuzzy(monkeypatch):
             return [DummyElem(), DummyElem()]
 
     monkeypatch.setattr(acc, "get_frontmost_app", lambda: DummyApp())
+
     # Patch fuzzy_match to return one element
     def fake_fuzzy_match(search_text, candidates, attribute_names, threshold):
         # Return the first candidate with a score
         return [(candidates[0], 0.9)]
+
     monkeypatch.setattr(acc, "fuzzy_match", fake_fuzzy_match)
     monkeypatch.setattr(acc, "explain_match", lambda a, b, s: f"{a}~{b} ({s})")
 
-    res: ElementSearchResult = acc.find_accessible_element(role="AXButton", title="submit", fuzzy=True, fuzzy_threshold=0.6)
+    res: ElementSearchResult = acc.find_accessible_element(
+        role="AXButton", title="submit", fuzzy=True, fuzzy_threshold=0.6
+    )
     assert res.success is True and res.found is True
     assert res.best_match is not None
     assert res.best_match.role == "AXButton"
@@ -177,6 +179,7 @@ def test_find_accessible_element_multiple_matches_fuzzy(monkeypatch):
         return [(candidates[0], 0.9)] if candidates else []
 
     import code_puppy.tools.gui_cub.fuzzy_matching as fm
+
     monkeypatch.setattr(fm, "fuzzy_match", fake_fuzzy_match)
     monkeypatch.setattr(fm, "explain_match", lambda a, b, s: f"{a}~{b}")
 

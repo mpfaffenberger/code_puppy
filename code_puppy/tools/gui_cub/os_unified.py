@@ -26,6 +26,7 @@ if sys.platform == "win32":
         click_element as _win_click_element,
         list_windows as _win_list_windows,
     )
+
     _WIN = True
 else:
     _WIN = False
@@ -36,6 +37,7 @@ if sys.platform == "darwin":
         find_accessible_element as _mac_find_element,
         _list_macos_windows as _mac_list_windows,
     )
+
     try:
         import atomacos as _atomacos  # type: ignore
     except Exception:
@@ -68,7 +70,10 @@ def register_os_unified_tools(agent):
             if _MAC:
                 wins = _mac_list_windows()
                 return WindowListResult(success=True, count=len(wins), windows=wins)
-            emit_warning("[yellow]List windows is not supported on this OS[/yellow]", message_group=group_id)
+            emit_warning(
+                "[yellow]List windows is not supported on this OS[/yellow]",
+                message_group=group_id,
+            )
             return WindowListResult(success=False, error="Unsupported OS")
         except Exception as e:
             return WindowListResult(success=False, error=str(e))
@@ -101,9 +106,16 @@ def register_os_unified_tools(agent):
                 # macOS: choose between flat grouped list or hierarchical tree
                 if mode == "tree":
                     try:
-                        from code_puppy.tools.gui_cub.accessibility import _build_element_tree
-                        from code_puppy.tools.gui_cub.result_types import ElementListResult as _ELR
-                        from code_puppy.tools.gui_cub.accessibility import get_frontmost_app
+                        from code_puppy.tools.gui_cub.accessibility import (
+                            _build_element_tree,
+                        )
+                        from code_puppy.tools.gui_cub.result_types import (
+                            ElementListResult as _ELR,
+                        )
+                        from code_puppy.tools.gui_cub.accessibility import (
+                            get_frontmost_app,
+                        )
+
                         app = get_frontmost_app()
                         if not app:
                             return _ELR(success=False, error="No frontmost app")
@@ -116,14 +128,23 @@ def register_os_unified_tools(agent):
                         if role:
                             filtered = [n for n in elements if n.get("type") == role]
                             elements = filtered
-                        return _ELR(success=True, elements=elements, by_type=by_type, types=list(by_type.keys()), total_elements=len(elements))
+                        return _ELR(
+                            success=True,
+                            elements=elements,
+                            by_type=by_type,
+                            types=list(by_type.keys()),
+                            total_elements=len(elements),
+                        )
                     except Exception as e:
                         return ElementListResult(success=False, error=str(e))
                 # Flat mode with optional role filter
                 if role:
                     return _mac_list_elements(role=role)
                 return _mac_list_elements()
-            emit_warning("[yellow]List elements is not supported on this OS[/yellow]", message_group=group_id)
+            emit_warning(
+                "[yellow]List elements is not supported on this OS[/yellow]",
+                message_group=group_id,
+            )
             return ElementListResult(success=False, error="Unsupported OS")
         except Exception as e:
             return ElementListResult(success=False, error=str(e))
@@ -156,7 +177,10 @@ def register_os_unified_tools(agent):
                 # If window_title is provided, focus window first
                 if window_title:
                     try:
-                        from code_puppy.tools.gui_cub.windows_automation import focus_window as _focus
+                        from code_puppy.tools.gui_cub.windows_automation import (
+                            focus_window as _focus,
+                        )
+
                         _focus(window_title=window_title)
                     except Exception:
                         pass
@@ -206,7 +230,10 @@ def register_os_unified_tools(agent):
             if _WIN:
                 if window_title:
                     try:
-                        from code_puppy.tools.gui_cub.windows_automation import focus_window as _focus
+                        from code_puppy.tools.gui_cub.windows_automation import (
+                            focus_window as _focus,
+                        )
+
                         _focus(window_title=window_title)
                     except Exception:
                         pass
@@ -228,24 +255,41 @@ def register_os_unified_tools(agent):
                         fuzzy_threshold=fuzzy_threshold,
                     )
                     if not search.success or not search.found or not search.best_match:
-                        return ElementClickResult(success=False, clicked=False, error=search.error or "Element not found")
+                        return ElementClickResult(
+                            success=False,
+                            clicked=False,
+                            error=search.error or "Element not found",
+                        )
                     # Try AXPress if we can resolve element via atomacos
                     if _atomacos is not None:
                         app = None
                         try:
-                            from code_puppy.tools.gui_cub.accessibility import get_frontmost_app
+                            from code_puppy.tools.gui_cub.accessibility import (
+                                get_frontmost_app,
+                            )
+
                             app = get_frontmost_app()
                         except Exception:
                             app = None
                         if app is not None and title:
                             try:
                                 # Try exact remainder lookup by title if role missing
-                                elems = app.findAllR(AXRole=role) if role else app.findAllR()
+                                elems = (
+                                    app.findAllR(AXRole=role)
+                                    if role
+                                    else app.findAllR()
+                                )
                                 for el in elems:
                                     if getattr(el, "AXTitle", None) == title:
                                         try:
                                             el.Press()
-                                            return ElementClickResult(success=True, clicked=True, method="ax_press", element=title, role=role)
+                                            return ElementClickResult(
+                                                success=True,
+                                                clicked=True,
+                                                method="ax_press",
+                                                element=title,
+                                                role=role,
+                                            )
                                         except Exception:
                                             break
                             except Exception:
@@ -254,13 +298,28 @@ def register_os_unified_tools(agent):
                     if search.best_match.center_x and search.best_match.center_y:
                         try:
                             import pyautogui
-                            pyautogui.click(search.best_match.center_x, search.best_match.center_y)
-                            return ElementClickResult(success=True, clicked=True, method="mouse_click", x=search.best_match.center_x, y=search.best_match.center_y)
+
+                            pyautogui.click(
+                                search.best_match.center_x, search.best_match.center_y
+                            )
+                            return ElementClickResult(
+                                success=True,
+                                clicked=True,
+                                method="mouse_click",
+                                x=search.best_match.center_x,
+                                y=search.best_match.center_y,
+                            )
                         except Exception as e:
-                            return ElementClickResult(success=False, clicked=False, error=str(e))
-                    return ElementClickResult(success=False, clicked=False, error="No coordinates available")
+                            return ElementClickResult(
+                                success=False, clicked=False, error=str(e)
+                            )
+                    return ElementClickResult(
+                        success=False, clicked=False, error="No coordinates available"
+                    )
                 except Exception as e:
-                    return ElementClickResult(success=False, clicked=False, error=str(e))
+                    return ElementClickResult(
+                        success=False, clicked=False, error=str(e)
+                    )
             return ElementClickResult(success=False, clicked=False)
         except Exception as e:
             return ElementClickResult(success=False, error=str(e))

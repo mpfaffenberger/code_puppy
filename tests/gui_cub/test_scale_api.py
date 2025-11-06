@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from code_puppy.tools.gui_cub.platform import get_screen_scale_factor
 

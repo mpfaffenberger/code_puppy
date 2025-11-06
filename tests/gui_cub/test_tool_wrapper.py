@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from code_puppy.tools.gui_cub.tool_wrapper import (
     check_library_available,
-    rpa_tool,
+    desktop_tool,
     TOOL_EMOJIS,
 )
 
@@ -17,7 +16,7 @@ class TestCheckLibraryAvailable:
     """Test library availability checking."""
 
     def test_pyautogui_available(self):
-        with patch('builtins.__import__'):
+        with patch("builtins.__import__"):
             available, error = check_library_available("pyautogui")
             # Result depends on whether pyautogui is actually installed
             if available:
@@ -84,10 +83,10 @@ class TestToolEmojis:
 
 
 class TestDesktopAutomationToolDecorator:
-    """Test the rpa_tool decorator."""
+    """Test the desktop_tool decorator."""
 
     def test_decorator_basic_success(self):
-        @rpa_tool("TEST TOOL")
+        @desktop_tool("TEST TOOL")
         def test_function(context, value: int) -> dict:
             return {"success": True, "value": value}
 
@@ -96,10 +95,12 @@ class TestDesktopAutomationToolDecorator:
         assert result["value"] == 42
 
     def test_decorator_with_required_library(self):
-        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
+        with patch(
+            "code_puppy.tools.gui_cub.tool_wrapper.check_library_available"
+        ) as mock_check:
             mock_check.return_value = (True, None)
 
-            @rpa_tool("TEST TOOL", requires="pyautogui")
+            @desktop_tool("TEST TOOL", requires="pyautogui")
             def test_function(context) -> dict:
                 return {"success": True}
 
@@ -108,10 +109,12 @@ class TestDesktopAutomationToolDecorator:
             mock_check.assert_called_with("pyautogui")
 
     def test_decorator_missing_required_library(self):
-        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
+        with patch(
+            "code_puppy.tools.gui_cub.tool_wrapper.check_library_available"
+        ) as mock_check:
             mock_check.return_value = (False, "Library not found")
 
-            @rpa_tool("TEST TOOL", requires="pyautogui", emit_errors=False)
+            @desktop_tool("TEST TOOL", requires="pyautogui", emit_errors=False)
             def test_function(context) -> dict:
                 return {"success": True}
 
@@ -120,10 +123,12 @@ class TestDesktopAutomationToolDecorator:
             assert "Library not found" in result["error"]
 
     def test_decorator_multiple_required_libraries(self):
-        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
+        with patch(
+            "code_puppy.tools.gui_cub.tool_wrapper.check_library_available"
+        ) as mock_check:
             mock_check.return_value = (True, None)
 
-            @rpa_tool("TEST TOOL", requires=["pyautogui", "pillow"])
+            @desktop_tool("TEST TOOL", requires=["pyautogui", "pillow"])
             def test_function(context) -> dict:
                 return {"success": True}
 
@@ -132,7 +137,7 @@ class TestDesktopAutomationToolDecorator:
             assert mock_check.call_count == 2
 
     def test_decorator_exception_handling(self):
-        @rpa_tool("TEST TOOL", emit_errors=False)
+        @desktop_tool("TEST TOOL", emit_errors=False)
         def test_function(context) -> dict:
             raise ValueError("Test error")
 
@@ -145,16 +150,18 @@ class TestDesktopAutomationToolDecorator:
         class FailSafeException(Exception):
             pass
 
-        @rpa_tool("TEST TOOL", emit_errors=False, emit_start=False)
+        @desktop_tool("TEST TOOL", emit_errors=False, emit_start=False)
         def test_function(context) -> dict:
             raise FailSafeException("Moved to corner")
 
         result = test_function(None)
         assert result["success"] is False
-        assert "failsafe" in result["error"].lower() or "corner" in result["error"].lower()
+        assert (
+            "failsafe" in result["error"].lower() or "corner" in result["error"].lower()
+        )
 
     def test_decorator_preserves_function_metadata(self):
-        @rpa_tool("TEST TOOL")
+        @desktop_tool("TEST TOOL")
         def test_function(context, value: int) -> dict:
             """Test docstring."""
             return {"success": True}
@@ -163,7 +170,7 @@ class TestDesktopAutomationToolDecorator:
         assert "Test docstring" in test_function.__doc__
 
     def test_decorator_handles_non_dict_result(self):
-        @rpa_tool("TEST TOOL", emit_success=True, emit_start=False)
+        @desktop_tool("TEST TOOL", emit_success=True, emit_start=False)
         def test_function(context) -> str:
             return "plain string result"
 
@@ -171,31 +178,31 @@ class TestDesktopAutomationToolDecorator:
         assert result == "plain string result"
 
     def test_decorator_success_message_with_coordinates(self):
-        @rpa_tool("TEST TOOL", emit_start=False, emit_success=True)
+        @desktop_tool("TEST TOOL", emit_start=False, emit_success=True)
         def test_function(context) -> dict:
             return {"success": True, "x": 100, "y": 200}
 
-        with patch('code_puppy.tools.gui_cub.tool_wrapper.emit_info'):
+        with patch("code_puppy.tools.gui_cub.tool_wrapper.emit_info"):
             result = test_function(None)
             assert result["success"] is True
             assert result["x"] == 100
             assert result["y"] == 200
 
     def test_decorator_success_message_with_element(self):
-        @rpa_tool("TEST TOOL", emit_start=False, emit_success=True)
+        @desktop_tool("TEST TOOL", emit_start=False, emit_success=True)
         def test_function(context) -> dict:
             return {"success": True, "element": "Button1"}
 
-        with patch('code_puppy.tools.gui_cub.tool_wrapper.emit_info'):
+        with patch("code_puppy.tools.gui_cub.tool_wrapper.emit_info"):
             result = test_function(None)
             assert result["success"] is True
 
     def test_decorator_filters_context_param(self):
-        @rpa_tool("TEST TOOL", emit_start=True)
+        @desktop_tool("TEST TOOL", emit_start=True)
         def test_function(context, value: int, _internal: str = "hidden") -> dict:
             return {"success": True}
 
-        with patch('code_puppy.tools.gui_cub.tool_wrapper.emit_info'):
+        with patch("code_puppy.tools.gui_cub.tool_wrapper.emit_info"):
             result = test_function(None, value=42, _internal="secret")
             assert result["success"] is True
 
@@ -205,18 +212,17 @@ class TestIntegrationScenarios:
 
     def test_real_tool_pattern(self):
         """Test a realistic desktop automation tool pattern."""
-        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
+        with patch(
+            "code_puppy.tools.gui_cub.tool_wrapper.check_library_available"
+        ) as mock_check:
             mock_check.return_value = (True, None)
 
-            @rpa_tool("MOUSE CLICK", requires="pyautogui")
-            def desktop_mouse_click(context, x: int, y: int, button: str = "left") -> dict:
+            @desktop_tool("MOUSE CLICK", requires="pyautogui")
+            def desktop_mouse_click(
+                context, x: int, y: int, button: str = "left"
+            ) -> dict:
                 # Simulate pyautogui.click()
-                return {
-                    "success": True,
-                    "x": x,
-                    "y": y,
-                    "button": button
-                }
+                return {"success": True, "x": x, "y": y, "button": button}
 
             result = desktop_mouse_click(None, x=500, y=300, button="left")
             assert result["success"] is True
@@ -226,10 +232,14 @@ class TestIntegrationScenarios:
 
     def test_tool_with_multiple_dependencies(self):
         """Test tool requiring multiple libraries."""
-        with patch('code_puppy.tools.gui_cub.tool_wrapper.check_library_available') as mock_check:
+        with patch(
+            "code_puppy.tools.gui_cub.tool_wrapper.check_library_available"
+        ) as mock_check:
             mock_check.return_value = (True, None)
 
-            @rpa_tool("SCREENSHOT ANALYZE", requires=["pyautogui", "pillow", "opencv"])
+            @desktop_tool(
+                "SCREENSHOT ANALYZE", requires=["pyautogui", "pillow", "opencv"]
+            )
             def analyze_screenshot(context, region: tuple) -> dict:
                 return {"success": True, "found": True}
 
@@ -239,7 +249,8 @@ class TestIntegrationScenarios:
 
     def test_tool_with_error_recovery(self):
         """Test tool that handles errors gracefully."""
-        @rpa_tool("TEST TOOL", emit_errors=False, emit_start=False)
+
+        @desktop_tool("TEST TOOL", emit_errors=False, emit_start=False)
         def risky_operation(context, value: int) -> dict:
             if value < 0:
                 raise ValueError("Value must be positive")

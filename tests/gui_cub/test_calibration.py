@@ -1,6 +1,5 @@
 """Tests for GUI-Cub calibration."""
 
-import pytest
 from unittest.mock import patch
 from code_puppy.tools.gui_cub.calibration import (
     detect_platform,

@@ -17,7 +17,7 @@ def validate_tool_schema(schema: Dict[str, Any]):
     # Check required top-level keys
     assert "type" in schema, "Schema must have 'type'"
     assert "properties" in schema, "Schema must have 'properties'"
-    
+
     # Check each parameter
     for param_name, param_def in schema.get("properties", {}).items():
         assert "type" in param_def or "anyOf" in param_def, (

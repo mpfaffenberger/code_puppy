@@ -6,7 +6,6 @@ No real keyboard events are sent during testing.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,6 +15,7 @@ try:
         parse_shortcut,
         validate_shortcut,
     )
+
     SHORTCUTS_AVAILABLE = True
 except ImportError:
     SHORTCUTS_AVAILABLE = False

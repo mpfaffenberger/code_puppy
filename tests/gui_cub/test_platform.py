@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from code_puppy.tools.gui_cub.platform import (
     Platform,
@@ -81,7 +80,7 @@ class TestGetPlatform:
         elif sys.platform == "linux":
             assert platform == Platform.LINUX
 
-    @patch('code_puppy.tools.gui_cub.platform.sys')
+    @patch("code_puppy.tools.gui_cub.platform.sys")
     def test_get_unsupported_platform(self, mock_sys):
         mock_sys.platform = "unsupported_os"
         platform = get_platform()
@@ -94,10 +93,11 @@ class TestRequirePlatform:
     def test_decorator_allows_correct_platform(self):
         current = get_platform()
         if current:
+
             @require_platform(current)
             def test_func():
                 return {"success": True}
-            
+
             result = test_func()
             assert result["success"] is True
 
@@ -107,11 +107,11 @@ class TestRequirePlatform:
             wrong_platform = Platform.WINDOWS
         else:
             wrong_platform = Platform.MACOS
-        
+
         @require_platform(wrong_platform)
         def test_func():
             return {"success": True}
-        
+
         result = test_func()
         assert result["success"] is False
         assert "requires" in result["error"].lower()
@@ -120,7 +120,7 @@ class TestRequirePlatform:
         @require_platform(Platform.MACOS, Platform.WINDOWS, Platform.LINUX)
         def test_func():
             return {"success": True}
-        
+
         result = test_func()
         assert result["success"] is True
 
@@ -129,7 +129,7 @@ class TestRequirePlatform:
         def my_function():
             """Test docstring."""
             return {"success": True}
-        
+
         assert my_function.__name__ == "my_function"
         assert "Test docstring" in my_function.__doc__
 
@@ -137,7 +137,7 @@ class TestRequirePlatform:
         @require_platform(Platform.WINDOWS)  # If not on Windows
         def test_func():
             return {"success": True}
-        
+
         result = test_func()
         if not IS_WINDOWS:
             assert "This tool requires WINDOWS" in result["error"]
@@ -179,17 +179,23 @@ class TestConvertScreenshotToScreenCoords:
     """Test coordinate conversion."""
 
     def test_convert_with_1x_scale(self):
-        screen_x, screen_y = convert_screenshot_to_screen_coords(940, 250, scale_factor=1.0)
+        screen_x, screen_y = convert_screenshot_to_screen_coords(
+            940, 250, scale_factor=1.0
+        )
         assert screen_x == 940
         assert screen_y == 250
 
     def test_convert_with_2x_scale(self):
-        screen_x, screen_y = convert_screenshot_to_screen_coords(940, 250, scale_factor=2.0)
+        screen_x, screen_y = convert_screenshot_to_screen_coords(
+            940, 250, scale_factor=2.0
+        )
         assert screen_x == 470
         assert screen_y == 125
 
     def test_convert_with_1_5x_scale(self):
-        screen_x, screen_y = convert_screenshot_to_screen_coords(900, 300, scale_factor=1.5)
+        screen_x, screen_y = convert_screenshot_to_screen_coords(
+            900, 300, scale_factor=1.5
+        )
         assert screen_x == 600
         assert screen_y == 200
 
@@ -200,7 +206,9 @@ class TestConvertScreenshotToScreenCoords:
         assert isinstance(screen_y, int)
 
     def test_convert_returns_integers(self):
-        screen_x, screen_y = convert_screenshot_to_screen_coords(941, 251, scale_factor=2.0)
+        screen_x, screen_y = convert_screenshot_to_screen_coords(
+            941, 251, scale_factor=2.0
+        )
         assert isinstance(screen_x, int)
         assert isinstance(screen_y, int)
 
@@ -208,7 +216,7 @@ class TestConvertScreenshotToScreenCoords:
 class TestCheckMacOSAccessibilityPermission:
     """Test macOS accessibility permission checking."""
 
-    @patch('code_puppy.tools.gui_cub.platform.IS_MACOS', False)
+    @patch("code_puppy.tools.gui_cub.platform.IS_MACOS", False)
     def test_non_macos_returns_true(self):
         has_permission, error = check_macos_accessibility_permission()
         assert has_permission is True
@@ -231,7 +239,7 @@ class TestGetDisplayInfo:
     def test_get_display_info_returns_dict(self):
         """Test that get_display_info returns a dictionary with expected keys."""
         info = get_display_info()
-        
+
         assert isinstance(info, dict)
         assert "platform" in info
         assert isinstance(info["platform"], str)
@@ -239,7 +247,7 @@ class TestGetDisplayInfo:
     def test_display_info_has_platform_name(self):
         """Test that display info includes platform name."""
         info = get_display_info()
-        
+
         assert info["platform"] in ["macOS", "Windows", "Linux", "Unknown"]
 
     def test_display_info_includes_macos_permission_on_macos(self):

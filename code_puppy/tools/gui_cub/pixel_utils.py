@@ -7,13 +7,12 @@ from typing import Literal, Tuple
 try:
     import pyautogui
     from PIL import Image
+
     PYAUTOGUI_AVAILABLE = True
 except ImportError:
     PYAUTOGUI_AVAILABLE = False
     pyautogui = None
     Image = None
-
-from .platform import get_screen_scale_factor
 
 
 def _to_rgb(val) -> Tuple[int, int, int]:
@@ -53,23 +52,23 @@ def sample_neighborhood_rgb(
 
     # Take screenshot first
     screenshot = pyautogui.screenshot()
-    
+
     # Calculate scale factor from screenshot dimensions (source of truth!)
     # This is more reliable than get_screen_scale_factor() which can report wrong values
     logical_width, logical_height = pyautogui.size()
     physical_width, physical_height = screenshot.size
-    
+
     # Calculate scale (typically 1.0, 2.0, or other HiDPI factors)
     scale_x = physical_width / logical_width if logical_width > 0 else 1.0
     scale_y = physical_height / logical_height if logical_height > 0 else 1.0
-    
+
     # Use the average scale (they should be the same on most displays)
     scale = (scale_x + scale_y) / 2
-    
+
     # Convert logical coordinates to physical screenshot coordinates
     sx = int(x * scale)
     sy = int(y * scale)
-    
+
     # Calculate neighborhood radius in both spaces
     radius = max(0, int(neighborhood))
     phys_radius = max(0, int(radius * scale))
@@ -80,20 +79,19 @@ def sample_neighborhood_rgb(
         for dy in range(-phys_radius, phys_radius + 1)
         for dx in range(-phys_radius, phys_radius + 1)
     ]
-    
+
     # Clamp coordinates to screenshot bounds
     max_x = screenshot.size[0] - 1
     max_y = screenshot.size[1] - 1
-    coords = [
-        (max(0, min(cx, max_x)), max(0, min(cy, max_y)))
-        for cx, cy in coords
-    ]
-    
+    coords = [(max(0, min(cx, max_x)), max(0, min(cy, max_y))) for cx, cy in coords]
+
     # Sample RGB values from screenshot
     samples = [_to_rgb(screenshot.getpixel(c)) for c in coords]
     center_idx = len(samples) // 2
-    center_rgb = samples[center_idx] if samples else _to_rgb(screenshot.getpixel((sx, sy)))
-    
+    center_rgb = (
+        samples[center_idx] if samples else _to_rgb(screenshot.getpixel((sx, sy)))
+    )
+
     return samples, center_rgb
 
 

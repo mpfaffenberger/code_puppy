@@ -9,7 +9,7 @@ These tests verify that the window-focused VQA implementation:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -27,7 +27,12 @@ class TestCoordinateConversion:
         """Test basic window-to-screen coordinate conversion."""
         # Create mock window bounds
         window_bounds = WindowBoundsResult(
-            success=True, x=100, y=50, width=1200, height=800, window_title="Test Window"
+            success=True,
+            x=100,
+            y=50,
+            width=1200,
+            height=800,
+            window_title="Test Window",
         )
 
         # Button at (200, 150) within window
@@ -41,7 +46,12 @@ class TestCoordinateConversion:
         """Test basic screen-to-window coordinate conversion."""
         # Create mock window bounds
         window_bounds = WindowBoundsResult(
-            success=True, x=100, y=50, width=1200, height=800, window_title="Test Window"
+            success=True,
+            x=100,
+            y=50,
+            width=1200,
+            height=800,
+            window_title="Test Window",
         )
 
         # Click at screen (300, 200)
@@ -157,14 +167,10 @@ class TestCoordinateConversion:
 class TestWindowFocusedVQA:
     """Test window-focused VQA behavior."""
 
-
-
     @pytest.mark.asyncio
     @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
     @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
-    async def test_full_screen_opt_in(
-        self, mock_vqa, mock_capture
-    ):
+    async def test_full_screen_opt_in(self, mock_vqa, mock_capture):
         """Verify full screen capture requires explicit opt-in."""
         from code_puppy.tools.gui_cub.screen_capture import (
             take_desktop_screenshot_and_analyze,
@@ -204,8 +210,6 @@ class TestWindowFocusedVQA:
         assert result.coordinate_system == "screen_absolute"
         assert result.window_bounds is None
 
-
-
     @pytest.mark.asyncio
     @patch("code_puppy.tools.gui_cub.window_control._get_active_window_bounds_impl")
     @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
@@ -241,9 +245,7 @@ class TestWindowFocusedVQA:
         )
 
         # Call default (should try window, then fall back to full screen)
-        result = await take_desktop_screenshot_and_analyze(
-            question="What is visible?"
-        )
+        result = await take_desktop_screenshot_and_analyze(question="What is visible?")
 
         # Verify screenshot was captured with None region (fallback to full screen)
         mock_capture.assert_called_once()
@@ -256,9 +258,7 @@ class TestWindowFocusedVQA:
     @pytest.mark.asyncio
     @patch("code_puppy.tools.gui_cub.screen_capture.capture_screen")
     @patch("code_puppy.tools.gui_cub.screen_capture.run_desktop_vqa_analysis")
-    async def test_explicit_region_overrides_window(
-        self, mock_vqa, mock_capture
-    ):
+    async def test_explicit_region_overrides_window(self, mock_vqa, mock_capture):
         """Test that explicit region parameter overrides window capture."""
         from code_puppy.tools.gui_cub.screen_capture import (
             take_desktop_screenshot_and_analyze,

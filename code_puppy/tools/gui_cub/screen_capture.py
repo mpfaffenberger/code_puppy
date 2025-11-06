@@ -73,23 +73,23 @@ def _resize_image_if_needed(
         format is 'PNG' or 'JPEG' indicating the output format
     """
     if not PYAUTOGUI_AVAILABLE:
-        return image_bytes, 1.0, 'PNG'
+        return image_bytes, 1.0, "PNG"
 
     # Check if resize needed
     if len(image_bytes) <= max_size_bytes:
-        return image_bytes, 1.0, 'PNG'
+        return image_bytes, 1.0, "PNG"
 
     # Load image
     img = Image.open(BytesIO(image_bytes))
     original_size = img.size
 
     # Convert RGBA to RGB if needed (JPEG doesn't support transparency)
-    if img.mode == 'RGBA':
-        rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+    if img.mode == "RGBA":
+        rgb_img = Image.new("RGB", img.size, (255, 255, 255))
         rgb_img.paste(img, mask=img.split()[3])  # Use alpha channel as mask
         img = rgb_img
-    elif img.mode != 'RGB':
-        img = img.convert('RGB')
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
 
     # Strategy 1: Try PNG optimization first
     output = BytesIO()
@@ -97,7 +97,7 @@ def _resize_image_if_needed(
     output.seek(0)
     compressed_bytes = output.getvalue()
     if len(compressed_bytes) <= max_size_bytes:
-        return compressed_bytes, 1.0, 'PNG'
+        return compressed_bytes, 1.0, "PNG"
 
     # Strategy 2: Try JPEG compression with progressively lower quality
     for quality in [95, 85, 75, 65, 55]:
@@ -106,7 +106,7 @@ def _resize_image_if_needed(
         output.seek(0)
         jpeg_bytes = output.getvalue()
         if len(jpeg_bytes) <= max_size_bytes:
-            return jpeg_bytes, 1.0, 'JPEG'
+            return jpeg_bytes, 1.0, "JPEG"
 
     # Strategy 3: Calculate scaling to fit within max_resolution
     width_scale = max_resolution[0] / original_size[0]
@@ -135,7 +135,7 @@ def _resize_image_if_needed(
         output.seek(0)
         resized_bytes = output.getvalue()
         if len(resized_bytes) <= max_size_bytes:
-            return resized_bytes, scale_factor, 'JPEG'
+            return resized_bytes, scale_factor, "JPEG"
 
     # Last resort: aggressive downscaling
     # If we're still too large, scale down further
@@ -151,7 +151,7 @@ def _resize_image_if_needed(
         output.seek(0)
         resized_bytes = output.getvalue()
 
-    return resized_bytes, scale_factor, 'JPEG'
+    return resized_bytes, scale_factor, "JPEG"
 
 
 def add_coordinate_grid(
@@ -245,11 +245,11 @@ def capture_screen(
 
     from code_puppy.messaging import emit_info, emit_error
     from .platform import get_screen_scale_factor
-    
+
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         scale_factor = get_screen_scale_factor()
-        
+
         # Log screenshot capture details
         if region:
             x, y, w, h = region
@@ -257,7 +257,7 @@ def capture_screen(
                 f"[cyan]📸 CAPTURING SCREENSHOT[/cyan]\n"
                 f"[dim]   Mode: Region capture[/dim]\n"
                 f"[dim]   Region (logical): ({x}, {y}) size {w}x{h}[/dim]\n"
-                f"[dim]   Region (physical): ({x*scale_factor:.0f}, {y*scale_factor:.0f}) size {w*scale_factor:.0f}x{h*scale_factor:.0f}[/dim]\n"
+                f"[dim]   Region (physical): ({x * scale_factor:.0f}, {y * scale_factor:.0f}) size {w * scale_factor:.0f}x{h * scale_factor:.0f}[/dim]\n"
                 f"[dim]   Grid overlay: {'Yes' if add_grid else 'No'}[/dim]"
             )
             screenshot = pyautogui.screenshot(region=region)
@@ -271,7 +271,9 @@ def capture_screen(
 
         # Add coordinate grid if requested
         if add_grid:
-            emit_info(f"[dim]🏛️  Adding coordinate grid (spacing: {grid_spacing}px)[/dim]")
+            emit_info(
+                f"[dim]🏛️  Adding coordinate grid (spacing: {grid_spacing}px)[/dim]"
+            )
             screenshot = add_coordinate_grid(screenshot, grid_spacing=grid_spacing)
 
         # Convert to bytes
@@ -279,7 +281,7 @@ def capture_screen(
         screenshot.save(img_bytes, format="PNG")
         img_bytes.seek(0)
         screenshot_data = img_bytes.getvalue()
-        
+
         file_size_mb = len(screenshot_data) / 1_000_000
 
         result = ScreenshotResult(
@@ -296,7 +298,7 @@ def capture_screen(
             screenshot_path.parent.mkdir(parents=True, exist_ok=True)
             screenshot.save(screenshot_path)
             result.screenshot_path = str(screenshot_path)
-            
+
             emit_info(
                 f"[green]✅ SCREENSHOT CAPTURED[/green]\n"
                 f"[dim]   Size: {screenshot.width}x{screenshot.height} pixels ({file_size_mb:.2f} MB)[/dim]\n"
@@ -320,37 +322,44 @@ def capture_screen(
         return ScreenshotResult(success=False, error=str(e))
 
 
-def _compact_vqa_result(full_result: 'VQAResult', truncate_answer: bool = True, max_answer_length: int = 500) -> 'VQAResult':
+def _compact_vqa_result(
+    full_result: "VQAResult", truncate_answer: bool = True, max_answer_length: int = 500
+) -> "VQAResult":
     """
     Compress VQA result to minimal data.
-    
+
     Strategy:
     - Keep question, answer, confidence
     - Truncate answer to max_answer_length (default: 500 chars)
     - Keep screenshot path only (strip full metadata)
     - Remove verbose screenshot_info details
-    
+
     Args:
         full_result: Full VQA result with all metadata
         truncate_answer: Whether to truncate long answers (default: True)
         max_answer_length: Maximum answer length in chars (default: 500)
-    
+
     Returns:
         Compact VQA result with essentials only
     """
     from .result_types import VQAResult
-    
+
     # Truncate answer if needed
     answer = full_result.answer
     if truncate_answer and answer and len(answer) > max_answer_length:
-        answer = answer[:max_answer_length] + "... (truncated. Use truncate_answer=False for full response)"
-    
+        answer = (
+            answer[:max_answer_length]
+            + "... (truncated. Use truncate_answer=False for full response)"
+        )
+
     return VQAResult(
         success=full_result.success,
         question=full_result.question,
         answer=answer,
         confidence=full_result.confidence,
-        screenshot_path=full_result.screenshot_info.path if full_result.screenshot_info else None,
+        screenshot_path=full_result.screenshot_info.path
+        if full_result.screenshot_info
+        else None,
         error=full_result.error,
         # Explicitly exclude verbose fields
         observations=None,
@@ -513,8 +522,10 @@ async def take_desktop_screenshot_and_analyze(
         # Collect display scale info
         try:
             import pyautogui
+
             logical_w, logical_h = pyautogui.size()
             from .platform import get_screen_scale_factor
+
             screen_scale = get_screen_scale_factor()
         except Exception:
             logical_w, logical_h, screen_scale = None, None, None
@@ -526,7 +537,7 @@ async def take_desktop_screenshot_and_analyze(
         vqa_w = original_w
         vqa_h = original_h
         vqa_scale = 1.0
-        vqa_format = 'PNG'
+        vqa_format = "PNG"
         if len(screenshot_bytes) > VQA_MAX_IMAGE_SIZE_BYTES:
             target_resolution = max_vqa_resolution or VQA_MAX_RESOLUTION
             emit_warning(
@@ -540,12 +551,15 @@ async def take_desktop_screenshot_and_analyze(
             # Update vqa size by reading resized image bytes
             try:
                 from PIL import Image
+
                 img = Image.open(BytesIO(screenshot_bytes))
                 vqa_w, vqa_h = img.size
             except Exception:
                 vqa_w, vqa_h = None, None
             new_size_mb = len(screenshot_bytes) / 1_000_000
-            format_change = f" (converted to {vqa_format})" if vqa_format != 'PNG' else ""
+            format_change = (
+                f" (converted to {vqa_format})" if vqa_format != "PNG" else ""
+            )
             emit_info(
                 f"[green]Image resized: {original_size_mb:.2f} MB → {new_size_mb:.2f} MB "
                 f"(scale factor: {vqa_scale:.2f}){format_change}[/green]",
@@ -558,7 +572,7 @@ async def take_desktop_screenshot_and_analyze(
             expected_h = int(logical_h * screen_scale)
             if abs(expected_w - original_w) > 5 or abs(expected_h - original_h) > 5:
                 emit_warning(
-                    f"[yellow]Scale mismatch: logical({logical_w}x{logical_h}) * {screen_scale} ≠ screenshot({original_w}x{original_h}). Auto-correcting scale to {original_w/logical_w:.2f}x[/yellow]",
+                    f"[yellow]Scale mismatch: logical({logical_w}x{logical_h}) * {screen_scale} ≠ screenshot({original_w}x{original_h}). Auto-correcting scale to {original_w / logical_w:.2f}x[/yellow]",
                     message_group=group_id,
                 )
                 try:
@@ -582,7 +596,7 @@ async def take_desktop_screenshot_and_analyze(
 
             # Determine correct media type based on format (PNG or JPEG)
             media_type = f"image/{vqa_format.lower()}"  # 'image/png' or 'image/jpeg'
-            
+
             vqa_result = await asyncio.to_thread(
                 run_desktop_vqa_analysis,
                 enhanced_question,
@@ -657,9 +671,11 @@ async def take_desktop_screenshot_and_analyze(
             window_bounds=window_bounds,
             coordinate_system=coordinate_system,
         )
-        
+
         # Success-conditional compaction: Return compact result
-        compact_result = _compact_vqa_result(full_result, truncate_answer=truncate_answer)
+        compact_result = _compact_vqa_result(
+            full_result, truncate_answer=truncate_answer
+        )
         truncate_msg = "answer truncated" if truncate_answer else "full answer"
         emit_info(
             f"[dim]💾 Compacted VQA result: screenshot metadata stripped, {truncate_msg}[/dim]",
@@ -710,7 +726,10 @@ def register_desktop_screenshot_tools(agent):
             >>> # Now click at the converted coordinates:
             >>> desktop_mouse_click(x=coords["screen_x"], y=coords["screen_y"])
         """
-        from .platform import convert_screenshot_to_screen_coords, get_screen_scale_factor
+        from .platform import (
+            convert_screenshot_to_screen_coords,
+            get_screen_scale_factor,
+        )
 
         scale_factor = get_screen_scale_factor()
         screen_x, screen_y = convert_screenshot_to_screen_coords(
@@ -797,7 +816,7 @@ def register_desktop_screenshot_tools(agent):
         if x is not None and y is not None and width is not None and height is not None:
             region = (x, y, width, height)
 
-        return await take_desktop_screenshot_and_analyze(
+        result = await take_desktop_screenshot_and_analyze(
             question=question,
             region=region,
             window_title=window_title,
@@ -810,8 +829,13 @@ def register_desktop_screenshot_tools(agent):
         # Add helpful note about coordinate conversion if on HiDPI display
         try:
             from .platform import get_screen_scale_factor
+
             scale = get_screen_scale_factor()
-            if scale > 1.0 and hasattr(result, 'screenshot_info') and result.screenshot_info:
+            if (
+                scale > 1.0
+                and hasattr(result, "screenshot_info")
+                and result.screenshot_info
+            ):
                 result.screenshot_info.coordinate_conversion_note = (
                     f"HiDPI display detected ({scale}x scaling). If VQA provides coordinates, "
                     f"use desktop_convert_screenshot_to_screen_coords() before mouse operations."
@@ -885,6 +909,7 @@ def register_desktop_screenshot_tools(agent):
         width, height = pyautogui.size()
         try:
             from .platform import get_screen_scale_factor
+
             scale = get_screen_scale_factor()
         except Exception:
             scale = 1.0
@@ -924,7 +949,7 @@ def register_desktop_screenshot_tools(agent):
             "scale_x": scale,
             "scale_y": scale,
             "coordinate_space": "logical_points",
-            "note": "Mouse APIs expect logical points; screenshots are physical pixels. Convert using scale computed from screenshot."
+            "note": "Mouse APIs expect logical points; screenshots are physical pixels. Convert using scale computed from screenshot.",
         }
 
     @agent.tool

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from code_puppy.tools.gui_cub.fuzzy_matching import (
     normalize_text,
     extract_identifier_variants,
@@ -122,8 +121,10 @@ class TestFuzzyMatch:
             {"title": "Submit Button", "description": "Submits the form"},
             {"title": "Cancel", "description": "Cancels the operation"},
         ]
-        matches = fuzzy_match("submit", candidates, ["title", "description"], threshold=0.6)
-        
+        matches = fuzzy_match(
+            "submit", candidates, ["title", "description"], threshold=0.6
+        )
+
         assert len(matches) >= 1
         assert matches[0][0]["title"] == "Submit Button"
         assert matches[0][1] >= 0.6
@@ -133,8 +134,10 @@ class TestFuzzyMatch:
             {"title": "OK", "description": "Submit the form"},
             {"title": "Cancel", "description": "Cancel"},
         ]
-        matches = fuzzy_match("submit", candidates, ["title", "description"], threshold=0.6)
-        
+        matches = fuzzy_match(
+            "submit", candidates, ["title", "description"], threshold=0.6
+        )
+
         assert len(matches) >= 1
         assert matches[0][0]["description"] == "Submit the form"
 
@@ -149,7 +152,7 @@ class TestFuzzyMatch:
             Element("Cancel", "btn_cancel"),
         ]
         matches = fuzzy_match("submit", candidates, ["title", "name"], threshold=0.6)
-        
+
         assert len(matches) >= 1
         assert matches[0][0].title == "Submit"
 
@@ -159,7 +162,7 @@ class TestFuzzyMatch:
             {"title": "Completely Different"},
         ]
         matches = fuzzy_match("submit", candidates, ["title"], threshold=0.8)
-        
+
         assert len(matches) == 1
         assert matches[0][0]["title"] == "Submit Button"
 
@@ -170,7 +173,7 @@ class TestFuzzyMatch:
             {"title": "Submittal Form"},
         ]
         matches = fuzzy_match("submit", candidates, ["title"], threshold=0.5)
-        
+
         assert len(matches) >= 2
         assert matches[0][1] >= matches[1][1]
 
@@ -239,19 +242,17 @@ class TestIntegration:
             {"title": "Cancel", "id": "btn_cancel", "type": "button"},
             {"title": "Submit Order", "id": "order_submit", "type": "button"},
         ]
-        
-        matches = fuzzy_match(
-            "submit",
-            ui_elements,
-            ["title", "id"],
-            threshold=0.6
-        )
-        
+
+        matches = fuzzy_match("submit", ui_elements, ["title", "id"], threshold=0.6)
+
         assert len(matches) >= 2
-        
+
         for element, score in matches:
             assert score >= 0.6
-            assert "submit" in element["title"].lower() or "submit" in element["id"].lower()
+            assert (
+                "submit" in element["title"].lower()
+                or "submit" in element["id"].lower()
+            )
 
     def test_identifier_variant_matching(self):
         elements = [
@@ -259,7 +260,7 @@ class TestIntegration:
             {"id": "btn_submit"},
             {"id": "submit-button"},
         ]
-        
+
         matches = fuzzy_match("submit", elements, ["id"], threshold=0.6)
-        
+
         assert len(matches) == 3

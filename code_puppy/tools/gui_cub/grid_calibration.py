@@ -494,7 +494,7 @@ Marker reference:
             try:
                 # Determine media type based on screenshot format
                 media_type = f"image/{screenshot_result.format.lower()}"  # 'image/png' or 'image/jpeg'
-                
+
                 vqa_result = await asyncio.to_thread(
                     run_desktop_vqa_analysis,
                     enhanced_question,

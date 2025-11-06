@@ -33,7 +33,7 @@ class ClickDebugResult(BaseAutomationResult):
     screen_color: list[int] | None = Field(
         None,
         description="RGB color as [r, g, b]",
-        json_schema_extra={"items": {"type": "integer"}, "minItems": 3, "maxItems": 3}
+        json_schema_extra={"items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
     )
     screenshot_path: str | None = None
     message: str = ""
@@ -78,10 +78,17 @@ class SmartClickResult(BaseAutomationResult):
     attempt_log: list[str] = Field(default_factory=list)
 
 
-def _draw_pixel_grid(draw, center_x: int, center_y: int, grid_size: int = 50, spacing: int = 10, scale_factor: float = 1.0):
+def _draw_pixel_grid(
+    draw,
+    center_x: int,
+    center_y: int,
+    grid_size: int = 50,
+    spacing: int = 10,
+    scale_factor: float = 1.0,
+):
     """
     Draw a pixel grid overlay around a point for precise coordinate debugging.
-    
+
     Args:
         draw: PIL ImageDraw object
         center_x: Center X coordinate in screenshot pixels
@@ -95,7 +102,7 @@ def _draw_pixel_grid(draw, center_x: int, center_y: int, grid_size: int = 50, sp
     start_y = center_y - half_size
     end_x = center_x + half_size
     end_y = center_y + half_size
-    
+
     # Draw vertical lines
     for x in range(start_x, end_x + 1, spacing):
         draw.line(
@@ -103,7 +110,7 @@ def _draw_pixel_grid(draw, center_x: int, center_y: int, grid_size: int = 50, sp
             fill=(128, 128, 128, 128),  # Semi-transparent gray
             width=1,
         )
-    
+
     # Draw horizontal lines
     for y in range(start_y, end_y + 1, spacing):
         draw.line(
@@ -111,7 +118,7 @@ def _draw_pixel_grid(draw, center_x: int, center_y: int, grid_size: int = 50, sp
             fill=(128, 128, 128, 128),
             width=1,
         )
-    
+
     # Draw center lines in brighter color
     draw.line([(center_x, start_y), (center_x, end_y)], fill=(255, 255, 0), width=1)
     draw.line([(start_x, center_y), (end_x, center_y)], fill=(255, 255, 0), width=1)
@@ -142,7 +149,7 @@ def register_click_debugging_tools(agent):
 
         Args:
             x: Target X coordinate
-            y: Target Y coordinate  
+            y: Target Y coordinate
             duration: Time to wait after moving (seconds) for cursor to settle
             show_grid: If True, overlay a pixel grid for precise coordinate debugging
 
@@ -174,11 +181,12 @@ def register_click_debugging_tools(agent):
         try:
             # Move mouse to target
             pyautogui.moveTo(x, y, duration=duration)
-            
+
             # Wait for cursor to fully settle
             import time
+
             time.sleep(0.1)
-            
+
             # Get actual cursor position
             actual_x, actual_y = pyautogui.position()
             offset_x = actual_x - x
@@ -190,6 +198,7 @@ def register_click_debugging_tools(agent):
             # Detect HiDPI/Retina scale to transform logical coords to screenshot pixel grid
             try:
                 from .platform import get_screen_scale_factor
+
                 scale_factor = get_screen_scale_factor()
             except Exception:
                 scale_factor = 1.0
@@ -204,9 +213,11 @@ def register_click_debugging_tools(agent):
             draw = ImageDraw.Draw(screenshot)
 
             # TARGET POSITION (RED) - Using precise crosshairs instead of huge circles
-            crosshair_length = int(15 * scale_factor)  # Much smaller than old 20px radius
+            crosshair_length = int(
+                15 * scale_factor
+            )  # Much smaller than old 20px radius
             line_width = max(1, int(1 * scale_factor))
-            
+
             # Red crosshair at target
             draw.line(
                 [(sx - crosshair_length, sy), (sx + crosshair_length, sy)],
@@ -221,28 +232,38 @@ def register_click_debugging_tools(agent):
             # Small red dot at exact target pixel (2px radius)
             dot_radius = max(1, int(2 * scale_factor))
             draw.ellipse(
-                [(sx - dot_radius, sy - dot_radius),
-                 (sx + dot_radius, sy + dot_radius)],
+                [
+                    (sx - dot_radius, sy - dot_radius),
+                    (sx + dot_radius, sy + dot_radius),
+                ],
                 fill=(255, 0, 0),
             )
 
             # ACTUAL CURSOR POSITION (GREEN) - Precise crosshairs
             # Green crosshair at actual cursor position
             draw.line(
-                [(s_actual_x - crosshair_length, s_actual_y), (s_actual_x + crosshair_length, s_actual_y)],
+                [
+                    (s_actual_x - crosshair_length, s_actual_y),
+                    (s_actual_x + crosshair_length, s_actual_y),
+                ],
                 fill=(0, 255, 0),
                 width=line_width,
             )
             draw.line(
-                [(s_actual_x, s_actual_y - crosshair_length), (s_actual_x, s_actual_y + crosshair_length)],
+                [
+                    (s_actual_x, s_actual_y - crosshair_length),
+                    (s_actual_x, s_actual_y + crosshair_length),
+                ],
                 fill=(0, 255, 0),
                 width=line_width,
             )
             # Small green dot at exact cursor pixel (3px radius, slightly bigger than target)
             cursor_dot_radius = max(2, int(3 * scale_factor))
             draw.ellipse(
-                [(s_actual_x - cursor_dot_radius, s_actual_y - cursor_dot_radius),
-                 (s_actual_x + cursor_dot_radius, s_actual_y + cursor_dot_radius)],
+                [
+                    (s_actual_x - cursor_dot_radius, s_actual_y - cursor_dot_radius),
+                    (s_actual_x + cursor_dot_radius, s_actual_y + cursor_dot_radius),
+                ],
                 fill=(0, 255, 0),
             )
 
@@ -256,8 +277,12 @@ def register_click_debugging_tools(agent):
 
             # Add coordinate labels with legend
             from PIL import ImageFont
+
             try:
-                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", max(12, int(16 * scale_factor)))
+                font = ImageFont.truetype(
+                    "/System/Library/Fonts/Helvetica.ttc",
+                    max(12, int(16 * scale_factor)),
+                )
             except Exception:
                 font = ImageFont.load_default()
 
@@ -271,18 +296,33 @@ def register_click_debugging_tools(agent):
             # Position labels below the crosshairs
             label_y = s_actual_y + crosshair_length + int(10 * scale_factor)
             for i, line in enumerate(label_lines):
-                bbox = draw.textbbox((s_actual_x - int(100 * scale_factor), label_y + i * int(20 * scale_factor)), line, font=font)
+                bbox = draw.textbbox(
+                    (
+                        s_actual_x - int(100 * scale_factor),
+                        label_y + i * int(20 * scale_factor),
+                    ),
+                    line,
+                    font=font,
+                )
                 draw.rectangle(
-                    (bbox[0] - int(3 * scale_factor), bbox[1] - int(3 * scale_factor), bbox[2] + int(3 * scale_factor), bbox[3] + int(3 * scale_factor)),
+                    (
+                        bbox[0] - int(3 * scale_factor),
+                        bbox[1] - int(3 * scale_factor),
+                        bbox[2] + int(3 * scale_factor),
+                        bbox[3] + int(3 * scale_factor),
+                    ),
                     fill=(255, 255, 255, 230),
                 )
                 draw.text(
-                    (s_actual_x - int(100 * scale_factor), label_y + i * int(20 * scale_factor)),
+                    (
+                        s_actual_x - int(100 * scale_factor),
+                        label_y + i * int(20 * scale_factor),
+                    ),
                     line,
                     fill=(0, 0, 0),
                     font=font,
                 )
-            
+
             # OPTIONAL: Draw pixel grid overlay for precise debugging
             if show_grid:
                 try:
@@ -295,65 +335,83 @@ def register_click_debugging_tools(agent):
                         scale_factor=scale_factor,
                     )
                 except Exception as grid_error:
-                    emit_warning(f"[yellow]Grid overlay failed: {grid_error}[/yellow]", message_group=group_id)
-            
+                    emit_warning(
+                        f"[yellow]Grid overlay failed: {grid_error}[/yellow]",
+                        message_group=group_id,
+                    )
+
             # ZOOMED INSET VIEW - Show 50x50 pixel area around cursor at 5x magnification
             # This helps see EXACTLY where the cursor is relative to UI elements
             try:
                 zoom_factor = 5
                 crop_size = 50  # 50x50 pixel area in screenshot coordinates
-                
+
                 # Crop region around actual cursor
                 left = max(0, s_actual_x - crop_size // 2)
                 top = max(0, s_actual_y - crop_size // 2)
                 right = min(screenshot.width, s_actual_x + crop_size // 2)
                 bottom = min(screenshot.height, s_actual_y + crop_size // 2)
-                
+
                 zoomed = screenshot.crop((left, top, right, bottom))
                 zoomed = zoomed.resize(
-                    (int((right - left) * zoom_factor), int((bottom - top) * zoom_factor)),
-                    Image.NEAREST  # Pixelated zoom for clarity
+                    (
+                        int((right - left) * zoom_factor),
+                        int((bottom - top) * zoom_factor),
+                    ),
+                    Image.NEAREST,  # Pixelated zoom for clarity
                 )
-                
+
                 # Draw on zoomed inset
                 zoom_draw = ImageDraw.Draw(zoomed)
-                
+
                 # Calculate cursor position in zoomed coordinates
                 zoom_cursor_x = (s_actual_x - left) * zoom_factor
                 zoom_cursor_y = (s_actual_y - top) * zoom_factor
-                
+
                 # Draw crosshair on zoomed view
                 zoom_cross_len = 10 * zoom_factor
                 zoom_draw.line(
-                    [(zoom_cursor_x - zoom_cross_len, zoom_cursor_y), (zoom_cursor_x + zoom_cross_len, zoom_cursor_y)],
+                    [
+                        (zoom_cursor_x - zoom_cross_len, zoom_cursor_y),
+                        (zoom_cursor_x + zoom_cross_len, zoom_cursor_y),
+                    ],
                     fill=(0, 255, 0),
                     width=2,
                 )
                 zoom_draw.line(
-                    [(zoom_cursor_x, zoom_cursor_y - zoom_cross_len), (zoom_cursor_x, zoom_cursor_y + zoom_cross_len)],
+                    [
+                        (zoom_cursor_x, zoom_cursor_y - zoom_cross_len),
+                        (zoom_cursor_x, zoom_cursor_y + zoom_cross_len),
+                    ],
                     fill=(0, 255, 0),
                     width=2,
                 )
                 # Center dot
                 zoom_draw.ellipse(
-                    [(zoom_cursor_x - 3, zoom_cursor_y - 3), (zoom_cursor_x + 3, zoom_cursor_y + 3)],
+                    [
+                        (zoom_cursor_x - 3, zoom_cursor_y - 3),
+                        (zoom_cursor_x + 3, zoom_cursor_y + 3),
+                    ],
                     fill=(0, 255, 0),
                 )
-                
+
                 # Paste zoomed inset in top-left corner with border
                 inset_x = int(20 * scale_factor)
                 inset_y = int(20 * scale_factor)
-                
+
                 # Draw border around inset
                 screenshot.paste(zoomed, (inset_x, inset_y))
                 draw.rectangle(
-                    [(inset_x - 2, inset_y - 2), (inset_x + zoomed.width + 2, inset_y + zoomed.height + 2)],
+                    [
+                        (inset_x - 2, inset_y - 2),
+                        (inset_x + zoomed.width + 2, inset_y + zoomed.height + 2),
+                    ],
                     outline=(255, 255, 255),
                     width=3,
                 )
-                
+
                 # Label for inset
-                inset_label = f"5x ZOOM at cursor"
+                inset_label = "5x ZOOM at cursor"
                 draw.text(
                     (inset_x, inset_y - int(20 * scale_factor)),
                     inset_label,
@@ -362,8 +420,11 @@ def register_click_debugging_tools(agent):
                 )
             except Exception as zoom_error:
                 # If zoom fails, just continue without it
-                emit_warning(f"[yellow]Zoom inset failed: {zoom_error}[/yellow]", message_group=group_id)
-            
+                emit_warning(
+                    f"[yellow]Zoom inset failed: {zoom_error}[/yellow]",
+                    message_group=group_id,
+                )
+
             # Save screenshot
             from datetime import datetime
             from pathlib import Path
@@ -387,7 +448,7 @@ def register_click_debugging_tools(agent):
                 f"[cyan]📍 Actual: ({actual_x}, {actual_y})[/cyan]",
                 message_group=group_id,
             )
-            
+
             if abs(offset_x) > 2 or abs(offset_y) > 2:
                 emit_warning(
                     f"[yellow]⚠️  Cursor offset detected: ({offset_x:+d}, {offset_y:+d}) pixels[/yellow]",
@@ -395,7 +456,7 @@ def register_click_debugging_tools(agent):
                 )
             else:
                 emit_info(
-                    f"[green]✅ Cursor is within 2px of target[/green]",
+                    "[green]✅ Cursor is within 2px of target[/green]",
                     message_group=group_id,
                 )
 
@@ -424,6 +485,7 @@ def register_click_debugging_tools(agent):
                     screenshot = pyautogui.screenshot()
                     try:
                         from .platform import get_screen_scale_factor
+
                         scale_factor = get_screen_scale_factor()
                     except Exception:
                         scale_factor = 1.0
@@ -432,29 +494,77 @@ def register_click_debugging_tools(agent):
                     s_actual_x = int(actual_x * scale_factor)
                     s_actual_y = int(actual_y * scale_factor)
                     draw = ImageDraw.Draw(screenshot)
-                    
+
                     # Use precise crosshairs (same as main code path)
                     crosshair_length = int(15 * scale_factor)
                     line_width = max(1, int(1 * scale_factor))
                     dot_radius = max(1, int(2 * scale_factor))
                     cursor_dot_radius = max(2, int(3 * scale_factor))
-                    
+
                     # Red crosshair at target
-                    draw.line([(sx - crosshair_length, sy), (sx + crosshair_length, sy)], fill=(255, 0, 0), width=line_width)
-                    draw.line([(sx, sy - crosshair_length), (sx, sy + crosshair_length)], fill=(255, 0, 0), width=line_width)
-                    draw.ellipse([(sx - dot_radius, sy - dot_radius), (sx + dot_radius, sy + dot_radius)], fill=(255, 0, 0))
-                    
+                    draw.line(
+                        [(sx - crosshair_length, sy), (sx + crosshair_length, sy)],
+                        fill=(255, 0, 0),
+                        width=line_width,
+                    )
+                    draw.line(
+                        [(sx, sy - crosshair_length), (sx, sy + crosshair_length)],
+                        fill=(255, 0, 0),
+                        width=line_width,
+                    )
+                    draw.ellipse(
+                        [
+                            (sx - dot_radius, sy - dot_radius),
+                            (sx + dot_radius, sy + dot_radius),
+                        ],
+                        fill=(255, 0, 0),
+                    )
+
                     # Green crosshair at actual cursor
-                    draw.line([(s_actual_x - crosshair_length, s_actual_y), (s_actual_x + crosshair_length, s_actual_y)], fill=(0, 255, 0), width=line_width)
-                    draw.line([(s_actual_x, s_actual_y - crosshair_length), (s_actual_x, s_actual_y + crosshair_length)], fill=(0, 255, 0), width=line_width)
-                    draw.ellipse([(s_actual_x - cursor_dot_radius, s_actual_y - cursor_dot_radius), (s_actual_x + cursor_dot_radius, s_actual_y + cursor_dot_radius)], fill=(0, 255, 0))
-                    
+                    draw.line(
+                        [
+                            (s_actual_x - crosshair_length, s_actual_y),
+                            (s_actual_x + crosshair_length, s_actual_y),
+                        ],
+                        fill=(0, 255, 0),
+                        width=line_width,
+                    )
+                    draw.line(
+                        [
+                            (s_actual_x, s_actual_y - crosshair_length),
+                            (s_actual_x, s_actual_y + crosshair_length),
+                        ],
+                        fill=(0, 255, 0),
+                        width=line_width,
+                    )
+                    draw.ellipse(
+                        [
+                            (
+                                s_actual_x - cursor_dot_radius,
+                                s_actual_y - cursor_dot_radius,
+                            ),
+                            (
+                                s_actual_x + cursor_dot_radius,
+                                s_actual_y + cursor_dot_radius,
+                            ),
+                        ],
+                        fill=(0, 255, 0),
+                    )
+
                     # Connecting line
                     if abs(offset_x) > 2 or abs(offset_y) > 2:
-                        draw.line([(sx, sy), (s_actual_x, s_actual_y)], fill=(255, 255, 0), width=line_width)
+                        draw.line(
+                            [(sx, sy), (s_actual_x, s_actual_y)],
+                            fill=(255, 255, 0),
+                            width=line_width,
+                        )
                     from PIL import ImageFont
+
                     try:
-                        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", max(12, int(16 * scale_factor)))
+                        font = ImageFont.truetype(
+                            "/System/Library/Fonts/Helvetica.ttc",
+                            max(12, int(16 * scale_factor)),
+                        )
                     except Exception:
                         font = ImageFont.load_default()
                     label_lines = [
@@ -466,18 +576,45 @@ def register_click_debugging_tools(agent):
                     ]
                     label_y = s_actual_y + crosshair_length + int(10 * scale_factor)
                     for i, line in enumerate(label_lines):
-                        bbox = draw.textbbox((s_actual_x - int(80 * scale_factor), label_y + i * int(20 * scale_factor)), line, font=font)
-                        draw.rectangle((bbox[0] - int(3 * scale_factor), bbox[1] - int(3 * scale_factor), bbox[2] + int(3 * scale_factor), bbox[3] + int(3 * scale_factor)), fill=(255, 255, 255, 230))
-                        draw.text((s_actual_x - int(80 * scale_factor), label_y + i * int(20 * scale_factor)), line, fill=(0, 0, 0), font=font)
+                        bbox = draw.textbbox(
+                            (
+                                s_actual_x - int(80 * scale_factor),
+                                label_y + i * int(20 * scale_factor),
+                            ),
+                            line,
+                            font=font,
+                        )
+                        draw.rectangle(
+                            (
+                                bbox[0] - int(3 * scale_factor),
+                                bbox[1] - int(3 * scale_factor),
+                                bbox[2] + int(3 * scale_factor),
+                                bbox[3] + int(3 * scale_factor),
+                            ),
+                            fill=(255, 255, 255, 230),
+                        )
+                        draw.text(
+                            (
+                                s_actual_x - int(80 * scale_factor),
+                                label_y + i * int(20 * scale_factor),
+                            ),
+                            line,
+                            fill=(0, 0, 0),
+                            font=font,
+                        )
                     from datetime import datetime
                     from pathlib import Path
                     from tempfile import gettempdir
+
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filename = f"hover_verify_diag_{x}_{y}_{timestamp}.png"
                     save_path = Path(gettempdir()) / "code_puppy_rpa_debug" / filename
                     save_path.parent.mkdir(parents=True, exist_ok=True)
                     screenshot.save(save_path)
-                    emit_error(f"[red]Hover verification failed: {e} (diagnostic saved: {save_path})[/red]", message_group=group_id)
+                    emit_error(
+                        f"[red]Hover verification failed: {e} (diagnostic saved: {save_path})[/red]",
+                        message_group=group_id,
+                    )
                     return HoverVerifyResult(
                         success=False,
                         error=str(e),
@@ -493,7 +630,9 @@ def register_click_debugging_tools(agent):
                     )
             except Exception:
                 # If diagnostics fail, return plain error
-                emit_error(f"[red]Hover verification failed: {e}[/red]", message_group=group_id)
+                emit_error(
+                    f"[red]Hover verification failed: {e}[/red]", message_group=group_id
+                )
                 return HoverVerifyResult(success=False, error=str(e))
 
     @agent.tool
@@ -825,6 +964,7 @@ def register_click_debugging_tools(agent):
             # Transform logical coords to screenshot pixel grid for color sampling
             try:
                 from .platform import get_screen_scale_factor
+
                 scale_factor = get_screen_scale_factor()
             except Exception:
                 scale_factor = 1.0
@@ -930,31 +1070,31 @@ def register_click_debugging_tools(agent):
         # Define offset strategies based on element type
         offset_strategies = {
             "button": [
-                (0, 0),      # Center
-                (0, -5),     # Slightly up (avoid bottom padding)
-                (-5, 0),     # Slightly left
-                (5, 0),      # Slightly right
-                (0, 5),      # Slightly down
-                (-3, -3),    # Diagonal up-left
-                (3, -3),     # Diagonal up-right
+                (0, 0),  # Center
+                (0, -5),  # Slightly up (avoid bottom padding)
+                (-5, 0),  # Slightly left
+                (5, 0),  # Slightly right
+                (0, 5),  # Slightly down
+                (-3, -3),  # Diagonal up-left
+                (3, -3),  # Diagonal up-right
             ],
             "link": [
-                (0, 0),      # Center
-                (-10, 0),    # Left (links often left-aligned)
-                (-5, 0),     # Slightly left
-                (0, -3),     # Slightly up
-                (0, 3),      # Slightly down
+                (0, 0),  # Center
+                (-10, 0),  # Left (links often left-aligned)
+                (-5, 0),  # Slightly left
+                (0, -3),  # Slightly up
+                (0, 3),  # Slightly down
             ],
             "checkbox": [
-                (-10, 0),    # Far left (where checkbox usually is)
-                (-15, 0),    # Even further left
-                (-5, 0),     # Slightly left
-                (0, 0),      # Center
+                (-10, 0),  # Far left (where checkbox usually is)
+                (-15, 0),  # Even further left
+                (-5, 0),  # Slightly left
+                (0, 0),  # Center
             ],
             "text_field": [
-                (0, 0),      # Center
-                (-20, 0),    # Left side of field
-                (20, 0),     # Right side of field
+                (0, 0),  # Center
+                (-20, 0),  # Left side of field
+                (20, 0),  # Right side of field
             ],
         }
 
@@ -962,7 +1102,7 @@ def register_click_debugging_tools(agent):
         offsets = offsets[:max_attempts]  # Limit to max_attempts
 
         attempt_log = []
-        
+
         # Capture before-state for color change verification
         before_screenshot = None
         before_pixel_color = None
@@ -970,6 +1110,7 @@ def register_click_debugging_tools(agent):
             before_screenshot = pyautogui.screenshot()
             try:
                 from .platform import get_screen_scale_factor
+
                 scale_factor = get_screen_scale_factor()
             except Exception:
                 scale_factor = 1.0
@@ -987,39 +1128,42 @@ def register_click_debugging_tools(agent):
             for attempt, (offset_x, offset_y) in enumerate(offsets, 1):
                 click_x = x + offset_x
                 click_y = y + offset_y
-                
+
                 emit_info(
                     f"[cyan]Attempt {attempt}/{len(offsets)}: Clicking ({click_x}, {click_y}) [offset: ({offset_x:+d}, {offset_y:+d})][/cyan]",
                     message_group=group_id,
                 )
-                
+
                 # Perform click
                 pyautogui.click(x=click_x, y=click_y)
-                
+
                 # Wait briefly for UI to update
                 import time
+
                 time.sleep(0.2)
-                
+
                 # Verify if requested
                 verification_passed = False
-                
+
                 if verify_color_change:
                     after_screenshot = pyautogui.screenshot()
                     check_x = verify_pixel_x if verify_pixel_x is not None else click_x
                     check_y = verify_pixel_y if verify_pixel_y is not None else click_y
                     s_check_x = int(check_x * scale_factor)
                     s_check_y = int(check_y * scale_factor)
-                    after_pixel_color = after_screenshot.getpixel((s_check_x, s_check_y))
-                    
+                    after_pixel_color = after_screenshot.getpixel(
+                        (s_check_x, s_check_y)
+                    )
+
                     # Check if color changed
                     color_changed = before_pixel_color[:3] != after_pixel_color[:3]
-                    
+
                     if expected_color_rgb:
                         # Check for specific color
                         matches_expected = (
-                            abs(after_pixel_color[0] - expected_color_rgb[0]) < 30 and
-                            abs(after_pixel_color[1] - expected_color_rgb[1]) < 30 and
-                            abs(after_pixel_color[2] - expected_color_rgb[2]) < 30
+                            abs(after_pixel_color[0] - expected_color_rgb[0]) < 30
+                            and abs(after_pixel_color[1] - expected_color_rgb[1]) < 30
+                            and abs(after_pixel_color[2] - expected_color_rgb[2]) < 30
                         )
                         verification_passed = matches_expected
                         log_msg = f"Attempt {attempt}: Color {'MATCH' if matches_expected else 'MISMATCH'} - Got RGB{after_pixel_color[:3]}, Expected RGB{expected_color_rgb}"
@@ -1027,10 +1171,10 @@ def register_click_debugging_tools(agent):
                         # Just check for any change
                         verification_passed = color_changed
                         log_msg = f"Attempt {attempt}: Color {'CHANGED' if color_changed else 'UNCHANGED'} - Before RGB{before_pixel_color[:3]}, After RGB{after_pixel_color[:3]}"
-                    
+
                     attempt_log.append(log_msg)
                     emit_info(f"[dim]{log_msg}[/dim]", message_group=group_id)
-                    
+
                     if verification_passed:
                         emit_info(
                             f"[bold green]✅ SUCCESS! Click verified at offset ({offset_x:+d}, {offset_y:+d})[/bold green]",
@@ -1052,7 +1196,7 @@ def register_click_debugging_tools(agent):
                     # No verification requested, assume first click worked
                     log_msg = f"Attempt {attempt}: Clicked (no verification)"
                     attempt_log.append(log_msg)
-                    
+
                     if attempt == 1:  # Return after first attempt if no verification
                         return SmartClickResult(
                             success=True,
@@ -1066,13 +1210,13 @@ def register_click_debugging_tools(agent):
                             verification_passed=False,
                             attempt_log=attempt_log,
                         )
-            
+
             # All attempts exhausted without verification success
             emit_warning(
                 f"[yellow]⚠️  All {len(offsets)} attempts completed, verification did not pass[/yellow]",
                 message_group=group_id,
             )
-            
+
             return SmartClickResult(
                 success=True,  # Tool executed successfully
                 target_x=x,

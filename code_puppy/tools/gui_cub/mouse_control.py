@@ -283,7 +283,7 @@ def register_mouse_control_tools(agent):
         else:
             # For Windows/Linux, just check if basic operations work
             try:
-                pos = pyautogui.position()
+                pyautogui.position()
                 result["has_permission"] = True
                 result["status"] = "Basic automation appears to be working ✅"
             except Exception as e:

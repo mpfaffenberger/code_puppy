@@ -90,7 +90,7 @@ class ScreenshotInfo(BaseModel):
     region: list[int] | None = Field(
         None,
         description="Region as [x, y, width, height] in logical screen coordinates",
-        json_schema_extra={"items": {"type": "integer"}, "minItems": 4, "maxItems": 4}
+        json_schema_extra={"items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
     )
 
 
@@ -107,7 +107,7 @@ class ScreenshotResult(BaseAutomationResult):
 
 class VQAResult(BaseAutomationResult):
     """Result from visual question answering.
-    
+
     Uses success-conditional compaction:
     - On success: Returns answer, confidence, screenshot path only
     - On failure: Returns full screenshot metadata for debugging
@@ -116,10 +116,10 @@ class VQAResult(BaseAutomationResult):
     question: str
     answer: str | None = None
     confidence: float | None = None
-    
+
     # Compact field (always included)
     screenshot_path: str | None = None
-    
+
     # Verbose fields (only on failure)
     observations: str | None = None
     screenshot_info: ScreenshotInfo | None = None
@@ -167,7 +167,7 @@ class ElementClickResult(BaseAutomationResult):
 
 class ElementListResult(BaseAutomationResult):
     """Result from listing elements.
-    
+
     Uses success-conditional compaction:
     - On success: Returns filtered actionable elements only
     - On failure/empty: Returns full tree for debugging
@@ -176,12 +176,12 @@ class ElementListResult(BaseAutomationResult):
     total_elements: int = 0
     filtered_count: int = 0  # Number of actionable elements in compact mode
     summary: str = ""  # Brief description of elements found
-    
+
     # Compact fields (actionable elements only)
     elements: list[dict[str, Any]] | None = None
     roles: list[str] | None = None
     types: list[str] | None = None
-    
+
     # Verbose fields (full tree - only on failure or when explicitly requested)
     by_role: dict[str, list[dict[str, Any]]] | None = None
     by_type: dict[str, list[dict[str, Any]]] | None = None
@@ -260,12 +260,12 @@ class PixelColorResult(BaseAutomationResult):
     expected: list[int] | None = Field(
         None,
         description="Expected RGB color as [r, g, b]",
-        json_schema_extra={"items": {"type": "integer"}, "minItems": 3, "maxItems": 3}
+        json_schema_extra={"items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
     )
     actual: list[int] | None = Field(
         None,
         description="Actual RGB color as [r, g, b]",
-        json_schema_extra={"items": {"type": "integer"}, "minItems": 3, "maxItems": 3}
+        json_schema_extra={"items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
     )
     position: dict[str, int] | None = None
     tolerance: int | None = None

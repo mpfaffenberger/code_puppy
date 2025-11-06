@@ -29,7 +29,7 @@ def check_library_available(library: str) -> tuple[bool, str | None]:
     """
     if library == "pyautogui":
         try:
-            import pyautogui
+            import pyautogui  # noqa: F401 - testing availability
 
             return True, None
         except ImportError:
@@ -37,7 +37,7 @@ def check_library_available(library: str) -> tuple[bool, str | None]:
 
     elif library == "pillow":
         try:
-            from PIL import Image
+            from PIL import Image  # noqa: F401 - testing availability
 
             return True, None
         except ImportError:
@@ -45,7 +45,7 @@ def check_library_available(library: str) -> tuple[bool, str | None]:
 
     elif library == "opencv":
         try:
-            import cv2
+            import cv2  # noqa: F401 - testing availability
 
             return True, None
         except ImportError:
@@ -53,7 +53,7 @@ def check_library_available(library: str) -> tuple[bool, str | None]:
 
     elif library == "atomacos":
         try:
-            import atomacos
+            import atomacos  # noqa: F401 - testing availability
 
             return True, None
         except ImportError:
@@ -61,8 +61,8 @@ def check_library_available(library: str) -> tuple[bool, str | None]:
 
     elif library == "windows":
         try:
-            import win32gui
-            from pywinauto import Application
+            import win32gui  # noqa: F401 - testing availability
+            from pywinauto import Application  # noqa: F401 - testing availability
 
             return True, None
         except ImportError:

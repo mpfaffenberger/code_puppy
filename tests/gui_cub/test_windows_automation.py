@@ -8,7 +8,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import code_puppy.tools.gui_cub.windows_automation as winauto
-from code_puppy.tools.gui_cub.result_types import ElementClickResult, ElementSearchResult
+from code_puppy.tools.gui_cub.result_types import (
+    ElementClickResult,
+    ElementSearchResult,
+)
 
 
 class DummyRect:

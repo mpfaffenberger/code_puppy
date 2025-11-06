@@ -21,6 +21,7 @@ try:
         kCGWindowListOptionOnScreenOnly,
         kCGNullWindowID,
     )
+
     MACOS_AVAILABLE = True
 except ImportError:
     MACOS_AVAILABLE = False
@@ -32,13 +33,14 @@ except ImportError:
 try:
     import win32gui
     import win32con
+
     WINDOWS_AVAILABLE = True
 except ImportError:
     WINDOWS_AVAILABLE = False
     win32gui = None
     win32con = None
 
-from .platform import IS_MACOS, IS_WINDOWS, IS_LINUX
+from .platform import IS_MACOS, IS_WINDOWS
 
 
 # Known browser chrome heights (approximate, in pixels)

@@ -27,10 +27,10 @@ def append_to_knowledge_base(
     tags: str | None = None,
 ) -> tuple[bool, str]:
     """Append a diary-style entry to the knowledge base.
-    
+
     The KB is a living document - accumulates reusable learnings across sessions.
     When it reaches 1000 lines, oldest entries are pruned (FIFO).
-    
+
     Args:
         context: What was the agent doing? (e.g., "Automating Calculator app")
         discovery: What did the agent learn that's reusable?
@@ -38,10 +38,10 @@ def append_to_knowledge_base(
         what_failed: Failed approaches to avoid (optional)
         reusable: Links to workflows/files created (optional)
         tags: Searchable keywords like "#calculator #timing" (optional)
-        
+
     Returns:
         Tuple of (success: bool, message: str)
-        
+
     Example:
         append_to_knowledge_base(
             context="Calculator app automation",
@@ -55,48 +55,48 @@ def append_to_knowledge_base(
     try:
         base_dir = get_gui_cub_base_dir()
         kb_path = base_dir / "gui_cub_knowledge_base.md"
-        
+
         # Build diary entry
         date_str = datetime.now().strftime("%Y-%m-%d")
         entry_lines = []
         entry_lines.append(f"## {date_str} | {context}")
         entry_lines.append(f"**Discovery:** {discovery}")
-        
+
         if what_worked:
             entry_lines.append(f"**What worked:** {what_worked}")
-        
+
         if what_failed:
             entry_lines.append(f"**What failed:** {what_failed}")
-        
+
         if reusable:
             entry_lines.append(f"**Reusable:** {reusable}")
-        
+
         if tags:
             entry_lines.append(f"**Tags:** {tags}")
-        
+
         entry_lines.append("---")
         entry = "\n".join(entry_lines) + "\n"
-        
+
         # Initialize KB if it doesn't exist
         if not kb_path.exists():
             header = "# GUI-Cub Knowledge Base\n"
             header += "Accumulated learnings across sessions - searchable, reusable wisdom\n\n"
             header += "---\n\n"
             kb_path.write_text(header, encoding="utf-8")
-        
+
         # Read current KB
         current_content = kb_path.read_text(encoding="utf-8")
         lines = current_content.split("\n")
-        
+
         # Append new entry
         updated_content = current_content + entry
-        
+
         # FIFO pruning: if > 1000 lines, remove oldest diary entry
         if len(updated_content.split("\n")) > 1000:
             # Find first diary entry (## YYYY-MM-DD)
             first_entry_idx = None
             second_entry_idx = None
-            
+
             for i, line in enumerate(lines):
                 if line.startswith("## 20"):  # Diary entries start with ## 20XX-XX-XX
                     if first_entry_idx is None:
@@ -104,27 +104,29 @@ def append_to_knowledge_base(
                     elif second_entry_idx is None:
                         second_entry_idx = i
                         break
-            
+
             # Remove first entry (between first_entry_idx and second_entry_idx)
             if first_entry_idx is not None and second_entry_idx is not None:
                 # Keep header + everything after first entry
                 pruned_lines = lines[:first_entry_idx] + lines[second_entry_idx:]
                 updated_content = "\n".join(pruned_lines) + "\n" + entry
-                console.print("[dim]📝 Knowledge base pruned (FIFO): removed oldest entry[/dim]")
+                console.print(
+                    "[dim]📝 Knowledge base pruned (FIFO): removed oldest entry[/dim]"
+                )
             elif first_entry_idx is not None:
                 # Only one entry exists, keep it and add new one
                 pass
-        
+
         # Write updated KB
         kb_path.write_text(updated_content, encoding="utf-8")
-        
+
         console.print(
             f"[green]✅ Knowledge base updated:[/green] {context}\n"
             f"[dim]   Discovery: {discovery[:60]}{'...' if len(discovery) > 60 else ''}[/dim]"
         )
-        
+
         return True, f"Knowledge base entry added: {context}"
-        
+
     except Exception as e:
         console.print(f"[red]❌ Failed to update knowledge base: {e}[/red]")
         return False, f"Error: {e}"
@@ -144,11 +146,11 @@ def register_knowledge_base_tool(agent):
         tags: str | None = None,
     ) -> dict:
         """Append a reusable learning to the persistent knowledge base.
-        
+
         Use this to record discoveries that will be useful in future sessions.
         The KB accumulates across all GUI-Cub sessions and is automatically
         pruned to keep the most recent learnings.
-        
+
         Args:
             context_description: What were you doing? (e.g., "Automating Settings workflow")
             discovery: What reusable insight did you learn?
@@ -156,10 +158,10 @@ def register_knowledge_base_tool(agent):
             what_failed: Failed approaches to avoid (optional)
             reusable: Links to workflows/scripts created (optional)
             tags: Searchable tags like "#calculator #automation #timing" (optional)
-        
+
         Returns:
             Dict with success status and message
-        
+
         Example:
             gui_cub_append_to_knowledge_base(
                 context_description="Calculator automation",
@@ -177,7 +179,7 @@ def register_knowledge_base_tool(agent):
             reusable=reusable,
             tags=tags,
         )
-        
+
         return {
             "success": success,
             "message": message,

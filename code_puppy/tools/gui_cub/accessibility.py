@@ -54,7 +54,7 @@ def get_frontmost_app():
         # Now get atomacos reference by name
         app_ref = atomacos.getAppRefByLocalizedName(app_name)
         return app_ref
-    except Exception as e:
+    except Exception:
         # Silently return None - accessibility API is unreliable
         return None
 
@@ -448,118 +448,160 @@ def _list_macos_windows() -> list[dict[str, Any]]:
 def _calculate_element_relevance(elem: dict) -> float:
     """
     Calculate relevance score for an element (0.0 - 1.0).
-    
+
     Prioritizes:
     - Interactive elements (buttons, fields)
     - Elements with meaningful titles
     - Common UI patterns (submit, login, search, etc.)
     """
     score = 0.0
-    
+
     # Base score by role (0.0 - 0.5)
-    role = elem.get('role') or elem.get('type') or elem.get('control_type') or ''
+    role = elem.get("role") or elem.get("type") or elem.get("control_type") or ""
     role_scores = {
-        'AXButton': 0.5, 'Button': 0.5,
-        'AXTextField': 0.45, 'Edit': 0.45,
-        'AXMenuItem': 0.4, 'MenuItem': 0.4,
-        'AXLink': 0.35, 'Hyperlink': 0.35,
-        'AXCheckBox': 0.3, 'CheckBox': 0.3,
+        "AXButton": 0.5,
+        "Button": 0.5,
+        "AXTextField": 0.45,
+        "Edit": 0.45,
+        "AXMenuItem": 0.4,
+        "MenuItem": 0.4,
+        "AXLink": 0.35,
+        "Hyperlink": 0.35,
+        "AXCheckBox": 0.3,
+        "CheckBox": 0.3,
     }
     score += role_scores.get(role, 0.2)
-    
+
     # Boost for meaningful title (0.0 - 0.3)
-    title = (elem.get('title') or '').lower().strip()
+    title = (elem.get("title") or "").lower().strip()
     if title:
         score += 0.1
-        
+
         # Boost for common action words (fuzzy matching)
         action_words = {
-            'submit', 'login', 'sign in', 'search', 'save', 'send',
-            'ok', 'accept', 'continue', 'next', 'cancel', 'close',
-            'delete', 'remove', 'add', 'create', 'edit', 'update'
+            "submit",
+            "login",
+            "sign in",
+            "search",
+            "save",
+            "send",
+            "ok",
+            "accept",
+            "continue",
+            "next",
+            "cancel",
+            "close",
+            "delete",
+            "remove",
+            "add",
+            "create",
+            "edit",
+            "update",
         }
         for action in action_words:
             if action in title:
                 score += 0.2
                 break
-    
+
     # Penalty for very long titles (probably labels, not buttons)
     if title and len(title) > 50:
         score -= 0.1
-    
+
     return min(1.0, max(0.0, score))
 
 
-def _compact_element_list_result(full_result: ElementListResult, max_elements: int = 20) -> ElementListResult:
+def _compact_element_list_result(
+    full_result: ElementListResult, max_elements: int = 20
+) -> ElementListResult:
     """
     Compress element list to most relevant actionable elements.
-    
+
     Strategy:
     - Filter to interactive/actionable elements (buttons, fields, menus)
     - Calculate relevance score with fuzzy matching on common actions
     - Sort by relevance (most relevant first)
     - Limit to top N most relevant elements (default: 20)
     - Generate summary
-    
+
     Args:
         full_result: Full element list with all elements
         max_elements: Maximum elements to return (default: 20)
-    
+
     Returns:
         Compact result with filtered, sorted actionable elements only
     """
     if not full_result.success or not full_result.elements:
         # Failure or empty - return as-is for debugging
         return full_result
-    
+
     # Define actionable element types
     actionable_roles = {
-        'AXButton', 'AXTextField', 'AXSearchField', 'AXTextArea',
-        'AXMenuItem', 'AXCheckBox', 'AXRadioButton', 'AXPopUpButton',
-        'AXComboBox', 'AXIncrementor', 'AXSlider', 'AXLink',
+        "AXButton",
+        "AXTextField",
+        "AXSearchField",
+        "AXTextArea",
+        "AXMenuItem",
+        "AXCheckBox",
+        "AXRadioButton",
+        "AXPopUpButton",
+        "AXComboBox",
+        "AXIncrementor",
+        "AXSlider",
+        "AXLink",
         # Windows equivalents
-        'Button', 'Edit', 'ComboBox', 'ListItem', 'MenuItem',
-        'CheckBox', 'RadioButton', 'Hyperlink', 'Document',
+        "Button",
+        "Edit",
+        "ComboBox",
+        "ListItem",
+        "MenuItem",
+        "CheckBox",
+        "RadioButton",
+        "Hyperlink",
+        "Document",
     }
-    
+
     # Filter to actionable elements and calculate relevance
     actionable_with_scores = []
     for elem in full_result.elements:
-        role = elem.get('role') or elem.get('type') or elem.get('control_type')
+        role = elem.get("role") or elem.get("type") or elem.get("control_type")
         if role in actionable_roles:
             # Calculate relevance score
             relevance = _calculate_element_relevance(elem)
-            
+
             # Compact element structure - keep only essential fields
             compact_elem = {
-                'role': role,
-                'title': elem.get('title'),
-                'x': elem.get('center_x') or elem.get('x'),
-                'y': elem.get('center_y') or elem.get('y'),
-                'relevance': round(relevance, 2),  # For debugging
+                "role": role,
+                "title": elem.get("title"),
+                "x": elem.get("center_x") or elem.get("x"),
+                "y": elem.get("center_y") or elem.get("y"),
+                "relevance": round(relevance, 2),  # For debugging
             }
             # Add automation_id if available (Windows)
-            if 'auto_id' in elem:
-                compact_elem['auto_id'] = elem['auto_id']
-            
+            if "auto_id" in elem:
+                compact_elem["auto_id"] = elem["auto_id"]
+
             actionable_with_scores.append((relevance, compact_elem))
-    
+
     # Sort by relevance (highest first) and limit to top N
     actionable_with_scores.sort(reverse=True, key=lambda x: x[0])
     actionable = [elem for _score, elem in actionable_with_scores[:max_elements]]
-    
+
     # Extract unique roles
-    unique_roles = list(set(elem['role'] for elem in actionable if elem['role']))
-    
+    unique_roles = list(set(elem["role"] for elem in actionable if elem["role"]))
+
     # Generate summary
     role_counts = {}
     for elem in actionable:
-        role = elem['role']
+        role = elem["role"]
         role_counts[role] = role_counts.get(role, 0) + 1
-    
-    summary_parts = [f"{count} {role}(s)" for role, count in sorted(role_counts.items())[:5]]
-    summary = f"Found {len(actionable)} actionable elements: " + ", ".join(summary_parts)
-    
+
+    summary_parts = [
+        f"{count} {role}(s)" for role, count in sorted(role_counts.items())[:5]
+    ]
+    summary = f"Found {len(actionable)} actionable elements: " + ", ".join(
+        summary_parts
+    )
+
     return ElementListResult(
         success=True,
         total_elements=full_result.total_elements,
@@ -643,7 +685,7 @@ def register_accessibility_tools(agent):
             types=list(by_type.keys()),
             total_elements=len(elements),
         )
-        
+
         # Success-conditional compaction: Return filtered actionable elements
         if len(elements) > 0:
             compact_result = _compact_element_list_result(full_result)
@@ -652,7 +694,7 @@ def register_accessibility_tools(agent):
                 message_group=group_id,
             )
             return compact_result
-        
+
         # Empty tree - return as-is
         return full_result
 

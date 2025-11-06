@@ -91,7 +91,7 @@ def get_screen_scale_factor(use_cache: bool = True) -> float:
     """Detect HiDPI/Retina screen scaling factor reliably.
 
     Checks cached config first (fast), falls back to screenshot comparison (slow).
-    
+
     Priority:
     1. Check in-memory cache (from current session)
     2. Check config file (from calibration)
@@ -105,15 +105,16 @@ def get_screen_scale_factor(use_cache: bool = True) -> float:
         Scale factor (commonly 1.0 or 2.0). Falls back to 1.0 on failure.
     """
     global _cached_scale_factor
-    
+
     # Return in-memory cache if available
     if use_cache and _cached_scale_factor is not None:
         return _cached_scale_factor
-    
+
     # Try to load from config file
     if use_cache:
         try:
             from code_puppy.tools.gui_cub.config_manager import load_config
+
             config = load_config()
             if config:
                 scale = config.get("display", {}).get("scale_factor")
@@ -123,7 +124,7 @@ def get_screen_scale_factor(use_cache: bool = True) -> float:
         except Exception:
             # Config not available, fall through to manual calculation
             pass
-    
+
     # Fall back to manual calculation via screenshot
     try:
         import pyautogui
@@ -149,7 +150,7 @@ def get_screen_scale_factor(use_cache: bool = True) -> float:
 
         # Round to nearest 0.25 to handle non-integer scales, but clamp reasonable bounds
         scale_rounded = max(1.0, min(4.0, round(scale * 4) / 4))
-        
+
         # Cache the calculated value
         _cached_scale_factor = scale_rounded
         return scale_rounded
@@ -157,7 +158,9 @@ def get_screen_scale_factor(use_cache: bool = True) -> float:
         return 1.0
 
 
-def convert_screenshot_to_screen_coords(screenshot_x: int, screenshot_y: int, scale_factor: float | None = None) -> tuple[int, int]:
+def convert_screenshot_to_screen_coords(
+    screenshot_x: int, screenshot_y: int, scale_factor: float | None = None
+) -> tuple[int, int]:
     """Convert screenshot (physical) coordinates to screen (logical) coordinates.
 
     On HiDPI/Retina displays, screenshots are captured at higher resolution
@@ -248,13 +251,13 @@ def check_macos_accessibility_permission() -> tuple[bool, str | None]:
 
 def get_screen_resolution(use_cache: bool = True) -> tuple[int, int]:
     """Get current screen resolution (logical points).
-    
+
     Checks config first (fast), falls back to pyautogui (slow).
-    
+
     Args:
         use_cache: Whether to use cached config value (default: True)
                   Set to False to force live query
-    
+
     Returns:
         Tuple of (width, height) in logical points
     """
@@ -262,6 +265,7 @@ def get_screen_resolution(use_cache: bool = True) -> tuple[int, int]:
     if use_cache:
         try:
             from code_puppy.tools.gui_cub.config_manager import load_config
+
             config = load_config()
             if config:
                 resolution = config.get("display", {}).get("primary_resolution")
@@ -270,10 +274,11 @@ def get_screen_resolution(use_cache: bool = True) -> tuple[int, int]:
         except Exception:
             # Config not available, fall through to live query
             pass
-    
+
     # Fall back to live query
     try:
         import pyautogui
+
         return pyautogui.size()
     except Exception:
         # Ultimate fallback

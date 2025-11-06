@@ -57,7 +57,7 @@ class TextBoundingBox(BaseModel):
 
 class OCRExtractResult(BaseAutomationResult):
     """Result from OCR text extraction.
-    
+
     Uses success-conditional compaction:
     - On success: Returns compact summary with key elements
     - On failure: Returns full diagnostic data
@@ -68,7 +68,7 @@ class OCRExtractResult(BaseAutomationResult):
     key_elements: list[str] = Field(default_factory=list)
     summary: str = ""
     average_confidence: float = 0.0
-    
+
     # Verbose fields (only included on failure or when text_elements needed)
     full_text: str = ""
     text_elements: list[TextBoundingBox] = Field(default_factory=list)
@@ -83,7 +83,7 @@ class OCRExtractResult(BaseAutomationResult):
 
 class OCRFindResult(BaseAutomationResult):
     """Result from OCR text search.
-    
+
     Uses success-conditional compaction:
     - On found=True: Returns best match only
     - On found=False: Returns all text elements for debugging
@@ -93,10 +93,12 @@ class OCRFindResult(BaseAutomationResult):
     found: bool = False
     total_matches: int = 0
     best_match: TextBoundingBox | None = None
-    
+
     # Verbose fields (only on failure)
     matches: list[TextBoundingBox] = Field(default_factory=list)
-    full_text_elements: list[TextBoundingBox] = Field(default_factory=list)  # All OCR elements for debugging
+    full_text_elements: list[TextBoundingBox] = Field(
+        default_factory=list
+    )  # All OCR elements for debugging
 
 
 class OCRVerifyResult(BaseAutomationResult):
@@ -121,9 +123,9 @@ class OCRDebugVisualization(BaseAutomationResult):
 def _generate_ocr_summary(text_elements: list[TextBoundingBox]) -> str:
     """
     Generate a brief natural language summary of OCR findings.
-    
+
     Categorizes elements into buttons, fields, and general text.
-    
+
     Examples:
         - "Login form with username, password fields and Submit, Cancel buttons"
         - "Dialog with OK, Cancel buttons"
@@ -131,22 +133,28 @@ def _generate_ocr_summary(text_elements: list[TextBoundingBox]) -> str:
     """
     if not text_elements:
         return "No text found"
-    
+
     # Categorize elements by keywords
     buttons = []
     fields = []
-    
+
     for elem in text_elements:
         text_lower = elem.text.lower()
-        
+
         # Check for button-like elements
-        if any(kw in text_lower for kw in ['submit', 'ok', 'cancel', 'button', 'save', 'close', 'confirm']):
+        if any(
+            kw in text_lower
+            for kw in ["submit", "ok", "cancel", "button", "save", "close", "confirm"]
+        ):
             buttons.append(elem.text)
-        
+
         # Check for field-like elements
-        elif any(kw in text_lower for kw in ['username', 'password', 'email', 'name', 'field', 'input']):
+        elif any(
+            kw in text_lower
+            for kw in ["username", "password", "email", "name", "field", "input"]
+        ):
             fields.append(elem.text)
-    
+
     # Build summary
     parts = []
     if fields:
@@ -155,42 +163,46 @@ def _generate_ocr_summary(text_elements: list[TextBoundingBox]) -> str:
         parts.append(f"{', '.join(buttons[:3])} buttons")
     if not parts:
         # Generic summary
-        sample_text = [elem.text for elem in text_elements[:5] if len(elem.text.strip()) > 2]
+        sample_text = [
+            elem.text for elem in text_elements[:5] if len(elem.text.strip()) > 2
+        ]
         if sample_text:
             parts.append(f"Text including: {', '.join(sample_text)}")
         else:
             parts.append(f"{len(text_elements)} text elements")
-    
+
     return " with ".join(parts)
 
 
 def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResult:
     """
     Compress OCR extraction result to minimal essential data.
-    
+
     Strategy:
     - Keep success/error status
     - Count total elements found
     - Extract key text elements (high confidence, meaningful words)
     - Generate brief summary
     - Strip full_text and detailed element list
-    
+
     Args:
         full_result: Full OCR result with all data
-    
+
     Returns:
         Compact OCR result with ~90% token reduction
     """
     # Extract high-confidence, meaningful text elements (top 10)
     key_elements = [
         elem.text
-        for elem in sorted(full_result.text_elements, key=lambda e: e.confidence, reverse=True)[:10]
+        for elem in sorted(
+            full_result.text_elements, key=lambda e: e.confidence, reverse=True
+        )[:10]
         if elem.confidence > 0.7 and len(elem.text.strip()) > 2
     ]
-    
+
     # Generate summary
     summary = _generate_ocr_summary(full_result.text_elements)
-    
+
     return OCRExtractResult(
         success=full_result.success,
         found_count=len(full_result.text_elements),
@@ -207,17 +219,17 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
     )
 
 
-def _compact_ocr_find_result(full_result: 'OCRFindResult') -> 'OCRFindResult':
+def _compact_ocr_find_result(full_result: "OCRFindResult") -> "OCRFindResult":
     """
     Compress OCR find result to minimal data.
-    
+
     On success: Return just the best match coordinates
     On failure: Return full data for debugging
     """
     if not full_result.found or not full_result.best_match:
         # Failure - return full result for debugging
         return full_result
-    
+
     # Success - return compact version with just best match
     return OCRFindResult(
         success=full_result.success,
@@ -283,7 +295,7 @@ def _extract_text_from_image_tesseract(
         (coordinates are converted to screen/logical space if scale_factor != 1.0)
     """
     from code_puppy.messaging import emit_info, emit_warning
-    
+
     if not TESSERACT_AVAILABLE:
         return OCRExtractResult(
             success=False,
@@ -299,7 +311,7 @@ def _extract_text_from_image_tesseract(
             f"[dim]   Scale factor: {scale_factor}x[/dim]\n"
             f"[dim]   Region offset: {region_offset if region_offset else 'None (full screen)'}[/dim]"
         )
-        
+
         # Extract text with bounding boxes
         data = pytesseract.image_to_data(
             image,
@@ -366,18 +378,18 @@ def _extract_text_from_image_tesseract(
         avg_confidence = (
             (total_confidence / word_count / 100.0) if word_count > 0 else 0.0
         )
-        
+
         emit_info(
             f"[bold green]✅ OCR COMPLETE[/bold green]\n"
             f"[dim]   Words found: {word_count}[/dim]\n"
             f"[dim]   Average confidence: {avg_confidence:.2%}[/dim]\n"
             f"[dim]   Full text preview: {full_text[:100]}{'...' if len(full_text) > 100 else ''}[/dim]"
         )
-        
+
         if word_count == 0:
             emit_warning(
-                f"[yellow]⚠️  OCR found NO text in image[/yellow]\n"
-                f"[dim]   Image might be too blurry, wrong language, or contain no text[/dim]"
+                "[yellow]⚠️  OCR found NO text in image[/yellow]\n"
+                "[dim]   Image might be too blurry, wrong language, or contain no text[/dim]"
             )
         elif avg_confidence < 0.5:
             emit_warning(
@@ -396,6 +408,7 @@ def _extract_text_from_image_tesseract(
 
     except Exception as e:
         from code_puppy.messaging import emit_error
+
         emit_error(
             f"[red]❌ OCR FAILED[/red]\n"
             f"[dim]   Error: {e}[/dim]\n"
@@ -426,7 +439,7 @@ def find_text_in_elements(
         OCRFindResult with matching elements
     """
     from code_puppy.messaging import emit_info, emit_warning
-    
+
     emit_info(
         f"[cyan]🔎 OCR TEXT SEARCH[/cyan]\n"
         f"[dim]   Searching for: '{search_text}'[/dim]\n"
@@ -434,11 +447,12 @@ def find_text_in_elements(
         f"[dim]   Fuzzy: {fuzzy} (threshold={fuzzy_threshold})[/dim]\n"
         f"[dim]   Total OCR elements: {len(text_elements)}[/dim]"
     )
-    
+
     matches = []
     search_lower = search_text.lower() if not case_sensitive else search_text
 
     import difflib
+
     for elem in text_elements:
         elem_text_raw = elem.text
         elem_text = elem_text_raw if case_sensitive else elem_text_raw.lower()
@@ -456,7 +470,7 @@ def find_text_in_elements(
 
     # Sort by confidence (highest first)
     matches.sort(key=lambda e: e.confidence, reverse=True)
-    
+
     if matches:
         emit_info(
             f"[green]✅ FOUND {len(matches)} MATCH(ES)[/green]\n"
@@ -487,30 +501,34 @@ def find_text_in_elements(
 
 def _check_ocr_capability() -> tuple[bool, str]:
     """Check if OCR/Tesseract is available.
-    
+
     Returns:
         Tuple of (is_available, error_message)
     """
     from code_puppy.tools.gui_cub.config_manager import load_config
-    
+
     config = load_config()
     if not config:
         return False, "Platform not calibrated. Run gui_cub_calibrate() first."
-    
+
     # Check if pytesseract is available
     capabilities = config.get("capabilities", {})
     if not capabilities.get("pytesseract", False):
         missing = config.get("missing_capabilities", {}).get("pytesseract", {})
-        
+
         if missing:
             message = f"\u26a0\ufe0f {missing.get('message', 'Tesseract OCR not available')}\n"
-            message += f"Affected features: {', '.join(missing.get('affects', ['OCR']))}\n"
-            message += f"Solution: {missing.get('solution', 'Install Tesseract manually')}"
+            message += (
+                f"Affected features: {', '.join(missing.get('affects', ['OCR']))}\n"
+            )
+            message += (
+                f"Solution: {missing.get('solution', 'Install Tesseract manually')}"
+            )
         else:
             message = "⚠️ Tesseract OCR not available. OCR/text recognition features won't work."
-        
+
         return False, message
-    
+
     return True, ""
 
 
@@ -562,7 +580,7 @@ def register_ocr_tools(agent):
                 success=False,
                 error=error_msg,
             )
-        
+
         if not PYAUTOGUI_AVAILABLE:
             return OCRExtractResult(
                 success=False,
@@ -703,7 +721,7 @@ def register_ocr_tools(agent):
                     f"[dim]Full text: {result.full_text[:200]}{'...' if len(result.full_text) > 200 else ''}[/dim]",
                     message_group=group_id,
                 )
-                
+
                 # Success-conditional compaction: Return compact result (unless internal call)
                 if len(result.text_elements) > 0 and not _internal:
                     compact_result = _compact_ocr_extract_result(result)
@@ -820,7 +838,7 @@ def register_ocr_tools(agent):
                     f"[green]Best match: '{find_result.best_match.text}' at ({find_result.best_match.center_x}, {find_result.best_match.center_y}) confidence={find_result.best_match.confidence:.2f}[/green]",
                     message_group=group_id,
                 )
-            
+
             # Success-conditional compaction: Return compact result
             compact_result = _compact_ocr_find_result(find_result)
             emit_info(
@@ -838,7 +856,9 @@ def register_ocr_tools(agent):
                 message_group=group_id,
             )
             # Failure - return full diagnostic data with all text elements
-            find_result.full_text_elements = extract_result.text_elements  # Add for debugging
+            find_result.full_text_elements = (
+                extract_result.text_elements
+            )  # Add for debugging
 
         return find_result
 

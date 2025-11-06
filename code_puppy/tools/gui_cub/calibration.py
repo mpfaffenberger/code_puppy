@@ -8,7 +8,6 @@ Runs on first use (like QA-Kitten downloading Camoufox) to detect:
 - Permissions (accessibility, screen recording on macOS)
 """
 
-import asyncio
 import os
 import platform
 import subprocess
@@ -22,7 +21,6 @@ import pyautogui
 if sys.platform == "win32":
     import winreg
     import ctypes
-from PIL import Image
 
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
@@ -40,54 +38,56 @@ def download_with_walmart_fallback(
     chunk_size: int = 8192,
 ) -> bool:
     """Download a file with Walmart-friendly settings (proxy + cert bundle).
-    
+
     Uses Walmart proxy and cert bundle by default, which works both inside
     and outside the corporate network. Falls back to direct download if needed.
-    
+
     Args:
         url: URL to download from
         destination_path: Where to save the downloaded file
         group_id: Optional message group ID for emit_info calls
         chunk_size: Download chunk size in bytes
-    
+
     Returns:
         True if download succeeded, False otherwise
     """
     import os
     from pathlib import Path
-    
+
     import requests
-    
+
     dest = Path(destination_path)
-    
+
     # First try: Walmart settings (proxy + cert bundle)
     try:
         # Get Walmart cert bundle path if available
         cert_bundle = os.environ.get("_SSL_CERT_FILE")
         if cert_bundle and not os.path.exists(cert_bundle):
             cert_bundle = None
-        
+
         # Create session with Walmart settings
         session = requests.Session()
         if cert_bundle:
             session.verify = cert_bundle
-        
+
         # Add Walmart proxy settings
-        session.proxies.update({
-            "http": "http://sysproxy.wal-mart.com:8080",
-            "https": "http://sysproxy.wal-mart.com:8080",
-        })
-        
+        session.proxies.update(
+            {
+                "http": "http://sysproxy.wal-mart.com:8080",
+                "https": "http://sysproxy.wal-mart.com:8080",
+            }
+        )
+
         response = session.get(url, stream=True, timeout=60.0)
         response.raise_for_status()
-        
+
         with open(dest, "wb") as f:
             for chunk in response.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
-        
+
         return True
-        
+
     except Exception as e:
         emit_info(
             f"  • Download with Walmart settings failed: {e}",
@@ -97,26 +97,26 @@ def download_with_walmart_fallback(
             "  • Retrying without proxy/cert...",
             message_group=group_id,
         )
-    
+
     # Second try: direct download without Walmart settings
     try:
         session = requests.Session()
         session.verify = True  # Use default system certs
-        
+
         response = session.get(url, stream=True, timeout=60.0)
         response.raise_for_status()
-        
+
         with open(dest, "wb") as f:
             for chunk in response.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
-        
+
         emit_info(
             "  • Download succeeded without proxy",
             message_group=group_id,
         )
         return True
-        
+
     except Exception as e:
         emit_info(
             f"  • Direct download also failed: {e}",
@@ -127,25 +127,22 @@ def download_with_walmart_fallback(
 
 def _update_system_path_registry(path_to_add: str) -> tuple[bool, str]:
     """Update system PATH via Windows registry (no 1024 char limit).
-    
+
     Args:
         path_to_add: Path to add to system PATH
-        
+
     Returns:
         Tuple of (success: bool, message: str)
     """
     if sys.platform != "win32":
         return False, "Not Windows"
-    
+
     try:
         # Open registry key for system environment variables
         key_path = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
-        
+
         with winreg.OpenKey(
-            winreg.HKEY_LOCAL_MACHINE,
-            key_path,
-            0,
-            winreg.KEY_READ | winreg.KEY_WRITE
+            winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE
         ) as key:
             # Read current PATH
             try:
@@ -153,30 +150,30 @@ def _update_system_path_registry(path_to_add: str) -> tuple[bool, str]:
             except FileNotFoundError:
                 current_path = ""
                 reg_type = winreg.REG_EXPAND_SZ
-            
+
             # Check if already in PATH (case-insensitive)
             path_entries = [p.strip() for p in current_path.split(";") if p.strip()]
             path_to_add_lower = path_to_add.lower()
-            
+
             if any(entry.lower() == path_to_add_lower for entry in path_entries):
                 return True, "Already in system PATH"
-            
+
             # Add to PATH
             if current_path and not current_path.endswith(";"):
                 new_path = f"{current_path};{path_to_add}"
             else:
                 new_path = f"{current_path}{path_to_add}"
-            
+
             # Write back to registry
             winreg.SetValueEx(key, "Path", 0, reg_type, new_path)
-            
+
             # Broadcast WM_SETTINGCHANGE to notify system of environment change
             try:
                 HWND_BROADCAST = 0xFFFF
                 WM_SETTINGCHANGE = 0x001A
                 SMTO_ABORTIFHUNG = 0x0002
                 result = ctypes.c_long()
-                
+
                 ctypes.windll.user32.SendMessageTimeoutW(
                     HWND_BROADCAST,
                     WM_SETTINGCHANGE,
@@ -184,13 +181,13 @@ def _update_system_path_registry(path_to_add: str) -> tuple[bool, str]:
                     "Environment",
                     SMTO_ABORTIFHUNG,
                     5000,
-                    ctypes.byref(result)
+                    ctypes.byref(result),
                 )
             except Exception:
                 pass  # Broadcast is optional, PATH update still worked
-            
+
             return True, f"Added to system PATH (new length: {len(new_path)} chars)"
-    
+
     except PermissionError:
         return False, "Access denied (requires administrator privileges)"
     except Exception as e:
@@ -205,7 +202,7 @@ def detect_platform() -> Dict[str, Any]:
         "win32": "Windows",
         "linux": "Linux",
     }.get(os_name, os_name)
-    
+
     return {
         "os": os_name,
         "os_display": os_display,
@@ -220,12 +217,13 @@ def detect_displays() -> Dict[str, Any]:
     # Get primary display
     try:
         from code_puppy.tools.gui_cub.platform import get_screen_scale_factor
+
         scale_factor = get_screen_scale_factor()
     except Exception:
         scale_factor = 1.0
-    
+
     primary_width, primary_height = pyautogui.size()
-    
+
     # Try to get all monitors
     monitors = []
     try:
@@ -237,16 +235,23 @@ def detect_displays() -> Dict[str, Any]:
             monitors = _detect_windows_monitors()
         else:
             monitors = _detect_linux_monitors()
-    except Exception as e:
+    except Exception:
         # Fallback to primary display only
-        monitors = [{
-            "id": 0,
-            "resolution": [primary_width, primary_height],
-            "scale": scale_factor,
-            "primary": True,
-            "bounds": {"x": 0, "y": 0, "width": primary_width, "height": primary_height},
-        }]
-    
+        monitors = [
+            {
+                "id": 0,
+                "resolution": [primary_width, primary_height],
+                "scale": scale_factor,
+                "primary": True,
+                "bounds": {
+                    "x": 0,
+                    "y": 0,
+                    "width": primary_width,
+                    "height": primary_height,
+                },
+            }
+        ]
+
     return {
         "primary_resolution": [primary_width, primary_height],
         "scale_factor": scale_factor,
@@ -260,77 +265,85 @@ def _detect_macos_monitors() -> List[Dict[str, Any]]:
     """Detect monitors on macOS using NSScreen."""
     try:
         from AppKit import NSScreen
-        
+
         monitors = []
         screens = NSScreen.screens()
-        
+
         for i, screen in enumerate(screens):
             frame = screen.frame()
             scale = screen.backingScaleFactor()
-            
-            monitors.append({
-                "id": i,
-                "resolution": [int(frame.size.width), int(frame.size.height)],
-                "scale": float(scale),
-                "primary": i == 0,
-                "bounds": {
-                    "x": int(frame.origin.x),
-                    "y": int(frame.origin.y),
-                    "width": int(frame.size.width),
-                    "height": int(frame.size.height),
-                },
-            })
-        
+
+            monitors.append(
+                {
+                    "id": i,
+                    "resolution": [int(frame.size.width), int(frame.size.height)],
+                    "scale": float(scale),
+                    "primary": i == 0,
+                    "bounds": {
+                        "x": int(frame.origin.x),
+                        "y": int(frame.origin.y),
+                        "width": int(frame.size.width),
+                        "height": int(frame.size.height),
+                    },
+                }
+            )
+
         return monitors
     except ImportError:
         # NSScreen not available, fall back to pyautogui
         width, height = pyautogui.size()
-        return [{
-            "id": 0,
-            "resolution": [width, height],
-            "scale": 1.0,
-            "primary": True,
-            "bounds": {"x": 0, "y": 0, "width": width, "height": height},
-        }]
+        return [
+            {
+                "id": 0,
+                "resolution": [width, height],
+                "scale": 1.0,
+                "primary": True,
+                "bounds": {"x": 0, "y": 0, "width": width, "height": height},
+            }
+        ]
 
 
 def _detect_windows_monitors() -> List[Dict[str, Any]]:
     """Detect monitors on Windows."""
     try:
         import win32api
-        
+
         monitors = []
         for i, monitor in enumerate(win32api.EnumDisplayMonitors()):
             info = win32api.GetMonitorInfo(monitor[0])
-            rect = info['Monitor']
-            
+            rect = info["Monitor"]
+
             width = rect[2] - rect[0]
             height = rect[3] - rect[1]
-            
-            monitors.append({
-                "id": i,
-                "resolution": [width, height],
-                "scale": 1.0,  # TODO: Get actual DPI
-                "primary": info.get('Flags', 0) == 1,
-                "bounds": {
-                    "x": rect[0],
-                    "y": rect[1],
-                    "width": width,
-                    "height": height,
-                },
-            })
-        
+
+            monitors.append(
+                {
+                    "id": i,
+                    "resolution": [width, height],
+                    "scale": 1.0,  # TODO: Get actual DPI
+                    "primary": info.get("Flags", 0) == 1,
+                    "bounds": {
+                        "x": rect[0],
+                        "y": rect[1],
+                        "width": width,
+                        "height": height,
+                    },
+                }
+            )
+
         return monitors
     except ImportError:
         # win32api not available
         width, height = pyautogui.size()
-        return [{
-            "id": 0,
-            "resolution": [width, height],
-            "scale": 1.0,
-            "primary": True,
-            "bounds": {"x": 0, "y": 0, "width": width, "height": height},
-        }]
+        return [
+            {
+                "id": 0,
+                "resolution": [width, height],
+                "scale": 1.0,
+                "primary": True,
+                "bounds": {"x": 0, "y": 0, "width": width, "height": height},
+            }
+        ]
 
 
 def _detect_linux_monitors() -> List[Dict[str, Any]]:
@@ -338,55 +351,56 @@ def _detect_linux_monitors() -> List[Dict[str, Any]]:
     # Linux multi-monitor detection is complex and varies by display server
     # For now, return primary display only
     width, height = pyautogui.size()
-    return [{
-        "id": 0,
-        "resolution": [width, height],
-        "scale": 1.0,
-        "primary": True,
-        "bounds": {"x": 0, "y": 0, "width": width, "height": height},
-    }]
+    return [
+        {
+            "id": 0,
+            "resolution": [width, height],
+            "scale": 1.0,
+            "primary": True,
+            "bounds": {"x": 0, "y": 0, "width": width, "height": height},
+        }
+    ]
 
 
 def _attempt_install_windows_dependencies() -> bool:
     """Attempt to install Windows-specific dependencies (pywinauto, pywin32).
-    
+
     Returns:
         True if installation succeeded, False otherwise
     """
-    import subprocess
-    
+
     from code_puppy.messaging import emit_info, emit_warning
     from code_puppy.tools.common import generate_group_id
-    
+
     group_id = generate_group_id("windows_deps")
-    
+
     emit_info(
         "[cyan]📦 Installing Windows automation dependencies...[/cyan]",
         message_group=group_id,
     )
-    
+
     packages = ["pywinauto>=0.6.8", "pywin32>=306"]
-    
+
     try:
         # Try to install using pip
         emit_info(
             "  • Installing pywinauto and pywin32...",
             message_group=group_id,
         )
-        
+
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install"] + packages,
             capture_output=True,
             text=True,
             timeout=120,  # 2 minute timeout
         )
-        
+
         if result.returncode == 0:
             emit_info(
                 "[green]✅ Windows dependencies installed successfully[/green]",
                 message_group=group_id,
             )
-            
+
             # Run pywin32 post-install script if needed
             try:
                 emit_info(
@@ -401,7 +415,7 @@ def _attempt_install_windows_dependencies() -> bool:
             except Exception:
                 # Post-install script is optional
                 pass
-            
+
             return True
         else:
             emit_warning(
@@ -409,7 +423,7 @@ def _attempt_install_windows_dependencies() -> bool:
                 message_group=group_id,
             )
             return False
-    
+
     except subprocess.TimeoutExpired:
         emit_warning(
             "[yellow]⚠️ Installation timed out[/yellow]",
@@ -428,9 +442,10 @@ def _is_admin() -> bool:
     """Check if running with administrator privileges on Windows."""
     if sys.platform != "win32":
         return True  # Not Windows, don't care
-    
+
     try:
         import ctypes
+
         return ctypes.windll.shell32.IsUserAnAdmin() != 0
     except Exception:
         return False  # Assume not admin if check fails
@@ -438,113 +453,112 @@ def _is_admin() -> bool:
 
 def _install_tesseract_portable(group_id: str) -> tuple[bool, bool, bool]:
     """Install Tesseract as a portable application (no admin required).
-    
+
     Downloads portable ZIP, extracts to user's AppData, downloads tessdata.
-    
+
     Args:
         group_id: Message group ID for logging
-        
+
     Returns:
         Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
     """
     import os
-    import subprocess
     import tempfile
     import zipfile
     from pathlib import Path
-    
+
     from code_puppy.messaging import emit_info, emit_warning
-    
+
     emit_info(
         "  • Attempting portable installation (no admin required)...",
         message_group=group_id,
     )
-    
+
     # Determine installation directory in user's AppData
-    install_dir = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~/.local"))) / "code-puppy" / "tesseract"
-    
+    install_dir = (
+        Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~/.local")))
+        / "code-puppy"
+        / "tesseract"
+    )
+
     emit_info(
         f"  • Install location: {install_dir}",
         message_group=group_id,
     )
-    
+
     try:
         # Create installation directory
         install_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Download portable Tesseract ZIP (w64 build from UB Mannheim)
         # Using a specific version that has portable builds
         tesseract_zip_url = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.5.0/tesseract-5.5.0-w64.zip"
-        
+
         emit_info(
             "  • Downloading Tesseract portable...",
             message_group=group_id,
         )
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
             tmp_path = Path(tmp_file.name)
-        
+
         try:
             # Download with Walmart fallback
             download_result = download_with_walmart_fallback(
-                tesseract_zip_url,
-                tmp_path,
-                group_id=group_id
+                tesseract_zip_url, tmp_path, group_id=group_id
             )
-            
+
             if not download_result:
                 emit_warning(
                     "[yellow]  • Download failed[/yellow]",
                     message_group=group_id,
                 )
                 return False, False, False
-            
+
             emit_info(
                 "  • Extracting Tesseract...",
                 message_group=group_id,
             )
-            
+
             # Extract ZIP
-            with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
+            with zipfile.ZipFile(tmp_path, "r") as zip_ref:
                 zip_ref.extractall(install_dir)
-            
+
             # Find tesseract.exe in extracted files
             tesseract_exe = None
             for exe_path in install_dir.rglob("tesseract.exe"):
                 tesseract_exe = exe_path
                 break
-            
+
             if not tesseract_exe or not tesseract_exe.exists():
                 emit_warning(
                     "[yellow]  • Could not find tesseract.exe after extraction[/yellow]",
                     message_group=group_id,
                 )
                 return False, False, False
-            
+
             emit_info(
                 f"  • Tesseract extracted to: {tesseract_exe.parent}",
                 message_group=group_id,
             )
-            
+
             # Download English training data (tessdata)
             tessdata_dir = tesseract_exe.parent / "tessdata"
             tessdata_dir.mkdir(exist_ok=True)
-            
+
             eng_traineddata = tessdata_dir / "eng.traineddata"
             if not eng_traineddata.exists():
                 emit_info(
                     "  • Downloading English language data...",
                     message_group=group_id,
                 )
-                
+
                 tessdata_url = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
-                
+
                 download_result = download_with_walmart_fallback(
-                    tessdata_url,
-                    eng_traineddata,
-                    group_id=group_id
+                    tessdata_url, eng_traineddata, group_id=group_id
                 )
-                
+
                 if download_result:
                     emit_info(
                         "[green]  • Language data downloaded[/green]",
@@ -555,11 +569,11 @@ def _install_tesseract_portable(group_id: str) -> tuple[bool, bool, bool]:
                         "[yellow]  • Could not download language data (OCR may not work)[/yellow]",
                         message_group=group_id,
                     )
-            
+
             # Add to user PATH (HKEY_CURRENT_USER - no admin needed)
             bin_dir = str(tesseract_exe.parent)
             path_success, message = _update_user_path(bin_dir)
-            
+
             if path_success:
                 emit_info(
                     "[green]✓ Tesseract installed successfully (portable)[/green]",
@@ -569,10 +583,10 @@ def _install_tesseract_portable(group_id: str) -> tuple[bool, bool, bool]:
                     f"[green]  • {message}[/green]",
                     message_group=group_id,
                 )
-                
+
                 # Check if we need restart (PATH update requires new terminal)
                 needs_restart = "Already" not in message
-                
+
                 return True, path_success, needs_restart
             else:
                 emit_warning(
@@ -584,12 +598,12 @@ def _install_tesseract_portable(group_id: str) -> tuple[bool, bool, bool]:
                     message_group=group_id,
                 )
                 return True, False, False  # Installed but PATH failed
-        
+
         finally:
             # Clean up temp file
             if tmp_path.exists():
                 tmp_path.unlink()
-    
+
     except Exception as e:
         emit_warning(
             f"[yellow]  • Portable installation failed: {str(e)[:200]}[/yellow]",
@@ -600,41 +614,38 @@ def _install_tesseract_portable(group_id: str) -> tuple[bool, bool, bool]:
 
 def _update_user_path(new_path: str) -> tuple[bool, str]:
     """Update user PATH (HKEY_CURRENT_USER) - no admin required.
-    
+
     Args:
         new_path: Path to add to user PATH
-        
+
     Returns:
         Tuple of (success: bool, message: str)
     """
     if sys.platform != "win32":
         return False, "Not Windows"
-    
+
     try:
         import winreg
-        
+
         # Open user environment key (no admin needed)
         key_path = r"Environment"
-        
+
         with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            key_path,
-            0,
-            winreg.KEY_READ | winreg.KEY_WRITE
+            winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE
         ) as key:
             # Get current PATH
             try:
                 current_path, _ = winreg.QueryValueEx(key, "Path")
             except FileNotFoundError:
                 current_path = ""
-            
+
             # Check if already in PATH (case-insensitive)
             path_entries = current_path.split(";") if current_path else []
             path_entries_lower = [p.lower() for p in path_entries]
-            
+
             if new_path.lower() in path_entries_lower:
                 return True, "Already in user PATH"
-            
+
             # Add to PATH
             if current_path and not current_path.endswith(";"):
                 new_full_path = f"{current_path};{new_path}"
@@ -642,19 +653,14 @@ def _update_user_path(new_path: str) -> tuple[bool, str]:
                 new_full_path = f"{current_path}{new_path}"
             else:
                 new_full_path = new_path
-            
+
             # Update registry
-            winreg.SetValueEx(
-                key,
-                "Path",
-                0,
-                winreg.REG_EXPAND_SZ,
-                new_full_path
-            )
-            
+            winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_full_path)
+
             # Broadcast WM_SETTINGCHANGE (optional, may not work without admin)
             try:
                 import ctypes
+
                 HWND_BROADCAST = 0xFFFF
                 WM_SETTINGCHANGE = 0x1A
                 SMTO_ABORTIFHUNG = 0x0002
@@ -666,13 +672,13 @@ def _update_user_path(new_path: str) -> tuple[bool, str]:
                     "Environment",
                     SMTO_ABORTIFHUNG,
                     5000,
-                    ctypes.byref(result)
+                    ctypes.byref(result),
                 )
             except Exception:
                 pass  # Broadcast failed, not critical
-            
+
             return True, "Added to user PATH (restart terminal to use)"
-    
+
     except PermissionError:
         return False, "Access denied (unlikely for user PATH)"
     except Exception as e:
@@ -681,20 +687,19 @@ def _update_user_path(new_path: str) -> tuple[bool, str]:
 
 def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool, bool]:
     """Download and silently install Tesseract from a URL.
-    
+
     Args:
         url: Download URL for Tesseract installer
         group_id: Message group ID for logging
-        
+
     Returns:
         Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
     """
-    import subprocess
     import tempfile
     from pathlib import Path
-    
+
     from code_puppy.messaging import emit_info, emit_warning
-    
+
     try:
         # Check admin rights on Windows
         if sys.platform == "win32" and not _is_admin():
@@ -710,25 +715,30 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                 "  • Then run: pup",
                 message_group=group_id,
             )
-            return False, False, False  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
-        
+            return (
+                False,
+                False,
+                False,
+            )  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
+
         # Download the installer
         emit_info(
             f"  • Downloading from {url}...",
             message_group=group_id,
         )
-        
+
         import urllib.request
+
         temp_dir = tempfile.gettempdir()
         installer_path = Path(temp_dir) / "tesseract-installer.exe"
-        
+
         urllib.request.urlretrieve(url, installer_path)
-        
+
         emit_info(
             "  • Download complete, installing...",
             message_group=group_id,
         )
-        
+
         # Run silent installation
         # /S = silent mode
         # /D = installation directory (must be last parameter)
@@ -738,19 +748,19 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
             text=True,
             timeout=300,  # 5 minute timeout
         )
-        
+
         # Clean up installer
         try:
             installer_path.unlink()
         except Exception:
             pass
-        
+
         if install_result.returncode == 0:
             emit_info(
                 "[green]✅ Tesseract installed successfully[/green]",
                 message_group=group_id,
             )
-            
+
             # Add Tesseract to system PATH using Windows registry (no 1024 char limit)
             tesseract_path = "C:\\Program Files\\Tesseract-OCR"
             emit_info(
@@ -761,10 +771,10 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                 f"[dim]  • Path to add: {tesseract_path}[/dim]",
                 message_group=group_id,
             )
-            
+
             path_success, message = _update_system_path_registry(tesseract_path)
             needs_restart = False  # Default to no restart needed
-            
+
             if path_success:
                 if "Already" in message:
                     emit_info(
@@ -777,7 +787,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                             ["tesseract", "--version"],
                             capture_output=True,
                             timeout=5,
-                            check=True
+                            check=True,
                         )
                         needs_restart = False  # Works now
                     except Exception:
@@ -788,7 +798,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                         needs_restart = True  # In PATH but current process can't see it
                 else:
                     emit_info(
-                        f"[green]  • PATH updated successfully via registry[/green]",
+                        "[green]  • PATH updated successfully via registry[/green]",
                         message_group=group_id,
                     )
                     emit_info(
@@ -817,7 +827,7 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                     input()
                 except (KeyboardInterrupt, EOFError):
                     pass  # User pressed Ctrl+C or EOF, continue anyway
-            
+
             # Return (install_success=True, path_success=True/False, needs_restart=True/False)
             return True, path_success, needs_restart
         else:
@@ -825,11 +835,15 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                 f"[yellow]⚠️ Installation failed: {install_result.stderr[:200]}[/yellow]",
                 message_group=group_id,
             )
-            return False, False, False  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
-    
+            return (
+                False,
+                False,
+                False,
+            )  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
+
     except Exception as e:
         error_msg = str(e)
-        
+
         # Check for admin rights issue (WinError 740)
         if "740" in error_msg or "elevation" in error_msg.lower():
             emit_warning(
@@ -849,37 +863,38 @@ def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool
                 f"[yellow]⚠️ Download/install error: {error_msg[:200]}[/yellow]",
                 message_group=group_id,
             )
-        return False, False, False  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
+        return (
+            False,
+            False,
+            False,
+        )  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
 
 
 def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
     """Attempt to install Tesseract OCR on Windows.
-    
+
     Tries multiple strategies (in order):
     1. Portable installation (no admin required) - PREFERRED
     2. Check WALMART_TESSERACT_URL env var for internal mirror
     3. Try direct download and silent install from official release
     4. Try winget install (Windows 10+ only)
     5. Show download instructions if all fail
-    
+
     Returns:
         Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
     """
     import os
-    import subprocess
-    import tempfile
-    from pathlib import Path
-    
+
     from code_puppy.messaging import emit_info, emit_warning
     from code_puppy.tools.common import generate_group_id
-    
+
     group_id = generate_group_id("tesseract_install")
-    
+
     emit_info(
         "[cyan]📦 Tesseract OCR not found, attempting installation...[/cyan]",
         message_group=group_id,
     )
-    
+
     # Strategy 1: Try portable installation (NO ADMIN REQUIRED)
     emit_info(
         "  • Trying portable installation (no admin needed)...",
@@ -888,12 +903,12 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
     install_success, path_success, needs_restart = _install_tesseract_portable(group_id)
     if install_success:
         return install_success, path_success, needs_restart
-    
+
     emit_info(
         "  • Portable installation failed, trying other methods...",
         message_group=group_id,
     )
-    
+
     # Strategy 2: Check for Walmart internal binary
     walmart_url = os.environ.get("WALMART_TESSERACT_URL")
     if walmart_url:
@@ -902,7 +917,9 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
             message_group=group_id,
         )
         # Try to download and install from Walmart mirror (may need admin)
-        install_success, path_success, needs_restart = _download_and_install_tesseract(walmart_url, group_id)
+        install_success, path_success, needs_restart = _download_and_install_tesseract(
+            walmart_url, group_id
+        )
         if install_success:
             return install_success, path_success, needs_restart
         else:
@@ -910,32 +927,40 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
                 "  • Walmart mirror installation failed, trying other methods...",
                 message_group=group_id,
             )
-    
+
     # Strategy 3: Direct download from official GitHub release (may need admin)
     emit_info(
         "  • Attempting direct download from GitHub (may require admin)...",
         message_group=group_id,
     )
-    
+
     tesseract_url = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
-    install_success, path_success, needs_restart = _download_and_install_tesseract(tesseract_url, group_id)
+    install_success, path_success, needs_restart = _download_and_install_tesseract(
+        tesseract_url, group_id
+    )
     if install_success:
         return install_success, path_success, needs_restart
-    
+
     # Strategy 3: Try winget (Windows 10+ package manager)
     try:
         emit_info(
             "  • Attempting winget installation...",
             message_group=group_id,
         )
-        
+
         result = subprocess.run(
-            ["winget", "install", "--id=UB-Mannheim.TesseractOCR", "--silent", "--accept-source-agreements"],
+            [
+                "winget",
+                "install",
+                "--id=UB-Mannheim.TesseractOCR",
+                "--silent",
+                "--accept-source-agreements",
+            ],
             capture_output=True,
             text=True,
             timeout=300,  # 5 minute timeout for download
         )
-        
+
         if result.returncode == 0:
             emit_info(
                 "[green]✅ Tesseract installed via winget[/green]",
@@ -954,7 +979,7 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
             )
     except Exception:
         pass  # winget might not be available
-    
+
     # All strategies failed
     emit_warning(
         "[yellow]⚠️ Could not install Tesseract automatically[/yellow]",
@@ -976,32 +1001,34 @@ def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
         "  • After installation, restart terminal and agent will auto-detect",
         message_group=group_id,
     )
-    
+
     return False, False, False  # install_success, path_success, needs_restart
 
 
 def detect_capabilities() -> Dict[str, bool]:
     """Detect which libraries are available.
-    
+
     On Windows, attempts to auto-install pywinauto and pywin32 if missing.
     """
     capabilities = {}
-    
+
     # Always available (required dependencies)
     capabilities["pyautogui"] = True
     capabilities["pillow"] = True
-    
+
     # Test atomacos (macOS accessibility)
     try:
-        import atomacos
+        import atomacos  # noqa: F401 - testing availability
+
         capabilities["atomacos"] = True
     except ImportError:
         capabilities["atomacos"] = False
-    
+
     # Test pywinauto (Windows automation)
     # If on Windows and not installed, attempt auto-install
     try:
         import pywinauto
+
         capabilities["pywinauto"] = True
     except ImportError:
         if sys.platform == "win32":
@@ -1009,7 +1036,8 @@ def detect_capabilities() -> Dict[str, bool]:
             if _attempt_install_windows_dependencies():
                 # Try importing again after installation
                 try:
-                    import pywinauto
+                    import pywinauto  # noqa: F401 - testing availability
+
                     capabilities["pywinauto"] = True
                 except ImportError:
                     capabilities["pywinauto"] = False
@@ -1017,28 +1045,32 @@ def detect_capabilities() -> Dict[str, bool]:
                 capabilities["pywinauto"] = False
         else:
             capabilities["pywinauto"] = False
-    
+
     # Test pytesseract (OCR)
     # If on Windows and tesseract binary is missing, attempt auto-install
     try:
         import pytesseract
+
         # Try to run a test to ensure tesseract binary is available
         pytesseract.get_tesseract_version()
         capabilities["pytesseract"] = True
     except Exception:
         if sys.platform == "win32":
             # Attempt to install Tesseract binary
-            install_success, path_success, needs_restart = _attempt_install_tesseract_windows()
+            install_success, path_success, needs_restart = (
+                _attempt_install_tesseract_windows()
+            )
             if install_success:
                 # Installation succeeded, track PATH status and restart requirement
                 capabilities["pytesseract_install_success"] = True
                 capabilities["pytesseract_path_success"] = path_success
                 capabilities["pytesseract_needs_restart"] = needs_restart
-                
+
                 # Try checking again after installation
                 # Note: May still fail if PATH not updated until terminal restart
                 try:
                     import pytesseract
+
                     pytesseract.get_tesseract_version()
                     capabilities["pytesseract"] = True
                 except Exception:
@@ -1050,47 +1082,51 @@ def detect_capabilities() -> Dict[str, bool]:
                 capabilities["pytesseract_needs_restart"] = False
         else:
             capabilities["pytesseract"] = False
-    
+
     # Test opencv
     try:
-        import cv2
+        import cv2  # noqa: F401 - testing availability
+
         capabilities["opencv"] = True
     except ImportError:
         capabilities["opencv"] = False
-    
+
     return capabilities
 
 
 def detect_permissions() -> Dict[str, Any]:
     """Detect accessibility permissions (macOS only)."""
     permissions = {}
-    
+
     if sys.platform == "darwin":
         try:
-            from code_puppy.tools.gui_cub.platform import check_macos_accessibility_permission
+            from code_puppy.tools.gui_cub.platform import (
+                check_macos_accessibility_permission,
+            )
+
             has_access, message = check_macos_accessibility_permission()
             permissions["accessibility"] = has_access
             permissions["accessibility_message"] = message
         except Exception as e:
             permissions["accessibility"] = False
             permissions["accessibility_message"] = f"Failed to check: {e}"
-    
+
     return permissions
 
 
 async def test_performance() -> Dict[str, Any]:
     """Test performance of key operations."""
     performance = {}
-    
+
     # Test screenshot latency
     try:
         start = time.perf_counter()
-        screenshot = pyautogui.screenshot()
+        pyautogui.screenshot()
         end = time.perf_counter()
         performance["screenshot_ms"] = int((end - start) * 1000)
     except Exception:
         performance["screenshot_ms"] = -1
-    
+
     # Test mouse movement latency (small movement)
     try:
         current_pos = pyautogui.position()
@@ -1102,7 +1138,7 @@ async def test_performance() -> Dict[str, Any]:
         pyautogui.moveTo(current_pos[0], current_pos[1])
     except Exception:
         performance["mouse_move_ms"] = -1
-    
+
     # Test click latency (no actual click, just timing)
     try:
         start = time.perf_counter()
@@ -1112,21 +1148,21 @@ async def test_performance() -> Dict[str, Any]:
         performance["click_estimate_ms"] = 100  # Default estimate
     except Exception:
         performance["click_estimate_ms"] = -1
-    
+
     # Test keyboard latency estimate
     performance["keyboard_estimate_ms"] = 50  # Default estimate
-    
+
     return performance
 
 
 async def run_calibration() -> Dict[str, Any]:
     """Run full platform calibration (QA-Kitten pattern).
-    
+
     This is called:
     - On first run (no config.json exists)
     - When config is invalid (resolution changed, etc.)
     - When user manually calls gui_cub_calibrate()
-    
+
     Returns:
         Dict with success, config, and calibration timestamp
     """
@@ -1135,7 +1171,7 @@ async def run_calibration() -> Dict[str, Any]:
         "[bold green]🔍 Detecting platform capabilities...[/bold green]",
         message_group=group_id,
     )
-    
+
     # Detect platform
     emit_info("  • Detecting OS and version...", message_group=group_id)
     platform_info = detect_platform()
@@ -1143,7 +1179,7 @@ async def run_calibration() -> Dict[str, Any]:
         f"    → {platform_info['os_display']} {platform_info['version']} ({platform_info['machine']})",
         message_group=group_id,
     )
-    
+
     # Detect displays
     emit_info("  • Detecting displays and resolution...", message_group=group_id)
     display_info = detect_displays()
@@ -1151,28 +1187,31 @@ async def run_calibration() -> Dict[str, Any]:
         f"    → {display_info['monitor_count']} monitor(s), primary: {display_info['primary_resolution'][0]}x{display_info['primary_resolution'][1]} @ {display_info['scale_factor']}x scale",
         message_group=group_id,
     )
-    
+
     # Detect libraries (this may attempt installations on Windows)
     emit_info("  • Checking library availability...", message_group=group_id)
     capabilities = detect_capabilities()
-    
+
     # After detect_capabilities runs (which includes installation attempts),
     # we need to re-check pytesseract availability since it might have just been installed
     if sys.platform == "win32" and not capabilities.get("pytesseract", False):
         # If it was marked unavailable initially, check again in case installation just succeeded
         try:
             import pytesseract
+
             pytesseract.get_tesseract_version()
-            capabilities["pytesseract"] = True  # Update to reflect successful installation
+            capabilities["pytesseract"] = (
+                True  # Update to reflect successful installation
+            )
         except Exception:
             pass  # Still not available, keep as False
-    
+
     available = [k for k, v in capabilities.items() if v]
     emit_info(
         f"    → Available: {', '.join(available)}",
         message_group=group_id,
     )
-    
+
     # Detect permissions
     permissions = detect_permissions()
     if permissions:
@@ -1181,7 +1220,7 @@ async def run_calibration() -> Dict[str, Any]:
             if isinstance(value, bool):
                 status = "✅" if value else "❌"
                 emit_info(f"    → {key}: {status}", message_group=group_id)
-    
+
     # Test performance
     emit_info("  • Testing performance...", message_group=group_id)
     performance = await test_performance()
@@ -1190,17 +1229,19 @@ async def run_calibration() -> Dict[str, Any]:
             f"    → Screenshot: {performance['screenshot_ms']}ms, Mouse: {performance['mouse_move_ms']}ms",
             message_group=group_id,
         )
-    
+
     # Build list of missing capabilities with reasons
     missing_capabilities = {}
-    
+
     # Note: PATH update failures are handled inline during installation
     # with immediate user prompt, so we don't add them to missing_capabilities
     # to avoid duplicate pause screens
-    
+
     # Only show pytesseract warning if installation didn't succeed
     # If it just installed successfully, user will restart terminal and it will work
-    if not capabilities.get("pytesseract", False) and not capabilities.get("pytesseract_install_success", False):
+    if not capabilities.get("pytesseract", False) and not capabilities.get(
+        "pytesseract_install_success", False
+    ):
         if sys.platform == "win32" and not _is_admin():
             missing_capabilities["pytesseract"] = {
                 "reason": "admin_required",
@@ -1215,7 +1256,7 @@ async def run_calibration() -> Dict[str, Any]:
                 "solution": "Manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe and manually add to PATH: C:\\Program Files\\Tesseract-OCR",
                 "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
             }
-    
+
     # Build config
     config = {
         "success": True,
@@ -1233,13 +1274,13 @@ async def run_calibration() -> Dict[str, Any]:
             "calibration_count": 1,
         },
     }
-    
+
     # Save config
     from code_puppy.tools.gui_cub.config_manager import get_config_path, save_config
-    
+
     if save_config(config):
         emit_info(
-            f"[green]✅ Platform calibrated successfully[/green]",
+            "[green]✅ Platform calibrated successfully[/green]",
             message_group=group_id,
         )
         emit_info(
@@ -1251,7 +1292,7 @@ async def run_calibration() -> Dict[str, Any]:
             "[yellow]⚠️ Warning: Failed to save config (will re-calibrate next time)[/yellow]",
             message_group=group_id,
         )
-    
+
     # Check if terminal restart is required (PATH was updated)
     if capabilities.get("pytesseract_needs_restart", False):
         emit_info(
@@ -1296,15 +1337,15 @@ async def run_calibration() -> Dict[str, Any]:
             "[bold yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold yellow]",
             message_group=group_id,
         )
-        
+
         try:
             input("\nPress Enter to exit...")
         except (KeyboardInterrupt, EOFError):
             pass
-        
+
         # sys is already imported at module level
         sys.exit(0)
-    
+
     # If there are missing capabilities, pause so user can read the messages
     if missing_capabilities:
         emit_info(
@@ -1315,7 +1356,7 @@ async def run_calibration() -> Dict[str, Any]:
             "[bold yellow]⚠️  IMPORTANT: Some features are unavailable[/bold yellow]",
             message_group=group_id,
         )
-        
+
         for capability_name, info in missing_capabilities.items():
             emit_info(
                 f"\n[yellow]Missing:[/yellow] {capability_name}",
@@ -1333,14 +1374,14 @@ async def run_calibration() -> Dict[str, Any]:
                 f"[yellow]Solution:[/yellow] {info['solution']}",
                 message_group=group_id,
             )
-            
+
             # Show instructions if available (for PATH issues)
             if "instructions" in info:
                 emit_info(
                     f"[yellow]Instructions:[/yellow] {info['instructions']}",
                     message_group=group_id,
                 )
-        
+
         emit_info(
             "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
             message_group=group_id,
@@ -1349,13 +1390,13 @@ async def run_calibration() -> Dict[str, Any]:
             "[dim]Press Enter to continue...[/dim]",
             message_group=group_id,
         )
-        
+
         # Pause for user to read
         try:
             input()
         except (EOFError, KeyboardInterrupt):
             pass  # Allow Ctrl+C or EOF to continue
-    
+
     return {
         "success": True,
         "config": config,

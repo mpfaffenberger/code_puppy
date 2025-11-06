@@ -1,7 +1,6 @@
 """Tests for GUI-Cub config manager."""
 
 import json
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 from code_puppy.tools.gui_cub.config_manager import (
@@ -36,7 +35,10 @@ class TestLoadConfig:
 
     def test_load_config_returns_none_if_not_exists(self, tmp_path):
         """Should return None if config file doesn't exist."""
-        with patch("code_puppy.tools.gui_cub.config_manager.get_config_path", return_value=tmp_path / "missing.json"):
+        with patch(
+            "code_puppy.tools.gui_cub.config_manager.get_config_path",
+            return_value=tmp_path / "missing.json",
+        ):
             config = load_config()
             assert config is None
 
@@ -46,7 +48,10 @@ class TestLoadConfig:
         test_config = {"version": "1.0.0", "platform": {"os": "darwin"}}
         config_file.write_text(json.dumps(test_config))
 
-        with patch("code_puppy.tools.gui_cub.config_manager.get_config_path", return_value=config_file):
+        with patch(
+            "code_puppy.tools.gui_cub.config_manager.get_config_path",
+            return_value=config_file,
+        ):
             config = load_config()
             assert config == test_config
 
@@ -55,7 +60,10 @@ class TestLoadConfig:
         config_file = tmp_path / "config.json"
         config_file.write_text("invalid json {")
 
-        with patch("code_puppy.tools.gui_cub.config_manager.get_config_path", return_value=config_file):
+        with patch(
+            "code_puppy.tools.gui_cub.config_manager.get_config_path",
+            return_value=config_file,
+        ):
             config = load_config()
             assert config is None
 
@@ -72,8 +80,16 @@ class TestSaveConfig:
             "metadata": {},
         }
 
-        with patch("code_puppy.tools.gui_cub.config_manager.get_config_path", return_value=config_file), \
-             patch("code_puppy.tools.gui_cub.config_manager._compute_config_hash", return_value="test_hash"):
+        with (
+            patch(
+                "code_puppy.tools.gui_cub.config_manager.get_config_path",
+                return_value=config_file,
+            ),
+            patch(
+                "code_puppy.tools.gui_cub.config_manager._compute_config_hash",
+                return_value="test_hash",
+            ),
+        ):
             result = save_config(test_config)
             assert result is True
 
@@ -89,8 +105,16 @@ class TestSaveConfig:
             "metadata": {},
         }
 
-        with patch("code_puppy.tools.gui_cub.config_manager.get_config_path", return_value=config_file), \
-             patch("code_puppy.tools.gui_cub.config_manager._compute_config_hash", return_value="test_hash"):
+        with (
+            patch(
+                "code_puppy.tools.gui_cub.config_manager.get_config_path",
+                return_value=config_file,
+            ),
+            patch(
+                "code_puppy.tools.gui_cub.config_manager._compute_config_hash",
+                return_value="test_hash",
+            ),
+        ):
             save_config(test_config)
             loaded = json.loads(config_file.read_text())
             assert loaded["metadata"]["hash"] == "test_hash"

@@ -12,15 +12,12 @@ from .constants import (
     DEFAULT_ALERT_TIMEOUT,
     DEFAULT_WINDOW_FOCUS_TIMEOUT,
     ERROR_APPKIT_MISSING,
-    ERROR_OPENCV_MISSING,
 )
 from .platform import IS_MACOS, IS_WINDOWS
 from .result_types import (
     AlertResult,
-    ImageLocationResult,
     MonitorInfo,
     MonitorsResult,
-    MultiImageLocationResult,
     PixelColorResult,
     SleepResult,
     WindowFocusResult,
@@ -595,7 +592,6 @@ def register_window_control_tools(agent):
         """
         expected_color = (int(red), int(green), int(blue))
         import pyautogui
-        from PIL import Image
 
         try:
             # Use DPI-safe neighborhood sampling utilities
