@@ -83,15 +83,48 @@ def get_platform_display_name() -> str:
         return "Unknown"
 
 
-def get_screen_scale_factor() -> float:
+# Cache for scale factor (avoids repeated screenshot calculations)
+_cached_scale_factor: float | None = None
+
+
+def get_screen_scale_factor(use_cache: bool = True) -> float:
     """Detect HiDPI/Retina screen scaling factor reliably.
 
-    We compare full-screen screenshot pixel size to the logical screen size.
-    This is more robust than tiny-region tricks and avoids oddities.
+    Checks cached config first (fast), falls back to screenshot comparison (slow).
+    
+    Priority:
+    1. Check in-memory cache (from current session)
+    2. Check config file (from calibration)
+    3. Calculate manually via screenshot (slow, ~100-200ms)
+
+    Args:
+        use_cache: Whether to use cached value (default: True)
+                  Set to False to force recalculation
 
     Returns:
         Scale factor (commonly 1.0 or 2.0). Falls back to 1.0 on failure.
     """
+    global _cached_scale_factor
+    
+    # Return in-memory cache if available
+    if use_cache and _cached_scale_factor is not None:
+        return _cached_scale_factor
+    
+    # Try to load from config file
+    if use_cache:
+        try:
+            from code_puppy.tools.gui_cub.config_manager import load_config
+            config = load_config()
+            if config:
+                scale = config.get("display", {}).get("scale_factor")
+                if scale is not None and isinstance(scale, (int, float)) and scale > 0:
+                    _cached_scale_factor = float(scale)
+                    return _cached_scale_factor
+        except Exception:
+            # Config not available, fall through to manual calculation
+            pass
+    
+    # Fall back to manual calculation via screenshot
     try:
         import pyautogui
 
@@ -116,6 +149,9 @@ def get_screen_scale_factor() -> float:
 
         # Round to nearest 0.25 to handle non-integer scales, but clamp reasonable bounds
         scale_rounded = max(1.0, min(4.0, round(scale * 4) / 4))
+        
+        # Cache the calculated value
+        _cached_scale_factor = scale_rounded
         return scale_rounded
     except Exception:
         return 1.0
@@ -208,6 +244,40 @@ def check_macos_accessibility_permission() -> tuple[bool, str | None]:
             "Please grant Accessibility permission to Terminal/Python in System Preferences."
         )
         return False, error_msg
+
+
+def get_screen_resolution(use_cache: bool = True) -> tuple[int, int]:
+    """Get current screen resolution (logical points).
+    
+    Checks config first (fast), falls back to pyautogui (slow).
+    
+    Args:
+        use_cache: Whether to use cached config value (default: True)
+                  Set to False to force live query
+    
+    Returns:
+        Tuple of (width, height) in logical points
+    """
+    # Try to load from config file
+    if use_cache:
+        try:
+            from code_puppy.tools.gui_cub.config_manager import load_config
+            config = load_config()
+            if config:
+                resolution = config.get("display", {}).get("primary_resolution")
+                if resolution and isinstance(resolution, list) and len(resolution) == 2:
+                    return (int(resolution[0]), int(resolution[1]))
+        except Exception:
+            # Config not available, fall through to live query
+            pass
+    
+    # Fall back to live query
+    try:
+        import pyautogui
+        return pyautogui.size()
+    except Exception:
+        # Ultimate fallback
+        return (1920, 1080)
 
 
 def get_display_info() -> dict[str, any]:

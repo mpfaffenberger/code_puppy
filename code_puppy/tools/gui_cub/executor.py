@@ -4,19 +4,40 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
 import yaml
+from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
+from code_puppy.tools.gui_cub.workflows import (
+    parse_workflow_parameters,
+    parse_workflow_outputs,
+    validate_workflow_parameters,
+)
 
 
 class WorkflowExecutionError(Exception):
     """Raised when workflow execution fails."""
     pass
+
+
+class WorkflowExecutionResult(BaseModel):
+    """Structured result from workflow execution."""
+    
+    workflow: str = Field(..., description="Workflow name")
+    status: str = Field(..., description="success, failure, or partial")
+    execution_time: float = Field(..., description="Total execution time in seconds")
+    parameters_used: Dict[str, Any] = Field(default_factory=dict, description="Parameters passed to workflow")
+    outputs: Dict[str, Any] = Field(default_factory=dict, description="Extracted output data")
+    steps_executed: int = Field(default=0, description="Number of steps successfully executed")
+    steps_skipped: int = Field(default=0, description="Number of steps skipped (conditional)")
+    errors: List[str] = Field(default_factory=list, description="Error messages if any")
+    screenshots: List[str] = Field(default_factory=list, description="Paths to screenshots taken")
 
 
 class WorkflowExecutor:
@@ -25,36 +46,123 @@ class WorkflowExecutor:
     def __init__(self, context: RunContext):
         self.context = context
         self.variables: Dict[str, Any] = {}
+        self.outputs: Dict[str, Any] = {}  # Collected output variables
+        self.screenshots: List[str] = []  # Screenshot paths
+        self.steps_executed: int = 0
+        self.steps_skipped: int = 0
+        self.errors: List[str] = []
         self.workflow_dir = Path.home() / ".code_puppy" / "gui_cub_workflows"
 
     def interpolate_variables(self, value: Any) -> Any:
-        """Replace {{variable}} placeholders with actual values.
+        """Replace {{variable}} and ${variable} placeholders with actual values.
         
         Supports:
-        - {{var_name}} - from variables dict
-        - {{env.VAR_NAME}} - from environment variables
-        - {{step.output}} - from previous step outputs
+        - {{var_name}} or ${var_name} - from variables dict
+        - {{env.VAR_NAME}} or ${env.VAR_NAME} - from environment variables
+        - {{step.output}} or ${step.output} - from previous step outputs
         """
         if not isinstance(value, str):
             return value
 
-        # Replace {{env.VAR}} with environment variables
-        def replace_env(match):
+        # Replace {{env.VAR}} and ${env.VAR} with environment variables
+        def replace_env_double_brace(match):
             env_var = match.group(1)
             placeholder = "{{env." + env_var + "}}"
             return os.environ.get(env_var, placeholder)  # Keep placeholder if not found
+        
+        def replace_env_dollar(match):
+            env_var = match.group(1)
+            placeholder = "${env." + env_var + "}"
+            return os.environ.get(env_var, placeholder)  # Keep placeholder if not found
 
-        value = re.sub(r"{{env\.([^}]+)}}", replace_env, value)
+        value = re.sub(r"{{env\.([^}]+)}}", replace_env_double_brace, value)
+        value = re.sub(r"\$\{env\.([^}]+)\}", replace_env_dollar, value)
 
-        # Replace {{variable}} with values from self.variables
-        def replace_var(match):
+        # Replace {{variable}} and ${variable} with values from self.variables
+        def replace_var_double_brace(match):
             var_name = match.group(1)
             if var_name in self.variables:
                 return str(self.variables[var_name])
+            # Check outputs as well
+            if var_name in self.outputs:
+                return str(self.outputs[var_name])
             return "{{" + var_name + "}}"  # Keep placeholder if not found
+        
+        def replace_var_dollar(match):
+            var_name = match.group(1)
+            if var_name in self.variables:
+                return str(self.variables[var_name])
+            # Check outputs as well
+            if var_name in self.outputs:
+                return str(self.outputs[var_name])
+            return "${" + var_name + "}"  # Keep placeholder if not found
 
-        value = re.sub(r"{{([^}]+)}}", replace_var, value)
+        value = re.sub(r"{{([^}]+)}}", replace_var_double_brace, value)
+        value = re.sub(r"\$\{([^}]+)\}", replace_var_dollar, value)
         return value
+
+    def should_execute_step(self, step: Dict[str, Any]) -> bool:
+        """Evaluate whether a step should be executed based on its condition.
+        
+        Supports basic boolean expressions:
+        - ${var} == value
+        - ${var} != value
+        - ${var} (truthy check)
+        
+        Args:
+            step: The workflow step with potential 'condition' field
+            
+        Returns:
+            True if step should execute, False to skip
+        """
+        if "condition" not in step:
+            return True
+        
+        condition = step["condition"]
+        
+        # Interpolate variables in condition
+        condition = self.interpolate_variables(condition)
+        
+        # Simple boolean evaluation
+        # Support: "true", "false", "var == value", "var != value"
+        condition = condition.strip()
+        
+        # Handle direct boolean strings
+        if condition.lower() == "true":
+            return True
+        if condition.lower() == "false":
+            return False
+        
+        # Handle == comparisons
+        if " == " in condition:
+            left, right = condition.split(" == ", 1)
+            left = left.strip()
+            right = right.strip()
+            
+            # Handle boolean comparisons
+            if right.lower() == "true":
+                return left.lower() == "true"
+            if right.lower() == "false":
+                return left.lower() == "false"
+            
+            return left == right
+        
+        # Handle != comparisons
+        if " != " in condition:
+            left, right = condition.split(" != ", 1)
+            left = left.strip()
+            right = right.strip()
+            
+            # Handle boolean comparisons
+            if right.lower() == "true":
+                return left.lower() != "true"
+            if right.lower() == "false":
+                return left.lower() != "false"
+            
+            return left != right
+        
+        # Default: treat as truthy check
+        return bool(condition)
 
     async def execute_action(self, action: Dict[str, Any], step_index: int) -> Any:
         """Execute a single workflow action.
@@ -124,7 +232,16 @@ class WorkflowExecutor:
             elif action_type == "verify":
                 return await self._execute_verify(interpolated_action)
             elif action_type == "screenshot":
-                return await self._execute_screenshot(interpolated_action)
+                result = await self._execute_screenshot(interpolated_action)
+                # Store screenshot path in outputs if output_variable specified
+                if "output_variable" in action:
+                    var_name = action["output_variable"]
+                    if result.get("success") and "screenshot_path" in result:
+                        self.outputs[var_name] = result["screenshot_path"]
+                        self.screenshots.append(result["screenshot_path"])
+                return result
+            elif action_type == "extract_text":
+                return await self._execute_extract_text(interpolated_action)
             elif action_type == "manual_step":
                 return await self._execute_manual_step(interpolated_action)
             else:
@@ -321,6 +438,39 @@ class WorkflowExecutor:
         result = await capture_screen(self.context)
         return result
 
+    async def _execute_extract_text(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract text from a screen region using OCR.
+        
+        Supports output_variable to store extracted text.
+        """
+        from code_puppy.tools.gui_cub.ocr_tools import desktop_extract_text
+        
+        # Get region parameters
+        region = action.get("region", {})
+        x = region.get("x")
+        y = region.get("y")
+        width = region.get("width")
+        height = region.get("height")
+        
+        # Extract text
+        result = await desktop_extract_text(
+            self.context,
+            use_active_window=action.get("use_active_window", True),
+            use_full_screen=action.get("use_full_screen", False),
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+        )
+        
+        # Store in outputs if output_variable specified
+        if "output_variable" in action:
+            var_name = action["output_variable"]
+            extracted_text = result.get("full_text", "")
+            self.outputs[var_name] = extracted_text
+        
+        return result
+
     async def _execute_manual_step(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Pause workflow for manual user intervention.
         
@@ -365,10 +515,27 @@ class WorkflowExecutor:
         
         return {"success": True, "verified": expected_text}
 
-    async def execute_workflow_file(self, workflow_name: str) -> Dict[str, Any]:
-        """Load and execute a workflow from file."""
-        # Find workflow file
+    async def execute_workflow_file(
+        self,
+        workflow_name: str,
+        parameters: Dict[str, Any] | None = None
+    ) -> WorkflowExecutionResult:
+        """Load and execute a workflow from file.
+        
+        Args:
+            workflow_name: Name of workflow file
+            parameters: Runtime parameters to pass
+            
+        Returns:
+            WorkflowExecutionResult with structured data
+        """
+        # Find workflow file - check both locations
         possible_paths = [
+            # New location (from workflows.py)
+            Path.home() / ".code_puppy" / "agents" / "gui_cub" / "workflows" / workflow_name,
+            Path.home() / ".code_puppy" / "agents" / "gui_cub" / "workflows" / f"{workflow_name}.yaml",
+            Path.home() / ".code_puppy" / "agents" / "gui_cub" / "workflows" / f"{workflow_name}.yml",
+            # Legacy location
             self.workflow_dir / workflow_name,
             self.workflow_dir / f"{workflow_name}.yaml",
             self.workflow_dir / f"{workflow_name}.yml",
@@ -387,11 +554,46 @@ class WorkflowExecutor:
         with open(workflow_path, "r", encoding="utf-8") as f:
             workflow_data = yaml.safe_load(f)
         
-        return await self.execute_workflow(workflow_data)
+        return await self.execute_workflow(workflow_data, parameters)
 
-    async def execute_workflow(self, workflow: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a workflow from parsed YAML data."""
-        # Extract workflow variables
+    async def execute_workflow(
+        self,
+        workflow: Dict[str, Any],
+        parameters: Dict[str, Any] | None = None
+    ) -> WorkflowExecutionResult:
+        """Execute a workflow from parsed YAML data.
+        
+        Args:
+            workflow: Parsed workflow YAML
+            parameters: Runtime parameters to pass to workflow
+            
+        Returns:
+            WorkflowExecutionResult with structured execution data
+        """
+        start_time = time.time()
+        workflow_name = workflow.get("name", "unnamed")
+        
+        # Parse and validate parameters
+        param_defs = parse_workflow_parameters(workflow)
+        if parameters:
+            try:
+                validated_params = validate_workflow_parameters(param_defs, parameters)
+                self.variables.update(validated_params)
+            except (ValueError, TypeError) as e:
+                self.errors.append(str(e))
+                return WorkflowExecutionResult(
+                    workflow=workflow_name,
+                    status="failure",
+                    execution_time=time.time() - start_time,
+                    parameters_used=parameters or {},
+                    outputs=self.outputs,
+                    steps_executed=self.steps_executed,
+                    steps_skipped=self.steps_skipped,
+                    errors=self.errors,
+                    screenshots=self.screenshots,
+                )
+        
+        # Extract workflow variables (legacy {{var}} support)
         if "variables" in workflow:
             workflow_vars = workflow["variables"]
             # Interpolate variable defaults
@@ -402,36 +604,82 @@ class WorkflowExecutor:
         # Execute steps
         steps = workflow.get("steps", [])
         if not steps:
-            raise WorkflowExecutionError("Workflow has no steps")
+            self.errors.append("Workflow has no steps")
+            return WorkflowExecutionResult(
+                workflow=workflow_name,
+                status="failure",
+                execution_time=time.time() - start_time,
+                parameters_used=parameters or {},
+                outputs=self.outputs,
+                steps_executed=self.steps_executed,
+                steps_skipped=self.steps_skipped,
+                errors=self.errors,
+                screenshots=self.screenshots,
+            )
         
-        results = []
         for i, step in enumerate(steps):
-            emit_info(f"Executing step {i + 1}/{len(steps)}: {step.get('action', 'unknown')}")
-            result = await self.execute_action(step, i + 1)
-            results.append(result)
+            # Check if step should be executed (conditional logic)
+            if not self.should_execute_step(step):
+                emit_info(
+                    f"⏭️  Skipping step {i + 1}/{len(steps)}: {step.get('action', 'unknown')} "
+                    f"(condition not met)"
+                )
+                self.steps_skipped += 1
+                continue
+            
+            emit_info(
+                f"▶️  Executing step {i + 1}/{len(steps)}: {step.get('action', 'unknown')}"
+            )
+            
+            try:
+                result = await self.execute_action(step, i + 1)
+                self.steps_executed += 1
+            except Exception as e:
+                error_msg = f"Step {i + 1} failed: {str(e)}"
+                self.errors.append(error_msg)
+                emit_error(error_msg)
+                
+                # Decide if we should continue or stop
+                if step.get("continue_on_error", False):
+                    continue
+                else:
+                    # Stop execution on error
+                    break
         
-        return {
-            "success": True,
-            "workflow": workflow.get("name", "unnamed"),
-            "steps_executed": len(results),
-            "results": results,
-        }
+        # Determine final status
+        status = "success" if not self.errors else "failure"
+        if self.errors and self.steps_executed > 0:
+            status = "partial"
+        
+        execution_time = time.time() - start_time
+        
+        return WorkflowExecutionResult(
+            workflow=workflow_name,
+            status=status,
+            execution_time=execution_time,
+            parameters_used=parameters or {},
+            outputs=self.outputs,
+            steps_executed=self.steps_executed,
+            steps_skipped=self.steps_skipped,
+            errors=self.errors,
+            screenshots=self.screenshots,
+        )
 
 
 async def execute_workflow(
     context: RunContext,
     name: str,
-    variables: Dict[str, Any] | None = None,
+    parameters: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    """Execute a saved workflow with optional variables.
+    """Execute a saved workflow with optional parameters.
     
     Args:
         context: RunContext from pydantic-ai
         name: Workflow name (with or without .yaml extension)
-        variables: Optional variables to pass to workflow
+        parameters: Optional parameters to pass to workflow (replaces variables)
     
     Returns:
-        Execution results with success status
+        Execution results as dict (converted from WorkflowExecutionResult)
     """
     group_id = generate_group_id("execute_workflow", name)
     emit_info(
@@ -442,17 +690,30 @@ async def execute_workflow(
     try:
         executor = WorkflowExecutor(context)
         
-        if variables:
-            executor.variables = variables
+        # Support legacy 'variables' alongside new 'parameters'
+        if parameters:
+            executor.variables = parameters
         
-        result = await executor.execute_workflow_file(name)
+        result = await executor.execute_workflow_file(name, parameters)
+        
+        # Redact sensitive parameters from logs
+        params_display = {}
+        if parameters:
+            # TODO: Check parameter definitions for 'sensitive' flag
+            params_display = {k: "***" if "password" in k.lower() or "secret" in k.lower() else v 
+                            for k, v in parameters.items()}
         
         emit_info(
-            f"[green]✅ Workflow executed successfully: {result['steps_executed']} steps[/green]",
+            f"[green]✅ Workflow '{result.workflow}' completed: "
+            f"{result.status} - {result.steps_executed} executed, {result.steps_skipped} skipped[/green]",
             message_group=group_id,
         )
         
-        return result
+        if result.outputs:
+            emit_info(f"📤 Outputs: {list(result.outputs.keys())}", message_group=group_id)
+        
+        # Convert Pydantic model to dict for backward compatibility
+        return result.model_dump()
     
     except Exception as e:
         emit_error(
@@ -460,9 +721,15 @@ async def execute_workflow(
             message_group=group_id,
         )
         return {
-            "success": False,
-            "error": str(e),
             "workflow": name,
+            "status": "failure",
+            "execution_time": 0,
+            "parameters_used": parameters or {},
+            "outputs": {},
+            "steps_executed": 0,
+            "steps_skipped": 0,
+            "errors": [str(e)],
+            "screenshots": [],
         }
 
 
@@ -473,25 +740,38 @@ def register_executor_tool(agent):
     async def gui_cub_execute_workflow(
         context: RunContext,
         name: str,
-        variables: Dict[str, Any] | None = None,
+        parameters: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        """Execute a saved YAML workflow with optional variables.
+        """Execute a saved YAML workflow with optional parameters.
         
         This enables true automation - workflows are executed automatically
         without agent interpretation. Supports workflow chaining via run_workflow.
         
+        NEW: Workflows can now define typed parameters and return structured outputs!
+        
         Args:
             name: Workflow name (e.g., 'login', 'login.yaml')
-            variables: Optional dict of variables to pass to workflow
-                      Example: {"username": "user@example.com", "product": "Widget"}
+            parameters: Optional dict of parameters to pass to workflow
+                       Example: {"username": "user@example.com", "patient_id": "PAT-123"}
         
         Returns:
-            Execution results with steps_executed, success status, and any errors
+            Structured execution results:
+            {
+                "workflow": str,
+                "status": "success" | "failure" | "partial",
+                "execution_time": float,
+                "parameters_used": dict,
+                "outputs": dict,  # Extracted data from workflow
+                "steps_executed": int,
+                "steps_skipped": int,
+                "errors": list,
+                "screenshots": list
+            }
         
         Example:
             gui_cub_execute_workflow(
-                name="complete_purchase",
-                variables={"username": "test@example.com", "product_id": "12345"}
+                name="patient_lookup",
+                parameters={"patient_id": "PAT-67890", "include_history": False}
             )
         """
-        return await execute_workflow(context, name, variables)
+        return await execute_workflow(context, name, parameters)

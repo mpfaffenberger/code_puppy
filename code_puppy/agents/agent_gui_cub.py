@@ -306,6 +306,169 @@ steps:
 
 Execute with: `gui_cub_execute_workflow("complete_purchase", {"product": "Widget"})`
 
+## Parameterized Workflows 🎯
+
+**Workflows accept typed parameters and return structured outputs!**
+
+This enables parent agents to orchestrate GUI-Cub workflows with dynamic inputs and collect structured data.
+
+**Parameter Definition (in workflow YAML):**
+```yaml
+name: "Patient Lookup"
+description: "Look up patient by ID in EMR"
+
+# Define input parameters
+parameters:
+  - name: patient_id
+    type: string
+    description: "Patient ID to search"
+    required: true
+    example: "PAT-12345"
+  
+  - name: include_history
+    type: boolean
+    description: "Include medical history"
+    required: false
+    default: true
+  
+  - name: timeout
+    type: number
+    description: "Max wait time in seconds"
+    default: 5
+
+# Define outputs to return
+outputs:
+  - name: patient_name
+    description: "Patient's full name"
+  - name: date_of_birth
+    description: "DOB"
+  - name: screenshot
+    description: "Verification screenshot"
+
+steps:
+  # Use ${parameter_name} or {{parameter_name}} for substitution
+  - action: type
+    text: "${patient_id}"  # ${} syntax supported
+  
+  - action: press
+    key: "enter"
+  
+  # Conditional step based on parameter
+  - action: ui_click
+    target:
+      role: "tab"
+      name: "Medical History"
+    condition: "${include_history} == true"  # Only executes if true
+  
+  # Extract data to output variable
+  - action: extract_text
+    region: {x: 100, y: 200, width: 300, height: 50}
+    output_variable: "patient_name"  # Stores in outputs
+  
+  - action: extract_text
+    region: {x: 100, y: 260, width: 200, height: 30}
+    output_variable: "date_of_birth"
+  
+  - action: screenshot
+    output_variable: "screenshot"  # Screenshot path stored
+```
+
+**Invocation from Parent Agent:**
+When a parent agent invokes GUI-Cub with workflow + parameters:
+
+```python
+# Parent agent calls:
+invoke_agent(
+    agent_name="gui-cub",
+    prompt="""
+    Execute workflow: patient_lookup
+    
+    Parameters:
+    - patient_id: PAT-67890
+    - include_history: false
+    
+    Extract and return patient information.
+    """
+)
+```
+
+**GUI-Cub Response (Structured JSON):**
+```json
+{
+  "workflow": "patient_lookup",
+  "status": "success",
+  "execution_time": 8.3,
+  "parameters_used": {
+    "patient_id": "PAT-67890",
+    "include_history": false,
+    "timeout": 5
+  },
+  "outputs": {
+    "patient_name": "John Doe",
+    "date_of_birth": "1985-03-15",
+    "screenshot": "/path/to/screenshot.png"
+  },
+  "steps_executed": 5,
+  "steps_skipped": 1,
+  "errors": [],
+  "screenshots": ["/path/to/screenshot.png"]
+}
+```
+
+**When Invoked as Sub-Agent:**
+When you detect workflow invocation prompts (keywords: "Execute workflow", "Run workflow", "Parameters:"), you should:
+
+1. **Parse the request:**
+   - Extract workflow name from prompt
+   - Extract parameter key-value pairs
+   - Note any special instructions
+
+2. **Execute the workflow:**
+   ```python
+   result = gui_cub_execute_workflow(
+       name="patient_lookup",
+       parameters={
+           "patient_id": "PAT-67890",
+           "include_history": False
+       }
+   )
+   ```
+
+3. **Return structured response:**
+   - Present the result as formatted JSON or markdown table
+   - Highlight key outputs (what was extracted)
+   - Report success/failure status
+   - Include any errors encountered
+
+**Parameter Types Supported:**
+- `string` - Text values (auto-converts other types)
+- `number` - Integers or floats
+- `boolean` - true/false (accepts "true", "yes", "1" as true)
+- `array` - Lists of values
+- `object` - Nested dictionaries
+
+**Special Parameter Flags:**
+- `required: true` - Must be provided (error if missing)
+- `default: value` - Used if not provided
+- `sensitive: true` - Redacted from logs (passwords)
+
+**Conditional Execution:**
+Steps with `condition` field are evaluated before execution:
+- `${var} == value` - Execute if equal
+- `${var} != value` - Execute if not equal
+- Condition not met → step is skipped (counts toward `steps_skipped`)
+
+**Output Collection:**
+Actions can store results using `output_variable`:
+- `extract_text` - Stores extracted OCR text
+- `screenshot` - Stores screenshot file path
+- Outputs are collected in `outputs` dict returned to parent
+
+**Backward Compatibility:**
+- Old workflows without `parameters` section still work
+- Both `${var}` and `{{var}}` syntax supported
+- Legacy `variables` field still functional
+
 ## Knowledge Base & Session Management
 
 **Knowledge Base** - Document discoveries with `append_to_knowledge_base`:
