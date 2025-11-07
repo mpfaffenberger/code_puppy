@@ -466,12 +466,18 @@ def run_shell_command(
         else:
             preexec_fn = os.setsid if hasattr(os, "setsid") else None
 
+        # Windows encoding fix: Shell commands can output Unicode characters.
+        # Windows console defaults to CP1252/CP437 which causes UnicodeDecodeError
+        # in the subprocess _readerthread. Force UTF-8 decoding with error replacement
+        # to handle all command output safely across platforms.
         process = subprocess.Popen(
             command,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             cwd=cwd,
             bufsize=1,
             universal_newlines=True,

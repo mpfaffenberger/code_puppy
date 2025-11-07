@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Test Windows coordinate system for desktop automation.
 
 This script tests window bounds detection, screenshot capture, and OCR
@@ -15,10 +16,19 @@ Usage:
 """
 
 import sys
+import io
 import platform
 
+# Windows console encoding fix:
+# Windows terminals default to CP1252/CP437 encoding which cannot handle Unicode.
+# This causes UnicodeEncodeError when printing Unicode characters (✓ ✅ ❌ ⚠ etc).
+# We wrap stdout/stderr to force UTF-8 encoding with error replacement instead of crashing.
+if platform.system() == "Windows":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 if platform.system() != "Windows":
-    print("❌ This script must be run on Windows!")
+    print("[X] This script must be run on Windows!")
     sys.exit(1)
 
 # CRITICAL: Set DPI awareness BEFORE importing any GUI libraries!
@@ -56,28 +66,28 @@ try:
     import win32con
     import win32api
 except ImportError:
-    print("❌ PyWin32 not installed!")
+    print("[X] PyWin32 not installed!")
     print("Install with: pip install pywin32")
     sys.exit(1)
 
 try:
     import pyautogui
 except ImportError:
-    print("❌ pyautogui not installed!")
+    print("[X] pyautogui not installed!")
     print("Install with: pip install pyautogui")
     sys.exit(1)
 
 try:
     from PIL import Image, ImageDraw, ImageFont
 except ImportError:
-    print("❌ Pillow not installed!")
+    print("[X] Pillow not installed!")
     print("Install with: pip install Pillow")
     sys.exit(1)
 
 try:
     import pytesseract
 except ImportError:
-    print("❌ pytesseract not installed!")
+    print("[X] pytesseract not installed!")
     print("Install with: pip install pytesseract")
     print("Also install Tesseract-OCR from: https://github.com/UB-Mannheim/tesseract/wiki")
     sys.exit(1)
@@ -115,7 +125,7 @@ print("   Capturing currently focused window...")
 
 hwnd = win32gui.GetForegroundWindow()
 if not hwnd:
-    print("   ❌ No foreground window found!")
+    print("   [X] No foreground window found!")
     sys.exit(1)
 
 window_text = win32gui.GetWindowText(hwnd)
@@ -152,7 +162,7 @@ try:
         print(f"   Using system DPI (GetDpiForWindow not available)")
 
 except Exception as e:
-    print(f"   ❌ Error: {e}")
+    print(f"   [X] Error: {e}")
     sys.exit(1)
 
 # Step 4: Get screen dimensions
@@ -165,7 +175,7 @@ pyautogui_size = pyautogui.size()
 print(f"   pyautogui.size(): {pyautogui_size.width}x{pyautogui_size.height}")
 
 if screen_width != pyautogui_size.width or screen_height != pyautogui_size.height:
-    print(f"   ⚠ MISMATCH! Win32 and pyautogui report different screen sizes!")
+    print(f"   [!] MISMATCH! Win32 and pyautogui report different screen sizes!")
     print(f"   This suggests coordinate system differences!")
 
 # Step 5: Capture full screen for reference
@@ -175,7 +185,7 @@ full_screen.save("windows_fullscreen.png")
 print(f"   Saved: windows_fullscreen.png ({full_screen.width}x{full_screen.height})")
 
 if full_screen.width != pyautogui_size.width or full_screen.height != pyautogui_size.height:
-    print(f"   ⚠ Screenshot size doesn't match pyautogui.size()!")
+    print(f"   [!] Screenshot size doesn't match pyautogui.size()!")
     print(f"   Screenshot: {full_screen.width}x{full_screen.height}")
     print(f"   pyautogui.size(): {pyautogui_size.width}x{pyautogui_size.height}")
 
@@ -241,28 +251,28 @@ except Exception as e:
 if window_scaling != 1.0:
     print(f"\n   Trying with DPI scaling ({window_scaling}x)...")
     
-    # Test 1: Divide by scaling (logical → physical)
+    # Test 1: Divide by scaling (logical -> physical)
     try:
         logical_x = int(x / window_scaling)
         logical_y = int(y / window_scaling)
         logical_w = int(width / window_scaling)
         logical_h = int(height / window_scaling)
         
-        print(f"   Scaled coords (÷{window_scaling}): ({logical_x}, {logical_y}, {logical_w}, {logical_h})")
+        print(f"   Scaled coords (/{window_scaling}): ({logical_x}, {logical_y}, {logical_w}, {logical_h})")
         window_scaled_down = pyautogui.screenshot(region=(logical_x, logical_y, logical_w, logical_h))
         window_scaled_down.save("windows_window_scaled_down.png")
         print(f"   Saved: windows_window_scaled_down.png ({window_scaled_down.width}x{window_scaled_down.height})")
     except Exception as e:
         print(f"   Scaled down capture failed: {e}")
     
-    # Test 2: Multiply by scaling (physical → logical)
+    # Test 2: Multiply by scaling (physical -> logical)
     try:
         physical_x = int(x * window_scaling)
         physical_y = int(y * window_scaling)
         physical_w = int(width * window_scaling)
         physical_h = int(height * window_scaling)
         
-        print(f"   Scaled coords (×{window_scaling}): ({physical_x}, {physical_y}, {physical_w}, {physical_h})")
+        print(f"   Scaled coords (x{window_scaling}): ({physical_x}, {physical_y}, {physical_w}, {physical_h})")
         window_scaled_up = pyautogui.screenshot(region=(physical_x, physical_y, physical_w, physical_h))
         window_scaled_up.save("windows_window_scaled_up.png")
         print(f"   Saved: windows_window_scaled_up.png ({window_scaled_up.width}x{window_scaled_up.height})")
@@ -526,8 +536,8 @@ print("   - windows_debug_grid.png (grid with RED box showing Win32 coords)")
 print("   - windows_debug_with_click.png (RED=window, GREEN/BLUE=click target)")
 print("   - windows_window_direct.png (window capture using Win32 coords directly)")
 if window_scaling != 1.0:
-    print("   - windows_window_scaled_down.png (window capture ÷ DPI scaling)")
-    print("   - windows_window_scaled_up.png (window capture × DPI scaling)")
+    print("   - windows_window_scaled_down.png (window capture / DPI scaling)")
+    print("   - windows_window_scaled_up.png (window capture x DPI scaling)")
 
 print("\nVALIDATION:")
 if dpi_mode == "Per-Monitor-V2":
