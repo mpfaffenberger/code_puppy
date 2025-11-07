@@ -433,11 +433,21 @@ def _list_macos_windows() -> list[dict[str, Any]]:
             owner = win.get("kCGWindowOwnerName")
             title = win.get("kCGWindowName")
             bounds = win.get("kCGWindowBounds", {})
+
+            # Convert bounds to plain dict for JSON serialization
+            # macOS returns __NSDictionaryI which isn't JSON serializable
+            bounds_dict = {
+                "x": int(bounds.get("X", 0)),
+                "y": int(bounds.get("Y", 0)),
+                "width": int(bounds.get("Width", 0)),
+                "height": int(bounds.get("Height", 0)),
+            }
+
             out.append(
                 {
                     "owner": owner,
                     "title": title,
-                    "bounds": bounds,
+                    "bounds": bounds_dict,
                 }
             )
         except Exception:
