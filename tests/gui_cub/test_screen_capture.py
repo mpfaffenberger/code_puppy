@@ -11,7 +11,7 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-from code_puppy.tools.gui_cub.screen_capture import _resize_image_if_needed
+from code_puppy.tools.gui_cub.screen_capture import resize_image_if_needed
 
 
 @pytest.mark.skipif(not PIL_AVAILABLE, reason="PIL/Pillow not available")
@@ -28,7 +28,7 @@ class TestImageResizing:
         original_bytes = img_bytes.getvalue()
 
         # Should return unchanged since it's well under limit
-        result_bytes, scale, fmt = _resize_image_if_needed(
+        result_bytes, scale, fmt = resize_image_if_needed(
             original_bytes,
             max_size_bytes=5_000_000,  # 5MB limit
         )
@@ -49,7 +49,7 @@ class TestImageResizing:
 
         # Set a small limit to force resizing
         max_size = 1_000_000  # 1MB limit
-        result_bytes, scale, fmt = _resize_image_if_needed(
+        result_bytes, scale, fmt = resize_image_if_needed(
             original_bytes, max_size_bytes=max_size
         )
 
@@ -78,7 +78,7 @@ class TestImageResizing:
         original_bytes = img_bytes.getvalue()
 
         # Force JPEG by using a small limit
-        result_bytes, scale, fmt = _resize_image_if_needed(
+        result_bytes, scale, fmt = resize_image_if_needed(
             original_bytes,
             max_size_bytes=500_000,  # Small limit to force JPEG
         )
@@ -101,7 +101,7 @@ class TestImageResizing:
 
         # Test with exact Claude API limit (4.5 MB)
         max_size = 4_500_000
-        result_bytes, scale, fmt = _resize_image_if_needed(
+        result_bytes, scale, fmt = resize_image_if_needed(
             original_bytes, max_size_bytes=max_size
         )
 
@@ -133,7 +133,7 @@ class TestImageResizing:
 
         # Very small limit to test aggressive compression
         max_size = 100_000  # 100KB
-        result_bytes, scale, fmt = _resize_image_if_needed(
+        result_bytes, scale, fmt = resize_image_if_needed(
             original_bytes, max_size_bytes=max_size
         )
 

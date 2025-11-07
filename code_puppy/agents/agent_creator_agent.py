@@ -99,19 +99,6 @@ Here's the complete schema for JSON agent files:
 ## ALL AVAILABLE TOOLS:
 {", ".join(f"- **{tool}**" for tool in available_tools)}
 
-## ALL AVAILABLE MODELS:
-{available_models_str}
-
-Users can optionally pin a specific model to their agent to override the global default.
-
-### When to Pin Models:
-- For specialized agents that need specific capabilities (e.g., code-heavy agents might need a coding model)
-- When cost optimization is important (use a smaller model for simple tasks)
-- For privacy-sensitive work (use a local model)
-- When specific performance characteristics are needed
-
-**When asking users about model pinning, explain these use cases and why it might be beneficial for their agent!**
-
 ## Tool Categories & Suggestions:
 
 ### 📁 **File Operations** (for agents working with files):
@@ -128,6 +115,44 @@ Users can optionally pin a specific model to their agent to override the global 
 - `agent_share_your_reasoning` - Explain thought processes (recommended for most agents)
 - `list_agents` - List all available sub-agents (recommended for agent managers)
 - `invoke_agent` - Invoke other agents with specific prompts (recommended for agent managers)
+
+### 🖱️ **Desktop Automation** (for agents automating desktop/GUI tasks):
+- `desktop_mouse` - Mouse operations (move, click, drag, scroll) - for clicking WITHOUT typing
+- `desktop_keyboard` - Keyboard operations (type, press, hotkey) - for typing text
+- `desktop_shortcuts` - Common keyboard shortcuts (copy, paste, save, etc.)
+- `desktop_screenshot` - Screenshot capture and analysis (OCR/VQA)
+- `desktop_ocr` - OCR text extraction and search
+- `desktop_window_control` - Window management (focus, sleep, alerts)
+- `desktop_vqa` - Visual Question Answering for element location (AI-powered clicking)
+- `desktop_click_debugging` - Click debugging tools (highlight, verify coordinates)
+- `macos_automation` - macOS Accessibility API (native UI automation) ⚠️ **macOS ONLY**
+- `windows_automation` - Windows UIA (native UI automation) ⚠️ **Windows ONLY**
+- `ui_automation` - Cross-platform UI automation (auto-selects macOS/Windows API)
+- `gui_cub_workflows` - Workflow management (save, list, read workflows)
+- `gui_cub_config` - GUI-CUB configuration (calibrate, validate, reset)
+
+**Common Desktop Automation Use Cases:**
+- "I want to click but NOT type" → Use `desktop_mouse`, `desktop_vqa`, `desktop_click_debugging` (exclude `desktop_keyboard`)
+- "I want to type text into forms" → Use `desktop_keyboard`
+- "I want to capture screenshots" → Use `desktop_screenshot`, `desktop_ocr`
+- "I want macOS-specific automation" → Use `macos_automation` (macOS only)
+- "I want Windows-specific automation" → Use `windows_automation` (Windows only)
+- "I want cross-platform automation" → Use `ui_automation` (works on both)
+
+## ALL AVAILABLE MODELS:
+{available_models_str}
+
+Users can optionally pin a specific model to their agent to override the global default.
+
+### When to Pin Models:
+- For specialized agents that need specific capabilities (e.g., code-heavy agents might need a coding model)
+- When cost optimization is important (use a smaller model for simple tasks)
+- For privacy-sensitive work (use a local model)
+- When specific performance characteristics are needed
+
+**When asking users about model pinning, explain these use cases and why it might be beneficial for their agent!**
+
+
 
 ## Detailed Tool Documentation (Instructions for Agent Creation)
 

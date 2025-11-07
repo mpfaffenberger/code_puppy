@@ -79,7 +79,7 @@ from code_puppy.tools.gui_cub.mouse_control import register_mouse_control_tools
 from code_puppy.tools.gui_cub.screen_capture import register_desktop_screenshot_tools
 from code_puppy.tools.gui_cub.window_control import register_window_control_tools
 from code_puppy.tools.gui_cub.grid_calibration import register_grid_calibration_tools
-from code_puppy.tools.gui_cub.ocr_tools import register_ocr_tools
+from code_puppy.tools.gui_cub.ocr import register_ocr_tools
 from code_puppy.tools.gui_cub.click_debugging import register_click_debugging_tools
 from code_puppy.tools.gui_cub.multi_strategy_click import (
     register_multi_strategy_click_tools,
@@ -135,22 +135,105 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
+from code_puppy.tools.tool_metadata import (
+    ToolMetadata,
+    CATEGORY_AGENT,
+    CATEGORY_FILE_OPS,
+    CATEGORY_COMMAND,
+    CATEGORY_DESKTOP,
+    CATEGORY_COMMUNICATION,
+)
 
-# Map of tool names to their individual registration functions
-TOOL_REGISTRY = {
+# Map of tool names to their metadata and registration functions
+# New format: Each entry can be either:
+#   - A bare function (old format, backward compatible)
+#   - A ToolMetadata dict with 'register' function + metadata
+TOOL_REGISTRY: dict[str, ToolMetadata] = {
     # Agent Tools
-    "list_agents": register_list_agents,
-    "invoke_agent": register_invoke_agent,
+    "list_agents": {
+        "register": register_list_agents,
+        "category": CATEGORY_AGENT,
+        "description": "List all available sub-agents that can be invoked",
+        "keywords": ["agent", "list", "sub-agent", "available"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["discover available agents", "check agent capabilities"],
+    },
+    "invoke_agent": {
+        "register": register_invoke_agent,
+        "category": CATEGORY_AGENT,
+        "description": "Invoke a specific sub-agent with a prompt",
+        "keywords": ["agent", "invoke", "delegate", "sub-agent"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["delegate tasks to specialized agents", "multi-agent workflows"],
+    },
     # File Operations
-    "list_files": register_list_files,
-    "read_file": register_read_file,
-    "grep": register_grep,
+    "list_files": {
+        "register": register_list_files,
+        "category": CATEGORY_FILE_OPS,
+        "description": "List files and directories with filtering",
+        "keywords": ["file", "directory", "list", "browse"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["explore directory structures", "find files"],
+    },
+    "read_file": {
+        "register": register_read_file,
+        "category": CATEGORY_FILE_OPS,
+        "description": "Read file contents with optional line-range selection",
+        "keywords": ["file", "read", "content", "view"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["read code files", "inspect file contents"],
+    },
+    "grep": {
+        "register": register_grep,
+        "category": CATEGORY_FILE_OPS,
+        "description": "Recursively search for text patterns across files",
+        "keywords": ["search", "grep", "find", "pattern", "text"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["search code", "find text in files"],
+    },
     # File Modifications
-    "edit_file": register_edit_file,
-    "delete_file": register_delete_file,
+    "edit_file": {
+        "register": register_edit_file,
+        "category": CATEGORY_FILE_OPS,
+        "description": "Comprehensive file editing (create, replace, delete snippets)",
+        "keywords": ["edit", "write", "modify", "file", "create"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["modify code", "create files", "update configuration"],
+    },
+    "delete_file": {
+        "register": register_delete_file,
+        "category": CATEGORY_FILE_OPS,
+        "description": "Safely delete files with diff generation",
+        "keywords": ["delete", "remove", "file"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["remove files", "clean up"],
+    },
     # Command Runner
-    "agent_run_shell_command": register_agent_run_shell_command,
-    "agent_share_your_reasoning": register_agent_share_your_reasoning,
+    "agent_run_shell_command": {
+        "register": register_agent_run_shell_command,
+        "category": CATEGORY_COMMAND,
+        "description": "Execute shell commands with streaming output",
+        "keywords": ["command", "shell", "terminal", "execute", "run"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["run scripts", "execute commands", "build projects"],
+    },
+    "agent_share_your_reasoning": {
+        "register": register_agent_share_your_reasoning,
+        "category": CATEGORY_COMMUNICATION,
+        "description": "Share reasoning and planned next steps with user",
+        "keywords": ["reasoning", "explain", "communicate", "transparency"],
+        "platform": "all",
+        "requires_typing": False,
+        "use_cases": ["explain thought process", "show planning"],
+    },
     # Browser Control
     "browser_initialize": register_initialize_browser,
     "browser_close": register_close_browser,
@@ -206,10 +289,34 @@ TOOL_REGISTRY = {
 # GUI-Cub workflow and knowledge base tools (always available)
 TOOL_REGISTRY.update(
     {
-        # Representative names (NEW - preferred)
-        "gui_cub_workflows": register_gui_cub_workflows,  # Registers: save, list, read
-        "gui_cub_config": register_gui_cub_config,  # Registers: get, calibrate, validate, reset
-        "gui_cub_debug": register_gui_cub_debug_screenshots,  # Registers: save_debug_screenshot
+        # Representative names (NEW - preferred) with metadata
+        "gui_cub_workflows": {
+            "register": register_gui_cub_workflows,
+            "category": CATEGORY_DESKTOP,
+            "description": "Workflow management (save, list, read workflows)",
+            "keywords": ["workflow", "automation", "yaml", "save", "reuse"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["save automation workflows", "reuse automation patterns"],
+        },
+        "gui_cub_config": {
+            "register": register_gui_cub_config,
+            "category": CATEGORY_DESKTOP,
+            "description": "GUI-CUB configuration (calibrate, validate, reset)",
+            "keywords": ["config", "calibrate", "settings", "setup"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["configure GUI-CUB", "calibrate screen"],
+        },
+        "gui_cub_debug": {
+            "register": register_gui_cub_debug_screenshots,
+            "category": CATEGORY_DESKTOP,
+            "description": "Debug screenshot tools",
+            "keywords": ["debug", "screenshot", "troubleshoot"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["debug automation", "save debug screenshots"],
+        },
         # Individual tool names (backward compatibility)
         "gui_cub_save_workflow": register_gui_cub_workflows,
         "gui_cub_list_workflows": register_gui_cub_workflows,
@@ -227,17 +334,89 @@ TOOL_REGISTRY.update(
 # Desktop automation tools (always available - required dependencies)
 TOOL_REGISTRY.update(
     {
-        # Representative names (NEW - preferred)
-        "desktop_screenshot": register_desktop_screenshot_tools,  # Registers: screenshot, analyze, get_screen_size
-        "desktop_mouse": register_mouse_control_tools,  # Registers: move, click, drag, scroll, get_position
-        "desktop_shortcuts": register_keyboard_shortcut_tools,  # Registers: copy, paste, cut, select_all, save, undo, redo, find, new, open, close, quit
-        "desktop_keyboard": register_keyboard_control_tools,  # Registers: type, press, hotkey, hold, release
-        "desktop_window_control": register_window_control_tools,  # Registers: sleep, alert, confirm, prompt, focus_window, get_monitors, check_pixel_color
-        "desktop_grid_calibration": register_grid_calibration_tools,  # Registers: set_density, show_test_pattern, screenshot_with_confidence
-        "desktop_ocr": register_ocr_tools,  # Registers: extract_text, find_text, verify_text, find_text_reliable, show_all_ocr_boxes
-        "desktop_click_debugging": register_click_debugging_tools,  # Registers: highlight, verify_coordinates, click_with_verification, hover_and_verify, click_smart
-        "desktop_vqa": register_vqa_two_stage_tools,  # Two-stage VQA (93% success, 2.1px error)
-        "desktop_vqa_two_stage": register_vqa_two_stage_tools,  # Alias for desktop_vqa
+        # Representative names (NEW - preferred) with metadata
+        "desktop_screenshot": {
+            "register": register_desktop_screenshot_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Screenshot capture and analysis (OCR/VQA)",
+            "keywords": ["screenshot", "capture", "screen", "image", "visual"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["capture screenshots", "visual analysis", "debugging"],
+        },
+        "desktop_mouse": {
+            "register": register_mouse_control_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Mouse operations (move, click, drag, scroll)",
+            "keywords": ["mouse", "click", "drag", "scroll", "pointer"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["clicking elements", "drag and drop", "scrolling pages"],
+        },
+        "desktop_shortcuts": {
+            "register": register_keyboard_shortcut_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Common keyboard shortcuts (copy, paste, save, etc.)",
+            "keywords": ["shortcut", "hotkey", "keyboard", "copy", "paste"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["copy/paste", "save files", "keyboard shortcuts"],
+        },
+        "desktop_keyboard": {
+            "register": register_keyboard_control_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Keyboard operations (type, press, hotkey)",
+            "keywords": ["keyboard", "type", "text", "input", "hotkey"],
+            "platform": "all",
+            "requires_typing": True,
+            "use_cases": ["typing text", "form input", "keyboard automation"],
+        },
+        "desktop_window_control": {
+            "register": register_window_control_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Window management (focus, sleep, alerts)",
+            "keywords": ["window", "focus", "alert", "dialog"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["focus windows", "show alerts", "window management"],
+        },
+        "desktop_grid_calibration": {
+            "register": register_grid_calibration_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Grid overlay calibration for coordinate debugging",
+            "keywords": ["calibration", "grid", "coordinates", "debug"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["calibrate screen coordinates", "debug clicking"],
+        },
+        "desktop_ocr": {
+            "register": register_ocr_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "OCR text extraction and search",
+            "keywords": ["ocr", "text", "extract", "read", "recognize"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["extract text from screen", "find text", "OCR"],
+        },
+        "desktop_click_debugging": {
+            "register": register_click_debugging_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Click debugging tools (highlight, verify coordinates)",
+            "keywords": ["click", "debug", "highlight", "verify", "coordinates"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["debug clicking", "verify coordinates", "highlight targets"],
+        },
+        "desktop_vqa": {
+            "register": register_vqa_two_stage_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Visual Question Answering for element location",
+            "keywords": ["vqa", "visual", "ai", "vision", "locate"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["find elements visually", "AI-powered clicking"],
+        },
+        "desktop_vqa_two_stage": register_vqa_two_stage_tools,  # Alias
         # Individual tool names (backward compatibility)
         "desktop_screenshot_analyze": register_desktop_screenshot_tools,
         "desktop_get_screen_size": register_desktop_screenshot_tools,
@@ -292,8 +471,20 @@ TOOL_REGISTRY.update(
 if ACCESSIBILITY_TOOLS_AVAILABLE:
     TOOL_REGISTRY.update(
         {
-            # Representative name (NEW - preferred)
-            "macos_automation": register_accessibility_tools,  # Registers: find, list, click, get_value, list_tree, list_windows
+            # Representative name (NEW - preferred) with metadata
+            "macos_automation": {
+                "register": register_accessibility_tools,
+                "category": CATEGORY_DESKTOP,
+                "description": "macOS Accessibility API (native UI automation)",
+                "keywords": ["macos", "accessibility", "native", "ui", "automation"],
+                "platform": "macos",
+                "requires_typing": False,
+                "use_cases": [
+                    "macOS UI automation",
+                    "native element clicking",
+                    "macOS-specific automation",
+                ],
+            },
             # Individual tool names (backward compatibility)
             "desktop_find_accessible_element": register_accessibility_tools,
             "desktop_list_accessible_elements": register_accessibility_tools,
@@ -308,8 +499,20 @@ if ACCESSIBILITY_TOOLS_AVAILABLE:
 if WINDOWS_TOOLS_AVAILABLE:
     TOOL_REGISTRY.update(
         {
-            # Representative name (NEW - preferred)
-            "windows_automation": register_windows_tools,  # Registers: focus_window, find, click, list_elements, list_windows, get_focused, get_value
+            # Representative name (NEW - preferred) with metadata
+            "windows_automation": {
+                "register": register_windows_tools,
+                "category": CATEGORY_DESKTOP,
+                "description": "Windows UIA (native UI automation)",
+                "keywords": ["windows", "uia", "native", "ui", "automation"],
+                "platform": "windows",
+                "requires_typing": False,
+                "use_cases": [
+                    "Windows UI automation",
+                    "native element clicking",
+                    "Windows-specific automation",
+                ],
+            },
             # Individual tool names (backward compatibility)
             "windows_focus_window": register_windows_tools,
             "windows_find_element": register_windows_tools,
@@ -325,8 +528,19 @@ if WINDOWS_TOOLS_AVAILABLE:
 # Unified OS-aware tool names
 TOOL_REGISTRY.update(
     {
-        # Representative name (NEW - preferred)
-        "ui_automation": register_os_unified_tools,  # Registers: ui_list_windows, ui_list_elements, ui_find_element, ui_click_element
+        # Representative name (NEW - preferred) with metadata
+        "ui_automation": {
+            "register": register_os_unified_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "Cross-platform UI automation (auto-selects macOS/Windows API)",
+            "keywords": ["ui", "automation", "cross-platform", "unified", "element"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": [
+                "cross-platform UI automation",
+                "element clicking without platform-specific code",
+            ],
+        },
         # Individual tool names (backward compatibility)
         "ui_list_windows": register_os_unified_tools,
         "ui_list_elements": register_os_unified_tools,
@@ -343,14 +557,17 @@ def register_tools_for_agent(agent, tool_names: list[str]):
         agent: The agent to register tools to.
         tool_names: List of tool names to register.
     """
+    from code_puppy.tools.tool_metadata import get_tool_register
+
     for tool_name in tool_names:
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
             continue
 
-        # Register the individual tool
-        register_func = TOOL_REGISTRY[tool_name]
+        # Register the individual tool (supports both old and new format)
+        tool_entry = TOOL_REGISTRY[tool_name]
+        register_func = get_tool_register(tool_entry)
         register_func(agent)
 
 
@@ -371,3 +588,80 @@ def get_available_tool_names() -> list[str]:
         List of all tool names that can be registered.
     """
     return list(TOOL_REGISTRY.keys())
+
+
+def get_tool_info(query: str | None = None) -> str:
+    """Get one-liner information about available tools.
+
+    Single global function for agent-builder to discover tools.
+    Returns formatted tool information based on query.
+
+    Args:
+        query: Optional search query (keywords, intent, category name).
+               If None, returns all tools grouped by category.
+
+    Returns:
+        Formatted string with tool information (one-liners).
+
+    Examples:
+        >>> get_tool_info()  # All tools by category
+        >>> get_tool_info("click")  # Tools matching "click"
+        >>> get_tool_info("Desktop Automation")  # Category
+    """
+    from code_puppy.tools.tool_discovery import (
+        suggest_tools,
+        get_tools_by_category,
+    )
+    from code_puppy.tools.tool_metadata import get_tool_metadata
+
+    # If query provided, search for relevant tools
+    if query:
+        # Check if it's a category name
+        category_tools = get_tools_by_category(TOOL_REGISTRY, query)
+        if category_tools:
+            # It's a category
+            lines = [f"### {query}\n"]
+            for name in sorted(category_tools):
+                metadata = get_tool_metadata(TOOL_REGISTRY[name])
+                desc = metadata.get("description", "No description")
+                platform = metadata.get("platform", "all")
+                platform_tag = f" [{platform.upper()}]" if platform != "all" else ""
+                lines.append(f"- {name}: {desc}{platform_tag}")
+            return "\n".join(lines)
+
+        # Not a category - use intent-based search
+        suggestions = suggest_tools(TOOL_REGISTRY, query)
+        if suggestions:
+            lines = [f"### Tools matching '{query}'\n"]
+            # Show only tools with metadata (representative tools)
+            for name in sorted(suggestions):
+                metadata = get_tool_metadata(TOOL_REGISTRY[name])
+                if "description" in metadata:  # Only show if it has metadata
+                    desc = metadata.get("description", "No description")
+                    platform = metadata.get("platform", "all")
+                    platform_tag = f" [{platform.upper()}]" if platform != "all" else ""
+                    lines.append(f"- {name}: {desc}{platform_tag}")
+            return "\n".join(lines) if len(lines) > 1 else "No tools found."
+
+        return "No tools found."
+
+    # No query - return all tools grouped by category
+    categories = {}
+    for name, entry in TOOL_REGISTRY.items():
+        metadata = get_tool_metadata(entry)
+        category = metadata.get("category")
+        if category:  # Only show tools with metadata
+            if category not in categories:
+                categories[category] = []
+            categories[category].append((name, metadata))
+
+    lines = []
+    for category in sorted(categories.keys()):
+        lines.append(f"\n### {category}\n")
+        for name, metadata in sorted(categories[category], key=lambda x: x[0]):
+            desc = metadata.get("description", "No description")
+            platform = metadata.get("platform", "all")
+            platform_tag = f" [{platform.upper()}]" if platform != "all" else ""
+            lines.append(f"- {name}: {desc}{platform_tag}")
+
+    return "\n".join(lines)

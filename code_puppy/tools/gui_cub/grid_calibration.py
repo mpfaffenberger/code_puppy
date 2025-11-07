@@ -434,7 +434,7 @@ Marker reference:
               )
               -> Tries normal grid first, refines to fine grid if needed
         """
-        from .screen_capture import screenshot_analyze
+        from .screen_capture import screenshot_analyze  # noqa: TCH001
 
         group_id = generate_group_id("screenshot_with_confidence", question[:50])
         emit_info(

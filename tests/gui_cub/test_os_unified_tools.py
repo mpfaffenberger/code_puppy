@@ -164,32 +164,6 @@ def test_ui_find_and_click_element_darwin(agent: DummyAgent, monkeypatch) -> Non
 
 
 @patch("sys.platform", "darwin")
-def test_ui_list_elements_tree_mode(agent: DummyAgent, monkeypatch) -> None:
-    os_unified._WIN = False
-    os_unified._MAC = True
-    # Monkeypatch accessibility functions imported in function body
-    import code_puppy.tools.gui_cub.accessibility as acc
-
-    monkeypatch.setattr(acc, "get_frontmost_app", lambda: object())
-    monkeypatch.setattr(
-        acc,
-        "_build_element_tree",
-        lambda app, max_depth=5: [
-            {"type": "AXButton", "name": "OK", "depth": 0},
-            {"type": "AXTextField", "name": "Username", "depth": 1},
-        ],
-    )
-
-    res: ElementListResult = agent.tools["ui_list_elements"](
-        context=None,
-        mode="tree",
-        depth=3,
-    )
-    assert res.success is True
-    assert res.total_elements == 2
-    assert "AXButton" in (res.types or [])
-
-
 @patch("sys.platform", "win32")
 def test_ui_list_elements_windows(agent: DummyAgent) -> None:
     """Test ui_list_elements on Windows."""

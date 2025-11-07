@@ -10,7 +10,7 @@ from typing import Optional
 from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_info, emit_warning
-from .screen_capture import capture_screen
+from .screen_capture import capture_screen  # noqa: TCH001
 from .vqa_desktop import run_desktop_vqa_analysis
 from .window_control import _get_active_window_bounds_impl
 

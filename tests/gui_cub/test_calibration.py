@@ -38,10 +38,10 @@ class TestDetectPlatform:
     @patch("platform.release", return_value="5.15.0")
     @patch("platform.machine", return_value="x86_64")
     def test_detect_platform_linux(self, mock_machine, mock_release):
-        """Should detect Linux correctly."""
+        """Should detect Linux - currently unsupported."""
         result = detect_platform()
         assert result["os"] == "linux"
-        assert result["os_display"] == "Linux"
+        assert result["os_display"] == "Unsupported"  # Linux is not currently supported
         assert result["version"] == "5.15.0"
         assert result["machine"] == "x86_64"
 

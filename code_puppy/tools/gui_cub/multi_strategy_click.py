@@ -148,7 +148,7 @@ def register_multi_strategy_click_tools(agent):
             try:
                 if platform == "darwin":
                     # macOS accessibility
-                    from .accessibility import desktop_click_accessible_element
+                    from .accessibility.tools import desktop_click_accessible_element  # noqa: E402
 
                     accessibility_result = desktop_click_accessible_element(
                         context=context,
@@ -240,7 +240,7 @@ def register_multi_strategy_click_tools(agent):
         )
 
         try:
-            from .ocr_tools import desktop_find_text_reliable
+            from .ocr.tools import desktop_find_text_reliable  # noqa: E402
 
             # Find text with confidence filtering
             ocr_result = desktop_find_text_reliable(
@@ -285,7 +285,7 @@ def register_multi_strategy_click_tools(agent):
                     if verify_click or verify_text:
                         # Check if element disappeared (common success pattern)
                         if verify_click:
-                            from .ocr_tools import desktop_find_text
+                            from .ocr.tools import desktop_find_text  # noqa: E402
 
                             verify_result = desktop_find_text(
                                 context=context,
@@ -312,7 +312,7 @@ def register_multi_strategy_click_tools(agent):
 
                         # Check for verification text
                         if verify_text:
-                            from .ocr_tools import desktop_find_text
+                            from .ocr.tools import desktop_find_text  # noqa: E402
 
                             verify_result = desktop_find_text(
                                 context=context,

@@ -2,7 +2,10 @@
 
 import sys
 
-from code_puppy.tools.gui_cub.platform import IS_MACOS, IS_WINDOWS, IS_LINUX
+from code_puppy.tools.gui_cub.platform import IS_MACOS, IS_WINDOWS
+
+# Linux is not currently supported in gui_cub
+IS_LINUX = False
 
 
 class TestPlatformDetection:

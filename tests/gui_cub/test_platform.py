@@ -7,19 +7,21 @@ from unittest.mock import patch
 
 
 from code_puppy.tools.gui_cub.platform import (
-    Platform,
+    CURRENT_PLATFORM,
     IS_MACOS,
     IS_WINDOWS,
-    IS_LINUX,
-    CURRENT_PLATFORM,
+    Platform,
+    check_macos_accessibility_permission,
+    convert_screenshot_to_screen_coords,
     get_platform,
-    require_platform,
     get_platform_display_name,
     get_screen_scale_factor,
-    convert_screenshot_to_screen_coords,
-    check_macos_accessibility_permission,
+    require_platform,
     get_display_info,
 )
+
+# Linux is not currently supported in gui_cub
+IS_LINUX = False
 
 
 class TestPlatformEnum:
@@ -28,14 +30,12 @@ class TestPlatformEnum:
     def test_platform_values(self):
         assert Platform.MACOS.value == "darwin"
         assert Platform.WINDOWS.value == "win32"
-        assert Platform.LINUX.value == "linux"
 
     def test_platform_enum_members(self):
         platforms = list(Platform)
-        assert len(platforms) == 3
+        assert len(platforms) == 2
         assert Platform.MACOS in platforms
         assert Platform.WINDOWS in platforms
-        assert Platform.LINUX in platforms
 
 
 class TestPlatformConstants:
@@ -117,7 +117,7 @@ class TestRequirePlatform:
         assert "requires" in result["error"].lower()
 
     def test_decorator_allows_multiple_platforms(self):
-        @require_platform(Platform.MACOS, Platform.WINDOWS, Platform.LINUX)
+        @require_platform(Platform.MACOS, Platform.WINDOWS)
         def test_func():
             return {"success": True}
 
@@ -125,7 +125,7 @@ class TestRequirePlatform:
         assert result["success"] is True
 
     def test_decorator_preserves_function_name(self):
-        @require_platform(Platform.MACOS, Platform.WINDOWS, Platform.LINUX)
+        @require_platform(Platform.MACOS, Platform.WINDOWS)
         def my_function():
             """Test docstring."""
             return {"success": True}
