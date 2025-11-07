@@ -137,10 +137,10 @@ class GUICubAgent(BaseAgent):
             "ui_automation",
         ]
 
-        # Add platform-specific accessibility tools
+        # Add platform-specific automation tools
         if sys.platform == "darwin":
-            # macOS accessibility API (registers: find, list, click, get_value, list_tree, list_windows)
-            tools.append("desktop_accessibility")
+            # macOS automation via Accessibility API (registers: find, list, click, get_value, list_tree, list_windows)
+            tools.append("macos_automation")
         elif sys.platform == "win32":
             # Windows automation (registers: focus_window, find, click, list_elements, list_windows, get_focused, get_value)
             tools.append("windows_automation")
@@ -164,7 +164,7 @@ class GUICubAgent(BaseAgent):
 - Automation IDs and class names are your primary selectors"""
         elif sys.platform == "darwin":
             return """**IMPORTANT: You are currently running on macOS.**
-- Use Accessibility API via `desktop_accessibility` tools
+- Use Accessibility API via `macos_automation` tools
 - Use `ui_automation` for cross-platform operations  
 - Unix/Bash commands for system operations
 - AppleScript can be used via shell commands

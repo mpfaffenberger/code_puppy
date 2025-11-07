@@ -83,9 +83,9 @@ class TestGUICubAgent:
         agent = GUICubAgent()
         tools = agent.get_available_tools()
 
-        # macOS-specific accessibility tools
-        # Note: desktop_accessibility is a representative name that registers multiple tools
-        assert "desktop_accessibility" in tools
+        # macOS-specific automation tools
+        # Note: macos_automation is a representative name that registers multiple tools
+        assert "macos_automation" in tools
 
         # Windows-specific tools should NOT be present
         assert "windows_automation" not in tools
@@ -102,7 +102,7 @@ class TestGUICubAgent:
         assert "windows_automation" in tools
 
         # macOS-specific tools should NOT be present
-        assert "desktop_accessibility" not in tools
+        assert "macos_automation" not in tools
 
     def test_verification_and_debugging_tools_available(self, agent):
         """Verify verification and debugging tools are registered."""
@@ -362,7 +362,7 @@ class TestGUICubAgent:
         tools = set(agent.get_available_tools())
 
         # Representative names for platform-specific tools
-        mac_specific = {"desktop_accessibility"}
+        mac_specific = {"macos_automation"}
         win_specific = {"windows_automation"}
 
         assert tools.isdisjoint(mac_specific), (
@@ -377,10 +377,8 @@ class TestGUICubAgent:
         """Verify complete macOS accessibility toolset is registered."""
         agent = GUICubAgent()
         tools = set(agent.get_available_tools())
-        # desktop_accessibility is a representative name for macOS tools
-        assert "desktop_accessibility" in tools, (
-            "Missing desktop_accessibility tool group"
-        )
+        # macos_automation is a representative name for macOS tools
+        assert "macos_automation" in tools, "Missing macos_automation tool group"
 
     def test_critical_prompt_tools_are_available(self, agent):
         """Verify critical tools mentioned in prompt are actually registered."""

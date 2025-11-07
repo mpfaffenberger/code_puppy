@@ -290,7 +290,7 @@ if ACCESSIBILITY_TOOLS_AVAILABLE:
     TOOL_REGISTRY.update(
         {
             # Representative name (NEW - preferred)
-            "desktop_accessibility": register_accessibility_tools,  # Registers: find, list, click, get_value, list_tree, list_windows
+            "macos_automation": register_accessibility_tools,  # Registers: find, list, click, get_value, list_tree, list_windows
             # Individual tool names (backward compatibility)
             "desktop_find_accessible_element": register_accessibility_tools,
             "desktop_list_accessible_elements": register_accessibility_tools,
