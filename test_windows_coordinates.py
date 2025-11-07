@@ -140,7 +140,7 @@ try:
     width = right - x
     height = bottom - y
     
-    print(f"   GetWindowRect returned:")
+    print("   GetWindowRect returned:")
     print(f"      Position: ({x}, {y})")
     print(f"      Size: {width}x{height}")
     print(f"      (left={x}, top={y}, right={right}, bottom={bottom})")
@@ -159,7 +159,7 @@ try:
     except:
         window_dpi = dpi_x
         window_scaling = scaling_x
-        print(f"   Using system DPI (GetDpiForWindow not available)")
+        print("   Using system DPI (GetDpiForWindow not available)")
 
 except Exception as e:
     print(f"   [X] Error: {e}")
@@ -175,8 +175,8 @@ pyautogui_size = pyautogui.size()
 print(f"   pyautogui.size(): {pyautogui_size.width}x{pyautogui_size.height}")
 
 if screen_width != pyautogui_size.width or screen_height != pyautogui_size.height:
-    print(f"   [!] MISMATCH! Win32 and pyautogui report different screen sizes!")
-    print(f"   This suggests coordinate system differences!")
+    print("   [!] MISMATCH! Win32 and pyautogui report different screen sizes!")
+    print("   This suggests coordinate system differences!")
 
 # Step 5: Capture full screen for reference
 print("\n[5] Capturing Full Screen...")
@@ -185,7 +185,7 @@ full_screen.save("windows_fullscreen.png")
 print(f"   Saved: windows_fullscreen.png ({full_screen.width}x{full_screen.height})")
 
 if full_screen.width != pyautogui_size.width or full_screen.height != pyautogui_size.height:
-    print(f"   [!] Screenshot size doesn't match pyautogui.size()!")
+    print("   [!] Screenshot size doesn't match pyautogui.size()!")
     print(f"   Screenshot: {full_screen.width}x{full_screen.height}")
     print(f"   pyautogui.size(): {pyautogui_size.width}x{pyautogui_size.height}")
 
@@ -215,7 +215,7 @@ for i in range(0, 11):
     draw.text((5, grid_y + 5), label, fill="yellow", font=font)
 
 # Draw RED box at Win32 reported coordinates
-print(f"\n[7] Drawing Window Bounds on Grid...")
+print("\n[7] Drawing Window Bounds on Grid...")
 print(f"   Drawing RED box at Win32 coords: ({x}, {y}) {width}x{height}")
 
 draw.rectangle(
@@ -231,8 +231,8 @@ win_pct_y = (y / debug_img.height) * 100
 print(f"   Window position: {win_pct_x:.1f}% horizontal, {win_pct_y:.1f}% vertical")
 
 debug_img.save("windows_debug_grid.png")
-print(f"   Saved: windows_debug_grid.png")
-print(f"   -> Check this image - is the RED box around your window?")
+print("   Saved: windows_debug_grid.png")
+print("   -> Check this image - is the RED box around your window?")
 
 # Step 8: Capture just the window
 print("\n[8] Capturing Window Region...")
@@ -292,7 +292,7 @@ if window_screenshot:
         )
         
         text = pytesseract.image_to_string(upscaled)
-        print(f"\n   OCR Result:")
+        print("\n   OCR Result:")
         print("   " + "-"*60)
         for line in text.strip().split('\n'):
             if line.strip():
@@ -300,9 +300,9 @@ if window_screenshot:
         print("   " + "-"*60)
         
         if text.strip():
-            print(f"\n   [OK] OCR found text!")
+            print("\n   [OK] OCR found text!")
         else:
-            print(f"\n   [!] OCR found no text (window might be blank or OCR failed)")
+            print("\n   [!] OCR found no text (window might be blank or OCR failed)")
     except Exception as e:
         print(f"   [X] OCR failed: {e}")
 else:
@@ -349,13 +349,13 @@ if window_screenshot:
                 screen_click_x = x + button_center_x
                 screen_click_y = y + button_center_y
                 
-                print(f"   Found 'CE' button in window screenshot:")
+                print("   Found 'CE' button in window screenshot:")
                 print(f"      Window-relative position: ({box_x}, {box_y}) size {box_w}x{box_h}")
                 print(f"      Button center (window): ({button_center_x}, {button_center_y})")
                 print(f"      Button center (screen): ({screen_click_x}, {screen_click_y})")
                 
                 # Draw the OCR-found button position on debug grid
-                print(f"   Drawing BLUE box on debug grid at OCR-found 'CE' button position...")
+                print("   Drawing BLUE box on debug grid at OCR-found 'CE' button position...")
                 
                 # Reload debug grid image to add the button marker
                 debug_with_button = Image.open("windows_debug_grid.png")
@@ -397,7 +397,7 @@ if window_screenshot:
                 )
                 
                 debug_with_button.save("windows_debug_with_click.png")
-                print(f"   Saved: windows_debug_with_click.png (BLUE = OCR-found 'CE' position)")
+                print("   Saved: windows_debug_with_click.png (BLUE = OCR-found 'CE' position)")
                 
                 # Bring Calculator to foreground
                 import win32gui
@@ -411,16 +411,16 @@ if window_screenshot:
                 print(f"\n   Clicking at screen coordinates ({screen_click_x}, {screen_click_y})...")
                 pyautogui.click(screen_click_x, screen_click_y)
                 
-                print(f"   [OK] Click executed! Check if Calculator display was cleared (CE button).")
+                print("   [OK] Click executed! Check if Calculator display was cleared (CE button).")
                 button_found = True
                 break
         
         if not button_found:
-            print(f"   [!] Could not find 'CE' button via OCR")
+            print("   [!] Could not find 'CE' button via OCR")
             print(f"   Available text elements: {[t for t in ocr_data['text'] if t.strip()]}")
             
             # Fallback: Estimate button position based on typical calculator layout
-            print(f"\n   Trying fallback: Estimating 'CE' button position based on layout...")
+            print("\n   Trying fallback: Estimating 'CE' button position based on layout...")
             
             # Windows Calculator Standard mode has buttons in lower ~60% of window
             # Button grid is roughly centered horizontally
@@ -450,7 +450,7 @@ if window_screenshot:
             print(f"   Estimated 'CE' button position (screen): ({est_screen_x}, {est_screen_y})")
             
             # Draw the estimated button position on debug grid for visualization
-            print(f"   Drawing GREEN crosshair on debug grid at estimated 'CE' button position...")
+            print("   Drawing GREEN crosshair on debug grid at estimated 'CE' button position...")
             
             # Reload debug grid image to add the button marker
             debug_with_button = Image.open("windows_debug_grid.png")
@@ -495,7 +495,7 @@ if window_screenshot:
             )
             
             debug_with_button.save("windows_debug_with_click.png")
-            print(f"   Saved: windows_debug_with_click.png (GREEN = estimated click position)")
+            print("   Saved: windows_debug_with_click.png (GREEN = estimated click position)")
             
             # Bring Calculator to foreground
             import win32gui
@@ -509,7 +509,7 @@ if window_screenshot:
             print(f"\n   Clicking at screen coordinates ({est_screen_x}, {est_screen_y})...")
             pyautogui.click(est_screen_x, est_screen_y)
             
-            print(f"   [OK] Click executed! Check if Calculator display was cleared (CE button).")
+            print("   [OK] Click executed! Check if Calculator display was cleared (CE button).")
             button_found = True
             
     except Exception as e:

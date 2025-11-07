@@ -36,17 +36,17 @@ if not provider.is_available():
 print("\nRunning OCR...")
 result = provider.extract_text(image, language="en")
 
-print(f"\nResults:")
+print("\nResults:")
 print(f"  Success: {result.success}")
 print(f"  Provider: {result.provider}")
 print(f"  Words found: {len(result.words)}")
 print(f"  Error: {result.error}")
-print(f"\nFull text:")
+print("\nFull text:")
 print("="*60)
 print(result.full_text)
 print("="*60)
 
 if result.words:
-    print(f"\nFirst 10 words:")
+    print("\nFirst 10 words:")
     for i, word in enumerate(result.words[:10]):
         print(f"  {i+1}. '{word.text}' (confidence: {word.confidence:.2f})")

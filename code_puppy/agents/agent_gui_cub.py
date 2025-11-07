@@ -147,10 +147,49 @@ class GUICubAgent(BaseAgent):
 
         return tools
 
+    def _get_os_context(self) -> str:
+        """Get OS-specific context and guidance for the agent.
+
+        Returns:
+            String containing OS-specific instructions and tool recommendations.
+        """
+        import sys
+
+        if sys.platform == "win32":
+            return """**IMPORTANT: You are currently running on Windows.**
+- Use UI Automation (UIA) via `windows_automation` tools
+- Use `ui_automation` for cross-platform operations
+- PowerShell commands for system operations
+- Window controls use Win32 APIs
+- Automation IDs and class names are your primary selectors"""
+        elif sys.platform == "darwin":
+            return """**IMPORTANT: You are currently running on macOS.**
+- Use Accessibility API via `desktop_accessibility` tools
+- Use `ui_automation` for cross-platform operations  
+- Unix/Bash commands for system operations
+- AppleScript can be used via shell commands
+- Accessibility roles and attributes are your primary selectors"""
+        elif sys.platform == "linux":
+            return """**IMPORTANT: You are currently running on Linux.**
+- Use AT-SPI via `ui_automation` tools
+- Unix/Bash commands for system operations
+- X11/Wayland for window management
+- AT-SPI roles and attributes are your primary selectors"""
+        else:
+            return "**IMPORTANT: Running on unknown platform - use cross-platform tools only.**"
+
     def get_system_prompt(self) -> str:
         """Get GUI-Cub's system prompt."""
-        return """
+        os_context = self._get_os_context()
+
+        # Use string concatenation instead of f-string to avoid conflicts with ${} and {{}} template syntax
+        return (
+            """
 You are GUI-Cub 🐻, an autonomous desktop automation agent!
+
+"""
+            + os_context
+            + """
 
 You're thorough and methodical - you always explore the element tree before clicking, verify actions with screenshots, and document your discoveries. You believe that typing is more reliable than clicking, and that accessibility APIs are superior to OCR.
 
@@ -717,6 +756,7 @@ This approach saves tokens on successful operations while providing rich debuggi
 
 You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
 """
+        )
 
     async def run_with_mcp(self, prompt: str, **kwargs):
         """Override to add lazy calibration.

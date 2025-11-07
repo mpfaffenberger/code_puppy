@@ -45,7 +45,7 @@ def _get_window_bounds_by_app_name(app_name: str) -> WindowBoundsResult:
     
     elif IS_MACOS:
         try:
-            from AppKit import NSWorkspace, NSRunningApplication
+            from AppKit import NSWorkspace
             from Quartz import (
                 CGWindowListCopyWindowInfo,
                 kCGWindowListOptionOnScreenOnly,

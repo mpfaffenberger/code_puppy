@@ -308,7 +308,6 @@ def capture_screen(
 
             # DEBUG: Copy to CWD if debug mode enabled
             from .config_manager import get_debug_screenshots_enabled
-            import os
             
             if get_debug_screenshots_enabled():
                 cwd_path = Path.cwd() / screenshot_path.name
