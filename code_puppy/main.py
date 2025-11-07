@@ -1,8 +1,27 @@
+import sys
+
+# Fix Unicode encoding on Windows terminals before any other imports
+# This prevents UnicodeEncodeError when printing emojis on Windows
+if sys.platform == "win32":
+    try:
+        # Reconfigure stdout and stderr to use UTF-8 encoding
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        if hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        # If reconfigure fails, wrap streams with UTF-8 encoding
+        import io
+        try:
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+        except Exception:
+            pass  # Last resort: continue with default encoding
+
 import argparse
 import asyncio
 import os
 import subprocess
-import sys
 import time
 import traceback
 import webbrowser
