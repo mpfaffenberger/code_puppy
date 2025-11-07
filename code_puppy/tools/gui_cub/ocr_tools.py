@@ -1,4 +1,13 @@
-"""OCR (Optical Character Recognition) tools for desktop automation."""
+"""OCR (Optical Character Recognition) tools for desktop automation.
+
+This module provides OCR functionality using native platform APIs first (WinRT on Windows,
+Vision Framework on macOS) with Tesseract as a fallback.
+
+Provider priority:
+- Windows: WinRT OCR → Tesseract fallback
+- macOS: Vision Framework → Tesseract fallback
+- Linux: Tesseract only
+"""
 
 from __future__ import annotations
 
@@ -23,6 +32,9 @@ except ImportError:
     TESSERACT_AVAILABLE = False
     pytesseract = None
     Output = None
+
+# Import OCR provider system
+from .ocr_providers import get_ocr_provider
 
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
@@ -249,11 +261,14 @@ def extract_text_from_image(
     region_offset: tuple[int, int] | None = None,
 ) -> OCRExtractResult:
     """
-    Extract text from a PIL Image using Tesseract OCR only.
+    Extract text from a PIL Image using OCR provider chain.
+
+    Uses native platform OCR first (WinRT on Windows, Vision on macOS) with
+    Tesseract as fallback.
 
     Args:
         image: PIL Image to extract text from
-        language: Tesseract language code (e.g., "eng", "spa", "fra")
+        language: Language code (e.g., "eng", "spa", "fra")
         scale_factor: HiDPI/Retina scaling factor to convert physical screenshot
                      coordinates to logical screen coordinates (default: 1.0)
         region_offset: Optional (x, y) offset if screenshot was captured from a specific
@@ -264,11 +279,64 @@ def extract_text_from_image(
         OCRExtractResult with full text and individual text elements
         (coordinates are converted to screen/logical space if scale_factor != 1.0)
     """
-    return _extract_text_from_image_tesseract(
-        image=image,
+    # Use provider chain (WinRT/Vision → Tesseract fallback)
+    ocr_chain = get_ocr_provider()
+
+    # Convert language code to ISO 639-1 format ("eng" → "en")
+    lang_code = language[:2] if len(language) > 2 else language
+
+    provider_result = ocr_chain.extract_text(image, language=lang_code)
+
+    if not provider_result.success:
+        return OCRExtractResult(
+            success=False,
+            error=provider_result.error or "OCR failed",
+        )
+
+    # Convert provider OCRWords to TextBoundingBox format
+    text_elements = []
+    for word in provider_result.words:
+        # OCR returns coordinates in screenshot space (physical pixels)
+        # Convert to logical screen coordinates
+        x_screen = int(word.bbox[0] / scale_factor)
+        y_screen = int(word.bbox[1] / scale_factor)
+        width_screen = int(word.bbox[2] / scale_factor)
+        height_screen = int(word.bbox[3] / scale_factor)
+
+        # Add region offset (also convert from physical to logical)
+        if region_offset:
+            region_x_logical = int(region_offset[0] / scale_factor)
+            region_y_logical = int(region_offset[1] / scale_factor)
+            x_screen += region_x_logical
+            y_screen += region_y_logical
+
+        text_elem = TextBoundingBox(
+            text=word.text,
+            confidence=word.confidence,
+            x=x_screen,
+            y=y_screen,
+            width=width_screen,
+            height=height_screen,
+            center_x=x_screen + width_screen // 2,
+            center_y=y_screen + height_screen // 2,
+        )
+        text_elements.append(text_elem)
+
+    # Calculate average confidence
+    avg_confidence = (
+        sum(elem.confidence for elem in text_elements) / len(text_elements)
+        if text_elements
+        else 0.0
+    )
+
+    return OCRExtractResult(
+        success=True,
+        found_count=len(text_elements),
+        full_text=provider_result.full_text,
+        text_elements=text_elements,
+        total_words=len(text_elements),
+        average_confidence=avg_confidence,
         language=language,
-        scale_factor=scale_factor,
-        region_offset=region_offset,
     )
 
 
@@ -500,7 +568,10 @@ def find_text_in_elements(
 
 
 def _check_ocr_capability() -> tuple[bool, str]:
-    """Check if OCR/Tesseract is available.
+    """Check if any OCR provider is available.
+
+    With native OCR providers (WinRT, Vision Framework), Tesseract is now
+    optional. This check verifies that at least one OCR provider is available.
 
     Returns:
         Tuple of (is_available, error_message)
@@ -511,23 +582,19 @@ def _check_ocr_capability() -> tuple[bool, str]:
     if not config:
         return False, "Platform not calibrated. Run gui_cub_calibrate() first."
 
-    # Check if pytesseract is available
-    capabilities = config.get("capabilities", {})
-    if not capabilities.get("pytesseract", False):
-        missing = config.get("missing_capabilities", {}).get("pytesseract", {})
+    # Check if any OCR provider is available (native or Tesseract)
+    ocr_chain = get_ocr_provider()
+    available_providers = ocr_chain.get_available_providers()
 
-        if missing:
-            message = f"\u26a0\ufe0f {missing.get('message', 'Tesseract OCR not available')}\n"
-            message += (
-                f"Affected features: {', '.join(missing.get('affects', ['OCR']))}\n"
-            )
-            message += (
-                f"Solution: {missing.get('solution', 'Install Tesseract manually')}"
-            )
-        else:
-            message = "⚠️ Tesseract OCR not available. OCR/text recognition features won't work."
+    if not available_providers:
+        # No OCR providers available at all
+        return False, (
+            "No OCR providers available. "
+            "Install Tesseract or use Windows 10+/macOS 10.15+"
+        )
 
-        return False, message
+    # At least one provider available (native or Tesseract)
+    return True, ""
 
     return True, ""
 
@@ -587,11 +654,8 @@ def register_ocr_tools(agent):
                 error=f"{ERROR_PYAUTOGUI_MISSING} and {ERROR_PILLOW_MISSING}",
             )
 
-        if not TESSERACT_AVAILABLE:
-            return OCRExtractResult(
-                success=False,
-                error=ERROR_TESSERACT_MISSING,
-            )
+        # Note: Tesseract check removed - now optional fallback
+        # Native OCR (WinRT/Vision) used first, Tesseract as fallback
 
         # Determine region to capture
         region = None
@@ -619,7 +683,9 @@ def register_ocr_tools(agent):
                     bounds_result.width,
                     bounds_result.height,
                 )
-                region_description = f"active window ({bounds_result.window_title or 'unknown'})"
+                region_description = (
+                    f"active window ({bounds_result.window_title or 'unknown'})"
+                )
             else:
                 # Fallback to full screen if active window detection fails
                 region = None
@@ -677,7 +743,7 @@ def register_ocr_tools(agent):
             from .config_manager import get_debug_screenshots_enabled
             from datetime import datetime
             from pathlib import Path
-            
+
             if get_debug_screenshots_enabled():
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 debug_filename = f"ocr_screenshot_{timestamp}.png"
@@ -1044,7 +1110,9 @@ def register_ocr_tools(agent):
         try:
             # Detect HiDPI/Retina scaling factor
             from .platform import get_screen_scale_factor
-            from PIL import ImageFont  # Import at function level to avoid scoping issues
+            from PIL import (
+                ImageFont,
+            )  # Import at function level to avoid scoping issues
 
             scale_factor = get_screen_scale_factor()
 
@@ -1194,7 +1262,7 @@ def register_ocr_tools(agent):
 
             # DEBUG: Copy to CWD if debug mode enabled
             from .config_manager import get_debug_screenshots_enabled
-            
+
             if get_debug_screenshots_enabled():
                 cwd_path = Path.cwd() / filename
                 screenshot.save(cwd_path)
@@ -1323,8 +1391,7 @@ def register_ocr_tools(agent):
             return find_result
 
         high_conf_matches = [
-            match for match in find_result.matches
-            if match.confidence >= min_confidence
+            match for match in find_result.matches if match.confidence >= min_confidence
         ]
 
         if not high_conf_matches:
@@ -1362,7 +1429,9 @@ def register_ocr_tools(agent):
         )
 
     @agent.tool
-    def desktop_toggle_debug_screenshots(context: RunContext, enabled: bool) -> BaseAutomationResult:
+    def desktop_toggle_debug_screenshots(
+        context: RunContext, enabled: bool
+    ) -> BaseAutomationResult:
         """Toggle debug screenshot copying to current working directory.
 
         When enabled, all screenshots captured will be copied to the current

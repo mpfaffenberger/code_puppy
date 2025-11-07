@@ -1403,3 +1403,134 @@ async def run_calibration() -> Dict[str, Any]:
         "calibrated": True,
         "path": str(get_config_path()),
     }
+
+
+# =============================================================================
+# Tesseract Helper Functions for Quiet Startup and Interactive Installation
+# =============================================================================
+
+
+def check_tesseract_availability(quiet: bool = False) -> dict[str, Any]:
+    """Check if Tesseract is available.
+
+    Args:
+        quiet: If True, suppress warnings (for startup check)
+
+    Returns:
+        dict with 'available', 'version', 'path'
+    """
+    try:
+        import pytesseract
+
+        version = pytesseract.get_tesseract_version()
+        path = pytesseract.pytesseract.tesseract_cmd
+
+        return {
+            "available": True,
+            "version": str(version),
+            "path": path,
+        }
+    except Exception:
+        if quiet:
+            # Just log info, don't show big warning
+            emit_info(
+                "ℹ️  Tesseract OCR not installed (optional fallback for native OCR)",
+                message_group="startup_check",
+            )
+        else:
+            # Show warning with installation options
+            emit_warning(
+                "Tesseract not available. Native OCR (WinRT/Vision) will be used if available.",
+                message_group="ocr_check",
+            )
+
+        return {
+            "available": False,
+            "version": None,
+            "path": None,
+        }
+
+
+def show_tesseract_install_instructions() -> None:
+    """Print platform-specific Tesseract installation instructions."""
+    from rich.console import Console
+
+    console = Console()
+    console.print("\n[bold]Tesseract OCR Installation Instructions[/bold]\n")
+
+    if sys.platform == "win32":
+        console.print("[cyan]Windows:[/cyan]")
+        console.print("  • Using Chocolatey: [green]choco install tesseract[/green]")
+        console.print(
+            "  • Using winget: [green]winget install UB-Mannheim.TesseractOCR[/green]"
+        )
+        console.print(
+            "  • Manual download: https://github.com/UB-Mannheim/tesseract/wiki"
+        )
+        console.print(
+            "  • GUI-Cub can install portable version: [green]/calibrate[/green]"
+        )
+    elif sys.platform == "darwin":
+        console.print("[cyan]macOS:[/cyan]")
+        console.print("  • Using Homebrew: [green]brew install tesseract[/green]")
+        console.print("  • Using MacPorts: [green]sudo port install tesseract[/green]")
+    else:  # Linux
+        console.print("[cyan]Linux:[/cyan]")
+        console.print(
+            "  • Ubuntu/Debian: [green]sudo apt-get install tesseract-ocr[/green]"
+        )
+        console.print("  • Fedora: [green]sudo dnf install tesseract[/green]")
+        console.print("  • Arch: [green]sudo pacman -S tesseract[/green]")
+
+    console.print("\n[dim]After installation, restart GUI-Cub.[/dim]\n")
+
+
+def offer_tesseract_installation(group_id: str) -> bool:
+    """Offer to install Tesseract when OCR fallback is needed.
+
+    Returns:
+        True if installation succeeded, False otherwise
+    """
+    from rich.console import Console
+    from rich.prompt import Prompt
+
+    console = Console()
+
+    console.print(
+        "[yellow]⚠️  Native OCR failed, Tesseract fallback needed but not installed.[/yellow]"
+    )
+    console.print()
+    console.print("Options:")
+    console.print("  1. Install Tesseract now (may require admin privileges)")
+    console.print("  2. Show manual installation instructions")
+    console.print("  3. Skip OCR operation")
+    console.print()
+
+    choice = Prompt.ask(
+        "Choose",
+        choices=["1", "2", "3"],
+        default="3",
+    )
+
+    if choice == "1":
+        # Attempt installation
+        if sys.platform == "win32":
+            success, _, _ = _attempt_install_tesseract_windows()
+            return success
+        else:
+            console.print(
+                "[yellow]Automatic installation only supported on Windows.[/yellow]"
+            )
+            console.print(
+                "[yellow]Please install manually using instructions below.[/yellow]"
+            )
+            show_tesseract_install_instructions()
+            return False
+    elif choice == "2":
+        # Show installation instructions
+        show_tesseract_install_instructions()
+        return False
+    else:
+        # Skip
+        emit_info("Skipping OCR operation", message_group=group_id)
+        return False
