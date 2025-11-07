@@ -153,7 +153,9 @@ def _vqa_hover_and_click_impl(
         media_type="image/png",
     )
 
-    if not vqa_result.found:
+    # Check if VQA found the element (by checking if answer contains "not found")
+    answer_lower = vqa_result.answer.lower()
+    if "not found" in answer_lower or "cannot find" in answer_lower:
         emit_warning(
             f"[yellow]❌ VQA could not find element[/yellow]\n"
             f"[dim]   Response: {vqa_result.answer}[/dim]",

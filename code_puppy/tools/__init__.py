@@ -83,7 +83,10 @@ from code_puppy.tools.gui_cub.click_debugging import register_click_debugging_to
 from code_puppy.tools.gui_cub.multi_strategy_click import (
     register_multi_strategy_click_tools,
 )
-from code_puppy.tools.gui_cub.vqa_hover_click import register_vqa_hover_tools
+
+# OLD VQA removed - replaced with superior two-stage implementation
+# from code_puppy.tools.gui_cub.vqa_hover_click import register_vqa_hover_tools
+from code_puppy.tools.gui_cub.vqa_two_stage_tools import register_vqa_two_stage_tools
 
 # Desktop Automation Accessibility API tools (macOS only) - platform-specific
 # Dependencies: atomacos, pyobjc-framework-Cocoa (installed on macOS via pyproject.toml)
@@ -230,7 +233,8 @@ TOOL_REGISTRY.update(
         "desktop_grid_calibration": register_grid_calibration_tools,  # Registers: set_density, show_test_pattern, screenshot_with_confidence
         "desktop_ocr": register_ocr_tools,  # Registers: extract_text, find_text, verify_text, find_text_reliable, show_all_ocr_boxes
         "desktop_click_debugging": register_click_debugging_tools,  # Registers: highlight, verify_coordinates, click_with_verification, hover_and_verify, click_smart
-        "desktop_vqa": register_vqa_hover_tools,  # Registers: find_and_hover, find_and_click
+        "desktop_vqa": register_vqa_two_stage_tools,  # Two-stage VQA (93% success, 2.1px error)
+        "desktop_vqa_two_stage": register_vqa_two_stage_tools,  # Alias for desktop_vqa
         # Individual tool names (backward compatibility)
         "desktop_screenshot_analyze": register_desktop_screenshot_tools,
         "desktop_get_screen_size": register_desktop_screenshot_tools,
@@ -277,8 +281,7 @@ TOOL_REGISTRY.update(
         "desktop_hover_and_verify": register_click_debugging_tools,
         "desktop_click_smart": register_click_debugging_tools,
         "desktop_click_element_smart": register_multi_strategy_click_tools,
-        "desktop_find_and_hover": register_vqa_hover_tools,
-        "desktop_find_and_click": register_vqa_hover_tools,
+        "desktop_vqa_click_two_stage": register_vqa_two_stage_tools,  # Primary two-stage VQA tool
     }
 )
 

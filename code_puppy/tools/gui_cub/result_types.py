@@ -161,11 +161,17 @@ class ElementClickResult(BaseAutomationResult):
     """Result from element click operation."""
 
     clicked: bool = False
-    method: Literal["ax_press", "mouse_click", "native_click"] | None = None
+    element_found: bool = False  # For VQA - whether element was detected
+    method: Literal["ax_press", "mouse_click", "native_click", "vqa_click"] | None = (
+        None
+    )
     element: str | None = None
     role: str | None = None
-    x: int | None = None
-    y: int | None = None
+    click_x: int | None = None  # For VQA - clicked coordinates
+    click_y: int | None = None  # For VQA - clicked coordinates
+    x: int | None = None  # Alias for click_x (backward compat)
+    y: int | None = None  # Alias for click_y (backward compat)
+    confidence: float | None = None  # For VQA - detection confidence
 
 
 class ElementListResult(BaseAutomationResult):
