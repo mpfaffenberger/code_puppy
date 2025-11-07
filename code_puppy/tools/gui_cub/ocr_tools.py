@@ -608,51 +608,19 @@ def register_ocr_tools(agent):
             region_description = "full screen"
         elif use_active_window:
             # Use active window (default behavior)
-            try:
-                from .platform import IS_MACOS, IS_WINDOWS
+            # BUGFIX: Use the centralized window bounds helper that correctly handles HiDPI/Retina scaling
+            from .window_control import _get_active_window_bounds_impl
 
-                if IS_MACOS:
-                    from AppKit import NSWorkspace
-                    from Quartz import (
-                        CGWindowListCopyWindowInfo,
-                        kCGWindowListOptionOnScreenOnly,
-                        kCGNullWindowID,
-                    )
-
-                    workspace = NSWorkspace.sharedWorkspace()
-                    app = workspace.frontmostApplication()
-                    app_name = app.localizedName()
-                    pid = app.processIdentifier()
-
-                    window_list = CGWindowListCopyWindowInfo(
-                        kCGWindowListOptionOnScreenOnly, kCGNullWindowID
-                    )
-
-                    for window in window_list:
-                        if window.get("kCGWindowOwnerPID") == pid:
-                            bounds = window.get("kCGWindowBounds")
-                            if bounds:
-                                region = (
-                                    int(bounds["X"]),
-                                    int(bounds["Y"]),
-                                    int(bounds["Width"]),
-                                    int(bounds["Height"]),
-                                )
-                                region_description = f"active window ({app_name})"
-                                break
-
-                elif IS_WINDOWS:
-                    import win32gui
-
-                    hwnd = win32gui.GetForegroundWindow()
-                    if hwnd:
-                        rect = win32gui.GetWindowRect(hwnd)
-                        x_win, y_win, right, bottom = rect
-                        region = (x_win, y_win, right - x_win, bottom - y_win)
-                        window_title = win32gui.GetWindowText(hwnd)
-                        region_description = f"active window ({window_title})"
-
-            except Exception:
+            bounds_result = _get_active_window_bounds_impl()
+            if bounds_result.success and bounds_result.x is not None:
+                region = (
+                    bounds_result.x,
+                    bounds_result.y,
+                    bounds_result.width,
+                    bounds_result.height,
+                )
+                region_description = f"active window ({bounds_result.window_title or 'unknown'})"
+            else:
                 # Fallback to full screen if active window detection fails
                 region = None
                 region_description = "full screen (window detection failed)"
@@ -1066,49 +1034,17 @@ def register_ocr_tools(agent):
             elif use_full_screen:
                 region = None
             elif use_active_window:
-                # Use same region logic as extract_text
-                try:
-                    from .platform import IS_MACOS, IS_WINDOWS
+                # BUGFIX: Use the centralized window bounds helper that correctly handles HiDPI/Retina scaling
+                from .window_control import _get_active_window_bounds_impl
 
-                    if IS_MACOS:
-                        from AppKit import NSWorkspace
-                        from Quartz import (
-                            CGWindowListCopyWindowInfo,
-                            kCGWindowListOptionOnScreenOnly,
-                            kCGNullWindowID,
-                        )
-
-                        workspace = NSWorkspace.sharedWorkspace()
-                        app = workspace.frontmostApplication()
-                        pid = app.processIdentifier()
-
-                        window_list = CGWindowListCopyWindowInfo(
-                            kCGWindowListOptionOnScreenOnly, kCGNullWindowID
-                        )
-
-                        for window in window_list:
-                            if window.get("kCGWindowOwnerPID") == pid:
-                                bounds = window.get("kCGWindowBounds")
-                                if bounds:
-                                    region = (
-                                        int(bounds["X"]),
-                                        int(bounds["Y"]),
-                                        int(bounds["Width"]),
-                                        int(bounds["Height"]),
-                                    )
-                                    break
-
-                    elif IS_WINDOWS:
-                        import win32gui
-
-                        hwnd = win32gui.GetForegroundWindow()
-                        if hwnd:
-                            rect = win32gui.GetWindowRect(hwnd)
-                            x_win, y_win, right, bottom = rect
-                            region = (x_win, y_win, right - x_win, bottom - y_win)
-
-                except Exception:
-                    region = None
+                bounds_result = _get_active_window_bounds_impl()
+                if bounds_result.success and bounds_result.x is not None:
+                    region = (
+                        bounds_result.x,
+                        bounds_result.y,
+                        bounds_result.width,
+                        bounds_result.height,
+                    )
 
             screenshot = pyautogui.screenshot(region=region)
             draw = ImageDraw.Draw(screenshot, "RGBA")
