@@ -21,6 +21,39 @@ IS_WINDOWS = sys.platform == "win32"
 IS_LINUX = sys.platform == "linux"
 CURRENT_PLATFORM = sys.platform
 
+# Windows DPI awareness initialization
+if IS_WINDOWS:
+    import ctypes
+    
+    # Set DPI awareness at module import time (before any GUI operations)
+    # This ensures GetWindowRect and pyautogui.screenshot() use the same coordinate system.
+    try:
+        user32 = ctypes.windll.user32
+        shcore = ctypes.windll.shcore
+        
+        # Try Per-Monitor-V2 (Windows 10 1703+)
+        # This makes GetWindowRect return physical pixels
+        try:
+            # -4 == DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+            user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+            _WINDOWS_DPI_MODE = "Per-Monitor-V2"
+        except Exception:
+            try:
+                # 2 == PROCESS_PER_MONITOR_DPI_AWARE
+                shcore.SetProcessDpiAwareness(2)
+                _WINDOWS_DPI_MODE = "Per-Monitor"
+            except Exception:
+                try:
+                    # Legacy fallback: system DPI aware
+                    user32.SetProcessDPIAware()
+                    _WINDOWS_DPI_MODE = "System-Aware"
+                except Exception:
+                    _WINDOWS_DPI_MODE = "Unaware"
+    except Exception:
+        _WINDOWS_DPI_MODE = "Failed"
+else:
+    _WINDOWS_DPI_MODE = None
+
 
 def get_platform() -> Platform | None:
     """Get current platform as enum.
@@ -32,6 +65,20 @@ def get_platform() -> Platform | None:
         if sys.platform == platform.value:
             return platform
     return None
+
+
+def get_windows_dpi_mode() -> str | None:
+    """Get Windows DPI awareness mode.
+    
+    Returns:
+        DPI mode string or None if not Windows:
+        - "Per-Monitor-V2": Best mode, GetWindowRect returns physical pixels
+        - "Per-Monitor": Good mode, per-monitor aware
+        - "System-Aware": Legacy mode, may have issues on multi-monitor
+        - "Unaware": DPI virtualization active, coordinate mismatches likely
+        - "Failed": Could not set DPI awareness
+    """
+    return _WINDOWS_DPI_MODE if IS_WINDOWS else None
 
 
 def require_platform(*platforms: Platform) -> Callable:

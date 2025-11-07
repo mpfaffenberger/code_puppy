@@ -650,10 +650,20 @@ def register_ocr_tools(agent):
                     message_group=group_id,
                 )
 
-            # Log region offset information (CRITICAL FIX)
+            # Log region offset information and convert to physical pixels
             if region:
+                # Convert logical coordinates to physical pixels for pyautogui
+                # pyautogui.screenshot() expects physical pixels on Retina displays
+                region_logical = region
+                region = (
+                    int(region[0] * scale_factor),
+                    int(region[1] * scale_factor),
+                    int(region[2] * scale_factor),
+                    int(region[3] * scale_factor),
+                )
                 emit_info(
-                    f"[cyan]📍 Region offset applied: ({region[0]}, {region[1]}) - OCR coords converted to screen space[/cyan]",
+                    f"[cyan]📍 Region (logical): {region_logical}[/cyan]\n"
+                    f"[cyan]📍 Region (physical): {region} - for screenshot capture[/cyan]",
                     message_group=group_id,
                 )
 
@@ -662,6 +672,21 @@ def register_ocr_tools(agent):
                 screenshot = pyautogui.screenshot(region=region)
             else:
                 screenshot = pyautogui.screenshot()
+
+            # DEBUG: Save screenshot to CWD if debug mode enabled
+            from .config_manager import get_debug_screenshots_enabled
+            from datetime import datetime
+            from pathlib import Path
+            
+            if get_debug_screenshots_enabled():
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                debug_filename = f"ocr_screenshot_{timestamp}.png"
+                cwd_path = Path.cwd() / debug_filename
+                screenshot.save(cwd_path)
+                emit_info(
+                    f"[yellow]🐛 DEBUG: OCR screenshot saved to CWD: {cwd_path}[/yellow]",
+                    message_group=group_id,
+                )
 
             # Extract text with scaling correction and region offset
             # Pass region offset (x, y) so coordinates are converted to screen space
@@ -1019,6 +1044,7 @@ def register_ocr_tools(agent):
         try:
             # Detect HiDPI/Retina scaling factor
             from .platform import get_screen_scale_factor
+            from PIL import ImageFont  # Import at function level to avoid scoping issues
 
             scale_factor = get_screen_scale_factor()
 
@@ -1036,14 +1062,17 @@ def register_ocr_tools(agent):
             elif use_active_window:
                 # BUGFIX: Use the centralized window bounds helper that correctly handles HiDPI/Retina scaling
                 from .window_control import _get_active_window_bounds_impl
+                from .platform import get_screen_scale_factor
 
                 bounds_result = _get_active_window_bounds_impl()
                 if bounds_result.success and bounds_result.x is not None:
+                    # Convert logical coordinates to physical pixels for pyautogui
+                    scale_factor = get_screen_scale_factor()
                     region = (
-                        bounds_result.x,
-                        bounds_result.y,
-                        bounds_result.width,
-                        bounds_result.height,
+                        int(bounds_result.x * scale_factor),
+                        int(bounds_result.y * scale_factor),
+                        int(bounds_result.width * scale_factor),
+                        int(bounds_result.height * scale_factor),
                     )
 
             screenshot = pyautogui.screenshot(region=region)
@@ -1104,9 +1133,7 @@ def register_ocr_tools(agent):
                 else:
                     label = elem.text[:20]
 
-                # Try to load font
-                from PIL import ImageFont
-
+                # Try to load font (ImageFont imported at function level)
                 try:
                     font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 12)
                 except Exception:
@@ -1164,6 +1191,17 @@ def register_ocr_tools(agent):
             save_path = Path(gettempdir()) / "code_puppy_rpa_debug" / filename
             save_path.parent.mkdir(parents=True, exist_ok=True)
             screenshot.save(save_path)
+
+            # DEBUG: Copy to CWD if debug mode enabled
+            from .config_manager import get_debug_screenshots_enabled
+            
+            if get_debug_screenshots_enabled():
+                cwd_path = Path.cwd() / filename
+                screenshot.save(cwd_path)
+                emit_info(
+                    f"[yellow]🐛 DEBUG: OCR debug visualization copied to CWD: {cwd_path}[/yellow]",
+                    message_group=group_id,
+                )
 
             emit_info(
                 f"[green]✅ OCR debug visualization saved: {save_path}[/green]",
@@ -1275,3 +1313,82 @@ def register_ocr_tools(agent):
 
         if not find_result.success:
             return find_result
+
+        # Filter matches by confidence
+        if not find_result.found or not find_result.matches:
+            emit_warning(
+                f"[yellow]No matches found for '{search_text}'[/yellow]",
+                message_group=group_id,
+            )
+            return find_result
+
+        high_conf_matches = [
+            match for match in find_result.matches
+            if match.confidence >= min_confidence
+        ]
+
+        if not high_conf_matches:
+            emit_warning(
+                f"[yellow]Found {len(find_result.matches)} match(es) but none met minimum confidence {min_confidence:.2f}[/yellow]",
+                message_group=group_id,
+            )
+            return OCRFindResult(
+                success=True,
+                search_text=search_text,
+                found=False,
+                total_matches=0,
+                best_match=None,
+                matches=[],
+            )
+
+        # Return filtered results
+        best_match = max(high_conf_matches, key=lambda m: m.confidence)
+        emit_info(
+            f"[green]✅ Found {len(high_conf_matches)} high-confidence match(es)[/green]",
+            message_group=group_id,
+        )
+        emit_info(
+            f"[cyan]Best match: '{best_match.text}' (conf: {best_match.confidence:.2%})[/cyan]",
+            message_group=group_id,
+        )
+
+        return OCRFindResult(
+            success=True,
+            search_text=search_text,
+            found=True,
+            total_matches=len(high_conf_matches),
+            best_match=best_match,
+            matches=high_conf_matches,
+        )
+
+    @agent.tool
+    def desktop_toggle_debug_screenshots(context: RunContext, enabled: bool) -> BaseAutomationResult:
+        """Toggle debug screenshot copying to current working directory.
+
+        When enabled, all screenshots captured will be copied to the current
+        working directory in addition to their normal temporary location.
+        This is useful for debugging OCR/VQA issues.
+
+        Args:
+            enabled: True to enable debug copying, False to disable
+
+        Returns:
+            BaseAutomationResult indicating success
+
+        Examples:
+            # Enable debug mode
+            result = desktop_toggle_debug_screenshots(enabled=True)
+            # Now all screenshots will be copied to CWD
+
+            # Disable debug mode
+            result = desktop_toggle_debug_screenshots(enabled=False)
+        """
+        from .config_manager import set_debug_screenshots_enabled
+
+        set_debug_screenshots_enabled(enabled)
+        status = "enabled" if enabled else "disabled"
+
+        return BaseAutomationResult(
+            success=True,
+            message=f"Debug screenshot copying {status}",
+        )

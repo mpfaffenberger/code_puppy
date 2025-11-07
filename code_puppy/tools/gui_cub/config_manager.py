@@ -100,6 +100,41 @@ def get_vqa_model_name() -> str:
     return _default_vqa_model_from_models_json()
 
 
+def get_debug_screenshots_enabled() -> bool:
+    """Check if debug screenshot copying to CWD is enabled.
+
+    Returns:
+        True if debug screenshots should be copied to current working directory
+    """
+    config = load_config()
+    if config:
+        return config.get("debug", {}).get("copy_screenshots_to_cwd", False)
+    return False
+
+
+def set_debug_screenshots_enabled(enabled: bool):
+    """Enable or disable debug screenshot copying to CWD.
+
+    Args:
+        enabled: Whether to copy screenshots to current working directory
+    """
+    config = load_config() or {}
+
+    if "debug" not in config:
+        config["debug"] = {}
+
+    config["debug"]["copy_screenshots_to_cwd"] = enabled
+    
+    # Initialize metadata if not present
+    if "metadata" not in config:
+        config["metadata"] = {}
+    
+    save_config(config)
+    
+    status = "enabled" if enabled else "disabled"
+    emit_info(f"[green]✓ Debug screenshot copying {status}[/green]")
+
+
 def set_vqa_model_name(model: str):
     """Set the VQA model name in GUI-Cub config.
 

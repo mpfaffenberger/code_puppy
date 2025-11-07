@@ -253,14 +253,21 @@ def capture_screen(
         # Log screenshot capture details
         if region:
             x, y, w, h = region
+            # Convert logical coordinates to physical pixels for pyautogui
+            # pyautogui.screenshot() expects physical pixels on Retina displays
+            phys_x = int(x * scale_factor)
+            phys_y = int(y * scale_factor)
+            phys_w = int(w * scale_factor)
+            phys_h = int(h * scale_factor)
+            
             emit_info(
                 f"[cyan]📸 CAPTURING SCREENSHOT[/cyan]\n"
                 f"[dim]   Mode: Region capture[/dim]\n"
                 f"[dim]   Region (logical): ({x}, {y}) size {w}x{h}[/dim]\n"
-                f"[dim]   Region (physical): ({x * scale_factor:.0f}, {y * scale_factor:.0f}) size {w * scale_factor:.0f}x{h * scale_factor:.0f}[/dim]\n"
+                f"[dim]   Region (physical): ({phys_x}, {phys_y}) size {phys_w}x{phys_h}[/dim]\n"
                 f"[dim]   Grid overlay: {'Yes' if add_grid else 'No'}[/dim]"
             )
-            screenshot = pyautogui.screenshot(region=region)
+            screenshot = pyautogui.screenshot(region=(phys_x, phys_y, phys_w, phys_h))
         else:
             emit_info(
                 f"[cyan]📸 CAPTURING SCREENSHOT[/cyan]\n"
@@ -298,6 +305,17 @@ def capture_screen(
             screenshot_path.parent.mkdir(parents=True, exist_ok=True)
             screenshot.save(screenshot_path)
             result.screenshot_path = str(screenshot_path)
+
+            # DEBUG: Copy to CWD if debug mode enabled
+            from .config_manager import get_debug_screenshots_enabled
+            import os
+            
+            if get_debug_screenshots_enabled():
+                cwd_path = Path.cwd() / screenshot_path.name
+                screenshot.save(cwd_path)
+                emit_info(
+                    f"[yellow]🐛 DEBUG: Screenshot copied to CWD: {cwd_path}[/yellow]"
+                )
 
             emit_info(
                 f"[green]✅ SCREENSHOT CAPTURED[/green]\n"

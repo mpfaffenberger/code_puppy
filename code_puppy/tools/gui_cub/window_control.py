@@ -26,6 +26,115 @@ from .result_types import (
 from .tool_wrapper import desktop_tool
 
 
+def _get_window_bounds_by_app_name(app_name: str) -> WindowBoundsResult:
+    """
+    Get window bounds for a specific application by name.
+    
+    Args:
+        app_name: Name of the application (e.g., "Calculator", "Safari")
+        
+    Returns:
+        WindowBoundsResult with window position and size
+    """
+    if IS_WINDOWS:
+        # Windows implementation - find window by title/class
+        return WindowBoundsResult(
+            success=False,
+            error="Windows implementation not yet available for app-specific window capture",
+        )
+    
+    elif IS_MACOS:
+        try:
+            from AppKit import NSWorkspace, NSRunningApplication
+            from Quartz import (
+                CGWindowListCopyWindowInfo,
+                kCGWindowListOptionOnScreenOnly,
+                kCGNullWindowID,
+            )
+
+            # Find the app by name
+            workspace = NSWorkspace.sharedWorkspace()
+            running_apps = workspace.runningApplications()
+            
+            target_app = None
+            for app in running_apps:
+                if app.localizedName() == app_name:
+                    target_app = app
+                    break
+            
+            if not target_app:
+                return WindowBoundsResult(
+                    success=False,
+                    error=f"Application '{app_name}' not found or not running",
+                )
+            
+            pid = target_app.processIdentifier()
+            
+            # Get window list and find windows for this PID
+            window_list = CGWindowListCopyWindowInfo(
+                kCGWindowListOptionOnScreenOnly, kCGNullWindowID
+            )
+
+            candidate_windows = []
+            for window in window_list:
+                if window.get("kCGWindowOwnerPID") == pid:
+                    bounds = window.get("kCGWindowBounds")
+                    if bounds:
+                        width = int(bounds["Width"])
+                        height = int(bounds["Height"])
+                        if width >= 100 and height >= 100:
+                            candidate_windows.append(
+                                {
+                                    "bounds": bounds,
+                                    "title": window.get("kCGWindowName"),
+                                    "area": width * height,
+                                    "layer": window.get("kCGWindowLayer", 0),
+                                }
+                            )
+
+            if not candidate_windows:
+                return WindowBoundsResult(
+                    success=False,
+                    error=f"No visible windows found for {app_name}",
+                )
+
+            # Sort by area (largest first)
+            candidate_windows.sort(key=lambda w: (w["area"], -w["layer"]), reverse=True)
+            best_window = candidate_windows[0]
+            bounds = best_window["bounds"]
+
+            # NOTE: CGWindowListCopyWindowInfo returns coordinates in POINTS (logical coordinates),
+            # not physical pixels. On Retina displays, points are the same as logical pixels.
+            # To convert to physical pixels for screenshot APIs, multiply by backingScaleFactor.
+            # See: https://developer.apple.com/documentation/coregraphics/kcgwindowbounds
+            logical_x = int(bounds["X"])
+            logical_y = int(bounds["Y"])
+            logical_width = int(bounds["Width"])
+            logical_height = int(bounds["Height"])
+
+            return WindowBoundsResult(
+                success=True,
+                x=logical_x,
+                y=logical_y,
+                width=logical_width,
+                height=logical_height,
+                app_name=app_name,
+                window_title=best_window["title"],
+            )
+
+        except Exception as e:
+            return WindowBoundsResult(
+                success=False,
+                error=f"Failed to get window bounds for {app_name}: {str(e)}",
+            )
+    
+    else:
+        return WindowBoundsResult(
+            success=False,
+            error="Unsupported platform",
+        )
+
+
 def _get_active_window_bounds_impl() -> WindowBoundsResult:
     """
     Internal helper to get active window bounds.
@@ -122,8 +231,10 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
 
             # Debug logging
             from code_puppy.messaging import emit_info
+            from .config_manager import get_debug_screenshots_enabled
 
-            if len(candidate_windows) > 1:
+            # Always log when debug mode is on, or when there are multiple windows
+            if get_debug_screenshots_enabled() or len(candidate_windows) > 1:
                 emit_info(
                     f"[dim]🔍 Found {len(candidate_windows)} windows for {app_name}:[/dim]\n"
                     + "\n".join(
@@ -154,18 +265,26 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
                     f"({int(bounds['Width'])}x{int(bounds['Height'])})[/green]"
                 )
 
-            # CRITICAL: macOS CGWindowListCopyWindowInfo returns coordinates in
-            # PHYSICAL PIXELS on HiDPI displays. We need LOGICAL PIXELS for pyautogui.
-            # Detect scale factor and convert.
-            from .platform import get_screen_scale_factor
+            # NOTE: macOS CGWindowListCopyWindowInfo returns coordinates in POINTS
+            # (logical coordinates), not physical pixels. On Retina displays, points
+            # are equivalent to logical pixels. To convert to physical pixels for
+            # screenshot APIs, multiply by backingScaleFactor.
+            # See: https://developer.apple.com/documentation/coregraphics/kcgwindowbounds
+            logical_x = int(bounds["X"])
+            logical_y = int(bounds["Y"])
+            logical_width = int(bounds["Width"])
+            logical_height = int(bounds["Height"])
 
-            scale_factor = get_screen_scale_factor()
-
-            # Convert physical pixels to logical pixels
-            logical_x = int(bounds["X"] / scale_factor)
-            logical_y = int(bounds["Y"] / scale_factor)
-            logical_width = int(bounds["Width"] / scale_factor)
-            logical_height = int(bounds["Height"] / scale_factor)
+            # Debug: show final bounds
+            if get_debug_screenshots_enabled():
+                from .platform import get_screen_scale_factor
+                scale_factor = get_screen_scale_factor()
+                emit_info(
+                    f"[yellow]🐛 DEBUG: Window bounds (in points/logical):[/yellow]\n"
+                    f"[yellow]   Points: ({int(bounds['X'])}, {int(bounds['Y'])}) {int(bounds['Width'])}x{int(bounds['Height'])}[/yellow]\n"
+                    f"[yellow]   Physical would be: ({int(bounds['X'] * scale_factor)}, {int(bounds['Y'] * scale_factor)}) {int(bounds['Width'] * scale_factor)}x{int(bounds['Height'] * scale_factor)}[/yellow]\n"
+                    f"[yellow]   Scale: {scale_factor}x[/yellow]"
+                )
 
             return WindowBoundsResult(
                 success=True,
