@@ -17,6 +17,15 @@
     },
     "context_length": 205000
   },
+  "synthetic-Kimi-K2-Thinking": {
+    "type": "custom_openai",
+    "name": "hf:moonshotai/Kimi-K2-Thinking",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 262144
+  },
   "synthetic-DeepSeek-V3.1-Terminus": {
     "type": "custom_openai",
     "name": "hf:deepseek-ai/DeepSeek-V3.1-Terminus",
