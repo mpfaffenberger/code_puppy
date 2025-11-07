@@ -51,18 +51,13 @@ def _get_model_for_vqa() -> str:
     """Determine which model to use for VQA.
 
     Priority:
-    1. Current global model (user's selection)
-    2. VQA model override (if configured)
+    1. GUI-Cub VQA model override (if configured)
+    2. Current global model (user's selection)
     3. Default vision-capable model from models.json
     """
-    from code_puppy.config import get_global_model_name, get_vqa_model_name
+    from code_puppy.tools.gui_cub.config_manager import get_vqa_model_name
 
-    # Priority 1: Use the currently selected model
-    current_model = get_global_model_name()
-    if current_model:
-        return current_model
-
-    # Priority 2: Fall back to VQA-specific override or default
+    # Use GUI-Cub's VQA config (handles fallback internally)
     return get_vqa_model_name()
 
 
@@ -97,22 +92,26 @@ def run_desktop_vqa_analysis(
 
     try:
         import asyncio
+        from concurrent.futures import ThreadPoolExecutor
 
         # Check if we're already in an event loop
         try:
             asyncio.get_running_loop()
-            # We're in an async context, use nest_asyncio to allow nested loops
-            import nest_asyncio
 
-            nest_asyncio.apply()
-            result = agent.run_sync(
-                [
-                    question,
-                    BinaryContent(data=image_bytes, media_type=media_type),
-                ]
-            )
+            # We're in an async context: run in a separate thread with its own event loop
+            # This avoids the need for nest_asyncio by isolating the async call
+            def _run_vqa_in_thread():
+                return agent.run_sync(
+                    [
+                        question,
+                        BinaryContent(data=image_bytes, media_type=media_type),
+                    ]
+                )
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                result = pool.submit(_run_vqa_in_thread).result()
         except RuntimeError:
-            # No running loop, safe to use run_sync
+            # No running loop, safe to use run_sync directly
             result = agent.run_sync(
                 [
                     question,

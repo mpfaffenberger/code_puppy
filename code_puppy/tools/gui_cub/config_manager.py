@@ -72,6 +72,49 @@ def load_config() -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_vqa_model_name() -> str:
+    """Get the VQA model name from GUI-Cub config or fall back to global model.
+
+    Priority:
+    1. GUI-Cub specific VQA model override
+    2. Global model (user's current selection)
+    3. Default vision-capable model from models.json
+    """
+    # Check GUI-Cub config first
+    config = load_config()
+    if config:
+        vqa_model = config.get("vqa", {}).get("model_name")
+        if vqa_model:
+            return vqa_model
+
+    # Fall back to global model
+    from code_puppy.config import get_global_model_name
+
+    current_model = get_global_model_name()
+    if current_model:
+        return current_model
+
+    # Final fallback: default vision model from models.json
+    from code_puppy.config import _default_vqa_model_from_models_json
+
+    return _default_vqa_model_from_models_json()
+
+
+def set_vqa_model_name(model: str):
+    """Set the VQA model name in GUI-Cub config.
+
+    Args:
+        model: Model name to use for VQA tasks
+    """
+    config = load_config() or {}
+
+    if "vqa" not in config:
+        config["vqa"] = {}
+
+    config["vqa"]["model_name"] = model
+    save_config(config)
+
+
 def save_config(config: Dict[str, Any]) -> bool:
     """Save config to disk.
 

@@ -6,6 +6,7 @@ import pathlib
 from typing import Optional
 
 from code_puppy.session_storage import save_session
+from code_puppy.messaging import emit_system_message
 
 CONFIG_DIR = os.path.join(os.getenv("HOME", os.path.expanduser("~")), ".code_puppy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
@@ -340,6 +341,7 @@ def _default_vqa_model_from_models_json() -> str:
             preferred_candidates = (
                 "gpt-4.1",
                 "gpt-4.1-mini",
+                "claude-4-5-sonnet",
                 "claude-4-0-sonnet",
                 "gemini-2.5-flash-preview-05-20",
                 "gpt-4.1-nano",
@@ -439,11 +441,24 @@ def get_vqa_model_name() -> str:
     stored_model = get_value("vqa_model_name")
     if stored_model and _validate_model_exists(stored_model):
         return stored_model
+
+    # Fall back to global model or default vision model
+    current_model = get_global_model_name()
+    if current_model:
+        return current_model
+
     return _default_vqa_model_from_models_json()
 
 
 def set_vqa_model_name(model: str):
-    """Persist the configured VQA model name and refresh caches."""
+    """Persist the configured VQA model name for browser VQA.
+
+    Note: GUI-Cub desktop VQA uses its own config in gui_cub/config_manager.py.
+    This function is for browser VQA tools only.
+
+    Args:
+        model: Model name to use for browser VQA
+    """
     set_config_value("vqa_model_name", model or "")
     clear_model_cache()
 
