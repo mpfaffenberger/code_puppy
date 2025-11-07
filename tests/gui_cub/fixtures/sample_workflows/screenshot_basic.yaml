@@ -1,0 +1,7 @@
+name: screenshot_basic_test
+description: Test basic screenshot functionality
+
+steps:
+  - action: screenshot
+    save_to_file: true
+    save_path: "test_output/basic_screenshot.png"

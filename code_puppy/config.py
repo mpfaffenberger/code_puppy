@@ -431,7 +431,11 @@ def set_model_name(model: str):
 
 
 def get_vqa_model_name() -> str:
-    """Return the configured VQA model, falling back to an inferred default."""
+    """Return the configured VQA model override, if any.
+
+    Note: This is for backward compatibility only. GUI-Cub tools should
+    prefer to use get_global_model_name() directly.
+    """
     stored_model = get_value("vqa_model_name")
     if stored_model and _validate_model_exists(stored_model):
         return stored_model

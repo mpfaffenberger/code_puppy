@@ -154,12 +154,25 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
                     f"({int(bounds['Width'])}x{int(bounds['Height'])})[/green]"
                 )
 
+            # CRITICAL: macOS CGWindowListCopyWindowInfo returns coordinates in
+            # PHYSICAL PIXELS on HiDPI displays. We need LOGICAL PIXELS for pyautogui.
+            # Detect scale factor and convert.
+            from .platform import get_screen_scale_factor
+
+            scale_factor = get_screen_scale_factor()
+
+            # Convert physical pixels to logical pixels
+            logical_x = int(bounds["X"] / scale_factor)
+            logical_y = int(bounds["Y"] / scale_factor)
+            logical_width = int(bounds["Width"] / scale_factor)
+            logical_height = int(bounds["Height"] / scale_factor)
+
             return WindowBoundsResult(
                 success=True,
-                x=int(bounds["X"]),
-                y=int(bounds["Y"]),
-                width=int(bounds["Width"]),
-                height=int(bounds["Height"]),
+                x=logical_x,
+                y=logical_y,
+                width=logical_width,
+                height=logical_height,
                 app_name=app_name,
                 window_title=best_window["title"],
             )

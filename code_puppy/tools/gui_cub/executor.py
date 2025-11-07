@@ -52,31 +52,31 @@ class WorkflowExecutionResult(BaseModel):
 
 class WorkflowExecutor:
     """Execute YAML workflows with variable interpolation and chaining.
-    
+
     ARCHITECTURE NOTE - Tool Naming Convention:
     ==========================================
     This executor calls GUI-Cub desktop automation tools which follow a specific
     naming pattern:
-    
+
     - Agent Tools (registered via @agent.tool): Use `desktop_*` prefix
       Examples: desktop_keyboard_type, desktop_mouse_click, desktop_find_text
       These are callable by the AI agent and wrapped with @desktop_tool decorator.
-    
+
     - Executor Methods (internal): Use `_execute_*` prefix
       Examples: _execute_type, _execute_click, _execute_hotkey
       These are internal workflow step handlers that call the desktop_* tools.
-    
+
     WHY: The desktop_* functions are designed as agent tools with rich logging,
     error handling, and user-facing output. The executor reuses these tools
     directly rather than duplicating logic.
-    
+
     ASYNC/SYNC PATTERN:
     ===================
     - Executor methods are async (support await for other async operations)
     - Desktop tool functions are sync (wrapped with @desktop_tool decorator)
     - Executor calls sync tools directly without await (correct pattern)
     - Some executor methods await other async functions (focus_window, ui_click_element)
-    
+
     This mixed pattern is intentional and correct - async executor methods can
     call both sync tools (direct call) and async tools (with await).
     """
@@ -218,8 +218,14 @@ class WorkflowExecutor:
         - sleep: Wait for specified duration
         - run_workflow: Execute another workflow (chaining)
         - verify: Verify text appears on screen
-        - screenshot: Take a screenshot for debugging
+        - screenshot: Take screenshot + auto-analyze with OCR/VQA (default: OCR)
+        - extract_text: Extract text from screen region using OCR
         - manual_step: Pause for user intervention (input/confirmation)
+
+        Screenshot behavior:
+        - Default: Captures screenshot and analyzes with OCR (extracts all text)
+        - VQA mode: Set analyze_method='vqa' with question parameter
+        - Save to file: Set save_to_file=true to skip analysis (saves to CWD)
         """
         action_type = action.get("action")
 
@@ -299,7 +305,7 @@ class WorkflowExecutor:
 
     async def _execute_focus_window(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Focus a window by app name.
-        
+
         Calls focus_window (sync function) directly without await.
         """
         from code_puppy.tools.gui_cub.window_control import focus_window
@@ -309,11 +315,14 @@ class WorkflowExecutor:
             raise WorkflowExecutionError("focus_window requires 'app' parameter")
 
         result = focus_window(app_name)
-        return {"success": result.success if hasattr(result, 'success') else result, "app": app_name}
+        return {
+            "success": result.success if hasattr(result, "success") else result,
+            "app": app_name,
+        }
 
     async def _execute_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Click an element using accessibility API.
-        
+
         Calls ui_click_element (sync tool) directly without await.
         """
         from code_puppy.tools.gui_cub.os_unified import ui_click_element
@@ -330,7 +339,7 @@ class WorkflowExecutor:
 
     async def _execute_type(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Type text using keyboard.
-        
+
         Calls desktop_keyboard_type (sync tool) directly without await.
         """
         from code_puppy.tools.gui_cub.keyboard_control import desktop_keyboard_type
@@ -344,7 +353,7 @@ class WorkflowExecutor:
 
     async def _execute_press(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Press a key.
-        
+
         Calls desktop_keyboard_press (sync tool) directly without await.
         """
         from code_puppy.tools.gui_cub.keyboard_control import desktop_keyboard_press
@@ -358,7 +367,7 @@ class WorkflowExecutor:
 
     async def _execute_hotkey(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Press a keyboard shortcut.
-        
+
         Calls desktop_keyboard_hotkey (sync tool) directly without await.
         """
         from code_puppy.tools.gui_cub.keyboard_control import desktop_keyboard_hotkey
@@ -413,7 +422,7 @@ class WorkflowExecutor:
 
     async def _execute_smart_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Click using multi-strategy approach (UIA → OCR → VQA).
-        
+
         Calls desktop_click_element_smart (sync tool) directly without await.
         """
         from code_puppy.tools.gui_cub.multi_strategy_click import (
@@ -431,7 +440,7 @@ class WorkflowExecutor:
 
     async def _execute_ocr_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Click using OCR text recognition.
-        
+
         Uses desktop_find_text (async) then desktop_mouse_click (sync).
         """
         from code_puppy.tools.gui_cub.ocr_tools import desktop_find_text
@@ -463,7 +472,7 @@ class WorkflowExecutor:
 
     async def _execute_ui_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Click using UI automation with automation_id or name.
-        
+
         Calls ui_click_element (sync tool) directly without await.
         """
         from code_puppy.tools.gui_cub.os_unified import ui_click_element
@@ -490,7 +499,7 @@ class WorkflowExecutor:
 
     async def _execute_mouse_click(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Click at specific coordinates.
-        
+
         Calls desktop_mouse_click (sync tool) directly without await.
         """
         from code_puppy.tools.gui_cub.mouse_control import desktop_mouse_click
@@ -505,13 +514,139 @@ class WorkflowExecutor:
         return {"success": True, "x": x, "y": y}
 
     async def _execute_screenshot(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Take a screenshot for debugging.
-        
-        Calls capture_screen (sync tool) directly without await.
-        """
-        from code_puppy.tools.gui_cub.screen_capture import capture_screen
+        """Take a screenshot and automatically analyze it with OCR or VQA.
 
-        result = capture_screen(self.context)
+        **REFACTORED to use unified screenshot() and screenshot_analyze() functions.**
+
+        **DEFAULT BEHAVIOR:** Automatically analyzes screenshot with OCR to extract text.
+        This helps with debugging and verification by showing what's actually on screen.
+
+        **SAVE TO FILE MODE:** Set save_to_file=true to skip analysis and only save image.
+        Saved screenshots go to the current working directory, not temp.
+
+        Supported parameters:
+        - save_to_file: false (default) | true - Skip analysis, save to CWD
+        - analyze_method: "ocr" (default) | "vqa" - How to analyze (if save_to_file=false)
+        - question: Required if analyze_method="vqa"
+        - save_path: Custom path for saved screenshots (relative to CWD)
+        - use_active_window: true (default) | false
+        - x: Optional left coordinate for region capture
+        - y: Optional top coordinate for region capture
+        - width: Optional width for region capture
+        - height: Optional height for region capture
+        - output_variable: Store analysis results in this variable
+
+        Examples:
+            # Default: Capture + OCR analysis (automatic debugging)
+            - action: screenshot
+
+            # Save screenshot to file in CWD (user-requested only)
+            - action: screenshot
+              save_to_file: true
+              save_path: "debug_screenshot.png"
+
+            # VQA analysis with question
+            - action: screenshot
+              analyze_method: vqa
+              question: "Where is the Submit button?"
+        """
+        import os
+        from code_puppy.tools.gui_cub.screen_capture import (
+            screenshot,
+            screenshot_analyze,
+        )
+
+        # Extract common parameters
+        x = action.get("x")
+        y = action.get("y")
+        width = action.get("width")
+        height = action.get("height")
+        use_active_window = action.get("use_active_window", True)
+        mode = "active_window" if use_active_window else "full_screen"
+
+        # Check if user wants to save screenshot to file (no analysis)
+        # Support both new name (save_to_file) and old name (pure_screenshot) for backward compatibility
+        save_to_file = action.get("save_to_file", action.get("pure_screenshot", False))
+
+        if save_to_file:
+            # SAVE TO FILE MODE: Use unified screenshot() with custom save path
+            save_path = action.get("save_path")
+            if not save_path:
+                # Generate filename in CWD
+                import datetime
+
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                cwd = os.getcwd()
+                save_path = os.path.join(cwd, f"screenshot_{timestamp}.png")
+            else:
+                # User specified custom path (relative to CWD)
+                save_path = os.path.abspath(save_path)
+
+            # Use unified screenshot() function
+            screenshot_result = screenshot(
+                x=x,
+                y=y,
+                width=width,
+                height=height,
+                mode=mode,
+                save_path=save_path,
+            )
+
+            emit_info(f"📸 Screenshot saved to: {screenshot_result.screenshot_path}")
+
+            return {
+                "success": screenshot_result.success,
+                "screenshot_path": screenshot_result.screenshot_path,
+                "analysis_method": "none",
+                "save_to_file": True,
+            }
+
+        # ANALYSIS MODE (default): Use unified screenshot_analyze()
+        analyze_method = action.get("analyze_method", "ocr").lower()
+        question = action.get("question") if analyze_method == "vqa" else None
+
+        # Validate VQA requires question
+        if analyze_method == "vqa" and not question:
+            raise WorkflowExecutionError(
+                "screenshot with analyze_method='vqa' requires 'question' parameter"
+            )
+
+        # Use unified screenshot_analyze() function
+        result = await screenshot_analyze(
+            question=question,
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            mode=mode,
+        )
+
+        # Log analysis results
+        if result.get("analysis_type") == "ocr":
+            emit_info(
+                f"📸 Screenshot analyzed with OCR: {result.get('word_count', 0)} words extracted"
+            )
+        elif result.get("analysis_type") == "vqa":
+            emit_info(
+                f"📸 Screenshot analyzed with VQA: {result.get('answer', '')[:100]}"
+            )
+
+        # Store in output variable if specified
+        if "output_variable" in action:
+            var_name = action["output_variable"]
+            if result.get("analysis_type") == "ocr":
+                self.outputs[var_name] = {
+                    "text": result.get("full_text", ""),
+                    "screenshot": result.get("screenshot_path"),
+                }
+            elif result.get("analysis_type") == "vqa":
+                self.outputs[var_name] = {
+                    "answer": result.get("answer", ""),
+                    "confidence": result.get("confidence", 0.0),
+                    "observations": result.get("observations", ""),
+                    "screenshot": result.get("screenshot_path"),
+                }
+
         return result
 
     async def _execute_extract_text(self, action: Dict[str, Any]) -> Dict[str, Any]:
@@ -576,7 +711,7 @@ class WorkflowExecutor:
 
     async def _execute_verify(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Verify expected text appears on screen.
-        
+
         Calls desktop_extract_text (sync tool) directly without await.
         """
         from code_puppy.tools.gui_cub.ocr_tools import desktop_extract_text

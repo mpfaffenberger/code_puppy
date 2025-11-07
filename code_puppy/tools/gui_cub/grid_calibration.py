@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from pathlib import Path
 from tempfile import gettempdir
@@ -22,7 +21,7 @@ except ImportError:
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_error, emit_info
 from code_puppy.tools.common import generate_group_id
 
 from .constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
@@ -435,12 +434,11 @@ Marker reference:
               )
               -> Tries normal grid first, refines to fine grid if needed
         """
-        from .vqa_desktop import run_desktop_vqa_analysis
-        from .screen_capture import capture_screen
+        from .screen_capture import screenshot_analyze
 
         group_id = generate_group_id("screenshot_with_confidence", question[:50])
         emit_info(
-            f"[bold white on blue] CONFIDENCE-BASED SCREENSHOT [/bold white on blue] 🎯 question='{question[:80]}...' threshold={confidence_threshold}",
+            f"[bold white on blue] CONFIDENCE-BASED SCREENSHOT [/bold white on blue] question='{question[:80]}...' threshold={confidence_threshold}",
             message_group=group_id,
         )
 
@@ -450,126 +448,66 @@ Marker reference:
                 error=f"{ERROR_PYAUTOGUI_MISSING} and {ERROR_PILLOW_MISSING}",
             )
 
-        # Density progression (coarse -> normal -> fine -> ultra)
-        density_order = ["coarse", "normal", "fine", "ultra"]
-        try:
-            start_idx = density_order.index(initial_density)
-        except ValueError:
-            start_idx = 1  # Default to "normal"
+        # Map density to grid spacing
+        initial_spacing = get_grid_spacing(initial_density)
 
-        current_density = initial_density
-        best_result = None
-        best_confidence = 0.0
+        # Use unified screenshot_analyze() with auto_refine enabled
+        result = await screenshot_analyze(
+            question=question,
+            add_grid=True,
+            grid_spacing=initial_spacing,
+            confidence_threshold=confidence_threshold,
+            auto_refine=auto_refine,
+        )
 
-        for density in density_order[start_idx:]:
-            spacing = get_grid_spacing(density)
-            emit_info(
-                f"[cyan]Trying grid density: {density} ({spacing}px spacing)[/cyan]",
-                message_group=group_id,
+        if not result.get("success"):
+            return GridConfidenceResult(
+                success=False,
+                error=result.get("error", "Screenshot analysis failed"),
             )
 
-            # Take screenshot with this grid density
-            screenshot_result = capture_screen(
-                add_grid=True,
-                grid_spacing=spacing,
-                save_screenshot=True,
-            )
+        confidence = result.get("confidence", 0.0)
+        answer = result.get("answer", "")
 
-            if not screenshot_result.success:
-                emit_error(
-                    f"[red]Screenshot failed: {screenshot_result.error}[/red]",
-                    message_group=group_id,
-                )
-                continue
+        # Determine which grid density was used (if refined)
+        final_density = initial_density
+        if result.get("grid_refined"):
+            final_density = result.get("grid_density", initial_density)
 
-            # Enhance question with grid context
-            enhanced_question = (
-                f"NOTE: This screenshot has a coordinate grid overlay. "
-                f"Red lines every {spacing} pixels with labels. "
-                f"Use grid references for precise locations.\n\n"
-                f"Question: {question}"
-            )
-
-            # Run VQA
-            try:
-                # Determine media type based on screenshot format
-                media_type = f"image/{screenshot_result.format.lower()}"  # 'image/png' or 'image/jpeg'
-
-                vqa_result = await asyncio.to_thread(
-                    run_desktop_vqa_analysis,
-                    enhanced_question,
-                    screenshot_result.screenshot_data,
-                    media_type,
-                )
-            except Exception as e:
-                emit_error(
-                    f"[red]VQA failed: {e}[/red]",
-                    message_group=group_id,
-                )
-                continue
-
-            confidence = vqa_result.confidence
-            emit_info(
-                f"[green]Answer (confidence: {confidence:.2f}): {vqa_result.answer}[/green]",
-                message_group=group_id,
-            )
-
-            # Track best result
-            if confidence > best_confidence:
-                best_confidence = confidence
-                best_result = vqa_result
-
-            # If confidence is acceptable, stop refining
-            if confidence >= confidence_threshold:
-                emit_info(
-                    f"[bold green]✓ Confidence threshold met ({confidence:.2f} >= {confidence_threshold})[/bold green]",
-                    message_group=group_id,
-                )
-                break
-
-            # If auto_refine is disabled, stop after first attempt
-            if not auto_refine:
-                emit_warning(
-                    f"[yellow]Low confidence ({confidence:.2f} < {confidence_threshold}), but auto_refine=False[/yellow]",
-                    message_group=group_id,
-                )
-                break
-
-            # Otherwise, try next finer density
-            emit_warning(
-                f"[yellow]Low confidence ({confidence:.2f} < {confidence_threshold}), refining grid...[/yellow]",
-                message_group=group_id,
-            )
+        final_spacing = get_grid_spacing(final_density)
 
         # Generate recommendations
-        if best_confidence < confidence_threshold:
-            if density_order.index(current_density) < len(density_order) - 1:
-                next_density = density_order[density_order.index(current_density) + 1]
+        density_order = ["coarse", "normal", "fine", "ultra"]
+        if confidence < confidence_threshold:
+            try:
+                current_idx = density_order.index(final_density)
+                if current_idx < len(density_order) - 1:
+                    next_density = density_order[current_idx + 1]
+                    recommended_action = (
+                        f"Confidence still low ({confidence:.2f}). "
+                        f"Try: screenshot_analyze(question='{question}', grid_spacing={get_grid_spacing(next_density)}) "
+                        f"or use accessibility API for better precision."
+                    )
+                else:
+                    recommended_action = (
+                        "Already at finest grid (ultra). "
+                        "Consider using accessibility API (desktop_find_accessible_element) "
+                        "or VQA without grid for general questions."
+                    )
+            except ValueError:
                 recommended_action = (
-                    f"Confidence still low ({best_confidence:.2f}). "
-                    f"Try: desktop_screenshot_analyze(question='{question}', grid_spacing={get_grid_spacing(next_density)}) "
-                    f"or use accessibility API for better precision."
-                )
-            else:
-                recommended_action = (
-                    "Already at finest grid (ultra). "
-                    "Consider using accessibility API (desktop_find_accessible_element) "
-                    "or VQA without grid for general questions."
+                    "Consider using accessibility API for better precision."
                 )
         else:
             recommended_action = "Confidence acceptable. Proceed with action."
 
-        if best_result:
-            return GridConfidenceResult(
-                success=True,
-                answer=best_result.answer,
-                confidence=best_confidence,
-                grid_spacing=spacing,
-                recommended_action=recommended_action,
-            )
-        else:
-            return GridConfidenceResult(
-                success=False,
-                error="All VQA attempts failed",
-                recommended_action="Check screenshot quality and try manual coordinates or accessibility API.",
-            )
+        return GridConfidenceResult(
+            success=True,
+            question=question,
+            answer=answer,
+            confidence=confidence,
+            grid_density=final_density,
+            grid_spacing=final_spacing,
+            confidence_threshold=confidence_threshold,
+            recommended_action=recommended_action,
+        )

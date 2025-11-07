@@ -7,7 +7,6 @@ from functools import lru_cache
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
 
-from code_puppy.config import get_vqa_model_name
 from code_puppy.model_factory import ModelFactory
 
 
@@ -48,9 +47,28 @@ def _load_desktop_vqa_agent(
     )
 
 
+def _get_model_for_vqa() -> str:
+    """Determine which model to use for VQA.
+
+    Priority:
+    1. Current global model (user's selection)
+    2. VQA model override (if configured)
+    3. Default vision-capable model from models.json
+    """
+    from code_puppy.config import get_global_model_name, get_vqa_model_name
+
+    # Priority 1: Use the currently selected model
+    current_model = get_global_model_name()
+    if current_model:
+        return current_model
+
+    # Priority 2: Fall back to VQA-specific override or default
+    return get_vqa_model_name()
+
+
 def _get_desktop_vqa_agent() -> Agent[None, DesktopVisualAnalysisResult]:
     """Return a cached desktop VQA agent configured with the current model."""
-    model_name = get_vqa_model_name()
+    model_name = _get_model_for_vqa()
     # lru_cache keyed by model_name ensures refresh when configuration changes
     return _load_desktop_vqa_agent(model_name)
 
@@ -62,9 +80,9 @@ def run_desktop_vqa_analysis(
 ) -> DesktopVisualAnalysisResult:
     """Execute the desktop VQA agent synchronously against screenshot bytes."""
     from code_puppy.messaging import emit_info, emit_warning
-    from code_puppy.config import get_vqa_model_name
 
-    model_name = get_vqa_model_name()
+    # Use internal model selection logic (prefers current global model)
+    model_name = _get_model_for_vqa()
     image_size_mb = len(image_bytes) / 1_000_000
 
     emit_info(
@@ -78,12 +96,29 @@ def run_desktop_vqa_analysis(
     agent = _get_desktop_vqa_agent()
 
     try:
-        result = agent.run_sync(
-            [
-                question,
-                BinaryContent(data=image_bytes, media_type=media_type),
-            ]
-        )
+        import asyncio
+
+        # Check if we're already in an event loop
+        try:
+            asyncio.get_running_loop()
+            # We're in an async context, use nest_asyncio to allow nested loops
+            import nest_asyncio
+
+            nest_asyncio.apply()
+            result = agent.run_sync(
+                [
+                    question,
+                    BinaryContent(data=image_bytes, media_type=media_type),
+                ]
+            )
+        except RuntimeError:
+            # No running loop, safe to use run_sync
+            result = agent.run_sync(
+                [
+                    question,
+                    BinaryContent(data=image_bytes, media_type=media_type),
+                ]
+            )
 
         emit_info(
             f"[bold green]✅ VQA RESPONSE[/bold green]\n"

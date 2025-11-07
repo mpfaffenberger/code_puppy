@@ -322,6 +322,374 @@ def capture_screen(
         return ScreenshotResult(success=False, error=str(e))
 
 
+def screenshot(
+    x: int | None = None,
+    y: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    window_title: str | None = None,
+    mode: str = "active_window",
+    save_path: str | None = None,
+    add_grid: bool = False,
+    grid_spacing: int = DEFAULT_GRID_SPACING,
+) -> ScreenshotResult:
+    """
+    Unified screenshot capture function.
+
+    Combines functionality from:
+    - capture_screen() - Base capture
+    - desktop_screenshot() - Parameter conversion
+    - Window detection logic from VQA functions
+
+    Args:
+        x, y, width, height: Region coordinates (all must be provided together)
+        window_title: Focus and capture specific window
+        mode: "active_window" (default), "full_screen", "region"
+        save_path: Custom save path (None = auto temp path)
+        add_grid: Add coordinate grid overlay
+        grid_spacing: Grid line spacing in pixels
+
+    Returns:
+        ScreenshotResult with path, bytes, dimensions
+
+    Examples:
+        # Full screen
+        screenshot(mode="full_screen")
+
+        # Active window (default)
+        screenshot()
+
+        # Specific window
+        screenshot(window_title="Terminal")
+
+
+    Tiered Strategy Benefits:
+    - Active window captures reduce noise and focus on relevant content
+    - Automatic fallback prevents screenshot failures
+    - Explicit coordinates override for precise control
+    - Graceful degradation ensures screenshots always succeed
+    """
+    from pathlib import Path
+    from code_puppy.messaging import emit_info
+
+    # TIERED LOCATION STRATEGY:
+    # 1. Explicit coordinates (if all provided)
+    # 2. Active window bounds (default, most focused)
+    # 3. Full screen (fallback if window detection fails)
+
+    region = None
+    capture_strategy = None
+
+    # TIER 1: Explicit coordinates (highest priority - user knows what they want)
+    if x is not None and y is not None and width is not None and height is not None:
+        region = (x, y, width, height)
+        capture_strategy = "region"
+        mode = "region"  # Override mode
+
+    # TIER 2: Window-based capture (try active window or specific window)
+    elif mode != "full_screen":
+        from .window_control import _focus_window_impl, _get_active_window_bounds_impl
+        import time
+
+        # If window title provided, focus it first
+        if window_title:
+            focus_result = _focus_window_impl(window_title)
+            if focus_result.success:
+                time.sleep(0.3)  # Wait for window to focus
+
+        # Try to get active window bounds
+        bounds_result = _get_active_window_bounds_impl()
+        if bounds_result.success and bounds_result.x is not None:
+            region = (
+                bounds_result.x,
+                bounds_result.y,
+                bounds_result.width,
+                bounds_result.height,
+            )
+            capture_strategy = (
+                f"active_window ({bounds_result.window_title or 'unknown'})"
+            )
+        else:
+            # TIER 3: Fallback to full screen if window detection fails
+            emit_info(
+                "⚠️ Could not detect active window, falling back to full screen capture"
+            )
+            region = None
+            capture_strategy = "full_screen (fallback)"
+    else:
+        # TIER 3: Explicit full screen mode
+        region = None
+        capture_strategy = "full_screen (explicit)"
+
+    # Log capture strategy for debugging
+    if capture_strategy:
+        from code_puppy.messaging import emit_info
+
+        emit_info(f"📸 Screenshot strategy: {capture_strategy}")
+
+    # Determine if we should save to disk
+    # - Always save if user provided custom save_path
+    # - Save focused captures (active_window, region) by default
+    # - Don't save full_screen by default (large files, less useful)
+    should_save = save_path is not None or mode != "full_screen"
+
+    # Capture the screenshot using existing capture_screen
+    result = capture_screen(
+        region=region,
+        save_screenshot=should_save,
+        add_grid=add_grid,
+        grid_spacing=grid_spacing,
+    )
+
+    # Add metadata about capture strategy to result
+    if result.success and capture_strategy:
+        result.capture_strategy = capture_strategy
+
+    # If custom save path provided, move the file
+    if save_path and result.success and result.screenshot_path:
+        import shutil
+
+        dest_path = Path(save_path).resolve()
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        shutil.move(result.screenshot_path, str(dest_path))
+        result.screenshot_path = str(dest_path)
+
+    return result
+
+
+async def screenshot_analyze(
+    question: str | None = None,
+    x: int | None = None,
+    y: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    window_title: str | None = None,
+    mode: str = "active_window",
+    save_path: str | None = None,
+    add_grid: bool = False,
+    grid_spacing: int = DEFAULT_GRID_SPACING,
+    confidence_threshold: float = 0.85,
+    auto_refine: bool = False,
+    language: str = "eng",
+) -> dict:
+    """
+    Unified screenshot + analysis function.
+
+    Combines functionality from:
+    - take_desktop_screenshot_and_analyze() - VQA core
+    - desktop_screenshot_analyze() - VQA wrapper
+    - desktop_extract_text() - OCR analysis
+    - desktop_screenshot_with_confidence() - Grid refinement
+
+    Args:
+        question: VQA question. If None, runs OCR instead.
+        x, y, width, height: Region coordinates (all must be provided together)
+        window_title: Focus and capture specific window
+        mode: "active_window" (default), "full_screen", "region"
+        save_path: Custom save path (None = auto temp path)
+        add_grid: Add coordinate grid overlay
+        grid_spacing: Grid line spacing in pixels
+        confidence_threshold: Min confidence for auto-refine
+        auto_refine: Automatically add grid if confidence low
+        language: Tesseract language code (OCR only)
+
+    Returns:
+        Unified analysis result:
+        {
+            "success": bool,
+            "screenshot_path": str,
+            "analysis_type": "ocr" | "vqa",
+
+            # OCR fields (if question=None)
+            "full_text": str,
+            "text_elements": list,
+            "word_count": int,
+
+            # VQA fields (if question provided)
+            "question": str,
+            "answer": str,
+            "confidence": float,
+            "observations": str,
+        }
+
+    Examples:
+        # OCR analysis (default)
+        result = await screenshot_analyze()
+        print(result["full_text"])
+
+        # VQA analysis
+        result = await screenshot_analyze(
+            question="Where is the Submit button?"
+        )
+        print(result["answer"])
+
+        # VQA with auto grid refinement
+        result = await screenshot_analyze(
+            question="Find the OK button",
+            auto_refine=True,
+            confidence_threshold=0.9
+        )
+    """
+    from .ocr_tools import extract_text_from_image
+    from .vqa_desktop import run_desktop_vqa_analysis
+    from PIL import Image
+    import os
+
+    # Determine if OCR or VQA mode
+    is_ocr = question is None
+
+    # Initial capture (without grid if auto_refine is enabled)
+    initial_grid = add_grid if not auto_refine else False
+
+    # Capture screenshot using unified screenshot() function
+    screenshot_result = screenshot(
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        window_title=window_title,
+        mode=mode,
+        save_path=save_path,
+        add_grid=initial_grid,
+        grid_spacing=grid_spacing,
+    )
+
+    if not screenshot_result.success:
+        return {
+            "success": False,
+            "error": screenshot_result.error,
+            "analysis_type": "ocr" if is_ocr else "vqa",
+        }
+
+    result = {
+        "success": True,
+        "screenshot_path": screenshot_result.screenshot_path,
+    }
+
+    if is_ocr:
+        # OCR MODE
+        # Load screenshot image
+        screenshot_path = screenshot_result.screenshot_path
+        if not screenshot_path or not os.path.exists(screenshot_path):
+            return {
+                "success": False,
+                "error": "Screenshot file not found for OCR analysis",
+                "analysis_type": "ocr",
+            }
+
+        image = Image.open(screenshot_path)
+        ocr_result = extract_text_from_image(image, language=language)
+
+        result["analysis_type"] = "ocr"
+        result["full_text"] = ocr_result.full_text if ocr_result.success else ""
+        result["text_elements"] = ocr_result.text_elements if ocr_result.success else []
+        result["word_count"] = (
+            len(result["full_text"].split()) if result["full_text"] else 0
+        )
+
+        if not ocr_result.success:
+            result["success"] = False
+            result["error"] = ocr_result.error
+
+    else:
+        # VQA MODE
+        # Load screenshot image for VQA
+        screenshot_path = screenshot_result.screenshot_path
+        if not screenshot_path or not os.path.exists(screenshot_path):
+            return {
+                "success": False,
+                "error": "Screenshot file not found for VQA analysis",
+                "analysis_type": "vqa",
+            }
+
+        with open(screenshot_path, "rb") as f:
+            image_bytes = f.read()
+
+        # Run VQA analysis
+        vqa_result = run_desktop_vqa_analysis(
+            question=question,
+            image_bytes=image_bytes,
+            media_type="image/png",
+        )
+
+        result["analysis_type"] = "vqa"
+        result["question"] = question
+        result["answer"] = vqa_result.answer
+        result["confidence"] = vqa_result.confidence
+        result["observations"] = vqa_result.observations
+
+        # Auto-refine logic: if confidence low, retry with grid
+        if auto_refine and vqa_result.confidence < confidence_threshold:
+            from code_puppy.messaging import emit_info
+
+            emit_info(
+                f"🔄 Confidence {vqa_result.confidence:.2f} below threshold {confidence_threshold:.2f}, "
+                f"retrying with grid overlay"
+            )
+
+            # Retry with grid at increasing densities
+            grid_densities = [
+                ("low", 100),
+                ("medium", 50),
+                ("high", 25),
+            ]
+
+            for density_name, spacing in grid_densities:
+                # Recapture with grid
+                screenshot_result_grid = screenshot(
+                    x=x,
+                    y=y,
+                    width=width,
+                    height=height,
+                    window_title=window_title,
+                    mode=mode,
+                    add_grid=True,
+                    grid_spacing=spacing,
+                )
+
+                if screenshot_result_grid.success:
+                    with open(screenshot_result_grid.screenshot_path, "rb") as f:
+                        image_bytes_grid = f.read()
+
+                    vqa_result_grid = run_desktop_vqa_analysis(
+                        question=question,
+                        image_bytes=image_bytes_grid,
+                        media_type="image/png",
+                    )
+
+                    emit_info(
+                        f"📊 Grid density '{density_name}' ({spacing}px): "
+                        f"confidence {vqa_result_grid.confidence:.2f}"
+                    )
+
+                    # If confidence improved, use this result
+                    if vqa_result_grid.confidence >= confidence_threshold:
+                        result["answer"] = vqa_result_grid.answer
+                        result["confidence"] = vqa_result_grid.confidence
+                        result["observations"] = vqa_result_grid.observations
+                        result["screenshot_path"] = (
+                            screenshot_result_grid.screenshot_path
+                        )
+                        result["grid_refined"] = True
+                        result["grid_density"] = density_name
+                        break
+
+                    # If last iteration, use best result even if below threshold
+                    if spacing == 25:  # Last iteration
+                        if vqa_result_grid.confidence > vqa_result.confidence:
+                            result["answer"] = vqa_result_grid.answer
+                            result["confidence"] = vqa_result_grid.confidence
+                            result["observations"] = vqa_result_grid.observations
+                            result["screenshot_path"] = (
+                                screenshot_result_grid.screenshot_path
+                            )
+                            result["grid_refined"] = True
+                            result["grid_density"] = density_name
+
+    return result
+
+
 def _compact_vqa_result(
     full_result: "VQAResult", truncate_answer: bool = True, max_answer_length: int = 500
 ) -> "VQAResult":
@@ -749,150 +1117,6 @@ def register_desktop_screenshot_tools(agent):
         }
 
     @agent.tool
-    async def desktop_screenshot_analyze(
-        context: RunContext,
-        question: str,
-        x: int | None = None,
-        y: int | None = None,
-        width: int | None = None,
-        height: int | None = None,
-        window_title: str | None = None,
-        capture_mode: str = "active_window",
-        save_screenshot: bool = True,
-        use_grid: bool = False,  # Changed default to False for cleaner UI
-        grid_spacing: int = DEFAULT_GRID_SPACING,
-    ) -> VQAResult:
-        """
-        Take a screenshot and analyze it to answer a specific question.
-
-        **By default, captures the active window (not full screen).**
-        For full screen capture, set capture_mode="full_screen".
-
-        **HIGH-DPI DISPLAY AUTOMATIC HANDLING:**
-        On Retina/4K/5K displays, screenshots may exceed the 5MB VQA API limit.
-        Images > 4.5MB are automatically downscaled to 1920x1200 max resolution
-        while maintaining aspect ratio. Full-res screenshots are still saved to disk.
-
-        Args:
-            question: The question to ask about the screenshot
-            x: Optional left coordinate of region to capture (overrides window capture)
-            y: Optional top coordinate of region to capture (overrides window capture)
-            width: Optional width of region to capture (overrides window capture)
-            height: Optional height of region to capture (overrides window capture)
-            window_title: Optional window/app to focus and capture (e.g., "TextEdit", "Finder")
-            capture_mode: "active_window" (default), "full_screen", or "region"
-            save_screenshot: Save screenshot to disk
-            use_grid: Add coordinate grid overlay (default: False)
-            grid_spacing: Grid line spacing in pixels
-
-        Returns:
-            VQAResult with answer, confidence, observations, and screenshot info
-
-        Examples:
-            # Capture active window and find element (DEFAULT - window-focused!)
-            - desktop_screenshot_analyze(question="Where is the Send button?")
-
-            # Capture specific app window
-            - desktop_screenshot_analyze(
-                question="Find the minimize button",
-                window_title="Terminal"
-              )
-
-            # Full screen capture (legacy mode)
-            - desktop_screenshot_analyze(
-                question="What windows are open?",
-                capture_mode="full_screen"
-              )
-
-            # With grid for precise coordinates
-            - desktop_screenshot_analyze(
-                question="Grid coordinates of OK button?",
-                use_grid=True,
-                grid_spacing=50
-              )
-        """
-        # Build region tuple if all coordinates provided
-        region = None
-        if x is not None and y is not None and width is not None and height is not None:
-            region = (x, y, width, height)
-
-        result = await take_desktop_screenshot_and_analyze(
-            question=question,
-            region=region,
-            window_title=window_title,
-            capture_mode=capture_mode,
-            save_screenshot=save_screenshot,
-            use_grid=use_grid,
-            grid_spacing=grid_spacing,
-        )
-
-        # Add helpful note about coordinate conversion if on HiDPI display
-        try:
-            from .platform import get_screen_scale_factor
-
-            scale = get_screen_scale_factor()
-            if (
-                scale > 1.0
-                and hasattr(result, "screenshot_info")
-                and result.screenshot_info
-            ):
-                result.screenshot_info.coordinate_conversion_note = (
-                    f"HiDPI display detected ({scale}x scaling). If VQA provides coordinates, "
-                    f"use desktop_convert_screenshot_to_screen_coords() before mouse operations."
-                )
-        except Exception:
-            pass  # Don't fail if we can't add the note
-
-        return result
-
-    @agent.tool
-    def desktop_screenshot(
-        context: RunContext,
-        x: int | None = None,
-        y: int | None = None,
-        width: int | None = None,
-        height: int | None = None,
-        save_screenshot: bool = True,
-        add_grid: bool = False,
-        grid_spacing: int = DEFAULT_GRID_SPACING,
-    ) -> ScreenshotResult:
-        """
-        Capture a screenshot of the desktop.
-
-        Args:
-            x: Optional left coordinate of region to capture
-            y: Optional top coordinate of region to capture
-            width: Optional width of region to capture
-            height: Optional height of region to capture
-            save_screenshot: Whether to save the screenshot to disk
-            add_grid: Add coordinate grid overlay for reference
-            grid_spacing: Distance between grid lines in pixels (default 100)
-
-        Returns:
-            ScreenshotResult with screenshot path, dimensions, and metadata
-
-        Examples:
-            - desktop_screenshot() - Capture full screen
-            - desktop_screenshot(add_grid=True) - Capture with coordinate grid
-            - desktop_screenshot(x=0, y=0, width=1920, height=1080) - Capture specific region
-        """
-        # Build region tuple if all coordinates provided
-        region = None
-        if x is not None and y is not None and width is not None and height is not None:
-            region = (x, y, width, height)
-
-        result = capture_screen(
-            region=region,
-            save_screenshot=save_screenshot,
-            add_grid=add_grid,
-            grid_spacing=grid_spacing,
-        )
-
-        # Don't include bytes in dict output for cleaner response
-        # (Pydantic will exclude it automatically due to Field(exclude=True))
-        return result
-
-    @agent.tool
     def desktop_get_screen_size(context: RunContext) -> dict[str, int | float | str]:
         """
         Get the current screen resolution (logical points) and scale metadata.
@@ -983,12 +1207,24 @@ def register_desktop_screenshot_tools(agent):
                 window_title="TextEdit"
               )
         """
-        return await desktop_screenshot_analyze(
-            context=context,
+        # Use new unified screenshot_analyze()
+        result = await screenshot_analyze(
             question=question,
             window_title=window_title,
-            capture_mode="active_window",
-            use_grid=use_grid,
+            mode="active_window",
+            add_grid=use_grid,
+        )
+
+        # Convert dict result to VQAResult for backwards compatibility
+        from .result_types import VQAResult
+
+        return VQAResult(
+            success=result.get("success", False),
+            question=result.get("question"),
+            answer=result.get("answer", ""),
+            confidence=result.get("confidence", 0.0),
+            observations=result.get("observations"),
+            screenshot_path=result.get("screenshot_path"),
         )
 
     @agent.tool

@@ -1,0 +1,11 @@
+name: screenshot_region_test
+description: Test region capture
+
+steps:
+  - action: screenshot
+    x: 0
+    y: 0
+    width: 800
+    height: 600
+    analyze_method: ocr
+    output_variable: top_left_text

@@ -103,6 +103,9 @@ class ScreenshotResult(BaseAutomationResult):
     height: int | None = None
     screenshot_data: bytes | None = Field(default=None, exclude=True)  # Don't serialize
     format: str = "PNG"  # Image format: 'PNG' or 'JPEG'
+    capture_strategy: str | None = (
+        None  # Tier used: "region", "active_window", "full_screen", etc.
+    )
 
 
 class VQAResult(BaseAutomationResult):

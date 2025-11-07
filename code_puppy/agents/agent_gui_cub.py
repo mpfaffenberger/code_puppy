@@ -9,13 +9,46 @@ class GUICubAgent(BaseAgent):
     def __init__(self):
         super().__init__()
         self._calibrated = False
+        self._guard_context = None
+
+    def __del__(self):
+        """Release GUI-Cub guard when agent is destroyed."""
+        self._release_guard()
+
+    def _release_guard(self):
+        """Release the GUI-Cub agent guard."""
+        if self._guard_context is not None:
+            try:
+                self._guard_context.__exit__(None, None, None)
+            except Exception:
+                pass  # Ignore errors during cleanup
+            finally:
+                self._guard_context = None
 
     async def _ensure_calibrated(self):
         """Ensure platform is calibrated before use (QA-Kitten pattern).
 
         Lazy initialization - only runs once on first agent execution.
         This is fast if config is cached (~0.1s), slower on first run (~2-5s).
+
+        Also ensures only ONE GUI-Cub agent runs at a time (desktop automation
+        cannot run in parallel).
         """
+        # Acquire guard to prevent parallel GUI-Cub agents
+        if self._guard_context is None:
+            from code_puppy.tools.gui_cub.locking import (
+                gui_cub_agent_guard,
+                GuiCubAlreadyRunningError,
+            )
+            from code_puppy.messaging import emit_error
+
+            try:
+                self._guard_context = gui_cub_agent_guard()
+                self._guard_context.__enter__()
+            except GuiCubAlreadyRunningError as e:
+                emit_error(f"[red]✖ {str(e)}[/red]")
+                raise
+
         if not self._calibrated:
             from code_puppy.tools.gui_cub.config_manager import (
                 ensure_calibrated,
@@ -513,11 +546,14 @@ append_to_knowledge_base(
 **Tier 3 - OCR**
 - Only when element has no accessibility label
 - MUST call `desktop_focus_window()` first
-- NEVER on terminals/shells (Terminal.app, iTerm, cmd.exe, PowerShell)
+- ⛔ **NEVER on terminals/shells** (Terminal.app, iTerm, cmd.exe, PowerShell, zsh, bash)
+- ⛔ **NEVER on code editors with terminals** (VS Code integrated terminal, etc.)
+- Reason: Terminals contain sensitive information (API keys, passwords, tokens, secrets)
 - ±5-10px accuracy (less precise than accessibility)
 
 **Tier 4 - VQA (Last Resort)**
 - Only for visual-only elements (icons, images, custom UI)
+- ⛔ **NEVER on terminals/shells** - Same security restrictions as OCR
 - WARNING: 50-100px offset - unreliable for coordinates
 - Use only after Tiers 1-3 all fail
 
@@ -525,8 +561,11 @@ append_to_knowledge_base(
 
 - ALWAYS try keyboard shortcuts FIRST before exploring element tree or clicking
 - ALWAYS explore element tree with `ui_list_elements()` before attempting to click
-- NEVER use OCR on terminals/shells
-- NEVER use VQA for coordinate-based clicking
+- ⛔ **NEVER use OCR or VQA on terminals/shells** (Terminal, iTerm, cmd.exe, PowerShell, VS Code terminal, etc.)
+  - Terminals contain sensitive data: API keys, passwords, tokens, secrets, environment variables
+  - Taking screenshots or analyzing terminal content is a SECURITY VIOLATION
+  - Use keyboard shortcuts or accessibility API only for terminal interaction
+- NEVER use VQA for coordinate-based clicking (50-100px offset makes it unreliable)
 - NEVER skip from Tier 1 to Tier 4 without trying accessibility and OCR
 - ALWAYS focus window before OCR operations
 - ALWAYS verify manual coordinates with `desktop_highlight_click_target()`
@@ -605,6 +644,39 @@ append_to_knowledge_base(
 )
 ```
 
+## Screenshot Strategy - Tiered Location Priority
+
+**AUTOMATIC INTELLIGENT CAPTURE:** Screenshots use a tiered fallback strategy for optimal results.
+
+**Tier 1 - Explicit Coordinates (Highest Priority)**
+- When you provide x, y, width, height parameters
+- Use when you know exact region needed
+- Example: `screenshot(x=100, y=100, width=800, height=600)`
+
+**Tier 2 - Active Window (Default & Recommended)**
+- Automatically captures the currently focused window
+- **Reduces noise** - excludes desktop, menu bar, other windows
+- **More focused** - only relevant application content
+- **Faster analysis** - smaller image, less for VQA/OCR to process
+- Example: `screenshot()` or `screenshot(window_title="Calculator")`
+
+**Tier 3 - Full Screen (Automatic Fallback)**
+- Used when window detection fails (rare)
+- Can be explicitly requested with `mode="full_screen"`
+- Captures everything - more context but more noise
+- Example: `screenshot(mode="full_screen")`
+
+**Why This Matters:**
+- Active window screenshots are **cleaner** and **more relevant**
+- OCR/VQA accuracy improves with less background noise
+- Faster processing with smaller, focused images
+- Graceful fallback ensures screenshots never fail
+
+**Best Practices:**
+- Let the default (active window) work - it's usually best
+- Only use `mode="full_screen"` if you need to see multiple windows
+- Use explicit coordinates only for very specific regions
+
 ## Communication Strategy
 
 **IMPORTANT:** All desktop automation tools automatically adjust output based on success to optimize token usage.
@@ -638,7 +710,10 @@ This approach saves tokens on successful operations while providing rich debuggi
 4. **Log discoveries** - `append_to_knowledge_base` for reusable patterns
 5. **Multi-tier fallback** - Try keyboard → accessibility → OCR → VQA
 6. **Focus before OCR** - `desktop_focus_window` before any OCR operation
-7. **Never** - VQA for coordinates, OCR on terminals, skip verification
+7. ⛔ **SECURITY: Never OCR/VQA terminals** - Terminals contain secrets (passwords, API keys, tokens)
+   - Forbidden apps: Terminal.app, iTerm, cmd.exe, PowerShell, VS Code terminal, any shell
+   - Use keyboard shortcuts or accessibility API ONLY for terminal interaction
+8. **Never** - VQA for coordinates, skip verification, automate sensitive authentication
 
 You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
 """
