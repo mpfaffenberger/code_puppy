@@ -33,22 +33,22 @@ shcore = ctypes.windll.shcore
 try:
     # -4 == DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
     user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
-    print("✓ Set DPI awareness: Per-Monitor-V2")
+    print("[OK] Set DPI awareness: Per-Monitor-V2")
     dpi_mode = "Per-Monitor-V2"
 except Exception:
     try:
         # 2 == PROCESS_PER_MONITOR_DPI_AWARE
         shcore.SetProcessDpiAwareness(2)
-        print("✓ Set DPI awareness: Per-Monitor")
+        print("[OK] Set DPI awareness: Per-Monitor")
         dpi_mode = "Per-Monitor"
     except Exception:
         try:
             # Legacy fallback: system DPI aware
             user32.SetProcessDPIAware()
-            print("✓ Set DPI awareness: System DPI Aware")
+            print("[OK] Set DPI awareness: System DPI Aware")
             dpi_mode = "System-Aware"
         except Exception as e:
-            print(f"⚠ Could not set DPI awareness: {e}")
+            print(f"[!] Could not set DPI awareness: {e}")
             dpi_mode = "Unknown"
 
 try:
@@ -111,9 +111,7 @@ except Exception as e:
 
 # Step 2: Get active window
 print("\n[2] Getting Active Window...")
-print("   Make sure your target window (login dialog) is focused!")
-print("   Press Enter when ready...")
-input()
+print("   Capturing currently focused window...")
 
 hwnd = win32gui.GetForegroundWindow()
 if not hwnd:
@@ -224,7 +222,7 @@ print(f"   Window position: {win_pct_x:.1f}% horizontal, {win_pct_y:.1f}% vertic
 
 debug_img.save("windows_debug_grid.png")
 print(f"   Saved: windows_debug_grid.png")
-print(f"   ➜ Check this image - is the RED box around your window?")
+print(f"   -> Check this image - is the RED box around your window?")
 
 # Step 8: Capture just the window
 print("\n[8] Capturing Window Region...")
@@ -236,7 +234,7 @@ try:
     window_screenshot.save("windows_window_direct.png")
     print(f"   Saved: windows_window_direct.png ({window_screenshot.width}x{window_screenshot.height})")
 except Exception as e:
-    print(f"   ❌ Direct capture failed: {e}")
+    print(f"   [X] Direct capture failed: {e}")
     window_screenshot = None
 
 # Try with DPI scaling if available
@@ -292,15 +290,226 @@ if window_screenshot:
         print("   " + "-"*60)
         
         if text.strip():
-            print(f"\n   ✓ OCR found text!")
+            print(f"\n   [OK] OCR found text!")
         else:
-            print(f"\n   ⚠ OCR found no text (window might be blank or OCR failed)")
+            print(f"\n   [!] OCR found no text (window might be blank or OCR failed)")
     except Exception as e:
-        print(f"   ❌ OCR failed: {e}")
+        print(f"   [X] OCR failed: {e}")
 else:
-    print("   ⚠ Skipping OCR (no window screenshot captured)")
+    print("   [!] Skipping OCR (no window screenshot captured)")
 
-# Step 10: Summary
+# Step 10: Click the "CE" button
+print("\n[10] Testing Click Coordination...")
+print("   Attempting to find and click the 'CE' button on Calculator...")
+
+if window_screenshot:
+    try:
+        # Upscale more aggressively for better button OCR
+        print("   Upscaling screenshot for better button detection...")
+        upscaled_for_buttons = window_screenshot.resize(
+            (window_screenshot.width * 4, window_screenshot.height * 4),
+            Image.Resampling.LANCZOS
+        )
+        
+        # Get detailed OCR data with bounding boxes
+        print("   Running OCR to find button positions...")
+        ocr_data = pytesseract.image_to_data(upscaled_for_buttons, output_type=pytesseract.Output.DICT)
+        
+        # Find the "CE" button
+        button_found = False
+        for i, text in enumerate(ocr_data['text']):
+            if text.strip() == 'CE':
+                # Get bounding box relative to upscaled screenshot (4x)
+                box_x = ocr_data['left'][i]
+                box_y = ocr_data['top'][i]
+                box_w = ocr_data['width'][i]
+                box_h = ocr_data['height'][i]
+                
+                # Scale back down to original window coordinates
+                box_x = box_x // 4
+                box_y = box_y // 4
+                box_w = box_w // 4
+                box_h = box_h // 4
+                
+                # Calculate center of the "8" button (relative to window)
+                button_center_x = box_x + box_w // 2
+                button_center_y = box_y + box_h // 2
+                
+                # Convert to screen coordinates
+                screen_click_x = x + button_center_x
+                screen_click_y = y + button_center_y
+                
+                print(f"   Found 'CE' button in window screenshot:")
+                print(f"      Window-relative position: ({box_x}, {box_y}) size {box_w}x{box_h}")
+                print(f"      Button center (window): ({button_center_x}, {button_center_y})")
+                print(f"      Button center (screen): ({screen_click_x}, {screen_click_y})")
+                
+                # Draw the OCR-found button position on debug grid
+                print(f"   Drawing BLUE box on debug grid at OCR-found 'CE' button position...")
+                
+                # Reload debug grid image to add the button marker
+                debug_with_button = Image.open("windows_debug_grid.png")
+                draw_button = ImageDraw.Draw(debug_with_button)
+                
+                # Draw box at the OCR-found position (screen coordinates)
+                draw_button.rectangle(
+                    [(screen_click_x - box_w//2, screen_click_y - box_h//2),
+                     (screen_click_x + box_w//2, screen_click_y + box_h//2)],
+                    outline="blue",
+                    width=3
+                )
+                
+                # Draw crosshair at click point
+                crosshair_size = 15
+                draw_button.line(
+                    [(screen_click_x - crosshair_size, screen_click_y), 
+                     (screen_click_x + crosshair_size, screen_click_y)],
+                    fill="blue",
+                    width=2
+                )
+                draw_button.line(
+                    [(screen_click_x, screen_click_y - crosshair_size), 
+                     (screen_click_x, screen_click_y + crosshair_size)],
+                    fill="blue",
+                    width=2
+                )
+                
+                # Add label
+                try:
+                    font = ImageFont.truetype("arial.ttf", 20)
+                except:
+                    font = None
+                draw_button.text(
+                    (screen_click_x + 5, screen_click_y - 25),
+                    "OCR 'CE' click",
+                    fill="blue",
+                    font=font
+                )
+                
+                debug_with_button.save("windows_debug_with_click.png")
+                print(f"   Saved: windows_debug_with_click.png (BLUE = OCR-found 'CE' position)")
+                
+                # Bring Calculator to foreground
+                import win32gui
+                win32gui.SetForegroundWindow(hwnd)
+                
+                # Small delay to ensure window is focused
+                import time
+                time.sleep(0.2)
+                
+                # Click the button!
+                print(f"\n   Clicking at screen coordinates ({screen_click_x}, {screen_click_y})...")
+                pyautogui.click(screen_click_x, screen_click_y)
+                
+                print(f"   [OK] Click executed! Check if Calculator display was cleared (CE button).")
+                button_found = True
+                break
+        
+        if not button_found:
+            print(f"   [!] Could not find 'CE' button via OCR")
+            print(f"   Available text elements: {[t for t in ocr_data['text'] if t.strip()]}")
+            
+            # Fallback: Estimate button position based on typical calculator layout
+            print(f"\n   Trying fallback: Estimating 'CE' button position based on layout...")
+            
+            # Windows Calculator Standard mode has buttons in lower ~60% of window
+            # Button grid is roughly centered horizontally
+            # "8" is in row 2 (from bottom), column 2 (center)
+            
+            # CE button is in the top row of the number pad area
+            # Typically at around 40% down from top, second column
+            button_grid_top = int(window_screenshot.height * 0.35)
+            
+            # CE is in the top row of calculator buttons
+            # Row is at about 35-40% down the window
+            ce_y = button_grid_top
+            
+            # CE is typically in column 2 (of 4 columns: %, CE, C, backspace)
+            col_width = window_screenshot.width // 4
+            ce_x = col_width * 1.5  # Column 2
+            
+            # Calculate estimated button center
+            est_button_x = int(ce_x)
+            est_button_y = int(ce_y)
+            
+            # Convert to screen coordinates
+            est_screen_x = x + est_button_x
+            est_screen_y = y + est_button_y
+            
+            print(f"   Estimated 'CE' button position (window): ({est_button_x}, {est_button_y})")
+            print(f"   Estimated 'CE' button position (screen): ({est_screen_x}, {est_screen_y})")
+            
+            # Draw the estimated button position on debug grid for visualization
+            print(f"   Drawing GREEN crosshair on debug grid at estimated 'CE' button position...")
+            
+            # Reload debug grid image to add the button marker
+            debug_with_button = Image.open("windows_debug_grid.png")
+            draw_button = ImageDraw.Draw(debug_with_button)
+            
+            # Draw a crosshair at the estimated click position
+            crosshair_size = 20
+            # Horizontal line
+            draw_button.line(
+                [(est_screen_x - crosshair_size, est_screen_y), 
+                 (est_screen_x + crosshair_size, est_screen_y)],
+                fill="lime",
+                width=3
+            )
+            # Vertical line
+            draw_button.line(
+                [(est_screen_x, est_screen_y - crosshair_size), 
+                 (est_screen_x, est_screen_y + crosshair_size)],
+                fill="lime",
+                width=3
+            )
+            
+            # Draw a small box around the estimated button area
+            button_box_size = 30
+            draw_button.rectangle(
+                [(est_screen_x - button_box_size, est_screen_y - button_box_size),
+                 (est_screen_x + button_box_size, est_screen_y + button_box_size)],
+                outline="lime",
+                width=3
+            )
+            
+            # Add label
+            try:
+                font = ImageFont.truetype("arial.ttf", 20)
+            except:
+                font = None
+            draw_button.text(
+                (est_screen_x + 5, est_screen_y - 25),
+                "Est. 'CE' click",
+                fill="lime",
+                font=font
+            )
+            
+            debug_with_button.save("windows_debug_with_click.png")
+            print(f"   Saved: windows_debug_with_click.png (GREEN = estimated click position)")
+            
+            # Bring Calculator to foreground
+            import win32gui
+            win32gui.SetForegroundWindow(hwnd)
+            
+            # Small delay
+            import time
+            time.sleep(0.2)
+            
+            # Click!
+            print(f"\n   Clicking at screen coordinates ({est_screen_x}, {est_screen_y})...")
+            pyautogui.click(est_screen_x, est_screen_y)
+            
+            print(f"   [OK] Click executed! Check if Calculator display was cleared (CE button).")
+            button_found = True
+            
+    except Exception as e:
+        print(f"   [X] Click test failed: {e}")
+        import traceback
+        traceback.print_exc()
+else:
+    print("   [!] No window screenshot available for click test")
+
+# Step 11: Summary
 print("\n" + "="*70)
 print("SUMMARY")
 print("="*70)
@@ -311,43 +520,44 @@ print(f"Screen size (Win32): {screen_width}x{screen_height}")
 print(f"Screen size (pyautogui): {pyautogui_size.width}x{pyautogui_size.height}")
 print(f"Screenshot size: {full_screen.width}x{full_screen.height}")
 
-print("\n📁 Generated Files:")
+print("\nGenerated Files:")
 print("   - windows_fullscreen.png (full screen capture)")
 print("   - windows_debug_grid.png (grid with RED box showing Win32 coords)")
+print("   - windows_debug_with_click.png (RED=window, GREEN/BLUE=click target)")
 print("   - windows_window_direct.png (window capture using Win32 coords directly)")
 if window_scaling != 1.0:
     print("   - windows_window_scaled_down.png (window capture ÷ DPI scaling)")
     print("   - windows_window_scaled_up.png (window capture × DPI scaling)")
 
-print("\n🎯 VALIDATION:")
+print("\nVALIDATION:")
 if dpi_mode == "Per-Monitor-V2":
-    print("   ✅ DPI awareness is Per-Monitor-V2")
-    print("   ✅ GetWindowRect should return PHYSICAL pixels")
-    print("   ✅ pyautogui.screenshot() should use PHYSICAL pixels")
-    print("   ✅ NO coordinate conversion needed!")
+    print("   [OK] DPI awareness is Per-Monitor-V2")
+    print("   [OK] GetWindowRect should return PHYSICAL pixels")
+    print("   [OK] pyautogui.screenshot() should use PHYSICAL pixels")
+    print("   [OK] NO coordinate conversion needed!")
     print("")
     print("   Expected result:")
     print("   - RED box should be EXACTLY on your window")
     print("   - windows_window_direct.png should show ONLY your window")
 elif dpi_mode == "System-Aware":
-    print("   ⚠ DPI awareness is System-Aware")
-    print("   ⚠ This may cause issues on multi-monitor setups")
-    print("   ⚠ GetWindowRect returns DPI-virtualized coordinates")
-    print("   ⚠ pyautogui may use different coordinate system")
+    print("   [!] DPI awareness is System-Aware")
+    print("   [!] This may cause issues on multi-monitor setups")
+    print("   [!] GetWindowRect returns DPI-virtualized coordinates")
+    print("   [!] pyautogui may use different coordinate system")
     print("")
     print("   If screenshots are wrong, you may need coordinate conversion!")
 else:
-    print("   ⚠ DPI awareness is unknown or not set properly")
-    print("   ⚠ Coordinate mismatches are likely!")
+    print("   [!] DPI awareness is unknown or not set properly")
+    print("   [!] Coordinate mismatches are likely!")
 
-print("\n📋 NEXT STEPS:")
+print("\nNEXT STEPS:")
 print("   1. Open windows_debug_grid.png")
 print("   2. Check if the RED box is around your window")
 print("   3. Open windows_window_direct.png")
 print("   4. Check if it shows your window correctly")
 print("")
-print("   ✅ If both are correct → Windows coordinate handling is WORKING!")
-print("   ❌ If RED box is wrong → GetWindowRect coordinate issue")
-print("   ❌ If screenshot is wrong → pyautogui coordinate issue")
+print("   [OK] If both are correct -> Windows coordinate handling is WORKING!")
+print("   [X] If RED box is wrong -> GetWindowRect coordinate issue")
+print("   [X] If screenshot is wrong -> pyautogui coordinate issue")
 print("")
 print("="*70)
