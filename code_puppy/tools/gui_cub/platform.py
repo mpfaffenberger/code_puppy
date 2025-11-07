@@ -8,17 +8,15 @@ from typing import Callable
 
 
 class Platform(Enum):
-    """Supported platforms for desktop automation automation."""
+    """Supported platforms for desktop automation (Windows/macOS only)."""
 
     MACOS = "darwin"
     WINDOWS = "win32"
-    LINUX = "linux"
 
 
-# Platform detection constants
+# Platform detection constants (Windows/macOS only)
 IS_MACOS = sys.platform == "darwin"
 IS_WINDOWS = sys.platform == "win32"
-IS_LINUX = sys.platform == "linux"
 CURRENT_PLATFORM = sys.platform
 
 # Windows DPI awareness initialization
@@ -118,16 +116,14 @@ def get_platform_display_name() -> str:
     """Get human-readable platform name.
 
     Returns:
-        Platform display name (e.g., 'macOS', 'Windows', 'Linux')
+        Platform display name (e.g., 'macOS', 'Windows')
     """
     if IS_MACOS:
         return "macOS"
     elif IS_WINDOWS:
         return "Windows"
-    elif IS_LINUX:
-        return "Linux"
     else:
-        return "Unknown"
+        return "Unsupported"
 
 
 # Cache for scale factor (avoids repeated screenshot calculations)

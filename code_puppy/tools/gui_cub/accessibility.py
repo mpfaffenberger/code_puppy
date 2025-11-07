@@ -25,11 +25,13 @@ from code_puppy.tools.common import generate_group_id
 
 from .constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP
 from .fuzzy_matching import fuzzy_match, explain_match
+from .performance_monitor import get_monitor
 from .result_types import (
     ElementClickResult,
     ElementInfo,
     ElementListResult,
     ElementSearchResult,
+    WindowFocusResult,
     WindowListResult,
 )
 
@@ -104,17 +106,21 @@ def find_accessible_element(
     title: str | None = None,
     in_frontmost_app: bool = True,
     fuzzy: bool = True,
-    fuzzy_threshold: float = 0.6,
+    fuzzy_threshold: float = 0.65,
+    early_stop_threshold: float = 0.85,
 ) -> ElementSearchResult:
     """
     Find a UI element using macOS Accessibility API via atomacos with fuzzy matching.
+
+    OPTIMIZED: Now includes early-stop logic and performance monitoring.
 
     Args:
         role: Element role (e.g., 'AXButton', 'AXTextField', 'AXStaticText')
         title: Element title/name to search for (supports fuzzy matching!)
         in_frontmost_app: Search only in frontmost app (True) or system-wide (False)
         fuzzy: Enable fuzzy matching for title (default: True)
-        fuzzy_threshold: Minimum similarity score for fuzzy matches (0.0-1.0, default: 0.6)
+        fuzzy_threshold: Minimum similarity score for fuzzy matches (0.0-1.0, default: 0.65)
+        early_stop_threshold: Score threshold for early-stop optimization (default: 0.85)
 
     Returns:
         ElementSearchResult with element info including exact position
@@ -127,6 +133,7 @@ def find_accessible_element(
     if not ACCESSIBILITY_AVAILABLE:
         return ElementSearchResult(success=False, error=ERROR_ATOMACOS_MISSING)
 
+    monitor = get_monitor()
     group_id = generate_group_id("find_accessible_element", f"{role}_{title}")
     emit_info(
         f"[bold white on blue] FIND ACCESSIBLE ELEMENT [/bold white on blue] 🔍 role={role} title='{title}' fuzzy={fuzzy}",
@@ -199,14 +206,26 @@ def find_accessible_element(
                     continue
 
             # Perform fuzzy matching on title, description, and value
-            fuzzy_matches = fuzzy_match(
-                search_text=title,
-                candidates=element_dicts,
-                attribute_names=["title", "description", "value"],
-                threshold=fuzzy_threshold,
-            )
+            with monitor.measure("find_element_fuzzy_search"):
+                fuzzy_matches = fuzzy_match(
+                    search_text=title,
+                    candidates=element_dicts,
+                    attribute_names=["title", "description", "value"],
+                    threshold=fuzzy_threshold,
+                )
 
             if fuzzy_matches:
+                # OPTIMIZATION: Early-stop on confident match
+                top_score = fuzzy_matches[0][1] if fuzzy_matches else 0.0
+                if top_score > early_stop_threshold:
+                    monitor.record_early_stop()
+                    emit_info(
+                        f"[green]✓ Early stop - confident match (score: {top_score:.2f} > {early_stop_threshold})[/green]",
+                        message_group=group_id,
+                    )
+                else:
+                    monitor.record_full_search()
+
                 emit_info(
                     f"[green]Found {len(fuzzy_matches)} fuzzy match(es)[/green]",
                     message_group=group_id,
@@ -370,8 +389,11 @@ def list_accessible_elements(
 def _build_element_tree(app_ref, max_depth: int = 5) -> list[dict[str, Any]]:
     """Traverse the accessibility tree for the frontmost app and build a list of nodes.
 
+    OPTIMIZED: Now includes performance monitoring.
+
     Each node contains: type(role), title, description, depth. This mirrors Windows parity.
     """
+    monitor = get_monitor()
     nodes: list[dict[str, Any]] = []
 
     def safe_children(elem):
@@ -401,41 +423,77 @@ def _build_element_tree(app_ref, max_depth: int = 5) -> list[dict[str, Any]]:
             return
 
     try:
-        root = app_ref.AXFocusedWindow or app_ref
-        traverse(root, 0)
+        with monitor.measure("build_element_tree"):
+            root = app_ref.AXFocusedWindow or app_ref
+            traverse(root, 0)
     except Exception:
         pass
 
     return nodes
 
 
-def _list_macos_windows() -> list[dict[str, Any]]:
-    """List visible windows on macOS using Quartz APIs."""
+def _list_macos_windows(include_minimized: bool = False) -> list[dict[str, Any]]:
+    """List windows on macOS using Quartz APIs and NSWorkspace.
+
+    Args:
+        include_minimized: If True, include minimized windows with minimized=True flag
+
+    Returns:
+        List of window dicts with owner, title, bounds, and minimized status
+    """
     try:
+        from AppKit import NSWorkspace
         from Quartz import (
             CGWindowListCopyWindowInfo,
             kCGWindowListOptionOnScreenOnly,
+            kCGWindowListOptionAll,
             kCGNullWindowID,
         )  # type: ignore
     except Exception:
         return []
 
-    windows = (
-        CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
-        or []
+    # Get window list (on-screen or all based on flag)
+    option = (
+        kCGWindowListOptionAll if include_minimized else kCGWindowListOptionOnScreenOnly
     )
+    windows = CGWindowListCopyWindowInfo(option, kCGNullWindowID) or []
+
+    # Get running apps to check minimized state
+    workspace = NSWorkspace.sharedWorkspace()
+    running_apps = workspace.runningApplications()
+    app_states = {}
+
+    for app in running_apps:
+        app_name = app.localizedName()
+        # Check if app is hidden (minimized to dock)
+        app_states[app_name] = {
+            "hidden": app.isHidden(),
+            "pid": app.processIdentifier(),
+        }
+
     out: list[dict[str, Any]] = []
     for win in windows:
         try:
             layer = win.get("kCGWindowLayer", 0)
             if layer != 0:
                 continue  # Skip non-app windows (status bar, etc.)
+
             owner = win.get("kCGWindowOwnerName")
             title = win.get("kCGWindowName")
             bounds = win.get("kCGWindowBounds", {})
+            alpha = win.get("kCGWindowAlpha", 1.0)
+
+            # Determine if window is minimized
+            minimized = False
+            if owner and owner in app_states:
+                # Window is minimized if app is hidden OR window has 0 alpha
+                minimized = app_states[owner]["hidden"] or alpha == 0
+
+            # Skip minimized windows unless requested
+            if minimized and not include_minimized:
+                continue
 
             # Convert bounds to plain dict for JSON serialization
-            # macOS returns __NSDictionaryI which isn't JSON serializable
             bounds_dict = {
                 "x": int(bounds.get("X", 0)),
                 "y": int(bounds.get("Y", 0)),
@@ -448,6 +506,7 @@ def _list_macos_windows() -> list[dict[str, Any]]:
                     "owner": owner,
                     "title": title,
                     "bounds": bounds_dict,
+                    "minimized": minimized,
                 }
             )
         except Exception:
@@ -630,24 +689,195 @@ def register_accessibility_tools(agent):
     """Register accessibility API tools for macOS."""
 
     @agent.tool
-    def desktop_list_windows(context: RunContext) -> WindowListResult:
+    def desktop_list_windows(
+        context: RunContext, include_minimized: bool = False
+    ) -> WindowListResult:
         """
-        List visible application windows on macOS using Quartz APIs.
+        List application windows on macOS using Quartz APIs.
 
-        Returns a WindowListResult with windows containing owner(name), title, and bounds.
+        Args:
+            include_minimized: If True, include minimized/hidden windows with minimized=True flag
+
+        Returns:
+            WindowListResult with windows containing owner(name), title, bounds, and minimized status.
 
         Note: macOS only.
         """
         if not ACCESSIBILITY_AVAILABLE:
             return WindowListResult(success=False, error=ERROR_ATOMACOS_MISSING)
 
-        group_id = generate_group_id("desktop_list_windows", "all")
+        group_id = generate_group_id("desktop_list_windows", str(include_minimized))
         emit_info(
-            "[bold white on blue] MAC LIST WINDOWS [/bold white on blue] 🪟",
+            f"[bold white on blue] MAC LIST WINDOWS [/bold white on blue] 🪟 (minimized={include_minimized})",
             message_group=group_id,
         )
-        wins = _list_macos_windows()
+        wins = _list_macos_windows(include_minimized=include_minimized)
+        minimized_count = sum(1 for w in wins if w.get("minimized", False))
+        emit_info(
+            f"[green]Found {len(wins)} windows ({minimized_count} minimized)[/green]",
+            message_group=group_id,
+        )
         return WindowListResult(success=True, count=len(wins), windows=wins)
+
+    @agent.tool
+    def desktop_un_minimize_window(
+        context: RunContext, app_name: str
+    ) -> WindowFocusResult:
+        """
+        Un-minimize (restore) a minimized window by application name.
+
+        This brings a minimized window back from the dock/taskbar.
+
+        Args:
+            app_name: Application name (e.g., "Spotify", "Mail", "Calculator")
+
+        Returns:
+            WindowFocusResult indicating success or failure
+
+        Note: macOS only.
+        """
+        if not ACCESSIBILITY_AVAILABLE:
+            return WindowFocusResult(success=False, error=ERROR_ATOMACOS_MISSING)
+
+        group_id = generate_group_id("desktop_un_minimize", app_name)
+        emit_info(
+            f"[bold white on blue] UN-MINIMIZE WINDOW [/bold white on blue] ↗️ {app_name}",
+            message_group=group_id,
+        )
+
+        try:
+            from AppKit import NSWorkspace, NSApplicationActivateIgnoringOtherApps
+
+            workspace = NSWorkspace.sharedWorkspace()
+            running_apps = workspace.runningApplications()
+
+            # Find app by name
+            target_app = None
+            for app in running_apps:
+                if app.localizedName() == app_name:
+                    target_app = app
+                    break
+
+            if not target_app:
+                emit_info(
+                    f"[yellow]App '{app_name}' not found or not running[/yellow]",
+                    message_group=group_id,
+                )
+                return WindowFocusResult(
+                    success=False,
+                    error=f"Application '{app_name}' not found or not running",
+                    message=f"Could not find running app: {app_name}",
+                )
+
+            # Unhide the app (this un-minimizes it)
+            target_app.unhide()
+
+            # Activate the app to bring it to front
+            target_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+
+            emit_info(
+                f"[green]✅ Un-minimized {app_name}[/green]",
+                message_group=group_id,
+            )
+
+            return WindowFocusResult(
+                success=True,
+                message=f"Un-minimized {app_name}",
+                window_title=app_name,
+            )
+
+        except Exception as e:
+            emit_info(
+                f"[red]❌ Failed to un-minimize: {e}[/red]",
+                message_group=group_id,
+            )
+            return WindowFocusResult(
+                success=False,
+                error=f"Failed to un-minimize {app_name}: {e}",
+                message=str(e),
+            )
+
+    @agent.tool
+    def desktop_list_dock_apps(context: RunContext) -> WindowListResult:
+        """
+        List all applications currently in the macOS Dock.
+
+        Returns apps with their running status, hidden (minimized) state, and app name.
+
+        Returns:
+            WindowListResult with list of dock apps and their states
+
+        Note: macOS only.
+        """
+        if not ACCESSIBILITY_AVAILABLE:
+            return WindowListResult(success=False, error=ERROR_ATOMACOS_MISSING)
+
+        group_id = generate_group_id("desktop_list_dock_apps")
+        emit_info(
+            "[bold white on blue] DOCK APPS [/bold white on blue] 📦",
+            message_group=group_id,
+        )
+
+        try:
+            from AppKit import NSWorkspace
+
+            workspace = NSWorkspace.sharedWorkspace()
+            running_apps = workspace.runningApplications()
+
+            dock_apps = []
+            for app in running_apps:
+                app_name = app.localizedName()
+                is_hidden = app.isHidden()
+                is_active = app.isActive()
+
+                dock_apps.append(
+                    {
+                        "app_name": app_name,
+                        "running": True,  # Only running apps are in this list
+                        "hidden": is_hidden,  # Minimized/hidden
+                        "active": is_active,  # Currently frontmost
+                        "pid": app.processIdentifier(),
+                    }
+                )
+
+            emit_info(
+                f"[green]Found {len(dock_apps)} running apps ({sum(1 for a in dock_apps if a['hidden'])} hidden)[/green]",
+                message_group=group_id,
+            )
+
+            return WindowListResult(
+                success=True,
+                count=len(dock_apps),
+                windows=dock_apps,  # Reusing windows field for dock apps
+            )
+
+        except Exception as e:
+            emit_info(
+                f"[red]❌ Failed to list dock apps: {e}[/red]",
+                message_group=group_id,
+            )
+            return WindowListResult(
+                success=False,
+                error=f"Failed to list dock apps: {e}",
+            )
+
+    @agent.tool
+    def desktop_click_dock_app(context: RunContext, app_name: str) -> WindowFocusResult:
+        """
+        Click on a dock icon to activate/un-minimize an application.
+
+        This is useful for bringing minimized windows back to front.
+
+        Args:
+            app_name: Application name to click in dock (e.g., "Spotify", "Mail")
+
+        Returns:
+            WindowFocusResult indicating success
+
+        Note: macOS only. This calls desktop_un_minimize_window internally.
+        """
+        # This is effectively the same as un-minimizing, so we delegate
+        return desktop_un_minimize_window(context, app_name)
 
     @agent.tool
     def desktop_list_accessible_tree(
@@ -796,7 +1026,7 @@ def register_accessibility_tools(agent):
         title: str | None = None,
         in_frontmost_app: bool = True,
         fuzzy: bool = True,
-        fuzzy_threshold: float = 0.6,
+        fuzzy_threshold: float = 0.65,
     ) -> ElementClickResult:
         """
         Find and click a UI element using Accessibility API with FUZZY MATCHING (MOST ACCURATE!).
@@ -918,7 +1148,7 @@ def register_accessibility_tools(agent):
         title: str | None = None,
         in_frontmost_app: bool = True,
         fuzzy: bool = True,
-        fuzzy_threshold: float = 0.6,
+        fuzzy_threshold: float = 0.65,
     ) -> ElementSearchResult:
         """
         Get the AXValue (text/value) of an accessible element using fuzzy matching.
@@ -970,3 +1200,20 @@ def register_accessibility_tools(agent):
             return result
         except Exception:
             return result
+
+    @agent.tool
+    def desktop_show_performance_summary(context: RunContext) -> dict[str, Any]:
+        """
+        Display GUI automation performance metrics.
+
+        Shows:
+        - Operation timings (avg, min, max)
+        - Cache hit/miss rates
+        - Early-stop optimization stats
+
+        Returns:
+            Dictionary with performance summary
+        """
+        monitor = get_monitor()
+        monitor.report(show_details=True)
+        return monitor.get_summary()

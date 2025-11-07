@@ -23,7 +23,7 @@ ERROR_APPKIT_MISSING = (
 # Platform-specific error messages
 ERROR_MACOS_ONLY = "This tool is only available on macOS"
 ERROR_WINDOWS_ONLY = "This tool is only available on Windows"
-ERROR_LINUX_ONLY = "This tool is only available on Linux"
+
 
 # Common error messages
 ERROR_FAILSAFE_TRIGGERED = "FAILSAFE triggered - mouse moved to screen corner"

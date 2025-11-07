@@ -76,7 +76,7 @@ class OCRResult(BaseModel):
     )
     full_text: str = Field(default="", description="All recognized text as a string")
     provider: str = Field(
-        description="Name of OCR provider used (e.g. 'winrt', 'vision', 'tesseract')"
+        description="Name of OCR provider used (e.g. 'winrt', 'vision')"
     )
     error: Optional[str] = Field(
         default=None, description="Error message if operation failed"

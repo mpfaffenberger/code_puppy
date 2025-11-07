@@ -20,7 +20,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_warning
 
 from .constants import DEFAULT_MOUSE_DURATION
-from .platform import IS_MACOS, check_macos_accessibility_permission
+from .platform import IS_MACOS, IS_WINDOWS, check_macos_accessibility_permission
 from .result_types import (
     MouseActionResult,
     MouseDragResult,
@@ -28,6 +28,17 @@ from .result_types import (
     MouseScrollResult,
 )
 from .tool_wrapper import desktop_tool
+
+# Platform-specific scroll distance calibration (pixels per scroll click)
+# These are approximate values based on default OS settings
+SCROLL_PIXELS_PER_CLICK = 20  # macOS: ~15-25, Windows: ~15-25
+if IS_MACOS:
+    SCROLL_PIXELS_PER_CLICK = 22  # macOS tends to scroll slightly more
+elif IS_WINDOWS:
+    SCROLL_PIXELS_PER_CLICK = 18  # Windows tends to scroll slightly less
+
+# Delay for content rendering after scroll (macOS needs more due to animations)
+SCROLL_DELAY = 0.08 if IS_MACOS else 0.05
 
 
 def register_mouse_control_tools(agent):
@@ -213,6 +224,217 @@ def register_mouse_control_tools(agent):
         return MouseScrollResult(success=True, clicks=clicks, direction=direction)
 
     @agent.tool
+    @desktop_tool("SCROLL INTO VIEW", requires="pyautogui")
+    def desktop_scroll_to_position(
+        context: RunContext,
+        target_y: int,
+        x: int | None = None,
+        scroll_amount: int = 3,
+        max_scrolls: int = 50,
+    ) -> MouseScrollResult:
+        """
+        Scroll the page/window until a target Y position is visible on screen.
+
+        This is useful for scrolling to elements in long forms or pages.
+        Similar to scrollIntoView() in browsers.
+
+        Args:
+            target_y: Target Y coordinate to bring into view
+            x: X coordinate to scroll at (if None, uses center of screen)
+            scroll_amount: Clicks per scroll action (default: 3)
+            max_scrolls: Maximum scroll attempts to prevent infinite loops (default: 50)
+
+        Returns:
+            MouseScrollResult with success status
+
+        Examples:
+            - desktop_scroll_to_position(target_y=1500) - Scroll down to y=1500
+            - desktop_scroll_to_position(target_y=100, scroll_amount=5) - Scroll up with larger steps
+
+        Note: Cross-platform (macOS & Windows). Scroll distance auto-calibrated per platform.
+        """
+        import time
+
+        # Get screen dimensions
+        screen_width, screen_height = pyautogui.size()
+
+        # Use center X if not specified
+        if x is None:
+            x = screen_width // 2
+
+        # Determine if we need to scroll up or down
+        if target_y < 0:
+            # Target is above screen, scroll up
+            direction = 1  # Positive = up
+        elif target_y > screen_height:
+            # Target is below screen, scroll down
+            direction = -1  # Negative = down
+        else:
+            # Target already visible
+            return MouseScrollResult(
+                success=True,
+                clicks=0,
+                direction="none",
+                message=f"Target y={target_y} already visible",
+            )
+
+        # Scroll until target is visible or max_scrolls reached
+        total_clicks = 0
+        for i in range(max_scrolls):
+            # Scroll
+            pyautogui.scroll(direction * scroll_amount, x=x, y=screen_height // 2)
+            total_clicks += scroll_amount
+            time.sleep(SCROLL_DELAY)  # Small delay for content to render
+
+            # Check if we've scrolled enough
+            # (This is approximate - actual scroll distance varies by application)
+            estimated_scroll = total_clicks * SCROLL_PIXELS_PER_CLICK
+
+            if direction == -1:  # Scrolling down
+                if estimated_scroll >= (target_y - screen_height):
+                    break
+            else:  # Scrolling up
+                if estimated_scroll >= abs(target_y):
+                    break
+
+        direction_str = "up" if direction > 0 else "down"
+        return MouseScrollResult(
+            success=True,
+            clicks=total_clicks,
+            direction=direction_str,
+            message=f"Scrolled {direction_str} {total_clicks} clicks to reach y={target_y}",
+        )
+
+    @agent.tool
+    @desktop_tool("SCROLL TO ELEMENT", requires="pyautogui")
+    def desktop_scroll_element_into_view(
+        context: RunContext,
+        element_y: int,
+        element_height: int = 0,
+        padding: int = 100,
+        x: int | None = None,
+        scroll_amount: int = 3,
+    ) -> MouseScrollResult:
+        """
+        Scroll an element into view (like scrollIntoView in browsers).
+
+        This scrolls the page so the element is visible with some padding.
+
+        Args:
+            element_y: Y coordinate of the element's top edge
+            element_height: Height of the element (default: 0)
+            padding: Pixels of padding to keep above/below element (default: 100)
+            x: X coordinate to scroll at (if None, uses center)
+            scroll_amount: Clicks per scroll action (default: 3)
+
+        Returns:
+            MouseScrollResult with success status
+
+        Examples:
+            - desktop_scroll_element_into_view(element_y=1500)
+            - desktop_scroll_element_into_view(element_y=2000, element_height=50, padding=150)
+
+        Use case: After finding an element with desktop_find_accessible_element,
+        scroll it into view before clicking.
+
+        Note: Cross-platform (macOS & Windows). Works with any scrollable window.
+        """
+        # Get screen dimensions
+        screen_width, screen_height = pyautogui.size()
+
+        # Use center X if not specified
+        if x is None:
+            x = screen_width // 2
+
+        # Check if element is already visible
+        visible_top = padding
+        visible_bottom = screen_height - padding
+
+        if visible_top <= element_y <= visible_bottom:
+            # Element already visible
+            return MouseScrollResult(
+                success=True,
+                clicks=0,
+                direction="none",
+                message=f"Element at y={element_y} already visible",
+            )
+
+        # Determine scroll direction and amount
+        if element_y < visible_top:
+            # Element is above visible area - scroll up
+            direction = 1  # Positive = up
+            clicks_needed = (visible_top - element_y) // SCROLL_PIXELS_PER_CLICK
+        else:
+            # Element is below visible area - scroll down
+            direction = -1  # Negative = down
+            clicks_needed = (element_y - visible_bottom) // SCROLL_PIXELS_PER_CLICK
+
+        # Clamp to reasonable values
+        clicks_needed = min(max(clicks_needed, 1), 100)
+
+        # Perform scroll
+        total_clicks = 0
+        for i in range(0, clicks_needed, scroll_amount):
+            pyautogui.scroll(direction * scroll_amount, x=x, y=screen_height // 2)
+            total_clicks += scroll_amount
+            import time
+
+            time.sleep(SCROLL_DELAY)  # Small delay for rendering
+
+        direction_str = "up" if direction > 0 else "down"
+        return MouseScrollResult(
+            success=True,
+            clicks=total_clicks,
+            direction=direction_str,
+            message=f"Scrolled element at y={element_y} into view",
+        )
+
+    @agent.tool
+    @desktop_tool("SCROLL PAGE", requires="pyautogui")
+    def desktop_scroll_page(
+        context: RunContext,
+        direction: Literal["up", "down", "page_up", "page_down"] = "down",
+        pages: int = 1,
+    ) -> MouseScrollResult:
+        """
+        Scroll by pages (like Page Up/Page Down keys).
+
+        This performs large scrolls suitable for navigating long documents.
+
+        Args:
+            direction: Scroll direction - "up", "down", "page_up", "page_down"
+            pages: Number of pages to scroll (default: 1)
+
+        Returns:
+            MouseScrollResult with success status
+
+        Examples:
+            - desktop_scroll_page(direction="down", pages=1) - Scroll down one page
+            - desktop_scroll_page(direction="page_up", pages=2) - Scroll up two pages
+            - desktop_scroll_page(direction="down", pages=5) - Scroll down 5 pages quickly
+
+        Note: One "page" is approximately 10 scroll clicks
+        """
+        # Map direction to clicks
+        clicks_per_page = 10
+
+        if direction in ["down", "page_down"]:
+            total_clicks = -clicks_per_page * pages  # Negative = down
+        else:  # up or page_up
+            total_clicks = clicks_per_page * pages  # Positive = up
+
+        # Perform scroll
+        pyautogui.scroll(total_clicks)
+
+        direction_str = "up" if total_clicks > 0 else "down"
+        return MouseScrollResult(
+            success=True,
+            clicks=abs(total_clicks),
+            direction=direction_str,
+            message=f"Scrolled {pages} page(s) {direction_str}",
+        )
+
+    @agent.tool
     def desktop_mouse_get_position(context: RunContext) -> MousePositionResult:
         """
         Get the current mouse cursor position.
@@ -281,7 +503,7 @@ def register_mouse_control_tools(agent):
             else:
                 result["status"] = "All permissions granted! ✅"
         else:
-            # For Windows/Linux, just check if basic operations work
+            # For Windows, just check if basic operations work
             try:
                 pyautogui.position()
                 result["has_permission"] = True

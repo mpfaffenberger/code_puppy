@@ -72,7 +72,7 @@ def register_multi_strategy_click_tools(agent):
         **TIER 1: Accessibility API** (±1px accuracy)
         - macOS: Uses atomacos with fuzzy matching
         - Windows: Uses UI Automation
-        - Linux: Skipped (not implemented)
+
 
         **TIER 2: OCR with Smart Offset** (±5-10px accuracy)
         - Uses desktop_find_text_reliable() with confidence filtering

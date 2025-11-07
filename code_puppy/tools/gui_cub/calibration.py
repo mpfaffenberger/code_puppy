@@ -3,7 +3,7 @@
 Runs on first use (like QA-Kitten downloading Camoufox) to detect:
 - Platform (OS, version, architecture)
 - Displays (all monitors, resolutions, DPI, scaling)
-- Libraries (atomacos, pywinauto, pytesseract, opencv)
+- Libraries (atomacos, pywinauto, opencv)
 - Performance (screenshot, mouse, keyboard latencies)
 - Permissions (accessibility, screen recording on macOS)
 """
@@ -12,7 +12,6 @@ import os
 import platform
 import subprocess
 import sys
-import time
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -195,13 +194,12 @@ def _update_system_path_registry(path_to_add: str) -> tuple[bool, str]:
 
 
 def detect_platform() -> Dict[str, Any]:
-    """Detect OS platform information."""
+    """Detect OS platform information (Windows/macOS only)."""
     os_name = sys.platform
     os_display = {
         "darwin": "macOS",
         "win32": "Windows",
-        "linux": "Linux",
-    }.get(os_name, os_name)
+    }.get(os_name, "Unsupported")
 
     return {
         "os": os_name,
@@ -234,7 +232,8 @@ def detect_displays() -> Dict[str, Any]:
         elif sys.platform == "win32":
             monitors = _detect_windows_monitors()
         else:
-            monitors = _detect_linux_monitors()
+            # Unsupported platform - use primary display fallback
+            monitors = []
     except Exception:
         # Fallback to primary display only
         monitors = [
@@ -346,22 +345,6 @@ def _detect_windows_monitors() -> List[Dict[str, Any]]:
         ]
 
 
-def _detect_linux_monitors() -> List[Dict[str, Any]]:
-    """Detect monitors on Linux (basic support)."""
-    # Linux multi-monitor detection is complex and varies by display server
-    # For now, return primary display only
-    width, height = pyautogui.size()
-    return [
-        {
-            "id": 0,
-            "resolution": [width, height],
-            "scale": 1.0,
-            "primary": True,
-            "bounds": {"x": 0, "y": 0, "width": width, "height": height},
-        }
-    ]
-
-
 def _attempt_install_windows_dependencies() -> bool:
     """Attempt to install Windows-specific dependencies (pywinauto, pywin32).
 
@@ -451,572 +434,19 @@ def _is_admin() -> bool:
         return False  # Assume not admin if check fails
 
 
-def _install_tesseract_portable(group_id: str) -> tuple[bool, bool, bool]:
-    """Install Tesseract as a portable application (no admin required).
-
-    Downloads portable ZIP, extracts to user's AppData, downloads tessdata.
-
-    Args:
-        group_id: Message group ID for logging
-
-    Returns:
-        Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
-    """
-    import os
-    import tempfile
-    import zipfile
-    from pathlib import Path
-
-    from code_puppy.messaging import emit_info, emit_warning
-
-    emit_info(
-        "  • Attempting portable installation (no admin required)...",
-        message_group=group_id,
-    )
-
-    # Determine installation directory in user's AppData
-    install_dir = (
-        Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~/.local")))
-        / "code-puppy"
-        / "tesseract"
-    )
-
-    emit_info(
-        f"  • Install location: {install_dir}",
-        message_group=group_id,
-    )
-
-    try:
-        # Create installation directory
-        install_dir.mkdir(parents=True, exist_ok=True)
-
-        # Download portable Tesseract ZIP (w64 build from UB Mannheim)
-        # Using a specific version that has portable builds
-        tesseract_zip_url = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.5.0/tesseract-5.5.0-w64.zip"
-
-        emit_info(
-            "  • Downloading Tesseract portable...",
-            message_group=group_id,
-        )
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
-            tmp_path = Path(tmp_file.name)
-
-        try:
-            # Download with Walmart fallback
-            download_result = download_with_walmart_fallback(
-                tesseract_zip_url, tmp_path, group_id=group_id
-            )
-
-            if not download_result:
-                emit_warning(
-                    "[yellow]  • Download failed[/yellow]",
-                    message_group=group_id,
-                )
-                return False, False, False
-
-            emit_info(
-                "  • Extracting Tesseract...",
-                message_group=group_id,
-            )
-
-            # Extract ZIP
-            with zipfile.ZipFile(tmp_path, "r") as zip_ref:
-                zip_ref.extractall(install_dir)
-
-            # Find tesseract.exe in extracted files
-            tesseract_exe = None
-            for exe_path in install_dir.rglob("tesseract.exe"):
-                tesseract_exe = exe_path
-                break
-
-            if not tesseract_exe or not tesseract_exe.exists():
-                emit_warning(
-                    "[yellow]  • Could not find tesseract.exe after extraction[/yellow]",
-                    message_group=group_id,
-                )
-                return False, False, False
-
-            emit_info(
-                f"  • Tesseract extracted to: {tesseract_exe.parent}",
-                message_group=group_id,
-            )
-
-            # Download English training data (tessdata)
-            tessdata_dir = tesseract_exe.parent / "tessdata"
-            tessdata_dir.mkdir(exist_ok=True)
-
-            eng_traineddata = tessdata_dir / "eng.traineddata"
-            if not eng_traineddata.exists():
-                emit_info(
-                    "  • Downloading English language data...",
-                    message_group=group_id,
-                )
-
-                tessdata_url = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
-
-                download_result = download_with_walmart_fallback(
-                    tessdata_url, eng_traineddata, group_id=group_id
-                )
-
-                if download_result:
-                    emit_info(
-                        "[green]  • Language data downloaded[/green]",
-                        message_group=group_id,
-                    )
-                else:
-                    emit_warning(
-                        "[yellow]  • Could not download language data (OCR may not work)[/yellow]",
-                        message_group=group_id,
-                    )
-
-            # Add to user PATH (HKEY_CURRENT_USER - no admin needed)
-            bin_dir = str(tesseract_exe.parent)
-            path_success, message = _update_user_path(bin_dir)
-
-            if path_success:
-                emit_info(
-                    "[green]✓ Tesseract installed successfully (portable)[/green]",
-                    message_group=group_id,
-                )
-                emit_info(
-                    f"[green]  • {message}[/green]",
-                    message_group=group_id,
-                )
-
-                # Check if we need restart (PATH update requires new terminal)
-                needs_restart = "Already" not in message
-
-                return True, path_success, needs_restart
-            else:
-                emit_warning(
-                    f"[yellow]  • Could not update PATH: {message}[/yellow]",
-                    message_group=group_id,
-                )
-                emit_info(
-                    f"  • Please manually add to user PATH: {bin_dir}",
-                    message_group=group_id,
-                )
-                return True, False, False  # Installed but PATH failed
-
-        finally:
-            # Clean up temp file
-            if tmp_path.exists():
-                tmp_path.unlink()
-
-    except Exception as e:
-        emit_warning(
-            f"[yellow]  • Portable installation failed: {str(e)[:200]}[/yellow]",
-            message_group=group_id,
-        )
-        return False, False, False
-
-
-def _update_user_path(new_path: str) -> tuple[bool, str]:
-    """Update user PATH (HKEY_CURRENT_USER) - no admin required.
-
-    Args:
-        new_path: Path to add to user PATH
-
-    Returns:
-        Tuple of (success: bool, message: str)
-    """
-    if sys.platform != "win32":
-        return False, "Not Windows"
-
-    try:
-        import winreg
-
-        # Open user environment key (no admin needed)
-        key_path = r"Environment"
-
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE
-        ) as key:
-            # Get current PATH
-            try:
-                current_path, _ = winreg.QueryValueEx(key, "Path")
-            except FileNotFoundError:
-                current_path = ""
-
-            # Check if already in PATH (case-insensitive)
-            path_entries = current_path.split(";") if current_path else []
-            path_entries_lower = [p.lower() for p in path_entries]
-
-            if new_path.lower() in path_entries_lower:
-                return True, "Already in user PATH"
-
-            # Add to PATH
-            if current_path and not current_path.endswith(";"):
-                new_full_path = f"{current_path};{new_path}"
-            elif current_path:
-                new_full_path = f"{current_path}{new_path}"
-            else:
-                new_full_path = new_path
-
-            # Update registry
-            winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_full_path)
-
-            # Broadcast WM_SETTINGCHANGE (optional, may not work without admin)
-            try:
-                import ctypes
-
-                HWND_BROADCAST = 0xFFFF
-                WM_SETTINGCHANGE = 0x1A
-                SMTO_ABORTIFHUNG = 0x0002
-                result = ctypes.c_long()
-                ctypes.windll.user32.SendMessageTimeoutW(
-                    HWND_BROADCAST,
-                    WM_SETTINGCHANGE,
-                    0,
-                    "Environment",
-                    SMTO_ABORTIFHUNG,
-                    5000,
-                    ctypes.byref(result),
-                )
-            except Exception:
-                pass  # Broadcast failed, not critical
-
-            return True, "Added to user PATH (restart terminal to use)"
-
-    except PermissionError:
-        return False, "Access denied (unlikely for user PATH)"
-    except Exception as e:
-        return False, f"Registry error: {str(e)}"
-
-
-def _download_and_install_tesseract(url: str, group_id: str) -> tuple[bool, bool, bool]:
-    """Download and silently install Tesseract from a URL.
-
-    Args:
-        url: Download URL for Tesseract installer
-        group_id: Message group ID for logging
-
-    Returns:
-        Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
-    """
-    import tempfile
-    from pathlib import Path
-
-    from code_puppy.messaging import emit_info, emit_warning
-
-    try:
-        # Check admin rights on Windows
-        if sys.platform == "win32" and not _is_admin():
-            emit_warning(
-                "[yellow]⚠️ Installation requires administrator privileges[/yellow]",
-                message_group=group_id,
-            )
-            emit_info(
-                "  • Please restart PowerShell/Terminal as Administrator",
-                message_group=group_id,
-            )
-            emit_info(
-                "  • Then run: pup",
-                message_group=group_id,
-            )
-            return (
-                False,
-                False,
-                False,
-            )  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
-
-        # Download the installer
-        emit_info(
-            f"  • Downloading from {url}...",
-            message_group=group_id,
-        )
-
-        import urllib.request
-
-        temp_dir = tempfile.gettempdir()
-        installer_path = Path(temp_dir) / "tesseract-installer.exe"
-
-        urllib.request.urlretrieve(url, installer_path)
-
-        emit_info(
-            "  • Download complete, installing...",
-            message_group=group_id,
-        )
-
-        # Run silent installation
-        # /S = silent mode
-        # /D = installation directory (must be last parameter)
-        install_result = subprocess.run(
-            [str(installer_path), "/S", "/D=C:\\Program Files\\Tesseract-OCR"],
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout
-        )
-
-        # Clean up installer
-        try:
-            installer_path.unlink()
-        except Exception:
-            pass
-
-        if install_result.returncode == 0:
-            emit_info(
-                "[green]✅ Tesseract installed successfully[/green]",
-                message_group=group_id,
-            )
-
-            # Add Tesseract to system PATH using Windows registry (no 1024 char limit)
-            tesseract_path = "C:\\Program Files\\Tesseract-OCR"
-            emit_info(
-                "  • Adding Tesseract to system PATH via registry...",
-                message_group=group_id,
-            )
-            emit_info(
-                f"[dim]  • Path to add: {tesseract_path}[/dim]",
-                message_group=group_id,
-            )
-
-            path_success, message = _update_system_path_registry(tesseract_path)
-            needs_restart = False  # Default to no restart needed
-
-            if path_success:
-                if "Already" in message:
-                    emit_info(
-                        f"[green]  • {message}[/green]",
-                        message_group=group_id,
-                    )
-                    # Check if tesseract is actually accessible in current process
-                    try:
-                        subprocess.run(
-                            ["tesseract", "--version"],
-                            capture_output=True,
-                            timeout=5,
-                            check=True,
-                        )
-                        needs_restart = False  # Works now
-                    except Exception:
-                        emit_info(
-                            "[yellow]  • Restart needed to use tesseract in this terminal[/yellow]",
-                            message_group=group_id,
-                        )
-                        needs_restart = True  # In PATH but current process can't see it
-                else:
-                    emit_info(
-                        "[green]  • PATH updated successfully via registry[/green]",
-                        message_group=group_id,
-                    )
-                    emit_info(
-                        f"[dim]  • {message}[/dim]",
-                        message_group=group_id,
-                    )
-                    needs_restart = True  # PATH just updated
-            else:
-                emit_warning(
-                    f"[yellow]  • Could not update PATH: {message}[/yellow]",
-                    message_group=group_id,
-                )
-                emit_info(
-                    f"  • Please manually add to system PATH: {tesseract_path}",
-                    message_group=group_id,
-                )
-                emit_info(
-                    "[dim]  • Instructions: System Properties > Environment Variables > System PATH > Edit > New[/dim]",
-                    message_group=group_id,
-                )
-                emit_info(
-                    "[dim]Press Enter to continue...[/dim]",
-                    message_group=group_id,
-                )
-                try:
-                    input()
-                except (KeyboardInterrupt, EOFError):
-                    pass  # User pressed Ctrl+C or EOF, continue anyway
-
-            # Return (install_success=True, path_success=True/False, needs_restart=True/False)
-            return True, path_success, needs_restart
-        else:
-            emit_warning(
-                f"[yellow]⚠️ Installation failed: {install_result.stderr[:200]}[/yellow]",
-                message_group=group_id,
-            )
-            return (
-                False,
-                False,
-                False,
-            )  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
-
-    except Exception as e:
-        error_msg = str(e)
-
-        # Check for admin rights issue (WinError 740)
-        if "740" in error_msg or "elevation" in error_msg.lower():
-            emit_warning(
-                "[yellow]⚠️ Installation requires administrator privileges[/yellow]",
-                message_group=group_id,
-            )
-            emit_info(
-                "  • Please run PowerShell/Terminal as Administrator",
-                message_group=group_id,
-            )
-            emit_info(
-                "  • Or manually download and install Tesseract",
-                message_group=group_id,
-            )
-        else:
-            emit_warning(
-                f"[yellow]⚠️ Download/install error: {error_msg[:200]}[/yellow]",
-                message_group=group_id,
-            )
-        return (
-            False,
-            False,
-            False,
-        )  # install_success, path_success, needs_restart, False  # install_success=False, path_success=False, needs_restart=False
-
-
-def _attempt_install_tesseract_windows() -> tuple[bool, bool, bool]:
-    """Attempt to install Tesseract OCR on Windows.
-
-    Tries multiple strategies (in order):
-    1. Portable installation (no admin required) - PREFERRED
-    2. Check WALMART_TESSERACT_URL env var for internal mirror
-    3. Try direct download and silent install from official release
-    4. Try winget install (Windows 10+ only)
-    5. Show download instructions if all fail
-
-    Returns:
-        Tuple of (install_success: bool, path_success: bool, needs_restart: bool)
-    """
-    import os
-
-    from code_puppy.messaging import emit_info, emit_warning
-    from code_puppy.tools.common import generate_group_id
-
-    group_id = generate_group_id("tesseract_install")
-
-    emit_info(
-        "[cyan]📦 Tesseract OCR not found, attempting installation...[/cyan]",
-        message_group=group_id,
-    )
-
-    # Strategy 1: Try portable installation (NO ADMIN REQUIRED)
-    emit_info(
-        "  • Trying portable installation (no admin needed)...",
-        message_group=group_id,
-    )
-    install_success, path_success, needs_restart = _install_tesseract_portable(group_id)
-    if install_success:
-        return install_success, path_success, needs_restart
-
-    emit_info(
-        "  • Portable installation failed, trying other methods...",
-        message_group=group_id,
-    )
-
-    # Strategy 2: Check for Walmart internal binary
-    walmart_url = os.environ.get("WALMART_TESSERACT_URL")
-    if walmart_url:
-        emit_info(
-            f"  • Found WALMART_TESSERACT_URL: {walmart_url}",
-            message_group=group_id,
-        )
-        # Try to download and install from Walmart mirror (may need admin)
-        install_success, path_success, needs_restart = _download_and_install_tesseract(
-            walmart_url, group_id
-        )
-        if install_success:
-            return install_success, path_success, needs_restart
-        else:
-            emit_info(
-                "  • Walmart mirror installation failed, trying other methods...",
-                message_group=group_id,
-            )
-
-    # Strategy 3: Direct download from official GitHub release (may need admin)
-    emit_info(
-        "  • Attempting direct download from GitHub (may require admin)...",
-        message_group=group_id,
-    )
-
-    tesseract_url = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
-    install_success, path_success, needs_restart = _download_and_install_tesseract(
-        tesseract_url, group_id
-    )
-    if install_success:
-        return install_success, path_success, needs_restart
-
-    # Strategy 3: Try winget (Windows 10+ package manager)
-    try:
-        emit_info(
-            "  • Attempting winget installation...",
-            message_group=group_id,
-        )
-
-        result = subprocess.run(
-            [
-                "winget",
-                "install",
-                "--id=UB-Mannheim.TesseractOCR",
-                "--silent",
-                "--accept-source-agreements",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout for download
-        )
-
-        if result.returncode == 0:
-            emit_info(
-                "[green]✅ Tesseract installed via winget[/green]",
-                message_group=group_id,
-            )
-            emit_info(
-                "  • Please restart your terminal for PATH changes to take effect",
-                message_group=group_id,
-            )
-            # winget handles PATH automatically (but still need restart)
-            return True, True, True  # install_success, path_success, needs_restart
-        else:
-            emit_info(
-                "  • winget installation failed, falling back to manual instructions",
-                message_group=group_id,
-            )
-    except Exception:
-        pass  # winget might not be available
-
-    # All strategies failed
-    emit_warning(
-        "[yellow]⚠️ Could not install Tesseract automatically[/yellow]",
-        message_group=group_id,
-    )
-    emit_info(
-        "[yellow]Tesseract OCR installation required for OCR features[/yellow]",
-        message_group=group_id,
-    )
-    emit_info(
-        "  • Manual download: https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe",
-        message_group=group_id,
-    )
-    emit_info(
-        "  • Or ask IT for the Walmart internal mirror",
-        message_group=group_id,
-    )
-    emit_info(
-        "  • After installation, restart terminal and agent will auto-detect",
-        message_group=group_id,
-    )
-
-    return False, False, False  # install_success, path_success, needs_restart
-
-
 def detect_capabilities() -> Dict[str, bool]:
-    """Detect which libraries are available.
-
-    On Windows, attempts to auto-install pywinauto and pywin32 if missing.
-    """
+    """Detect which libraries are available."""
     capabilities = {}
 
-    # Always available (required dependencies)
-    capabilities["pyautogui"] = True
-    capabilities["pillow"] = True
+    # Test pyautogui
+    try:
+        import pyautogui  # noqa: F401 - testing availability
 
-    # Test atomacos (macOS accessibility)
+        capabilities["pyautogui"] = True
+    except ImportError:
+        capabilities["pyautogui"] = False
+
+    # Test atomacos (macOS)
     try:
         import atomacos  # noqa: F401 - testing availability
 
@@ -1024,64 +454,26 @@ def detect_capabilities() -> Dict[str, bool]:
     except ImportError:
         capabilities["atomacos"] = False
 
-    # Test pywinauto (Windows automation)
-    # If on Windows and not installed, attempt auto-install
-    try:
-        import pywinauto
+    # Test pywinauto (Windows)
+    if sys.platform == "win32":
+        try:
+            import pywinauto  # noqa: F401 - testing availability
 
-        capabilities["pywinauto"] = True
-    except ImportError:
-        if sys.platform == "win32":
-            # Attempt to install Windows dependencies
+            capabilities["pywinauto"] = True
+        except ImportError:
+            capabilities["pywinauto"] = False
+            # Attempt to install Windows dependencies if missing
             if _attempt_install_windows_dependencies():
-                # Try importing again after installation
+                # Try again after install
                 try:
                     import pywinauto  # noqa: F401 - testing availability
 
                     capabilities["pywinauto"] = True
                 except ImportError:
                     capabilities["pywinauto"] = False
-            else:
-                capabilities["pywinauto"] = False
-        else:
-            capabilities["pywinauto"] = False
 
-    # Test pytesseract (OCR)
-    # If on Windows and tesseract binary is missing, attempt auto-install
-    try:
-        import pytesseract
-
-        # Try to run a test to ensure tesseract binary is available
-        pytesseract.get_tesseract_version()
-        capabilities["pytesseract"] = True
-    except Exception:
-        if sys.platform == "win32":
-            # Attempt to install Tesseract binary
-            install_success, path_success, needs_restart = (
-                _attempt_install_tesseract_windows()
-            )
-            if install_success:
-                # Installation succeeded, track PATH status and restart requirement
-                capabilities["pytesseract_install_success"] = True
-                capabilities["pytesseract_path_success"] = path_success
-                capabilities["pytesseract_needs_restart"] = needs_restart
-
-                # Try checking again after installation
-                # Note: May still fail if PATH not updated until terminal restart
-                try:
-                    import pytesseract
-
-                    pytesseract.get_tesseract_version()
-                    capabilities["pytesseract"] = True
-                except Exception:
-                    capabilities["pytesseract"] = False
-            else:
-                capabilities["pytesseract"] = False
-                capabilities["pytesseract_install_success"] = False
-                capabilities["pytesseract_path_success"] = False
-                capabilities["pytesseract_needs_restart"] = False
-        else:
-            capabilities["pytesseract"] = False
+    # OCR is now handled by native platform APIs (WinRT on Windows, Vision on macOS)
+    # No external dependencies required
 
     # Test opencv
     try:
@@ -1109,174 +501,133 @@ def detect_permissions() -> Dict[str, Any]:
             permissions["accessibility_message"] = message
         except Exception as e:
             permissions["accessibility"] = False
-            permissions["accessibility_message"] = f"Failed to check: {e}"
+            permissions["accessibility_message"] = f"Error checking permissions: {e}"
 
     return permissions
 
 
-async def test_performance() -> Dict[str, Any]:
-    """Test performance of key operations."""
-    performance = {}
+def calibrate_platform(force: bool = False) -> Dict[str, Any]:
+    """Run full platform calibration and save results.
 
-    # Test screenshot latency
-    try:
-        start = time.perf_counter()
-        pyautogui.screenshot()
-        end = time.perf_counter()
-        performance["screenshot_ms"] = int((end - start) * 1000)
-    except Exception:
-        performance["screenshot_ms"] = -1
-
-    # Test mouse movement latency (small movement)
-    try:
-        current_pos = pyautogui.position()
-        start = time.perf_counter()
-        pyautogui.moveTo(current_pos[0] + 1, current_pos[1])
-        end = time.perf_counter()
-        performance["mouse_move_ms"] = int((end - start) * 1000)
-        # Move back
-        pyautogui.moveTo(current_pos[0], current_pos[1])
-    except Exception:
-        performance["mouse_move_ms"] = -1
-
-    # Test click latency (no actual click, just timing)
-    try:
-        start = time.perf_counter()
-        # Don't actually click, just measure the time
-        end = time.perf_counter()
-        # Click typically takes 50-200ms
-        performance["click_estimate_ms"] = 100  # Default estimate
-    except Exception:
-        performance["click_estimate_ms"] = -1
-
-    # Test keyboard latency estimate
-    performance["keyboard_estimate_ms"] = 50  # Default estimate
-
-    return performance
-
-
-async def run_calibration() -> Dict[str, Any]:
-    """Run full platform calibration (QA-Kitten pattern).
-
-    This is called:
-    - On first run (no config.json exists)
-    - When config is invalid (resolution changed, etc.)
-    - When user manually calls gui_cub_calibrate()
+    Args:
+        force: If True, re-calibrate even if config exists
 
     Returns:
-        Dict with success, config, and calibration timestamp
+        Dictionary with calibration results
     """
-    group_id = generate_group_id("calibration")
-    emit_info(
-        "[bold green]🔍 Detecting platform capabilities...[/bold green]",
-        message_group=group_id,
+    from code_puppy.tools.gui_cub.config_manager import (
+        get_config_path,
+        load_config,
+        save_config,
     )
 
-    # Detect platform
-    emit_info("  • Detecting OS and version...", message_group=group_id)
+    group_id = generate_group_id("calibration")
+
+    # Check if already calibrated (unless forcing)
+    if not force:
+        existing_config = load_config()
+        if existing_config:
+            emit_info(
+                "[dim]Platform already calibrated (use /calibrate to re-run)[/dim]",
+                message_group=group_id,
+            )
+            return {
+                "success": True,
+                "config": existing_config,
+                "calibrated": False,  # Didn't run calibration
+                "path": str(get_config_path()),
+            }
+
+    emit_info(
+        "[bold cyan]🔧 GUI-Cub Platform Calibration[/bold cyan]",
+        message_group=group_id,
+    )
+    emit_info(
+        "[dim]Detecting platform capabilities, displays, and performance...[/dim]",
+        message_group=group_id,
+    )
+    emit_info("", message_group=group_id)
+
+    # Detect everything
+    emit_info("🔍 Detecting platform...", message_group=group_id)
     platform_info = detect_platform()
     emit_info(
-        f"    → {platform_info['os_display']} {platform_info['version']} ({platform_info['machine']})",
+        f"  • OS: {platform_info['os_display']} {platform_info['version']}",
         message_group=group_id,
     )
+    emit_info(
+        f"  • Arch: {platform_info['machine']}",
+        message_group=group_id,
+    )
+    emit_info("", message_group=group_id)
 
-    # Detect displays
-    emit_info("  • Detecting displays and resolution...", message_group=group_id)
+    emit_info("🖥️  Detecting displays...", message_group=group_id)
     display_info = detect_displays()
     emit_info(
-        f"    → {display_info['monitor_count']} monitor(s), primary: {display_info['primary_resolution'][0]}x{display_info['primary_resolution'][1]} @ {display_info['scale_factor']}x scale",
+        f"  • Primary: {display_info['primary_resolution'][0]}x{display_info['primary_resolution'][1]}",
         message_group=group_id,
     )
+    emit_info(
+        f"  • Scale: {display_info['scale_factor']}x",
+        message_group=group_id,
+    )
+    emit_info(
+        f"  • Monitors: {display_info['monitor_count']}",
+        message_group=group_id,
+    )
+    emit_info("", message_group=group_id)
 
-    # Detect libraries (this may attempt installations on Windows)
-    emit_info("  • Checking library availability...", message_group=group_id)
+    emit_info("📦 Detecting capabilities...", message_group=group_id)
     capabilities = detect_capabilities()
 
-    # After detect_capabilities runs (which includes installation attempts),
-    # we need to re-check pytesseract availability since it might have just been installed
-    if sys.platform == "win32" and not capabilities.get("pytesseract", False):
-        # If it was marked unavailable initially, check again in case installation just succeeded
-        try:
-            import pytesseract
-
-            pytesseract.get_tesseract_version()
-            capabilities["pytesseract"] = (
-                True  # Update to reflect successful installation
-            )
-        except Exception:
-            pass  # Still not available, keep as False
-
-    available = [k for k, v in capabilities.items() if v]
-    emit_info(
-        f"    → Available: {', '.join(available)}",
-        message_group=group_id,
-    )
-
-    # Detect permissions
-    permissions = detect_permissions()
-    if permissions:
-        emit_info("  • Checking permissions...", message_group=group_id)
-        for key, value in permissions.items():
-            if isinstance(value, bool):
-                status = "✅" if value else "❌"
-                emit_info(f"    → {key}: {status}", message_group=group_id)
-
-    # Test performance
-    emit_info("  • Testing performance...", message_group=group_id)
-    performance = await test_performance()
-    if performance.get("screenshot_ms", -1) > 0:
+    for cap, available in capabilities.items():
+        status = "✅" if available else "❌"
         emit_info(
-            f"    → Screenshot: {performance['screenshot_ms']}ms, Mouse: {performance['mouse_move_ms']}ms",
+            f"  {status} {cap}",
             message_group=group_id,
         )
+    emit_info("", message_group=group_id)
 
-    # Build list of missing capabilities with reasons
+    # Check permissions (macOS only)
+    permissions = detect_permissions()
+    if permissions:
+        emit_info("🔐 Checking permissions...", message_group=group_id)
+        for perm, status in permissions.items():
+            if perm.endswith("_message"):
+                continue
+            status_str = "✅" if status else "❌"
+            message = permissions.get(f"{perm}_message", "")
+            emit_info(
+                f"  {status_str} {perm}: {message}",
+                message_group=group_id,
+            )
+        emit_info("", message_group=group_id)
+
+    # Track any missing capabilities
     missing_capabilities = {}
 
-    # Note: PATH update failures are handled inline during installation
-    # with immediate user prompt, so we don't add them to missing_capabilities
-    # to avoid duplicate pause screens
-
-    # Only show pytesseract warning if installation didn't succeed
-    # If it just installed successfully, user will restart terminal and it will work
-    if not capabilities.get("pytesseract", False) and not capabilities.get(
-        "pytesseract_install_success", False
-    ):
-        if sys.platform == "win32" and not _is_admin():
-            missing_capabilities["pytesseract"] = {
-                "reason": "admin_required",
-                "message": "Tesseract installation requires administrator privileges",
-                "solution": "Run PowerShell/Terminal as Administrator and restart code-puppy, or manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe and manually add to PATH: C:\\Program Files\\Tesseract-OCR",
-                "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
-            }
-        else:
-            missing_capabilities["pytesseract"] = {
-                "reason": "installation_failed",
-                "message": "Tesseract OCR could not be installed automatically",
-                "solution": "Manually install from https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe and manually add to PATH: C:\\Program Files\\Tesseract-OCR",
-                "affects": ["OCR", "VQA", "text recognition", "screenshot analysis"],
-            }
+    # Check opencv
+    if not capabilities.get("opencv", False):
+        missing_capabilities["opencv"] = {
+            "message": "OpenCV (cv2) not installed",
+            "affects": ["image_similarity", "template_matching"],
+            "solution": "pip install opencv-python",
+        }
 
     # Build config
     config = {
-        "success": True,
-        "calibrated_at": datetime.now().isoformat(),
-        "version": "1.0.0",
+        "version": "1.0",
         "code_puppy_version": code_puppy_version,
+        "calibrated_at": datetime.now().isoformat(),
         "platform": platform_info,
-        "display": display_info,
+        "displays": display_info,
         "capabilities": capabilities,
-        "missing_capabilities": missing_capabilities,
         "permissions": permissions,
-        "performance": performance,
-        "metadata": {
-            "last_validated": datetime.now().isoformat(),
-            "calibration_count": 1,
-        },
+        "missing_capabilities": missing_capabilities,
     }
 
     # Save config
-    from code_puppy.tools.gui_cub.config_manager import get_config_path, save_config
+    from code_puppy.tools.gui_cub.config_manager import get_config_path
 
     if save_config(config):
         emit_info(
@@ -1293,105 +644,39 @@ async def run_calibration() -> Dict[str, Any]:
             message_group=group_id,
         )
 
-    # Check if terminal restart is required (PATH was updated)
-    if capabilities.get("pytesseract_needs_restart", False):
-        emit_info(
-            "\n[bold yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold yellow]",
-            message_group=group_id,
-        )
-        emit_warning(
-            "[bold yellow]⚠️  TERMINAL RESTART REQUIRED ⚠️[/bold yellow]",
-            message_group=group_id,
-        )
-        emit_info(
-            "[bold yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold yellow]",
-            message_group=group_id,
-        )
-        emit_info(
-            "[yellow]Tesseract installed and PATH updated successfully![/yellow]",
-            message_group=group_id,
-        )
-        emit_info("", message_group=group_id)
-        emit_info(
-            "[bold white]To use OCR features, you MUST:[/bold white]",
-            message_group=group_id,
-        )
-        emit_info(
-            "[bold white]  1. Close this terminal window[/bold white]",
-            message_group=group_id,
-        )
-        emit_info(
-            "[bold white]  2. Open a new terminal[/bold white]",
-            message_group=group_id,
-        )
-        emit_info(
-            "[bold white]  3. Restart code-puppy[/bold white]",
-            message_group=group_id,
-        )
-        emit_info("", message_group=group_id)
-        emit_info(
-            "[dim](The new PATH will be active in the new terminal)[/dim]",
-            message_group=group_id,
-        )
-        emit_info(
-            "[bold yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold yellow]",
-            message_group=group_id,
-        )
-
-        try:
-            input("\nPress Enter to exit...")
-        except (KeyboardInterrupt, EOFError):
-            pass
-
-        # sys is already imported at module level
-        sys.exit(0)
-
     # If there are missing capabilities, pause so user can read the messages
     if missing_capabilities:
         emit_info(
-            "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
+            "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
             message_group=group_id,
         )
         emit_warning(
-            "[bold yellow]⚠️  IMPORTANT: Some features are unavailable[/bold yellow]",
+            "[bold yellow]⚠️  Some optional features unavailable[/bold yellow]",
             message_group=group_id,
         )
-
-        for capability_name, info in missing_capabilities.items():
-            emit_info(
-                f"\n[yellow]Missing:[/yellow] {capability_name}",
-                message_group=group_id,
-            )
-            emit_info(
-                f"[yellow]Reason:[/yellow] {info['message']}",
-                message_group=group_id,
-            )
-            emit_info(
-                f"[yellow]Affects:[/yellow] {', '.join(info['affects'])}",
-                message_group=group_id,
-            )
-            emit_info(
-                f"[yellow]Solution:[/yellow] {info['solution']}",
-                message_group=group_id,
-            )
-
-            # Show instructions if available (for PATH issues)
-            if "instructions" in info:
-                emit_info(
-                    f"[yellow]Instructions:[/yellow] {info['instructions']}",
-                    message_group=group_id,
-                )
-
         emit_info(
-            "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
+            "[yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
             message_group=group_id,
         )
+        emit_info("", message_group=group_id)
+        for cap_name, info in missing_capabilities.items():
+            emit_info(
+                f"[yellow]❌ {cap_name}[/yellow]: {info['message']}",
+                message_group=group_id,
+            )
+            emit_info(
+                f"   Affects: {', '.join(info['affects'])}",
+                message_group=group_id,
+            )
+            emit_info(
+                f"   Solution: {info['solution']}",
+                message_group=group_id,
+            )
+            emit_info("", message_group=group_id)
         emit_info(
             "[dim]Press Enter to continue...[/dim]",
             message_group=group_id,
         )
-
-        # Pause for user to read
         try:
             input()
         except (EOFError, KeyboardInterrupt):
@@ -1403,134 +688,3 @@ async def run_calibration() -> Dict[str, Any]:
         "calibrated": True,
         "path": str(get_config_path()),
     }
-
-
-# =============================================================================
-# Tesseract Helper Functions for Quiet Startup and Interactive Installation
-# =============================================================================
-
-
-def check_tesseract_availability(quiet: bool = False) -> dict[str, Any]:
-    """Check if Tesseract is available.
-
-    Args:
-        quiet: If True, suppress warnings (for startup check)
-
-    Returns:
-        dict with 'available', 'version', 'path'
-    """
-    try:
-        import pytesseract
-
-        version = pytesseract.get_tesseract_version()
-        path = pytesseract.pytesseract.tesseract_cmd
-
-        return {
-            "available": True,
-            "version": str(version),
-            "path": path,
-        }
-    except Exception:
-        if quiet:
-            # Just log info, don't show big warning
-            emit_info(
-                "ℹ️  Tesseract OCR not installed (optional fallback for native OCR)",
-                message_group="startup_check",
-            )
-        else:
-            # Show warning with installation options
-            emit_warning(
-                "Tesseract not available. Native OCR (WinRT/Vision) will be used if available.",
-                message_group="ocr_check",
-            )
-
-        return {
-            "available": False,
-            "version": None,
-            "path": None,
-        }
-
-
-def show_tesseract_install_instructions() -> None:
-    """Print platform-specific Tesseract installation instructions."""
-    from rich.console import Console
-
-    console = Console()
-    console.print("\n[bold]Tesseract OCR Installation Instructions[/bold]\n")
-
-    if sys.platform == "win32":
-        console.print("[cyan]Windows:[/cyan]")
-        console.print("  • Using Chocolatey: [green]choco install tesseract[/green]")
-        console.print(
-            "  • Using winget: [green]winget install UB-Mannheim.TesseractOCR[/green]"
-        )
-        console.print(
-            "  • Manual download: https://github.com/UB-Mannheim/tesseract/wiki"
-        )
-        console.print(
-            "  • GUI-Cub can install portable version: [green]/calibrate[/green]"
-        )
-    elif sys.platform == "darwin":
-        console.print("[cyan]macOS:[/cyan]")
-        console.print("  • Using Homebrew: [green]brew install tesseract[/green]")
-        console.print("  • Using MacPorts: [green]sudo port install tesseract[/green]")
-    else:  # Linux
-        console.print("[cyan]Linux:[/cyan]")
-        console.print(
-            "  • Ubuntu/Debian: [green]sudo apt-get install tesseract-ocr[/green]"
-        )
-        console.print("  • Fedora: [green]sudo dnf install tesseract[/green]")
-        console.print("  • Arch: [green]sudo pacman -S tesseract[/green]")
-
-    console.print("\n[dim]After installation, restart GUI-Cub.[/dim]\n")
-
-
-def offer_tesseract_installation(group_id: str) -> bool:
-    """Offer to install Tesseract when OCR fallback is needed.
-
-    Returns:
-        True if installation succeeded, False otherwise
-    """
-    from rich.console import Console
-    from rich.prompt import Prompt
-
-    console = Console()
-
-    console.print(
-        "[yellow]⚠️  Native OCR failed, Tesseract fallback needed but not installed.[/yellow]"
-    )
-    console.print()
-    console.print("Options:")
-    console.print("  1. Install Tesseract now (may require admin privileges)")
-    console.print("  2. Show manual installation instructions")
-    console.print("  3. Skip OCR operation")
-    console.print()
-
-    choice = Prompt.ask(
-        "Choose",
-        choices=["1", "2", "3"],
-        default="3",
-    )
-
-    if choice == "1":
-        # Attempt installation
-        if sys.platform == "win32":
-            success, _, _ = _attempt_install_tesseract_windows()
-            return success
-        else:
-            console.print(
-                "[yellow]Automatic installation only supported on Windows.[/yellow]"
-            )
-            console.print(
-                "[yellow]Please install manually using instructions below.[/yellow]"
-            )
-            show_tesseract_install_instructions()
-            return False
-    elif choice == "2":
-        # Show installation instructions
-        show_tesseract_install_instructions()
-        return False
-    else:
-        # Skip
-        emit_info("Skipping OCR operation", message_group=group_id)
-        return False

@@ -57,9 +57,7 @@ class KeyboardActionResult(BaseAutomationResult):
     hotkey: str | None = None
     keys: list[str] | None = None
     status: Literal["held", "released"] | None = None
-    platform: str | None = (
-        None  # Platform-specific shortcut used (macOS, Windows, Linux)
-    )
+    platform: str | None = None  # Platform-specific shortcut used (macOS, Windows)
 
 
 class ScreenSizeResult(BaseModel):

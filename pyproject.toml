@@ -39,18 +39,22 @@ dependencies = [
     "markdownify>=0.11.0",
     "pyyaml>=6.0.0",
     # GUI-Cub dependencies
-    "pyautogui>=0.9.40,<0.9.42",  # Locked for atomacos compatibility (macOS)
-    "pillow>=11.0.0",  # Updated from 10.0.0 - latest with security fixes
-    "opencv-python>=4.10.0",  # Updated from 4.8.0 - latest stable
-    "pytesseract>=0.3.13",  # Updated from 0.3.10 - latest stable
-    "openpyxl>=3.1.5",  # Updated from 3.1.0 - latest stable
+    "pyautogui>=0.9.40,<0.9.42", # Locked for atomacos compatibility (macOS)
+    "pillow>=11.0.0", # Updated from 10.0.0 - latest with security fixes
+    "opencv-python>=4.10.0", # Updated from 4.8.0 - latest stable
+    "openpyxl>=3.1.5", # Updated from 3.1.0 - latest stable
     # Platform-specific GUI-Cub dependencies (auto-detected)
     "atomacos>=3.2.0; sys_platform == 'darwin'",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     "pywinauto>=0.6.8; sys_platform == 'win32'",
     "pywin32>=306; sys_platform == 'win32'",
-    # WinRT OCR dependencies (Windows 10+ native OCR) - unified package
-    "winsdk>=1.0.0b10; sys_platform == 'win32'",
+    # WinRT OCR dependencies (Windows 10+ native OCR) - modular PyWinRT packages
+    # See: https://pywinrt.readthedocs.io
+    "winrt-runtime>=2.0.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=2.0.0; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging>=2.0.0; sys_platform == 'win32'",
+    "winrt-Windows.Media.Ocr>=2.0.0; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=2.0.0; sys_platform == 'win32'",
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
     "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",

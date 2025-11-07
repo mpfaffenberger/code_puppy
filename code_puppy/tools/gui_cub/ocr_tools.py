@@ -1,16 +1,23 @@
 """OCR (Optical Character Recognition) tools for desktop automation.
 
-This module provides OCR functionality using native platform APIs first (WinRT on Windows,
-Vision Framework on macOS) with Tesseract as a fallback.
+This module provides OCR functionality using native platform APIs:
+- Windows: WinRT OCR (Windows.Media.Ocr)
+- macOS: Vision Framework (VNRecognizeTextRequest)
 
-Provider priority:
-- Windows: WinRT OCR → Tesseract fallback
-- macOS: Vision Framework → Tesseract fallback
-- Linux: Tesseract only
+No external dependencies required. Windows and macOS only.
 """
 
 from __future__ import annotations
 
+from pydantic import BaseModel, Field
+from pydantic_ai import RunContext
+
+from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.tools.common import generate_group_id
+
+from .constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
+from .ocr_providers import get_ocr_provider
+from .result_types import BaseAutomationResult
 
 try:
     import pyautogui
@@ -23,35 +30,7 @@ except ImportError:
     Image = None
     ImageDraw = None
 
-try:
-    import pytesseract
-    from pytesseract import Output
-
-    TESSERACT_AVAILABLE = True
-except ImportError:
-    TESSERACT_AVAILABLE = False
-    pytesseract = None
-    Output = None
-
-# Import OCR provider system
-from .ocr_providers import get_ocr_provider
-
-from pydantic import BaseModel, Field
-from pydantic_ai import RunContext
-
-from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.tools.common import generate_group_id
-
-from .constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
-from .result_types import BaseAutomationResult
-
-# Error message for missing tesseract
-ERROR_TESSERACT_MISSING = (
-    "OCR tools require pytesseract and tesseract-ocr. "
-    "Install with: uv pip install pytesseract && brew install tesseract (macOS) "
-    "or apt-get install tesseract-ocr (Linux) "
-    "or choco install tesseract (Windows)"
-)
+# OCR uses native platform APIs only (WinRT on Windows, Vision on macOS)
 
 
 class TextBoundingBox(BaseModel):
@@ -340,152 +319,8 @@ def extract_text_from_image(
     )
 
 
-def _extract_text_from_image_tesseract(
-    image: "Image.Image",
-    language: str = "eng",
-    scale_factor: float = 1.0,
-    region_offset: tuple[int, int] | None = None,
-) -> OCRExtractResult:
-    """
-    Extract text from a PIL Image using Tesseract OCR.
-
-    Args:
-        image: PIL Image to extract text from
-        language: Tesseract language code (e.g., "eng", "spa", "fra")
-        scale_factor: HiDPI/Retina scaling factor to convert physical screenshot
-                     coordinates to logical screen coordinates (default: 1.0)
-        region_offset: Optional (x, y) offset if screenshot was captured from a specific
-                      screen region. Coordinates will be adjusted to screen space.
-                      (default: None, meaning screenshot is from screen origin)
-
-    Returns:
-        OCRExtractResult with full text and individual text elements
-        (coordinates are converted to screen/logical space if scale_factor != 1.0)
-    """
-    from code_puppy.messaging import emit_info, emit_warning
-
-    if not TESSERACT_AVAILABLE:
-        return OCRExtractResult(
-            success=False,
-            error=ERROR_TESSERACT_MISSING,
-        )
-
-    try:
-        emit_info(
-            f"[bold cyan]🔍 OCR STARTING[/bold cyan]\n"
-            f"[dim]   Engine: Tesseract[/dim]\n"
-            f"[dim]   Language: {language}[/dim]\n"
-            f"[dim]   Image size: {image.width}x{image.height}[/dim]\n"
-            f"[dim]   Scale factor: {scale_factor}x[/dim]\n"
-            f"[dim]   Region offset: {region_offset if region_offset else 'None (full screen)'}[/dim]"
-        )
-
-        # Extract text with bounding boxes
-        data = pytesseract.image_to_data(
-            image,
-            lang=language,
-            output_type=Output.DICT,
-        )
-
-        # Build text elements list
-        text_elements = []
-        full_text_parts = []
-        total_confidence = 0.0
-        word_count = 0
-
-        for i in range(len(data["text"])):
-            text = data["text"][i].strip()
-            if not text:  # Skip empty strings
-                continue
-
-            conf = float(data["conf"][i])
-            if conf < 0:  # Skip invalid confidence scores
-                continue
-
-            x, y, w, h = (
-                data["left"][i],
-                data["top"][i],
-                data["width"][i],
-                data["height"][i],
-            )
-
-            # Apply HiDPI/Retina scaling correction
-            # Convert from physical screenshot pixels to logical screen coordinates
-            if scale_factor != 1.0:
-                x = int(x / scale_factor)
-                y = int(y / scale_factor)
-                w = int(w / scale_factor)
-                h = int(h / scale_factor)
-
-            # Apply region offset to convert from screenshot-relative to screen-absolute coordinates
-            # CRITICAL FIX: When screenshot is from a specific region (e.g., active window),
-            # OCR coordinates are relative to screenshot origin, but we need screen coordinates
-            if region_offset is not None:
-                region_x, region_y = region_offset
-                x += region_x
-                y += region_y
-
-            text_elements.append(
-                TextBoundingBox(
-                    text=text,
-                    confidence=conf / 100.0,  # Convert to 0.0-1.0 range
-                    x=x,
-                    y=y,
-                    width=w,
-                    height=h,
-                    center_x=x + w // 2,
-                    center_y=y + h // 2,
-                )
-            )
-
-            full_text_parts.append(text)
-            total_confidence += conf
-            word_count += 1
-
-        full_text = " ".join(full_text_parts)
-        avg_confidence = (
-            (total_confidence / word_count / 100.0) if word_count > 0 else 0.0
-        )
-
-        emit_info(
-            f"[bold green]✅ OCR COMPLETE[/bold green]\n"
-            f"[dim]   Words found: {word_count}[/dim]\n"
-            f"[dim]   Average confidence: {avg_confidence:.2%}[/dim]\n"
-            f"[dim]   Full text preview: {full_text[:100]}{'...' if len(full_text) > 100 else ''}[/dim]"
-        )
-
-        if word_count == 0:
-            emit_warning(
-                "[yellow]⚠️  OCR found NO text in image[/yellow]\n"
-                "[dim]   Image might be too blurry, wrong language, or contain no text[/dim]"
-            )
-        elif avg_confidence < 0.5:
-            emit_warning(
-                f"[yellow]⚠️  OCR confidence is LOW ({avg_confidence:.2%})[/yellow]\n"
-                f"[dim]   Results may be inaccurate - consider higher resolution image[/dim]"
-            )
-
-        return OCRExtractResult(
-            success=True,
-            full_text=full_text,
-            text_elements=text_elements,
-            total_words=word_count,
-            average_confidence=avg_confidence,
-            language=language,
-        )
-
-    except Exception as e:
-        from code_puppy.messaging import emit_error
-
-        emit_error(
-            f"[red]❌ OCR FAILED[/red]\n"
-            f"[dim]   Error: {e}[/dim]\n"
-            f"[dim]   Image: {image.width}x{image.height}[/dim]"
-        )
-        return OCRExtractResult(
-            success=False,
-            error=f"OCR extraction failed: {e}",
-        )
+# Legacy Tesseract function removed - now using native platform OCR providers
+# See ocr_providers/ for WinRT (Windows) and Vision (macOS) implementations
 
 
 def find_text_in_elements(

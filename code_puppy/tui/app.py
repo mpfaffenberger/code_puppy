@@ -635,12 +635,29 @@ class CodePuppyTUI(App):
         agent.clear_message_history()
         self.add_system_message("Chat history cleared")
 
+    def _perform_quit_exit(self) -> None:
+        """Perform the actual exit with telemetry cleanup."""
+        # Force immediate telemetry shutdown for clean exit (prevents hanging on Windows)
+        try:
+            from code_puppy.plugins.walmart_specific.telemetry_queue import (
+                force_shutdown_telemetry_queue,
+            )
+
+            force_shutdown_telemetry_queue()
+        except ImportError:
+            pass  # Telemetry not available
+        except Exception:
+            pass  # Don't let telemetry shutdown errors break quit handling
+
+        # Call the default quit behavior
+        self.exit()
+
     def action_quit(self) -> None:
         """Show quit confirmation dialog before exiting."""
 
         def handle_quit_confirmation(should_quit: bool) -> None:
             if should_quit:
-                self.exit()
+                self._perform_quit_exit()
 
         self.push_screen(QuitConfirmationScreen(), handle_quit_confirmation)
 
@@ -1273,23 +1290,6 @@ class CodePuppyTUI(App):
         # Close the sidebar automatically for a smoother workflow
         sidebar = self.query_one(Sidebar)
         sidebar.display = False
-
-    def action_quit(self) -> None:
-        """Custom quit action that forces telemetry shutdown for clean exit."""
-        # Force immediate telemetry shutdown for clean exit (prevents hanging on Windows)
-        try:
-            from code_puppy.plugins.walmart_specific.telemetry_queue import (
-                force_shutdown_telemetry_queue,
-            )
-
-            force_shutdown_telemetry_queue()
-        except ImportError:
-            pass  # Telemetry not available
-        except Exception:
-            pass  # Don't let telemetry shutdown errors break quit handling
-
-        # Call the default quit behavior
-        self.exit()
 
     async def on_unmount(self):
         """Clean up when the app is unmounted."""

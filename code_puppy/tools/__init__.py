@@ -72,7 +72,7 @@ from code_puppy.tools.gui_cub.config_manager import (
 )
 
 # GUI-Cub desktop automation tools (always available - required dependencies)
-# Dependencies: pyautogui, pillow, opencv-python, pytesseract, openpyxl
+# Dependencies: pyautogui, pillow, opencv-python, openpyxl
 from code_puppy.tools.gui_cub.keyboard_control import register_keyboard_control_tools
 from code_puppy.tools.gui_cub.keyboard_shortcuts import register_keyboard_shortcut_tools
 from code_puppy.tools.gui_cub.mouse_control import register_mouse_control_tools

@@ -1,0 +1,36 @@
+
+**This confirms the blind spot!** None of the standard approaches are working to un-minimize Spotify from the dock.
+
+## Recommended Tooling Improvements 🛠️
+
+Here are the gaps I've identified that should be added to GUI-Cub:
+
+### 1. **Enhanced `desktop_list_windows()`**
+```python
+desktop_list_windows(include_minimized=True)
+# Should return: {"owner": "Spotify", "title": "...", "minimized": true, ...}
+```
+
+### 2. **New Tool: `desktop_un_minimize_window()`**
+```python
+desktop_un_minimize_window(app_name="Spotify")
+# Or by window title
+```
+
+### 3. **Enhanced `desktop_focus_window()`**
+```python
+# Should automatically un-minimize if window is hidden
+desktop_focus_window(app_name="Spotify", un_minimize=True)  # default True
+```
+
+### 4. **New Tool: `desktop_list_dock_apps()`**
+```python
+desktop_list_dock_apps()
+# Returns all apps in dock with running status
+```
+
+### 5. **New Tool: `desktop_click_dock_app()`**
+```python
+desktop_click_dock_app(app_name="Spotify")
+# Directly clicks dock icon to un-minimize
+```

@@ -49,32 +49,26 @@ BROWSER_CHROME_HEIGHTS = {
     "chrome": {
         "macos": 85,  # Title bar (22) + Tab bar (38) + Address bar (40) - 15 overlap
         "windows": 95,  # Similar but slightly taller
-        "linux": 90,
     },
     "firefox": {
         "macos": 80,
         "windows": 90,
-        "linux": 85,
     },
     "safari": {
         "macos": 82,  # Title bar + unified tab/address bar
         "windows": 0,  # Not applicable on Windows
-        "linux": 0,
     },
     "edge": {
         "macos": 85,
         "windows": 95,
-        "linux": 90,
     },
     "brave": {
         "macos": 85,
         "windows": 95,
-        "linux": 90,
     },
     "arc": {
         "macos": 40,  # Arc has minimal chrome with sidebar instead
         "windows": 0,
-        "linux": 0,
     },
 }
 
@@ -88,11 +82,10 @@ BROWSER_PATTERNS = {
     "arc": [r"arc"],
 }
 
-# Native OS window title bar heights
+# Native OS window title bar heights (Windows/macOS only)
 OS_TITLE_BAR_HEIGHTS = {
     "macos": 22,
     "windows": 30,
-    "linux": 25,
 }
 
 
@@ -244,7 +237,6 @@ def detect_browser_offset() -> BrowserOffsetInfo:
     elif IS_WINDOWS:
         app_name, window_title = get_active_window_info_windows()
     else:
-        # Linux support would go here
         return BrowserOffsetInfo()
 
     if not app_name and not window_title:
@@ -265,7 +257,7 @@ def detect_browser_offset() -> BrowserOffsetInfo:
         )
 
     # Get platform-specific chrome height
-    platform_key = "macos" if IS_MACOS else "windows" if IS_WINDOWS else "linux"
+    platform_key = "macos" if IS_MACOS else "windows"
     chrome_height = BROWSER_CHROME_HEIGHTS.get(browser_name, {}).get(platform_key, 80)
 
     return BrowserOffsetInfo(
@@ -287,7 +279,7 @@ def calculate_window_chrome_offset() -> int:
     Returns:
         Window chrome offset in pixels
     """
-    platform_key = "macos" if IS_MACOS else "windows" if IS_WINDOWS else "linux"
+    platform_key = "macos" if IS_MACOS else "windows"
     return OS_TITLE_BAR_HEIGHTS.get(platform_key, 25)
 
 

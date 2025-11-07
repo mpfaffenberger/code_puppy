@@ -1,8 +1,11 @@
 """Windows WinRT OCR provider (Windows 10+ native OCR).
 
-This module provides OCR using Windows Runtime (WinRT) APIs, specifically
-Windows.Media.Ocr. This is significantly faster than Tesseract and requires
-no external dependencies on Windows 10+.
+This module provides OCR using Windows Runtime (WinRT) APIs via PyWinRT,
+specifically Windows.Media.Ocr. This is significantly faster than Tesseract
+and requires no external dependencies on Windows 10+.
+
+Uses the modern PyWinRT modular packages (winrt-* namespace).
+See: https://pywinrt.readthedocs.io
 
 Note: WinRT APIs are async, but we wrap them with asyncio.run() to provide
 a synchronous interface consistent with the OCRProvider contract.
@@ -18,9 +21,9 @@ from PIL import Image
 try:
     import asyncio
 
-    from winsdk.windows.graphics.imaging import BitmapDecoder
-    from winsdk.windows.media.ocr import OcrEngine
-    from winsdk.windows.storage.streams import (
+    from winrt.windows.graphics.imaging import BitmapDecoder
+    from winrt.windows.media.ocr import OcrEngine
+    from winrt.windows.storage.streams import (
         DataWriter,
         InMemoryRandomAccessStream,
     )
@@ -46,9 +49,12 @@ class WinRTOCRProvider(OCRProvider):
 
     Requirements:
     - Windows 10 or later
-    - winrt-Windows.Media.Ocr Python package
-    - winrt-Windows.Graphics.Imaging Python package
-    - winrt-Windows.Storage.Streams Python package
+    - PyWinRT packages (installed automatically):
+      - winrt-runtime>=2.0.0
+      - winrt-Windows.Foundation>=2.0.0
+      - winrt-Windows.Graphics.Imaging>=2.0.0
+      - winrt-Windows.Media.Ocr>=2.0.0
+      - winrt-Windows.Storage.Streams>=2.0.0
     """
 
     def __init__(self):

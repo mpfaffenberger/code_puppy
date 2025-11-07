@@ -42,32 +42,6 @@ def mock_pyautogui(monkeypatch):
 
 
 @pytest.fixture
-def mock_tesseract(monkeypatch):
-    """Mock pytesseract for OCR tests."""
-    mock_tess = MagicMock()
-
-    mock_tess.image_to_string.return_value = "Test OCR Text"
-    mock_tess.image_to_data.return_value = {
-        "text": ["Test", "OCR", "Text"],
-        "conf": [95, 90, 92],
-        "left": [10, 50, 90],
-        "top": [10, 10, 10],
-        "width": [30, 30, 30],
-        "height": [20, 20, 20],
-    }
-
-    try:
-        import pytesseract
-
-        monkeypatch.setattr(pytesseract, "image_to_string", mock_tess.image_to_string)
-        monkeypatch.setattr(pytesseract, "image_to_data", mock_tess.image_to_data)
-    except ImportError:
-        pass  # pytesseract not available
-
-    return mock_tess
-
-
-@pytest.fixture
 def test_image():
     """Create a test PIL Image."""
     if not PIL_AVAILABLE:

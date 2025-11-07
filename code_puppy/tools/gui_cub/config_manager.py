@@ -222,47 +222,8 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
                 "Windows dependencies not installed, will attempt installation",
             )
 
-        # Check if pytesseract/Tesseract is marked as available but isn't actually installed
-        if capabilities.get("pytesseract", False):
-            try:
-                import pytesseract
-
-                pytesseract.get_tesseract_version()
-            except Exception:
-                return (
-                    False,
-                    "Tesseract OCR missing or broken, will attempt reinstallation",
-                )
-
-        # If pytesseract was marked unavailable, check if it's actually available now
-        # (e.g., after terminal restart following installation)
-        if not capabilities.get("pytesseract", False):
-            # Check if we previously installed it successfully
-            if capabilities.get("pytesseract_install_success", False):
-                # Check if it works now (after terminal restart)
-                try:
-                    import pytesseract
-
-                    pytesseract.get_tesseract_version()
-                    # It works now! Update config
-                    return (
-                        False,
-                        "Tesseract now available after restart, updating config",
-                    )
-                except Exception:
-                    # Still doesn't work, keep as-is
-                    pass
-
-            # Check if we should retry installation (e.g., user has admin now)
-            missing = config.get("missing_capabilities", {}).get("pytesseract", {})
-            if missing.get("reason") == "admin_required":
-                # User might have admin now, let's retry
-                return (
-                    False,
-                    "Tesseract not installed, will retry installation (you may have admin now)",
-                )
-            # If it failed for other reasons, still valid but keep the missing capability info
-            # Don't force re-calibration every time for non-admin failures
+        # Tesseract removed - OCR now uses native platform APIs (WinRT/Vision)
+        # No external OCR dependencies to check
 
     # Config is valid
     return True, "Config is valid"

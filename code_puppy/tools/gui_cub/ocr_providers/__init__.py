@@ -1,19 +1,19 @@
 """OCR provider abstraction layer for GUI-Cub.
 
-This package provides a pluggable OCR system that uses native platform APIs
-first (WinRT on Windows, Vision Framework on macOS) with Tesseract as a fallback.
+This package provides a pluggable OCR system that uses native platform APIs:
+- Windows: WinRT OCR (Windows.Media.Ocr)
+- macOS: Vision Framework (VNRecognizeTextRequest)
 
 Architecture:
 - OCRProvider: Abstract base class for all providers
 - OCRProviderChain: Chain of responsibility pattern for automatic fallback
 - Platform-specific providers: WinRTOCRProvider, VisionOCRProvider
-- Fallback provider: TesseractOCRProvider
 
 Usage:
     >>> from code_puppy.tools.gui_cub.ocr_providers import get_ocr_provider
     >>> chain = get_ocr_provider()
     >>> result = chain.extract_text(screenshot)
-    # Automatically uses best available provider with fallback
+    # Automatically uses best available native provider
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from code_puppy.tools.gui_cub.platform import IS_MACOS, IS_WINDOWS
 
 from .base import OCRProvider, OCRResult, OCRWord
 from .provider_chain import OCRProviderChain
-from .tesseract_provider import TesseractOCRProvider
 
 # Platform-specific providers imported conditionally
 if IS_WINDOWS:
@@ -36,23 +35,19 @@ def get_default_ocr_chain() -> OCRProviderChain:
     """Get platform-specific OCR provider chain.
 
     Provider priority:
-    - Windows: WinRT OCR → Tesseract fallback
-    - macOS: Vision Framework → Tesseract fallback
-    - Linux: Tesseract only
+    - Windows: WinRT OCR (native)
+    - macOS: Vision Framework (native)
 
     Returns:
         OCRProviderChain configured for current platform
     """
     providers = []
 
-    # Add native platform provider first
+    # Add native platform provider
     if IS_WINDOWS:
         providers.append(WinRTOCRProvider())
     elif IS_MACOS:
         providers.append(VisionOCRProvider())
-
-    # Always add Tesseract as fallback
-    providers.append(TesseractOCRProvider())
 
     return OCRProviderChain(providers)
 
@@ -78,7 +73,6 @@ __all__ = [
     "OCRResult",
     "OCRWord",
     "OCRProviderChain",
-    "TesseractOCRProvider",
     "get_ocr_provider",
     "get_default_ocr_chain",
 ]

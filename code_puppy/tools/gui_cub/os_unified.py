@@ -56,7 +56,6 @@ def register_os_unified_tools(agent):
 
         Windows: returns windows with hwnd/title/class_name/pid
         macOS: returns windows with owner/title/bounds
-        Linux: returns empty (not supported)
         """
         group_id = generate_group_id("ui_list_windows", sys.platform)
         emit_info(
@@ -91,7 +90,6 @@ def register_os_unified_tools(agent):
 
         Windows: uses pywinauto to traverse controls.
         macOS: uses accessibility to list elements grouped by role.
-        Linux: returns empty (not supported).
         """
         group_id = generate_group_id("ui_list_elements", sys.platform)
         emit_info(
@@ -165,7 +163,6 @@ def register_os_unified_tools(agent):
 
         Windows: title/control_type/class_name/auto_id
         macOS: role/title
-        Linux: not supported
         """
         group_id = generate_group_id("ui_find_element", sys.platform)
         emit_info(
@@ -219,7 +216,6 @@ def register_os_unified_tools(agent):
 
         Windows: title/control_type/class_name/auto_id
         macOS: role/title
-        Linux: not supported
         """
         group_id = generate_group_id("ui_click_element", sys.platform)
         emit_info(

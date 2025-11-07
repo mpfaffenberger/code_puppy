@@ -24,7 +24,7 @@ def get_modifier_key() -> str:
     """Get the primary modifier key for the current platform.
 
     Returns:
-        'command' on macOS, 'ctrl' on Windows/Linux
+        'command' on macOS, 'ctrl' on Windows
     """
     return "command" if IS_MACOS else "ctrl"
 
@@ -38,7 +38,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Copy selected content to clipboard (platform-aware).
 
-        Uses Cmd+C on macOS, Ctrl+C on Windows/Linux automatically.
+        Uses Cmd+C on macOS, Ctrl+C on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -69,7 +69,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Paste clipboard content (platform-aware).
 
-        Uses Cmd+V on macOS, Ctrl+V on Windows/Linux automatically.
+        Uses Cmd+V on macOS, Ctrl+V on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -100,7 +100,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Cut selected content to clipboard (platform-aware).
 
-        Uses Cmd+X on macOS, Ctrl+X on Windows/Linux automatically.
+        Uses Cmd+X on macOS, Ctrl+X on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -131,7 +131,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Select all content (platform-aware).
 
-        Uses Cmd+A on macOS, Ctrl+A on Windows/Linux automatically.
+        Uses Cmd+A on macOS, Ctrl+A on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -162,7 +162,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Save current document (platform-aware).
 
-        Uses Cmd+S on macOS, Ctrl+S on Windows/Linux automatically.
+        Uses Cmd+S on macOS, Ctrl+S on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -193,7 +193,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Undo last action (platform-aware).
 
-        Uses Cmd+Z on macOS, Ctrl+Z on Windows/Linux automatically.
+        Uses Cmd+Z on macOS, Ctrl+Z on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -224,7 +224,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Redo last undone action (platform-aware).
 
-        Uses Cmd+Shift+Z on macOS, Ctrl+Y on Windows/Linux automatically.
+        Uses Cmd+Shift+Z on macOS, Ctrl+Y on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -250,7 +250,7 @@ def register_keyboard_shortcut_tools(agent):
                 platform=platform,
             )
         else:
-            # Windows/Linux use Ctrl+Y for redo
+            # Windows use Ctrl+Y for redo
             emit_info(
                 f"[bold cyan]REDO[/bold cyan] ⌨️  Using ctrl+Y ({platform})",
                 message_group=group_id,
@@ -269,7 +269,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Open find/search dialog (platform-aware).
 
-        Uses Cmd+F on macOS, Ctrl+F on Windows/Linux automatically.
+        Uses Cmd+F on macOS, Ctrl+F on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -300,7 +300,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Create new document/window (platform-aware).
 
-        Uses Cmd+N on macOS, Ctrl+N on Windows/Linux automatically.
+        Uses Cmd+N on macOS, Ctrl+N on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -331,7 +331,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Open file dialog (platform-aware).
 
-        Uses Cmd+O on macOS, Ctrl+O on Windows/Linux automatically.
+        Uses Cmd+O on macOS, Ctrl+O on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -362,7 +362,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Close current window/document (platform-aware).
 
-        Uses Cmd+W on macOS, Ctrl+W on Windows/Linux automatically.
+        Uses Cmd+W on macOS, Ctrl+W on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status
@@ -393,7 +393,7 @@ def register_keyboard_shortcut_tools(agent):
         """
         Quit current application (platform-aware).
 
-        Uses Cmd+Q on macOS, Alt+F4 on Windows/Linux automatically.
+        Uses Cmd+Q on macOS, Alt+F4 on Windows automatically.
 
         Returns:
             KeyboardActionResult with success status

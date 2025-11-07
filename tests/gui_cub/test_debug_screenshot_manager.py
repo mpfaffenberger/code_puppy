@@ -6,9 +6,7 @@ actually taking screenshots of the user's desktop.
 
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 from PIL import Image
 
 from code_puppy.tools.gui_cub.debug_screenshot_manager import (
