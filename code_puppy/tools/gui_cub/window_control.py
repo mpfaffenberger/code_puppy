@@ -29,10 +29,10 @@ from .tool_wrapper import desktop_tool
 def _get_window_bounds_by_app_name(app_name: str) -> WindowBoundsResult:
     """
     Get window bounds for a specific application by name.
-    
+
     Args:
         app_name: Name of the application (e.g., "Calculator", "Safari")
-        
+
     Returns:
         WindowBoundsResult with window position and size
     """
@@ -42,7 +42,7 @@ def _get_window_bounds_by_app_name(app_name: str) -> WindowBoundsResult:
             success=False,
             error="Windows implementation not yet available for app-specific window capture",
         )
-    
+
     elif IS_MACOS:
         try:
             from AppKit import NSWorkspace
@@ -55,21 +55,21 @@ def _get_window_bounds_by_app_name(app_name: str) -> WindowBoundsResult:
             # Find the app by name
             workspace = NSWorkspace.sharedWorkspace()
             running_apps = workspace.runningApplications()
-            
+
             target_app = None
             for app in running_apps:
                 if app.localizedName() == app_name:
                     target_app = app
                     break
-            
+
             if not target_app:
                 return WindowBoundsResult(
                     success=False,
                     error=f"Application '{app_name}' not found or not running",
                 )
-            
+
             pid = target_app.processIdentifier()
-            
+
             # Get window list and find windows for this PID
             window_list = CGWindowListCopyWindowInfo(
                 kCGWindowListOptionOnScreenOnly, kCGNullWindowID
@@ -127,7 +127,7 @@ def _get_window_bounds_by_app_name(app_name: str) -> WindowBoundsResult:
                 success=False,
                 error=f"Failed to get window bounds for {app_name}: {str(e)}",
             )
-    
+
     else:
         return WindowBoundsResult(
             success=False,
@@ -278,6 +278,7 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
             # Debug: show final bounds
             if get_debug_screenshots_enabled():
                 from .platform import get_screen_scale_factor
+
                 scale_factor = get_screen_scale_factor()
                 emit_info(
                     f"[yellow]🐛 DEBUG: Window bounds (in points/logical):[/yellow]\n"

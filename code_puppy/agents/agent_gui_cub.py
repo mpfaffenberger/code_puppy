@@ -109,6 +109,8 @@ class GUICubAgent(BaseAgent):
             "gui_cub_append_to_knowledge_base",
             # Config management (registers: get, calibrate, validate, reset)
             "gui_cub_config",
+            # Debug screenshot management (registers: save_debug_screenshot)
+            "gui_cub_debug",
             # File operations
             "read_file",
             "edit_file",

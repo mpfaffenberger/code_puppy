@@ -18,20 +18,16 @@ Benefits:
 from __future__ import annotations
 
 import base64
-from datetime import datetime
 from io import BytesIO
-from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
+from .debug_screenshot_manager import save_temp_debug_screenshot
 from .platform import get_screen_scale_factor
 from .result_types import ElementClickResult
-
-# Debug output directory
-DEBUG_OUTPUT_DIR = Path.cwd() / "vqa_debug_output"
 
 
 class VQABoundingBox(BaseModel):
@@ -151,28 +147,7 @@ def image_to_base64(image: Image.Image, format: str = "PNG") -> str:
     return base64.b64encode(image_bytes).decode("utf-8")
 
 
-def save_debug_image(image: Image.Image, name: str, group_id: str) -> Path | None:
-    """Save debug image to output directory.
-
-    Args:
-        image: PIL Image to save
-        name: Descriptive name (e.g., "stage1_crop", "visualization")
-        group_id: Message group ID for logging
-
-    Returns:
-        Path to saved image, or None if saving failed
-    """
-    try:
-        DEBUG_OUTPUT_DIR.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{timestamp}_{name}.png"
-        path = DEBUG_OUTPUT_DIR / filename
-        image.save(path)
-        emit_info(f"   💾 Saved: {path.name}", message_group=group_id)
-        return path
-    except Exception as e:
-        emit_warning(f"Failed to save debug image: {e}", message_group=group_id)
-        return None
+# Removed: save_debug_image() - now using save_temp_debug_screenshot() from debug_screenshot_manager
 
 
 def draw_bbox_visualization(
@@ -440,7 +415,7 @@ def desktop_click_element_vqa(
     element_description: str,
     crop_region: tuple[int, int, int, int] | None = None,
     use_active_window: bool = True,
-    save_debug: bool = True,
+    save_debug: bool = False,
 ) -> ElementClickResult:
     """Click an element using two-stage coarse-to-fine VQA.
 
@@ -464,7 +439,8 @@ def desktop_click_element_vqa(
         crop_region: Optional (x, y, width, height) in logical points
                     If None and use_active_window=True, crops to active window
         use_active_window: Whether to crop to active window bounds
-        save_debug: Whether to save debug images to vqa_debug_output/
+        save_debug: Whether to save debug images to temp (default: False)
+                   Use /save_debug_image meta command to copy to pwd if needed
 
     Returns:
         ElementClickResult with success status and confidence
@@ -511,7 +487,7 @@ def desktop_click_element_vqa(
         # Capture full screenshot
         screenshot = pyautogui.screenshot()
         if save_debug:
-            save_debug_image(screenshot, "0_full_screenshot", group_id)
+            save_temp_debug_screenshot(screenshot, "0_full_screenshot", group_id)
 
         # ============================================================
         # STAGE 1: Coarse VQA on full window
@@ -530,7 +506,7 @@ def desktop_click_element_vqa(
             stage1_offset = (0, 0)
 
         if save_debug:
-            save_debug_image(stage1_crop, "1_stage1_coarse_crop", group_id)
+            save_temp_debug_screenshot(stage1_crop, "1_stage1_coarse_crop", group_id)
 
         stage1_result = vqa_find_element_in_crop(
             stage1_crop,
@@ -606,7 +582,7 @@ def desktop_click_element_vqa(
         )
 
         if save_debug:
-            save_debug_image(stage2_crop, "2_stage2_fine_crop", group_id)
+            save_temp_debug_screenshot(stage2_crop, "2_stage2_fine_crop", group_id)
 
         stage2_result = vqa_find_element_in_crop(
             stage2_crop,
@@ -658,7 +634,7 @@ def desktop_click_element_vqa(
                 (stage1_in_stage2_x, stage1_in_stage2_y),
                 scale_factor,
             )
-            save_debug_image(vis, "3_visualization_both_stages", group_id)
+            save_temp_debug_screenshot(vis, "3_visualization_both_stages", group_id)
 
         # ============================================================
         # Click!
@@ -669,12 +645,6 @@ def desktop_click_element_vqa(
         )
 
         pyautogui.click(click_x_logical, click_y_logical)
-
-        if save_debug:
-            emit_info(
-                f"   Debug images saved to: {DEBUG_OUTPUT_DIR}",
-                message_group=group_id,
-            )
 
         return ElementClickResult(
             success=True,

@@ -24,13 +24,13 @@ CURRENT_PLATFORM = sys.platform
 # Windows DPI awareness initialization
 if IS_WINDOWS:
     import ctypes
-    
+
     # Set DPI awareness at module import time (before any GUI operations)
     # This ensures GetWindowRect and pyautogui.screenshot() use the same coordinate system.
     try:
         user32 = ctypes.windll.user32
         shcore = ctypes.windll.shcore
-        
+
         # Try Per-Monitor-V2 (Windows 10 1703+)
         # This makes GetWindowRect return physical pixels
         try:
@@ -69,7 +69,7 @@ def get_platform() -> Platform | None:
 
 def get_windows_dpi_mode() -> str | None:
     """Get Windows DPI awareness mode.
-    
+
     Returns:
         DPI mode string or None if not Windows:
         - "Per-Monitor-V2": Best mode, GetWindowRect returns physical pixels

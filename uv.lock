@@ -477,9 +477,7 @@ dependencies = [
     { name = "textual" },
     { name = "textual-dev" },
     { name = "uvicorn" },
-    { name = "winrt-windows-graphics-imaging", marker = "sys_platform == 'win32'" },
-    { name = "winrt-windows-media-ocr", marker = "sys_platform == 'win32'" },
-    { name = "winrt-windows-storage-streams", marker = "sys_platform == 'win32'" },
+    { name = "winsdk", marker = "sys_platform == 'win32'" },
 ]
 
 [package.dev-dependencies]
@@ -533,9 +531,7 @@ requires-dist = [
     { name = "textual", specifier = ">=5.0.0" },
     { name = "textual-dev", specifier = ">=1.7.0" },
     { name = "uvicorn", specifier = ">=0.29.0" },
-    { name = "winrt-windows-graphics-imaging", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
-    { name = "winrt-windows-media-ocr", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
-    { name = "winrt-windows-storage-streams", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
+    { name = "winsdk", marker = "sys_platform == 'win32'", specifier = ">=1.0.0b10" },
 ]
 
 [package.metadata.requires-dev]
@@ -3606,83 +3602,17 @@ wheels = [
 ]
 
 [[package]]
-name = "winrt-runtime"
-version = "3.2.1"
+name = "winsdk"
+version = "1.0.0b10"
 source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
-dependencies = [
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/16/dd/acdd527c1d890c8f852cc2af644aa6c160974e66631289420aa871b05e65/winrt_runtime-3.2.1.tar.gz", hash = "sha256:c8dca19e12b234ae6c3dadf1a4d0761b51e708457492c13beb666556958801ea" }
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/f5/01/005772332e79947013aa33c7cb20431e3efd6ac46eb54aed3472c14afe50/winsdk-1.0.0b10.tar.gz", hash = "sha256:8f39ea759626797449371f857c9085b84bb9f3b6d493dc6525e2cedcb3d15ea2" }
 wheels = [
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/90/8d/d7ae0e07cd85c7768de76e8578261854f2af72bd3a8a527bb675e8ae0eda/winrt_runtime-3.2.1-cp311-cp311-win32.whl", hash = "sha256:9e9b64f1ba631cc4b9fe60b8ff16fef3f32c7ce2fcc84735a63129ff8b15c022" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ac/66/d05f6e6c0517654734e7f87fa1f0fbc965add9f27cc36b524d96331ab3d8/winrt_runtime-3.2.1-cp311-cp311-win_amd64.whl", hash = "sha256:c0a9046ae416808420a358c51705af8ae100acd40bc578be57ddfdd51cbb0f9c" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/39/a5/760c8396110f6d3e4c417752da1a2bf3b89e0998329c2f10afc717ef6291/winrt_runtime-3.2.1-cp311-cp311-win_arm64.whl", hash = "sha256:e94f3cb40ea2d723c44c82c16d715c03c6b3bd977d135b49535fdd5415fd9130" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/d3/54/3dd06f2341fab6abb06588a16b30e0b213b0125be7b79dafc3bdba3b334a/winrt_runtime-3.2.1-cp312-cp312-win32.whl", hash = "sha256:762b3d972a2f7037f7db3acbaf379dd6d8f6cda505f71f66c6b425d1a1eae2f1" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ca/a1/1d7248d5c62ccbea5f3e0da64ca4529ce99c639c3be2485b6ed709f5c740/winrt_runtime-3.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:06510db215d4f0dc45c00fbb1251c6544e91742a0ad928011db33b30677e1576" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/8a/ae/6a205d8dafc79f7c242be7f940b1e0c1971fd64ab3079bda4b514aa3d714/winrt_runtime-3.2.1-cp312-cp312-win_arm64.whl", hash = "sha256:14562c29a087ccad38e379e585fef333e5c94166c807bdde67b508a6261aa195" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/79/d4/1a555d8bdcb8b920f8e896232c82901cc0cda6d3e4f92842199ae7dff70a/winrt_runtime-3.2.1-cp313-cp313-win32.whl", hash = "sha256:44e2733bc709b76c554aee6c7fe079443b8306b2e661e82eecfebe8b9d71e4d1" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/aa/24/2b6e536ca7745d788dfd17a2ec376fa03a8c7116dc638bb39b035635484f/winrt_runtime-3.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:3c1fdcaeedeb2920dc3b9039db64089a6093cad2be56a3e64acc938849245a6d" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/d4/7f/6d72973279e2929b2a71ed94198ad4a5d63ee2936e91a11860bf7b431410/winrt_runtime-3.2.1-cp313-cp313-win_arm64.whl", hash = "sha256:28f3dab083412625ff4d2b46e81246932e6bebddf67bea7f05e01712f54e6159" },
-]
-
-[[package]]
-name = "winrt-windows-graphics-imaging"
-version = "3.2.1"
-source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
-dependencies = [
-    { name = "winrt-runtime" },
-]
-sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/3c/90/14655f93d5cc4224ae6c44866c36928926b54c8fe7ae4a465b10332bd935/winrt_windows_graphics_imaging-3.2.1.tar.gz", hash = "sha256:1e0bdb08625b0ce144a2e76dd5ed86605906e41196df92d660c8f87a993a1513" }
-wheels = [
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/54/58/689c676b9944131b1237071c3457fadbb895c6e53eb922a249d93a2637dd/winrt_windows_graphics_imaging-3.2.1-cp311-cp311-win32.whl", hash = "sha256:6c538087b8955a8ba9cd067588a3a000390e05783875da33059bab9c5cd38a0a" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/57/9b/64b9b01a6c6b93d676e34a6a4cc9160714efe22039a94e7919899cda50f8/winrt_windows_graphics_imaging-3.2.1-cp311-cp311-win_amd64.whl", hash = "sha256:fa349bb85d69b75ee05a223e4383eecb74c82df50db9b450d4d3b174f98577a6" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/d5/76/103e34d023efaf596d21ec4fb4b1fa33a538cea5c2866bf4e36aa6364c27/winrt_windows_graphics_imaging-3.2.1-cp311-cp311-win_arm64.whl", hash = "sha256:25956a9fc7cc6f2aabdb43b07e6f058ff4abaa8a9116b68a9bf26a9a27a802fe" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/54/00/a1f1e4af34305738290c46170a080f57340722d3a79321f6ec89ad564930/winrt_windows_graphics_imaging-3.2.1-cp312-cp312-win32.whl", hash = "sha256:9694d7753b88f8ea4ee85564208e534e5d15474e88709aba99d16d783b633de2" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/3a/10/8cce4bffff8cad606623ea27adf711a0662881f2bca6207f12fd391d5eb8/winrt_windows_graphics_imaging-3.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:066038a96df12c23d6da6a591472436ada50103f575d8a1f802778a044f668c8" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/68/ac/4cdf2a853258567ce851331a4c40aea960c315851de8cedd88380d8abf0c/winrt_windows_graphics_imaging-3.2.1-cp312-cp312-win_arm64.whl", hash = "sha256:5850bbfa0ad87dd138fbd2c3088d0641b34393c0d60d4679296596574199d210" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/fa/7a/3e2b38e3d5526981918a64b8e8970c10a86ad2e3fe142f2c6313349b7318/winrt_windows_graphics_imaging-3.2.1-cp313-cp313-win32.whl", hash = "sha256:9bcff883e1bb9819a651ad1151779b30fd3c7ed838e1f59e894984b9df54e54b" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/c4/f9/7bdb36146c7a28856d5a81f65289d5d74d7ba1f2192ef4b1414b24834425/winrt_windows_graphics_imaging-3.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:7026df3274e20f72678b5d1a1425358004d9fe4316b775e413123841936345a5" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/4c/0c/5fac538512c42c9e3b7baa6b2f011d69eb56ec8a508020a8fa1e532f2f35/winrt_windows_graphics_imaging-3.2.1-cp313-cp313-win_arm64.whl", hash = "sha256:a8eb06ba156e65a42ef47bf18d2fc7cd3f558cc72af3b2743fb5f8ef92778117" },
-]
-
-[[package]]
-name = "winrt-windows-media-ocr"
-version = "3.2.1"
-source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
-dependencies = [
-    { name = "winrt-runtime" },
-]
-sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/be/cd/43353a1ddc388cd9ae4ed9ca090d53239aa17f1210616a5dbf18957def41/winrt_windows_media_ocr-3.2.1.tar.gz", hash = "sha256:521e63c42073ee911f373aa24a67eea0f2903b3bb91febdbc34875b254f2b66e" }
-wheels = [
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/20/39/86ff6cbf9c4c4249838d4cd4e535022da92b03d1f81d47c8068566423e63/winrt_windows_media_ocr-3.2.1-cp311-cp311-win32.whl", hash = "sha256:20a1bc66461eaa6004261cad83226ca3df2e43e0fedff6fff08646844b772fd0" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/90/96/9a561df788aca523576a1486544ee77fcc4d3fd486573b9ced974156ebed/winrt_windows_media_ocr-3.2.1-cp311-cp311-win_amd64.whl", hash = "sha256:e1d44b85875643b4718d1094dbe75cee72b3cecedafe37c3f27b738f53bef96c" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/b4/55/e2561d21909d9b37d1b0cd10fb3ef0412619da8b38025bf0c1e18966b652/winrt_windows_media_ocr-3.2.1-cp311-cp311-win_arm64.whl", hash = "sha256:45b65325701de8eb11dd2f883a69a1a1a7a518c4563605fe994e7379ee8559e7" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/9a/3c/393f5bc11a295fd9f28a042ba714cbe40589db5529d14b24aa9589f77720/winrt_windows_media_ocr-3.2.1-cp312-cp312-win32.whl", hash = "sha256:80a8aeaced0ffd7dfc411529ed9acfaabd437f145b16db9d6539ef5ad26622bc" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/28/34/33d90b4856517801c23c932940a9e307e5ceab14ca2747d4e5da846b142b/winrt_windows_media_ocr-3.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:9984824864b49eb65765f60ea9d910928888efe3cdf5f71f037d6fe9133134f6" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ff/83/fc27681cf056f7488a59796966b92cbfdd6029cb4c85ca8600a01568dbb5/winrt_windows_media_ocr-3.2.1-cp312-cp312-win_arm64.whl", hash = "sha256:5ea135c42c8451ba3e202de149acd0db63d6925deca51c79fb244b1f33d6a2c9" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/c9/33/4af8858c0e7e637910b9226179c458456aa185be02ba3c7483d5a83edba3/winrt_windows_media_ocr-3.2.1-cp313-cp313-win32.whl", hash = "sha256:74e3e3c060656ea80cd961adaffe2461fc0233fc9e4658feb3469cdf77ba7c02" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/66/50/adf14ce4187aab3eceb87e713d266ddf68a95a2dc360463b06adf7eab32f/winrt_windows_media_ocr-3.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:8252e790211a0ddace4513988dc4c36edaf727060cf5f6d4f1a1e11bc0020854" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/2f/9b/9a9331059235b12542d7b6370cf668c1f802a0392a1e41d640f57975f0c8/winrt_windows_media_ocr-3.2.1-cp313-cp313-win_arm64.whl", hash = "sha256:7d241eb5616772031f691111a8e0c70729bf8372ea552fdcb1a35544b7e9e832" },
-]
-
-[[package]]
-name = "winrt-windows-storage-streams"
-version = "3.2.1"
-source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
-dependencies = [
-    { name = "winrt-runtime" },
-]
-sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/00/50/f4488b07281566e3850fcae1021f0285c9653992f60a915e15567047db63/winrt_windows_storage_streams-3.2.1.tar.gz", hash = "sha256:476f522722751eb0b571bc7802d85a82a3cae8b1cce66061e6e758f525e7b80f" }
-wheels = [
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/19/60/a9e0dc03434aa29e6b5c83067e988cd5934adf830cd9f87cbbc06569ca32/winrt_windows_storage_streams-3.2.1-cp311-cp311-win32.whl", hash = "sha256:7dace2f9e364422255d0e2f335f741bfe7abb1f4d4f6003622b2450b87c91e69" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/23/98/6c9c21b5e75ff5927a130da9eaf5ab628dfa1f93b64c181f0193706cbd6c/winrt_windows_storage_streams-3.2.1-cp311-cp311-win_amd64.whl", hash = "sha256:b02fa251a7eef6081eca1a5f64ecf349cfd1ac0ac0c5a5a30be52897d060bed5" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/38/ca/d0a02045d445cbf1029d65f01b487fdded5b333c0367a8bae0565b3def00/winrt_windows_storage_streams-3.2.1-cp311-cp311-win_arm64.whl", hash = "sha256:efdf250140340a75647e8e8ad002782d91308e9fdd1e19470a5b9cc969ae4780" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/87/e7/7d3f2a4a442f264e05cab2bdf20ed1b95cb3f753bd1b0f277f2b49fb8335/winrt_windows_storage_streams-3.2.1-cp312-cp312-win32.whl", hash = "sha256:77c1f0e004b84347b5bd705e8f0fc63be8cd29a6093be13f1d0869d0d97b7d78" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/c6/2f/cc36f475f8af293f40e2c2a5d6c2e75a189c2c2d4d01ecb3551578518c79/winrt_windows_storage_streams-3.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:e4508ee135af53e4fc142876abbf4bc7c2a95edfc7d19f52b291a8499cacd6dc" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/94/84/896fb734f7456910ec412f3f3adfdc3f0dc3134864a496d5b120592f3bfd/winrt_windows_storage_streams-3.2.1-cp312-cp312-win_arm64.whl", hash = "sha256:040cb94e6fb26b0d00a00e8b88b06fadf29dfe18cf24ed6cb3e69709c3613307" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/d9/d2/24d9f59bdc05e741261d5bec3bcea9a848d57714126a263df840e2b515a8/winrt_windows_storage_streams-3.2.1-cp313-cp313-win32.whl", hash = "sha256:401bb44371720dc43bd1e78662615a2124372e7d5d9d65dfa8f77877bbcb8163" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/15/59/601724453b885265c7779d5f8025b043a68447cbc64ceb9149d674d5b724/winrt_windows_storage_streams-3.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:202c5875606398b8bfaa2a290831458bb55f2196a39c1d4e5fa88a03d65ef915" },
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/fb/c2/a419675a6087c9ea496968c9b7805ef234afa585b7483e2269608a12b044/winrt_windows_storage_streams-3.2.1-cp313-cp313-win_arm64.whl", hash = "sha256:ca3c5ec0aab60895006bf61053a1aca6418bc7f9a27a34791ba3443b789d230d" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ea/74/4667edbe29a48e626e2660ae419ab0e5d7de9b7226aaf97fd40ccdfe815f/winsdk-1.0.0b10-cp311-cp311-win32.whl", hash = "sha256:9ea4fdad9ca8a542198aee3c753ac164b8e2f550d760bb88815095d64750e0f5" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/cc/a2/65a7a7d812da3bb8d82acda13cfb832aed3d3d32e9e687074c192be0903b/winsdk-1.0.0b10-cp311-cp311-win_amd64.whl", hash = "sha256:f12e25bbf0a658270203615677520b8170edf500fba11e0f80359c5dbf090676" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/84/87/734f796735fd5205bc5b551a455f8402b6d3d34d78b307c274c5258405ec/winsdk-1.0.0b10-cp311-cp311-win_arm64.whl", hash = "sha256:e77bce44a9ff151562bd261b2a1a8255e258bb10696d0d31ef63267a27628af1" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/04/67/3eeaf41b0e7a4e1e627e1940fbf2f8e2c936161d0652dd9e462d70b79913/winsdk-1.0.0b10-cp312-cp312-win32.whl", hash = "sha256:775a55a71e05ec2aa262c1fd67d80f270d4186bbdbbee2f43c9c412cf76f0761" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/0c/87/a5ffbb9613fcd3917183707ac16c88e82d22a1faf933bb9a3e04fff2f289/winsdk-1.0.0b10-cp312-cp312-win_amd64.whl", hash = "sha256:8231ce5f16e1fc88bb7dda0adf35633b5b26101eae3b0799083ca2177f03e4e5" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/39/9c/64365f88dead53c38dfb07e992c13fc66698ad7221be56e17e641448cca7/winsdk-1.0.0b10-cp312-cp312-win_arm64.whl", hash = "sha256:f4ab469ada19b34ccfc69a148090f98b40a1da1da797b50b9cbba0c090c365a5" },
 ]
 
 [[package]]

@@ -259,7 +259,7 @@ def capture_screen(
             phys_y = int(y * scale_factor)
             phys_w = int(w * scale_factor)
             phys_h = int(h * scale_factor)
-            
+
             emit_info(
                 f"[cyan]📸 CAPTURING SCREENSHOT[/cyan]\n"
                 f"[dim]   Mode: Region capture[/dim]\n"
@@ -308,7 +308,7 @@ def capture_screen(
 
             # DEBUG: Copy to CWD if debug mode enabled
             from .config_manager import get_debug_screenshots_enabled
-            
+
             if get_debug_screenshots_enabled():
                 cwd_path = Path.cwd() / screenshot_path.name
                 screenshot.save(cwd_path)

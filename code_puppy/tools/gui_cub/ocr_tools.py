@@ -739,20 +739,13 @@ def register_ocr_tools(agent):
             else:
                 screenshot = pyautogui.screenshot()
 
-            # DEBUG: Save screenshot to CWD if debug mode enabled
+            # DEBUG: Save screenshot to temp if debug mode enabled
+            # Users can copy to pwd with /save_debug_image command
             from .config_manager import get_debug_screenshots_enabled
-            from datetime import datetime
-            from pathlib import Path
+            from .debug_screenshot_manager import save_temp_debug_screenshot
 
             if get_debug_screenshots_enabled():
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                debug_filename = f"ocr_screenshot_{timestamp}.png"
-                cwd_path = Path.cwd() / debug_filename
-                screenshot.save(cwd_path)
-                emit_info(
-                    f"[yellow]🐛 DEBUG: OCR screenshot saved to CWD: {cwd_path}[/yellow]",
-                    message_group=group_id,
-                )
+                save_temp_debug_screenshot(screenshot, "ocr_region", group_id)
 
             # Extract text with scaling correction and region offset
             # Pass region offset (x, y) so coordinates are converted to screen space
@@ -1260,15 +1253,14 @@ def register_ocr_tools(agent):
             save_path.parent.mkdir(parents=True, exist_ok=True)
             screenshot.save(save_path)
 
-            # DEBUG: Copy to CWD if debug mode enabled
+            # DEBUG: Save to temp if debug mode enabled
+            # Users can copy to pwd with /save_debug_image command
             from .config_manager import get_debug_screenshots_enabled
+            from .debug_screenshot_manager import save_temp_debug_screenshot
 
             if get_debug_screenshots_enabled():
-                cwd_path = Path.cwd() / filename
-                screenshot.save(cwd_path)
-                emit_info(
-                    f"[yellow]🐛 DEBUG: OCR debug visualization copied to CWD: {cwd_path}[/yellow]",
-                    message_group=group_id,
+                save_temp_debug_screenshot(
+                    screenshot, "ocr_debug_visualization", group_id
                 )
 
             emit_info(

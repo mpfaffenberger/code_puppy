@@ -18,9 +18,9 @@ from PIL import Image
 try:
     import asyncio
 
-    from winrt.windows.graphics.imaging import BitmapDecoder
-    from winrt.windows.media.ocr import OcrEngine
-    from winrt.windows.storage.streams import (
+    from winsdk.windows.graphics.imaging import BitmapDecoder
+    from winsdk.windows.media.ocr import OcrEngine
+    from winsdk.windows.storage.streams import (
         DataWriter,
         InMemoryRandomAccessStream,
     )

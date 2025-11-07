@@ -68,6 +68,7 @@ from code_puppy.tools.gui_cub.knowledge_base import (
 )
 from code_puppy.tools.gui_cub.config_manager import (
     register_config_tools as register_gui_cub_config,
+    register_debug_screenshot_tools as register_gui_cub_debug_screenshots,
 )
 
 # GUI-Cub desktop automation tools (always available - required dependencies)
@@ -208,6 +209,7 @@ TOOL_REGISTRY.update(
         # Representative names (NEW - preferred)
         "gui_cub_workflows": register_gui_cub_workflows,  # Registers: save, list, read
         "gui_cub_config": register_gui_cub_config,  # Registers: get, calibrate, validate, reset
+        "gui_cub_debug": register_gui_cub_debug_screenshots,  # Registers: save_debug_screenshot
         # Individual tool names (backward compatibility)
         "gui_cub_save_workflow": register_gui_cub_workflows,
         "gui_cub_list_workflows": register_gui_cub_workflows,
@@ -218,6 +220,7 @@ TOOL_REGISTRY.update(
         "gui_cub_calibrate": register_gui_cub_config,
         "gui_cub_validate_config": register_gui_cub_config,
         "gui_cub_reset_config": register_gui_cub_config,
+        "save_debug_screenshot": register_gui_cub_debug_screenshots,
     }
 )
 

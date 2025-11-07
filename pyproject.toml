@@ -49,10 +49,8 @@ dependencies = [
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     "pywinauto>=0.6.8; sys_platform == 'win32'",
     "pywin32>=306; sys_platform == 'win32'",
-    # WinRT OCR dependencies (Windows 10+ native OCR)
-    "winrt-Windows.Media.Ocr>=2.0.0; sys_platform == 'win32'",
-    "winrt-Windows.Graphics.Imaging>=2.0.0; sys_platform == 'win32'",
-    "winrt-Windows.Storage.Streams>=2.0.0; sys_platform == 'win32'",
+    # WinRT OCR dependencies (Windows 10+ native OCR) - unified package
+    "winsdk>=1.0.0b10; sys_platform == 'win32'",
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
     "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",

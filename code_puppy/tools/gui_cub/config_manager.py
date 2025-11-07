@@ -124,13 +124,13 @@ def set_debug_screenshots_enabled(enabled: bool):
         config["debug"] = {}
 
     config["debug"]["copy_screenshots_to_cwd"] = enabled
-    
+
     # Initialize metadata if not present
     if "metadata" not in config:
         config["metadata"] = {}
-    
+
     save_config(config)
-    
+
     status = "enabled" if enabled else "disabled"
     emit_info(f"[green]✓ Debug screenshot copying {status}[/green]")
 
@@ -334,6 +334,68 @@ async def ensure_calibrated() -> Dict[str, Any]:
 
 
 # Tool registration functions (following QA-Kitten patterns)
+
+
+def register_debug_screenshot_tools(agent):
+    """Register debug screenshot management tools."""
+
+    from pydantic_ai import RunContext
+
+    @agent.tool
+    async def save_debug_screenshot(
+        context: RunContext,
+        filename: str | None = None,
+    ) -> Dict[str, Any]:
+        """Save the last debug screenshot (from VQA or OCR) to current directory.
+
+        Use this when the user asks to see debug screenshots, save images for debugging,
+        or wants to inspect what the vision system captured.
+
+        Trigger phrases:
+        - "show me the screenshot"
+        - "save that debug image"
+        - "I want to see what you captured"
+        - "copy the screenshot for me"
+        - "let me see the last image"
+
+        Args:
+            context: Pydantic AI context
+            filename: Optional custom filename (default: auto-generated with timestamp)
+
+        Returns:
+            Dict with success status and file path
+        """
+        from code_puppy.tools.gui_cub.debug_screenshot_manager import (
+            copy_last_screenshot_to_pwd,
+        )
+
+        group_id = generate_group_id("save_debug_screenshot")
+        emit_info(
+            "[bold cyan]📸 Saving debug screenshot...[/bold cyan]",
+            message_group=group_id,
+        )
+
+        result_path = copy_last_screenshot_to_pwd(filename)
+
+        if result_path:
+            emit_info(
+                f"[green]✅ Debug screenshot saved: {result_path}[/green]",
+                message_group=group_id,
+            )
+            return {
+                "success": True,
+                "path": str(result_path),
+                "message": f"Screenshot saved to {result_path.name}",
+            }
+        else:
+            emit_warning(
+                "[yellow]⚠️ No debug screenshot available[/yellow]",
+                message_group=group_id,
+            )
+            return {
+                "success": False,
+                "message": "No debug screenshot available. VQA/OCR tools haven't captured any images yet.",
+            }
 
 
 def register_config_tools(agent):
