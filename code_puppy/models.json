@@ -15,7 +15,7 @@
       "url": "https://api.synthetic.new/openai/v1/",
       "api_key": "$SYN_API_KEY"
     },
-    "context_length": 205000
+    "context_length": 195000
   },
   "synthetic-Kimi-K2-Thinking": {
     "type": "custom_openai",
@@ -33,7 +33,7 @@
       "url": "https://api.synthetic.new/openai/v1/",
       "api_key": "$SYN_API_KEY"
     },
-    "context_length": 128000
+    "context_length": 131072
   },
   "synthetic-Kimi-K2-Instruct-0905": {
     "type": "custom_openai",
@@ -42,7 +42,7 @@
       "url": "https://api.synthetic.new/openai/v1/",
       "api_key": "$SYN_API_KEY"
     },
-    "context_length": 256000
+    "context_length": 262144
   },
   "synthetic-Qwen3-Coder-480B-A35B-Instruct": {
     "type": "custom_openai",
@@ -51,7 +51,16 @@
       "url": "https://api.synthetic.new/openai/v1/",
       "api_key": "$SYN_API_KEY"
     },
-    "context_length": 256000
+    "context_length": 262144
+  },
+  "openrouter-polaris-alpha": {
+    "type": "custom_openai",
+    "name": "openrouter/polaris-alpha",
+    "custom_endpoint": {
+      "url": "https://openrouter.ai/api/v1",
+      "api_key": "$OPENROUTER_API_KEY"
+    },
+    "context_length": 262144
   },
   "gpt-5": {
     "type": "openai",
