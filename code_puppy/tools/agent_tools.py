@@ -392,6 +392,7 @@ def register_invoke_agent(agent):
                 instructions=instructions,
                 output_type=str,
                 retries=3,
+                history_processors=[agent_config.message_history_accumulator],
             )
 
             # Register the tools that the agent needs
