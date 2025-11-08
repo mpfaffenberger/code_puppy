@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import platform
 import subprocess
 import sys
 import time
@@ -366,6 +367,15 @@ async def main():
         await callbacks.on_shutdown()
         if get_use_dbos():
             DBOS.destroy()
+
+        # Reset terminal on Unix-like systems (not Windows)
+        if platform.system() != "Windows":
+            try:
+                # Reset terminal to sanity state
+                subprocess.run(["reset"], check=True, capture_output=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Silently fail if reset command isn't available
+                pass
 
 
 # Add the file handling functionality for interactive mode
