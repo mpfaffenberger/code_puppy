@@ -368,15 +368,6 @@ async def main():
         if get_use_dbos():
             DBOS.destroy()
 
-        # Reset terminal on Unix-like systems (not Windows)
-        if platform.system() != "Windows":
-            try:
-                # Reset terminal to sanity state
-                subprocess.run(["reset"], check=True, capture_output=True)
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                # Silently fail if reset command isn't available
-                pass
-
 
 # Add the file handling functionality for interactive mode
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
@@ -827,6 +818,15 @@ def main_entry():
         if get_use_dbos():
             DBOS.destroy()
         return 0
+    finally:
+        # Reset terminal on Unix-like systems (not Windows)
+        if platform.system() != "Windows":
+            try:
+                # Reset terminal to sanity state
+                subprocess.run(["reset"], check=True, capture_output=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Silently fail if reset command isn't available
+                pass
 
 
 if __name__ == "__main__":
