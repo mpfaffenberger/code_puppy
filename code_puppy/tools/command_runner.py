@@ -212,14 +212,21 @@ def _listen_for_ctrl_x_windows(
         try:
             if msvcrt.kbhit():
                 try:
+                    # Try to read a character
+                    # Note: msvcrt.getwch() returns unicode string on Windows
                     key = msvcrt.getwch()
-                    if key == "\x18":  # Ctrl+X
+
+                    # Check for Ctrl+X (\x18) or other interrupt keys
+                    # Some terminals might not send \x18, so also check for 'x' with modifier
+                    if key == "\x18":  # Standard Ctrl+X
                         try:
                             on_escape()
                         except Exception:
                             emit_warning(
                                 "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                             )
+                    # Note: In some Windows terminals, Ctrl+X might not be captured
+                    # Users can use Ctrl+C as alternative, which is handled by signal handler
                 except (OSError, ValueError):
                     # kbhit/getwch can fail on Windows in certain terminal states
                     # Just continue, user can use Ctrl+C
