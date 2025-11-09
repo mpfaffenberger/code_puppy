@@ -85,7 +85,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-omit = ["code_puppy/main.py"]
+omit = ["code_puppy/main.py", "code_puppy/tui/*"]
 
 [tool.uv]
 python-preference = "only-managed"

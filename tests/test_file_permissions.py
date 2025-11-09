@@ -40,7 +40,8 @@ class TestFilePermissions(unittest.TestCase):
     )
     def test_prompt_for_file_permission_granted(self, mock_prompt):
         """Test that permission is granted when user enters 'y'."""
-        mock_prompt.return_value = True
+        # Mock returns tuple (confirmed, user_feedback)
+        mock_prompt.return_value = (True, None)
 
         result = on_file_permission(None, self.test_file, "edit")
         # Should return [True] from the mocked plugin
@@ -51,7 +52,8 @@ class TestFilePermissions(unittest.TestCase):
     )
     def test_prompt_for_file_permission_denied(self, mock_prompt):
         """Test that permission is denied when user enters 'n'."""
-        mock_prompt.return_value = False
+        # Mock returns tuple (confirmed, user_feedback)
+        mock_prompt.return_value = (False, None)
 
         result = on_file_permission(None, self.test_file, "edit")
         # Should return [False] from the mocked plugin
