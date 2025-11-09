@@ -26,7 +26,7 @@ puppy_name = IntegrationPup
 owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
-model = synthetic-GLM-4.6
+model = Cerebras-GLM-4.6
 enable_dbos = true
 """
 
