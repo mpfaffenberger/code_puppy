@@ -63,25 +63,32 @@ def _unregister_process(proc: subprocess.Popen) -> None:
 def _kill_process_group(proc: subprocess.Popen) -> None:
     """Attempt to aggressively terminate a process and its group.
 
-    Cross-platform best-effort. On POSIX, uses process groups. On Windows, tries CTRL_BREAK_EVENT, then terminate().
+    Cross-platform best-effort. On POSIX, uses process groups. On Windows, tries taskkill with /T flag for tree kill.
     """
     try:
         if sys.platform.startswith("win"):
+            # On Windows, use taskkill to kill the process tree
+            # /F = force, /T = kill tree (children), /PID = process ID
             try:
-                # Try a soft break first if the group exists
-                proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
-                time.sleep(0.8)
+                import subprocess as sp
+
+                # Try taskkill first - more reliable on Windows
+                sp.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=2,
+                    check=False,
+                )
+                time.sleep(0.3)
             except Exception:
+                # Fallback to Python's built-in methods
                 pass
-            if proc.poll() is None:
-                try:
-                    proc.terminate()
-                    time.sleep(0.8)
-                except Exception:
-                    pass
+
+            # Double-check it's dead, if not use proc.kill()
             if proc.poll() is None:
                 try:
                     proc.kill()
+                    time.sleep(0.3)
                 except Exception:
                     pass
             return

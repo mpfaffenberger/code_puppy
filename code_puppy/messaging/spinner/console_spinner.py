@@ -139,6 +139,12 @@ class ConsoleSpinner(SpinnerBase):
                 try:
                     self._live.stop()
                     self._live = None
+                    # Clear the line to remove any artifacts
+                    import sys
+
+                    sys.stdout.write("\r")  # Return to start of line
+                    sys.stdout.write("\x1b[K")  # Clear to end of line
+                    sys.stdout.flush()
                 except Exception:
                     pass
 
@@ -155,6 +161,13 @@ class ConsoleSpinner(SpinnerBase):
             # Restart the live display if it was stopped during pause
             if not self._live:
                 try:
+                    # Clear any leftover artifacts before starting
+                    import sys
+
+                    sys.stdout.write("\r")  # Return to start of line
+                    sys.stdout.write("\x1b[K")  # Clear to end of line
+                    sys.stdout.flush()
+
                     self._live = Live(
                         self._generate_spinner_panel(),
                         console=self.console,
