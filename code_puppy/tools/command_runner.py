@@ -5,7 +5,8 @@ import sys
 import threading
 import time
 import traceback
-from typing import Set
+from contextlib import contextmanager
+from typing import Callable, Optional, Set
 
 from pydantic import BaseModel
 from pydantic_ai import RunContext
@@ -19,7 +20,7 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-from code_puppy.tools.common import generate_group_id
+from code_puppy.tools.common import generate_group_id, get_user_approval
 from code_puppy.tui_state import is_tui_mode
 
 # Maximum line length for shell command output to prevent massive token usage
@@ -42,6 +43,11 @@ _CONFIRMATION_LOCK = threading.Lock()
 _RUNNING_PROCESSES: Set[subprocess.Popen] = set()
 _RUNNING_PROCESSES_LOCK = threading.Lock()
 _USER_KILLED_PROCESSES = set()
+
+# Global state for shell command keyboard handling
+_SHELL_CTRL_X_STOP_EVENT: Optional[threading.Event] = None
+_SHELL_CTRL_X_THREAD: Optional[threading.Thread] = None
+_ORIGINAL_SIGINT_HANDLER = None
 
 
 def _register_process(proc: subprocess.Popen) -> None:
@@ -191,6 +197,181 @@ class ShellCommandOutput(BaseModel):
     execution_time: float | None
     timeout: bool | None = False
     user_interrupted: bool | None = False
+    user_feedback: str | None = None  # User feedback when command is rejected
+
+
+def _listen_for_ctrl_x_windows(
+    stop_event: threading.Event,
+    on_escape: Callable[[], None],
+) -> None:
+    """Windows-specific Ctrl-X listener."""
+    import msvcrt
+    import time
+
+    while not stop_event.is_set():
+        try:
+            if msvcrt.kbhit():
+                key = msvcrt.getwch()
+                if key == "\x18":  # Ctrl+X
+                    try:
+                        on_escape()
+                    except Exception:
+                        emit_warning(
+                            "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
+                        )
+        except Exception:
+            emit_warning(
+                "Windows Ctrl+X listener error; Ctrl+C is still available for cancel."
+            )
+            return
+        time.sleep(0.05)
+
+
+def _listen_for_ctrl_x_posix(
+    stop_event: threading.Event,
+    on_escape: Callable[[], None],
+) -> None:
+    """POSIX-specific Ctrl-X listener."""
+    import select
+    import sys
+    import termios
+    import tty
+
+    stdin = sys.stdin
+    try:
+        fd = stdin.fileno()
+    except (AttributeError, ValueError, OSError):
+        return
+    try:
+        original_attrs = termios.tcgetattr(fd)
+    except Exception:
+        return
+
+    try:
+        tty.setcbreak(fd)
+        while not stop_event.is_set():
+            try:
+                read_ready, _, _ = select.select([stdin], [], [], 0.05)
+            except Exception:
+                break
+            if not read_ready:
+                continue
+            data = stdin.read(1)
+            if not data:
+                break
+            if data == "\x18":  # Ctrl+X
+                try:
+                    on_escape()
+                except Exception:
+                    emit_warning(
+                        "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
+                    )
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
+
+
+def _spawn_ctrl_x_key_listener(
+    stop_event: threading.Event,
+    on_escape: Callable[[], None],
+) -> Optional[threading.Thread]:
+    """Start a Ctrl+X key listener thread for CLI sessions."""
+    try:
+        import sys
+    except ImportError:
+        return None
+
+    stdin = getattr(sys, "stdin", None)
+    if stdin is None or not hasattr(stdin, "isatty"):
+        return None
+    try:
+        if not stdin.isatty():
+            return None
+    except Exception:
+        return None
+
+    def listener() -> None:
+        try:
+            if sys.platform.startswith("win"):
+                _listen_for_ctrl_x_windows(stop_event, on_escape)
+            else:
+                _listen_for_ctrl_x_posix(stop_event, on_escape)
+        except Exception:
+            emit_warning(
+                "Ctrl+X key listener stopped unexpectedly; press Ctrl+C to cancel."
+            )
+
+    thread = threading.Thread(
+        target=listener, name="shell-command-ctrl-x-listener", daemon=True
+    )
+    thread.start()
+    return thread
+
+
+@contextmanager
+def _shell_command_keyboard_context():
+    """Context manager to handle keyboard interrupts during shell command execution.
+
+    This context manager:
+    1. Disables the agent's Ctrl-C handler (so it doesn't cancel the agent)
+    2. Enables a Ctrl-X listener to kill the running shell process
+    3. Restores the original Ctrl-C handler when done
+    """
+    global _SHELL_CTRL_X_STOP_EVENT, _SHELL_CTRL_X_THREAD, _ORIGINAL_SIGINT_HANDLER
+
+    # Skip all this in TUI mode
+    if is_tui_mode():
+        yield
+        return
+
+    # Handler for Ctrl-X: kill all running shell processes
+    def handle_ctrl_x_press() -> None:
+        emit_warning("\n🛑 Ctrl-X detected! Interrupting shell command...")
+        kill_all_running_shell_processes()
+
+    # Handler for Ctrl-C during shell execution: just kill the shell process, don't cancel agent
+    def shell_sigint_handler(_sig, _frame):
+        """During shell execution, Ctrl-C kills the shell but doesn't cancel the agent."""
+        emit_warning("\n🛑 Ctrl-C detected! Interrupting shell command...")
+        kill_all_running_shell_processes()
+
+    # Set up Ctrl-X listener
+    _SHELL_CTRL_X_STOP_EVENT = threading.Event()
+    _SHELL_CTRL_X_THREAD = _spawn_ctrl_x_key_listener(
+        _SHELL_CTRL_X_STOP_EVENT,
+        handle_ctrl_x_press,
+    )
+
+    # Replace SIGINT handler temporarily
+    try:
+        _ORIGINAL_SIGINT_HANDLER = signal.signal(signal.SIGINT, shell_sigint_handler)
+    except (ValueError, OSError):
+        # Can't set signal handler (maybe not main thread?)
+        _ORIGINAL_SIGINT_HANDLER = None
+
+    try:
+        yield
+    finally:
+        # Clean up: stop Ctrl-X listener
+        if _SHELL_CTRL_X_STOP_EVENT:
+            _SHELL_CTRL_X_STOP_EVENT.set()
+
+        if _SHELL_CTRL_X_THREAD and _SHELL_CTRL_X_THREAD.is_alive():
+            try:
+                _SHELL_CTRL_X_THREAD.join(timeout=0.2)
+            except Exception:
+                pass
+
+        # Restore original SIGINT handler
+        if _ORIGINAL_SIGINT_HANDLER is not None:
+            try:
+                signal.signal(signal.SIGINT, _ORIGINAL_SIGINT_HANDLER)
+            except (ValueError, OSError):
+                pass
+
+        # Clean up global state
+        _SHELL_CTRL_X_STOP_EVENT = None
+        _SHELL_CTRL_X_THREAD = None
+        _ORIGINAL_SIGINT_HANDLER = None
 
 
 def run_shell_command_streaming(
@@ -425,98 +606,125 @@ def run_shell_command(
 
         command_displayed = True
 
+        # Get puppy name for personalized messages
+        from code_puppy.config import get_puppy_name
+
+        puppy_name = get_puppy_name().title()
+
+        # Build panel content
+        panel_content = Text()
+        panel_content.append("⚡ Requesting permission to run:\n", style="bold yellow")
+        panel_content.append("$ ", style="bold green")
+        panel_content.append(command, style="bold white")
+
         if cwd:
-            emit_info(f"[dim] Working directory: {cwd} [/dim]", message_group=group_id)
+            panel_content.append("\n\n", style="")
+            panel_content.append("📂 Working directory: ", style="dim")
+            panel_content.append(cwd, style="dim cyan")
 
-        # Set the flag to indicate we're awaiting user input
-        set_awaiting_user_input(True)
+        # Use the common approval function
+        confirmed, user_feedback = get_user_approval(
+            title="Shell Command",
+            content=panel_content,
+            preview=None,
+            border_style="dim white",
+            puppy_name=puppy_name,
+        )
 
-        time.sleep(0.2)
-        sys.stdout.write("Are you sure you want to run this command? (y(es)/n(o))\n")
-        sys.stdout.flush()
-
-        try:
-            user_input = input()
-            confirmed = user_input.strip().lower() in {"yes", "y"}
-        except (KeyboardInterrupt, EOFError):
-            emit_warning("\n Cancelled by user")
-            confirmed = False
-        finally:
-            # Clear the flag regardless of the outcome
-            set_awaiting_user_input(False)
-            if confirmation_lock_acquired:
-                _CONFIRMATION_LOCK.release()
+        # Release lock after approval
+        if confirmation_lock_acquired:
+            _CONFIRMATION_LOCK.release()
 
         if not confirmed:
-            result = ShellCommandOutput(
-                success=False, command=command, error="User rejected the command!"
-            )
+            if user_feedback:
+                result = ShellCommandOutput(
+                    success=False,
+                    command=command,
+                    error=f"USER REJECTED: {user_feedback}",
+                    user_feedback=user_feedback,
+                    stdout=None,
+                    stderr=None,
+                    exit_code=None,
+                    execution_time=None,
+                )
+            else:
+                result = ShellCommandOutput(
+                    success=False,
+                    command=command,
+                    error="User rejected the command!",
+                    stdout=None,
+                    stderr=None,
+                    exit_code=None,
+                    execution_time=None,
+                )
             return result
     else:
         start_time = time.time()
 
-    try:
-        creationflags = 0
-        preexec_fn = None
-        if sys.platform.startswith("win"):
-            try:
-                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-            except Exception:
-                creationflags = 0
-        else:
-            preexec_fn = os.setsid if hasattr(os, "setsid") else None
-
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=cwd,
-            bufsize=1,
-            universal_newlines=True,
-            preexec_fn=preexec_fn,
-            creationflags=creationflags,
-        )
-        _register_process(process)
+    # Now that approval is done, activate the Ctrl-X listener and disable agent Ctrl-C
+    with _shell_command_keyboard_context():
         try:
-            return run_shell_command_streaming(
-                process, timeout=timeout, command=command, group_id=group_id
-            )
-        finally:
-            # Ensure unregistration in case streaming returned early or raised
-            _unregister_process(process)
-    except Exception as e:
-        emit_error(traceback.format_exc(), message_group=group_id)
-        if "stdout" not in locals():
-            stdout = None
-        if "stderr" not in locals():
-            stderr = None
+            creationflags = 0
+            preexec_fn = None
+            if sys.platform.startswith("win"):
+                try:
+                    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                except Exception:
+                    creationflags = 0
+            else:
+                preexec_fn = os.setsid if hasattr(os, "setsid") else None
 
-        # Apply line length limits to stdout/stderr if they exist
-        truncated_stdout = None
-        if stdout:
-            stdout_lines = stdout.split("\n")
-            truncated_stdout = "\n".join(
-                [_truncate_line(line) for line in stdout_lines[-256:]]
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=cwd,
+                bufsize=1,
+                universal_newlines=True,
+                preexec_fn=preexec_fn,
+                creationflags=creationflags,
             )
+            _register_process(process)
+            try:
+                return run_shell_command_streaming(
+                    process, timeout=timeout, command=command, group_id=group_id
+                )
+            finally:
+                # Ensure unregistration in case streaming returned early or raised
+                _unregister_process(process)
+        except Exception as e:
+            emit_error(traceback.format_exc(), message_group=group_id)
+            if "stdout" not in locals():
+                stdout = None
+            if "stderr" not in locals():
+                stderr = None
 
-        truncated_stderr = None
-        if stderr:
-            stderr_lines = stderr.split("\n")
-            truncated_stderr = "\n".join(
-                [_truncate_line(line) for line in stderr_lines[-256:]]
+            # Apply line length limits to stdout/stderr if they exist
+            truncated_stdout = None
+            if stdout:
+                stdout_lines = stdout.split("\n")
+                truncated_stdout = "\n".join(
+                    [_truncate_line(line) for line in stdout_lines[-256:]]
+                )
+
+            truncated_stderr = None
+            if stderr:
+                stderr_lines = stderr.split("\n")
+                truncated_stderr = "\n".join(
+                    [_truncate_line(line) for line in stderr_lines[-256:]]
+                )
+
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error=f"Error executing command {str(e)}",
+                stdout=truncated_stdout,
+                stderr=truncated_stderr,
+                exit_code=-1,
+                timeout=False,
             )
-
-        return ShellCommandOutput(
-            success=False,
-            command=command,
-            error=f"Error executing command {str(e)}",
-            stdout=truncated_stdout,
-            stderr=truncated_stderr,
-            exit_code=-1,
-            timeout=False,
-        )
 
 
 class ReasoningOutput(BaseModel):
