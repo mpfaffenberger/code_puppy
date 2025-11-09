@@ -48,7 +48,7 @@ class ConsoleSpinner(SpinnerBase):
             self._generate_spinner_panel(),
             console=self.console,
             refresh_per_second=20,
-            transient=True,
+            transient=False,
             auto_refresh=False,  # Don't auto-refresh to avoid wiping out user input
         )
         self._live.start()
@@ -172,15 +172,22 @@ class ConsoleSpinner(SpinnerBase):
                         self._generate_spinner_panel(),
                         console=self.console,
                         refresh_per_second=20,
-                        transient=True,
+                        transient=False,
                         auto_refresh=False,
                     )
                     self._live.start()
                 except Exception:
                     pass
             else:
-                # If live display still exists, just update it
+                # If live display still exists, clear console state first
                 try:
+                    # Force Rich to reset any cached console state
+                    if hasattr(self.console, "_buffer"):
+                        # Clear Rich's internal buffer to prevent artifacts
+                        self.console.file.write("\r")  # Return to start
+                        self.console.file.write("\x1b[K")  # Clear line
+                        self.console.file.flush()
+
                     self._live.update(self._generate_spinner_panel())
                     self._live.refresh()
                 except Exception:

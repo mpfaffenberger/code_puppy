@@ -830,6 +830,16 @@ def get_user_approval(
         except (ImportError, Exception):
             pass
 
+        # Force Rich console to reset display state to prevent artifacts
+        try:
+            # Clear Rich's internal display state to prevent artifacts
+            console.file.write("\r")  # Return to start of line
+            console.file.write("\x1b[K")  # Clear current line
+            console.file.write("\x1b[H")  # Move to home position
+            console.file.flush()
+        except Exception:
+            pass
+
         # Ensure streams are flushed
         sys.stdout.flush()
         sys.stderr.flush()
