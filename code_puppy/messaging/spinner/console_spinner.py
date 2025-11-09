@@ -86,21 +86,16 @@ class ConsoleSpinner(SpinnerBase):
 
     def _generate_spinner_panel(self):
         """Generate a Rich panel containing the spinner text."""
-        if self._paused:
+        # Check if we're awaiting user input - show nothing during input prompts
+        from code_puppy.tools.command_runner import is_awaiting_user_input
+
+        if self._paused or is_awaiting_user_input():
             return Text("")
 
         text = Text()
 
-        # Check if we're awaiting user input to determine which message to show
-        from code_puppy.tools.command_runner import is_awaiting_user_input
-
-        if is_awaiting_user_input():
-            # Show waiting message when waiting for user input
-            text.append(SpinnerBase.WAITING_MESSAGE, style="bold cyan")
-        else:
-            # Show thinking message during normal processing
-            text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
-
+        # Show thinking message during normal processing
+        text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
         text.append(self.current_frame, style="bold cyan")
 
         context_info = SpinnerBase.get_context_info()
@@ -139,32 +134,13 @@ class ConsoleSpinner(SpinnerBase):
         """Pause the spinner animation."""
         if self._is_spinning:
             self._paused = True
-            # Update the live display to hide the spinner immediately
+            # Stop the live display completely to restore terminal echo during input
             if self._live:
                 try:
-                    # When pausing, first update with the waiting message
-                    # so it's visible briefly before disappearing
-                    from code_puppy.tools.command_runner import is_awaiting_user_input
-
-                    if is_awaiting_user_input():
-                        text = Text()
-                        text.append(SpinnerBase.WAITING_MESSAGE, style="bold cyan")
-                        text.append(self.current_frame, style="bold cyan")
-                        self._live.update(text)
-                        self._live.refresh()
-                        # Allow a moment for the waiting message to be visible
-                        import time
-
-                        time.sleep(0.1)
-
-                    # Then clear the display
-                    self._live.update(Text(""))
+                    self._live.stop()
+                    self._live = None
                 except Exception:
-                    # If update fails, try stopping it completely
-                    try:
-                        self._live.stop()
-                    except Exception:
-                        pass
+                    pass
 
     def resume(self):
         """Resume the spinner animation."""
@@ -176,24 +152,26 @@ class ConsoleSpinner(SpinnerBase):
 
         if self._is_spinning and self._paused:
             self._paused = False
-            # Force an immediate update to show the spinner again
-            if self._live:
+            # Restart the live display if it was stopped during pause
+            if not self._live:
+                try:
+                    self._live = Live(
+                        self._generate_spinner_panel(),
+                        console=self.console,
+                        refresh_per_second=20,
+                        transient=True,
+                        auto_refresh=False,
+                    )
+                    self._live.start()
+                except Exception:
+                    pass
+            else:
+                # If live display still exists, just update it
                 try:
                     self._live.update(self._generate_spinner_panel())
+                    self._live.refresh()
                 except Exception:
-                    # If update fails, the live display might have been stopped
-                    # Try to restart it
-                    try:
-                        self._live = Live(
-                            self._generate_spinner_panel(),
-                            console=self.console,
-                            refresh_per_second=10,
-                            transient=True,
-                            auto_refresh=False,  # Don't auto-refresh to avoid wiping out user input
-                        )
-                        self._live.start()
-                    except Exception:
-                        pass
+                    pass
 
     def __enter__(self):
         """Support for context manager."""

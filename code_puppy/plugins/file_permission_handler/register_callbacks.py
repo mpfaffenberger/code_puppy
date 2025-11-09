@@ -6,49 +6,66 @@ providing a consistent and extensible permission system.
 
 import difflib
 import os
-import sys
 import threading
 from typing import Any
 
+from rich.text import Text as RichText
+
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_diff_context_lines, get_yolo_mode
-from code_puppy.messaging import emit_info, emit_warning
-from code_puppy.tools.command_runner import set_awaiting_user_input
-from code_puppy.tools.common import _find_best_window
+from code_puppy.messaging import emit_warning
+from code_puppy.tools.common import (
+    _find_best_window,
+    get_user_approval,
+)
 
 # Lock for preventing multiple simultaneous permission prompts
 _FILE_CONFIRMATION_LOCK = threading.Lock()
 
-
-def _format_diff_line(line: str) -> str:
-    """Apply diff-specific formatting to a single line."""
-    if line.startswith("+") and not line.startswith("+++"):
-        # Addition line - green with bold
-        return f"[bold green]{line}[/bold green]"
-    elif line.startswith("-") and not line.startswith("---"):
-        # Removal line - red with bold
-        return f"[bold red]{line}[/bold red]"
-    elif line.startswith("@@"):
-        # Hunk info - cyan with bold
-        return f"[bold cyan]{line}[/bold cyan]"
-    elif line.startswith("+++") or line.startswith("---"):
-        # Filename lines in diff - dim white
-        return f"[dim white]{line}[/dim white]"
-    else:
-        # Context lines - no special formatting, just return as-is
-        return line
+# Thread-local storage for user feedback from permission prompts
+_thread_local = threading.local()
 
 
-def _format_diff_with_highlighting(diff_text: str) -> str:
-    """Format diff text with proper highlighting for consistent display."""
-    if not diff_text or not diff_text.strip():
-        return "[dim]-- no diff available --[/dim]"
+def get_last_user_feedback() -> str | None:
+    """Get the last user feedback from a permission prompt in this thread.
 
-    formatted_lines = []
-    for line in diff_text.splitlines():
-        formatted_lines.append(_format_diff_line(line))
+    Returns:
+        The user feedback string, or None if no feedback was provided.
+    """
+    return getattr(_thread_local, "last_user_feedback", None)
 
-    return "\n".join(formatted_lines)
+
+def _set_user_feedback(feedback: str | None) -> None:
+    """Store user feedback in thread-local storage."""
+    _thread_local.last_user_feedback = feedback
+
+
+def clear_user_feedback() -> None:
+    """Clear any stored user feedback."""
+    _thread_local.last_user_feedback = None
+
+
+def set_diff_already_shown(shown: bool = True) -> None:
+    """Mark that a diff preview was already shown during permission prompt."""
+    _thread_local.diff_already_shown = shown
+
+
+def was_diff_already_shown() -> bool:
+    """Check if a diff was already shown during the permission prompt.
+
+    Returns:
+        True if diff was shown, False otherwise
+    """
+    return getattr(_thread_local, "diff_already_shown", False)
+
+
+def clear_diff_shown_flag() -> None:
+    """Clear the diff-already-shown flag."""
+    _thread_local.diff_already_shown = False
+
+
+# Diff formatting is now handled by common.format_diff_with_colors()
+# Arrow selector and approval UI now handled by common.get_user_approval()
 
 
 def _preview_delete_snippet(file_path: str, snippet: str) -> str | None:
@@ -183,7 +200,7 @@ def prompt_for_file_permission(
     operation: str,
     preview: str | None = None,
     message_group: str | None = None,
-) -> bool:
+) -> tuple[bool, str | None]:
     """Prompt the user for permission to perform a file operation.
 
     This function provides a unified permission prompt system for all file operations.
@@ -195,13 +212,15 @@ def prompt_for_file_permission(
         message_group: Optional message group for organizing output.
 
     Returns:
-        True if permission is granted, False otherwise.
+        Tuple of (confirmed: bool, user_feedback: str | None)
+        - confirmed: True if permission is granted, False otherwise
+        - user_feedback: Optional feedback message from user to send back to the model
     """
     yolo_mode = get_yolo_mode()
 
     # Skip confirmation only if in yolo mode (removed TTY check for better compatibility)
     if yolo_mode:
-        return True
+        return True, None
 
     # Try to acquire the lock to prevent multiple simultaneous prompts
     confirmation_lock_acquired = _FILE_CONFIRMATION_LOCK.acquire(blocking=False)
@@ -210,60 +229,26 @@ def prompt_for_file_permission(
             "Another file operation is currently awaiting confirmation",
             message_group=message_group,
         )
-        return False
+        return False, None
 
     try:
-        # Build a complete prompt message to ensure atomic display
-        complete_message = (
-            "\n[bold yellow]🔒 File Operation Confirmation Required[/bold yellow]\n"
+        # Build panel content
+        panel_content = RichText()
+        panel_content.append("🔒 Requesting permission to ", style="bold yellow")
+        panel_content.append(operation, style="bold cyan")
+        panel_content.append(":\n", style="bold yellow")
+        panel_content.append("📄 ", style="dim")
+        panel_content.append(file_path, style="bold white")
+
+        # Use the common approval function
+        confirmed, user_feedback = get_user_approval(
+            title="File Operation",
+            content=panel_content,
+            preview=preview,
+            border_style="dim white",
         )
-        complete_message += f"Request to [bold cyan]{operation}[/bold cyan] file: [bold white]{file_path}[/bold white]"
 
-        if preview:
-            complete_message += "\n\n[bold]Preview of changes:[/bold]\n"
-            # Always format the preview with proper diff highlighting
-            formatted_preview = _format_diff_with_highlighting(preview)
-            complete_message += formatted_preview
-
-        complete_message += "\n[bold yellow]💡 Hint: Press Enter or 'y' to accept, 'n' to reject[/bold yellow]"
-        complete_message += f"\n[bold]Are you sure you want to {operation} {file_path}? (y(es) or enter as accept/n(o)) [/bold]"
-
-        # Emit the complete message as one unit to prevent interruption
-        emit_info(complete_message, message_group=message_group)
-
-        # Force the message to display before prompting
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-
-        set_awaiting_user_input(True)
-
-        try:
-            user_input = input()
-            # Empty input (Enter) counts as yes, like shell commands
-            confirmed = user_input.strip().lower() in {"yes", "y", ""}
-        except (KeyboardInterrupt, EOFError):
-            emit_warning("\n Cancelled by user", message_group=message_group)
-            confirmed = False
-            # Re-raise KeyboardInterrupt to properly handle Ctrl+C and prevent freezing
-            if isinstance(sys.exc_info()[0], type) and issubclass(
-                sys.exc_info()[0], KeyboardInterrupt
-            ):
-                raise
-        finally:
-            set_awaiting_user_input(False)
-
-        if not confirmed:
-            emit_info(
-                "[bold red]✗ Permission denied. Operation cancelled.[/bold red]",
-                message_group=message_group,
-            )
-            return False
-        else:
-            emit_info(
-                "[bold green]✓ Permission granted. Proceeding with operation.[/bold green]",
-                message_group=message_group,
-            )
-            return True
+        return confirmed, user_feedback
 
     finally:
         if confirmation_lock_acquired:
@@ -307,7 +292,12 @@ def handle_edit_file_permission(
     else:
         operation_desc = f"perform {operation_type} operation on"
 
-    return prompt_for_file_permission(file_path, operation_desc, preview, message_group)
+    confirmed, user_feedback = prompt_for_file_permission(
+        file_path, operation_desc, preview, message_group
+    )
+    # Store feedback in thread-local storage so the tool can access it
+    _set_user_feedback(user_feedback)
+    return confirmed
 
 
 def handle_delete_file_permission(
@@ -326,7 +316,12 @@ def handle_delete_file_permission(
         True if permission granted, False if denied
     """
     preview = _preview_delete_file(file_path)
-    return prompt_for_file_permission(file_path, "delete", preview, message_group)
+    confirmed, user_feedback = prompt_for_file_permission(
+        file_path, "delete", preview, message_group
+    )
+    # Store feedback in thread-local storage so the tool can access it
+    _set_user_feedback(user_feedback)
+    return confirmed
 
 
 def handle_file_permission(
@@ -359,7 +354,12 @@ def handle_file_permission(
             file_path, operation, operation_data
         )
 
-    return prompt_for_file_permission(file_path, operation, preview, message_group)
+    confirmed, user_feedback = prompt_for_file_permission(
+        file_path, operation, preview, message_group
+    )
+    # Store feedback in thread-local storage so the tool can access it
+    _set_user_feedback(user_feedback)
+    return confirmed
 
 
 def _generate_preview_from_operation_data(
@@ -433,35 +433,62 @@ def get_file_permission_prompt_additions() -> str:
         return ""  # Return empty string when yolo mode is enabled
 
     return """
-## 🚨 FILE PERMISSION REJECTION: STOP IMMEDIATELY
+## 💬 USER FEEDBACK SYSTEM
 
-**IMMEDIATE STOP ON ANY REJECTION**: 
+**How User Approval Works:**
 
-When you receive ANY of these indications:
-- "Permission denied. Operation cancelled."
-- "USER REJECTED: The user explicitly rejected these file changes"
-- Any error message containing "rejected", "denied", "cancelled", or similar
-- Tool responses showing `user_rejection: true` or `success: false`
-- ANY rejection message
+When you attempt file operations or shell commands, the user sees a beautiful prompt with three options:
+1. **Press Enter or 'y'** → Approve (proceed with the operation as-is)
+2. **Type 'n'** → Reject silently (cancel without feedback)
+3. **Type any other text** → **Reject WITH feedback** (cancel and tell you what to do instead)
 
-**YOU MUST:**
+**Understanding User Feedback:**
 
-1. **🛑 STOP ALL OPERATIONS NOW** - Do NOT attempt any more file operations
-2. **❌ DO NOT CONTINUE** - Do not proceed with any next steps
-3. **🤔 ASK USER WHAT TO DO** - Immediately ask for explicit direction
+When you receive a rejection response with `user_feedback` field populated:
+- The user is **rejecting your current approach**
+- They are **telling you what they want instead**
+- The feedback is in the `user_feedback` field or included in the error message
 
-**NEVER:**
-- Continue after rejection
-- Try again without confirmation
-- Assume user wants to continue
-- Guess what user wants
+Example tool response:
+```
+{
+  "success": false,
+  "user_rejection": true,
+  "user_feedback": "Add error handling and use async/await",
+  "message": "USER REJECTED: The user explicitly rejected these file changes. User feedback: Add error handling and use async/await"
+}
+```
 
-**ALWAYS:**
-- Stop immediately on first rejection
-- Ask for explicit user guidance
-- Wait for clear confirmation
+**WHEN YOU RECEIVE USER FEEDBACK, YOU MUST:**
 
-That's it. Simple and direct.
+1. **🛑 STOP the current approach** - Do NOT retry the same operation
+2. **📝 READ the feedback carefully** - The user is telling you what they want
+3. **✅ IMPLEMENT their suggestion** - Modify your approach based on their feedback
+4. **🔄 TRY AGAIN with the changes** - Apply the feedback and attempt the operation again
+
+**Example Flow:**
+```
+You: *attempts to create function without error handling*
+User: "Add try/catch error handling" → REJECTS with feedback
+You: *modifies code to include try/catch*
+You: *attempts operation again with improved code*
+User: *approves*
+```
+
+**WHEN FEEDBACK IS EMPTY (silent rejection):**
+
+If `user_feedback` is None/empty, the user rejected without guidance:
+- **STOP immediately**
+- **ASK the user** what they want instead
+- **WAIT for explicit direction**
+
+**KEY POINTS:**
+- Feedback is **guidance**, not criticism - use it to improve!
+- The user wants the operation done **their way**
+- Implement the feedback and **try again**
+- Don't ask permission again - **just do it better**
+
+This system lets users guide you interactively! 🐶✨
 """
 
 

@@ -326,7 +326,12 @@ async def get_input_with_combined_completion(
     # Multiline mode state
     multiline = {"enabled": False}
 
-    # Standalone Escape keybinding - exit with KeyboardInterrupt
+    # Ctrl+X keybinding - exit with KeyboardInterrupt for shell command cancellation
+    @bindings.add(Keys.ControlX)
+    def _(event):
+        event.app.exit(exception=KeyboardInterrupt)
+
+    # Escape keybinding - exit with KeyboardInterrupt
     @bindings.add(Keys.Escape)
     def _(event):
         event.app.exit(exception=KeyboardInterrupt)
