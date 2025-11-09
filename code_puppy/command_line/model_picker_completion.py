@@ -63,12 +63,24 @@ class ModelNameCompleter(Completer):
         text = document.text
         cursor_position = document.cursor_position
         text_before_cursor = text[:cursor_position]
-        if self.trigger not in text_before_cursor:
+
+        # Only trigger if /model is at the very beginning of the line
+        stripped_text = text_before_cursor.lstrip()
+        if not stripped_text.startswith(self.trigger):
             return
-        symbol_pos = text_before_cursor.rfind(self.trigger)
-        text_after_trigger = text_before_cursor[symbol_pos + len(self.trigger) :]
+
+        # Find where /model actually starts (after any leading whitespace)
+        symbol_pos = text_before_cursor.find(self.trigger)
+        text_after_trigger = text_before_cursor[
+            symbol_pos + len(self.trigger) :
+        ].lstrip()
         start_position = -(len(text_after_trigger))
+
+        # Filter model names based on what's typed after /model
         for model_name in self.model_names:
+            if text_after_trigger and not model_name.startswith(text_after_trigger):
+                continue  # Skip models that don't match the typed text
+
             meta = "Model (selected)" if model_name == get_active_model() else "Model"
             yield Completion(
                 model_name,

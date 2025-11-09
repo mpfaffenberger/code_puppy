@@ -470,8 +470,8 @@ def format_diff_with_colors(diff_text: str) -> str:
     return "\n".join(formatted_lines)
 
 
-def arrow_select(message: str, choices: list[str]) -> str:
-    """Show an arrow-key navigable selector.
+async def arrow_select_async(message: str, choices: list[str]) -> str:
+    """Async version: Show an arrow-key navigable selector.
 
     Args:
         message: The prompt message to display
@@ -536,8 +536,97 @@ def arrow_select(message: str, choices: list[str]) -> str:
     sys.stdout.flush()
     sys.stderr.flush()
 
-    # Run the app
-    app.run()
+    # Run the app asynchronously
+    await app.run_async()
+
+    if result[0] is None:
+        raise KeyboardInterrupt()
+
+    return result[0]
+
+
+def arrow_select(message: str, choices: list[str]) -> str:
+    """Show an arrow-key navigable selector (synchronous version).
+
+    Args:
+        message: The prompt message to display
+        choices: List of choice strings
+
+    Returns:
+        The selected choice string
+
+    Raises:
+        KeyboardInterrupt: If user cancels with Ctrl-C
+    """
+    import asyncio
+    import sys
+
+    selected_index = [0]  # Mutable container for selected index
+    result = [None]  # Mutable container for result
+
+    def get_formatted_text():
+        """Generate the formatted text for display."""
+        lines = [f"<b>{message}</b>", ""]
+        for i, choice in enumerate(choices):
+            if i == selected_index[0]:
+                lines.append(f"<ansigreen>❯ {choice}</ansigreen>")
+            else:
+                lines.append(f"  {choice}")
+        lines.append("")
+        lines.append("<ansicyan>(Use ↑↓ arrows to select, Enter to confirm)</ansicyan>")
+        return HTML("\n".join(lines))
+
+    # Key bindings
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def move_up(event):
+        selected_index[0] = (selected_index[0] - 1) % len(choices)
+
+    @kb.add("down")
+    def move_down(event):
+        selected_index[0] = (selected_index[0] + 1) % len(choices)
+
+    @kb.add("enter")
+    def accept(event):
+        result[0] = choices[selected_index[0]]
+        event.app.exit()
+
+    @kb.add("c-c")  # Ctrl-C
+    def cancel(event):
+        result[0] = None
+        event.app.exit()
+
+    # Layout
+    control = FormattedTextControl(get_formatted_text)
+    layout = Layout(Window(content=control))
+
+    # Application
+    app = Application(
+        layout=layout,
+        key_bindings=kb,
+        full_screen=False,
+    )
+
+    # Flush output before prompt_toolkit takes control
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    # Check if we're already in an async context
+    try:
+        asyncio.get_running_loop()
+        # We're in an async context - can't use app.run()
+        # Caller should use arrow_select_async instead
+        raise RuntimeError(
+            "arrow_select() called from async context. Use arrow_select_async() instead."
+        )
+    except RuntimeError as e:
+        if "no running event loop" in str(e).lower():
+            # No event loop, safe to use app.run()
+            app.run()
+        else:
+            # Re-raise if it's our error message
+            raise
 
     if result[0] is None:
         raise KeyboardInterrupt()

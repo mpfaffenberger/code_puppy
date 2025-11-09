@@ -386,7 +386,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message("[dim]Type 'clear' to reset the conversation history.[/dim]")
     emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
-        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
+        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/model[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
     )
     emit_system_message(
         "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference. Use [bold red]Ctrl+X[/bold red] to interrupt running shell commands.[/dim]"
