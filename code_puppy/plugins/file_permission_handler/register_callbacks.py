@@ -244,6 +244,11 @@ def prompt_for_file_permission(
         except (KeyboardInterrupt, EOFError):
             emit_warning("\n Cancelled by user", message_group=message_group)
             confirmed = False
+            # Re-raise KeyboardInterrupt to properly handle Ctrl+C and prevent freezing
+            if isinstance(sys.exc_info()[0], type) and issubclass(
+                sys.exc_info()[0], KeyboardInterrupt
+            ):
+                raise
         finally:
             set_awaiting_user_input(False)
 
