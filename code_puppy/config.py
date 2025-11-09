@@ -571,6 +571,24 @@ def get_mcp_disabled():
     return False
 
 
+def get_grep_output_verbose():
+    """
+    Checks puppy.cfg for 'grep_output_verbose' (case-insensitive in value only).
+    Defaults to False (concise output) if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+
+    When False (default): Shows only file names with match counts
+    When True: Shows full output with line numbers and content
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("grep_output_verbose")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return False
+
+
 def get_protected_token_count():
     """
     Returns the user-configured protected token count for message history compaction.

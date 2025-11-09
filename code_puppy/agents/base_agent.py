@@ -64,7 +64,6 @@ from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
-    kill_all_running_shell_processes,
 )
 
 # Global flag to track delayed compaction requests
@@ -942,20 +941,11 @@ class BaseAgent(ABC):
 
         model_name = self.get_model_name()
 
-        emit_info(
-            f"[bold cyan]Loading Model: {model_name}[/bold cyan]",
-            message_group=message_group,
-        )
         models_config = ModelFactory.load_config()
         model, resolved_model_name = self._load_model_with_fallback(
             model_name,
             models_config,
             message_group,
-        )
-
-        emit_info(
-            f"[bold magenta]Loading Agent: {self.name}[/bold magenta]",
-            message_group=message_group,
         )
 
         instructions = self.get_system_prompt()
@@ -964,9 +954,6 @@ class BaseAgent(ABC):
             instructions += f"\n{puppy_rules}"
 
         mcp_servers = self.load_mcp_servers()
-        emit_info(
-            f"[dim]DEBUG: Loaded {len(mcp_servers)} MCP servers during reload[/dim]"
-        )
 
         model_settings_dict: Dict[str, Any] = {"seed": 42}
         output_tokens = max(
@@ -1130,12 +1117,12 @@ class BaseAgent(ABC):
             self.set_message_history(result_messages_filtered_empty_thinking)
         return self.get_message_history()
 
-    def _spawn_escape_key_listener(
+    def _spawn_ctrl_x_key_listener(
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
     ) -> Optional[threading.Thread]:
-        """Start an escape-key listener thread for CLI sessions."""
+        """Start a Ctrl+X key listener thread for CLI sessions."""
         try:
             import sys
         except ImportError:
@@ -1153,12 +1140,12 @@ class BaseAgent(ABC):
         def listener() -> None:
             try:
                 if sys.platform.startswith("win"):
-                    self._listen_for_escape_windows(stop_event, on_escape)
+                    self._listen_for_ctrl_x_windows(stop_event, on_escape)
                 else:
-                    self._listen_for_escape_posix(stop_event, on_escape)
+                    self._listen_for_ctrl_x_posix(stop_event, on_escape)
             except Exception:
                 emit_warning(
-                    "Escape key listener stopped unexpectedly; press Ctrl+C to cancel."
+                    "Ctrl+X key listener stopped unexpectedly; press Ctrl+C to cancel."
                 )
 
         thread = threading.Thread(
@@ -1167,7 +1154,7 @@ class BaseAgent(ABC):
         thread.start()
         return thread
 
-    def _listen_for_escape_windows(
+    def _listen_for_ctrl_x_windows(
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
@@ -1179,21 +1166,21 @@ class BaseAgent(ABC):
             try:
                 if msvcrt.kbhit():
                     key = msvcrt.getwch()
-                    if key == "\x1b":
+                    if key == "\x18":  # Ctrl+X
                         try:
                             on_escape()
                         except Exception:
                             emit_warning(
-                                "Escape handler raised unexpectedly; Ctrl+C still works."
+                                "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                             )
             except Exception:
                 emit_warning(
-                    "Windows escape listener error; Ctrl+C is still available for cancel."
+                    "Windows Ctrl+X listener error; Ctrl+C is still available for cancel."
                 )
                 return
             time.sleep(0.05)
 
-    def _listen_for_escape_posix(
+    def _listen_for_ctrl_x_posix(
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
@@ -1225,12 +1212,12 @@ class BaseAgent(ABC):
                 data = stdin.read(1)
                 if not data:
                     break
-                if data == "\x1b":
+                if data == "\x18":  # Ctrl+X
                     try:
                         on_escape()
                     except Exception:
                         emit_warning(
-                            "Escape handler raised unexpectedly; Ctrl+C still works."
+                            "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                         )
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
@@ -1405,15 +1392,12 @@ class BaseAgent(ABC):
 
         loop = asyncio.get_running_loop()
 
-        esc_listener_stop_event = threading.Event()
-        esc_listener_thread: Optional[threading.Thread] = None
-
         def schedule_agent_cancel() -> None:
             from code_puppy.tools.command_runner import _RUNNING_PROCESSES
 
             if len(_RUNNING_PROCESSES):
                 emit_warning(
-                    "Refusing to cancel Agent while a shell command is currently running - press ESC to cancel the shell command."
+                    "Refusing to cancel Agent while a shell command is currently running - press Ctrl+X to cancel the shell command."
                 )
                 return
             if agent_task.done():
@@ -1440,18 +1424,6 @@ class BaseAgent(ABC):
 
             schedule_agent_cancel()
 
-        from code_puppy.tui_state import is_tui_mode
-
-        def handle_escape_press() -> None:
-            emit_warning("Interrupting Shell Command!")
-            kill_all_running_shell_processes()
-
-        if not is_tui_mode():
-            esc_listener_thread = self._spawn_escape_key_listener(
-                esc_listener_stop_event,
-                handle_escape_press,
-            )
-
         original_handler = None
         try:
             # Save original handler and set our custom one AFTER task is created
@@ -1470,9 +1442,3 @@ class BaseAgent(ABC):
             # Restore original signal handler
             if original_handler:
                 signal.signal(signal.SIGINT, original_handler)
-            esc_listener_stop_event.set()
-            if esc_listener_thread and esc_listener_thread.is_alive():
-                try:
-                    await asyncio.to_thread(esc_listener_thread.join, 0.2)
-                except Exception:
-                    pass

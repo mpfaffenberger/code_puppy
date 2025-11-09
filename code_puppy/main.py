@@ -389,7 +389,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
     )
     emit_system_message(
-        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference.[/dim]"
+        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference. Use [bold red]Ctrl+X[/bold red] to interrupt running shell commands.[/dim]"
     )
     emit_system_message(
         "[dim]Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session.[/dim]"
