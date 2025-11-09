@@ -1,6 +1,8 @@
 import fnmatch
 import hashlib
 import os
+import platform
+import sys
 import time
 from pathlib import Path
 from typing import Optional, Tuple
@@ -371,6 +373,63 @@ FILE_IGNORE_PATTERNS = [
 
 # Backwards compatibility for any imports still referring to IGNORE_PATTERNS
 IGNORE_PATTERNS = DIR_IGNORE_PATTERNS + FILE_IGNORE_PATTERNS
+
+
+def reset_terminal_state():
+    """Reset terminal to a clean state after Ctrl-C or other interrupts.
+
+    This is critical for Windows where terminal state can get corrupted.
+    """
+    try:
+        import io
+
+        # Flush all output streams
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if hasattr(sys.stdin, "flush"):
+            try:
+                sys.stdin.flush()
+            except (OSError, io.UnsupportedOperation):
+                # Some stdin don't support flush, that's ok
+                pass
+
+        # On Windows, try to reset terminal mode
+        if platform.system() == "Windows":
+            try:
+                import ctypes
+
+                # Try to reset console mode on Windows
+                STD_INPUT_HANDLE = -11
+                ENABLE_ECHO_INPUT = 0x0004
+                ENABLE_LINE_INPUT = 0x0002
+
+                handle = ctypes.windll.kernel32.GetStdHandle(STD_INPUT_HANDLE)
+                ctypes.windll.kernel32.SetConsoleMode(
+                    handle, ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT
+                )
+            except (ImportError, AttributeError, OSError):
+                # Windows-specific code failed, that's ok
+                pass
+        else:
+            # Unix-like systems - try to reset terminal with termios
+            try:
+                import termios
+
+                if hasattr(sys.stdin, "fileno"):
+                    try:
+                        termios.tcsetattr(
+                            sys.stdin.fileno(),
+                            termios.TCSADRAIN,
+                            termios.tcgetattr(sys.stdin.fileno()),
+                        )
+                    except (OSError, termios.error):
+                        pass
+            except ImportError:
+                pass
+
+    except Exception:
+        # If anything goes wrong, just continue - better to have bricked terminal than crash
+        pass
 
 
 def should_ignore_path(path: str) -> bool:
@@ -750,9 +809,14 @@ def get_user_approval(
     except (KeyboardInterrupt, EOFError):
         console.print("\n[bold red]⊗ Cancelled by user[/bold red]")
         confirmed = False
+        # Reset terminal state after interrupt
+        reset_terminal_state()
 
     finally:
         set_awaiting_user_input(False)
+        # Ensure streams are flushed
+        sys.stdout.flush()
+        sys.stderr.flush()
 
     # Show result
     console.print()
