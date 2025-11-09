@@ -33,6 +33,7 @@ def get_commands_help():
 def handle_help_command(command: str) -> bool:
     """Show commands help."""
     import uuid
+
     from code_puppy.messaging import emit_info
 
     group_id = str(uuid.uuid4())
@@ -81,8 +82,9 @@ def handle_cd_command(command: str) -> bool:
 )
 def handle_tools_command(command: str) -> bool:
     """Display available tools."""
-    from code_puppy.messaging import emit_info
     from rich.markdown import Markdown
+
+    from code_puppy.messaging import emit_info
 
     markdown_content = Markdown(tools_content)
     emit_info(markdown_content)
@@ -222,6 +224,95 @@ def handle_agent_command(command: str) -> bool:
         return True
 
 
+async def interactive_model_picker() -> str | None:
+    """Show an interactive arrow-key selector to pick a model (async version).
+
+    Returns:
+        The selected model name, or None if cancelled
+    """
+    import sys
+    import time
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.text import Text
+
+    from code_puppy.command_line.model_picker_completion import (
+        get_active_model,
+        load_model_names,
+    )
+    from code_puppy.tools.command_runner import set_awaiting_user_input
+    from code_puppy.tools.common import arrow_select_async
+
+    # Load available models
+    model_names = load_model_names()
+    current_model = get_active_model()
+
+    # Build choices with current model indicator
+    choices = []
+    for model_name in model_names:
+        if model_name == current_model:
+            choices.append(f"✓ {model_name} (current)")
+        else:
+            choices.append(f"  {model_name}")
+
+    # Create panel content
+    panel_content = Text()
+    panel_content.append("🤖 Select a model to use\n", style="bold cyan")
+    panel_content.append("Current model: ", style="dim")
+    panel_content.append(current_model, style="bold green")
+
+    # Display panel
+    panel = Panel(
+        panel_content,
+        title="[bold white]Model Selection[/bold white]",
+        border_style="cyan",
+        padding=(1, 2),
+    )
+
+    # Pause spinners BEFORE showing panel
+    set_awaiting_user_input(True)
+    time.sleep(0.3)  # Let spinners fully stop
+
+    console = Console()
+    console.print()
+    console.print(panel)
+    console.print()
+
+    # Flush output before prompt_toolkit takes control
+    sys.stdout.flush()
+    sys.stderr.flush()
+    time.sleep(0.1)
+
+    selected_model = None
+
+    try:
+        # Final flush
+        sys.stdout.flush()
+
+        # Show arrow-key selector (async version)
+        choice = await arrow_select_async(
+            "💭 Which model would you like to use?",
+            choices,
+        )
+
+        # Extract model name from choice (remove prefix and suffix)
+        if choice:
+            # Remove the "✓ " or "  " prefix and " (current)" suffix if present
+            selected_model = choice.strip().lstrip("✓").strip()
+            if selected_model.endswith(" (current)"):
+                selected_model = selected_model[:-10].strip()
+
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[bold red]⊗ Cancelled by user[/bold red]")
+        selected_model = None
+
+    finally:
+        set_awaiting_user_input(False)
+
+    return selected_model
+
+
 @register_command(
     name="model",
     description="Set active model",
@@ -231,11 +322,48 @@ def handle_agent_command(command: str) -> bool:
 )
 def handle_model_command(command: str) -> bool:
     """Set the active model."""
+    import asyncio
+
     from code_puppy.command_line.model_picker_completion import (
         get_active_model,
         load_model_names,
+        set_active_model,
     )
     from code_puppy.messaging import emit_success, emit_warning
+
+    tokens = command.split()
+
+    # If just /model or /m with no args, show interactive picker
+    if len(tokens) == 1:
+        try:
+            # Run the async picker using asyncio utilities
+            # Since we're called from an async context but this function is sync,
+            # we need to carefully schedule and wait for the coroutine
+            import concurrent.futures
+
+            # Create a new event loop in a thread and run the picker there
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    lambda: asyncio.run(interactive_model_picker())
+                )
+                selected_model = future.result(timeout=300)  # 5 min timeout
+
+            if selected_model:
+                set_active_model(selected_model)
+                emit_success(f"Active model set and loaded: {selected_model}")
+            else:
+                emit_warning("Model selection cancelled")
+            return True
+        except Exception as e:
+            # Fallback to old behavior if picker fails
+            import traceback
+
+            emit_warning(f"Interactive picker failed: {e}")
+            emit_warning(f"Traceback: {traceback.format_exc()}")
+            model_names = load_model_names()
+            emit_warning("Usage: /model <model-name> or /m <model-name>")
+            emit_warning(f"Available models: {', '.join(model_names)}")
+            return True
 
     # Handle both /model and /m for backward compatibility
     model_command = command
@@ -243,12 +371,14 @@ def handle_model_command(command: str) -> bool:
         # Convert /model to /m for internal processing
         model_command = command.replace("/model", "/m", 1)
 
-    # If no model matched, show available models
+    # If model matched, set it
     new_input = update_model_in_input(model_command)
     if new_input is not None:
         model = get_active_model()
         emit_success(f"Active model set and loaded: {model}")
         return True
+
+    # If no model matched, show error
     model_names = load_model_names()
     emit_warning("Usage: /model <model-name> or /m <model-name>")
     emit_warning(f"Available models: {', '.join(model_names)}")
