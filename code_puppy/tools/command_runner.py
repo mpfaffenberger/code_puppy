@@ -211,19 +211,23 @@ def _listen_for_ctrl_x_windows(
     while not stop_event.is_set():
         try:
             if msvcrt.kbhit():
-                key = msvcrt.getwch()
-                if key == "\x18":  # Ctrl+X
-                    try:
-                        on_escape()
-                    except Exception:
-                        emit_warning(
-                            "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
-                        )
+                try:
+                    key = msvcrt.getwch()
+                    if key == "\x18":  # Ctrl+X
+                        try:
+                            on_escape()
+                        except Exception:
+                            emit_warning(
+                                "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
+                            )
+                except (OSError, ValueError):
+                    # kbhit/getwch can fail on Windows in certain terminal states
+                    # Just continue, user can use Ctrl+C
+                    pass
         except Exception:
-            emit_warning(
-                "Windows Ctrl+X listener error; Ctrl+C is still available for cancel."
-            )
-            return
+            # Be silent about Windows listener errors - they're common
+            # User can use Ctrl+C as fallback
+            pass
         time.sleep(0.05)
 
 
@@ -367,6 +371,14 @@ def _shell_command_keyboard_context():
                 signal.signal(signal.SIGINT, _ORIGINAL_SIGINT_HANDLER)
             except (ValueError, OSError):
                 pass
+
+        # Reset terminal state (important on Windows after Ctrl-C)
+        try:
+            from code_puppy.tools.common import reset_terminal_state
+
+            reset_terminal_state()
+        except (ImportError, Exception):
+            pass
 
         # Clean up global state
         _SHELL_CTRL_X_STOP_EVENT = None
