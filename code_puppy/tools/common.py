@@ -759,6 +759,14 @@ def get_user_approval(
 
     # Pause spinners BEFORE showing panel
     set_awaiting_user_input(True)
+    # Also explicitly pause spinners to ensure they're fully stopped
+    try:
+        from code_puppy.messaging.spinner import pause_all_spinners
+
+        pause_all_spinners()
+    except (ImportError, Exception):
+        pass
+
     time.sleep(0.3)  # Let spinners fully stop
 
     # Display panel
@@ -814,11 +822,21 @@ def get_user_approval(
 
     finally:
         set_awaiting_user_input(False)
+        # Explicitly resume spinners
+        try:
+            from code_puppy.messaging.spinner import resume_all_spinners
+
+            resume_all_spinners()
+        except (ImportError, Exception):
+            pass
+
         # Ensure streams are flushed
         sys.stdout.flush()
         sys.stderr.flush()
+        # Add small delay to let spinner stabilize
+        time.sleep(0.1)
 
-    # Show result
+    # Show result with explicit cursor reset
     console.print()
     if not confirmed:
         if user_feedback:
