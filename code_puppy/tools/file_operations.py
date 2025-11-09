@@ -619,45 +619,64 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             )
         else:
             # Check if verbose output is enabled
-            from code_puppy.config import get_grep_output_verbose
             from collections import defaultdict
-            
+
+            from code_puppy.config import get_grep_output_verbose
+
             matches_by_file = defaultdict(list)
             for match in matches:
                 matches_by_file[match.file_path].append(match)
-            
+
             verbose = get_grep_output_verbose()
-            
+
             if verbose:
                 # Verbose mode: Show full output with line numbers and content
-                emit_info("\n[bold cyan]─────────────────────────────────────────────────────[/bold cyan]", message_group=group_id)
-                
+                emit_info(
+                    "\n[bold cyan]─────────────────────────────────────────────────────[/bold cyan]",
+                    message_group=group_id,
+                )
+
                 for file_path in sorted(matches_by_file.keys()):
                     file_matches = matches_by_file[file_path]
-                    emit_info(f"\n[bold white]📄 {file_path}[/bold white] [dim]({len(file_matches)} match{'es' if len(file_matches) != 1 else ''})[/dim]", message_group=group_id)
-                    
+                    emit_info(
+                        f"\n[bold white]📄 {file_path}[/bold white] [dim]({len(file_matches)} match{'es' if len(file_matches) != 1 else ''})[/dim]",
+                        message_group=group_id,
+                    )
+
                     # Show each match with line number and content
                     for match in file_matches:
                         line = match.line_content
                         search_term = search_string.split()[-1]
-                        if search_term.startswith('-'):
-                            search_term = search_string.split()[0] if search_string.split() else search_string
-                        
+                        if search_term.startswith("-"):
+                            search_term = (
+                                search_string.split()[0]
+                                if search_string.split()
+                                else search_string
+                            )
+
                         # Case-insensitive highlighting
                         import re
-                        highlighted_line = re.sub(
-                            f"({re.escape(search_term)})",
-                            r"[bold yellow on black]\1[/bold yellow on black]",
-                            line,
-                            flags=re.IGNORECASE
-                        ) if search_term and not search_term.startswith('-') else line
-                        
+
+                        highlighted_line = (
+                            re.sub(
+                                f"({re.escape(search_term)})",
+                                r"[bold yellow on black]\1[/bold yellow on black]",
+                                line,
+                                flags=re.IGNORECASE,
+                            )
+                            if search_term and not search_term.startswith("-")
+                            else line
+                        )
+
                         emit_info(
                             f"  [bold cyan]{match.line_number:4d}[/bold cyan] │ {highlighted_line}",
                             message_group=group_id,
                         )
-                
-                emit_info("\n[bold cyan]─────────────────────────────────────────────────────[/bold cyan]", message_group=group_id)
+
+                emit_info(
+                    "\n[bold cyan]─────────────────────────────────────────────────────[/bold cyan]",
+                    message_group=group_id,
+                )
             else:
                 # Concise mode (default): Show only file summaries
                 emit_info("", message_group=group_id)
@@ -667,7 +686,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                         f"[dim]📄 {file_path} ({len(file_matches)} match{'es' if len(file_matches) != 1 else ''})[/dim]",
                         message_group=group_id,
                     )
-            
+
             emit_success(
                 f"✓ Found [bold]{len(matches)}[/bold] match{'es' if len(matches) != 1 else ''} across [bold]{len(matches_by_file)}[/bold] file{'s' if len(matches_by_file) != 1 else ''}",
                 message_group=group_id,
