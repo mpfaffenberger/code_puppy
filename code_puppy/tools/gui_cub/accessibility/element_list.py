@@ -80,14 +80,41 @@ def list_accessible_elements(
         else:
             elements = app.findAllR()
 
-        # Group by role
+        # Group by role AND build flat element list for compaction
         by_role = {}
+        elements_list = []  # Flat list for compaction
+        
         for elem in elements:
             try:
                 elem_role = getattr(elem, "AXRole", "Unknown")
                 elem_title = getattr(elem, "AXTitle", None)
                 elem_description = getattr(elem, "AXDescription", None)
+                elem_position = getattr(elem, "AXPosition", None)
+                elem_size = getattr(elem, "AXSize", None)
 
+                # Build element dict for flat list (needed for compaction)
+                elem_dict = {
+                    "role": elem_role,
+                    "title": elem_title,
+                    "description": elem_description,
+                }
+                
+                # Add position/coordinates if available
+                if elem_position and elem_size:
+                    x = int(elem_position[0])
+                    y = int(elem_position[1])
+                    width = int(elem_size[0])
+                    height = int(elem_size[1])
+                    elem_dict["x"] = x
+                    elem_dict["y"] = y
+                    elem_dict["width"] = width
+                    elem_dict["height"] = height
+                    elem_dict["center_x"] = x + width // 2
+                    elem_dict["center_y"] = y + height // 2
+                
+                elements_list.append(elem_dict)
+
+                # Also group by role for by_role dict
                 if elem_role not in by_role:
                     by_role[elem_role] = []
 
@@ -108,6 +135,7 @@ def list_accessible_elements(
         return ElementListResult(
             success=True,
             total_elements=len(elements),
+            elements=elements_list,  # CRITICAL FIX: Add flat list for compaction!
             by_role=by_role,
             roles=list(by_role.keys()),
         )
