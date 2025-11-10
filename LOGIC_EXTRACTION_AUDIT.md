@@ -1,7 +1,7 @@
 # GUI-Cub Logic Extraction Audit - Comprehensive Report
 
 **Date:** 2024-12-19
-**Scope:** Assess completion of pure business logic extraction effort
+**Scope:** Assess completion of pure core utilities extraction effort
 **Goal:** Separate testable logic from I/O operations
 
 ---
@@ -27,7 +27,7 @@
 └────────────────────────┘
 ```
 
-**Current Achievement:** ~75-80% of critical business logic extracted
+**Current Achievement:** ~75-80% of critical core utilities extracted
 
 ---
 
@@ -35,7 +35,7 @@
 
 ### ✅ Completed Extractions
 
-#### 1. **Click Offset Calculation** (`logic/click_offsets/`)
+#### 1. **Click Offset Calculation** (`core/click_offsets/`)
 **Status:** ✅ COMPLETE
 
 **Files:**
@@ -68,7 +68,7 @@ calculate_confidence_adjustment(confidence) -> float
 
 ---
 
-#### 2. **Text Matching & Scoring** (`logic/matching/`)
+#### 2. **Text Matching & Scoring** (`core/matching/`)
 **Status:** ✅ COMPLETE
 
 **Files:**
@@ -90,7 +90,7 @@ explain_match_pure(search, target, score) -> str
 
 ---
 
-#### 3. **Element Relevance Scoring** (`logic/element_scoring/`)
+#### 3. **Element Relevance Scoring** (`core/element_scoring/`)
 **Status:** ✅ COMPLETE
 
 **Files:**
@@ -117,7 +117,7 @@ generate_score_explanation(...) -> str
 
 ---
 
-#### 4. **Coordinate Scaling** (`logic/scaling/`)
+#### 4. **Coordinate Scaling** (`core/scaling/`)
 **Status:** ✅ COMPLETE
 
 **Files:**
@@ -140,7 +140,7 @@ validate_scale_factor(scale_factor) -> bool
 
 ---
 
-#### 5. **Click Strategy Selection** (`logic/click_strategy/`)
+#### 5. **Click Strategy Selection** (`core/click_strategy/`)
 **Status:** ✅ COMPLETE
 
 **Files:**
@@ -161,7 +161,7 @@ get_strategy_priority(platform) -> list[ClickStrategy]
 
 ---
 
-#### 6. **Config Validation** (`logic/config_validation/`)
+#### 6. **Config Validation** (`core/config_validation/`)
 **Status:** ✅ COMPLETE
 
 **Files:**
@@ -180,7 +180,7 @@ validate_config_version(version) -> bool
 
 ---
 
-#### 7. **Workflow Validation** (`logic/workflow_validation/`)
+#### 7. **Workflow Validation** (`core/workflow_validation/`)
 **Status:** ⚠️ PARTIALLY OBSOLETE (see recommendations)
 
 **Files:**
@@ -200,7 +200,7 @@ validate_parameter_type(value, type_name) -> bool
 
 ---
 
-#### 8. **Browser Offset Calculation** (`logic/browser_offsets/`)
+#### 8. **Browser Offset Calculation** (`core/browser_offsets/`)
 **Status:** ✅ COMPLETE
 
 **Files:**
@@ -230,7 +230,7 @@ get_title_bar_height(platform) -> int
 
 **What Should Be Extracted:**
 ```python
-# Pure logic (should be in logic/vqa_parsing/)
+# Pure logic (should be in core/vqa_parsing/)
 def parse_vqa_coordinates(response_text: str) -> tuple[int, int] | None:
     """Parse coordinates from VQA response.
     
@@ -264,7 +264,7 @@ def validate_vqa_confidence(confidence: float, threshold: float) -> bool:
 
 **What Should Be Extracted:**
 ```python
-# Pure logic (should be in logic/ocr_filtering/)
+# Pure logic (should be in core/ocr_filtering/)
 def filter_ocr_results(
     results: list[TextBox],
     min_confidence: float = 0.5,
@@ -301,7 +301,7 @@ def is_likely_noise(text: str, confidence: float) -> bool:
 
 **What Could Be Extracted:**
 ```python
-# Pure logic (should be in logic/element_filtering/)
+# Pure logic (should be in core/element_filtering/)
 def is_actionable_element(element_type: str) -> bool:
     """Check if element type is actionable (clickable)."""
     actionable = {'button', 'link', 'checkbox', 'textfield', ...}
@@ -333,7 +333,7 @@ def should_skip_element(
 
 **What Could Be Extracted:**
 ```python
-# Pure logic (should be in logic/bounds_validation/)
+# Pure logic (should be in core/bounds_validation/)
 def is_valid_window_bounds(
     x: int, y: int, width: int, height: int,
     screen_width: int, screen_height: int
@@ -440,7 +440,7 @@ if is_strategy_enabled(ClickStrategy.ACCESSIBILITY, platform):
 
 ### Dead Code Alert
 
-**File:** `logic/workflow_validation/validator.py`
+**File:** `core/workflow_validation/validator.py`
 
 **Functions:**
 ```python
@@ -459,7 +459,7 @@ $ grep -r "workflow_validation" code_puppy/tools/gui_cub/
 # No results (imports removed in cleanup)
 ```
 
-**Recommendation:** ✅ **DELETE** `logic/workflow_validation/` (entire directory)
+**Recommendation:** ✅ **DELETE** `core/workflow_validation/` (entire directory)
 
 **Impact:** ~9 KB of dead code removed
 
@@ -503,7 +503,7 @@ $ grep -r "workflow_validation" code_puppy/tools/gui_cub/
    - Some validation scattered
 
 3. **Documentation Gaps**
-   - Missing README in logic/
+   - Missing README in core/
    - No architecture diagram
    - Extraction rationale not documented
 
@@ -514,7 +514,7 @@ $ grep -r "workflow_validation" code_puppy/tools/gui_cub/
 ### Immediate (High Priority)
 
 1. **✅ DELETE obsolete workflow_validation module**
-   - File: `code_puppy/tools/gui_cub/logic/workflow_validation/`
+   - File: `code_puppy/tools/gui_cub/core/workflow_validation/`
    - Reason: No longer used after executor deletion
    - Impact: Removes ~9 KB dead code
    - Effort: 5 minutes
@@ -522,14 +522,14 @@ $ grep -r "workflow_validation" code_puppy/tools/gui_cub/
 ### Short-term (Medium Priority)
 
 2. **⚠️ Extract VQA response parsing** (if VQA is actively used)
-   - Create `logic/vqa_parsing/parser.py`
+   - Create `core/vqa_parsing/parser.py`
    - Extract coordinate parsing
    - Extract confidence validation
    - Effort: 1-2 hours
    - Benefit: Easier to test VQA without agent dependency
 
 3. **⚠️ Extract OCR filtering logic**
-   - Create `logic/ocr_filtering/filter.py`
+   - Create `core/ocr_filtering/filter.py`
    - Extract noise detection
    - Extract confidence filtering
    - Effort: 2-3 hours
@@ -544,7 +544,7 @@ $ grep -r "workflow_validation" code_puppy/tools/gui_cub/
 ### Long-term (Nice to Have)
 
 5. **Write unit tests for logic modules**
-   - Target: 80%+ coverage of logic/
+   - Target: 80%+ coverage of core/
    - Focus on complex functions first
    - Use property-based testing where applicable
    - Effort: 1-2 days
@@ -564,7 +564,7 @@ $ grep -r "workflow_validation" code_puppy/tools/gui_cub/
 ```
 Extracted Logic Modules: 8
 Pure Functions: ~50+
-Code in logic/: ~55 KB
+Code in core/: ~55 KB
 Extraction Coverage: 75-80%
 Test Coverage: Unknown (needs measurement)
 ```
@@ -574,9 +574,9 @@ Test Coverage: Unknown (needs measurement)
 ```
 Extracted Logic Modules: 10-12
 Pure Functions: ~70+
-Code in logic/: ~70 KB
+Code in core/: ~70 KB
 Extraction Coverage: 90%+
-Test Coverage: 80%+ for logic/
+Test Coverage: 80%+ for core/
 ```
 
 ---
@@ -586,7 +586,7 @@ Test Coverage: 80%+ for logic/
 ### Overall Assessment: ✅ **GOOD PROGRESS**
 
 **Achievements:**
-- ✅ Core business logic extracted (75-80%)
+- ✅ Core core utilities extracted (75-80%)
 - ✅ Clean separation between I/O and logic
 - ✅ Actively used in production code
 - ✅ Type-safe, well-documented

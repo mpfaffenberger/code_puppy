@@ -10,9 +10,8 @@ from typing import Any
 from rapidfuzz import fuzz
 
 from .performance_monitor import get_monitor
-from .logic.matching import (
+from .core.matching import (
     normalize_text_pure,
-    generate_identifier_variants as generate_variants_pure,
     calculate_similarity_score_pure,
     explain_match_reason,
 )
@@ -133,7 +132,7 @@ def similarity_score(
     # Use extracted pure logic, but keep rapidfuzz optimization for fuzzy part
     # The pure logic handles exact/substring matching
     score = calculate_similarity_score_pure(search_text, target_text)
-    
+
     # If pure logic didn't find exact/substring match (score < 0.75),
     # use rapidfuzz for better fuzzy matching performance
     if score < 0.75:
@@ -142,7 +141,7 @@ def similarity_score(
         rapidfuzz_score = fuzz.ratio(search_norm, target_norm) / 100.0
         # Use whichever score is higher
         score = max(score, rapidfuzz_score)
-    
+
     return score
 
 

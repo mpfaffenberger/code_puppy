@@ -28,7 +28,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .logic.click_offsets import (
+from .core.click_offsets import (
     BoundingBox as SimpleBoundingBox,
     calculate_button_offset,
     calculate_checkbox_offset,

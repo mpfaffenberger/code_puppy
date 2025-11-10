@@ -1,8 +1,8 @@
-# GUI-Cub Pure Business Logic
+# GUI-Cub Core Utilities
 
 **Philosophy:** Functional Core, Imperative Shell
 
-This directory contains pure business logic extracted from I/O-heavy wrapper functions. All code here follows these principles:
+This directory contains pure utility functions and library adapters extracted from I/O-heavy wrapper functions. All code here follows these principles:
 
 - ✅ **No side effects** (no file I/O, no network calls, no GUI operations)
 - ✅ **Pure functions** (same input always produces same output)
@@ -19,17 +19,18 @@ This directory contains pure business logic extracted from I/O-heavy wrapper fun
 │   I/O Wrapper Tools         │
 │   (pyautogui, file I/O,     │
 │    API calls, screenshots)  │
-└───────────┬──────────────────┘
+└──────────┬───────────────────┘
            │
-           │ calls pure functions
+           │ calls core utilities
            │
-┌──────────┴──────────────────┐
-│   Pure Business Logic       │
+┌──────────┴───────────────────┐
+│   Core Utilities            │
 │   (algorithms, math,        │
-│    decision trees, parsers) │
+│    decision trees, parsers, │
+│    library adapters)        │
 │                             │
 │   THIS DIRECTORY            │
-└──────────────────────────────┘
+└─────────────────────────────┘
 ```
 
 **Benefits:**
@@ -146,9 +147,9 @@ This directory contains pure business logic extracted from I/O-heavy wrapper fun
 
 ## 🔧 Usage Guidelines
 
-### Adding New Logic
+### Adding New Core Utilities
 
-When writing new GUI-Cub tools, extract complex logic to this directory:
+When writing new GUI-Cub tools, extract pure functions and library adapters to this directory:
 
 **❌ Don't do this:**
 ```python
@@ -167,7 +168,7 @@ def smart_click(element_name):
 
 **✅ Do this:**
 ```python
-# logic/click_calculation/calculator.py
+# core/click_calculation/calculator.py
 def calculate_click_point(
     element_bounds: Bounds,
     strategy: str = "auto"
@@ -187,12 +188,12 @@ def smart_click(element_name):
     pyautogui.click(x, y)  # I/O
 ```
 
-### Testing Logic
+### Testing Core Utilities
 
 ```python
 # tests/test_click_calculation.py
-from code_puppy.tools.gui_cub.logic.click_calculation import calculate_click_point
-from code_puppy.tools.gui_cub.logic.click_calculation import Bounds
+from code_puppy.tools.gui_cub.core.click_calculation import calculate_click_point
+from code_puppy.tools.gui_cub.core.click_calculation import Bounds
 
 def test_click_point_wide_element():
     bounds = Bounds(x=100, y=200, width=150, height=40, ...)
@@ -213,7 +214,7 @@ def test_click_point_narrow_element():
 
 ## 📊 Quality Standards
 
-### All code in this directory must:
+### Core Utility Standards
 
 1. **Be pure**
    - No I/O operations
@@ -270,9 +271,9 @@ def test_click_point_narrow_element():
 
 ## 🐞 Known Issues
 
-### Incomplete Extractions
+### Future Extraction Opportunities
 
-Some logic still needs extraction:
+Some utilities that could be extracted:
 
 1. **VQA Response Parsing** - Coordinate parsing from text
 2. **OCR Filtering** - Noise detection and confidence filtering
@@ -292,15 +293,15 @@ These are documented in `LOGIC_EXTRACTION_AUDIT.md`
 
 ## ❓ FAQ
 
-**Q: When should I extract logic to this directory?**
+**Q: When should I extract utilities to this directory?**
 
 A: Extract when:
-- Logic is complex (>10 lines of calculations/decisions)
-- Logic needs thorough testing
-- Logic is reused across multiple files
-- Logic contains important business rules
+- Utility function is complex (>10 lines of calculations/decisions)
+- Function needs thorough testing
+- Function is reused across multiple files
+- Function contains important algorithms or library adapters
 
-**Q: What should NOT go in logic/?**
+**Q: What should NOT go in core/?**
 
 A: Don't extract:
 - Simple one-liners
@@ -308,11 +309,11 @@ A: Don't extract:
 - Framework-specific code (pydantic models, tool decorators)
 - Thin wrappers (just pass data through)
 
-**Q: How do I test extracted logic?**
+**Q: How do I test core utilities?**
 
 A: Write standard unit tests:
 ```python
-pytest tests/logic/  # Run all logic tests
+pytest tests/core/  # Run all core utility tests
 ```
 
 No special setup needed - pure functions test instantly!

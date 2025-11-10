@@ -14,10 +14,9 @@ from __future__ import annotations
 import re
 from typing import Tuple
 
-from .logic.browser_offsets import (
+from .core.browser_offsets import (
     get_title_bar_height,
     apply_chrome_offset,
-    OS_TITLE_BAR_HEIGHTS,
 )
 
 try:

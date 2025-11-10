@@ -110,33 +110,6 @@ def screen_to_window_coords(
     return window_x, window_y
 
 
-# TODO: Future optimization - Cache window bounds for repeated operations
-# This could significantly speed up workflows that do multiple operations
-# on the same window without refocusing.
-#
-# class WindowBoundsCache:
-#     """Cache window bounds to avoid repeated system calls."""
-#
-#     def __init__(self, ttl: float = 5.0):
-#         """Initialize cache with time-to-live in seconds."""
-#         self._cache: dict[str, tuple[WindowBoundsResult, float]] = {}
-#         self._ttl = ttl
-#
-#     def get_bounds(self, window_title: str | None = None) -> WindowBoundsResult:
-#         """Get cached bounds or fetch fresh if stale."""
-#         import time
-#         cache_key = window_title or "__active__"
-#         now = time.time()
-#
-#         # Check cache
-#         if cache_key in self._cache:
-#             bounds, cached_at = self._cache[cache_key]
-#             if now - cached_at < self._ttl:
-#                 return bounds
-#
-#         # Fetch fresh
-#         from .window_control import desktop_get_active_window
-#         bounds = desktop_get_active_window(None)
 #         self._cache[cache_key] = (bounds, now)
 #         return bounds
 #

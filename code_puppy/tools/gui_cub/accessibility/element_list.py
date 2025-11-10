@@ -19,7 +19,7 @@ else:
 
 from code_puppy.messaging import emit_error, emit_info
 
-from ..logic.element_scoring import calculate_element_relevance
+from ..core.element_scoring import calculate_element_relevance
 from code_puppy.tools.common import generate_group_id
 
 from ..constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP

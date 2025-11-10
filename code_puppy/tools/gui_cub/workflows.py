@@ -1,7 +1,7 @@
 """GUI-Cub workflow management tools for saving and reusing automation patterns."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 import yaml
 from pydantic_ai import RunContext
@@ -285,7 +285,7 @@ def register_workflow_tools(agent):
         """List all saved GUI-Cub workflow guidance documents.
 
         Returns workflows sorted by modification time (newest first).
-        
+
         **ALWAYS use this FIRST** before starting new tasks to:
         - Check if a similar workflow already exists
         - Learn from proven patterns

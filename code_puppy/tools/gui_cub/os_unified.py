@@ -50,6 +50,7 @@ else:
 # Module-level functions (importable by workflow executor)
 # These are the actual implementations, wrapped by register_os_unified_tools()
 
+
 def ui_click_element(
     context: RunContext,
     title: str | None = None,
@@ -120,9 +121,7 @@ def ui_click_element(
                         try:
                             # Try exact remainder lookup by title if role missing
                             elems = (
-                                app.findAllR(AXRole=role)
-                                if role
-                                else app.findAllR()
+                                app.findAllR(AXRole=role) if role else app.findAllR()
                             )
                             for el in elems:
                                 if getattr(el, "AXTitle", None) == title:
@@ -162,9 +161,7 @@ def ui_click_element(
                     success=False, clicked=False, error="No coordinates available"
                 )
             except Exception as e:
-                return ElementClickResult(
-                    success=False, clicked=False, error=str(e)
-                )
+                return ElementClickResult(success=False, clicked=False, error=str(e))
         return ElementClickResult(success=False, clicked=False)
     except Exception as e:
         return ElementClickResult(success=False, error=str(e))

@@ -316,7 +316,7 @@ def _detect_windows_monitors() -> List[Dict[str, Any]]:
                 {
                     "id": i,
                     "resolution": [width, height],
-                    "scale": 1.0,  # TODO: Get actual DPI
+                    "scale": 1.0,  # DPI detection not implemented for Windows
                     "primary": info.get("Flags", 0) == 1,
                     "bounds": {
                         "x": rect[0],

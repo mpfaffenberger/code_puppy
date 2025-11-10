@@ -33,9 +33,7 @@ def desktop_keyboard_type(
     """
     pyautogui.write(text, interval=interval)
     preview = text[:50] + "..." if len(text) > 50 else text
-    return KeyboardActionResult(
-        success=True, text_length=len(text), preview=preview
-    )
+    return KeyboardActionResult(success=True, text_length=len(text), preview=preview)
 
 
 def desktop_keyboard_press(

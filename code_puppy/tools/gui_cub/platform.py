@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import sys
 
-from .logic.scaling import (
+from .core.scaling import (
     DisplayMetrics,
     calculate_scale_factor,
     convert_physical_to_logical,
-    is_valid_scale_factor,
 )
 from enum import Enum
 from typing import Callable

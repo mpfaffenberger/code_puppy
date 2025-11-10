@@ -18,7 +18,7 @@ import pyautogui
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
-from .logic.config_validation import (
+from .core.config_validation import (
     validate_resolution_match,
     validate_platform_match,
 )
@@ -194,7 +194,9 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
         current_resolution = list(pyautogui.size())
         cached_resolution = config.get("display", {}).get("primary_resolution")
 
-        is_valid, message = validate_resolution_match(cached_resolution, current_resolution)
+        is_valid, message = validate_resolution_match(
+            cached_resolution, current_resolution
+        )
         if not is_valid:
             return (False, message)
     except Exception as e:

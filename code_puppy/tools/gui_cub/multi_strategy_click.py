@@ -22,9 +22,7 @@ from code_puppy.tools.common import generate_group_id
 from .result_types import BaseAutomationResult
 from .smart_click_calculator import SmartClickCalculator
 
-# Click strategy selection logic (integrated for future enhancements)
-# TODO: Fully integrate select_next_strategy() for smarter retry/fallback logic
-from .logic.click_strategy import (
+from .core.click_strategy import (
     ClickStrategy,
     is_strategy_enabled,
 )
@@ -146,8 +144,6 @@ def register_multi_strategy_click_tools(agent):
         platform = sys.platform
 
         # Validate platform support using extracted logic
-        # Note: Currently using simple validation. Future enhancement:
-        # TODO: Use StrategyConfig and select_next_strategy() for smarter retry/timeout logic
         accessibility_supported = is_strategy_enabled(
             ClickStrategy.ACCESSIBILITY, platform=platform
         )
