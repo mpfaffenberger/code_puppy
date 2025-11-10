@@ -47,6 +47,129 @@ else:
     _MAC = False
 
 
+# Module-level functions (importable by workflow executor)
+# These are the actual implementations, wrapped by register_os_unified_tools()
+
+def ui_click_element(
+    context: RunContext,
+    title: str | None = None,
+    role: str | None = None,
+    control_type: str | None = None,
+    class_name: str | None = None,
+    auto_id: str | None = None,
+    fuzzy: bool = True,
+    fuzzy_threshold: float = 0.7,
+    window_title: str | None = None,
+) -> ElementClickResult:
+    """Click a UI element across OS.
+
+    Windows: title/control_type/class_name/auto_id
+    macOS: role/title
+    """
+    group_id = generate_group_id("ui_click_element", sys.platform)
+    emit_info(
+        f"[bold white on blue] UI CLICK ELEMENT [/bold white on blue] 🖱️ ({sys.platform})",
+        message_group=group_id,
+    )
+    try:
+        if _WIN:
+            if window_title:
+                try:
+                    from code_puppy.tools.gui_cub.windows_automation import (
+                        focus_window as _focus,
+                    )
+
+                    _focus(window_title=window_title)
+                except Exception:
+                    pass
+            return _win_click_element(
+                title=title,
+                class_name=class_name,
+                control_type=control_type,
+                auto_id=auto_id,
+                fuzzy=fuzzy,
+                fuzzy_threshold=fuzzy_threshold,
+            )
+        if _MAC:
+            # Implement macOS click via AXPress or mouse fallback
+            try:
+                search = _mac_find_element(
+                    role=role,
+                    title=title,
+                    fuzzy=fuzzy,
+                    fuzzy_threshold=fuzzy_threshold,
+                )
+                if not search.success or not search.found or not search.best_match:
+                    return ElementClickResult(
+                        success=False,
+                        clicked=False,
+                        error=search.error or "Element not found",
+                    )
+                # Try AXPress if we can resolve element via atomacos
+                if _atomacos is not None:
+                    app = None
+                    try:
+                        from code_puppy.tools.gui_cub.accessibility import (
+                            get_frontmost_app,
+                        )
+
+                        app = get_frontmost_app()
+                    except Exception:
+                        app = None
+                    if app is not None and title:
+                        try:
+                            # Try exact remainder lookup by title if role missing
+                            elems = (
+                                app.findAllR(AXRole=role)
+                                if role
+                                else app.findAllR()
+                            )
+                            for el in elems:
+                                if getattr(el, "AXTitle", None) == title:
+                                    try:
+                                        el.Press()
+                                        return ElementClickResult(
+                                            success=True,
+                                            clicked=True,
+                                            method="ax_press",
+                                            element=title,
+                                            role=role,
+                                        )
+                                    except Exception:
+                                        break
+                        except Exception:
+                            pass
+                # Fallback to coordinate click using pyautogui
+                if search.best_match.center_x and search.best_match.center_y:
+                    try:
+                        import pyautogui
+
+                        pyautogui.click(
+                            search.best_match.center_x, search.best_match.center_y
+                        )
+                        return ElementClickResult(
+                            success=True,
+                            clicked=True,
+                            method="mouse_click",
+                            x=search.best_match.center_x,
+                            y=search.best_match.center_y,
+                        )
+                    except Exception as e:
+                        return ElementClickResult(
+                            success=False, clicked=False, error=str(e)
+                        )
+                return ElementClickResult(
+                    success=False, clicked=False, error="No coordinates available"
+                )
+            except Exception as e:
+                return ElementClickResult(
+                    success=False, clicked=False, error=str(e)
+                )
+        return ElementClickResult(success=False, clicked=False)
+    except Exception as e:
+        return ElementClickResult(success=False, error=str(e))
+
+
 def register_os_unified_tools(agent):
     """Register unified OS-aware UI tools."""
 
@@ -201,7 +324,7 @@ def register_os_unified_tools(agent):
             return ElementSearchResult(success=False, error=str(e))
 
     @agent.tool
-    def ui_click_element(
+    def _wrapped_ui_click_element(
         context: RunContext,
         title: str | None = None,
         role: str | None = None,
@@ -217,105 +340,14 @@ def register_os_unified_tools(agent):
         Windows: title/control_type/class_name/auto_id
         macOS: role/title
         """
-        group_id = generate_group_id("ui_click_element", sys.platform)
-        emit_info(
-            f"[bold white on blue] UI CLICK ELEMENT [/bold white on blue] 🖱️ ({sys.platform})",
-            message_group=group_id,
+        return ui_click_element(
+            context,
+            title,
+            role,
+            control_type,
+            class_name,
+            auto_id,
+            fuzzy,
+            fuzzy_threshold,
+            window_title,
         )
-        try:
-            if _WIN:
-                if window_title:
-                    try:
-                        from code_puppy.tools.gui_cub.windows_automation import (
-                            focus_window as _focus,
-                        )
-
-                        _focus(window_title=window_title)
-                    except Exception:
-                        pass
-                return _win_click_element(
-                    title=title,
-                    class_name=class_name,
-                    control_type=control_type,
-                    auto_id=auto_id,
-                    fuzzy=fuzzy,
-                    fuzzy_threshold=fuzzy_threshold,
-                )
-            if _MAC:
-                # Implement macOS click via AXPress or mouse fallback
-                try:
-                    search = _mac_find_element(
-                        role=role,
-                        title=title,
-                        fuzzy=fuzzy,
-                        fuzzy_threshold=fuzzy_threshold,
-                    )
-                    if not search.success or not search.found or not search.best_match:
-                        return ElementClickResult(
-                            success=False,
-                            clicked=False,
-                            error=search.error or "Element not found",
-                        )
-                    # Try AXPress if we can resolve element via atomacos
-                    if _atomacos is not None:
-                        app = None
-                        try:
-                            from code_puppy.tools.gui_cub.accessibility import (
-                                get_frontmost_app,
-                            )
-
-                            app = get_frontmost_app()
-                        except Exception:
-                            app = None
-                        if app is not None and title:
-                            try:
-                                # Try exact remainder lookup by title if role missing
-                                elems = (
-                                    app.findAllR(AXRole=role)
-                                    if role
-                                    else app.findAllR()
-                                )
-                                for el in elems:
-                                    if getattr(el, "AXTitle", None) == title:
-                                        try:
-                                            el.Press()
-                                            return ElementClickResult(
-                                                success=True,
-                                                clicked=True,
-                                                method="ax_press",
-                                                element=title,
-                                                role=role,
-                                            )
-                                        except Exception:
-                                            break
-                            except Exception:
-                                pass
-                    # Fallback to coordinate click using pyautogui
-                    if search.best_match.center_x and search.best_match.center_y:
-                        try:
-                            import pyautogui
-
-                            pyautogui.click(
-                                search.best_match.center_x, search.best_match.center_y
-                            )
-                            return ElementClickResult(
-                                success=True,
-                                clicked=True,
-                                method="mouse_click",
-                                x=search.best_match.center_x,
-                                y=search.best_match.center_y,
-                            )
-                        except Exception as e:
-                            return ElementClickResult(
-                                success=False, clicked=False, error=str(e)
-                            )
-                    return ElementClickResult(
-                        success=False, clicked=False, error="No coordinates available"
-                    )
-                except Exception as e:
-                    return ElementClickResult(
-                        success=False, clicked=False, error=str(e)
-                    )
-            return ElementClickResult(success=False, clicked=False)
-        except Exception as e:
-            return ElementClickResult(success=False, error=str(e))

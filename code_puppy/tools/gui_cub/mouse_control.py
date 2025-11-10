@@ -41,6 +41,38 @@ elif IS_WINDOWS:
 SCROLL_DELAY = 0.08 if IS_MACOS else 0.05
 
 
+# Module-level function (importable by workflow executor)
+def desktop_mouse_click(
+    context: RunContext,
+    x: int | None = None,
+    y: int | None = None,
+    button: Literal["left", "right", "middle"] = "left",
+    clicks: int = 1,
+    interval: float = 0.0,
+) -> MouseActionResult:
+    """Click the mouse at the current position or specific coordinates.
+
+    Args:
+        x: Optional X coordinate (if None, clicks current position)
+        y: Optional Y coordinate (if None, clicks current position)
+        button: Which mouse button to click (left, right, middle)
+        clicks: Number of clicks (2 for double-click)
+        interval: Time between clicks in seconds
+
+    Returns:
+        MouseActionResult with success status and click details
+    """
+    if x is not None and y is not None:
+        pyautogui.click(x=x, y=y, button=button, clicks=clicks, interval=interval)
+    else:
+        pyautogui.click(button=button, clicks=clicks, interval=interval)
+
+    final_x, final_y = pyautogui.position()
+    return MouseActionResult(
+        success=True, x=final_x, y=final_y, button=button, clicks=clicks
+    )
+
+
 def register_mouse_control_tools(agent):
     """Register mouse control tools for desktop automation."""
 
@@ -117,7 +149,7 @@ def register_mouse_control_tools(agent):
 
     @agent.tool
     @desktop_tool("MOUSE CLICK", requires="pyautogui")
-    def desktop_mouse_click(
+    def _wrapped_mouse_click(
         context: RunContext,
         x: int | None = None,
         y: int | None = None,
@@ -144,15 +176,7 @@ def register_mouse_control_tools(agent):
             - desktop_mouse_click(button="right") - Right-click at current position
             - desktop_mouse_click(clicks=2, interval=0.1) - Double-click
         """
-        if x is not None and y is not None:
-            pyautogui.click(x=x, y=y, button=button, clicks=clicks, interval=interval)
-        else:
-            pyautogui.click(button=button, clicks=clicks, interval=interval)
-
-        final_x, final_y = pyautogui.position()
-        return MouseActionResult(
-            success=True, x=final_x, y=final_y, button=button, clicks=clicks
-        )
+        return desktop_mouse_click(context, x, y, button, clicks, interval)
 
     @agent.tool
     @desktop_tool("MOUSE DRAG", requires="pyautogui")
