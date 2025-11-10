@@ -233,5 +233,225 @@ class TestTruncation:
         assert result[2].parts[0].content == "Repeat"
 
 
+class TestFilterHugeMessages:
+    """Test filtering of huge messages (>50k tokens)."""
+
+    def test_filters_messages_over_50k_tokens(self):
+        """Messages over 50k tokens should be filtered out."""
+        agent = MinimalTestAgent()
+        
+        # Mock different token sizes
+        token_counts = [100, 60000, 1000, 75000, 500]
+        messages = [
+            ModelRequest(parts=[TextPart(content="System")]),      # 100
+            ModelRequest(parts=[TextPart(content="Huge 1")]),      # 60000
+            ModelRequest(parts=[TextPart(content="Normal")]),      # 1000
+            ModelRequest(parts=[TextPart(content="Huge 2")]),      # 75000
+            ModelRequest(parts=[TextPart(content="Small")]),       # 500
+        ]
+        
+        agent.estimate_tokens_for_message = Mock(
+            side_effect=lambda msg: token_counts[messages.index(msg)]
+        )
+        
+        result = agent.filter_huge_messages(messages)
+        
+        # Should keep only messages under 50k tokens
+        assert len(result) == 3
+        assert result[0].parts[0].content == "System"
+        assert result[1].parts[0].content == "Normal"
+        assert result[2].parts[0].content == "Small"
+
+    def test_keeps_all_when_none_huge(self):
+        """All messages under 50k should be kept."""
+        agent = MinimalTestAgent()
+        agent.estimate_tokens_for_message = Mock(return_value=1000)
+        
+        messages = [
+            ModelRequest(parts=[TextPart(content="System")]),
+            ModelRequest(parts=[TextPart(content="Message 1")]),
+            ModelRequest(parts=[TextPart(content="Message 2")]),
+        ]
+        
+        result = agent.filter_huge_messages(messages)
+        
+        assert len(result) == 3
+        assert result == messages
+
+    def test_filters_all_when_all_huge(self):
+        """If all messages are huge, all get filtered."""
+        agent = MinimalTestAgent()
+        agent.estimate_tokens_for_message = Mock(return_value=60000)
+        
+        messages = [
+            ModelRequest(parts=[TextPart(content="Huge 1")]),
+            ModelRequest(parts=[TextPart(content="Huge 2")]),
+            ModelRequest(parts=[TextPart(content="Huge 3")]),
+        ]
+        
+        result = agent.filter_huge_messages(messages)
+        
+        assert len(result) == 0
+
+    def test_boundary_case_exactly_50k(self):
+        """Message with exactly 50k tokens should be filtered (< 50k)."""
+        agent = MinimalTestAgent()
+        
+        token_counts = [1000, 50000, 49999]
+        messages = [
+            ModelRequest(parts=[TextPart(content="Normal")]),      # 1000
+            ModelRequest(parts=[TextPart(content="Exactly 50k")]), # 50000 (filtered)
+            ModelRequest(parts=[TextPart(content="Just under")]),  # 49999 (kept)
+        ]
+        
+        agent.estimate_tokens_for_message = Mock(
+            side_effect=lambda msg: token_counts[messages.index(msg)]
+        )
+        
+        result = agent.filter_huge_messages(messages)
+        
+        assert len(result) == 2
+        assert result[0].parts[0].content == "Normal"
+        assert result[1].parts[0].content == "Just under"
+
+
+class TestSplitMessagesForProtectedSummarization:
+    """Test splitting messages into summarize/protected groups."""
+
+    def test_protects_recent_messages_within_token_limit(self):
+        """Most recent messages should be protected up to token limit."""
+        agent = MinimalTestAgent()
+        agent.estimate_tokens_for_message = Mock(return_value=100)
+        
+        messages = [
+            ModelRequest(parts=[TextPart(content="System")]),      # 100
+            ModelRequest(parts=[TextPart(content="Old 1")]),       # 100
+            ModelRequest(parts=[TextPart(content="Old 2")]),       # 100
+            ModelRequest(parts=[TextPart(content="Recent 1")]),    # 100
+            ModelRequest(parts=[TextPart(content="Recent 2")]),    # 100
+        ]
+        
+        # Mock protected token count to 300 (system + 2 recent messages)
+        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=300):
+            to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
+        
+        # Should protect: System + Recent 1 + Recent 2
+        assert len(protected) == 3
+        assert protected[0].parts[0].content == "System"
+        assert protected[1].parts[0].content == "Recent 1"
+        assert protected[2].parts[0].content == "Recent 2"
+        
+        # Should summarize: Old 1 + Old 2
+        assert len(to_summarize) == 2
+        assert to_summarize[0].parts[0].content == "Old 1"
+        assert to_summarize[1].parts[0].content == "Old 2"
+
+    def test_empty_summarize_when_all_protected(self):
+        """If all messages fit in protected zone, nothing to summarize."""
+        agent = MinimalTestAgent()
+        agent.estimate_tokens_for_message = Mock(return_value=100)
+        
+        messages = [
+            ModelRequest(parts=[TextPart(content="System")]),
+            ModelRequest(parts=[TextPart(content="Message 1")]),
+        ]
+        
+        # Large protected limit
+        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=10000):
+            to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
+        
+        assert len(to_summarize) == 0
+        assert len(protected) == 2
+
+    def test_system_message_always_protected(self):
+        """System message must always be in protected group."""
+        agent = MinimalTestAgent()
+        agent.estimate_tokens_for_message = Mock(return_value=100)
+        
+        messages = [
+            ModelRequest(parts=[TextPart(content="System")]),
+            ModelRequest(parts=[TextPart(content="Message 1")]),
+            ModelRequest(parts=[TextPart(content="Message 2")]),
+        ]
+        
+        # Very small protected limit (only system message)
+        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=100):
+            to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
+        
+        assert len(protected) == 1
+        assert protected[0].parts[0].content == "System"
+        assert len(to_summarize) == 2
+
+    def test_only_system_message(self):
+        """Edge case: only system message exists."""
+        agent = MinimalTestAgent()
+        agent.estimate_tokens_for_message = Mock(return_value=100)
+        
+        messages = [
+            ModelRequest(parts=[TextPart(content="System")]),
+        ]
+        
+        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=1000):
+            to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
+        
+        assert len(to_summarize) == 0
+        assert len(protected) == 1
+        assert protected[0].parts[0].content == "System"
+
+    def test_variable_token_sizes(self):
+        """Handle messages with different token counts."""
+        agent = MinimalTestAgent()
+        
+        token_counts = [50, 200, 150, 100, 300]
+        messages = [
+            ModelRequest(parts=[TextPart(content="System")]),      # 50
+            ModelRequest(parts=[TextPart(content="Old heavy")]),   # 200
+            ModelRequest(parts=[TextPart(content="Medium")]),      # 150
+            ModelRequest(parts=[TextPart(content="Recent")]),      # 100
+            ModelRequest(parts=[TextPart(content="Latest")]),      # 300
+        ]
+        
+        agent.estimate_tokens_for_message = Mock(
+            side_effect=lambda msg: token_counts[messages.index(msg)]
+        )
+        
+        # Protected = 450 (System 50 + Recent 100 + Latest 300)
+        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=450):
+            to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
+        
+        assert len(protected) == 3
+        assert protected[0].parts[0].content == "System"
+        assert protected[1].parts[0].content == "Recent"
+        assert protected[2].parts[0].content == "Latest"
+        
+        assert len(to_summarize) == 2
+        assert to_summarize[0].parts[0].content == "Old heavy"
+        assert to_summarize[1].parts[0].content == "Medium"
+
+    def test_chronological_order_preserved(self):
+        """Protected messages should maintain chronological order."""
+        agent = MinimalTestAgent()
+        agent.estimate_tokens_for_message = Mock(return_value=50)
+        
+        messages = [
+            ModelRequest(parts=[TextPart(content="System")]),
+            ModelRequest(parts=[TextPart(content="Message 1")]),
+            ModelRequest(parts=[TextPart(content="Message 2")]),
+            ModelRequest(parts=[TextPart(content="Message 3")]),
+            ModelRequest(parts=[TextPart(content="Message 4")]),
+        ]
+        
+        # Protected = 200 (System 50 + Message 3 50 + Message 4 50 = 150, can fit one more)
+        # Actually: System (50) + Msg4 (50) + Msg3 (50) + Msg2 (50) = 200
+        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=200):
+            to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
+        
+        # Verify chronological order in protected
+        assert protected[0].parts[0].content == "System"
+        assert protected[1].parts[0].content == "Message 2"
+        assert protected[2].parts[0].content == "Message 3"
+        assert protected[3].parts[0].content == "Message 4"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
