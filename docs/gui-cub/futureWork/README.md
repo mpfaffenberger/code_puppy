@@ -16,28 +16,62 @@ Comprehensive design documents for GUI-Cub improvements, created during a deep-d
 
 ### 📊 Start Here
 
-**`SESSION_SUMMARY.md`** - Master summary with prioritized recommendations
+**⭐ `REVISED_PRIORITIES.md`** - **UPDATED PRIORITIES** (Read this first!)
+- Testing foundation FIRST, then features
+- Revised based on user decision
+- 6-8 week timeline
+- Tests before features = safe development
+
+**`SESSION_SUMMARY.md`** - Original analysis (for reference)
 - All 9 docs explained
-- Priority ranking (Critical → Low)
-- Implementation timeline
+- Original priority ranking
 - Impact analysis
-- **Read this first!**
+- Background context
 
 ---
 
-### 🔥 Critical Priority
+### 🔥 Critical Priority (REVISED)
 
-#### Context & Data Engineering
+> **User Decision:** Testing foundation FIRST, features AFTER
+
+#### 1. Extract Testable Logic (3-4 weeks)
+
+**`TESTABLE_LOGIC_DESIGN.md`** + **`TEST_CLEANUP_PLAN.md`**
+- Separate business logic from I/O
+- Create `logic/` directory structure  
+- Write ~70 tests for pure functions
+- Coverage: 13% → 50-60%
+- **Foundation for safe feature development**
+
+**Why #1:** Can't validate features without testable code!
+
+#### 2. Context Engineering Tests (1-2 weeks)
+
+**`CONTEXT_ENGINEERING_TESTS.md`**
+- 33 tests for token management (currently 0%!)
+- Message compaction, filtering, estimation
+- **Validates critical business logic**
+- Needed before implementing delegation pattern
+
+**Why #2:** How do we prove 99.75% savings without tests?
+
+---
+
+### ⚡ High Priority (AFTER Testing)
+
+#### 3. Delegation Pattern (1-2 days)
 
 **`CONTEXT_DATA_ENGINEERING_AUDIT.md`** (47 KB)
-- **The Big One:** Delegation pattern for 99.75% token savings
-- Current state analysis (OCR, accessibility, screenshots)
-- Token usage breakdown
-- Recommendations: Delegation > Compression
-- Implementation: 1-2 days for massive impact
-- **Priority #1: Implement immediately**
+- 99.75% token savings (120k → 300 tokens)
+- Analyze in separate context
+- **Safe to implement with test coverage**
 
-**Key Insight:** Don't compress screenshots - analyze in separate context, return only analysis!
+#### 4. Context-Aware Limits (2-3 days)
+
+**`CONTEXT_DATA_ENGINEERING_AUDIT.md`**
+- Dynamic element limits
+- Prevents overflow
+- **Validated by tests**
 
 ---
 
@@ -97,30 +131,33 @@ Comprehensive design documents for GUI-Cub improvements, created during a deep-d
 
 ## Quick Reference
 
-### Top 2 Priorities (3-5 days total)
+### Top 2 Priorities (REVISED - 4-6 weeks total)
 
-1. **Delegation Pattern** (1-2 days)
-   - Add `include_image=False` to vision tools
-   - 99.75% token savings (120k → 300 tokens)
-   - Better quality (full resolution)
-   - See: `CONTEXT_DATA_ENGINEERING_AUDIT.md`
+1. **Extract Testable Logic** (3-4 weeks)
+   - Separate business logic from I/O wrappers
+   - Create `logic/` directory with pure functions
+   - Write ~70 high-value tests
+   - Coverage: 13% → 50-60%
+   - See: `TESTABLE_LOGIC_DESIGN.md`, `TEST_CLEANUP_PLAN.md`
 
-2. **Context-Aware Limits** (2-3 days)
-   - Dynamic element limits based on context usage
-   - Prevents overflow
-   - 20-50% additional savings
-   - See: `CONTEXT_DATA_ENGINEERING_AUDIT.md`
+2. **Context Engineering Tests** (1-2 weeks)
+   - 33 tests for token management (0% coverage currently!)
+   - Message compaction, filtering, estimation tests
+   - Validates critical business logic
+   - See: `CONTEXT_ENGINEERING_TESTS.md`
 
-**Impact:** 99.3% token reduction, ~100x cost savings, better quality!
+**Impact:** Solid testing foundation, safe feature development, high confidence!
+
+**Then (after tests):** Delegation pattern + context limits (2-4 days)
 
 ---
 
 ## Key Insights (User Feedback)
 
-### 1. Delegation > Compression 🏆
-**Original idea:** Compress screenshots to thumbnails  
-**User insight:** Use separate context instead!  
-**Result:** Better savings (99.75% vs 98%) with better quality
+### 1. Testing Foundation First 🏆
+**Original priority:** Features first (delegation pattern)  
+**User insight:** Tests before features!  
+**Result:** Safe development, high confidence, quality code
 
 ### 2. Debug Access is Critical 🔧
 **Gap:** Delegation without escape hatch  
@@ -141,21 +178,21 @@ Comprehensive design documents for GUI-Cub improvements, created during a deep-d
 
 ## Implementation Roadmap
 
-### Week 1-2: Critical Token Management
-- Delegation pattern
-- Context-aware limits
-- **Impact:** 99.3% token reduction
+### Weeks 1-4: Testing Foundation
+- Extract testable logic (3-4 weeks)
+- Context engineering tests (1-2 weeks, can overlap)
+- **Impact:** Coverage 13% → 50-60%, safe development
 
-### Week 3-4: Testing Foundation
-- Start test refactoring
-- Context engineering tests
-- **Impact:** Coverage 13% → 40%
+### Weeks 5-6: Feature Implementation  
+- Delegation pattern (1-2 days)
+- Context-aware limits (2-3 days)
+- **Impact:** 99.3% token reduction (validated by tests!)
 
-### Month 2: Complete & Refine
-- Finish test refactoring
+### Weeks 7-8+: Refinements
 - Structured summaries
 - Progressive detail levels
-- **Impact:** Coverage → 75%
+- Smart coordinate preservation
+- **Impact:** Polish and optional enhancements
 
 ---
 
