@@ -18,6 +18,8 @@ else:
         atomacos = None
 
 from code_puppy.messaging import emit_error, emit_info
+
+from ..logic.element_scoring import calculate_element_relevance
 from code_puppy.tools.common import generate_group_id
 
 from ..constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP
@@ -230,65 +232,16 @@ def _calculate_element_relevance(elem: dict) -> float:
     """
     Calculate relevance score for an element (0.0 - 1.0).
 
+    Uses extracted pure logic for element scoring.
+
     Prioritizes:
     - Interactive elements (buttons, fields)
     - Elements with meaningful titles
     - Common UI patterns (submit, login, search, etc.)
     """
-    score = 0.0
-
-    # Base score by role (0.0 - 0.5)
     role = elem.get("role") or elem.get("type") or elem.get("control_type") or ""
-    role_scores = {
-        "AXButton": 0.5,
-        "Button": 0.5,
-        "AXTextField": 0.45,
-        "Edit": 0.45,
-        "AXMenuItem": 0.4,
-        "MenuItem": 0.4,
-        "AXLink": 0.35,
-        "Hyperlink": 0.35,
-        "AXCheckBox": 0.3,
-        "CheckBox": 0.3,
-    }
-    score += role_scores.get(role, 0.2)
-
-    # Boost for meaningful title (0.0 - 0.3)
     title = (elem.get("title") or "").lower().strip()
-    if title:
-        score += 0.1
-
-        # Boost for common action words (fuzzy matching)
-        action_words = {
-            "submit",
-            "login",
-            "sign in",
-            "search",
-            "save",
-            "send",
-            "ok",
-            "accept",
-            "continue",
-            "next",
-            "cancel",
-            "close",
-            "delete",
-            "remove",
-            "add",
-            "create",
-            "edit",
-            "update",
-        }
-        for action in action_words:
-            if action in title:
-                score += 0.2
-                break
-
-    # Penalty for very long titles (probably labels, not buttons)
-    if title and len(title) > 50:
-        score -= 0.1
-
-    return min(1.0, max(0.0, score))
+    return calculate_element_relevance(role, title)
 
 
 def _compact_element_list_result(
