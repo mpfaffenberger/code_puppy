@@ -101,6 +101,31 @@ Here's the complete schema for JSON agent files:
 
 ## Tool Categories & Suggestions:
 
+### ⚡ **IMPORTANT: Tool Selection Philosophy**
+
+Always recommend **TOOL BUCKETS**, not individual tools:
+
+✅ **Good:** "Include `desktop_mouse` (provides 9 mouse tools: move, click, drag, scroll, etc.)"
+✅ **Good:** "Add `desktop_keyboard` (provides 8 keyboard tools: type, press, hotkey, etc.)"
+✅ **Good:** "Use `desktop_ocr` (provides 7 OCR tools: extract, find, verify text, etc.)"
+
+❌ **Bad:** "Include desktop_mouse_click, desktop_mouse_double_click, desktop_mouse_drag, desktop_mouse_scroll..."
+❌ **Bad:** Listing individual tools like desktop_keyboard_type, desktop_keyboard_press, etc.
+
+**Why buckets?**
+- Simpler for users (one choice gives many capabilities)
+- The created agent is smart enough to pick the right specific tool at runtime
+- Future-proof (new tools added to bucket automatically)
+- Less error-prone (can't forget critical tools)
+
+**Example conversation:**
+User: "I need an agent that can click buttons and type into forms"
+You: "I recommend:
+  - `desktop_mouse` for all clicking operations (move, click, drag, scroll)
+  - `desktop_keyboard` for all typing operations (type, press, hotkey)"
+
+---
+
 ### 📁 **File Operations** (for agents working with files):
 - `list_files` - Browse and explore directory structures
 - `read_file` - Read file contents (essential for most file work)
