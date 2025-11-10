@@ -10,6 +10,12 @@ from typing import Any
 from rapidfuzz import fuzz
 
 from .performance_monitor import get_monitor
+from .logic.matching import (
+    normalize_text_pure,
+    generate_identifier_variants as generate_variants_pure,
+    calculate_similarity_score_pure,
+    explain_match_reason,
+)
 
 # Module-level cache for normalized strings
 _normalize_cache: dict[str, str] = {}
@@ -36,9 +42,8 @@ def normalize_text(text: str) -> str:
     if text in _normalize_cache:
         return _normalize_cache[text]
 
-    # Normalize
-    normalized = text.lower()
-    normalized = " ".join(normalized.split())
+    # Use extracted pure logic for normalization
+    normalized = normalize_text_pure(text)
 
     # Cache result (with size limit)
     if len(_normalize_cache) < _CACHE_MAX_SIZE:
@@ -125,29 +130,20 @@ def similarity_score(
     Returns:
         Similarity score from 0.0 (no match) to 1.0 (exact match)
     """
-    if not search_text or not target_text:
-        return 0.0
-
-    search_norm = normalize_text(search_text)
-    target_norm = normalize_text(target_text)
-
-    # Exact match (case-insensitive)
-    if search_norm == target_norm:
-        return 1.0
-
-    # Substring match
-    if search_norm in target_norm:
-        # Longer match = higher score
-        ratio = len(search_norm) / len(target_norm)
-        return 0.8 + (ratio * 0.15)  # 0.8 to 0.95
-
-    # Reverse substring match (target in search)
-    if target_norm in search_norm:
-        ratio = len(target_norm) / len(search_norm)
-        return 0.75 + (ratio * 0.15)  # 0.75 to 0.9
-
-    # Fuzzy matching (rapidfuzz only)
-    return fuzz.ratio(search_norm, target_norm) / 100.0
+    # Use extracted pure logic, but keep rapidfuzz optimization for fuzzy part
+    # The pure logic handles exact/substring matching
+    score = calculate_similarity_score_pure(search_text, target_text)
+    
+    # If pure logic didn't find exact/substring match (score < 0.75),
+    # use rapidfuzz for better fuzzy matching performance
+    if score < 0.75:
+        search_norm = normalize_text(search_text)
+        target_norm = normalize_text(target_text)
+        rapidfuzz_score = fuzz.ratio(search_norm, target_norm) / 100.0
+        # Use whichever score is higher
+        score = max(score, rapidfuzz_score)
+    
+    return score
 
 
 def fuzzy_match(
@@ -258,6 +254,8 @@ def explain_match(
     """
     Generate human-readable explanation of why a match was made.
 
+    Uses extracted pure logic for explanation generation.
+
     Args:
         search_text: Original search text
         target_text: Matched target text
@@ -266,22 +264,4 @@ def explain_match(
     Returns:
         Explanation string
     """
-    search_norm = normalize_text(search_text)
-    target_norm = normalize_text(target_text)
-
-    if search_norm == target_norm:
-        return f"Exact match (case-insensitive): '{search_text}' == '{target_text}'"
-
-    if search_norm in target_norm:
-        return f"Substring match: '{search_text}' found in '{target_text}'"
-
-    if target_norm in search_norm:
-        return f"Partial match: '{target_text}' found in '{search_text}'"
-
-    if score >= 0.8:
-        return f"Strong fuzzy match (score: {score:.2f}): '{search_text}' ≈ '{target_text}'"
-
-    if score >= 0.6:
-        return f"Moderate fuzzy match (score: {score:.2f}): '{search_text}' ≈ '{target_text}'"
-
-    return f"Weak fuzzy match (score: {score:.2f}): '{search_text}' ≈ '{target_text}'"
+    return explain_match_reason(search_text, target_text, score)
