@@ -71,7 +71,10 @@ class SetCompleter(Completer):
             # Don't return any completions -- let ModelNameCompleter handle it
             return
 
-        for key in get_config_keys():
+        # Get config keys and sort them alphabetically for consistent display
+        config_keys = sorted(get_config_keys())
+
+        for key in config_keys:
             if key == "model" or key == "puppy_token":
                 continue  # exclude 'model' and 'puppy_token' from regular /set completions
             if key.startswith(text_after_trigger):
@@ -267,9 +270,9 @@ class SlashCompleter(Completer):
             partial = stripped_text[1:]  # text after '/'
             start_position = -(len(partial))  # Replace what was typed after '/'
 
-        # Load all available commands
+        # Load all available commands and sort them alphabetically
         try:
-            commands = get_unique_commands()
+            commands = sorted(get_unique_commands(), key=lambda cmd: cmd.name)
         except Exception:
             # If command loading fails, return no completions
             return
@@ -284,8 +287,9 @@ class SlashCompleter(Completer):
                     display_meta=cmd.description,
                 )
 
-            # Also check aliases
-            for alias in cmd.aliases:
+            # Also check aliases (also sorted alphabetically)
+            sorted_aliases = sorted(cmd.aliases)
+            for alias in sorted_aliases:
                 if alias.startswith(partial):
                     yield Completion(
                         alias,  # Don't include '/' in completion text, avoid double slash
