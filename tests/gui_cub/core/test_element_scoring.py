@@ -16,61 +16,57 @@ class TestCalculateElementRelevance:
     def test_button_high_relevance(self):
         """Buttons should have high base relevance."""
         score = calculate_element_relevance(
-            role="Button",
+            role="AXButton",
             title="Submit",
-            value="",
         )
-        assert score > 0.8  # Buttons prioritized
+        # Button role is 0.5, title base is 0.1, action word "submit" adds 0.2
+        # Total should be around 0.8
+        assert score > 0.7  # Buttons prioritized
 
-    def test_disabled_element_penalty(self):
-        """Disabled elements should score lower."""
-        # Enabled elements have higher scores (implementation-specific)
-        # This test validates the calculate_element_relevance function exists
-        score = calculate_element_relevance(
-            role="Button",
-            title="Submit",
-            value="",
-        )
-        assert isinstance(score, float)
-
-    def test_deep_element_penalty(self):
-        """Deeper elements should score lower."""
-        # Depth is not a parameter in current implementation
-        # Test that function returns valid score
-        score = calculate_element_relevance(
-            role="Button",
-            title="Click me",
-            value="",
-        )
-        assert 0.0 <= score <= 1.0
-
-    def test_fuzzy_score_impact(self):
-        """Higher fuzzy match should increase score."""
-        # Test action word boost
+    def test_button_with_action_word(self):
+        """Buttons with action words should score higher."""
         action_score = calculate_element_relevance(
-            role="Button",
-            title="Submit Form",  # Has action word
-            value="",
+            role="AXButton",
+            title="Submit Form",  # Has action word "submit"
         )
         no_action_score = calculate_element_relevance(
-            role="Button",
+            role="AXButton",
             title="Button Text",  # No action word
-            value="",
         )
         assert action_score > no_action_score
 
+    def test_long_title_penalty(self):
+        """Very long titles should get penalized."""
+        short_score = calculate_element_relevance(
+            role="AXButton",
+            title="Submit",
+        )
+        long_score = calculate_element_relevance(
+            role="AXButton",
+            title="This is a very long title that describes something in great detail and is probably a label not a button",
+        )
+        assert short_score > long_score
+
+    def test_no_title(self):
+        """Elements without title should still get role score."""
+        score = calculate_element_relevance(
+            role="AXButton",
+            title=None,
+        )
+        # Should get role score (0.5) but no title bonuses
+        assert score == 0.5
+
     def test_text_vs_button(self):
         """Buttons should score higher than text."""
-        button_score = calculate_role_score("Button")
-        text_score = calculate_role_score("StaticText")
+        button_score = calculate_role_score("AXButton")
+        text_score = calculate_role_score("AXStaticText")
         assert button_score > text_score
 
     def test_score_bounded(self):
         """Scores should be between 0 and 1."""
         score = calculate_element_relevance(
-            role="Button",
+            role="AXButton",
             title="Submit",
-            value="test",
         )
         assert 0.0 <= score <= 1.0
 
