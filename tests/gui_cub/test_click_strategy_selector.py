@@ -26,9 +26,9 @@ class TestSelectNextStrategy:
             StrategyAttempt(strategy=ClickStrategy.ACCESSIBILITY, success=False)
         ]
         config = DEFAULT_STRATEGY_CONFIG
-        
+
         next_strategy = select_next_strategy(attempted, config, elapsed_time=1.0)
-        
+
         assert next_strategy == ClickStrategy.OCR
 
     def test_returns_none_when_timeout_exceeded(self):
@@ -38,9 +38,9 @@ class TestSelectNextStrategy:
             enabled_strategies=[ClickStrategy.ACCESSIBILITY],
             timeout_seconds=5.0,
         )
-        
+
         next_strategy = select_next_strategy(attempted, config, elapsed_time=6.0)
-        
+
         assert next_strategy is None
 
     def test_returns_none_when_all_strategies_attempted(self):
@@ -51,9 +51,9 @@ class TestSelectNextStrategy:
             StrategyAttempt(strategy=ClickStrategy.MANUAL, success=False),
         ]
         config = DEFAULT_STRATEGY_CONFIG
-        
+
         next_strategy = select_next_strategy(attempted, config, elapsed_time=2.0)
-        
+
         assert next_strategy is None
 
     def test_skips_disabled_strategies(self):
@@ -63,9 +63,9 @@ class TestSelectNextStrategy:
             enabled_strategies=[ClickStrategy.OCR],  # Only OCR enabled
             timeout_seconds=5.0,
         )
-        
+
         next_strategy = select_next_strategy(attempted, config, elapsed_time=1.0)
-        
+
         assert next_strategy == ClickStrategy.OCR
 
     def test_respects_strategy_order(self):
@@ -79,11 +79,11 @@ class TestSelectNextStrategy:
             ],
             timeout_seconds=5.0,
         )
-        
+
         # First call should return OCR (first in list)
         next_strategy = select_next_strategy(attempted, config, elapsed_time=1.0)
         assert next_strategy == ClickStrategy.OCR
-        
+
         # After attempting OCR, should return ACCESSIBILITY (second in list)
         attempted.append(StrategyAttempt(strategy=ClickStrategy.OCR, success=False))
         next_strategy = select_next_strategy(attempted, config, elapsed_time=2.0)
@@ -96,10 +96,10 @@ class TestSelectNextStrategy:
             enabled_strategies=[ClickStrategy.ACCESSIBILITY],
             timeout_seconds=5.0,
         )
-        
+
         # Exactly at timeout
         next_strategy = select_next_strategy(attempted, config, elapsed_time=5.0)
-        
+
         assert next_strategy is None
 
 
@@ -115,9 +115,9 @@ class TestShouldRetryStrategy:
             enabled_strategies=[ClickStrategy.OCR],
             max_retries_per_strategy=3,
         )
-        
+
         should_retry = should_retry_strategy(ClickStrategy.OCR, attempts, config)
-        
+
         assert should_retry is True
 
     def test_prevents_retry_when_max_attempts_reached(self):
@@ -131,9 +131,9 @@ class TestShouldRetryStrategy:
             enabled_strategies=[ClickStrategy.OCR],
             max_retries_per_strategy=3,
         )
-        
+
         should_retry = should_retry_strategy(ClickStrategy.OCR, attempts, config)
-        
+
         assert should_retry is False
 
     def test_prevents_retry_when_last_attempt_succeeded(self):
@@ -146,18 +146,20 @@ class TestShouldRetryStrategy:
             enabled_strategies=[ClickStrategy.OCR],
             max_retries_per_strategy=3,
         )
-        
+
         should_retry = should_retry_strategy(ClickStrategy.OCR, attempts, config)
-        
+
         assert should_retry is False
 
     def test_allows_first_attempt(self):
         """Should allow attempt if no previous attempts."""
         attempts = []
         config = DEFAULT_STRATEGY_CONFIG
-        
-        should_retry = should_retry_strategy(ClickStrategy.ACCESSIBILITY, attempts, config)
-        
+
+        should_retry = should_retry_strategy(
+            ClickStrategy.ACCESSIBILITY, attempts, config
+        )
+
         assert should_retry is True
 
 
@@ -167,9 +169,9 @@ class TestCalculateFallbackOrder:
     def test_includes_all_strategies_on_macos(self):
         """macOS supports all strategies."""
         config = DEFAULT_STRATEGY_CONFIG
-        
+
         order = calculate_fallback_order(config, platform="darwin")
-        
+
         assert ClickStrategy.ACCESSIBILITY in order
         assert ClickStrategy.OCR in order
         assert ClickStrategy.MANUAL in order
@@ -177,9 +179,9 @@ class TestCalculateFallbackOrder:
     def test_excludes_accessibility_on_linux(self):
         """Linux doesn't support accessibility API."""
         config = DEFAULT_STRATEGY_CONFIG
-        
+
         order = calculate_fallback_order(config, platform="linux")
-        
+
         assert ClickStrategy.ACCESSIBILITY not in order
         assert ClickStrategy.OCR in order
         assert ClickStrategy.MANUAL in order
@@ -187,9 +189,9 @@ class TestCalculateFallbackOrder:
     def test_includes_all_strategies_on_windows(self):
         """Windows supports all strategies."""
         config = DEFAULT_STRATEGY_CONFIG
-        
+
         order = calculate_fallback_order(config, platform="win32")
-        
+
         assert ClickStrategy.ACCESSIBILITY in order
         assert ClickStrategy.OCR in order
         assert ClickStrategy.MANUAL in order
@@ -204,9 +206,9 @@ class TestCalculateFallbackOrder:
             ],
             timeout_seconds=5.0,
         )
-        
+
         order = calculate_fallback_order(config, platform="darwin")
-        
+
         assert order == [
             ClickStrategy.MANUAL,
             ClickStrategy.OCR,
@@ -220,9 +222,9 @@ class TestIsStrategyEnabled:
     def test_returns_true_for_enabled_strategy(self):
         """Should return True if strategy is in enabled list."""
         config = DEFAULT_STRATEGY_CONFIG
-        
+
         is_enabled = is_strategy_enabled(ClickStrategy.ACCESSIBILITY, config)
-        
+
         assert is_enabled is True
 
     def test_returns_false_for_disabled_strategy(self):
@@ -231,9 +233,9 @@ class TestIsStrategyEnabled:
             enabled_strategies=[ClickStrategy.OCR],
             timeout_seconds=5.0,
         )
-        
+
         is_enabled = is_strategy_enabled(ClickStrategy.ACCESSIBILITY, config)
-        
+
         assert is_enabled is False
 
 

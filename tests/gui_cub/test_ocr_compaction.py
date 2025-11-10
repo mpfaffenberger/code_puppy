@@ -34,7 +34,7 @@ class TestOCRResultCompaction:
                     center_y=i * 10 + 10,
                 )
             )
-        
+
         full_result = OCRExtractResult(
             success=True,
             found_count=50,
@@ -42,16 +42,16 @@ class TestOCRResultCompaction:
             full_text=" ".join(e.text for e in text_elements),
             average_confidence=0.85,
         )
-        
+
         # Compact the result
         compact = _compact_ocr_extract_result(full_result)
-        
+
         # Should keep only top 10 high-confidence elements
         assert len(compact.key_elements) <= 10
         assert compact.found_count == 50  # Still reports total
         assert compact.full_text == ""  # Stripped
         assert compact.text_elements == []  # Stripped
-        
+
         # Verify we kept highest confidence elements
         assert "Element 0" in compact.key_elements  # Highest confidence
         assert "Element 1" in compact.key_elements
@@ -62,31 +62,43 @@ class TestOCRResultCompaction:
             TextBoundingBox(
                 text="High confidence",
                 confidence=0.95,
-                x=0, y=0, width=100, height=20,
-                center_x=50, center_y=10,
+                x=0,
+                y=0,
+                width=100,
+                height=20,
+                center_x=50,
+                center_y=10,
             ),
             TextBoundingBox(
                 text="Low confidence",
                 confidence=0.5,  # Too low
-                x=100, y=0, width=100, height=20,
-                center_x=150, center_y=10,
+                x=100,
+                y=0,
+                width=100,
+                height=20,
+                center_x=150,
+                center_y=10,
             ),
             TextBoundingBox(
                 text="Borderline",
                 confidence=0.7,  # Exactly 0.7 - filtered
-                x=200, y=0, width=100, height=20,
-                center_x=250, center_y=10,
+                x=200,
+                y=0,
+                width=100,
+                height=20,
+                center_x=250,
+                center_y=10,
             ),
         ]
-        
+
         full_result = OCRExtractResult(
             success=True,
             text_elements=text_elements,
             average_confidence=0.72,
         )
-        
+
         compact = _compact_ocr_extract_result(full_result)
-        
+
         # Only high confidence element should be kept
         assert "High confidence" in compact.key_elements
         assert "Low confidence" not in compact.key_elements
@@ -98,25 +110,33 @@ class TestOCRResultCompaction:
             TextBoundingBox(
                 text="ab",  # Too short
                 confidence=0.95,
-                x=0, y=0, width=20, height=20,
-                center_x=10, center_y=10,
+                x=0,
+                y=0,
+                width=20,
+                height=20,
+                center_x=10,
+                center_y=10,
             ),
             TextBoundingBox(
                 text="Valid text",
                 confidence=0.95,
-                x=100, y=0, width=100, height=20,
-                center_x=150, center_y=10,
+                x=100,
+                y=0,
+                width=100,
+                height=20,
+                center_x=150,
+                center_y=10,
             ),
         ]
-        
+
         full_result = OCRExtractResult(
             success=True,
             text_elements=text_elements,
             average_confidence=0.95,
         )
-        
+
         compact = _compact_ocr_extract_result(full_result)
-        
+
         assert "Valid text" in compact.key_elements
         assert "ab" not in compact.key_elements
 
@@ -127,12 +147,16 @@ class TestOCRResultCompaction:
             TextBoundingBox(
                 text=f"Element number {i} with some descriptive text",
                 confidence=0.95,
-                x=i * 10, y=i * 10, width=200, height=20,
-                center_x=i * 10 + 100, center_y=i * 10 + 10,
+                x=i * 10,
+                y=i * 10,
+                width=200,
+                height=20,
+                center_x=i * 10 + 100,
+                center_y=i * 10 + 10,
             )
             for i in range(100)
         ]
-        
+
         full_result = OCRExtractResult(
             success=True,
             found_count=100,
@@ -140,15 +164,15 @@ class TestOCRResultCompaction:
             full_text=" ".join(e.text for e in text_elements),
             average_confidence=0.95,
         )
-        
+
         compact = _compact_ocr_extract_result(full_result)
-        
+
         # Calculate approximate token counts (rough estimate)
         full_tokens = len(full_result.full_text.split()) + (len(text_elements) * 10)
         compact_tokens = len(" ".join(compact.key_elements).split()) + 5
-        
+
         reduction = (full_tokens - compact_tokens) / full_tokens
-        
+
         # Should achieve at least 80% reduction
         assert reduction > 0.8
         assert len(compact.key_elements) <= 10
@@ -160,9 +184,9 @@ class TestOCRResultCompaction:
             error="OCR engine failed",
             text_elements=[],
         )
-        
+
         compact = _compact_ocr_extract_result(full_result)
-        
+
         assert compact.success is False
         assert compact.error == "OCR engine failed"
 
@@ -172,19 +196,23 @@ class TestOCRResultCompaction:
             TextBoundingBox(
                 text="Important",
                 confidence=0.95,
-                x=0, y=0, width=100, height=20,
-                center_x=50, center_y=10,
+                x=0,
+                y=0,
+                width=100,
+                height=20,
+                center_x=50,
+                center_y=10,
             ),
         ]
-        
+
         full_result = OCRExtractResult(
             success=True,
             text_elements=text_elements,
             average_confidence=0.95,
         )
-        
+
         compact = _compact_ocr_extract_result(full_result)
-        
+
         # Should have a summary (implementation specific)
         assert isinstance(compact.summary, str)
 
@@ -197,9 +225,9 @@ class TestOCRResultCompaction:
             full_text="",
             average_confidence=0.0,
         )
-        
+
         compact = _compact_ocr_extract_result(full_result)
-        
+
         assert compact.found_count == 0
         assert compact.key_elements == []
         assert compact.success is True

@@ -52,7 +52,9 @@ class TestDetectDisplays:
     @patch("code_puppy.tools.gui_cub.calibration.detection._detect_macos_monitors")
     @patch("code_puppy.tools.gui_cub.calibration.detection._detect_windows_monitors")
     @patch("pyautogui.size", return_value=(1920, 1080))
-    def test_detect_displays_basic(self, mock_size, mock_win_monitors, mock_mac_monitors):
+    def test_detect_displays_basic(
+        self, mock_size, mock_win_monitors, mock_mac_monitors
+    ):
         """Should detect basic display info."""
         # Mock both platform-specific functions to return a single monitor
         mock_monitor = [
@@ -66,7 +68,7 @@ class TestDetectDisplays:
         ]
         mock_mac_monitors.return_value = mock_monitor
         mock_win_monitors.return_value = mock_monitor
-        
+
         result = detect_displays()
         assert result["monitor_count"] == 1
         assert result["primary_resolution"] == [1920, 1080]

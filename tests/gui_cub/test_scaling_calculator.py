@@ -27,9 +27,9 @@ class TestCalculateScaleFactor:
             physical_width=3840,
             physical_height=2160,
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         assert scale == 2.0
 
     def test_calculates_1x_normal_scale(self):
@@ -40,9 +40,9 @@ class TestCalculateScaleFactor:
             physical_width=1920,
             physical_height=1080,
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         assert scale == 1.0
 
     def test_calculates_1_5x_scale(self):
@@ -53,9 +53,9 @@ class TestCalculateScaleFactor:
             physical_width=2880,
             physical_height=1620,
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         assert scale == 1.5
 
     def test_rounds_to_nearest_quarter(self):
@@ -67,9 +67,9 @@ class TestCalculateScaleFactor:
             physical_width=1370,  # 1.37x
             physical_height=1370,
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         # 1.37 rounds to 1.25 (nearest 0.25)
         assert scale == 1.25
 
@@ -82,9 +82,9 @@ class TestCalculateScaleFactor:
             physical_width=1000,  # 10x scale
             physical_height=1000,
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         assert scale == 4.0  # Clamped to max
 
     def test_uses_width_when_scales_differ(self):
@@ -95,9 +95,9 @@ class TestCalculateScaleFactor:
             physical_width=2000,  # 2.0x
             physical_height=1500,  # 1.5x (different!)
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         # Should use width scale (2.0) when diff > 0.1
         assert scale == 2.0
 
@@ -109,9 +109,9 @@ class TestCalculateScaleFactor:
             physical_width=2000,  # 2.0x
             physical_height=2050,  # 2.05x (close!)
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         # Average of 2.0 and 2.05 = 2.025, rounds to 2.0
         assert scale == 2.0
 
@@ -123,9 +123,9 @@ class TestCalculateScaleFactor:
             physical_width=1920,
             physical_height=2160,
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         assert scale == 1.0
 
     def test_returns_1_for_negative_dimensions(self):
@@ -136,9 +136,9 @@ class TestCalculateScaleFactor:
             physical_width=3840,
             physical_height=2160,
         )
-        
+
         scale = calculate_scale_factor(metrics)
-        
+
         assert scale == 1.0
 
 
@@ -148,28 +148,28 @@ class TestConvertPhysicalToLogical:
     def test_converts_2x_retina_coordinates(self):
         """Should halve coordinates on 2x display."""
         logical_x, logical_y = convert_physical_to_logical(940, 250, 2.0)
-        
+
         assert logical_x == 470
         assert logical_y == 125
 
     def test_keeps_1x_coordinates_same(self):
         """Should not change coordinates on 1x display."""
         logical_x, logical_y = convert_physical_to_logical(500, 300, 1.0)
-        
+
         assert logical_x == 500
         assert logical_y == 300
 
     def test_converts_1_5x_coordinates(self):
         """Should convert 1.5x scaling correctly."""
         logical_x, logical_y = convert_physical_to_logical(1500, 900, 1.5)
-        
+
         assert logical_x == 1000
         assert logical_y == 600
 
     def test_handles_zero_scale_gracefully(self):
         """Should default to 1.0 for zero scale factor."""
         logical_x, logical_y = convert_physical_to_logical(100, 200, 0.0)
-        
+
         # Should use 1.0 as fallback
         assert logical_x == 100
         assert logical_y == 200
@@ -177,7 +177,7 @@ class TestConvertPhysicalToLogical:
     def test_handles_negative_scale_gracefully(self):
         """Should default to 1.0 for negative scale factor."""
         logical_x, logical_y = convert_physical_to_logical(100, 200, -2.0)
-        
+
         # Should use 1.0 as fallback
         assert logical_x == 100
         assert logical_y == 200
@@ -186,7 +186,7 @@ class TestConvertPhysicalToLogical:
         """Should return integer coordinates."""
         # 945 / 2.0 = 472.5, should round to 472
         logical_x, logical_y = convert_physical_to_logical(945, 251, 2.0)
-        
+
         assert isinstance(logical_x, int)
         assert isinstance(logical_y, int)
 
@@ -197,21 +197,21 @@ class TestConvertLogicalToPhysical:
     def test_converts_2x_retina_coordinates(self):
         """Should double coordinates on 2x display."""
         physical_x, physical_y = convert_logical_to_physical(470, 125, 2.0)
-        
+
         assert physical_x == 940
         assert physical_y == 250
 
     def test_keeps_1x_coordinates_same(self):
         """Should not change coordinates on 1x display."""
         physical_x, physical_y = convert_logical_to_physical(500, 300, 1.0)
-        
+
         assert physical_x == 500
         assert physical_y == 300
 
     def test_converts_1_5x_coordinates(self):
         """Should convert 1.5x scaling correctly."""
         physical_x, physical_y = convert_logical_to_physical(1000, 600, 1.5)
-        
+
         assert physical_x == 1500
         assert physical_y == 900
 
@@ -219,13 +219,17 @@ class TestConvertLogicalToPhysical:
         """Converting logical→physical→logical should return original."""
         original_x, original_y = 100, 200
         scale = 2.0
-        
+
         # Convert to physical
-        physical_x, physical_y = convert_logical_to_physical(original_x, original_y, scale)
-        
+        physical_x, physical_y = convert_logical_to_physical(
+            original_x, original_y, scale
+        )
+
         # Convert back to logical
-        logical_x, logical_y = convert_physical_to_logical(physical_x, physical_y, scale)
-        
+        logical_x, logical_y = convert_physical_to_logical(
+            physical_x, physical_y, scale
+        )
+
         assert logical_x == original_x
         assert logical_y == original_y
 
@@ -272,14 +276,14 @@ class TestCalculateAspectRatio:
     def test_calculates_16_9_ratio(self):
         """Should calculate 16:9 aspect ratio correctly."""
         ratio = calculate_aspect_ratio(1920, 1080)
-        
-        assert abs(ratio - 16/9) < 0.01  # ~1.778
+
+        assert abs(ratio - 16 / 9) < 0.01  # ~1.778
 
     def test_calculates_4_3_ratio(self):
         """Should calculate 4:3 aspect ratio correctly."""
         ratio = calculate_aspect_ratio(1024, 768)
-        
-        assert abs(ratio - 4/3) < 0.01  # ~1.333
+
+        assert abs(ratio - 4 / 3) < 0.01  # ~1.333
 
     def test_returns_zero_for_invalid_dimensions(self):
         """Should return 0.0 for invalid dimensions."""
@@ -309,7 +313,7 @@ class TestScalesMatch:
         """Should respect custom tolerance values."""
         # Tight tolerance
         assert scales_match(2.0, 2.01, tolerance=0.001) is False
-        
+
         # Loose tolerance
         assert scales_match(2.0, 2.5, tolerance=0.6) is True
 

@@ -50,7 +50,7 @@ class TestGenerateIdentifierVariants:
     def test_generates_button_variants(self):
         """Should generate common button identifier patterns."""
         variants = generate_identifier_variants("submit")
-        
+
         assert "submit" in variants
         assert "submitbtn" in variants
         assert "submit_btn" in variants
@@ -62,21 +62,21 @@ class TestGenerateIdentifierVariants:
     def test_generates_camel_case_for_multi_word(self):
         """Should generate camelCase for multi-word inputs."""
         variants = generate_identifier_variants("Submit Form")
-        
+
         assert "submitForm" in variants
         assert "submitform" in variants
 
     def test_removes_duplicates(self):
         """Should not include duplicate variants."""
         variants = generate_identifier_variants("btn")
-        
+
         # "btn" and "btnbtn" should not duplicate
         assert len(variants) == len(set(variants))
 
     def test_preserves_order(self):
         """Should preserve order of variants."""
         variants = generate_identifier_variants("test")
-        
+
         # Base variant should come first
         assert variants[0] == "test"
 
@@ -101,14 +101,14 @@ class TestCalculateSubstringMatchScore:
     def test_returns_high_score_for_substring(self):
         """Should return score between 0.8-0.95 for substring match."""
         score = calculate_substring_match_score("submit", "submit button")
-        
+
         assert 0.8 <= score <= 0.95
 
     def test_higher_score_for_longer_ratio(self):
         """Longer search text relative to target should score higher."""
         score1 = calculate_substring_match_score("submit", "submit button")
         score2 = calculate_substring_match_score("sub", "submit button")
-        
+
         # "submit" is longer match than "sub"
         assert score1 > score2
 
@@ -124,7 +124,7 @@ class TestCalculateReverseSubstringScore:
     def test_returns_score_for_reverse_match(self):
         """Should return score between 0.75-0.9 for reverse match."""
         score = calculate_reverse_substring_score("submit button", "button")
-        
+
         assert 0.75 <= score <= 0.9
 
     def test_returns_0_for_no_reverse_match(self):
@@ -144,14 +144,14 @@ class TestSimpleLevenshteinRatio:
     def test_similar_strings_have_high_ratio(self):
         """Should return high ratio for similar strings."""
         ratio = simple_levenshtein_ratio("submit", "submitt")
-        
+
         # One character different
         assert ratio > 0.8
 
     def test_different_strings_have_low_ratio(self):
         """Should return low ratio for very different strings."""
         ratio = simple_levenshtein_ratio("submit", "xyz")
-        
+
         assert ratio < 0.3
 
     def test_handles_empty_strings(self):
@@ -181,7 +181,7 @@ class TestCalculateSimilarityScorePure:
     def test_fuzzy_match_for_similar_texts(self):
         """Similar texts should get fuzzy match score."""
         score = calculate_similarity_score_pure("submit", "submitt")
-        
+
         # Fuzzy match should kick in
         assert 0.5 < score < 1.0
 
@@ -189,12 +189,14 @@ class TestCalculateSimilarityScorePure:
         """Should be able to disable fuzzy matching."""
         # These don't match via exact/substring/reverse, so with use_fuzzy=False, should be 0.0
         score = calculate_similarity_score_pure("apple", "orange", use_fuzzy=False)
-        
+
         # Without fuzzy, no match for completely different words
         assert score == 0.0
-        
+
         # But substring still works even with fuzzy disabled
-        score2 = calculate_similarity_score_pure("submit", "submit button", use_fuzzy=False)
+        score2 = calculate_similarity_score_pure(
+            "submit", "submit button", use_fuzzy=False
+        )
         assert score2 > 0.8  # Substring match still works
 
     def test_case_insensitive_matching(self):
@@ -245,9 +247,9 @@ class TestRankMatches:
             ("candidate2", 0.9),
             ("candidate3", 0.7),
         ]
-        
+
         ranked = rank_matches(matches)
-        
+
         assert ranked[0] == ("candidate2", 0.9)
         assert ranked[1] == ("candidate3", 0.7)
         assert ranked[2] == ("candidate1", 0.5)
@@ -263,9 +265,9 @@ class TestRankMatches:
             ("candidate1", 0.8),
             ("candidate2", 0.8),
         ]
-        
+
         ranked = rank_matches(matches)
-        
+
         # Both should be present
         assert len(ranked) == 2
         assert all(score == 0.8 for _, score in ranked)
@@ -289,7 +291,11 @@ class TestExplainMatchReason:
         # Test with a high score (0.85) that's not exact/substring
         explanation = explain_match_reason("test", "tests", 0.85)
         # Should trigger either substring OR strong fuzzy (both are fine for 0.85 score)
-        assert "strong" in explanation.lower() or "substring" in explanation.lower() or "fuzzy" in explanation.lower()
+        assert (
+            "strong" in explanation.lower()
+            or "substring" in explanation.lower()
+            or "fuzzy" in explanation.lower()
+        )
 
     def test_explains_moderate_fuzzy_match(self):
         """Should identify moderate fuzzy matches."""
@@ -309,7 +315,7 @@ class TestIdentifierVariantsRealWorld:
     def test_login_button_variants(self):
         """Should generate practical variants for 'Login'."""
         variants = generate_identifier_variants("Login")
-        
+
         # Common patterns
         assert "login" in variants
         assert "loginbtn" in variants
@@ -318,7 +324,7 @@ class TestIdentifierVariantsRealWorld:
     def test_submit_form_variants(self):
         """Should handle multi-word identifiers."""
         variants = generate_identifier_variants("Submit Form")
-        
+
         assert "submitForm" in variants  # camelCase
         assert "submitform" in variants  # no space
 
