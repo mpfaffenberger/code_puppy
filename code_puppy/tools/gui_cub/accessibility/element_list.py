@@ -255,11 +255,19 @@ def _calculate_element_relevance(elem: dict) -> float:
 
     Prioritizes:
     - Interactive elements (buttons, fields)
-    - Elements with meaningful titles
+    - Elements with meaningful titles OR descriptions
     - Common UI patterns (submit, login, search, etc.)
+    
+    Falls back to description if title is empty (Finder buttons use this!).
     """
     role = elem.get("role") or elem.get("type") or elem.get("control_type") or ""
     title = (elem.get("title") or "").lower().strip()
+    
+    # CRITICAL FIX: Fallback to description if title is empty
+    # Many macOS apps (Finder, Safari) put button labels in description!
+    if not title:
+        title = (elem.get("description") or "").lower().strip()
+    
     return calculate_element_relevance(role, title)
 
 
@@ -326,14 +334,17 @@ def _compact_element_list_result(
         # Compact element structure - keep only essential fields
         compact_elem = {
             "role": role,
-            "title": elem.get("title"),
+            "title": elem.get("title") or elem.get("description"),  # Use description as fallback
             "x": elem.get("center_x") or elem.get("x"),
-            "y": elem.get("center_y") or elem.get("y"),
+            "y": elem.get("center_x") or elem.get("y"),
             "relevance": round(relevance, 2),
         }
         # Add automation_id if available (Windows)
         if "auto_id" in elem:
             compact_elem["auto_id"] = elem["auto_id"]
+        # Add description if different from title (for debugging)
+        if elem.get("description") and elem.get("description") != elem.get("title"):
+            compact_elem["description"] = elem.get("description")
 
         scored_elements.append((relevance, compact_elem))
 

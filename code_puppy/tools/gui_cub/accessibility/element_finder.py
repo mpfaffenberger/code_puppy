@@ -101,8 +101,8 @@ def find_accessible_element(
     title: str | None = None,
     in_frontmost_app: bool = True,
     fuzzy: bool = True,
-    fuzzy_threshold: float = 0.65,
-    early_stop_threshold: float = 0.85,
+    fuzzy_threshold: float = 0.25,  # LOWERED: Allow description-only matches (weight=0.3)
+    early_stop_threshold: float = 0.6,  # LOWERED: Match lowered threshold
 ) -> ElementSearchResult:
     """
     Find a UI element using macOS Accessibility API via atomacos with fuzzy matching.
