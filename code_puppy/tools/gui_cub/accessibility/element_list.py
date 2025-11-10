@@ -21,6 +21,25 @@ from code_puppy.messaging import emit_error, emit_info
 
 from ..core.element_scoring import calculate_element_relevance
 from code_puppy.tools.common import generate_group_id
+from ..result_types import CompactSummary
+from datetime import datetime
+import json
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~4 characters per token."""
+    return max(1, len(text) // 4)
+
+
+def _estimate_result_tokens(obj: dict | list | str) -> int:
+    """Estimate tokens in a serialized object."""
+    if isinstance(obj, str):
+        return _estimate_tokens(obj)
+    try:
+        serialized = json.dumps(obj)
+        return _estimate_tokens(serialized)
+    except Exception:
+        return 100  # Fallback estimate
 
 from ..constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP
 from ..performance_monitor import get_monitor
@@ -245,102 +264,141 @@ def _calculate_element_relevance(elem: dict) -> float:
 
 
 def _compact_element_list_result(
-    full_result: ElementListResult, max_elements: int = 20
+    full_result: ElementListResult, 
+    max_elements: int = 20,
+    include_static_text: bool = True
 ) -> ElementListResult:
     """
-    Compress element list to most relevant actionable elements.
+    Compress element list to most relevant elements with structured summary.
 
     Strategy:
-    - Filter to interactive/actionable elements (buttons, fields, menus)
+    - Filter to interactive elements (buttons, fields, menus) - HIGH PRIORITY
+    - Include important static elements (labels, headings, alerts) - MEDIUM PRIORITY
     - Calculate relevance score with fuzzy matching on common actions
     - Sort by relevance (most relevant first)
     - Limit to top N most relevant elements (default: 20)
-    - Generate summary
+    - Generate structured CompactSummary with metrics
 
     Args:
         full_result: Full element list with all elements
         max_elements: Maximum elements to return (default: 20)
+        include_static_text: Include important static text elements (default: True)
 
     Returns:
-        Compact result with filtered, sorted actionable elements only
+        Compact result with filtered, sorted elements and structured summary
     """
     if not full_result.success or not full_result.elements:
         # Failure or empty - return as-is for debugging
         return full_result
 
-    # Define actionable element types
-    actionable_roles = {
-        "AXButton",
-        "AXTextField",
-        "AXSearchField",
-        "AXTextArea",
-        "AXMenuItem",
-        "AXCheckBox",
-        "AXRadioButton",
-        "AXPopUpButton",
-        "AXComboBox",
-        "AXIncrementor",
-        "AXSlider",
-        "AXLink",
+    # PRIORITY 1: Interactive/actionable element types
+    interactive_roles = {
+        "AXButton", "AXTextField", "AXSearchField", "AXTextArea",
+        "AXMenuItem", "AXCheckBox", "AXRadioButton", "AXPopUpButton",
+        "AXComboBox", "AXIncrementor", "AXSlider", "AXLink",
         # Windows equivalents
-        "Button",
-        "Edit",
-        "ComboBox",
-        "ListItem",
-        "MenuItem",
-        "CheckBox",
-        "RadioButton",
-        "Hyperlink",
-        "Document",
+        "Button", "Edit", "ComboBox", "ListItem", "MenuItem",
+        "CheckBox", "RadioButton", "Hyperlink", "Document",
+    }
+    
+    # PRIORITY 2: Important static elements (for validation/verification)
+    informational_roles = {
+        "AXStaticText", "AXHeading", "AXAlert", "AXLabel",
+        "Text", "Heading", "Alert", "Label"  # Windows equivalents
     }
 
-    # Filter to actionable elements and calculate relevance
-    actionable_with_scores = []
+    # Filter and score all elements
+    scored_elements = []
     for elem in full_result.elements:
         role = elem.get("role") or elem.get("type") or elem.get("control_type")
-        if role in actionable_roles:
-            # Calculate relevance score
-            relevance = _calculate_element_relevance(elem)
+        
+        relevance_multiplier = 1.0
+        if role in interactive_roles:
+            relevance_multiplier = 1.0  # Full weight for interactive
+        elif include_static_text and role in informational_roles:
+            relevance_multiplier = 0.5  # Half weight for static text
+        else:
+            continue  # Skip other element types
+        
+        # Calculate base relevance
+        relevance = _calculate_element_relevance(elem) * relevance_multiplier
 
-            # Compact element structure - keep only essential fields
-            compact_elem = {
-                "role": role,
-                "title": elem.get("title"),
-                "x": elem.get("center_x") or elem.get("x"),
-                "y": elem.get("center_y") or elem.get("y"),
-                "relevance": round(relevance, 2),  # For debugging
-            }
-            # Add automation_id if available (Windows)
-            if "auto_id" in elem:
-                compact_elem["auto_id"] = elem["auto_id"]
+        # Compact element structure - keep only essential fields
+        compact_elem = {
+            "role": role,
+            "title": elem.get("title"),
+            "x": elem.get("center_x") or elem.get("x"),
+            "y": elem.get("center_y") or elem.get("y"),
+            "relevance": round(relevance, 2),
+        }
+        # Add automation_id if available (Windows)
+        if "auto_id" in elem:
+            compact_elem["auto_id"] = elem["auto_id"]
 
-            actionable_with_scores.append((relevance, compact_elem))
+        scored_elements.append((relevance, compact_elem))
 
     # Sort by relevance (highest first) and limit to top N
-    actionable_with_scores.sort(reverse=True, key=lambda x: x[0])
-    actionable = [elem for _score, elem in actionable_with_scores[:max_elements]]
+    scored_elements.sort(reverse=True, key=lambda x: x[0])
+    actionable = [elem for _score, elem in scored_elements[:max_elements]]
 
-    # Extract unique roles
+    # Extract unique roles and counts
     unique_roles = list(set(elem["role"] for elem in actionable if elem["role"]))
-
-    # Generate summary
     role_counts = {}
     for elem in actionable:
         role = elem["role"]
         role_counts[role] = role_counts.get(role, 0) + 1
 
-    summary_parts = [
-        f"{count} {role}(s)" for role, count in sorted(role_counts.items())[:5]
-    ]
-    summary = f"Found {len(actionable)} actionable elements: " + ", ".join(
-        summary_parts
+    # Count element types
+    interactive_count = sum(1 for e in actionable if e["role"] in interactive_roles)
+    static_count = sum(1 for e in actionable if e["role"] in informational_roles)
+    
+    # Estimate token savings
+    full_tokens = _estimate_result_tokens(full_result.elements)
+    compact_tokens = _estimate_result_tokens(actionable)
+    
+    # Generate structured summary
+    summary = CompactSummary(
+        tool="accessibility_tree",
+        success=True,
+        timestamp=datetime.now().isoformat(),
+        found_count=full_result.total_elements,
+        returned_count=len(actionable),
+        filtered_count=full_result.total_elements - len(actionable),
+        one_line=f"Found {len(actionable)} relevant elements ({interactive_count} interactive, {static_count} informational)",
+        top_items=[e.get("title") or "(no title)" for e in actionable[:5] if e.get("title")],
+        compaction_ratio=len(actionable) / full_result.total_elements if full_result.total_elements > 0 else 0,
+        estimated_tokens_full=full_tokens,
+        estimated_tokens_compact=compact_tokens,
+        tokens_saved=full_tokens - compact_tokens,
+        filters_applied=[
+            "interactive roles (buttons, fields, menus)",
+            "informational roles (labels, headings, alerts)" if include_static_text else None,
+            "relevance scored",
+            f"top {max_elements} elements"
+        ],
+        thresholds={
+            "max_elements": max_elements,
+            "include_static_text": include_static_text
+        },
+        element_types=dict(sorted(role_counts.items(), key=lambda x: x[1], reverse=True)[:5]),
+        detail_hint="Use _internal=True to get all {} elements".format(full_result.total_elements),
+        full_data_available=True,
+        progressive_hints=[
+            "Elements include x,y coordinates for clicking",
+            "Static text elements included for validation" if include_static_text else "Only interactive elements included",
+            "If target element not found, try _internal=True"
+        ],
+        extra={
+            "interactive_count": interactive_count,
+            "static_count": static_count
+        }
     )
 
     return ElementListResult(
         success=True,
         total_elements=full_result.total_elements,
         filtered_count=len(actionable),
-        summary=summary,
+        summary=summary.model_dump(),
         elements=actionable,
         roles=unique_roles,
         types=unique_roles,  # For compatibility

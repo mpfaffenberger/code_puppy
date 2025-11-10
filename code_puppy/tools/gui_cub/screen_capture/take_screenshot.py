@@ -30,12 +30,18 @@ async def take_desktop_screenshot_and_analyze(
     grid_spacing: int = DEFAULT_GRID_SPACING,
     max_vqa_resolution: tuple[int, int] | None = None,
     truncate_answer: bool = True,  # NEW: Truncate answers by default
+    include_image: bool = False,  # NEW: Delegation pattern - exclude image by default
 ) -> VQAResult:
     """
     Take a desktop screenshot and analyze it using visual understanding.
 
     **DEFAULT: Captures active window only (not full screen).**
     This reduces image size, improves accuracy, and avoids VQA size limits.
+
+    **DELEGATION PATTERN:**
+    The screenshot is analyzed in a SEPARATE vision model context (isolated agent).
+    By default, only the text analysis is returned - NOT the full image. This achieves
+    99%+ token savings while maintaining full-quality image analysis.
 
     **HIGH-DPI DISPLAY HANDLING:**
     Screenshots from high-resolution displays (Retina, 4K, 5K) may exceed the VQA API's
@@ -54,6 +60,7 @@ async def take_desktop_screenshot_and_analyze(
         use_grid: Whether to add coordinate grid (default: False for clarity)
         grid_spacing: Distance between grid lines in pixels
         max_vqa_resolution: Max (width, height) for VQA image downscaling (default: 1920x1200)
+        include_image: Include base64 image in result (default: False for 99%+ token savings)
 
     Returns:
         VQAResult containing analysis results and screenshot info
@@ -322,6 +329,20 @@ async def take_desktop_screenshot_and_analyze(
             window_bounds=window_bounds,
             coordinate_system=coordinate_system,
         )
+
+        # Add base64 image if requested (delegation pattern - excluded by default)
+        if include_image and screenshot_result.screenshot_path:
+            import base64
+            with open(screenshot_result.screenshot_path, "rb") as f:
+                image_data = f.read()
+                full_result.image_base64 = base64.b64encode(image_data).decode("utf-8")
+                size_mb = len(image_data) / 1_000_000
+                emit_warning(
+                    f"[yellow]⚠️  Image included in result (~{size_mb:.2f} MB base64)[/yellow]\n"
+                    f"[dim]   Token cost: ~{int(size_mb * 100_000)} tokens[/dim]\n"
+                    f"[dim]   Consider using include_image=False for 99%+ token savings[/dim]",
+                    message_group=group_id,
+                )
 
         # Success-conditional compaction: Return compact result
         compact_result = _compact_vqa_result(

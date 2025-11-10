@@ -351,26 +351,40 @@ def register_accessibility_tools(agent):
         context: RunContext,
         role: str | None = None,
         in_frontmost_app: bool = True,
+        _internal: bool = False,  # NEW: Skip compaction for debugging
     ) -> ElementListResult:
         """
         List all accessible UI elements in the frontmost app.
 
         Useful for discovering what elements are available and their roles.
+        By default returns top 20 most relevant elements. Use _internal=True
+        to get ALL elements (useful for debugging).
 
         Args:
             role: Optional role filter (e.g., 'AXButton' to list only buttons)
             in_frontmost_app: Search only in active app vs system-wide
+            _internal: Skip compaction, return all elements (default: False)
 
         Returns:
-            ElementListResult with elements grouped by role
+            ElementListResult with elements (compacted by default, all if _internal=True)
 
         Examples:
-            - desktop_list_accessible_elements()  # List all elements
-            - desktop_list_accessible_elements(role="AXButton")  # List only buttons
+            - desktop_list_accessible_elements()  # Top 20 relevant elements
+            - desktop_list_accessible_elements(role="AXButton")  # Top 20 buttons
+            - desktop_list_accessible_elements(_internal=True)  # ALL elements (debug)
 
         Note: macOS only. Requires atomacos library.
         """
-        return list_accessible_elements(role=role, in_frontmost_app=in_frontmost_app)
+        from .element_list import _compact_element_list_result
+        
+        result = list_accessible_elements(role=role, in_frontmost_app=in_frontmost_app)
+        
+        # Skip compaction if _internal or if it failed
+        if _internal or not result.success:
+            return result
+        
+        # Default: Return compacted
+        return _compact_element_list_result(result, max_elements=20)
 
     @agent.tool
     def desktop_click_accessible_element(

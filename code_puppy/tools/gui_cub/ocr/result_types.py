@@ -45,18 +45,22 @@ class OCRExtractResult(BaseAutomationResult):
     """Result from OCR text extraction.
 
     Uses success-conditional compaction:
-    - On success: Returns compact summary with key elements
+    - On success: Returns compact summary with key elements (WITH coordinates)
     - On failure: Returns full diagnostic data
+    
+    NEW: Compact elements now include x,y coordinates for clickability!
     """
 
     # Compact fields (always included)
     found_count: int = 0
-    key_elements: list[str] = Field(default_factory=list)
-    summary: str = ""
+    key_elements: list[dict] = Field(default_factory=list)  # Changed: dict with {text, x, y, confidence}
+    summary: str | dict = ""  # Changed: Can be CompactSummary dict or legacy string
     average_confidence: float = 0.0
 
-    # Verbose fields (only included on failure or when text_elements needed)
-    full_text: str = ""
+    # Useful fields (kept for validation use cases)
+    full_text: str = ""  # Kept: For "read all text" use cases
+    
+    # Verbose fields (only included on failure or _internal=True)
     text_elements: list[TextBoundingBox] = Field(default_factory=list)
     total_words: int = 0
     language: str = "eng"
@@ -79,6 +83,7 @@ class OCRFindResult(BaseAutomationResult):
     found: bool = False
     total_matches: int = 0
     best_match: TextBoundingBox | None = None
+    summary: str | dict | None = None  # NEW: Optional CompactSummary
 
     # Verbose fields (only on failure)
     matches: list[TextBoundingBox] = Field(default_factory=list)

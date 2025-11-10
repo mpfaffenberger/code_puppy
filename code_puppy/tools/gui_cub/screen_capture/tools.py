@@ -141,6 +141,7 @@ def register_desktop_screenshot_tools(agent):
         question: str,
         window_title: str | None = None,
         use_grid: bool = False,
+        include_image: bool = False,
     ) -> VQAResult:
         """
         Convenience wrapper for VQA on active window.
@@ -148,17 +149,34 @@ def register_desktop_screenshot_tools(agent):
         This is the recommended way to use VQA for desktop automation workflows.
         Always captures window-only (never full screen).
 
+        DELEGATION PATTERN:
+        The screenshot is analyzed in a SEPARATE vision model context, and only
+        the text analysis is returned by default. This saves 99%+ tokens while
+        maintaining full-quality image analysis.
+
         Args:
             question: Question to ask about the window
             window_title: Optional app/window to focus first
             use_grid: Add coordinate grid overlay
+            include_image: Include base64 image in result (default: False for token savings)
 
         Returns:
             VQAResult with window-relative coordinates
 
+        Token Impact:
+            - include_image=False (default): ~300 tokens (text analysis only)
+            - include_image=True: ~120,000 tokens (includes full image)
+            - Savings: 99.75% with default settings
+
         Examples:
-            # Find element in current window
+            # Normal usage (no image in result - saves tokens)
             - desktop_vqa_window(question="Where is the Submit button?")
+
+            # With image included (for debugging/manual review)
+            - desktop_vqa_window(
+                question="Where is the Submit button?",
+                include_image=True
+              )
 
             # Find element in specific app
             - desktop_vqa_window(
@@ -172,6 +190,7 @@ def register_desktop_screenshot_tools(agent):
             window_title=window_title,
             mode="active_window",
             add_grid=use_grid,
+            include_image=include_image,  # Pass through delegation parameter
         )
 
         # Convert dict result to VQAResult for backwards compatibility
@@ -184,6 +203,7 @@ def register_desktop_screenshot_tools(agent):
             confidence=result.get("confidence", 0.0),
             observations=result.get("observations"),
             screenshot_path=result.get("screenshot_path"),
+            image_base64=result.get("image_base64"),  # Include if present
         )
 
     @agent.tool

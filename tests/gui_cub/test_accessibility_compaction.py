@@ -259,9 +259,10 @@ class TestAccessibilityTreeCompaction:
 
         compact = _compact_element_list_result(full_result)
 
-        # Should have summary with role counts
-        assert isinstance(compact.summary, str)
-        assert "actionable" in compact.summary.lower()
+        # Summary is now a CompactSummary dict (not string)
+        assert isinstance(compact.summary, dict)
+        assert compact.summary["tool"] == "accessibility_tree"
+        assert "relevant elements" in compact.summary["one_line"].lower()
 
     def test_empty_tree_handling(self):
         """Handle empty accessibility trees."""

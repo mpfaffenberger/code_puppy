@@ -49,12 +49,13 @@ class TestOCRResultCompaction:
         # Should keep only top 10 high-confidence elements
         assert len(compact.key_elements) <= 10
         assert compact.found_count == 50  # Still reports total
-        assert compact.full_text == ""  # Stripped
+        assert compact.full_text != ""  # NOW KEPT for validation!
         assert compact.text_elements == []  # Stripped
 
-        # Verify we kept highest confidence elements
-        assert "Element 0" in compact.key_elements  # Highest confidence
-        assert "Element 1" in compact.key_elements
+        # Verify we kept highest confidence elements (now dicts with text, x, y)
+        element_texts = [e["text"] for e in compact.key_elements]
+        assert "Element 0" in element_texts  # Highest confidence
+        assert "Element 1" in element_texts
 
     def test_filters_low_confidence_elements(self):
         """Elements with confidence <= 0.7 should be filtered."""
@@ -99,16 +100,17 @@ class TestOCRResultCompaction:
 
         compact = _compact_ocr_extract_result(full_result)
 
-        # Only high confidence element should be kept
-        assert "High confidence" in compact.key_elements
-        assert "Low confidence" not in compact.key_elements
-        assert "Borderline" not in compact.key_elements
+        # Only high confidence element should be kept (now dicts)
+        element_texts = [e["text"] for e in compact.key_elements]
+        assert "High confidence" in element_texts
+        assert "Low confidence" not in element_texts
+        assert "Borderline" not in element_texts
 
     def test_filters_short_text_elements(self):
-        """Elements with <= 2 characters should be filtered (noise)."""
+        """Elements with length 0 should be filtered (whitespace), but >= 1 char allowed."""
         text_elements = [
             TextBoundingBox(
-                text="ab",  # Too short
+                text="ab",  # NOW ALLOWED (min_length changed from 3 to 1)
                 confidence=0.95,
                 x=0,
                 y=0,
@@ -137,8 +139,10 @@ class TestOCRResultCompaction:
 
         compact = _compact_ocr_extract_result(full_result)
 
-        assert "Valid text" in compact.key_elements
-        assert "ab" not in compact.key_elements
+        # Both should be kept now (min_length = 1)
+        element_texts = [e["text"] for e in compact.key_elements]
+        assert "Valid text" in element_texts
+        assert "ab" in element_texts  # NOW INCLUDED!
 
     def test_token_reduction_calculation(self):
         """Verify ~90% token reduction on compaction."""
@@ -167,13 +171,16 @@ class TestOCRResultCompaction:
 
         compact = _compact_ocr_extract_result(full_result)
 
+        # key_elements is now list of dicts, not strings
+        element_texts = [e["text"] for e in compact.key_elements]
+        
         # Calculate approximate token counts (rough estimate)
         full_tokens = len(full_result.full_text.split()) + (len(text_elements) * 10)
-        compact_tokens = len(" ".join(compact.key_elements).split()) + 5
+        compact_tokens = len(" ".join(element_texts).split()) + 5
 
         reduction = (full_tokens - compact_tokens) / full_tokens
 
-        # Should achieve at least 80% reduction
+        # Should achieve at least 80% reduction (actually better now with coords!)
         assert reduction > 0.8
         assert len(compact.key_elements) <= 10
 
@@ -213,8 +220,10 @@ class TestOCRResultCompaction:
 
         compact = _compact_ocr_extract_result(full_result)
 
-        # Should have a summary (implementation specific)
-        assert isinstance(compact.summary, str)
+        # Summary is now a CompactSummary dict (not string)
+        assert isinstance(compact.summary, dict)
+        assert compact.summary["tool"] == "ocr_extract"
+        assert "text elements" in compact.summary["one_line"].lower()
 
     def test_empty_result_handling(self):
         """Handle OCR results with no text found."""

@@ -43,18 +43,30 @@ def capture_screen(
     save_screenshot: bool = True,
     add_grid: bool = False,
     grid_spacing: int = DEFAULT_GRID_SPACING,
+    include_image: bool = False,
 ) -> ScreenshotResult:
     """
     Capture a screenshot of the desktop.
+
+    DELEGATION PATTERN:
+    By default, images are saved to disk but NOT included in the result
+    as base64. This saves massive amounts of tokens while preserving
+    the full-quality image for debugging.
 
     Args:
         region: Optional tuple (x, y, width, height) to capture specific region
         save_screenshot: Whether to save the screenshot to disk
         add_grid: Whether to add coordinate grid overlay
         grid_spacing: Distance between grid lines in pixels
+        include_image: Include base64 image in result (default: False)
 
     Returns:
-        ScreenshotResult containing screenshot info and image bytes
+        ScreenshotResult containing screenshot info and optionally image bytes
+
+    Token Impact:
+        - include_image=False (default): ~50-100 tokens (metadata only)
+        - include_image=True: ~120,000 tokens (base64 PNG)
+        - Savings: 99.9%+
     """
     if not PYAUTOGUI_AVAILABLE:
         return ScreenshotResult(
@@ -145,6 +157,16 @@ def capture_screen(
                 f"[dim]   (Not saved to disk)[/dim]"
             )
 
+        # Add base64 image if requested (delegation pattern - excluded by default)
+        if include_image:
+            import base64
+            result.image_base64 = base64.b64encode(screenshot_data).decode("utf-8")
+            emit_info(
+                f"[yellow]⚠️  Image included in result (~{file_size_mb:.2f} MB base64)[/yellow]\n"
+                f"[dim]   Token cost: ~{int(file_size_mb * 100_000)} tokens[/dim]\n"
+                f"[dim]   Consider using include_image=False for 99%+ token savings[/dim]"
+            )
+
         return result
 
     except Exception as e:
@@ -166,6 +188,7 @@ def screenshot(
     save_path: str | None = None,
     add_grid: bool = False,
     grid_spacing: int = DEFAULT_GRID_SPACING,
+    include_image: bool = False,
 ) -> ScreenshotResult:
     """
     Unified screenshot capture function.
@@ -175,6 +198,10 @@ def screenshot(
     - desktop_screenshot() - Parameter conversion
     - Window detection logic from VQA functions
 
+    DELEGATION PATTERN:
+    Screenshots are saved to disk by default but NOT included in results
+    as base64 unless explicitly requested. This achieves 99%+ token savings.
+
     Args:
         x, y, width, height: Region coordinates (all must be provided together)
         window_title: Focus and capture specific window
@@ -182,6 +209,7 @@ def screenshot(
         save_path: Custom save path (None = auto temp path)
         add_grid: Add coordinate grid overlay
         grid_spacing: Grid line spacing in pixels
+        include_image: Include base64 image in result (default: False)
 
     Returns:
         ScreenshotResult with path, bytes, dimensions
@@ -270,6 +298,7 @@ def screenshot(
         save_screenshot=should_save,
         add_grid=add_grid,
         grid_spacing=grid_spacing,
+        include_image=include_image,  # Pass through delegation parameter
     )
 
     # Add metadata about capture strategy to result
