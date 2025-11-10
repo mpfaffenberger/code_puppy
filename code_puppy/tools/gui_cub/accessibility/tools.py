@@ -391,31 +391,36 @@ def register_accessibility_tools(agent):
         context: RunContext,
         role: str | None = None,
         title: str | None = None,
+        identifier: str | None = None,  # NEW: AXIdentifier exact match
         in_frontmost_app: bool = True,
         fuzzy: bool = True,
-        fuzzy_threshold: float = 0.65,
+        fuzzy_threshold: float = 0.25,  # Lowered to match find_accessible_element
     ) -> ElementClickResult:
         """
         Find and click a UI element using Accessibility API with FUZZY MATCHING (MOST ACCURATE!).
 
         This combines intelligent element finding and clicking in one step.
         Uses fuzzy matching to handle common UI element naming variations.
+        Now supports identifier (AXIdentifier) for exact, reliable matching!
 
         Args:
             role: Element role (e.g., 'AXButton')
             title: Element title/name to search for (supports fuzzy matching!)
                    Examples: "Submit" matches "Submit Button", "submitBtn", "btn_submit"
+                   Also searches: description, placeholder, help text, role_description
+            identifier: AXIdentifier for exact match (most reliable!) e.g., "_SC_SEARCH_FIELD"
             in_frontmost_app: Search only in active app
             fuzzy: Enable intelligent fuzzy matching (default: True)
-            fuzzy_threshold: Minimum similarity score (0.0-1.0, default: 0.6)
+            fuzzy_threshold: Minimum similarity score (0.0-1.0, default: 0.25)
 
         Returns:
             ElementClickResult with success status and click coordinates
 
         Examples:
+            - desktop_click_accessible_element(identifier="_SC_SEARCH_FIELD")  # Exact match!
             - desktop_click_accessible_element(role="AXButton", title="Save")
             - desktop_click_accessible_element(title="Submit")  # Fuzzy matches variations
-            - desktop_click_accessible_element(title="close", fuzzy_threshold=0.8)  # Stricter
+            - desktop_click_accessible_element(title="Search")  # Matches placeholder text!
 
         Note: macOS only. Uses native AX Press action or mouse click.
         """
@@ -423,6 +428,7 @@ def register_accessibility_tools(agent):
         result = find_accessible_element(
             role=role,
             title=title,
+            identifier=identifier,
             in_frontmost_app=in_frontmost_app,
             fuzzy=fuzzy,
             fuzzy_threshold=fuzzy_threshold,

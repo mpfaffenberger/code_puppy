@@ -97,6 +97,13 @@ def list_accessible_elements(
                     "role": elem_role,
                     "title": elem_title,
                     "description": elem_description,
+                    # NEW: Comprehensive attributes
+                    "value": getattr(elem, "AXValue", None),
+                    "placeholder": getattr(elem, "AXPlaceholderValue", None),
+                    "help": getattr(elem, "AXHelp", None),
+                    "role_description": getattr(elem, "AXRoleDescription", None),
+                    "identifier": getattr(elem, "AXIdentifier", None),
+                    "subrole": getattr(elem, "AXSubrole", None),
                 }
                 
                 # Add position/coordinates if available
@@ -283,18 +290,27 @@ def _calculate_element_relevance(elem: dict) -> float:
 
     Prioritizes:
     - Interactive elements (buttons, fields)
-    - Elements with meaningful titles OR descriptions
+    - Elements with meaningful text in ANY attribute
     - Common UI patterns (submit, login, search, etc.)
     
-    Falls back to description if title is empty (Finder buttons use this!).
+    Comprehensive fallback chain for text:
+    title → description → placeholder → help → role_description
     """
     role = elem.get("role") or elem.get("type") or elem.get("control_type") or ""
+    
+    # Try multiple text sources in priority order
     title = (elem.get("title") or "").lower().strip()
     
-    # CRITICAL FIX: Fallback to description if title is empty
-    # Many macOS apps (Finder, Safari) put button labels in description!
+    # CRITICAL FIX: Comprehensive fallback chain
+    # Many macOS apps put labels in description, placeholder, or help text!
     if not title:
         title = (elem.get("description") or "").lower().strip()
+    if not title:
+        title = (elem.get("placeholder") or "").lower().strip()
+    if not title:
+        title = (elem.get("help") or "").lower().strip()
+    if not title:
+        title = (elem.get("role_description") or "").lower().strip()
     
     return calculate_element_relevance(role, title)
 

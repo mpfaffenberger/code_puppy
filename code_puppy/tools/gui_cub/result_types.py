@@ -218,10 +218,19 @@ class ElementInfo(BaseModel):
     height: int | None = None
     center_x: int | None = None
     center_y: int | None = None
-    # Platform-specific
+    
+    # NEW: Comprehensive searchable attributes
+    value: str | None = None  # Current value
+    placeholder: str | None = None  # Placeholder text (text fields)
+    help: str | None = None  # Help/tooltip text
+    role_description: str | None = None  # Human-readable role
+    identifier: str | None = None  # AXIdentifier (macOS) / AutomationId (Windows)
+    subrole: str | None = None  # AXSubrole (macOS)
+    
+    # Platform-specific (Windows)
     control_type: str | None = None  # Windows
     class_name: str | None = None  # Windows
-    auto_id: str | None = None  # Windows
+    auto_id: str | None = None  # Windows (alias for identifier)
 
 
 class ElementSearchResult(BaseAutomationResult):

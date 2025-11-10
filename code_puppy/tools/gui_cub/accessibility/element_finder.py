@@ -63,7 +63,7 @@ def _element_to_info(elem: Any) -> ElementInfo:
         elem: atomacos element
 
     Returns:
-        ElementInfo with element properties
+        ElementInfo with element properties including comprehensive attributes
     """
     try:
         elem_role = getattr(elem, "AXRole", None)
@@ -73,7 +73,16 @@ def _element_to_info(elem: Any) -> ElementInfo:
         elem_size = getattr(elem, "AXSize", None)
 
         info = ElementInfo(
-            role=elem_role, title=elem_title, description=elem_description
+            role=elem_role,
+            title=elem_title,
+            description=elem_description,
+            # NEW: Comprehensive attributes
+            value=getattr(elem, "AXValue", None),
+            placeholder=getattr(elem, "AXPlaceholderValue", None),
+            help=getattr(elem, "AXHelp", None),
+            role_description=getattr(elem, "AXRoleDescription", None),
+            identifier=getattr(elem, "AXIdentifier", None),
+            subrole=getattr(elem, "AXSubrole", None),
         )
 
         # Calculate position and center
@@ -99,6 +108,7 @@ def _element_to_info(elem: Any) -> ElementInfo:
 def find_accessible_element(
     role: str | None = None,
     title: str | None = None,
+    identifier: str | None = None,  # NEW: AXIdentifier exact match
     in_frontmost_app: bool = True,
     fuzzy: bool = True,
     fuzzy_threshold: float = 0.25,  # LOWERED: Allow description-only matches (weight=0.3)
@@ -107,22 +117,29 @@ def find_accessible_element(
     """
     Find a UI element using macOS Accessibility API via atomacos with fuzzy matching.
 
-    OPTIMIZED: Now includes early-stop logic and performance monitoring.
+    OPTIMIZED: Now includes early-stop logic, performance monitoring, and identifier support.
 
     Args:
         role: Element role (e.g., 'AXButton', 'AXTextField', 'AXStaticText')
         title: Element title/name to search for (supports fuzzy matching!)
+        identifier: AXIdentifier for exact match (highest priority, macOS equivalent of AutomationId)
         in_frontmost_app: Search only in frontmost app (True) or system-wide (False)
         fuzzy: Enable fuzzy matching for title (default: True)
-        fuzzy_threshold: Minimum similarity score for fuzzy matches (0.0-1.0, default: 0.65)
-        early_stop_threshold: Score threshold for early-stop optimization (default: 0.85)
+        fuzzy_threshold: Minimum similarity score for fuzzy matches (0.0-1.0, default: 0.25)
+        early_stop_threshold: Score threshold for early-stop optimization (default: 0.6)
 
     Returns:
         ElementSearchResult with element info including exact position
 
+    Search Priority:
+        1. Identifier exact match (if provided) - MOST RELIABLE
+        2. Title exact match
+        3. Fuzzy match on title, description, placeholder, help, role_description
+
     Fuzzy Matching Examples:
         - "Submit" matches: "Submit", "Submit Button", "submitBtn", "btn_submit", "SUBMIT"
         - "Save" matches: "Save", "Save As", "saveButton", "btn-save"
+        - "Search" matches placeholder text in search fields
         - Case-insensitive and handles common naming variations
     """
     if not ACCESSIBILITY_AVAILABLE:
@@ -152,9 +169,35 @@ def find_accessible_element(
                 message_group=group_id,
             )
 
-        # Strategy 1: Try exact match first (fastest)
+        # Strategy 0: Try identifier exact match first (HIGHEST PRIORITY)
         matches = []
-        if title and role:
+        if identifier:
+            emit_info(
+                f"[cyan]Trying identifier exact match: '{identifier}'...[/cyan]",
+                message_group=group_id,
+            )
+            try:
+                # Try with role filter if provided
+                if role:
+                    identifier_matches = app.findAllR(AXRole=role, AXIdentifier=identifier)
+                else:
+                    identifier_matches = app.findAllR(AXIdentifier=identifier)
+                
+                if identifier_matches:
+                    emit_info(
+                        f"[green]✅ Found {len(identifier_matches)} identifier match(es)![/green]",
+                        message_group=group_id,
+                    )
+                    matches = identifier_matches
+            except Exception as e:
+                # AXIdentifier might not be supported on all elements
+                emit_info(
+                    f"[dim]Identifier search failed: {e}[/dim]",
+                    message_group=group_id,
+                )
+        
+        # Strategy 1: Try exact title match (if no identifier match)
+        if not matches and title and role:
             # Exact match with both criteria
             try:
                 exact_matches = app.findAllR(AXRole=role, AXTitle=title)
@@ -195,18 +238,35 @@ def find_accessible_element(
                         "description": getattr(elem, "AXDescription", None) or "",
                         "role": getattr(elem, "AXRole", None) or "",
                         "value": getattr(elem, "AXValue", None) or "",
+                        # NEW: Comprehensive attribute support
+                        "placeholder": getattr(elem, "AXPlaceholderValue", None) or "",
+                        "help": getattr(elem, "AXHelp", None) or "",
+                        "role_description": getattr(elem, "AXRoleDescription", None) or "",
+                        "identifier": getattr(elem, "AXIdentifier", None) or "",
+                        "subrole": getattr(elem, "AXSubrole", None) or "",
                     }
                     element_dicts.append(elem_dict)
                 except Exception:
                     continue
 
-            # Perform fuzzy matching on title, description, and value
+            # Perform fuzzy matching on ALL text attributes
             with monitor.measure("find_element_fuzzy_search"):
                 fuzzy_matches = fuzzy_match(
                     search_text=title,
                     candidates=element_dicts,
-                    attribute_names=["title", "description", "value"],
+                    attribute_names=[
+                        "title", "description", "value",
+                        "placeholder", "help", "role_description"  # NEW!
+                    ],
                     threshold=fuzzy_threshold,
+                    attribute_weights={
+                        "title": 0.6,
+                        "description": 0.3,
+                        "placeholder": 0.4,  # High priority for text fields!
+                        "value": 0.1,
+                        "help": 0.2,
+                        "role_description": 0.2,
+                    },
                 )
 
             if fuzzy_matches:
