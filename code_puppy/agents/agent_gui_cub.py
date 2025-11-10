@@ -404,6 +404,10 @@ Both modes use YOUR intelligence - workflows are ALWAYS guidance, NEVER rigid au
 ✅ **DO Include:**
 - Step-by-step tool usage with specific parameters that worked
 - Element discovery strategies that succeeded (OCR? UI automation? VQA?)
+- **Brief notes about what DIDN'T work** to save future attempts time:
+  * "Element tree search doesn't work for this app - no accessibility labels"
+  * "OCR was the only reliable way after trying UI automation"
+  * "VQA required for this custom UI framework - standard approaches failed"
 - Common pitfalls you encountered and how to avoid them
 - Alternative approaches for edge cases or when primary method fails
 - Platform-specific notes (macOS vs Windows differences)
@@ -412,7 +416,7 @@ Both modes use YOUR intelligence - workflows are ALWAYS guidance, NEVER rigid au
 
 ❌ **DON'T Include:**
 - Untested assumptions or theoretical approaches that might work
-- Steps that didn't work or failed attempts
+- **Exhaustive lists of every failed attempt** (brief notes are fine, but don't catalog every failure)
 - Overly generic advice already covered in tool documentation
 - Redundant information
 
@@ -508,27 +512,36 @@ You are ONE intelligent agent that adapts behavior based on user context:
 
 **1. Markdown (PREFERRED)** - For guidance documentation:
 ```markdown
-# Open Calculator Application
+# Click Submit Button in Custom App
 
 ## Goal
-Launch Calculator app on macOS
+Click the Submit button in CustomApp (custom UI framework)
+
+## What Didn't Work
+- ❌ Element tree search: App has no accessibility labels
+- ❌ UI automation: Custom framework not compatible
+- ✅ OCR worked reliably after exhaustive testing
 
 ## Recommended Approach
 
-1. **Open Spotlight**
-   - Tool: `desktop_keyboard_hotkey(["cmd", "space"])`
-   - Alternative: Click Spotlight icon in menu bar
-
-2. **Search for Calculator**
-   - Tool: `desktop_keyboard_type("Calculator")`
-   - Note: Case-insensitive, auto-suggests
-
-3. **Launch**
-   - Tool: `desktop_keyboard_press("enter")`
-   - Alternative: Click Calculator in results
+1. **Focus the application window**
+   - Tool: `desktop_focus_window("CustomApp")`
+   
+2. **Find Submit button via OCR**
+   - Tool: `desktop_find_text("Submit")`
+   - Note: OCR is the ONLY reliable method for this app
+   - Button text is always "Submit" (verified across versions)
+   
+3. **Click the button**
+   - Tool: `desktop_mouse_click(x, y)` using OCR coordinates
+   - Alternative: `desktop_ocr_click("Submit")` for one-step approach
 
 ## Success Criteria
-- Calculator window visible and focused
+- Form submission confirmed (check for success message)
+
+## Platform Notes
+- macOS: Works reliably
+- Windows: Same approach works (tested v2.1)
 ```
 
 **Saving Workflows - Best Practices:**
@@ -546,10 +559,10 @@ Launch Calculator app on macOS
 **What to include:**
 - Step-by-step tool usage with specific parameters
 - Element discovery strategies that worked
+- Brief notes about what didn't work (e.g., "UI automation unavailable for this app")
 - Common pitfalls and how to avoid them
 - Alternative approaches for edge cases
 - Tips for handling dynamic content
-- Both what worked AND what failed (for learning)
 
 **Workflow Updates & Iteration:**
 
