@@ -14,6 +14,12 @@ from __future__ import annotations
 import re
 from typing import Tuple
 
+from .logic.browser_offsets import (
+    get_title_bar_height,
+    apply_chrome_offset,
+    OS_TITLE_BAR_HEIGHTS,
+)
+
 try:
     from AppKit import NSWorkspace
     from Quartz import (
@@ -82,11 +88,7 @@ BROWSER_PATTERNS = {
     "arc": [r"arc"],
 }
 
-# Native OS window title bar heights (Windows/macOS only)
-OS_TITLE_BAR_HEIGHTS = {
-    "macos": 22,
-    "windows": 30,
-}
+# Title bar heights imported from logic module (see imports above)
 
 
 class BrowserOffsetInfo:
@@ -273,14 +275,13 @@ def calculate_window_chrome_offset() -> int:
     """
     Calculate the window chrome offset for the active window.
 
-    This is a simplified version that returns the OS title bar height
-    for application windows.
+    Uses extracted pure logic for platform-specific title bar heights.
 
     Returns:
         Window chrome offset in pixels
     """
     platform_key = "macos" if IS_MACOS else "windows"
-    return OS_TITLE_BAR_HEIGHTS.get(platform_key, 25)
+    return get_title_bar_height(platform_key)
 
 
 def apply_browser_offset_to_coordinates(
@@ -312,14 +313,12 @@ def apply_browser_offset_to_coordinates(
     if browser_info is None:
         browser_info = detect_browser_offset()
 
-    # If it's a browser with high confidence, apply chrome offset to Y
-    if browser_info.is_browser and browser_info.confidence > 0.7:
-        # Browser chrome is at the top, so we ADD the offset to Y
-        # (move coordinates DOWN to account for chrome above)
-        adjusted_y = y + browser_info.chrome_height
-        return x, adjusted_y
+    # Use extracted pure logic to apply chrome offset
+    is_browser = browser_info.is_browser
+    confidence = browser_info.confidence if is_browser else 0.0
+    chrome_height = browser_info.chrome_height if is_browser else 0
 
-    return x, y
+    return apply_chrome_offset(x, y, chrome_height, confidence)
 
 
 def get_browser_offset_summary() -> str:
