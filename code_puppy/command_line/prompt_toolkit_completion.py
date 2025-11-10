@@ -213,20 +213,25 @@ class CDCompleter(Completer):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
-        text = document.text_before_cursor
-        if not text.strip().startswith(self.trigger):
+        text_before_cursor = document.text_before_cursor
+        stripped_text = text_before_cursor.lstrip()
+
+        # Require a space after /cd before showing completions (consistency with other completers)
+        if not stripped_text.startswith(self.trigger + " "):
             return
-        tokens = text.strip().split()
-        if len(tokens) == 1:
-            base = ""
-        else:
-            base = tokens[1]
+
+        # Extract the directory path after /cd and space (up to cursor)
+        trigger_pos = text_before_cursor.find(self.trigger)
+        trigger_end = trigger_pos + len(self.trigger) + 1  # +1 for the space
+        dir_path = text_before_cursor[trigger_end:].lstrip()
+        start_position = -(len(dir_path))
+
         try:
-            prefix = os.path.expanduser(base)
+            prefix = os.path.expanduser(dir_path)
             part = os.path.dirname(prefix) if os.path.dirname(prefix) else "."
             dirs, _ = list_directory(part)
-            dirnames = [d for d in dirs if d.startswith(os.path.basename(base))]
-            base_dir = os.path.dirname(base)
+            dirnames = [d for d in dirs if d.startswith(os.path.basename(prefix))]
+            base_dir = os.path.dirname(prefix)
             for d in dirnames:
                 # Build the completion text so we keep the already-typed directory parts.
                 if base_dir and base_dir != ".":
@@ -237,13 +242,58 @@ class CDCompleter(Completer):
                 suggestion = suggestion.rstrip(os.sep) + os.sep
                 yield Completion(
                     suggestion,
-                    start_position=-len(base),
+                    start_position=start_position,
                     display=d + os.sep,
                     display_meta="Directory",
                 )
         except Exception:
             # Silently ignore errors (e.g., permission issues, non-existent dir)
             pass
+
+
+class AgentCompleter(Completer):
+    """
+    A completer that triggers on '/agent' to show available agents.
+
+    Usage: /agent <agent-name>
+    """
+
+    def __init__(self, trigger: str = "/agent"):
+        self.trigger = trigger
+
+    def get_completions(self, document, complete_event):
+        cursor_position = document.cursor_position
+        text_before_cursor = document.text_before_cursor
+        stripped_text = text_before_cursor.lstrip()
+
+        # Require a space after /agent before showing completions
+        if not stripped_text.startswith(self.trigger + " "):
+            return
+
+        # Extract the input after /agent and space (up to cursor)
+        trigger_pos = text_before_cursor.find(self.trigger)
+        trigger_end = trigger_pos + len(self.trigger) + 1  # +1 for the space
+        text_after_trigger = text_before_cursor[trigger_end:cursor_position].lstrip()
+        start_position = -(len(text_after_trigger))
+
+        # Load all available agent names
+        try:
+            from code_puppy.command_line.pin_command_completion import load_agent_names
+
+            agent_names = load_agent_names()
+        except Exception:
+            # If agent loading fails, return no completions
+            return
+
+        # Filter and yield agent completions
+        for agent_name in agent_names:
+            if agent_name.startswith(text_after_trigger):
+                yield Completion(
+                    agent_name,
+                    start_position=start_position,
+                    display=agent_name,
+                    display_meta="Agent",
+                )
 
 
 class SlashCompleter(Completer):
@@ -374,6 +424,7 @@ async def get_input_with_combined_completion(
             SetCompleter(trigger="/set"),
             LoadContextCompleter(trigger="/load_context"),
             PinCompleter(trigger="/pin_model"),
+            AgentCompleter(trigger="/agent"),
             SlashCompleter(),
         ]
     )
