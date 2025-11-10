@@ -26,6 +26,7 @@ from code_puppy.command_line.attachments import (
     _detect_path_tokens,
     _tokenise,
 )
+from code_puppy.command_line.command_registry import get_unique_commands
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 from code_puppy.command_line.load_context_completion import LoadContextCompleter
 from code_puppy.command_line.model_picker_completion import (
@@ -242,6 +243,58 @@ class CDCompleter(Completer):
             pass
 
 
+class SlashCompleter(Completer):
+    """
+    A completer that triggers on '/' at the beginning of the line
+    to show all available slash commands.
+    """
+
+    def get_completions(self, document, complete_event):
+        text_before_cursor = document.text_before_cursor
+        stripped_text = text_before_cursor.lstrip()
+
+        # Only trigger if '/' is the first non-whitespace character
+        if not stripped_text.startswith("/"):
+            return
+
+        # Get the text after the initial slash
+        if len(stripped_text) == 1:
+            # User just typed '/', show all commands
+            partial = ""
+            start_position = 0  # Don't replace anything, just insert at cursor
+        else:
+            # User is typing a command after the slash
+            partial = stripped_text[1:]  # text after '/'
+            start_position = -(len(partial))  # Replace what was typed after '/'
+
+        # Load all available commands
+        try:
+            commands = get_unique_commands()
+        except Exception:
+            # If command loading fails, return no completions
+            return
+
+        # Filter and yield completions
+        for cmd in commands:
+            if cmd.name.startswith(partial):
+                yield Completion(
+                    cmd.name,  # Don't include '/' in completion text, avoid double slash
+                    start_position=start_position,
+                    display=f"/{cmd.name}",  # But show '/' in display
+                    display_meta=cmd.description,
+                )
+
+            # Also check aliases
+            for alias in cmd.aliases:
+                if alias.startswith(partial):
+                    yield Completion(
+                        alias,  # Don't include '/' in completion text, avoid double slash
+                        start_position=start_position,
+                        display=f"/{alias} (alias for /{cmd.name})",
+                        display_meta=cmd.description,
+                    )
+
+
 def get_prompt_with_active_model(base: str = ">>> "):
     from code_puppy.agents.agent_manager import get_current_agent
 
@@ -299,6 +352,7 @@ async def get_input_with_combined_completion(
             SetCompleter(trigger="/set"),
             LoadContextCompleter(trigger="/load_context"),
             PinCompleter(trigger="/pin_model"),
+            SlashCompleter(),
         ]
     )
     # Add custom key bindings and multiline toggle
