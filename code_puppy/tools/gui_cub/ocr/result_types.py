@@ -47,19 +47,21 @@ class OCRExtractResult(BaseAutomationResult):
     Uses success-conditional compaction:
     - On success: Returns compact summary with key elements (WITH coordinates)
     - On failure: Returns full diagnostic data
-    
+
     NEW: Compact elements now include x,y coordinates for clickability!
     """
 
     # Compact fields (always included)
     found_count: int = 0
-    key_elements: list[dict] = Field(default_factory=list)  # Changed: dict with {text, x, y, confidence}
+    key_elements: list[dict] = Field(
+        default_factory=list
+    )  # Changed: dict with {text, x, y, confidence}
     summary: str | dict = ""  # Changed: Can be CompactSummary dict or legacy string
     average_confidence: float = 0.0
 
     # Useful fields (kept for validation use cases)
     full_text: str = ""  # Kept: For "read all text" use cases
-    
+
     # Verbose fields (only included on failure or _internal=True)
     text_elements: list[TextBoundingBox] = Field(default_factory=list)
     total_words: int = 0

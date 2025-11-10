@@ -179,10 +179,12 @@ def find_accessible_element(
             try:
                 # Try with role filter if provided
                 if role:
-                    identifier_matches = app.findAllR(AXRole=role, AXIdentifier=identifier)
+                    identifier_matches = app.findAllR(
+                        AXRole=role, AXIdentifier=identifier
+                    )
                 else:
                     identifier_matches = app.findAllR(AXIdentifier=identifier)
-                
+
                 if identifier_matches:
                     emit_info(
                         f"[green]✅ Found {len(identifier_matches)} identifier match(es)![/green]",
@@ -195,7 +197,7 @@ def find_accessible_element(
                     f"[dim]Identifier search failed: {e}[/dim]",
                     message_group=group_id,
                 )
-        
+
         # Strategy 1: Try exact title match (if no identifier match)
         if not matches and title and role:
             # Exact match with both criteria
@@ -241,7 +243,8 @@ def find_accessible_element(
                         # NEW: Comprehensive attribute support
                         "placeholder": getattr(elem, "AXPlaceholderValue", None) or "",
                         "help": getattr(elem, "AXHelp", None) or "",
-                        "role_description": getattr(elem, "AXRoleDescription", None) or "",
+                        "role_description": getattr(elem, "AXRoleDescription", None)
+                        or "",
                         "identifier": getattr(elem, "AXIdentifier", None) or "",
                         "subrole": getattr(elem, "AXSubrole", None) or "",
                     }
@@ -255,8 +258,12 @@ def find_accessible_element(
                     search_text=title,
                     candidates=element_dicts,
                     attribute_names=[
-                        "title", "description", "value",
-                        "placeholder", "help", "role_description"  # NEW!
+                        "title",
+                        "description",
+                        "value",
+                        "placeholder",
+                        "help",
+                        "role_description",  # NEW!
                     ],
                     threshold=fuzzy_threshold,
                     attribute_weights={

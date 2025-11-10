@@ -173,7 +173,7 @@ class TestOCRResultCompaction:
 
         # key_elements is now list of dicts, not strings
         element_texts = [e["text"] for e in compact.key_elements]
-        
+
         # Calculate approximate token counts (rough estimate)
         full_tokens = len(full_result.full_text.split()) + (len(text_elements) * 10)
         compact_tokens = len(" ".join(element_texts).split()) + 5

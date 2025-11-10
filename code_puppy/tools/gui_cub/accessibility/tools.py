@@ -376,13 +376,13 @@ def register_accessibility_tools(agent):
         Note: macOS only. Requires atomacos library.
         """
         from .element_list import _compact_element_list_result
-        
+
         result = list_accessible_elements(role=role, in_frontmost_app=in_frontmost_app)
-        
+
         # Skip compaction if _internal or if it failed
         if _internal or not result.success:
             return result
-        
+
         # Default: Return compacted
         return _compact_element_list_result(result, max_elements=20)
 

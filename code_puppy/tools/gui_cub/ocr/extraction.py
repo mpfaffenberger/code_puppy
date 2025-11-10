@@ -110,16 +110,16 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
     sorted_elements = sorted(
         full_result.text_elements, key=lambda e: e.confidence, reverse=True
     )
-    
+
     compact_elements = [
         {
             "text": elem.text,
             "x": elem.center_x,
             "y": elem.center_y,
-            "confidence": round(elem.confidence, 2)
+            "confidence": round(elem.confidence, 2),
         }
         for elem in sorted_elements[:10]
-        if elem.confidence > 0.7 
+        if elem.confidence > 0.7
         and len(elem.text.strip()) >= 1  # Changed: Allow 1+ chars (fixes "OK" button)
         and not elem.text.strip().isspace()  # Filter pure whitespace
     ]
@@ -128,16 +128,25 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
     filtered_count = len(full_result.text_elements) - len(compact_elements)
     confidence_values = [e.confidence for e in full_result.text_elements]
     below_threshold = sum(1 for c in confidence_values if c <= 0.7)
-    
+
     # Estimate token savings
-    full_tokens = _estimate_result_tokens([{
-        "text": e.text,
-        "x": e.x, "y": e.y, "width": e.width, "height": e.height,
-        "center_x": e.center_x, "center_y": e.center_y,
-        "confidence": e.confidence
-    } for e in full_result.text_elements])
+    full_tokens = _estimate_result_tokens(
+        [
+            {
+                "text": e.text,
+                "x": e.x,
+                "y": e.y,
+                "width": e.width,
+                "height": e.height,
+                "center_x": e.center_x,
+                "center_y": e.center_y,
+                "confidence": e.confidence,
+            }
+            for e in full_result.text_elements
+        ]
+    )
     compact_tokens = _estimate_result_tokens(compact_elements)
-    
+
     # Generate structured summary
     summary = CompactSummary(
         tool="ocr_extract",
@@ -148,7 +157,9 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
         filtered_count=filtered_count,
         one_line=f"Found {len(full_result.text_elements)} text elements (avg confidence: {full_result.average_confidence:.2f}), showing top {len(compact_elements)} with coordinates",
         top_items=[e["text"] for e in compact_elements[:5]],
-        compaction_ratio=len(compact_elements) / len(full_result.text_elements) if full_result.text_elements else 0,
+        compaction_ratio=len(compact_elements) / len(full_result.text_elements)
+        if full_result.text_elements
+        else 0,
         estimated_tokens_full=full_tokens,
         estimated_tokens_compact=compact_tokens,
         tokens_saved=full_tokens - compact_tokens,
@@ -156,18 +167,14 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
             "confidence > 0.7",
             "min_length >= 1 char",
             "top 10 by confidence",
-            "includes x,y coordinates"
+            "includes x,y coordinates",
         ],
-        thresholds={
-            "confidence_min": 0.7,
-            "min_text_length": 1,
-            "max_elements": 10
-        },
+        thresholds={"confidence_min": 0.7, "min_text_length": 1, "max_elements": 10},
         confidence_stats={
             "min": min(confidence_values) if confidence_values else 0.0,
             "max": max(confidence_values) if confidence_values else 0.0,
             "avg": full_result.average_confidence,
-            "below_threshold": below_threshold
+            "below_threshold": below_threshold,
         },
         detail_hint="Use _internal=True to get all {} elements with full bounding boxes".format(
             len(full_result.text_elements)
@@ -176,13 +183,13 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
         progressive_hints=[
             "Returned elements include x,y coordinates for clicking",
             "Use full_text field for complete text content",
-            "If target text not found, try _internal=True for all elements"
+            "If target text not found, try _internal=True for all elements",
         ],
         extra={
             "has_full_text": True,
             "has_coordinates": True,
-            "language": full_result.language
-        }
+            "language": full_result.language,
+        },
     )
 
     return OCRExtractResult(
@@ -223,14 +230,18 @@ def _compact_ocr_find_result(full_result: "OCRFindResult") -> "OCRFindResult":
         filtered_count=full_result.total_matches - 1,
         one_line=f"Found '{full_result.search_text}' at ({full_result.best_match.center_x}, {full_result.best_match.center_y}) with {full_result.best_match.confidence:.0%} confidence",
         top_items=[full_result.search_text],
-        compaction_ratio=1 / full_result.total_matches if full_result.total_matches > 0 else 1.0,
+        compaction_ratio=1 / full_result.total_matches
+        if full_result.total_matches > 0
+        else 1.0,
         filters_applied=["best_match_only"],
-        detail_hint=f"Found {full_result.total_matches} matches, returning best" if full_result.total_matches > 1 else None,
+        detail_hint=f"Found {full_result.total_matches} matches, returning best"
+        if full_result.total_matches > 1
+        else None,
         full_data_available=False,  # Matches not kept
         extra={
             "search_text": full_result.search_text,
-            "total_matches": full_result.total_matches
-        }
+            "total_matches": full_result.total_matches,
+        },
     )
 
     # Success - return compact version with just best match

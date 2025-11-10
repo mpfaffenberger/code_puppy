@@ -1,7 +1,7 @@
 """Unit tests for ConfluenceClient."""
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import patch
 from code_puppy.plugins.walmart_specific.confluence_client import (
     ConfluenceClient,
     ConfluenceSearchResult,
@@ -11,10 +11,7 @@ from code_puppy.plugins.walmart_specific.confluence_client import (
 @pytest.fixture
 def mock_cookies():
     """Create mock Confluence session cookies."""
-    return {
-        "JSESSIONID": "mock-session-id",
-        "cloud.session.token": "mock-token-12345"
-    }
+    return {"JSESSIONID": "mock-session-id", "cloud.session.token": "mock-token-12345"}
 
 
 @pytest.fixture
@@ -24,10 +21,10 @@ def mock_session_file(tmp_path):
     session_data = {
         "cookies": {
             "JSESSIONID": "mock-session-id",
-            "cloud.session.token": "mock-token-12345"
+            "cloud.session.token": "mock-token-12345",
         },
         "base_url": "https://confluence.walmart.com",
-        "timestamp": "2025-01-10T12:00:00"
+        "timestamp": "2025-01-10T12:00:00",
     }
     session_file.write_text(__import__("json").dumps(session_data))
     return str(session_file)

@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import sys
+from datetime import datetime
 from typing import Any
+
+from code_puppy.messaging import emit_error, emit_info
+from code_puppy.tools.common import generate_group_id
+
+from ..constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP
+from ..core.element_scoring import calculate_element_relevance
+from ..performance_monitor import get_monitor
+from ..result_types import CompactSummary, ElementListResult
+from .element_finder import get_frontmost_app
 
 if sys.platform != "darwin":
     ACCESSIBILITY_AVAILABLE = False
@@ -16,14 +27,6 @@ else:
     except ImportError:
         ACCESSIBILITY_AVAILABLE = False
         atomacos = None
-
-from code_puppy.messaging import emit_error, emit_info
-
-from ..core.element_scoring import calculate_element_relevance
-from code_puppy.tools.common import generate_group_id
-from ..result_types import CompactSummary
-from datetime import datetime
-import json
 
 
 def _estimate_tokens(text: str) -> int:
@@ -40,11 +43,6 @@ def _estimate_result_tokens(obj: dict | list | str) -> int:
         return _estimate_tokens(serialized)
     except Exception:
         return 100  # Fallback estimate
-
-from ..constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP
-from ..performance_monitor import get_monitor
-from ..result_types import ElementListResult
-from .element_finder import get_frontmost_app
 
 
 def list_accessible_elements(
@@ -83,7 +81,7 @@ def list_accessible_elements(
         # Group by role AND build flat element list for compaction
         by_role = {}
         elements_list = []  # Flat list for compaction
-        
+
         for elem in elements:
             try:
                 elem_role = getattr(elem, "AXRole", "Unknown")
@@ -105,7 +103,7 @@ def list_accessible_elements(
                     "identifier": getattr(elem, "AXIdentifier", None),
                     "subrole": getattr(elem, "AXSubrole", None),
                 }
-                
+
                 # Add position/coordinates if available
                 if elem_position and elem_size:
                     x = int(elem_position[0])
@@ -118,7 +116,7 @@ def list_accessible_elements(
                     elem_dict["height"] = height
                     elem_dict["center_x"] = x + width // 2
                     elem_dict["center_y"] = y + height // 2
-                
+
                 elements_list.append(elem_dict)
 
                 # Also group by role for by_role dict
@@ -292,15 +290,15 @@ def _calculate_element_relevance(elem: dict) -> float:
     - Interactive elements (buttons, fields)
     - Elements with meaningful text in ANY attribute
     - Common UI patterns (submit, login, search, etc.)
-    
+
     Comprehensive fallback chain for text:
     title → description → placeholder → help → role_description
     """
     role = elem.get("role") or elem.get("type") or elem.get("control_type") or ""
-    
+
     # Try multiple text sources in priority order
     title = (elem.get("title") or "").lower().strip()
-    
+
     # CRITICAL FIX: Comprehensive fallback chain
     # Many macOS apps put labels in description, placeholder, or help text!
     if not title:
@@ -311,14 +309,14 @@ def _calculate_element_relevance(elem: dict) -> float:
         title = (elem.get("help") or "").lower().strip()
     if not title:
         title = (elem.get("role_description") or "").lower().strip()
-    
+
     return calculate_element_relevance(role, title)
 
 
 def _compact_element_list_result(
-    full_result: ElementListResult, 
+    full_result: ElementListResult,
     max_elements: int = 20,
-    include_static_text: bool = True
+    include_static_text: bool = True,
 ) -> ElementListResult:
     """
     Compress element list to most relevant elements with structured summary.
@@ -345,25 +343,47 @@ def _compact_element_list_result(
 
     # PRIORITY 1: Interactive/actionable element types
     interactive_roles = {
-        "AXButton", "AXTextField", "AXSearchField", "AXTextArea",
-        "AXMenuItem", "AXCheckBox", "AXRadioButton", "AXPopUpButton",
-        "AXComboBox", "AXIncrementor", "AXSlider", "AXLink",
+        "AXButton",
+        "AXTextField",
+        "AXSearchField",
+        "AXTextArea",
+        "AXMenuItem",
+        "AXCheckBox",
+        "AXRadioButton",
+        "AXPopUpButton",
+        "AXComboBox",
+        "AXIncrementor",
+        "AXSlider",
+        "AXLink",
         # Windows equivalents
-        "Button", "Edit", "ComboBox", "ListItem", "MenuItem",
-        "CheckBox", "RadioButton", "Hyperlink", "Document",
+        "Button",
+        "Edit",
+        "ComboBox",
+        "ListItem",
+        "MenuItem",
+        "CheckBox",
+        "RadioButton",
+        "Hyperlink",
+        "Document",
     }
-    
+
     # PRIORITY 2: Important static elements (for validation/verification)
     informational_roles = {
-        "AXStaticText", "AXHeading", "AXAlert", "AXLabel",
-        "Text", "Heading", "Alert", "Label"  # Windows equivalents
+        "AXStaticText",
+        "AXHeading",
+        "AXAlert",
+        "AXLabel",
+        "Text",
+        "Heading",
+        "Alert",
+        "Label",  # Windows equivalents
     }
 
     # Filter and score all elements
     scored_elements = []
     for elem in full_result.elements:
         role = elem.get("role") or elem.get("type") or elem.get("control_type")
-        
+
         relevance_multiplier = 1.0
         if role in interactive_roles:
             relevance_multiplier = 1.0  # Full weight for interactive
@@ -371,14 +391,15 @@ def _compact_element_list_result(
             relevance_multiplier = 0.5  # Half weight for static text
         else:
             continue  # Skip other element types
-        
+
         # Calculate base relevance
         relevance = _calculate_element_relevance(elem) * relevance_multiplier
 
         # Compact element structure - keep only essential fields
         compact_elem = {
             "role": role,
-            "title": elem.get("title") or elem.get("description"),  # Use description as fallback
+            "title": elem.get("title")
+            or elem.get("description"),  # Use description as fallback
             "x": elem.get("center_x") or elem.get("x"),
             "y": elem.get("center_x") or elem.get("y"),
             "relevance": round(relevance, 2),
@@ -406,11 +427,11 @@ def _compact_element_list_result(
     # Count element types
     interactive_count = sum(1 for e in actionable if e["role"] in interactive_roles)
     static_count = sum(1 for e in actionable if e["role"] in informational_roles)
-    
+
     # Estimate token savings
     full_tokens = _estimate_result_tokens(full_result.elements)
     compact_tokens = _estimate_result_tokens(actionable)
-    
+
     # Generate structured summary
     summary = CompactSummary(
         tool="accessibility_tree",
@@ -420,33 +441,42 @@ def _compact_element_list_result(
         returned_count=len(actionable),
         filtered_count=full_result.total_elements - len(actionable),
         one_line=f"Found {len(actionable)} relevant elements ({interactive_count} interactive, {static_count} informational)",
-        top_items=[e.get("title") or "(no title)" for e in actionable[:5] if e.get("title")],
-        compaction_ratio=len(actionable) / full_result.total_elements if full_result.total_elements > 0 else 0,
+        top_items=[
+            e.get("title") or "(no title)" for e in actionable[:5] if e.get("title")
+        ],
+        compaction_ratio=len(actionable) / full_result.total_elements
+        if full_result.total_elements > 0
+        else 0,
         estimated_tokens_full=full_tokens,
         estimated_tokens_compact=compact_tokens,
         tokens_saved=full_tokens - compact_tokens,
         filters_applied=[
             "interactive roles (buttons, fields, menus)",
-            "informational roles (labels, headings, alerts)" if include_static_text else None,
+            "informational roles (labels, headings, alerts)"
+            if include_static_text
+            else None,
             "relevance scored",
-            f"top {max_elements} elements"
+            f"top {max_elements} elements",
         ],
         thresholds={
             "max_elements": max_elements,
-            "include_static_text": include_static_text
+            "include_static_text": include_static_text,
         },
-        element_types=dict(sorted(role_counts.items(), key=lambda x: x[1], reverse=True)[:5]),
-        detail_hint="Use _internal=True to get all {} elements".format(full_result.total_elements),
+        element_types=dict(
+            sorted(role_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        ),
+        detail_hint="Use _internal=True to get all {} elements".format(
+            full_result.total_elements
+        ),
         full_data_available=True,
         progressive_hints=[
             "Elements include x,y coordinates for clicking",
-            "Static text elements included for validation" if include_static_text else "Only interactive elements included",
-            "If target element not found, try _internal=True"
+            "Static text elements included for validation"
+            if include_static_text
+            else "Only interactive elements included",
+            "If target element not found, try _internal=True",
         ],
-        extra={
-            "interactive_count": interactive_count,
-            "static_count": static_count
-        }
+        extra={"interactive_count": interactive_count, "static_count": static_count},
     )
 
     return ElementListResult(

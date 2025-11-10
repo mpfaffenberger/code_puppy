@@ -132,6 +132,7 @@ async def screenshot_analyze(
     # Add base64 image if requested (delegation pattern - excluded by default)
     if include_image and screenshot_result.screenshot_path:
         import base64
+
         with open(screenshot_result.screenshot_path, "rb") as f:
             image_data = f.read()
             result["image_base64"] = base64.b64encode(image_data).decode("utf-8")
@@ -260,9 +261,9 @@ async def screenshot_analyze(
 
 
 def _compact_vqa_result(
-    full_result: "VQAResult", 
-    truncate_answer: bool = True, 
-    max_answer_length: int = 1000  # Increased: 500 → 1000 for better error debugging
+    full_result: "VQAResult",
+    truncate_answer: bool = True,
+    max_answer_length: int = 1000,  # Increased: 500 → 1000 for better error debugging
 ) -> "VQAResult":
     """
     Compress VQA result to minimal data with structured summary.
@@ -300,7 +301,7 @@ def _compact_vqa_result(
                 + "... (truncated. Use truncate_answer=False for full response)"
             )
             was_truncated = True
-    
+
     # Generate structured summary
     summary = CompactSummary(
         tool="vqa",
@@ -309,26 +310,35 @@ def _compact_vqa_result(
         found_count=1,  # Single VQA response
         returned_count=1,
         filtered_count=0,
-        one_line=f"VQA confidence: {full_result.confidence:.0%}" if full_result.confidence else "VQA response",
+        one_line=f"VQA confidence: {full_result.confidence:.0%}"
+        if full_result.confidence
+        else "VQA response",
         compaction_ratio=1.0,  # No elements filtered, just metadata stripped
         filters_applied=["metadata_stripped"],
         thresholds={
             "max_answer_length": max_answer_length,
-            "smart_truncation_threshold": 0.7
+            "smart_truncation_threshold": 0.7,
         },
         confidence_stats={
             "confidence": full_result.confidence if full_result.confidence else 0.0,
         },
-        detail_hint="Low confidence responses not truncated for debugging" if full_result.confidence and full_result.confidence < 0.7 else None,
+        detail_hint="Low confidence responses not truncated for debugging"
+        if full_result.confidence and full_result.confidence < 0.7
+        else None,
         progressive_hints=[
-            "Screenshot saved for review at: " + (full_result.screenshot_info.path if full_result.screenshot_info else "N/A"),
-            "Use truncate_answer=False for full response" if was_truncated else None
+            "Screenshot saved for review at: "
+            + (
+                full_result.screenshot_info.path
+                if full_result.screenshot_info
+                else "N/A"
+            ),
+            "Use truncate_answer=False for full response" if was_truncated else None,
         ],
         extra={
             "answer_length": len(answer) if answer else 0,
             "was_truncated": was_truncated,
-            "coordinate_system": full_result.coordinate_system
-        }
+            "coordinate_system": full_result.coordinate_system,
+        },
     )
 
     return VQAResult(

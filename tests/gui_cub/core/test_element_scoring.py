@@ -1,7 +1,5 @@
 """Unit tests for element scoring utilities."""
 
-import pytest
-
 from code_puppy.tools.gui_cub.core.element_scoring import (
     calculate_element_relevance,
     calculate_role_score,

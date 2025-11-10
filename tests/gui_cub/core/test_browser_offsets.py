@@ -1,7 +1,5 @@
 """Unit tests for browser offset calculation utilities."""
 
-import pytest
-
 from code_puppy.tools.gui_cub.core.browser_offsets import (
     apply_chrome_offset,
     get_title_bar_height,
@@ -15,7 +13,7 @@ class TestApplyChromeOffset:
         """Applying offset should adjust Y coordinate."""
         x, y = 100, 100
         chrome_height = 85
-        
+
         new_x, new_y = apply_chrome_offset(x, y, chrome_height)
         assert new_x == x  # X unchanged
         assert new_y == y + chrome_height  # Y adjusted

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -17,50 +16,52 @@ class BaseAutomationResult(BaseModel):
 
 class CompactSummary(BaseModel):
     """Standardized summary for gui-cub compaction results.
-    
+
     Provides consistent, machine-readable metadata about data compaction
     applied to results from OCR, accessibility, VQA, and other gui-cub tools.
-    
+
     This enables:
     - Agents to understand what was filtered and why
     - Clear path to accessing full data when needed
     - Token budget awareness and optimization
     - Debugging and troubleshooting
     """
-    
+
     # === Core Metadata ===
     tool: str  # "ocr_extract", "accessibility_tree", "vqa", "ocr_find"
     success: bool
     timestamp: str | None = None
-    
+
     # === Data Counts ===
     found_count: int  # Total elements/items found before filtering
     returned_count: int  # Elements returned after compaction
     filtered_count: int  # Elements filtered out (found - returned)
-    
+
     # === Human-Readable ===
     one_line: str  # Brief summary: "Found 150 text elements, showing top 10"
     top_items: list[str] | None = None  # Preview: ["Submit", "Cancel", "OK"]
-    
+
     # === Compaction Metrics ===
     compaction_ratio: float  # Ratio kept: 0.067 = 6.7% kept, 93.3% filtered
     estimated_tokens_full: int | None = None  # Estimated original size
     estimated_tokens_compact: int | None = None  # Estimated compacted size
     tokens_saved: int | None = None  # Estimated savings
-    
+
     # === Filtering Details ===
     filters_applied: list[str] | None = None  # ["confidence > 0.7", "top 10"]
     thresholds: dict[str, Any] | None = None  # {"confidence": 0.7, "max_elements": 10}
-    
+
     # === Quality Metrics (tool-specific) ===
-    confidence_stats: dict[str, float] | None = None  # {"min": 0.7, "max": 0.98, "avg": 0.87}
+    confidence_stats: dict[str, float] | None = (
+        None  # {"min": 0.7, "max": 0.98, "avg": 0.87}
+    )
     element_types: dict[str, int] | None = None  # {"AXButton": 8, "AXTextField": 4}
-    
+
     # === Debug Access ===
     detail_hint: str | None = None  # "Use _internal=True for full data"
     full_data_available: bool = True  # Can get uncompacted version?
     progressive_hints: list[str] | None = None  # Step-by-step help
-    
+
     # === Tool-Specific Extensions ===
     extra: dict[str, Any] | None = None  # Extensible for tool-specific metadata
 
@@ -218,7 +219,7 @@ class ElementInfo(BaseModel):
     height: int | None = None
     center_x: int | None = None
     center_y: int | None = None
-    
+
     # NEW: Comprehensive searchable attributes
     value: str | None = None  # Current value
     placeholder: str | None = None  # Placeholder text (text fields)
@@ -226,7 +227,7 @@ class ElementInfo(BaseModel):
     role_description: str | None = None  # Human-readable role
     identifier: str | None = None  # AXIdentifier (macOS) / AutomationId (Windows)
     subrole: str | None = None  # AXSubrole (macOS)
-    
+
     # Platform-specific (Windows)
     control_type: str | None = None  # Windows
     class_name: str | None = None  # Windows

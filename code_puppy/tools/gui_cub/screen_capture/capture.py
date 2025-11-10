@@ -160,6 +160,7 @@ def capture_screen(
         # Add base64 image if requested (delegation pattern - excluded by default)
         if include_image:
             import base64
+
             result.image_base64 = base64.b64encode(screenshot_data).decode("utf-8")
             emit_info(
                 f"[yellow]⚠️  Image included in result (~{file_size_mb:.2f} MB base64)[/yellow]\n"

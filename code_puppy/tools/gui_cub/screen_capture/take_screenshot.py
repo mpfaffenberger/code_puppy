@@ -333,6 +333,7 @@ async def take_desktop_screenshot_and_analyze(
         # Add base64 image if requested (delegation pattern - excluded by default)
         if include_image and screenshot_result.screenshot_path:
             import base64
+
             with open(screenshot_result.screenshot_path, "rb") as f:
                 image_data = f.read()
                 full_result.image_base64 = base64.b64encode(image_data).decode("utf-8")

@@ -1,7 +1,5 @@
 """Unit tests for configuration validation utilities."""
 
-import pytest
-
 from code_puppy.tools.gui_cub.core.config_validation import (
     validate_resolution_match,
     validate_platform_match,
