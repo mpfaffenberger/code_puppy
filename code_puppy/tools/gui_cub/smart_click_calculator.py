@@ -28,6 +28,23 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .logic.click_offsets import (
+    BoundingBox as SimpleBoundingBox,
+    calculate_button_offset,
+    calculate_checkbox_offset,
+    calculate_dropdown_offset,
+    calculate_generic_offset,
+    calculate_icon_offset,
+    calculate_link_offset,
+    calculate_menu_item_offset,
+    calculate_tab_offset,
+    calculate_text_field_offset,
+    is_multiline_text,
+    calculate_multiline_adjustment,
+    apply_bounds_check,
+    calculate_confidence_adjustment,
+)
+
 try:
     from .result_types import TextBoundingBox
 except ImportError:
@@ -126,102 +143,47 @@ class SmartClickCalculator:
             >>> print(f"Click at ({point.x}, {point.y})")
             Click at (540, 312)
         """
-        # Check for multi-line text
-        is_multiline = bbox.height > (SmartClickCalculator.TYPICAL_LINE_HEIGHT * 1.5)
+        # Convert to simple bounding box for pure logic functions
+        simple_bbox = SimpleBoundingBox(
+            x=bbox.x,
+            y=bbox.y,
+            width=bbox.width,
+            height=bbox.height,
+            center_x=bbox.center_x,
+            center_y=bbox.center_y,
+        )
 
-        # Calculate base offsets based on element type
+        # Use extracted pure logic based on element type
         if element_type == "button":
-            # Buttons: Click slightly above center to avoid bottom padding
-            offset_factor = 0.15 if use_conservative_offsets else 0.2
-            offset_x = 0
-            offset_y = -int(bbox.height * offset_factor)
-            strategy = "button_above_center"
-            reasoning = (
-                f"Button strategy: Click {int(offset_factor * 100)}% above center "
-                f"to avoid bottom padding. Offset: ({offset_x}, {offset_y})"
-            )
-
+            offset = calculate_button_offset(simple_bbox, use_conservative_offsets)
         elif element_type == "link":
-            # Links: Click left edge to avoid right-side padding
-            offset_x = -int(bbox.width * 0.3)
-            offset_y = 0
-            strategy = "link_left_edge"
-            reasoning = (
-                f"Link strategy: Click left edge (30% from center) "
-                f"to avoid right-side text overflow. Offset: ({offset_x}, {offset_y})"
-            )
-
+            offset = calculate_link_offset(simple_bbox)
         elif element_type in ("checkbox", "radio_button"):
-            # Checkboxes/Radio: Click far left where the box/circle is
-            # Checkbox is typically to the left of the label text
-            offset_factor = 0.6 if use_conservative_offsets else 0.8
-            offset_x = -int(bbox.width * offset_factor)
-            offset_y = 0
-            strategy = "checkbox_left"
-            reasoning = (
-                f"Checkbox/Radio strategy: Click {int(offset_factor * 100)}% to the left "
-                f"of text center (where the box/circle is). Offset: ({offset_x}, {offset_y})"
-            )
-
+            offset = calculate_checkbox_offset(simple_bbox, use_conservative_offsets)
         elif element_type == "text_field":
-            # Text fields: Click center-left for cursor positioning
-            offset_x = -int(bbox.width * 0.2)
-            offset_y = 0
-            strategy = "text_field_center_left"
-            reasoning = (
-                f"Text field strategy: Click 20% left of center "
-                f"for cursor positioning. Offset: ({offset_x}, {offset_y})"
-            )
-
+            offset = calculate_text_field_offset(simple_bbox)
         elif element_type == "dropdown":
-            # Dropdowns: Click right side where the arrow usually is
-            offset_x = int(bbox.width * 0.3)
-            offset_y = 0
-            strategy = "dropdown_right"
-            reasoning = (
-                f"Dropdown strategy: Click 30% to the right "
-                f"(where dropdown arrow is). Offset: ({offset_x}, {offset_y})"
-            )
-
+            offset = calculate_dropdown_offset(simple_bbox)
         elif element_type == "icon":
-            # Icons: Use exact center (no text padding issues)
-            offset_x = 0
-            offset_y = 0
-            strategy = "icon_center"
-            reasoning = "Icon strategy: Use exact center (icons have minimal padding)"
-
+            offset = calculate_icon_offset(simple_bbox)
         elif element_type == "menu_item":
-            # Menu items: Click center-left
-            offset_x = -int(bbox.width * 0.2)
-            offset_y = 0
-            strategy = "menu_item_center_left"
-            reasoning = (
-                f"Menu item strategy: Click 20% left of center. "
-                f"Offset: ({offset_x}, {offset_y})"
-            )
-
+            offset = calculate_menu_item_offset(simple_bbox)
         elif element_type == "tab":
-            # Tabs: Click center, but slightly up
-            offset_x = 0
-            offset_y = -int(bbox.height * 0.1)
-            strategy = "tab_above_center"
-            reasoning = (
-                f"Tab strategy: Click 10% above center. "
-                f"Offset: ({offset_x}, {offset_y})"
-            )
-
+            offset = calculate_tab_offset(simple_bbox)
         else:  # generic
-            # Default: Use center with no offset
-            offset_x = 0
-            offset_y = 0
-            strategy = "generic_center"
-            reasoning = "Generic element: Using bounding box center"
+            offset = calculate_generic_offset(simple_bbox)
 
-        # Multi-line text correction
-        if is_multiline and element_type not in ("text_field", "dropdown"):
-            # For multi-line text (except fields), use upper third instead of center
-            multiline_offset_y = -int(bbox.height * 0.25)  # Move to upper 25%
-            offset_y = min(offset_y, multiline_offset_y)  # Use more conservative offset
+        offset_x = offset.offset_x
+        offset_y = offset.offset_y
+        strategy = offset.strategy
+        reasoning = offset.reasoning
+
+        # Multi-line text correction using extracted logic
+        if is_multiline_text(bbox.height) and element_type not in (
+            "text_field",
+            "dropdown",
+        ):
+            offset_y = calculate_multiline_adjustment(simple_bbox, offset_y)
             strategy += "_multiline_adjusted"
             reasoning += f" | Multi-line detected (height={bbox.height}px), adjusted Y to upper portion."
 
@@ -229,21 +191,11 @@ class SmartClickCalculator:
         click_x = bbox.center_x + offset_x
         click_y = bbox.center_y + offset_y
 
-        # Ensure we stay within the bounding box (safety bounds check)
-        click_x = max(bbox.x, min(click_x, bbox.x + bbox.width))
-        click_y = max(bbox.y, min(click_y, bbox.y + bbox.height))
+        # Apply bounds check using extracted logic
+        click_x, click_y = apply_bounds_check(click_x, click_y, simple_bbox)
 
-        # Calculate confidence based on OCR confidence and element type
-        # Some element types are more forgiving than others
-        base_confidence = bbox.confidence
-        if element_type in ("button", "link", "menu_item"):
-            # These are generally large and forgiving
-            confidence = min(base_confidence + 0.1, 1.0)
-        elif element_type in ("checkbox", "radio_button"):
-            # These require precise clicking
-            confidence = base_confidence * 0.9
-        else:
-            confidence = base_confidence
+        # Calculate confidence using extracted logic
+        confidence = calculate_confidence_adjustment(bbox.confidence, element_type)
 
         return ClickPoint(
             x=click_x,
