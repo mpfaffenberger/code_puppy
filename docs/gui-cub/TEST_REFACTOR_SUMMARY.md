@@ -132,6 +132,47 @@ def test_large_element_uses_offset():
 
 ---
 
+#### Phase 3b: Context Engineering Tests (CRITICAL)
+
+**Action:** Add **~33 new tests** for context management and token compaction
+
+**CRITICAL GAP IDENTIFIED:** While we test algorithms, we're **missing tests** for the strategies that keep us within token limits!
+
+**New test coverage:**
+1. **Message history compaction** (~15 tests)
+   - `truncation()` logic (preserves system message, keeps recent messages)
+   - `filter_huge_messages()` (removes >50k token messages)
+   - `split_messages_for_protected_summarization()` (protects recent context)
+   - `message_history_processor()` (threshold triggering, strategy selection)
+
+2. **Success-conditional compaction** (~10 tests)  
+   - OCR results (50 elements → 5 key elements = 90% token savings)
+   - Accessibility (200 elements → top 20 = 90% savings)
+   - Screenshots (full metadata → minimal)
+   - Token savings verification
+
+3. **Token estimation accuracy** (~8 tests)
+   - Various message types (text, tools, images)
+   - Accuracy within ±10%
+   - Edge cases
+
+**Why this matters:**
+- **Without these tests:** Risk token overflow, lost context, wasted tokens
+- **Example:** OCR scan of calculator returns 200 buttons
+  - Without compaction: ~15,000 tokens (!!) 
+  - With compaction: ~150 tokens (99% savings)
+  - Without tests: compaction might break silently
+
+**See:** `CONTEXT_ENGINEERING_TESTS.md` for full design
+
+**Impact:**
+- Test count: ~150-200 → ~180-230
+- Coverage: ~70% → ~75% (includes critical token management)
+- Prevents context overflow bugs
+- Documents compaction strategies
+
+---
+
 ## Expected Outcomes
 
 ### Before Refactoring
@@ -162,6 +203,19 @@ Coverage:     ~70% (comprehensive business logic)
 Test speed:   ~5-8 seconds  ✅
 Test value:   ✅✅✅ High (all logic tested)
 Maintenance:  ✅ Low (pure function tests)
+```
+
+### After Phase 3b (Context Engineering - Complete)
+```
+Tests:        ~180-230 passed, ~10 skipped
+Test files:   ~20 files (~85 KB)
+Coverage:     ~75% (includes critical token management)
+Test speed:   ~6-10 seconds  ✅
+Test value:   ✅✅✅ High (all critical paths)
+Maintenance:  ✅ Low (pure function tests)
+
+**CRITICAL:** Includes token compaction, context engineering,
+and success-conditional compaction tests.
 ```
 
 ---
