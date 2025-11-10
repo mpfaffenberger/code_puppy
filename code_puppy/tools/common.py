@@ -1,7 +1,6 @@
 import fnmatch
 import hashlib
 import os
-import platform
 import sys
 import time
 from pathlib import Path
@@ -485,7 +484,6 @@ async def arrow_select_async(message: str, choices: list[str]) -> str:
     Raises:
         KeyboardInterrupt: If user cancels with Ctrl-C
     """
-    import sys
 
     selected_index = [0]  # Mutable container for selected index
     result = [None]  # Mutable container for result
@@ -561,7 +559,6 @@ def arrow_select(message: str, choices: list[str]) -> str:
         KeyboardInterrupt: If user cancels with Ctrl-C
     """
     import asyncio
-    import sys
 
     selected_index = [0]  # Mutable container for selected index
     result = [None]  # Mutable container for result
@@ -657,7 +654,6 @@ def get_user_approval(
         - confirmed: True if approved, False if rejected
         - user_feedback: Optional feedback text if user provided it
     """
-    import sys
     import time
 
     from code_puppy.tools.command_runner import set_awaiting_user_input
