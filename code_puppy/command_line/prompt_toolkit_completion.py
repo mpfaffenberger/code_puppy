@@ -48,60 +48,39 @@ class SetCompleter(Completer):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
+        cursor_position = document.cursor_position
         text_before_cursor = document.text_before_cursor
         stripped_text_for_trigger_check = text_before_cursor.lstrip()
 
-        if not stripped_text_for_trigger_check.startswith(self.trigger):
+        # Require a space after /set before showing completions
+        if not stripped_text_for_trigger_check.startswith(self.trigger + " "):
             return
 
         # Determine the part of the text that is relevant for this completer
         # This handles cases like "  /set foo" where the trigger isn't at the start of the string
         actual_trigger_pos = text_before_cursor.find(self.trigger)
-        effective_input = text_before_cursor[
-            actual_trigger_pos:
-        ]  # e.g., "/set keypart" or "/set "
 
-        tokens = effective_input.split()
-
-        # Case 1: Input is exactly the trigger (e.g., "/set") and nothing more (not even a trailing space on effective_input).
-        # Suggest adding a space.
-        if (
-            len(tokens) == 1
-            and tokens[0] == self.trigger
-            and not effective_input.endswith(" ")
-        ):
-            yield Completion(
-                text=self.trigger + " ",  # Text to insert
-                start_position=-len(tokens[0]),  # Replace the trigger itself
-                display=self.trigger + " ",  # Visual display
-                display_meta="set config key",
-            )
-            return
-
-        # Case 2: Input is trigger + space (e.g., "/set ") or trigger + partial key (e.g., "/set partial")
-        base_to_complete = ""
-        if len(tokens) > 1:  # e.g., ["/set", "partialkey"]
-            base_to_complete = tokens[1]
-        # If len(tokens) == 1, it implies effective_input was like "/set ", so base_to_complete remains ""
-        # This means we list all keys.
+        # Extract the input after /set and space (up to cursor)
+        trigger_end = actual_trigger_pos + len(self.trigger) + 1  # +1 for the space
+        text_after_trigger = text_before_cursor[trigger_end:cursor_position].lstrip()
+        start_position = -(len(text_after_trigger))
 
         # --- SPECIAL HANDLING FOR 'model' KEY ---
-        if base_to_complete == "model":
+        if text_after_trigger == "model":
             # Don't return any completions -- let ModelNameCompleter handle it
             return
+
         for key in get_config_keys():
             if key == "model" or key == "puppy_token":
                 continue  # exclude 'model' and 'puppy_token' from regular /set completions
-            if key.startswith(base_to_complete):
+            if key.startswith(text_after_trigger):
                 prev_value = get_value(key)
                 value_part = f" = {prev_value}" if prev_value is not None else " = "
                 completion_text = f"{key}{value_part}"
 
                 yield Completion(
                     completion_text,
-                    start_position=-len(
-                        base_to_complete
-                    ),  # Correctly replace only the typed part of the key
+                    start_position=start_position,
                     display_meta="",
                 )
 
