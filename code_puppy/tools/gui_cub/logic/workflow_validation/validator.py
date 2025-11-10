@@ -13,7 +13,7 @@ from typing import Any
 @dataclass
 class ValidationError:
     """Validation error details."""
-    
+
     parameter_name: str
     error_type: str  # "missing_required", "type_mismatch", "conversion_failed"
     message: str
@@ -29,16 +29,16 @@ def validate_required_parameter(
 ) -> tuple[bool, Any, ValidationError | None]:
     """
     Validate required parameter presence.
-    
+
     Args:
         param_name: Parameter name
         value: Provided value (may be None)
         default: Default value if not provided
         required: Whether parameter is required
-        
+
     Returns:
         Tuple of (is_valid, resolved_value, error)
-        
+
     Examples:
         >>> validate_required_parameter("name", None, None, True)
         (False, None, ValidationError(...))
@@ -60,20 +60,20 @@ def validate_required_parameter(
             )
         # Use default if available
         return (True, default, None)
-    
+
     return (True, value, None)
 
 
 def convert_string_to_boolean(value: str) -> bool | None:
     """
     Convert string to boolean.
-    
+
     Args:
         value: String value ("true", "false", "yes", "no", "1", "0")
-        
+
     Returns:
         Boolean value or None if cannot convert
-        
+
     Examples:
         >>> convert_string_to_boolean("true")
         True
@@ -95,16 +95,16 @@ def convert_string_to_boolean(value: str) -> bool | None:
 def convert_to_number(value: Any) -> int | float:
     """
     Convert value to number (int or float).
-    
+
     Args:
         value: Value to convert
-        
+
     Returns:
         Converted number
-        
+
     Raises:
         ValueError: If conversion fails
-        
+
     Examples:
         >>> convert_to_number("42")
         42
@@ -115,7 +115,7 @@ def convert_to_number(value: Any) -> int | float:
     """
     if isinstance(value, (int, float)):
         return value
-        
+
     value_str = str(value)
     if "." in value_str:
         return float(value_str)
@@ -129,15 +129,15 @@ def convert_to_type(
 ) -> tuple[bool, Any, ValidationError | None]:
     """
     Convert value to expected type with validation.
-    
+
     Args:
         value: Value to convert
         expected_type: Expected type ("string", "number", "boolean", "array", "object")
         param_name: Parameter name (for error messages)
-        
+
     Returns:
         Tuple of (is_valid, converted_value, error)
-        
+
     Examples:
         >>> convert_to_type("42", "number", "count")
         (True, 42, None)
@@ -148,18 +148,18 @@ def convert_to_type(
     """
     if value is None:
         return (True, None, None)
-    
+
     try:
         if expected_type == "string":
             # Auto-convert to string
             return (True, str(value), None)
-            
+
         elif expected_type == "number":
             if isinstance(value, (int, float)):
                 return (True, value, None)
             converted = convert_to_number(value)
             return (True, converted, None)
-            
+
         elif expected_type == "boolean":
             if isinstance(value, bool):
                 return (True, value, None)
@@ -180,7 +180,7 @@ def convert_to_type(
                 )
             # Try bool() conversion
             return (True, bool(value), None)
-            
+
         elif expected_type == "array":
             if not isinstance(value, list):
                 return (
@@ -195,7 +195,7 @@ def convert_to_type(
                     ),
                 )
             return (True, value, None)
-            
+
         elif expected_type == "object":
             if not isinstance(value, dict):
                 return (
@@ -210,11 +210,11 @@ def convert_to_type(
                     ),
                 )
             return (True, value, None)
-            
+
         else:
             # Unknown type, pass through
             return (True, value, None)
-            
+
     except (ValueError, TypeError) as e:
         return (
             False,
@@ -236,14 +236,14 @@ def validate_parameter_type(
 ) -> tuple[bool, Any, ValidationError | None]:
     """
     Validate and convert parameter to expected type.
-    
+
     Combines type checking and conversion in one step.
-    
+
     Args:
         param_name: Parameter name
         value: Value to validate
         expected_type: Expected type
-        
+
     Returns:
         Tuple of (is_valid, converted_value, error)
     """
@@ -256,7 +256,7 @@ def validate_all_parameters(
 ) -> tuple[dict[str, Any], list[ValidationError]]:
     """
     Validate all parameters against specifications.
-    
+
     Args:
         parameter_specs: List of parameter specifications with keys:
             - name (str): Parameter name
@@ -264,11 +264,11 @@ def validate_all_parameters(
             - required (bool): Whether required
             - default (Any, optional): Default value
         provided_values: Dict of provided parameter values
-        
+
     Returns:
         Tuple of (validated_params, errors)
         If errors list is empty, validation succeeded.
-        
+
     Examples:
         >>> specs = [{"name": "count", "type": "number", "required": True}]
         >>> validate_all_parameters(specs, {"count": "42"})
@@ -278,34 +278,34 @@ def validate_all_parameters(
     """
     validated = {}
     errors = []
-    
+
     for spec in parameter_specs:
         param_name = spec["name"]
         param_type = spec.get("type", "string")
         required = spec.get("required", False)
         default = spec.get("default")
-        
+
         value = provided_values.get(param_name)
-        
+
         # Check required
         is_valid, resolved_value, error = validate_required_parameter(
             param_name, value, default, required
         )
-        
+
         if not is_valid:
             errors.append(error)
             continue
-            
+
         # Type validation/conversion
         if resolved_value is not None:
             is_valid, converted_value, error = convert_to_type(
                 resolved_value, param_type, param_name
             )
-            
+
             if not is_valid:
                 errors.append(error)
                 continue
-                
+
             validated[param_name] = converted_value
-    
+
     return validated, errors

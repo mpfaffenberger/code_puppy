@@ -6,7 +6,6 @@ It can be run directly with Python or integrated into installation workflows.
 """
 
 import ctypes
-import os
 import platform
 import subprocess
 import sys
@@ -16,10 +15,10 @@ from pathlib import Path
 if platform.system() == "Windows":
     try:
         # Try to set UTF-8 encoding for console
-        if hasattr(sys.stdout, 'reconfigure'):
-            sys.stdout.reconfigure(encoding='utf-8')
-        if hasattr(sys.stderr, 'reconfigure'):
-            sys.stderr.reconfigure(encoding='utf-8')
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass  # If it fails, fall back to ASCII-safe messages
 
@@ -41,16 +40,16 @@ def is_admin() -> bool:
 
 def check_long_paths_enabled() -> bool:
     """Check if Windows long path support is enabled.
-    
+
     Returns:
         True if long paths are enabled, False otherwise.
     """
     if not is_windows():
         return True  # Not applicable on non-Windows systems
-    
+
     try:
         import winreg
-        
+
         key = winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE,
             r"SYSTEM\CurrentControlSet\Control\FileSystem",
@@ -66,24 +65,24 @@ def check_long_paths_enabled() -> bool:
 
 def enable_long_paths() -> bool:
     """Enable Windows long path support by modifying registry.
-    
+
     Returns:
         True if successful, False otherwise.
     """
     if not is_windows():
         print("ℹ️  Long path configuration is only needed on Windows")
         return True
-    
+
     if not is_admin():
         safe_print("❌ Administrator privileges required to enable long paths")
         safe_print("\nPlease run this script as Administrator:")
         safe_print("  1. Open PowerShell as Administrator")
         safe_print("  2. Run: python scripts/setup_windows.py")
         return False
-    
+
     try:
         import winreg
-        
+
         # Enable long paths in FileSystem
         key = winreg.CreateKey(
             winreg.HKEY_LOCAL_MACHINE,
@@ -91,7 +90,7 @@ def enable_long_paths() -> bool:
         )
         winreg.SetValueEx(key, "LongPathsEnabled", 0, winreg.REG_DWORD, 1)
         winreg.CloseKey(key)
-        
+
         # Try to enable for Python as well (optional)
         try:
             key = winreg.CreateKey(
@@ -102,7 +101,7 @@ def enable_long_paths() -> bool:
             winreg.CloseKey(key)
         except Exception:
             pass  # Python registry key might not exist
-        
+
         return True
     except Exception as e:
         safe_print(f"❌ Failed to enable long paths: {e}")
@@ -111,16 +110,16 @@ def enable_long_paths() -> bool:
 
 def run_powershell_setup() -> bool:
     """Run the PowerShell setup script.
-    
+
     Returns:
         True if successful, False otherwise.
     """
     script_path = Path(__file__).parent / "windows_setup.ps1"
-    
+
     if not script_path.exists():
         safe_print(f"❌ Setup script not found: {script_path}")
         return False
-    
+
     try:
         # Run PowerShell script with admin elevation
         cmd = [
@@ -144,21 +143,22 @@ def safe_print(msg: str) -> None:
     except UnicodeEncodeError:
         # Fallback: remove emojis and special chars
         import re
-        ascii_msg = re.sub(r'[^\x00-\x7F]+', '', msg)
+
+        ascii_msg = re.sub(r"[^\x00-\x7F]+", "", msg)
         print(ascii_msg)
 
 
 def main() -> int:
     """Main entry point."""
     safe_print("🐶 Code Puppy Windows Setup")
-    safe_print("="*40)
+    safe_print("=" * 40)
     safe_print("")
-    
+
     if not is_windows():
         safe_print("✅ This setup is only needed on Windows")
         safe_print("You're good to go!")
         return 0
-    
+
     # Check current status
     safe_print("📋 Checking long path configuration...")
     if check_long_paths_enabled():
@@ -167,13 +167,13 @@ def main() -> int:
         safe_print("You're all set! Install code-puppy with:")
         safe_print("  uvx code-puppy -i")
         return 0
-    
+
     safe_print("⚠️  Long paths are currently disabled")
     safe_print("")
     safe_print("This is required for building Windows dependencies (like winsdk)")
     safe_print("that have deep directory structures during compilation.")
     safe_print("")
-    
+
     # Try to enable
     if is_admin():
         safe_print("🔧 Enabling long path support...")

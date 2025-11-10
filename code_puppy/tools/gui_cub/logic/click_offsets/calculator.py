@@ -313,8 +313,7 @@ def calculate_tab_offset(bbox: BoundingBox) -> ClickOffset:
         offset_y=offset_y,
         strategy="tab_above_center",
         reasoning=(
-            f"Tab strategy: Click 10% above center. "
-            f"Offset: ({offset_x}, {offset_y})"
+            f"Tab strategy: Click 10% above center. Offset: ({offset_x}, {offset_y})"
         ),
     )
 
@@ -350,9 +349,7 @@ def calculate_generic_offset(bbox: BoundingBox) -> ClickOffset:
 # ============================================================================
 
 
-def is_multiline_text(
-    height: int, line_height: int = TYPICAL_LINE_HEIGHT
-) -> bool:
+def is_multiline_text(height: int, line_height: int = TYPICAL_LINE_HEIGHT) -> bool:
     """
     Determine if bounding box likely contains multi-line text.
 
@@ -372,9 +369,7 @@ def is_multiline_text(
     return height > (line_height * 1.5)
 
 
-def calculate_multiline_adjustment(
-    bbox: BoundingBox, current_offset_y: int
-) -> int:
+def calculate_multiline_adjustment(bbox: BoundingBox, current_offset_y: int) -> int:
     """
     Calculate Y-axis adjustment for multi-line text.
 

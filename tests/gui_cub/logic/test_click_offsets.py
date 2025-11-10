@@ -8,7 +8,6 @@ import pytest
 
 from code_puppy.tools.gui_cub.logic.click_offsets import (
     BoundingBox,
-    ClickOffset,
     apply_bounds_check,
     calculate_button_offset,
     calculate_checkbox_offset,
@@ -177,7 +176,9 @@ class TestMenuItemOffset:
     """Tests for menu item offset calculation."""
 
     def test_calculates_center_left_offset(self):
-        bbox = BoundingBox(x=10, y=100, width=180, height=25, center_x=100, center_y=112)
+        bbox = BoundingBox(
+            x=10, y=100, width=180, height=25, center_x=100, center_y=112
+        )
         offset = calculate_menu_item_offset(bbox)
 
         assert offset.offset_x == -36  # -int(180 * 0.2)

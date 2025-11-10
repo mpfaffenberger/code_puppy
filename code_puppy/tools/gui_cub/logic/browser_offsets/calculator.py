@@ -15,13 +15,13 @@ DEFAULT_TITLE_BAR_HEIGHT = 25
 def get_title_bar_height(platform: str) -> int:
     """
     Get OS title bar height for platform.
-    
+
     Args:
         platform: Platform name ("macos", "windows", "linux")
-        
+
     Returns:
         Title bar height in pixels
-        
+
     Examples:
         >>> get_title_bar_height("macos")
         22
@@ -42,17 +42,17 @@ def apply_chrome_offset(
 ) -> tuple[int, int]:
     """
     Apply browser chrome offset to coordinates.
-    
+
     Args:
         x: X coordinate
-        y: Y coordinate  
+        y: Y coordinate
         chrome_height: Browser chrome height in pixels
         confidence: Detection confidence (0.0-1.0)
         confidence_threshold: Minimum confidence to apply offset
-        
+
     Returns:
         Tuple of (adjusted_x, adjusted_y)
-        
+
     Examples:
         >>> apply_chrome_offset(100, 50, 85)
         (100, 135)

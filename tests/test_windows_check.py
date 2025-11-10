@@ -1,7 +1,6 @@
 """Tests for Windows-specific checks and utilities."""
 
 import platform
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -42,9 +41,7 @@ class TestCheckLongPathsEnabled:
         with patch("code_puppy.utils.windows_check.is_windows", return_value=False):
             assert check_long_paths_enabled() is True
 
-    @pytest.mark.skipif(
-        platform.system() != "Windows", reason="Windows-specific test"
-    )
+    @pytest.mark.skipif(platform.system() != "Windows", reason="Windows-specific test")
     def test_checks_registry_on_windows(self):
         """Test that check_long_paths_enabled checks the registry on Windows."""
         # This test will actually check the real registry on Windows
