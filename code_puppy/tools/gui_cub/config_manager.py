@@ -18,6 +18,11 @@ import pyautogui
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
+from .logic.config_validation import (
+    validate_resolution_match,
+    validate_platform_match,
+)
+
 
 def get_gui_cub_base_dir() -> Path:
     """Get the base directory for GUI-Cub data storage."""
@@ -184,25 +189,24 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, reason)
     """
-    # Check screen resolution hasn't changed
+    # Check screen resolution hasn't changed using extracted logic
     try:
         current_resolution = list(pyautogui.size())
         cached_resolution = config.get("display", {}).get("primary_resolution")
 
-        if current_resolution != cached_resolution:
-            return (
-                False,
-                f"Display resolution changed: {cached_resolution} → {current_resolution}",
-            )
+        is_valid, message = validate_resolution_match(cached_resolution, current_resolution)
+        if not is_valid:
+            return (False, message)
     except Exception as e:
         return False, f"Failed to check display: {e}"
 
-    # Check OS hasn't changed (unlikely but possible in VMs)
+    # Check OS hasn't changed using extracted logic
     current_os = sys.platform
     cached_os = config.get("platform", {}).get("os")
 
-    if current_os != cached_os:
-        return False, f"OS changed: {cached_os} → {current_os}"
+    is_valid, message = validate_platform_match(cached_os, current_os)
+    if not is_valid:
+        return (False, message)
 
     # On Windows, check if dependencies are actually installed
     if sys.platform == "win32":
