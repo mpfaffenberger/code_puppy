@@ -270,33 +270,51 @@ class SlashCompleter(Completer):
             partial = stripped_text[1:]  # text after '/'
             start_position = -(len(partial))  # Replace what was typed after '/'
 
-        # Load all available commands and sort them alphabetically
+        # Load all available commands
         try:
-            commands = sorted(get_unique_commands(), key=lambda cmd: cmd.name)
+            commands = get_unique_commands()
         except Exception:
             # If command loading fails, return no completions
             return
 
-        # Filter and yield completions
+        # Collect all primary commands and their aliases for proper alphabetical sorting
+        all_completions = []
+
         for cmd in commands:
+            # Add primary command
             if cmd.name.startswith(partial):
-                yield Completion(
-                    cmd.name,  # Don't include '/' in completion text, avoid double slash
-                    start_position=start_position,
-                    display=f"/{cmd.name}",  # But show '/' in display
-                    display_meta=cmd.description,
+                all_completions.append(
+                    {
+                        "text": cmd.name,
+                        "display": f"/{cmd.name}",
+                        "meta": cmd.description,
+                        "sort_key": cmd.name.lower(),  # Case-insensitive sort
+                    }
                 )
 
-            # Also check aliases (also sorted alphabetically)
-            sorted_aliases = sorted(cmd.aliases)
-            for alias in sorted_aliases:
+            # Add all aliases
+            for alias in cmd.aliases:
                 if alias.startswith(partial):
-                    yield Completion(
-                        alias,  # Don't include '/' in completion text, avoid double slash
-                        start_position=start_position,
-                        display=f"/{alias} (alias for /{cmd.name})",
-                        display_meta=cmd.description,
+                    all_completions.append(
+                        {
+                            "text": alias,
+                            "display": f"/{alias} (alias for /{cmd.name})",
+                            "meta": cmd.description,
+                            "sort_key": alias.lower(),  # Sort by alias name, not primary command
+                        }
                     )
+
+        # Sort all completions alphabetically
+        all_completions.sort(key=lambda x: x["sort_key"])
+
+        # Yield the sorted completions
+        for completion in all_completions:
+            yield Completion(
+                completion["text"],
+                start_position=start_position,
+                display=completion["display"],
+                display_meta=completion["meta"],
+            )
 
 
 def get_prompt_with_active_model(base: str = ">>> "):
