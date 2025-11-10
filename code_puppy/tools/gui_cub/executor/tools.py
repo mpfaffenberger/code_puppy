@@ -89,36 +89,47 @@ def register_executor_tool(agent):
         name: str,
         parameters: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        """Execute a saved YAML workflow with optional parameters.
+        """⚠️ DEPRECATED - DO NOT USE - Use gui_cub_read_workflow instead!
 
-        This enables true automation - workflows are executed automatically
-        without agent interpretation. Supports workflow chaining via run_workflow.
+        **WHY DEPRECATED:**
+        This tool executes workflows MECHANICALLY without agent intelligence.
+        Workflows should be GUIDANCE that you INTERPRET and ACT ON intelligently,
+        not automation scripts that execute blindly.
 
-        NEW: Workflows can now define typed parameters and return structured outputs!
+        **USE THIS INSTEAD:**
+        ```python
+        # ✅ CORRECT - Read workflow guidance and interpret intelligently
+        workflow = gui_cub_read_workflow(name="login")
+        content = workflow["content"]
+        
+        # Review the guidance, plan your approach, use your intelligence
+        # Decide which tools to call based on current context
+        # Adapt if steps don't work as expected
+        ```
+
+        **WHY THIS IS WRONG:**
+        - Bypasses your intelligence and decision-making
+        - Cannot adapt when steps fail
+        - Treats workflows as rigid automation scripts
+        - Ignores current UI state and context
+        
+        **This tool remains functional ONLY for backward compatibility.**
+        **It will be removed in a future release.**
+        **DO NOT use this tool in new code.**
 
         Args:
             name: Workflow name (e.g., 'login', 'login.yaml')
-            parameters: Optional dict of parameters to pass to workflow
-                       Example: {"username": "user@example.com", "patient_id": "PAT-123"}
+            parameters: Optional dict of parameters
 
         Returns:
-            Structured execution results:
-            {
-                "workflow": str,
-                "status": "success" | "failure" | "partial",
-                "execution_time": float,
-                "parameters_used": dict,
-                "outputs": dict,  # Extracted data from workflow
-                "steps_executed": int,
-                "steps_skipped": int,
-                "errors": list,
-                "screenshots": list
-            }
-
-        Example:
-            gui_cub_execute_workflow(
-                name="patient_lookup",
-                parameters={"patient_id": "PAT-67890", "include_history": False}
-            )
+            Execution results (but you should use gui_cub_read_workflow instead!)
         """
+        # Emit deprecation warning
+        from code_puppy.messaging import emit_warning
+        emit_warning(
+            "⚠️ gui_cub_execute_workflow is DEPRECATED. "
+            "Use gui_cub_read_workflow to read guidance and make intelligent decisions. "
+            "Mechanical workflow execution bypasses agent intelligence."
+        )
+        
         return await execute_workflow(context, name, parameters)

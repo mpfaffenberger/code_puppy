@@ -381,53 +381,69 @@ def register_workflow_tools(agent):
         context: RunContext,
         name: str,
         content: str,
-        format: str = "yaml",
+        format: str = "markdown",
     ) -> Dict[str, Any]:
-        """Save a GUI-Cub workflow for reuse.
+        """Save a GUI-Cub workflow as guidance documentation.
 
-        Workflows are reusable automation patterns that can be:
-        - Executed automatically with gui_cub_execute_workflow()
-        - Adapted for similar tasks
-        - Shared across sessions
+        Workflows document proven patterns and approaches for accomplishing tasks.
+        They should be GUIDANCE that you interpret intelligently, NOT rigid automation.
+
+        **PREFERRED FORMAT: Markdown** - Use this for all new workflows!
+
+        Workflows should contain:
+        - Goals and objectives (WHAT to accomplish)
+        - Recommended approaches with suggested tools
+        - Multiple strategies and alternatives
+        - Common issues and solutions
+        - Success criteria and tips
 
         Args:
-            name: Workflow name (e.g., 'login_flow', 'data_entry')
-            content: Workflow content (YAML structure or Markdown documentation)
-            format: 'yaml' for executable workflows, 'markdown' for docs (default: 'yaml')
+            name: Workflow name (e.g., 'login_pattern', 'calculator_usage')
+            content: Workflow content as Markdown documentation
+            format: 'markdown' (preferred) or 'yaml' (legacy) - default: 'markdown'
 
         Returns:
             Dict with success status, path, and metadata
 
-        Example YAML workflow:
-        ```yaml
-        name: "Login Flow"
-        variables:
-          username: "user@example.com"
-          password: "{{env.PASSWORD}}"
+        Example Markdown workflow (PREFERRED):
+        ```markdown
+        # Login to Application
 
-        steps:
-          - action: focus_window
-            app: "TextEdit"
-          - action: click
-            element: {title: "Username"}
-          - action: type
-            text: "{{username}}"
-          - action: click
-            element: {title: "Password"}
-          - action: type
-            text: "{{password}}"
-          - action: press
-            key: "enter"
+        ## Goal
+        Authenticate user to the application
+
+        ## Recommended Approach
+
+        1. **Focus application window**
+           - Tool: `desktop_focus_window(app="AppName")`
+
+        2. **Locate username field**
+           - Try OCR: `desktop_find_text("Username")`
+           - Try UI: `ui_find_element(title="Username")`
+
+        3. **Enter credentials**
+           - Type username, tab to password, type password
+           - Press Enter to submit
+
+        ## Common Issues
+        - Window not focused → Call focus_window first
+
+        ## Success Criteria
+        - Dashboard visible, no errors
         ```
         """
         return await save_workflow(name, content, format)
 
     @agent.tool
     async def gui_cub_list_workflows(context: RunContext) -> Dict[str, Any]:
-        """List all saved GUI-Cub workflows.
+        """List all saved GUI-Cub workflow guidance documents.
 
         Returns workflows sorted by modification time (newest first).
-        Use this BEFORE creating new workflows to avoid duplication.
+        
+        **ALWAYS use this FIRST** before starting new tasks to:
+        - Check if a similar workflow already exists
+        - Learn from proven patterns
+        - Avoid duplicating work
 
         Returns:
             Dict with workflows list, count, and directory path
@@ -439,17 +455,23 @@ def register_workflow_tools(agent):
         context: RunContext,
         name: str,
     ) -> Dict[str, Any]:
-        """Read a saved GUI-Cub workflow.
+        """Read a saved GUI-Cub workflow guidance document.
 
-        Use this to:
-        - Review existing workflows before adapting
-        - Load workflows for execution
-        - Check workflow structure
+        **This is the CORRECT way to use workflows!**
+
+        Read workflow content as GUIDANCE, then:
+        1. Review the recommended approaches
+        2. Interpret suggestions intelligently
+        3. Decide which tools to use based on current context
+        4. Adapt if steps don't work exactly as documented
+        5. Use YOUR intelligence to accomplish the goal
+
+        Workflows are DOCUMENTATION of proven patterns, NOT automation scripts.
 
         Args:
             name: Workflow name (with or without extension)
 
         Returns:
-            Dict with content, parsed YAML (if applicable), and metadata
+            Dict with content (Markdown or YAML), parsed data, and metadata
         """
         return await read_workflow(name)
