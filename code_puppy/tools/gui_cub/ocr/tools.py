@@ -34,6 +34,12 @@ from .result_types import (
 from .search import _check_ocr_capability, find_text_in_elements
 
 
+
+
+# Module-level OCR functions (importable by workflow executor)
+# TODO: Extract desktop_find_text and desktop_extract_text here
+# Pattern: Define implementation at module level, wrap in register function
+
 def register_ocr_tools(agent):
     """Register OCR (Optical Character Recognition) tools."""
 
