@@ -16,9 +16,6 @@
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5-orange?style=flat-square&logo=openai)](https://openai.com)
 [![Gemini](https://img.shields.io/badge/Google-Gemini-blue?style=flat-square&logo=google)](https://ai.google.dev/)
 [![Anthropic](https://img.shields.io/badge/Anthropic-Claude-orange?style=flat-square&logo=anthropic)](https://anthropic.com)
-[![Cerebras](https://img.shields.io/badge/Cerebras-GLM%204.6-red?style=flat-square)](https://cerebras.ai)
-[![Z.AI](https://img.shields.io/badge/Z.AI-GLM%204.6-purple?style=flat-square)](https://z.ai/)
-[![Synthetic](https://img.shields.io/badge/Synthetic-MINIMAX_M2-green?style=flat-square)](https://synthetic.new)
 
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
@@ -160,17 +157,6 @@ export AZURE_OPENAI_ENDPOINT=...
 
 code-puppy --interactive
 ```
-
-### Synthetic Provider
-
-Code Puppy supports the **Synthetic provider**, which gives you access to various open-source models through a custom OpenAI-compatible endpoint. Set `SYN_API_KEY` to use models like:
-
-- `synthetic-DeepSeek-V3.1-Terminus` (128K context)
-- `synthetic-Kimi-K2-Instruct-0905` (256K context)
-- `synthetic-Qwen3-Coder-480B-A35B-Instruct` (256K context)
-- `synthetic-GLM-4.6` (200K context)
-
-These models are available via `https://api.synthetic.new/openai/v1/` and provide high-quality coding assistance with generous context windows.
 
 Run specific tasks or engage in interactive mode:
 
