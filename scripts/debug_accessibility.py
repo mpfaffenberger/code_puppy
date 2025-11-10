@@ -183,6 +183,23 @@ def compare_with_ocr():
             print(f"❌ Accessibility failed: {ax_result.error}")
             return
         
+        # Handle both formats
+        elements = ax_result.elements
+        if not elements and ax_result.by_role:
+            elements = []
+            for role, role_elements in ax_result.by_role.items():
+                for elem in role_elements:
+                    elem_copy = elem.copy()
+                    elem_copy["role"] = role
+                    elements.append(elem_copy)
+        
+        elements = elements or []
+        if not elements:
+            print(f"❌ No accessibility elements found (list is None or empty)")
+            print(f"   Total elements: {ax_result.total_elements}")
+            print(f"   Success: {ax_result.success}")
+            return
+        
         # Get OCR text
         print("👁️  Running OCR...")
         screenshot = pyautogui.screenshot()
@@ -192,16 +209,20 @@ def compare_with_ocr():
             print(f"❌ OCR failed: {ocr_result.error}")
             return
         
+        if not ocr_result.text_elements:
+            print(f"❌ No OCR text elements found")
+            return
+        
         # Compare results
         print(f"\n📊 Results:")
-        print(f"   Accessibility elements: {len(ax_result.elements)}")
+        print(f"   Accessibility elements: {len(elements)}")
         print(f"   OCR text elements: {len(ocr_result.text_elements)}")
         print(f"   OCR total words: {ocr_result.total_words}")
         
         # Find accessibility elements with titles
         ax_titles = set()
-        for elem in ax_result.elements:
-            title = elem.get("title", "").strip()
+        for elem in elements:
+            title = (elem.get("title") or "").strip()
             if title and len(title) > 2:
                 ax_titles.add(title.lower())
         
@@ -443,8 +464,27 @@ def main():
         print(f"❌ Failed: {result.error}")
         return 1
     
+    # Handle both formats: elements list or by_role dict
     elements = result.elements
+    if not elements and result.by_role:
+        # Flatten by_role dict into elements list
+        elements = []
+        for role, role_elements in result.by_role.items():
+            for elem in role_elements:
+                elem_copy = elem.copy()
+                elem_copy["role"] = role
+                elements.append(elem_copy)
+    
+    elements = elements or []
     print(f"✅ Found {len(elements)} elements")
+    
+    if not elements:
+        print("⚠️  No elements returned (list is empty or None)")
+        print(f"   Total elements in result: {result.total_elements}")
+        print(f"   Success: {result.success}")
+        if result.error:
+            print(f"   Error: {result.error}")
+        return 1
     
     # Show statistics
     if args.stats or not args.full_tree:
