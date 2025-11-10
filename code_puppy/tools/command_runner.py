@@ -386,14 +386,6 @@ def _shell_command_keyboard_context():
             except (ValueError, OSError):
                 pass
 
-        # Reset terminal state (important on Windows after Ctrl-C)
-        try:
-            from code_puppy.tools.common import reset_terminal_state
-
-            reset_terminal_state()
-        except (ImportError, Exception):
-            pass
-
         # Clean up global state
         _SHELL_CTRL_X_STOP_EVENT = None
         _SHELL_CTRL_X_THREAD = None
