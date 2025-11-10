@@ -355,3 +355,21 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
         "calibrated": True,
         "path": str(get_config_path()),
     }
+
+
+async def run_calibration(force: bool = False) -> Dict[str, Any]:
+    """Async wrapper for calibrate_platform.
+
+    This function provides an async interface to the synchronous calibration.
+    Required for compatibility with async code paths in config_manager.
+
+    Args:
+        force: If True, re-calibrate even if config exists
+
+    Returns:
+        Dictionary with calibration results
+    """
+    # calibrate_platform is synchronous, but we need async interface
+    # Since calibration is I/O-bound (file operations, subprocess calls),
+    # we just call it directly without run_in_executor
+    return calibrate_platform(force=force)
