@@ -10,7 +10,7 @@ Currently testing:
 """
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -332,7 +332,7 @@ class TestSplitMessagesForProtectedSummarization:
         ]
         
         # Mock protected token count to 300 (system + 2 recent messages)
-        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=300):
+        with patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=300):
             to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
         
         # Should protect: System + Recent 1 + Recent 2
@@ -357,7 +357,7 @@ class TestSplitMessagesForProtectedSummarization:
         ]
         
         # Large protected limit
-        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=10000):
+        with patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=10000):
             to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
         
         assert len(to_summarize) == 0
@@ -375,7 +375,7 @@ class TestSplitMessagesForProtectedSummarization:
         ]
         
         # Very small protected limit (only system message)
-        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=100):
+        with patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=100):
             to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
         
         assert len(protected) == 1
@@ -391,7 +391,7 @@ class TestSplitMessagesForProtectedSummarization:
             ModelRequest(parts=[TextPart(content="System")]),
         ]
         
-        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=1000):
+        with patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=1000):
             to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
         
         assert len(to_summarize) == 0
@@ -416,7 +416,7 @@ class TestSplitMessagesForProtectedSummarization:
         )
         
         # Protected = 450 (System 50 + Recent 100 + Latest 300)
-        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=450):
+        with patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=450):
             to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
         
         assert len(protected) == 3
@@ -443,7 +443,7 @@ class TestSplitMessagesForProtectedSummarization:
         
         # Protected = 200 (System 50 + Message 3 50 + Message 4 50 = 150, can fit one more)
         # Actually: System (50) + Msg4 (50) + Msg3 (50) + Msg2 (50) = 200
-        with pytest.mock.patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=200):
+        with patch('code_puppy.agents.base_agent.get_protected_token_count', return_value=200):
             to_summarize, protected = agent.split_messages_for_protected_summarization(messages)
         
         # Verify chronological order in protected
