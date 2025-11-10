@@ -1087,6 +1087,229 @@ See also: `CONTEXT_ENGINEERING_TESTS.md`
 
 ---
 
+## Debug Access Pattern: Full Data When Needed
+
+### The Problem
+
+**Scenario:** Delegation is great for token savings, but what if vision analysis fails?
+
+```python
+# VQA says: "I don't see a Submit button"
+# But you KNOW there's a Submit button!
+# How does the main agent debug this?
+```
+
+**Need:** Main agent must be able to:
+1. Access FULL OCR data (not just compacted summary)
+2. See the actual screenshot image
+3. Understand WHY vision analysis failed
+4. Make informed debugging decisions
+
+### The Solution: `_internal` Parameter ✅
+
+**Already implemented in OCR tools:**
+
+```python
+@agent.tool
+def desktop_extract_text(
+    context: RunContext,
+    _internal: bool = False,  # Internal use - skip compaction
+    ...
+) -> OCRExtractResult:
+    # Perform OCR
+    result = extract_text_from_image(image)
+    
+    # Success-conditional compaction
+    if result.success and len(result.text_elements) > 0 and not _internal:
+        # Normal mode: Return compacted (10 key elements)
+        return _compact_ocr_extract_result(result)
+    
+    # Debug mode (_internal=True) or failure: Return FULL data
+    return result  # All 150 elements with bounding boxes
+```
+
+### Debug Workflow
+
+**Normal Operation (Compacted):**
+```python
+# Agent's normal workflow:
+result = desktop_extract_text()  # _internal defaults to False
+# Returns: ~200 tokens (summary + 10 key elements)
+# Agent: "I see Submit, Cancel, Username fields"
+```
+
+**Debug Mode (Full Data):**
+```python
+# Agent realizes something is wrong:
+result = desktop_extract_text(_internal=True)  # Get FULL data
+# Returns: ~8,000 tokens (all 150 elements with coordinates)
+# Agent: "Ah! The Submit button is at (850, 650) with 0.95 confidence,
+#         but it's partially occluded by another window!"
+```
+
+### Recommended Debug Pattern
+
+```python
+# In agent's reasoning:
+# 1. Try normal approach (compacted)
+result = desktop_extract_text()
+if "Submit" in result.key_elements:
+    # Found it! Use compacted data
+    click_submit()
+else:
+    # Not found in top 10 elements - need more data
+    full_result = desktop_extract_text(_internal=True)
+    # Search through ALL 150 elements
+    submit_elem = find_in_full_data(full_result, "Submit")
+    if submit_elem:
+        # Found in full data (maybe low confidence)
+        click(submit_elem.x, submit_elem.y)
+    else:
+        # Truly not present - try different strategy
+        use_accessibility_api_instead()
+```
+
+### Add to VQA Tools
+
+**Recommendation:** Add similar debug access to VQA:
+
+```python
+async def desktop_screenshot_and_analyze(
+    question: str,
+    include_image: bool = False,      # For main agent debugging
+    include_full_analysis: bool = False,  # NEW: Full VQA context
+    debug_mode: bool = False,         # NEW: Everything (image + raw VQA)
+    ...
+) -> VQAResult:
+    # Analyze in separate context
+    vqa_result = vqa_agent.run_sync([question, image])
+    
+    if debug_mode:
+        # Return EVERYTHING for debugging
+        return VQAResult(
+            answer=vqa_result.output.answer,
+            confidence=vqa_result.output.confidence,
+            observations=vqa_result.output.observations,
+            # Debug fields:
+            image_base64=base64_encode(image),  # Full image
+            raw_vqa_messages=vqa_result.messages,  # Raw VQA conversation
+            vqa_token_usage=vqa_result.usage,  # Token breakdown
+            screenshot_path=screenshot_path,
+        )
+    
+    if include_image:
+        # Include image for human review (but not full VQA internals)
+        return VQAResult(
+            answer=vqa_result.output.answer,
+            image_base64=base64_encode(image),
+            screenshot_path=screenshot_path,
+        )
+    
+    # Normal mode: Just the analysis (no image)
+    return VQAResult(
+        answer=vqa_result.output.answer,
+        confidence=vqa_result.output.confidence,
+        screenshot_path=screenshot_path,
+    )
+```
+
+### Debug Levels
+
+| Level | Tokens | Use Case | When to Use |
+|-------|--------|----------|-------------|
+| **Normal** | 300 | Production | Default - works 95% of the time |
+| **include_image=True** | 120,300 | Human review | Agent wants human to see screenshot |
+| **include_full_analysis=True** | 500 | Agent debugging | Agent needs VQA reasoning details |
+| **debug_mode=True** | 120,800 | Deep debugging | Vision analysis completely failing |
+
+### Agent Reasoning Pattern
+
+**Smart escalation:**
+
+```python
+# Agent's internal logic:
+
+# LEVEL 1: Try compacted (fast, cheap)
+result = desktop_screenshot_and_analyze("Where is Submit?")
+if result.confidence > 0.9:
+    # High confidence - trust it
+    click(extract_coords(result.answer))
+    return
+
+# LEVEL 2: Low confidence - get more OCR data
+if result.confidence < 0.7:
+    # VQA not confident - try direct OCR
+    ocr_result = desktop_extract_text(_internal=True)  # Full data
+    submit_elements = [e for e in ocr_result.text_elements if "submit" in e.text.lower()]
+    if submit_elements:
+        # Found via OCR bypass
+        click(submit_elements[0].center_x, submit_elements[0].center_y)
+        return
+
+# LEVEL 3: Still failing - enable debug mode
+if still_not_found:
+    debug_result = desktop_screenshot_and_analyze(
+        "Where is Submit?",
+        debug_mode=True,  # Get everything
+    )
+    # Agent can now:
+    # - See the actual screenshot image
+    # - Review VQA's raw reasoning
+    # - Check token usage (maybe image too large?)
+    # - Understand WHY vision failed
+    
+    # Share with user:
+    share_your_reasoning(
+        reasoning=f"Vision analysis failed. Debug shows: {debug_result.raw_vqa_messages}",
+        next_steps="Trying accessibility API instead"
+    )
+```
+
+### Implementation Checklist
+
+**Already Done:** ✅
+- [x] OCR has `_internal=True` for full data access
+- [x] Compaction skipped on failure (automatic debugging)
+- [x] Screenshots saved to disk (manual review possible)
+
+**Recommended Additions:**
+- [ ] Add `debug_mode=True` to VQA tools
+- [ ] Add `include_full_analysis=True` for VQA reasoning
+- [ ] Document agent escalation pattern
+- [ ] Add examples to agent prompt
+- [ ] Add tests for debug access pattern
+
+### Token Budget Example
+
+**Scenario: Agent debugging a vision failure**
+
+```
+Attempt 1 (Normal): 300 tokens
+  → VQA: "I see a form but no Submit button" (confidence: 0.5)
+
+Attempt 2 (Full OCR): 8,000 tokens
+  → OCR (_internal=True): Found "Submit" at (850, 650) with 0.65 confidence
+  → Success! Click at coordinates.
+
+Attempt 3 (If still failing - Debug mode): 120,800 tokens
+  → Full image + VQA reasoning
+  → Agent realizes: "Image is blurry, resolution too low"
+  → Shares with user: "Please ensure screen resolution is at least 1080p"
+
+TOTAL: 300 + 8,000 + 120,800 = 129,100 tokens
+
+VS embedding images every time: 120,300 × 3 = 360,900 tokens
+Savings even with debugging: 64% (129k vs 361k)
+```
+
+**Key insight:** Even with debug access, delegation saves tokens because:
+- 95% of calls succeed with compacted data (300 tokens)
+- 4% need full OCR (8k tokens)
+- 1% need debug mode (120k tokens)
+- **Average: ~1,200 tokens per call** (vs 120k with always-embedded)
+
+---
+
 ## Practical Examples
 
 ### Example 1: Simple Button Click

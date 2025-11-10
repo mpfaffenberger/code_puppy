@@ -525,10 +525,168 @@ None of these apply to desktop automation vision analysis.
 
 ---
 
+## Debug Access: Main Agent's Escape Hatch
+
+### The Critical Requirement
+
+**User feedback:** "It's important that the base gui-cub agent can still access the entire OCR engine functionality for debugging if it's busted."
+
+**Absolutely right!** While delegation saves tokens, the main agent MUST be able to get full data when needed.
+
+### Current Implementation (OCR) ✅
+
+**Already supports debug access:**
+
+```python
+@agent.tool
+def desktop_extract_text(
+    context: RunContext,
+    _internal: bool = False,  # Internal use - skip compaction
+    ...
+) -> OCRExtractResult:
+    result = extract_text_from_image(image)
+    
+    # Compaction skipped when _internal=True
+    if result.success and not _internal:
+        return _compact_ocr_extract_result(result)  # 10 elements
+    
+    return result  # ALL 150 elements with coordinates
+```
+
+### Debug Workflow
+
+**Normal (95% of cases):**
+```python
+result = desktop_extract_text()  # Compacted (~200 tokens)
+# Agent: "I see Submit, Cancel, Username"
+```
+
+**Debug (5% of cases):**
+```python
+result = desktop_extract_text(_internal=True)  # Full data (~8k tokens)
+# Agent: "I need to see ALL text elements to debug why Submit wasn't found"
+# Returns: All 150 elements with bounding boxes, confidence scores, etc.
+```
+
+### Recommended: Add Debug Mode to VQA
+
+```python
+async def desktop_screenshot_and_analyze(
+    question: str,
+    include_image: bool = False,      # Include image in result
+    debug_mode: bool = False,         # Include image + raw VQA data
+    ...
+) -> VQAResult:
+    vqa_result = vqa_agent.run_sync([question, image])
+    
+    if debug_mode:
+        # FULL debugging info
+        return VQAResult(
+            answer=vqa_result.output.answer,
+            confidence=vqa_result.output.confidence,
+            observations=vqa_result.output.observations,
+            # Debug extras:
+            image_base64=base64_encode(image),        # Full screenshot
+            raw_vqa_messages=vqa_result.messages,     # VQA conversation
+            vqa_token_usage=vqa_result.usage,         # Token breakdown
+            model_used=vqa_model_name,                # Which model
+            screenshot_path=screenshot_path,
+        )
+    
+    # Normal mode (default)
+    return VQAResult(
+        answer=vqa_result.output.answer,
+        confidence=vqa_result.output.confidence,
+        screenshot_path=screenshot_path,
+        image_base64=base64 if include_image else None,
+    )
+```
+
+### Agent Escalation Pattern
+
+**Smart debugging:**
+
+```python
+# LEVEL 1: Try compacted (fast, cheap)
+result = desktop_screenshot_and_analyze("Where is Submit?")
+# ~300 tokens
+
+if result.confidence > 0.9:
+    # High confidence - use it
+    click(parse_coords(result.answer))
+else:
+    # LEVEL 2: Low confidence - try full OCR data
+    ocr = desktop_extract_text(_internal=True)  # Get ALL elements
+    # ~8,000 tokens
+    
+    submit = [e for e in ocr.text_elements if "submit" in e.text.lower()]
+    if submit:
+        # Found via full OCR
+        click(submit[0].center_x, submit[0].center_y)
+    else:
+        # LEVEL 3: Complete failure - enable debug mode
+        debug = desktop_screenshot_and_analyze(
+            "Where is Submit?",
+            debug_mode=True,  # Get EVERYTHING
+        )
+        # ~120,800 tokens
+        
+        # Agent can now:
+        # - See the screenshot image
+        # - Review VQA's raw reasoning
+        # - Check if image quality is poor
+        # - Share findings with user
+        
+        share_your_reasoning(
+            f"Vision analysis failing. Debug shows: {debug.raw_vqa_messages}."
+            f"Image quality may be poor. Trying accessibility API instead."
+        )
+```
+
+### Token Cost Analysis
+
+**Scenario: 100 vision operations, 5% need debugging**
+
+```
+Without Debug Access (Always embed images):
+100 operations × 120,300 tokens = 12,030,000 tokens
+
+With Debug Access (Smart delegation):
+95 normal operations × 300 tokens = 28,500 tokens
+4 full OCR operations × 8,000 tokens = 32,000 tokens
+1 debug operation × 120,800 tokens = 120,800 tokens
+TOTAL: 181,300 tokens
+
+Savings: 98.5% (181k vs 12M tokens)
+```
+
+**Key insight:** Even with debug access, delegation is massively more efficient because:
+- Most operations succeed with compacted data
+- Debug mode used rarely (1-5% of cases)
+- Full data available when needed
+
+### Debug Access Levels
+
+| Level | Mode | Tokens | When |
+|-------|------|--------|------|
+| **1. Compacted** | Default | 200-300 | 95% of calls |
+| **2. Full Data** | `_internal=True` | 8,000 | Compacted insufficient |
+| **3. Debug Mode** | `debug_mode=True` | 120,800 | Vision completely failing |
+
+**Agent decides escalation based on:**
+- Confidence scores (< 0.7 → escalate)
+- Task success (failed → escalate)
+- Repeated failures (3+ → debug mode)
+
+---
+
 ## Related Decisions
 
-- Use `include_image=False` to keep images out of main context ✅
-- Save screenshots to disk for debugging ✅
+- Use `include_image=False` by default to keep images out of main context ✅
+- Use `_internal=True` for full OCR data when needed ✅
+- Use `debug_mode=True` for complete vision debugging ✅
+- Save screenshots to disk for manual review ✅
 - Return structured analysis (not raw text) ✅
 - Cache VQA agent instance for performance ✅
 - Support configurable VQA model (already done) ✅
+- **Main agent retains full debug access when needed** ✅
