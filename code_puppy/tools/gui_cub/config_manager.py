@@ -282,6 +282,12 @@ async def ensure_calibrated() -> Dict[str, Any]:
             f"[cyan]♻️ {reason}, re-calibrating...[/cyan]",
             message_group=group_id,
         )
+        # Delete stale config to ensure fresh calibration
+        try:
+            config_path.unlink()
+        except Exception:
+            pass  # Best effort - calibration will overwrite anyway
+
         from code_puppy.tools.gui_cub.calibration import run_calibration
 
         return await run_calibration()

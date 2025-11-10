@@ -1,17 +1,7 @@
- 4 Save it for reuse
- WINDOWS FOCUS  🪟 Calculator
-Focused window: Calculator
-KEYBOARD TYPE ⌨️  text='25+37' interval=0.0
-KEYBOARD PRESS ⌨️  key='enter' presses=1 interval=0.0
-SLEEP 💤  seconds=0.3
- SAVE WORKFLOW  💾 name='calculator_compute', format='yaml'
-✅ Workflow saved successfully: C:\Users\c0b00wt\.code_puppy\agents\gui_cub\workflows\calculator_compute.yaml
- SAVE WORKFLOW  💾 name='calculator_quick', format='yaml'
-✅ Workflow saved successfully: C:\Users\c0b00wt\.code_puppy\agents\gui_cub\workflows\calculator_quick.yaml
- EXECUTE WORKFLOW  ▶️ name='calculator_quick'
-▶️  Executing step 1/6: focus_window
-▶️  Executing step 2/6: press
-Step 2 failed: cannot import name 'desktop_keyboard_press' from 'code_puppy.tools.gui_cub.keyboard_control'
-(C:\Users\c0b00wt\Toolbox\code-puppy\code_puppy\tools\gui_cub\keyboard_control.py)
-✅ Workflow 'Calculator Quick' completed: partial - 1 executed, 0 skipped
-────────────────────────────────────────────────────────────────────────────────────────────────────
+
+🐶 Doc [Desktop Automation Cub 🐻] [claude-4-5-sonnet] (~\Toolbox\code-puppy) >>> lets make a calculator workflow
+🔍 Checking platform configuration...
+♻️ Resolution changed: [1728, 1080] → [3440, 1377], re-calibrating...
+Platform already calibrated (use /calibrate to re-run)
+ LIST WORKFLOWS  📋
+✅ Found 0 workflow(s)
