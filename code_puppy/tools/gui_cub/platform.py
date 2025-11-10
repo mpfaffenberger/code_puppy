@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 import sys
+
+from .logic.scaling import (
+    DisplayMetrics,
+    calculate_scale_factor,
+    convert_physical_to_logical,
+    is_valid_scale_factor,
+)
 from enum import Enum
 from typing import Callable
 
@@ -179,20 +186,14 @@ def get_screen_scale_factor(use_cache: bool = True) -> float:
         shot = pyautogui.screenshot()
         physical_width, physical_height = shot.size
 
-        # Compute scale by width ratio (height should match)
-        if logical_width == 0 or logical_height == 0:
-            return 1.0
-        scale_x = physical_width / logical_width
-        scale_y = physical_height / logical_height
-
-        # If mismatch beyond small epsilon, choose width ratio as authoritative
-        if abs(scale_x - scale_y) > 0.1:
-            scale = scale_x
-        else:
-            scale = (scale_x + scale_y) / 2
-
-        # Round to nearest 0.25 to handle non-integer scales, but clamp reasonable bounds
-        scale_rounded = max(1.0, min(4.0, round(scale * 4) / 4))
+        # Use extracted pure logic to calculate scale factor
+        metrics = DisplayMetrics(
+            physical_width=physical_width,
+            physical_height=physical_height,
+            logical_width=logical_width,
+            logical_height=logical_height,
+        )
+        scale_rounded = calculate_scale_factor(metrics)
 
         # Cache the calculated value
         _cached_scale_factor = scale_rounded
@@ -229,8 +230,10 @@ def convert_screenshot_to_screen_coords(
     if scale_factor is None:
         scale_factor = get_screen_scale_factor()
 
-    screen_x = int(screenshot_x / scale_factor)
-    screen_y = int(screenshot_y / scale_factor)
+    # Use extracted pure logic for coordinate conversion
+    screen_x, screen_y = convert_physical_to_logical(
+        screenshot_x, screenshot_y, scale_factor
+    )
 
     return screen_x, screen_y
 
