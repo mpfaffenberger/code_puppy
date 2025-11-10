@@ -3,51 +3,38 @@
 import pytest
 
 from code_puppy.tools.gui_cub.core.browser_offsets import (
-    calculate_chrome_offset,
+    apply_chrome_offset,
     get_title_bar_height,
 )
 
 
-class TestCalculateChromeOffset:
-    """Test browser chrome offset calculation."""
+class TestApplyChromeOffset:
+    """Test browser chrome offset application."""
 
-    def test_chrome_mac(self):
-        """Chrome on macOS should have specific offset."""
-        offset = calculate_chrome_offset(browser="chrome", platform="darwin")
-        assert isinstance(offset, int)
-        assert offset >= 0
+    def test_apply_offset_adds_to_y(self):
+        """Applying offset should adjust Y coordinate."""
+        x, y = 100, 100
+        title_bar = 30
+        browser_chrome = 50
+        
+        new_x, new_y = apply_chrome_offset(x, y, title_bar, browser_chrome)
+        assert new_x == x  # X unchanged
+        assert new_y == y + title_bar + browser_chrome
 
-    def test_chrome_windows(self):
-        """Chrome on Windows should have specific offset."""
-        offset = calculate_chrome_offset(browser="chrome", platform="win32")
-        assert isinstance(offset, int)
-        assert offset >= 0
+    def test_apply_offset_zero(self):
+        """Zero offsets should return same coordinates."""
+        x, y = 100, 200
+        new_x, new_y = apply_chrome_offset(x, y, 0, 0)
+        assert new_x == x
+        assert new_y == y
 
-    def test_firefox_mac(self):
-        """Firefox on macOS should have specific offset."""
-        offset = calculate_chrome_offset(browser="firefox", platform="darwin")
-        assert isinstance(offset, int)
-        assert offset >= 0
-
-    def test_safari_mac(self):
-        """Safari on macOS should have specific offset."""
-        offset = calculate_chrome_offset(browser="safari", platform="darwin")
-        assert isinstance(offset, int)
-        assert offset >= 0
-
-    def test_edge_windows(self):
-        """Edge on Windows should have specific offset."""
-        offset = calculate_chrome_offset(browser="edge", platform="win32")
-        assert isinstance(offset, int)
-        assert offset >= 0
-
-    def test_different_browsers_different_offsets(self):
-        """Different browsers may have different offsets."""
-        chrome = calculate_chrome_offset(browser="chrome", platform="darwin")
-        firefox = calculate_chrome_offset(browser="firefox", platform="darwin")
-        # They might be same or different, just verify both return valid values
-        assert isinstance(chrome, int)
-        assert isinstance(firefox, int)
+    def test_apply_offset_title_bar_only(self):
+        """Only title bar offset."""
+        x, y = 100, 100
+        title_bar = 25
+        new_x, new_y = apply_chrome_offset(x, y, title_bar, 0)
+        assert new_x == x
+        assert new_y == y + title_bar
 
 
 class TestGetTitleBarHeight:
