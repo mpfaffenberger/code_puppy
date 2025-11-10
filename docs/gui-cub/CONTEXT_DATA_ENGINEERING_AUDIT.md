@@ -127,33 +127,50 @@ def _compact_element_list_result(
 
 ---
 
-### 3. Screenshot Handling ❌ (Needs Work)
+### 3. Screenshot Handling ⚠️ (Delegation Pattern Available, Underutilized)
 
 **Location:** `code_puppy/tools/gui_cub/screen_capture/take_screenshot.py`
 
-**Current Strategy:**
+**Current Implementation:**
 ```python
-# Returns full base64 image regardless of context
-return ScreenshotResult(
-    success=True,
-    image_base64=base64_string,  # LARGE! (50k-200k tokens)
-    width=1920,
-    height=1080,
-    format="PNG",
-)
+# Good: Uses separate VQA agent for analysis
+async def take_desktop_screenshot_and_analyze(
+    question: str,
+    ...
+) -> VQAResult:
+    # 1. Capture screenshot
+    image = capture_screen(...)
+    
+    # 2. Analyze in SEPARATE agent context (good!)
+    vqa_agent = _get_desktop_vqa_agent()  # Separate pydantic-ai Agent
+    analysis = vqa_agent.run_sync(
+        question,
+        image_bytes=image,  # Full quality image
+    )
+    
+    # 3. Return structured result
+    return VQAResult(
+        answer=analysis.answer,           # ~50-200 tokens
+        confidence=analysis.confidence,   # Tiny
+        observations=analysis.observations, # ~100-300 tokens
+        # Problem: Still includes full image in result!
+        image_base64=base64_string,  # 50k-200k tokens ❌
+    )
 ```
 
-**Metrics:**
-- **Result size:** 50,000-200,000 tokens (depending on resolution)
-- **Compaction:** 0% (no compaction applied) ❌
+**What's Good:**
+- ✅ Uses separate `Agent` instance for VQA (doesn't pollute main context)
+- ✅ Full-quality image sent to vision model (no quality loss)
+- ✅ Structured analysis returned (`DesktopVisualAnalysisResult`)
+- ✅ Configurable VQA model (can use different model than main agent)
 
-**Problems:**
-- ❌ Massive token usage (can consume 20% of context in one call)
-- ❌ No thumbnail option for quick checks
-- ❌ No region cropping guidance
-- ❌ Format not optimized (PNG vs JPEG)
+**What's Missing:**
+- ❌ Still returns full image in `VQAResult` (defeats the purpose!)
+- ❌ Image not needed in main agent's context after analysis
+- ❌ Same pattern not applied to OCR tools
+- ❌ No option to exclude image from result
 
-**Opportunity:** **Huge savings potential** (~80-90% with smart strategies)
+**Opportunity:** Already 90% there! Just need to make image optional in results.
 
 ---
 
@@ -193,71 +210,294 @@ TOTAL WORKFLOW TOKENS:
 
 ---
 
+## The Delegation Pattern (Best Practice)
+
+### Why Delegation > Compression
+
+You're absolutely right! We should **NOT compress screenshots**. Instead, we should:
+
+**✅ DO:** Analyze full-quality images in separate contexts, return only the analysis  
+**❌ DON'T:** Compress images and embed them in the main agent's context
+
+### Comparison Table
+
+| Approach | Image Quality | Token Cost | OCR Accuracy | Complexity |
+|----------|---------------|------------|--------------|------------|
+| **Compression** | ❌ Degraded | Medium | ❌ Lower | Medium |
+| **Thumbnails** | ❌ Very degraded | Low | ❌ Unusable | Low |
+| **Delegation** ✅ | ✅ Full quality | Very low | ✅ Perfect | Low |
+
+### How Delegation Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Main Agent Context (Your conversation with the agent)      │
+│                                                             │
+│ User: "Click the Submit button"                            │
+│                                                             │
+│ Agent: I'll take a screenshot and find it                  │
+│   ↓                                                         │
+│   Calls: desktop_screenshot_and_analyze(                   │
+│            "Where is the Submit button?"                   │
+│          )                                                  │
+│                                                             │
+│   ┌─────────────────────────────────────────────────┐     │
+│   │ SEPARATE VQA Agent Context (isolated!)          │     │
+│   │                                                  │     │
+│   │ [Full 1920x1080 PNG image] ← 120k tokens        │     │
+│   │ Question: "Where is the Submit button?"         │     │
+│   │                                                  │     │
+│   │ Vision Model analyzes...                        │     │
+│   │                                                  │     │
+│   │ Result: {                                        │     │
+│   │   answer: "Bottom-right at (850, 650)",         │     │
+│   │   confidence: 0.95,                              │     │
+│   │   observations: "Blue button with white text"   │     │
+│   │ }                                                │     │
+│   └─────────────────────────────────────────────────┘     │
+│   ↓                                                         │
+│ Agent receives: VQAResult {                                │
+│   answer: "Bottom-right at (850, 650)",                   │
+│   confidence: 0.95,                                        │
+│   observations: "Blue button"                              │
+│   screenshot_path: "/path/to/screenshot.png"               │
+│   image_base64: null  ← NO IMAGE IN MAIN CONTEXT!          │
+│ }                                                           │
+│ ↑ Only ~300 tokens added to main context                  │
+│                                                             │
+│ Agent: I found it at (850, 650). Clicking now...           │
+│   Calls: desktop_click(850, 650)                           │
+│                                                             │
+│ ✅ Total context impact: ~300 tokens (not 120k!)           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Benefits
+
+1. **Full Quality for Analysis** ✅
+   - Vision model sees pristine 1920x1080 image
+   - OCR gets every pixel it needs
+   - No compression artifacts
+   - Perfect for reading small text
+
+2. **Zero Context Pollution** ✅
+   - Image analyzed in isolated agent instance
+   - Main conversation never sees the image
+   - Can analyze 100 screenshots = 100 x 300 tokens = 30k tokens
+   - With embedded: 100 x 120k = 12M tokens (impossible!)
+
+3. **Preserved for Debugging** ✅
+   - Screenshots auto-saved to `~/.code_puppy/screenshots/`
+   - Review images later if something goes wrong
+   - Can include in result with `include_image=True` for manual review
+
+4. **Same Pattern for All Vision Tasks** ✅
+   - VQA: Separate `Agent` instance
+   - OCR: Local processing (no model tokens at all!)
+   - Accessibility: No image needed (uses native APIs)
+   - Consistent approach across tools
+
+### Why We Already Have the Infrastructure
+
+**Current Code (VQA):**
+```python
+# code_puppy/tools/gui_cub/vqa_desktop.py
+@lru_cache(maxsize=1)
+def _load_desktop_vqa_agent(model_name: str) -> Agent[None, DesktopVisualAnalysisResult]:
+    """Create a CACHED agent instance for desktop visual analysis."""
+    return Agent(
+        model=model,
+        instructions="You are a desktop visual analysis specialist...",
+        output_type=DesktopVisualAnalysisResult,
+    )
+```
+
+**This is perfect!** We have:
+- ✅ Separate `Agent` instance (isolated context)
+- ✅ Cached (efficient reuse)
+- ✅ Structured output (`DesktopVisualAnalysisResult`)
+- ✅ Configurable model (can use cheap vision model)
+
+**What's missing:** Just need to NOT include image in the final result returned to main agent.
+
+---
+
 ## Recommendations
 
 ### Priority 1: Critical (Implement Immediately)
 
-#### 1.1 Screenshot Compaction Strategy 🔥
+#### 1.1 Delegation Pattern for Visual Analysis 🔥 (BETTER APPROACH)
 
-**Problem:** Screenshots consume 50k-200k tokens with no compaction.
+**Problem:** Screenshots consume 50k-200k tokens even though we already use a separate VQA agent.
 
-**Solution:** Multi-tier screenshot strategy
+**Current State:** We delegate analysis to a separate `Agent` instance (good!), but still return the full image in the result (bad!).
 
+**Solution:** Complete the delegation pattern - analyze in separate context, return only the analysis
+
+**The Right Way:**
 ```python
-class ScreenshotTier(Enum):
-    NONE = "none"          # No image (just metadata)
-    THUMBNAIL = "thumb"    # 200x150 px (~2k tokens)
-    CROPPED = "crop"       # Region only (~5-10k tokens)
-    FULL = "full"          # Full res (~50-200k tokens)
-
-def desktop_screenshot(
-    context: RunContext,
-    tier: ScreenshotTier = ScreenshotTier.THUMBNAIL,  # Default: thumbnail
-    region: tuple[int, int, int, int] | None = None,
-    format: str = "JPEG",  # JPEG is 60% smaller than PNG for screenshots
-    quality: int = 85,     # Good visual quality, smaller size
-) -> ScreenshotResult:
-    if tier == ScreenshotTier.NONE:
-        return ScreenshotResult(
-            success=True,
-            width=screen_width,
-            height=screen_height,
-            summary="Screenshot available, use tier='thumb' to view",
-            # No image data
-        )
+async def take_desktop_screenshot_and_analyze(
+    question: str,
+    include_image: bool = False,  # NEW: Default to NOT including image
+    save_to_disk: bool = True,    # Save for debugging
+    ...
+) -> VQAResult:
+    # 1. Capture full-quality screenshot
+    image = capture_screen(...)
     
-    if tier == ScreenshotTier.THUMBNAIL:
-        # Downscale to 200x150
-        thumb = image.resize((200, 150), Image.LANCZOS)
-        base64_thumb = encode_base64(thumb)
-        return ScreenshotResult(
-            success=True,
-            image_base64=base64_thumb,  # ~2k tokens
-            width=200,
-            height=150,
-            tier="thumbnail",
-            summary="Thumbnail preview, use tier='full' for details",
-        )
+    # 2. Analyze in SEPARATE agent/model context
+    # This is isolated - doesn't affect main agent's token budget!
+    vqa_agent = _get_desktop_vqa_agent()
+    analysis = vqa_agent.run_sync(
+        question,
+        image_bytes=image,  # Full quality, no compression
+    )
     
-    # ... CROPPED and FULL tiers
+    # 3. Save to disk for debugging (optional)
+    if save_to_disk:
+        screenshot_path = save_screenshot_to_debug_folder(image)
+    
+    # 4. Return ONLY the analysis (not the image!)
+    return VQAResult(
+        success=True,
+        answer=analysis.answer,           # ~50-200 tokens
+        confidence=analysis.confidence,
+        observations=analysis.observations, # ~100-300 tokens
+        screenshot_path=screenshot_path,   # Path to full image on disk
+        width=image.width,
+        height=image.height,
+        # Key change: Only include image if explicitly requested
+        image_base64=base64_string if include_image else None,
+    )
 ```
 
-**Token savings:**
-- None tier: ~100 tokens (vs 120k) = **99.9% savings**
-- Thumbnail tier: ~2,000 tokens (vs 120k) = **98.3% savings**
-- Cropped tier: ~5,000-10,000 tokens (vs 120k) = **92-96% savings**
+**Why This is Better Than Compression:**
 
-**Recommended defaults:**
-- First screenshot in workflow: `THUMBNAIL` (quick preview)
-- Follow-up for details: `CROPPED` (region of interest)
-- Only if truly needed: `FULL`
+1. **Full Quality Analysis** ✅
+   - Vision model sees full-resolution image
+   - No quality loss for OCR, button detection, etc.
+   - Works perfectly for text-heavy screenshots
+
+2. **Zero Token Cost in Main Context** ✅
+   - Image analyzed in separate agent instance
+   - Main agent only receives text analysis (~200-500 tokens)
+   - Can analyze dozens of screenshots without bloating main context
+
+3. **Preserved for Debugging** ✅
+   - Full image saved to disk automatically
+   - Can review screenshots later
+   - Include in result if needed (opt-in)
+
+4. **Scalable** ✅
+   - Analyze 10 screenshots = 10 x 300 tokens = 3k tokens
+   - With embedded images = 10 x 120k = 1.2M tokens (!)
+   - **400x better scaling**
+
+**Token Comparison:**
+```
+Scenario: Agent needs to find "Submit" button
+
+OLD (image in result):
+1. Screenshot + VQA: 120,000 tokens (image) + 200 (analysis) = 120,200 tokens
+2. Main agent sees: Full image + answer in context
+3. Total context impact: 120,200 tokens
+
+NEW (delegation pattern):
+1. Screenshot + VQA: Separate context (doesn't count!)
+2. Main agent sees: Analysis only (200-500 tokens)
+3. Total context impact: 300 tokens
+
+Savings: 99.75% (120,200 → 300 tokens)
+```
+
+**Scalability Comparison:**
+
+| Scenario | Embedded Image | Delegation Pattern | Savings |
+|----------|----------------|--------------------|---------|
+| Single screenshot | 120,300 tokens | 300 tokens | **99.75%** |
+| 5 screenshots | 601,500 tokens | 1,500 tokens | **99.75%** |
+| 10 screenshots | 1,203,000 tokens | 3,000 tokens | **99.75%** |
+| Complex workflow | Context overflow ❌ | 5,000 tokens ✅ | **Infinite** |
+
+**Why Delegation Beats Compression:**
+- **Compression:** 120k → 2k tokens (98% savings) but **quality loss** ❌
+- **Delegation:** 120k → 300 tokens (99.75% savings) with **full quality** ✅
+- **Winner:** Delegation (better savings AND better quality) 🏆
+
+**Apply Delegation Pattern to All Vision Tools:**
+
+```python
+# OCR with delegation
+async def desktop_ocr_extract_text(
+    context: RunContext,
+    include_image: bool = False,  # Don't include image by default
+    ...
+) -> OCRExtractResult:
+    # 1. Capture screenshot
+    image = capture_screen(...)
+    
+    # 2. Run OCR in separate context (native platform API or Tesseract)
+    # This doesn't use model tokens at all - it's a local process
+    text_elements = extract_text_from_image(image)
+    
+    # 3. Compact results
+    compact_result = _compact_ocr_extract_result(text_elements)
+    
+    # 4. Save to disk
+    screenshot_path = save_screenshot_to_debug_folder(image)
+    
+    # 5. Return ONLY text analysis (not image)
+    return OCRExtractResult(
+        success=True,
+        key_elements=compact_result.key_elements,  # ~200 tokens
+        summary=compact_result.summary,
+        screenshot_path=screenshot_path,
+        # Only include image if explicitly requested
+        image_base64=base64_string if include_image else None,
+    )
+
+# VQA with delegation (already partially implemented)
+async def desktop_screenshot_and_analyze(
+    question: str,
+    include_image: bool = False,  # NEW: Default False
+    ...
+) -> VQAResult:
+    # Analysis in separate agent context
+    analysis = vqa_agent.run_sync(question, image_bytes)
+    
+    return VQAResult(
+        answer=analysis.answer,
+        confidence=analysis.confidence,
+        screenshot_path=screenshot_path,
+        # Don't include image unless requested
+        image_base64=base64_string if include_image else None,
+    )
+```
+
+**When to Include Image:**
+```python
+# For human review/debugging:
+result = await desktop_screenshot_and_analyze(
+    "Find the Submit button",
+    include_image=True,  # Include for manual inspection
+)
+
+# Normal agent operation:
+result = await desktop_screenshot_and_analyze(
+    "Find the Submit button",
+    # include_image defaults to False
+)
+# Agent receives: "The Submit button is in the bottom-right corner"
+# No image in context!
+```
 
 **Implementation:**
-- [ ] Add `ScreenshotTier` enum
-- [ ] Implement thumbnail generation
-- [ ] Default to `THUMBNAIL` tier
-- [ ] Update tool documentation
-- [ ] Add examples to agent prompt
+- [ ] Add `include_image=False` parameter to all vision tools
+- [ ] Update VQA tools to respect this flag
+- [ ] Update OCR tools to respect this flag
+- [ ] Ensure screenshots still saved to disk for debugging
+- [ ] Update agent prompt to explain delegation pattern
+- [ ] Add examples showing when to include_image
 
 ---
 
@@ -767,47 +1007,51 @@ LIMITATIONS:
 - Expensive (high token costs)
 ```
 
-### After Priority 1 (Critical Fixes)
+### After Priority 1 (Delegation Pattern)
 
 ```
-Same workflow with improvements:
+Same workflow with delegation:
 
 1. List accessible elements: ~300 tokens (context-aware limit) ✅✅
-2. Screenshot (THUMBNAIL): ~2,000 tokens (tier=thumb) ✅✅
-3. OCR extract: ~150 tokens (context-aware) ✅✅
+2. Screenshot + VQA (DELEGATED): ~300 tokens (analysis only) ✅✅✅
+3. OCR extract (DELEGATED): ~150 tokens (text only) ✅✅
 4. Find element: ~80 tokens ✅
 5. Click: ~50 tokens ✅
 
-TOTAL: ~2,580 tokens
-SAVINGS: 97.9% 🎉
+TOTAL: ~880 tokens
+SAVINGS: 99.3% 🚀
 
 BENEFITS:
+- Full-quality images for analysis (no compression)
 - Can use smaller models (gpt-4o-mini, claude-haiku)
-- 10-20x more room for conversation
-- Lower costs (~20x cheaper)
+- 50-100x more room for conversation
+- Lower costs (~100x cheaper)
 - Faster responses
+- Perfect OCR accuracy (full resolution)
 ```
 
-### After Priority 2 (Important Enhancements)
+### After Priority 2 (Progressive Detail + Delegation)
 
 ```
 Advanced workflow with progressive detail:
 
 1. List elements (MINIMAL): ~50 tokens
    → "Found 200 elements"
-2. Screenshot (THUMBNAIL): ~2,000 tokens
+2. Screenshot + VQA (DELEGATED): ~300 tokens
    → Agent: "I see buttons in top-left"
 3. List elements (COMPACT, top-left region): ~200 tokens
    → Agent: "Found Submit button at (500, 300)"
 4. Click: ~50 tokens
 
-TOTAL: ~2,300 tokens
-SAVINGS: 98.1% 🚀
+TOTAL: ~600 tokens
+SAVINGS: 99.6% 🚀
 
 BENEFITS:
 - Start with minimal info, progressively request more
+- Full-quality vision analysis (no compression)
 - Optimal token usage (only what's needed)
 - Clear spatial awareness (coordinates preserved)
+- Can handle 100+ screenshots in one conversation
 ```
 
 ---
@@ -843,6 +1087,184 @@ See also: `CONTEXT_ENGINEERING_TESTS.md`
 
 ---
 
+## Practical Examples
+
+### Example 1: Simple Button Click
+
+**User:** "Click the Submit button in Calculator"
+
+**Agent Workflow (with delegation):**
+
+```python
+# 1. Agent decides to use VQA
+result = await desktop_screenshot_and_analyze(
+    question="Where is the Submit button?",
+    window_title="Calculator",
+    # include_image defaults to False
+)
+
+# 2. Behind the scenes:
+#    - Screenshot captured (1920x1080 PNG)
+#    - Sent to SEPARATE VQA agent with full quality
+#    - VQA agent analyzes: "Submit button at (850, 650), blue with white text"
+#    - Image saved to disk: ~/.code_puppy/screenshots/2025-01-15_14-30-22.png
+#    - Result returned WITHOUT image
+
+# 3. Agent receives (in main context):
+result = VQAResult(
+    answer="The Submit button is in the bottom-right corner at coordinates (850, 650)",
+    confidence=0.95,
+    observations="Blue rectangular button with white text 'Submit'",
+    screenshot_path="~/.code_puppy/screenshots/2025-01-15_14-30-22.png",
+    image_base64=None,  # ← NO IMAGE!
+)
+# This result = ~300 tokens (not 120,000!)
+
+# 4. Agent clicks
+await desktop_click(850, 650)
+
+# Total tokens added to main context: ~400 tokens
+# If image was included: ~120,400 tokens
+# Savings: 99.67%
+```
+
+---
+
+### Example 2: Complex Form Filling (Multiple Screenshots)
+
+**User:** "Fill out the registration form: Name=John, Email=john@example.com, Age=30"
+
+**Agent Workflow:**
+
+```python
+# 1. Take overview screenshot
+overview = await desktop_screenshot_and_analyze(
+    question="What form fields are visible?"
+)
+# Result: ~300 tokens ("Name field, Email field, Age dropdown visible")
+
+# 2. Find Name field
+name_field = await desktop_screenshot_and_analyze(
+    question="Where is the Name input field?"
+)
+# Result: ~300 tokens ("Top-left at (400, 200)")
+
+await desktop_click(400, 200)
+await desktop_type_text("John")
+
+# 3. Find Email field
+email_field = await desktop_screenshot_and_analyze(
+    question="Where is the Email input field?"
+)
+# Result: ~300 tokens
+
+await desktop_click(500, 300)
+await desktop_type_text("john@example.com")
+
+# 4. Find Age dropdown
+age_dropdown = await desktop_screenshot_and_analyze(
+    question="Where is the Age dropdown?"
+)
+# Result: ~300 tokens
+
+await desktop_click(450, 400)
+await desktop_type_text("30")
+
+# 5. Submit
+submit = await desktop_screenshot_and_analyze(
+    question="Where is the Submit button?"
+)
+# Result: ~300 tokens
+
+await desktop_click(submit.coordinates)
+
+# TOTAL TOKENS: 5 screenshots × 300 tokens = 1,500 tokens
+# With embedded images: 5 × 120,000 = 600,000 tokens (would overflow!)
+# Savings: 99.75%
+```
+
+---
+
+### Example 3: OCR Text Extraction
+
+**User:** "Read all the text from this PDF preview"
+
+**Agent Workflow:**
+
+```python
+# OCR with delegation
+result = await desktop_ocr_extract_text(
+    # include_image defaults to False
+)
+
+# Behind the scenes:
+# - Screenshot captured (full quality)
+# - Native OCR API called (macOS Vision or Windows WinRT)
+# - Text extracted with bounding boxes
+# - Results compacted (top 10 elements)
+# - Image saved to disk
+# - NO image returned to main agent
+
+# Agent receives:
+result = OCRExtractResult(
+    success=True,
+    found_count=150,
+    key_elements=[
+        "Introduction",
+        "Chapter 1: Getting Started",
+        "Prerequisites",
+        "Installation",
+        "Configuration",
+        # ... top 10 elements
+    ],
+    summary="Found 150 text elements (avg confidence: 0.89)",
+    average_confidence=0.89,
+    screenshot_path="~/.code_puppy/screenshots/ocr_2025-01-15.png",
+    # NO full_text, NO image_base64, NO 150 bounding boxes
+)
+# This result = ~200 tokens
+
+# Full OCR data (if needed):
+full_result = await desktop_ocr_extract_text(
+    _internal=True,  # Get full data
+)
+# Returns all 150 elements with coordinates
+# Use sparingly - only when agent needs detailed positioning
+
+# NORMAL USAGE: 200 tokens
+# With full image: ~120,000 tokens
+# Savings: 99.83%
+```
+
+---
+
+### Example 4: Debugging (Include Image)
+
+**When you DO want the image:**
+
+```python
+# For human review/debugging:
+result = await desktop_screenshot_and_analyze(
+    question="Why did the click fail?",
+    include_image=True,  # ← Explicitly request image
+    save_to_disk=True,
+)
+
+# Now result includes image_base64
+# Agent can show image to user for manual inspection
+# Or log it for debugging
+
+# Use cases for include_image=True:
+# - Debugging failed automation
+# - Human-in-the-loop confirmation
+# - Generating reports with screenshots
+# - Testing/validation
+
+# Normal automation: include_image=False (default)
+```
+
+---
+
 ## Related Documents
 
 - `CONTEXT_ENGINEERING_TESTS.md` - Test design for compaction logic
@@ -858,9 +1280,10 @@ See also: `CONTEXT_ENGINEERING_TESTS.md`
 **Opportunity:** Implementing Priority 1 recommendations achieves **~98% total token savings** for typical workflows.
 
 **ROI:** 
-- Implementation effort: 2-3 weeks
-- Token savings: 10-20x reduction
-- Cost savings: ~20x cheaper per workflow
-- Context headroom: 10-20x more conversation history
+- Implementation effort: **1-2 days** (just add `include_image=False` parameter)
+- Token savings: **100-400x reduction** for vision tasks
+- Cost savings: **~100x cheaper** per workflow
+- Context headroom: **50-100x more conversation history**
+- Quality impact: **BETTER** (full resolution vs compressed)
 
-**Recommendation:** Prioritize **1.1 Screenshot Compaction** (biggest impact) and **1.2 Context-Aware Limits** (prevents overflow) immediately.
+**Recommendation:** Prioritize **1.1 Delegation Pattern** (biggest impact, easiest fix) immediately. This is a **one-line change** with **massive benefits**.
