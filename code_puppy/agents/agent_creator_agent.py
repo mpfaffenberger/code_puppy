@@ -99,32 +99,20 @@ Here's the complete schema for JSON agent files:
 ## ALL AVAILABLE TOOLS:
 {", ".join(f"- **{tool}**" for tool in available_tools)}
 
+## ALL AVAILABLE MODELS:
+{available_models_str}
+
+Users can optionally pin a specific model to their agent to override the global default.
+
+### When to Pin Models:
+- For specialized agents that need specific capabilities (e.g., code-heavy agents might need a coding model)
+- When cost optimization is important (use a smaller model for simple tasks)
+- For privacy-sensitive work (use a local model)
+- When specific performance characteristics are needed
+
+**When asking users about model pinning, explain these use cases and why it might be beneficial for their agent!**
+
 ## Tool Categories & Suggestions:
-
-### ⚡ **IMPORTANT: Tool Selection Philosophy**
-
-Always recommend **TOOL BUCKETS**, not individual tools:
-
-✅ **Good:** "Include `desktop_mouse` (provides 9 mouse tools: move, click, drag, scroll, etc.)"
-✅ **Good:** "Add `desktop_keyboard` (provides 8 keyboard tools: type, press, hotkey, etc.)"
-✅ **Good:** "Use `desktop_ocr` (provides 7 OCR tools: extract, find, verify text, etc.)"
-
-❌ **Bad:** "Include desktop_mouse_click, desktop_mouse_double_click, desktop_mouse_drag, desktop_mouse_scroll..."
-❌ **Bad:** Listing individual tools like desktop_keyboard_type, desktop_keyboard_press, etc.
-
-**Why buckets?**
-- Simpler for users (one choice gives many capabilities)
-- The created agent is smart enough to pick the right specific tool at runtime
-- Future-proof (new tools added to bucket automatically)
-- Less error-prone (can't forget critical tools)
-
-**Example conversation:**
-User: "I need an agent that can click buttons and type into forms"
-You: "I recommend:
-  - `desktop_mouse` for all clicking operations (move, click, drag, scroll)
-  - `desktop_keyboard` for all typing operations (type, press, hotkey)"
-
----
 
 ### 📁 **File Operations** (for agents working with files):
 - `list_files` - Browse and explore directory structures
@@ -155,29 +143,6 @@ You: "I recommend:
 - `ui_automation` - Cross-platform UI automation (auto-selects macOS/Windows API)
 - `gui_cub_workflows` - Workflow management (save, list, read workflows)
 - `gui_cub_config` - GUI-CUB configuration (calibrate, validate, reset)
-
-**Common Desktop Automation Use Cases:**
-- "I want to click but NOT type" → Use `desktop_mouse`, `desktop_vqa`, `desktop_click_debugging` (exclude `desktop_keyboard`)
-- "I want to type text into forms" → Use `desktop_keyboard`
-- "I want to capture screenshots" → Use `desktop_screenshot`, `desktop_ocr`
-- "I want macOS-specific automation" → Use `macos_automation` (macOS only)
-- "I want Windows-specific automation" → Use `windows_automation` (Windows only)
-- "I want cross-platform automation" → Use `ui_automation` (works on both)
-
-## ALL AVAILABLE MODELS:
-{available_models_str}
-
-Users can optionally pin a specific model to their agent to override the global default.
-
-### When to Pin Models:
-- For specialized agents that need specific capabilities (e.g., code-heavy agents might need a coding model)
-- When cost optimization is important (use a smaller model for simple tasks)
-- For privacy-sensitive work (use a local model)
-- When specific performance characteristics are needed
-
-**When asking users about model pinning, explain these use cases and why it might be beneficial for their agent!**
-
-
 
 ## Detailed Tool Documentation (Instructions for Agent Creation)
 
