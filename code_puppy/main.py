@@ -9,6 +9,7 @@ warnings.filterwarnings("ignore", category=SyntaxWarning, module="pywinauto.*")
 # This gives instant visual confirmation that the app is loading
 print("🐶 Code Puppy is Loading...", flush=True)
 
+# ruff: noqa: E402
 import argparse
 import asyncio
 import os

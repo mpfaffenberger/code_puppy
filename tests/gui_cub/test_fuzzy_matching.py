@@ -168,7 +168,7 @@ class TestFuzzyMatch:
         matches = fuzzy_match("submit", candidates, ["title", "description"])
         assert len(matches) == 0
 
-    
+
 class TestExplainMatch:
     """Test match explanation generation."""
 
@@ -200,5 +200,3 @@ class TestExplainMatch:
 
 class TestIntegration:
     """Integration tests combining multiple functions."""
-
-    
