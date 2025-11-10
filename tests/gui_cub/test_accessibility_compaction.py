@@ -12,7 +12,7 @@ elements on success.
 import pytest
 from code_puppy.tools.gui_cub.accessibility.element_list import (
     ElementListResult,
-    compact_element_list,
+    _compact_element_list_result,
 )
 
 
@@ -57,7 +57,7 @@ class TestAccessibilityTreeCompaction:
             elements=elements,
         )
         
-        compact = compact_element_list(full_result)
+        compact = _compact_element_list_result(full_result)
         
         # Should keep only actionable elements (buttons + text fields)
         assert compact.filtered_count == 20  # 10 buttons + 10 fields
@@ -86,7 +86,7 @@ class TestAccessibilityTreeCompaction:
             elements=elements,
         )
         
-        compact = compact_element_list(full_result, max_elements=20)
+        compact = _compact_element_list_result(full_result, max_elements=20)
         
         assert len(compact.elements) <= 20
         assert compact.filtered_count <= 20
@@ -120,7 +120,7 @@ class TestAccessibilityTreeCompaction:
             elements=elements,
         )
         
-        compact = compact_element_list(full_result)
+        compact = _compact_element_list_result(full_result)
         
         # Verify all elements have relevance scores
         for elem in compact.elements:
@@ -150,7 +150,7 @@ class TestAccessibilityTreeCompaction:
             elements=elements,
         )
         
-        compact = compact_element_list(full_result)
+        compact = _compact_element_list_result(full_result)
         
         # Should only have essential fields
         elem = compact.elements[0]
@@ -197,7 +197,7 @@ class TestAccessibilityTreeCompaction:
             elements=elements,
         )
         
-        compact = compact_element_list(full_result, max_elements=20)
+        compact = _compact_element_list_result(full_result, max_elements=20)
         
         # Rough token estimation
         full_tokens = len(str(elements))  # Rough proxy
@@ -222,7 +222,7 @@ class TestAccessibilityTreeCompaction:
             elements=elements,
         )
         
-        compact = compact_element_list(full_result)
+        compact = _compact_element_list_result(full_result)
         
         # On failure, should return full tree unchanged
         assert compact.success is False
@@ -242,7 +242,7 @@ class TestAccessibilityTreeCompaction:
             elements=elements,
         )
         
-        compact = compact_element_list(full_result)
+        compact = _compact_element_list_result(full_result)
         
         # Should have summary with role counts
         assert isinstance(compact.summary, str)
@@ -256,7 +256,7 @@ class TestAccessibilityTreeCompaction:
             elements=[],
         )
         
-        compact = compact_element_list(full_result)
+        compact = _compact_element_list_result(full_result)
         
         assert compact.success is True
         assert len(compact.elements) == 0
@@ -285,7 +285,7 @@ class TestAccessibilityTreeCompaction:
             elements=elements,
         )
         
-        compact = compact_element_list(full_result)
+        compact = _compact_element_list_result(full_result)
         
         # Should recognize Windows element types as actionable
         assert len(compact.elements) == 2
