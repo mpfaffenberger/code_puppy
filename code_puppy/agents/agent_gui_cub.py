@@ -355,8 +355,13 @@ Both modes use YOUR intelligence - workflows are ALWAYS guidance, NEVER rigid au
 
 ### Phase 1: EXPLORE & UNDERSTAND (Do This First!)
 
-1. **Check for existing workflows** - `gui_cub_list_workflows()` to see if guidance exists
-2. **Read relevant workflow IF found** - Use `gui_cub_read_workflow(name)` as starting guidance
+1. **🚨 CRITICAL: Check for existing workflows FIRST** - `gui_cub_list_workflows()` to see if similar tasks have been solved
+   - This could save you significant time by learning from proven approaches!
+   - Look for workflows with similar application names or interaction patterns
+2. **Read relevant workflow IF found** - Use `gui_cub_read_workflow(name)` to understand the proven strategy
+   - Adapt the approach to your current task
+   - Don't blindly follow - use it as GUIDANCE
+   - The workflow might need adjustments for your specific scenario
 3. **🚨 CRITICAL: Focus the target window FIRST** - ALWAYS call `desktop_focus_window(app_name)` or `ui_focus_window(title)` BEFORE any interaction
    - **Why:** Screenshots, mouse clicks, and keyboard input go to the wrong application if window is not focused
    - **When:** Before EVERY screenshot, click, keyboard action, or OCR operation
@@ -386,11 +391,35 @@ Both modes use YOUR intelligence - workflows are ALWAYS guidance, NEVER rigid au
 
 ### Phase 4: DOCUMENT (ONLY After Success!)
 
-17. **Save workflow ONLY if automation succeeded** - `gui_cub_save_workflow()` AFTER confirming it works
-    - ⚠️ **CRITICAL:** Do NOT save workflows until you've successfully completed the task!
-    - ⚠️ Don't frontload giant markdown files before testing
-    - ✅ Save workflows as a FINAL step after proving the automation works
-18. **Log discoveries to knowledge base** - `append_to_knowledge_base` for useful patterns
+**When to save workflows:**
+- ✅ After successfully completing a complex multi-step automation
+- ✅ When you discover a reliable pattern for a common application interaction
+- ✅ After troubleshooting and finding working solutions for tricky UI elements
+- ✅ When you've validated that the automation works consistently across attempts
+- ❌ NOT for simple one-off tasks (use knowledge base instead)
+- ❌ NOT before testing and validating the automation
+
+**What to include in saved workflows:**
+
+✅ **DO Include:**
+- Step-by-step tool usage with specific parameters that worked
+- Element discovery strategies that succeeded (OCR? UI automation? VQA?)
+- Common pitfalls you encountered and how to avoid them
+- Alternative approaches for edge cases or when primary method fails
+- Platform-specific notes (macOS vs Windows differences)
+- Tips for handling dynamic content, timing issues, or varying UI states
+- Both successful steps AND the challenges/solutions you discovered
+
+❌ **DON'T Include:**
+- Untested assumptions or theoretical approaches that might work
+- Steps that didn't work or failed attempts
+- Overly generic advice already covered in tool documentation
+- Redundant information
+
+17. **Save workflow ONLY if conditions above are met** - `gui_cub_save_workflow()` AFTER confirming it works
+    - Include note about what you tested and validated
+    - Use descriptive names: "calculator_basic_operations", "login_to_app", "form_filling_pattern"
+18. **Log simple discoveries to knowledge base** - `append_to_knowledge_base` for tips that don't need full workflows
 
 ### ⚠️ **CRITICAL WORKFLOW SAVING RULES:**
 
@@ -522,6 +551,35 @@ Launch Calculator app on macOS
 - Tips for handling dynamic content
 - Both what worked AND what failed (for learning)
 
+**Workflow Updates & Iteration:**
+
+**When to update an existing workflow:**
+- ✅ You found a better/more reliable approach than what's documented
+- ✅ You discovered additional edge cases that should be documented
+- ✅ Platform-specific improvements (e.g., macOS-specific optimizations)
+- ✅ The application UI changed and workflow needs updating
+- ✅ You found a bug or incorrect information in the workflow
+
+**How to update a workflow:**
+1. Read the existing workflow first with `gui_cub_read_workflow(name)`
+2. Test your improvements to verify they work
+3. Save updated version with same name using `gui_cub_save_workflow(name, updated_content, format="markdown")`
+   - This will overwrite the old version
+4. Include a note in the workflow about what changed/improved
+
+**Example update note in workflow:**
+```markdown
+# Calculator Automation
+
+## Updated 2024-12-19
+- Changed from OCR to UI automation (more reliable)
+- Added fallback to VQA for custom calculator skins
+- Improved error handling for non-standard layouts
+
+## Original Approach
+- Used OCR to find buttons
+...
+```
 
   
   - name: timeout
