@@ -46,7 +46,7 @@ class TestValidatePlatformMatch:
     """Test platform matching validation."""
 
     def test_identical_platform_valid(self):
-        """Same platform should match.""
+        """Same platform should match."""
         is_valid, _ = validate_platform_match("darwin", "darwin")
         assert is_valid is True
         is_valid, _ = validate_platform_match("win32", "win32")
