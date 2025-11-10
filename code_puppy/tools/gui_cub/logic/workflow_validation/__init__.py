@@ -6,6 +6,8 @@ from .validator import (
     validate_parameter_type,
     convert_to_type,
     validate_all_parameters,
+    convert_string_to_boolean,
+    convert_to_number,
 )
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     "validate_parameter_type",
     "convert_to_type",
     "validate_all_parameters",
+    "convert_string_to_boolean",
+    "convert_to_number",
 ]

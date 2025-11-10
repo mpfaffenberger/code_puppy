@@ -10,6 +10,11 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
+from .logic.workflow_validation import (
+    convert_string_to_boolean,
+    convert_to_number,
+)
+
 
 class WorkflowParameter(BaseModel):
     """Define an input parameter for a workflow."""
@@ -135,23 +140,21 @@ def validate_workflow_parameters(
             elif param.type == "number":
                 if not isinstance(value, (int, float)):
                     try:
-                        value = float(value) if "." in str(value) else int(value)
-                    except ValueError:
+                        value = convert_to_number(value)
+                    except (ValueError, TypeError):
                         raise TypeError(
                             f"Parameter '{param.name}' must be number, got {type(value).__name__}"
                         )
             elif param.type == "boolean":
                 if not isinstance(value, bool):
-                    # Convert string boolean representations
+                    # Convert string boolean representations using extracted logic
                     if isinstance(value, str):
-                        if value.lower() in ("true", "yes", "1"):
-                            value = True
-                        elif value.lower() in ("false", "no", "0"):
-                            value = False
-                        else:
+                        converted = convert_string_to_boolean(value)
+                        if converted is None:
                             raise TypeError(
                                 f"Parameter '{param.name}' must be boolean, got '{value}'"
                             )
+                        value = converted
                     else:
                         value = bool(value)
             elif param.type == "array" and not isinstance(value, list):
