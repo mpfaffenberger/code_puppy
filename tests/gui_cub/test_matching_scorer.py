@@ -5,7 +5,7 @@ separated from caching and I/O operations.
 """
 
 import pytest
-from code_puppy.tools.gui_cub.logic.matching import (
+from code_puppy.tools.gui_cub.core.matching import (
     normalize_text_pure,
     generate_identifier_variants,
     calculate_exact_match_score,

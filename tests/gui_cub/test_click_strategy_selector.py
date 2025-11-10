@@ -5,7 +5,7 @@ strategy to use, separated from I/O operations.
 """
 
 import pytest
-from code_puppy.tools.gui_cub.logic.click_strategy import (
+from code_puppy.tools.gui_cub.core.click_strategy import (
     ClickStrategy,
     StrategyAttempt,
     StrategyConfig,

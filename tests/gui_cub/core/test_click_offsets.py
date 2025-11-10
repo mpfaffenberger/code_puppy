@@ -6,7 +6,7 @@ for different UI element types.
 
 import pytest
 
-from code_puppy.tools.gui_cub.logic.click_offsets import (
+from code_puppy.tools.gui_cub.core.click_offsets import (
     BoundingBox,
     apply_bounds_check,
     calculate_button_offset,

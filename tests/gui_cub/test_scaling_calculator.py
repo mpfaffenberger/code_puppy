@@ -5,7 +5,7 @@ coordinate conversions, separated from I/O operations.
 """
 
 import pytest
-from code_puppy.tools.gui_cub.logic.scaling import (
+from code_puppy.tools.gui_cub.core.scaling import (
     DisplayMetrics,
     calculate_scale_factor,
     convert_physical_to_logical,
