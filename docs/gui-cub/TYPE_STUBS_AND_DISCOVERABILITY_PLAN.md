@@ -657,7 +657,7 @@ Add to `agent_creator_agent.py` system prompt after line 115:
 
 **Workflow Management:**
 - `gui_cub_workflows` - Workflow management (save, list, read workflows)
-- `gui_cub_execute_workflow` - Execute saved YAML workflows
+- `gui_cub_read_workflow` - Read workflow guidance documents
 - `gui_cub_append_to_knowledge_base` - Save knowledge for reuse
 
 **Window Control:**
@@ -674,7 +674,7 @@ Add to tool suggestion examples section:
 **For "Desktop automation agent":** → Suggest `desktop_screenshot`, `ui_automation`, `desktop_keyboard`, `desktop_mouse`, `gui_cub_workflows`, `agent_share_your_reasoning`
 **For "Click-only agent (no typing)":** → Suggest `desktop_mouse`, `desktop_click_element_smart`, `ui_automation`, `desktop_screenshot`, `agent_share_your_reasoning`
 **For "OCR text extractor":** → Suggest `desktop_ocr`, `desktop_screenshot`, `read_file`, `edit_file`, `agent_share_your_reasoning`
-**For "Workflow executor":** → Suggest `gui_cub_execute_workflow`, `gui_cub_workflows`, `desktop_screenshot`, `agent_share_your_reasoning`
+**For "Workflow guidance":** → Suggest `gui_cub_read_workflow`, `gui_cub_workflows`, `desktop_screenshot`, `agent_share_your_reasoning`
 **For "macOS automation":** → Suggest `macos_automation`, `desktop_screenshot`, `desktop_keyboard`, `agent_share_your_reasoning`
 **For "Windows automation":** → Suggest `windows_automation`, `desktop_screenshot`, `desktop_keyboard`, `agent_share_your_reasoning`
 ```
@@ -718,7 +718,7 @@ class AgentCreatorAgent(BaseAgent):
                 suggestions.append("desktop_ocr")
             
             if "workflow" in intent_lower:
-                suggestions.extend(["gui_cub_workflows", "gui_cub_execute_workflow"])
+                suggestions.extend(["gui_cub_workflows", "gui_cub_read_workflow"])
             
             if "macos" in intent_lower or "mac" in intent_lower:
                 suggestions.append("macos_automation")

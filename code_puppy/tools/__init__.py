@@ -60,9 +60,6 @@ from code_puppy.tools.browser.browser_workflows import (
 from code_puppy.tools.gui_cub.workflows import (
     register_workflow_tools as register_gui_cub_workflows,
 )
-from code_puppy.tools.gui_cub.executor import (
-    register_executor_tool as register_gui_cub_executor,
-)
 from code_puppy.tools.gui_cub.knowledge_base import (
     register_knowledge_base_tool as register_gui_cub_kb,
 )
@@ -321,7 +318,6 @@ TOOL_REGISTRY.update(
         "gui_cub_save_workflow": register_gui_cub_workflows,
         "gui_cub_list_workflows": register_gui_cub_workflows,
         "gui_cub_read_workflow": register_gui_cub_workflows,
-        "gui_cub_execute_workflow": register_gui_cub_executor,
         "gui_cub_append_to_knowledge_base": register_gui_cub_kb,
         "gui_cub_get_config": register_gui_cub_config,
         "gui_cub_calibrate": register_gui_cub_config,

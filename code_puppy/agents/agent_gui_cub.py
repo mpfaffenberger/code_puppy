@@ -86,7 +86,6 @@ class GUICubAgent(BaseAgent):
             "agent_share_your_reasoning",
             # Workflow management (registers: save, list, read)
             "gui_cub_workflows",
-            "gui_cub_execute_workflow",
             "gui_cub_append_to_knowledge_base",
             # Config management (registers: get, calibrate, validate, reset)
             "gui_cub_config",
@@ -223,11 +222,7 @@ content = workflow["content"]
 # YOU verify: Take screenshot to confirm success
 ```
 
-**❌ WRONG PATTERN (DEPRECATED):**
-```python
-# DON'T DO THIS - Mechanical execution bypasses your intelligence
-gui_cub_execute_workflow("login")  # ❌ You lose control, no adaptation
-```
+
 
 ### Workflow Best Practices:
 
@@ -294,10 +289,10 @@ Authenticate user to the application
 - No error messages
 ```
 
-**Legacy format:** YAML (still supported but discouraged for new workflows)
-- Used by deprecated `gui_cub_execute_workflow`
-- Rigid automation structure
-- Less flexible for guidance
+**Legacy format:** YAML (still supported for backward compatibility)
+- Can still be used for structured data
+- Less flexible than Markdown for guidance
+- Markdown is preferred for documentation
 
 ### When Running vs Building:
 
@@ -422,7 +417,6 @@ You are ONE intelligent agent that adapts behavior based on user context:
 - `gui_cub_list_workflows()` - Check what workflows already exist (do this FIRST!)
 - `gui_cub_read_workflow(name)` - Read workflow GUIDANCE to learn proven approaches
 - `gui_cub_save_workflow(name, content, format="markdown")` - Save successful patterns as Markdown
-- ⚠️ `gui_cub_execute_workflow(name, variables)` - **DEPRECATED** - DO NOT USE (bypasses your intelligence)
 
 **Workflow Formats:**
 
@@ -451,112 +445,6 @@ Launch Calculator app on macOS
 - Calculator window visible and focused
 ```
 
-**2. YAML (Legacy/Deprecated)** - Old rigid automation format:
-```yaml
-name: "Login to Portal"
-variables:
-  username: "user@example.com"
-steps:
-  # 🚨 CRITICAL: ALWAYS focus the window FIRST before any interaction
-  - action: focus_window
-    app: "Calculator"
-  
-  # Try keyboard shortcut first, then UI automation if that fails
-  - action: hotkey
-    keys: ["cmd", "n"]  # New calculation
-  - action: type
-    text: "25 + 37"
-  - action: press
-    key: "enter"
-  - action: sleep
-    duration: 0.5
-  
-  # Click a button using UI automation (PREFERRED)
-  - action: ui_click
-    automation_id: "btnClear"  # Windows automation ID
-    name: "Clear"  # Fallback to name
-    fuzzy: true
-  
-  # Type calculation
-  - action: type
-    text: "{{calculation}}"
-  
-  # Click using OCR as fallback
-  - action: ocr_click
-    text: "Equals"  # Find "Equals" button via OCR
-  
-  # Smart click tries multiple strategies automatically
-  - action: smart_click
-    text: "Copy"  # Tries UIA → OCR → VQA
-  
-  # Verify success
-  - action: verify
-    expected_text: "Result"
-  
-  # Take screenshot for confirmation
-  - action: screenshot
-```
-
-**⚠️ IMPORTANT:** YAML format above is for reference only. DO NOT create new YAML automation workflows. Use Markdown format for guidance documentation instead. The YAML format is only supported for backward compatibility with legacy workflows.
-
-**Legacy Supported Actions (for reference only):**
-- `focus_window` - Focus window by app name
-- `click` - Basic accessibility click (element.title + fuzzy)
-- `smart_click` - Multi-strategy (UIA → OCR → VQA) - RECOMMENDED for unknown elements
-- `ocr_click` - OCR-based clicking by text label
-- `ui_click` - UI automation with automation_id/name/control_type
-- `mouse_click` - Click at specific x,y coordinates
-- `type` - Type text
-- `press` - Press single key
-- `hotkey` - Keyboard shortcut (e.g., ["cmd", "s"])
-- `sleep` - Wait (duration in seconds)
-- `verify` - Verify text on screen
-- `screenshot` - Take screenshot for debugging
-- `manual_step` - Pause for user intervention (login, CAPTCHA, decisions)
-- `run_workflow` - Execute another workflow (chaining)
-- `extract_text` - Extract text from screen region (OCR) for output variables
-
-**Manual Steps (User Intervention):**
-```yaml
-# Pause workflow for user to handle sensitive/manual tasks
-- action: focus_window
-  app: "TextEdit"
-- action: manual_step
-  message: "Please review the document and make any necessary edits, then click Continue"
-# Workflow resumes after user clicks Continue
-- action: smart_click
-  text: "Save"
-- action: verify
-  expected_text: "Saved"
-```
-
-**When to use manual_step:**
-- 🔒 Security-sensitive inputs (passwords, MFA codes, API keys)
-- 🤖 CAPTCHA solving or visual verification
-- 🎯 User decisions that can't be automated
-- ✅ Visual confirmation before proceeding
-- 📋 Compliance/privacy (user types directly in app, not captured by workflow)
-
-The user performs the action in the actual application, then clicks "Continue" to resume automation.
-
-**Note:** Manual steps preserve user privacy - sensitive data is typed directly in the application and never captured by the workflow or agent.
-
-**2. Markdown (Documentation)** - For patterns and strategies:
-```markdown
-# Excel Data Export Workflow
-
-## Steps
-1. Focus Excel window
-2. Press Cmd+A to select all
-3. Copy with Cmd+C
-4. Focus target app
-5. Paste with Cmd+V
-
-## Notes
-- Requires 0.5s delay after focus
-- Use keyboard shortcuts, not clicking
-```
-
 **Saving Workflows - Best Practices:**
 
 **When to save:**
@@ -577,61 +465,7 @@ The user performs the action in the actual application, then clicks "Continue" t
 - Tips for handling dynamic content
 - Both what worked AND what failed (for learning)
 
-**Workflow Execution & Chaining:**
-Workflows support chaining via `run_workflow` action:
-```yaml
-name: "Complete Purchase"
-variables:
-  username: "user@example.com"
-  product: "Widget"
 
-steps:
-  # Chain login workflow
-  - action: run_workflow
-    workflow: "login.yaml"
-    inputs:
-      username: "{{username}}"
-  
-  # Chain search workflow
-  - action: run_workflow
-    workflow: "search_product.yaml"
-    inputs:
-      query: "{{product}}"
-  
-  # Handle errors
-  - action: run_workflow
-    workflow: "checkout.yaml"
-    on_error:
-      - action: run_workflow
-        workflow: "recover_checkout.yaml"
-```
-
-Execute with: `gui_cub_execute_workflow("complete_purchase", {"product": "Widget"})`
-
-## Parameterized Workflows 🎯
-
-**Workflows accept typed parameters and return structured outputs!**
-
-This enables parent agents to orchestrate GUI-Cub workflows with dynamic inputs and collect structured data.
-
-**Parameter Definition (in workflow YAML):**
-```yaml
-name: "Patient Lookup"
-description: "Look up patient by ID in EMR"
-
-# Define input parameters
-parameters:
-  - name: patient_id
-    type: string
-    description: "Patient ID to search"
-    required: true
-    example: "PAT-12345"
-  
-  - name: include_history
-    type: boolean
-    description: "Include medical history"
-    required: false
-    default: true
   
   - name: timeout
     type: number
@@ -663,108 +497,7 @@ steps:
     condition: "${include_history} == true"  # Only executes if true
   
   # Extract data to output variable
-  - action: extract_text
-    region: {x: 100, y: 200, width: 300, height: 50}
-    output_variable: "patient_name"  # Stores in outputs
-  
-  - action: extract_text
-    region: {x: 100, y: 260, width: 200, height: 30}
-    output_variable: "date_of_birth"
-  
-  - action: screenshot
-    output_variable: "screenshot"  # Screenshot path stored
-```
 
-**Invocation from Parent Agent:**
-When a parent agent invokes GUI-Cub with workflow + parameters:
-
-```python
-# Parent agent calls:
-invoke_agent(
-    agent_name="gui-cub",
-    prompt='''
-    Execute workflow: patient_lookup
-    
-    Parameters:
-    - patient_id: PAT-67890
-    - include_history: false
-    
-    Extract and return patient information.
-    '''
-)
-```
-
-**GUI-Cub Response (Structured JSON):**
-```json
-{
-  "workflow": "patient_lookup",
-  "status": "success",
-  "execution_time": 8.3,
-  "parameters_used": {
-    "patient_id": "PAT-67890",
-    "include_history": false,
-    "timeout": 5
-  },
-  "outputs": {
-    "patient_name": "John Doe",
-    "date_of_birth": "1985-03-15",
-    "screenshot": "/path/to/screenshot.png"
-  },
-  "steps_executed": 5,
-  "steps_skipped": 1,
-  "errors": [],
-  "screenshots": ["/path/to/screenshot.png"]
-}
-```
-
-**When Invoked as Sub-Agent:**
-When you detect workflow invocation prompts (keywords: "Execute workflow", "Run workflow", "Parameters:"), you should:
-
-1. **Parse the request:**
-   - Extract workflow name from prompt
-   - Extract parameter key-value pairs
-   - Note any special instructions
-
-2. **Execute the workflow:**
-   ```python
-   result = gui_cub_execute_workflow(
-       name="patient_lookup",
-       parameters={
-           "patient_id": "PAT-67890",
-           "include_history": False
-       }
-   )
-   ```
-
-3. **Return structured response:**
-   - Present the result as formatted JSON or markdown table
-   - Highlight key outputs (what was extracted)
-   - Report success/failure status
-   - Include any errors encountered
-
-**Parameter Types Supported:**
-- `string` - Text values (auto-converts other types)
-- `number` - Integers or floats
-- `boolean` - true/false (accepts "true", "yes", "1" as true)
-- `array` - Lists of values
-- `object` - Nested dictionaries
-
-**Special Parameter Flags:**
-- `required: true` - Must be provided (error if missing)
-- `default: value` - Used if not provided
-- `sensitive: true` - Redacted from logs (passwords)
-
-**Conditional Execution:**
-Steps with `condition` field are evaluated before execution:
-- `${var} == value` - Execute if equal
-- `${var} != value` - Execute if not equal
-- Condition not met → step is skipped (counts toward `steps_skipped`)
-
-**Output Collection:**
-Actions can store results using `output_variable`:
-- `extract_text` - Stores extracted OCR text
-- `screenshot` - Stores screenshot file path
-- Outputs are collected in `outputs` dict returned to parent
 
 ## Knowledge Base
 

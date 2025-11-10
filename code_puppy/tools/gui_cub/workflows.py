@@ -4,47 +4,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
-
-from .logic.workflow_validation import (
-    convert_string_to_boolean,
-    convert_to_number,
-)
-
-
-class WorkflowParameter(BaseModel):
-    """Define an input parameter for a workflow."""
-
-    name: str = Field(..., description="Parameter name")
-    type: str = Field(
-        default="string",
-        description="Parameter type: string, number, boolean, array, object",
-    )
-    description: str = Field(default="", description="Human-readable description")
-    required: bool = Field(
-        default=True, description="Whether this parameter is required"
-    )
-    default: Any = Field(default=None, description="Default value if not provided")
-    sensitive: bool = Field(
-        default=False, description="Whether to redact from logs (e.g., passwords)"
-    )
-    example: Optional[str] = Field(
-        default=None, description="Example value for documentation"
-    )
-
-
-class WorkflowOutput(BaseModel):
-    """Define an output that the workflow should return."""
-
-    name: str = Field(..., description="Output variable name")
-    description: str = Field(default="", description="What this output contains")
-    extraction_method: str = Field(
-        default="manual", description="How to extract: ocr, screenshot, manual"
-    )
 
 
 def get_workflows_directory() -> Path:
@@ -55,132 +18,15 @@ def get_workflows_directory() -> Path:
     return workflows_dir
 
 
-def parse_workflow_parameters(workflow_data: Dict[str, Any]) -> List[WorkflowParameter]:
-    """Parse parameter definitions from workflow YAML.
-
-    Args:
-        workflow_data: Parsed workflow YAML
-
-    Returns:
-        List of WorkflowParameter objects
-    """
-    if "parameters" not in workflow_data:
-        return []
-
-    parameters = []
-    for param_dict in workflow_data["parameters"]:
-        try:
-            param = WorkflowParameter(**param_dict)
-            parameters.append(param)
-        except Exception as e:
-            emit_warning(f"Invalid parameter definition: {param_dict}. Error: {e}")
-
-    return parameters
-
-
-def parse_workflow_outputs(workflow_data: Dict[str, Any]) -> List[WorkflowOutput]:
-    """Parse output definitions from workflow YAML.
-
-    Args:
-        workflow_data: Parsed workflow YAML
-
-    Returns:
-        List of WorkflowOutput objects
-    """
-    if "outputs" not in workflow_data:
-        return []
-
-    outputs = []
-    for output_dict in workflow_data["outputs"]:
-        try:
-            output = WorkflowOutput(**output_dict)
-            outputs.append(output)
-        except Exception as e:
-            emit_warning(f"Invalid output definition: {output_dict}. Error: {e}")
-
-    return outputs
-
-
-def validate_workflow_parameters(
-    parameters: List[WorkflowParameter], provided_values: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Validate provided parameter values against workflow schema.
-
-    Args:
-        parameters: List of parameter definitions
-        provided_values: Dict of parameter values provided by caller
-
-    Returns:
-        Validated parameter dict with defaults applied
-
-    Raises:
-        ValueError: If required parameters are missing or types don't match
-    """
-    validated = {}
-
-    for param in parameters:
-        value = provided_values.get(param.name)
-
-        # Check if required parameter is missing
-        if param.required and value is None:
-            if param.default is not None:
-                value = param.default
-            else:
-                raise ValueError(f"Missing required parameter: {param.name}")
-
-        # Use default if not provided and default exists
-        if value is None and param.default is not None:
-            value = param.default
-
-        # Type validation
-        if value is not None:
-            if param.type == "string" and not isinstance(value, str):
-                # Auto-convert to string for string parameters
-                value = str(value)
-            elif param.type == "number":
-                if not isinstance(value, (int, float)):
-                    try:
-                        value = convert_to_number(value)
-                    except (ValueError, TypeError):
-                        raise TypeError(
-                            f"Parameter '{param.name}' must be number, got {type(value).__name__}"
-                        )
-            elif param.type == "boolean":
-                if not isinstance(value, bool):
-                    # Convert string boolean representations using extracted logic
-                    if isinstance(value, str):
-                        converted = convert_string_to_boolean(value)
-                        if converted is None:
-                            raise TypeError(
-                                f"Parameter '{param.name}' must be boolean, got '{value}'"
-                            )
-                        value = converted
-                    else:
-                        value = bool(value)
-            elif param.type == "array" and not isinstance(value, list):
-                raise TypeError(
-                    f"Parameter '{param.name}' must be array, got {type(value).__name__}"
-                )
-            elif param.type == "object" and not isinstance(value, dict):
-                raise TypeError(
-                    f"Parameter '{param.name}' must be object, got {type(value).__name__}"
-                )
-
-        if value is not None:
-            validated[param.name] = value
-
-    return validated
-
-
 async def save_workflow(
-    name: str, content: str, format: str = "yaml"
+    name: str, content: str, format: str = "markdown"
 ) -> Dict[str, Any]:
     """Save a GUI-Cub workflow as YAML or Markdown.
 
     Args:
         name: Workflow name
         content: Workflow content (YAML or Markdown)
-        format: "yaml" or "markdown" (default: "yaml")
+        format: "markdown" or "yaml" (default: "markdown")
     """
     group_id = generate_group_id("save_workflow", name)
     emit_info(

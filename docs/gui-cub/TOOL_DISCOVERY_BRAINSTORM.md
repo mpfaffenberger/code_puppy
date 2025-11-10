@@ -429,7 +429,7 @@ When users want desktop automation, suggest these tools based on their needs:
 
 **Workflows:**
 - gui_cub_workflows - Save/load/execute workflows
-- gui_cub_execute_workflow - Run saved workflows
+- gui_cub_read_workflow - Read workflow guidance
 """
 ```
 
