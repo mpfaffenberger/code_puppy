@@ -22,6 +22,13 @@ from code_puppy.tools.common import generate_group_id
 from .result_types import BaseAutomationResult
 from .smart_click_calculator import SmartClickCalculator
 
+# Click strategy selection logic (integrated for future enhancements)
+# TODO: Fully integrate select_next_strategy() for smarter retry/fallback logic
+from .logic.click_strategy import (
+    ClickStrategy,
+    is_strategy_enabled,
+)
+
 try:
     import pyautogui
 
@@ -138,8 +145,15 @@ def register_multi_strategy_click_tools(agent):
         attempts_log = []
         platform = sys.platform
 
+        # Validate platform support using extracted logic
+        # Note: Currently using simple validation. Future enhancement:
+        # TODO: Use StrategyConfig and select_next_strategy() for smarter retry/timeout logic
+        accessibility_supported = is_strategy_enabled(
+            ClickStrategy.ACCESSIBILITY, platform=platform
+        )
+
         # TIER 1: Try Accessibility API first (macOS/Windows only)
-        if use_accessibility_api and platform in ("darwin", "win32"):
+        if use_accessibility_api and accessibility_supported:
             emit_info(
                 "[cyan]✅ TIER 1: Trying Accessibility API...[/cyan]",
                 message_group=group_id,
