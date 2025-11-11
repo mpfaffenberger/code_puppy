@@ -420,6 +420,7 @@ async def get_input_with_combined_completion(
         [
             FilePathCompleter(symbol="@"),
             ModelNameCompleter(trigger="/model"),
+            ModelNameCompleter(trigger="/m"),
             CDCompleter(trigger="/cd"),
             SetCompleter(trigger="/set"),
             LoadContextCompleter(trigger="/load_context"),
