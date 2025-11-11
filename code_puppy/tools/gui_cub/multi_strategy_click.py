@@ -26,13 +26,11 @@ from .core.click_strategy import (
     ClickStrategy,
     is_strategy_enabled,
 )
+from .dependencies import PYAUTOGUI_AVAILABLE
 
-try:
+if PYAUTOGUI_AVAILABLE:
     import pyautogui
-
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
+else:
     pyautogui = None
 
 

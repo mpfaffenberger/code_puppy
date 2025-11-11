@@ -124,6 +124,8 @@ class GUICubAgent(BaseAgent):
         if sys.platform == "darwin":
             # macOS automation via Accessibility API (registers: find, list, click, get_value, list_tree, list_windows)
             tools.append("macos_automation")
+            # macOS app launcher (registers: mac_launch_app)
+            tools.append("mac_launch_app")
         elif sys.platform == "win32":
             # Windows automation (registers: focus_window, find, click, list_elements, list_windows, get_focused, get_value)
             tools.append("windows_automation")
@@ -147,6 +149,7 @@ class GUICubAgent(BaseAgent):
 - Automation IDs and class names are your primary selectors"""
         elif sys.platform == "darwin":
             return """**IMPORTANT: You are currently running on macOS.**
+- **LAUNCH APPS:** Use `mac_launch_app(app_name="Calculator")` instead of Spotlight (Cmd+Space) - more reliable!
 - Use Accessibility API via `macos_automation` tools
 - Use `ui_automation` for cross-platform operations  
 - Unix/Bash commands for system operations

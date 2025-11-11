@@ -13,7 +13,12 @@ import platform
 import sys
 from typing import Any, Dict, List
 
-import pyautogui
+from ..dependencies import PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
+    pyautogui = None
 
 if sys.platform == "win32":
     import winreg

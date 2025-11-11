@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-try:
-    import pyautogui
-
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
-    pyautogui = None
-
 from pydantic_ai import RunContext
+
+from ..dependencies import PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
+    pyautogui = None
 
 from ..constants import ERROR_PYAUTOGUI_MISSING
 from ..result_types import VQAResult
 from .screenshot_analyze import screenshot_analyze
+
+# Import thread-safe screenshot function
+from .capture import _safe_screenshot
 
 
 def register_desktop_screenshot_tools(agent):
@@ -121,7 +123,7 @@ def register_desktop_screenshot_tools(agent):
         if not PYAUTOGUI_AVAILABLE:
             return {"error": ERROR_PYAUTOGUI_MISSING}
         logical_w, logical_h = pyautogui.size()
-        shot = pyautogui.screenshot()
+        shot = _safe_screenshot()
         physical_w, physical_h = shot.size
         scale = round((physical_w / logical_w) * 4) / 4 if logical_w else 1.0
         return {

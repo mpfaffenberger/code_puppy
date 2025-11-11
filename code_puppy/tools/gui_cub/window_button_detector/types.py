@@ -17,20 +17,26 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum
 
-try:
-    import numpy as np
-    from PIL import Image
-    import pyautogui
-    import cv2
+from ..dependencies import CV2_AVAILABLE, DEPS_AVAILABLE, PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
 
-    DEPS_AVAILABLE = True
-    CV2_AVAILABLE = True
-except ImportError:
-    DEPS_AVAILABLE = False
-    CV2_AVAILABLE = False
+if DEPS_AVAILABLE:
+    import numpy as np
+else:
     np = None
+
+if PIL_AVAILABLE:
+    from PIL import Image
+else:
     Image = None
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
     pyautogui = None
+
+if CV2_AVAILABLE:
+    import cv2
+else:
     cv2 = None
 
 

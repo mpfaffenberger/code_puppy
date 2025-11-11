@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import platform
 from typing import Literal, Tuple
 
-try:
-    import pyautogui
-    from PIL import Image
+from .dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
 
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
     pyautogui = None
+
+if PIL_AVAILABLE:
+    from PIL import Image, ImageGrab
+else:
     Image = None
+    ImageGrab = None
 
 
 def _to_rgb(val) -> Tuple[int, int, int]:
@@ -50,8 +54,10 @@ def sample_neighborhood_rgb(
     if not PYAUTOGUI_AVAILABLE:
         raise ImportError("pyautogui/Pillow not available")
 
-    # Take screenshot first
-    screenshot = pyautogui.screenshot()
+    # Take screenshot first using thread-safe function
+    # Import here to avoid circular dependency
+    from .screen_capture.capture import _safe_screenshot
+    screenshot = _safe_screenshot()
 
     # Calculate scale factor from screenshot dimensions (source of truth!)
     # This is more reliable than get_screen_scale_factor() which can report wrong values

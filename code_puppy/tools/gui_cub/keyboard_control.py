@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-try:
-    import pyautogui
-
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
-    pyautogui = None
-
 from pydantic_ai import RunContext
+
+from .dependencies import PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
+    pyautogui = None
 
 from .result_types import KeyboardActionResult
 from .tool_wrapper import desktop_tool

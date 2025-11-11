@@ -7,19 +7,21 @@ from pathlib import Path
 from tempfile import gettempdir
 from typing import Literal
 
-try:
-    import pyautogui
-    from PIL import Image, ImageDraw, ImageFont
+from pydantic_ai import RunContext
 
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
+from .dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
     pyautogui = None
+
+if PIL_AVAILABLE:
+    from PIL import Image, ImageDraw, ImageFont
+else:
     Image = None
     ImageDraw = None
     ImageFont = None
-
-from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_error, emit_info
 from code_puppy.tools.common import generate_group_id

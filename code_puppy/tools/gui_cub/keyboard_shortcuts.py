@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-try:
-    import pyautogui
-
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
-    pyautogui = None
-
 from pydantic_ai import RunContext
+
+from .dependencies import PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
+    pyautogui = None
 
 from code_puppy.messaging import emit_info
 from code_puppy.tools.common import generate_group_id

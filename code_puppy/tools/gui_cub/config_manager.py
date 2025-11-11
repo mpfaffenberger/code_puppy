@@ -13,9 +13,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import pyautogui
-
 from code_puppy.messaging import emit_info, emit_warning
+
+from .dependencies import PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
+    pyautogui = None
 from code_puppy.tools.common import generate_group_id
 
 from .core.config_validation import (

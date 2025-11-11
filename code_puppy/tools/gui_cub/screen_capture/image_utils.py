@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from io import BytesIO
 
-try:
-    from PIL import Image
+from ..dependencies import PIL_AVAILABLE
 
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
+if PIL_AVAILABLE:
+    from PIL import Image
+else:
     Image = None
 
 from ..constants import (

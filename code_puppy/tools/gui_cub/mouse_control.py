@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from typing import Literal
 
-try:
+from pydantic_ai import RunContext
+
+from .dependencies import PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
     import pyautogui
 
-    PYAUTOGUI_AVAILABLE = True
     # Safety settings for pyautogui
     pyautogui.FAILSAFE = True  # Move mouse to corner to abort
     pyautogui.PAUSE = 0.1  # Small pause between actions
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
+else:
     pyautogui = None
-
-from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_warning
 

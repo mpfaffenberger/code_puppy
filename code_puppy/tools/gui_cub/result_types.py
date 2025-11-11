@@ -375,3 +375,11 @@ class WindowBoundsResult(BaseAutomationResult):
     height: int | None = None
     app_name: str | None = None
     window_title: str | None = None
+
+
+class AppLaunchResult(BaseAutomationResult):
+    """Result from launching macOS application."""
+
+    app_name: str | None = None
+    method: Literal["open_command", "applescript"] | None = None
+    pid: int | None = None

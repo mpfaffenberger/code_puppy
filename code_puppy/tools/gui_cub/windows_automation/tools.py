@@ -50,8 +50,22 @@ from .core import (
 
 
 def register_windows_tools(agent):
-    """Register Windows automation tools."""
+    """Register Windows automation tools.
+    
+    This file contains 12+ Windows-specific automation tools (872 lines total):
+    - Window management (focus, list, etc.)
+    - Element finding and interaction
+    - Process and application control
+    
+    Note: File is long but cohesive - all tools are Windows-specific automation.
+    Platform: Windows only (requires pywinauto, win32gui)
+    """
 
+    # ============================================================================
+    # WINDOWS AUTOMATION TOOLS
+    # Platform-specific tools for Windows desktop automation
+    # ============================================================================
+    
     @agent.tool
     def windows_focus_window(
         context: RunContext,

@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
-try:
-    import pyautogui
-    from PIL import Image, ImageDraw
+from pydantic_ai import RunContext
 
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
+from ..dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
     pyautogui = None
+
+if PIL_AVAILABLE:
+    from PIL import Image, ImageDraw
+else:
     Image = None
     ImageDraw = None
 
-from pydantic_ai import RunContext
+# Import thread-safe screenshot function
+from ..screen_capture.capture import _safe_screenshot
 
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
@@ -35,8 +40,27 @@ from .search import _check_ocr_capability, find_text_in_elements
 
 
 def register_ocr_tools(agent):
-    """Register OCR (Optical Character Recognition) tools."""
+    """Register OCR (Optical Character Recognition) tools.
+    
+    This file contains 6 OCR tools (925 lines total):
+    1. desktop_extract_text - Extract all text from screen region (~199 lines)
+    2. desktop_find_text_on_screen - Find specific text and return coordinates (~113 lines)
+    3. desktop_verify_text_visible - Verify text is visible on screen (~112 lines)
+    4. desktop_click_text - Click on text found via OCR (~264 lines)
+    5. desktop_smart_scroll_to_text - Scroll until text is visible (~167 lines)
+    6. desktop_highlight_text - Highlight text on screen for debugging (~28 lines)
+    
+    Note: File is long but cohesive - all tools are OCR-based text operations.
+    """
 
+    # ============================================================================
+    # TOOL 1: EXTRACT TEXT (~199 lines)
+    # Extract all text from a screen region using native OCR
+    # ============================================================================
+    
+    # Global counter to track tool invocations
+    _extract_text_call_count = {'count': 0}
+    
     @agent.tool
     def desktop_extract_text(
         context: RunContext,
@@ -92,6 +116,17 @@ def register_ocr_tools(agent):
         # Note: Tesseract check removed - now optional fallback
         # Native OCR (WinRT/Vision) used first, Tesseract as fallback
 
+        # Increment call counter FIRST
+        _extract_text_call_count['count'] += 1
+        call_num = _extract_text_call_count['count']
+        
+        # Create group_id early (before we use it in logging)
+        # We'll update the description later if needed
+        group_id = generate_group_id(
+            "ocr_extract",
+            f"call_{call_num}",
+        )
+
         # Determine region to capture
         region = None
         region_description = "full screen"
@@ -110,7 +145,20 @@ def register_ocr_tools(agent):
             # BUGFIX: Use the centralized window bounds helper that correctly handles HiDPI/Retina scaling
             from ..window_control import _get_active_window_bounds_impl
 
+            emit_info(
+                f"[dim]🔍 DEBUG: Detecting active window bounds...[/dim]",
+                message_group=group_id,
+            )
             bounds_result = _get_active_window_bounds_impl()
+            
+            # DEBUG: Log window bounds detection result
+            emit_info(
+                f"[dim]🪟 DEBUG: Window bounds detection - success={bounds_result.success}[/dim]\n"
+                f"[dim]   app_name={bounds_result.app_name}, window_title={bounds_result.window_title}[/dim]\n"
+                f"[dim]   bounds=(x={bounds_result.x}, y={bounds_result.y}, w={bounds_result.width}, h={bounds_result.height})[/dim]",
+                message_group=group_id,
+            )
+            
             if bounds_result.success and bounds_result.x is not None:
                 region = (
                     bounds_result.x,
@@ -121,17 +169,62 @@ def register_ocr_tools(agent):
                 region_description = (
                     f"active window ({bounds_result.window_title or 'unknown'})"
                 )
+                emit_info(
+                    f"[green]✓ DEBUG: Using window bounds (LOGICAL coords): {region}[/green]",
+                    message_group=group_id,
+                )
             else:
                 # Fallback to full screen if active window detection fails
                 region = None
                 region_description = "full screen (window detection failed)"
-
-        group_id = generate_group_id(
-            "ocr_extract",
-            region_description.replace(" ", "_")[:50],
-        )
+                emit_warning(
+                    f"[yellow]⚠️  DEBUG: Window detection failed, falling back to full screen[/yellow]\n"
+                    f"[yellow]   Error: {bounds_result.error}[/yellow]",
+                    message_group=group_id,
+                )
+        # Now emit the main header with the final region description
         emit_info(
             f"[bold white on blue] OCR EXTRACT TEXT [/bold white on blue] 📖 region={region_description} language={language}",
+            message_group=group_id,
+        )
+        
+        # DEBUG: Log call tracking and context state
+        emit_info(
+            f"[bold cyan]🔢 DEBUG [CALL #{call_num}]: desktop_extract_text invoked[/bold cyan]\n"
+            f"[dim]   This is invocation #{call_num} since agent started[/dim]",
+            message_group=group_id,
+        )
+        
+        # DEBUG: Inspect RunContext for any cached state
+        try:
+            has_deps = hasattr(context, 'deps')
+            has_retry = hasattr(context, 'retry')
+            has_model = hasattr(context, 'model')
+            
+            emit_info(
+                f"[dim]🧠 DEBUG [AGENT CONTEXT]: RunContext inspection[/dim]\n"
+                f"[dim]   has_deps={has_deps}, has_retry={has_retry}, has_model={has_model}[/dim]\n"
+                f"[dim]   context_type={type(context).__name__}[/dim]",
+                message_group=group_id,
+            )
+            
+            # If there are deps, log them
+            if has_deps and context.deps is not None:
+                emit_info(
+                    f"[dim]📦 DEBUG [DEPS]: context.deps = {context.deps}[/dim]",
+                    message_group=group_id,
+                )
+        except Exception as e:
+            emit_info(
+                f"[dim]⚠️  DEBUG: Could not inspect RunContext: {e}[/dim]",
+                message_group=group_id,
+            )
+        
+        # DEBUG: Log input parameters
+        emit_info(
+            f"[dim]🔍 DEBUG [INPUT PARAMS]: Tool parameters[/dim]\n"
+            f"[dim]   x={x}, y={y}, width={width}, height={height}[/dim]\n"
+            f"[dim]   use_active_window={use_active_window}, use_full_screen={use_full_screen}[/dim]",
             message_group=group_id,
         )
 
@@ -140,6 +233,11 @@ def register_ocr_tools(agent):
             from ..platform import get_screen_scale_factor
 
             scale_factor = get_screen_scale_factor()
+            
+            emit_info(
+                f"[dim]🔍 DEBUG: Screen scale factor detected: {scale_factor}x[/dim]",
+                message_group=group_id,
+            )
 
             if scale_factor != 1.0:
                 emit_info(
@@ -156,23 +254,48 @@ def register_ocr_tools(agent):
                 # Convert logical coordinates to physical pixels for pyautogui
                 # pyautogui.screenshot() expects physical pixels on Retina displays
                 region_logical = region
+                emit_info(
+                    f"[dim]🔍 DEBUG: Converting region coordinates (logical → physical)[/dim]\n"
+                    f"[dim]   Region (logical): {region_logical}[/dim]\n"
+                    f"[dim]   Scale factor: {scale_factor}x[/dim]",
+                    message_group=group_id,
+                )
+                
                 region = (
                     int(region[0] * scale_factor),
                     int(region[1] * scale_factor),
                     int(region[2] * scale_factor),
                     int(region[3] * scale_factor),
                 )
+                
                 emit_info(
                     f"[cyan]📍 Region (logical): {region_logical}[/cyan]\n"
                     f"[cyan]📍 Region (physical): {region} - for screenshot capture[/cyan]",
                     message_group=group_id,
                 )
+                emit_info(
+                    f"[dim]🔍 DEBUG: Physical region calculated:[/dim]\n"
+                    f"[dim]   x={region[0]}, y={region[1]}, w={region[2]}, h={region[3]}[/dim]",
+                    message_group=group_id,
+                )
 
             # Capture screenshot
+            emit_info(
+                f"[dim]📸 DEBUG: Capturing screenshot with region={region}[/dim]",
+                message_group=group_id,
+            )
             if region:
-                screenshot = pyautogui.screenshot(region=region)
+                screenshot = _safe_screenshot(region=region)
+                emit_info(
+                    f"[dim]✓ DEBUG: Screenshot captured - size={screenshot.size} (width={screenshot.width}, height={screenshot.height})[/dim]",
+                    message_group=group_id,
+                )
             else:
-                screenshot = pyautogui.screenshot()
+                screenshot = _safe_screenshot()
+                emit_info(
+                    f"[dim]✓ DEBUG: Full screen screenshot captured - size={screenshot.size}[/dim]",
+                    message_group=group_id,
+                )
 
             # DEBUG: Save screenshot to temp if debug mode enabled
             # Users can copy to pwd with /save_debug_image command
@@ -185,6 +308,15 @@ def register_ocr_tools(agent):
             # Extract text with scaling correction and region offset
             # Pass region offset (x, y) so coordinates are converted to screen space
             region_offset = (region[0], region[1]) if region else None
+            
+            emit_info(
+                f"[dim]🔍 DEBUG: Calling OCR with:[/dim]\n"
+                f"[dim]   scale_factor={scale_factor}[/dim]\n"
+                f"[dim]   region_offset={region_offset} (physical pixels)[/dim]\n"
+                f"[dim]   language={language}[/dim]",
+                message_group=group_id,
+            )
+            
             result = extract_text_from_image(
                 screenshot,
                 language=language,
@@ -192,6 +324,11 @@ def register_ocr_tools(agent):
                 region_offset=region_offset,
             )
             result.region = list(region) if region else None
+            
+            emit_info(
+                f"[dim]✓ DEBUG: OCR completed - found {len(result.text_elements) if result.success else 0} elements[/dim]",
+                message_group=group_id,
+            )
 
             if result.success:
                 emit_info(
@@ -236,6 +373,11 @@ def register_ocr_tools(agent):
                 error=str(e),
             )
 
+    # ============================================================================
+    # TOOL 2: FIND TEXT ON SCREEN (~113 lines)
+    # Search for specific text on screen and return its coordinates
+    # ============================================================================
+    
     @agent.tool
     def desktop_find_text(
         context: RunContext,
@@ -349,6 +491,11 @@ def register_ocr_tools(agent):
 
         return find_result
 
+    # ============================================================================
+    # TOOL 3: VERIFY TEXT VISIBLE (~112 lines)
+    # Check if specific text is visible on screen
+    # ============================================================================
+    
     @agent.tool
     def desktop_verify_text(
         context: RunContext,
@@ -461,8 +608,13 @@ def register_ocr_tools(agent):
                 match_confidence=0.0,
             )
 
+    # ============================================================================
+    # TOOL 4: CLICK TEXT (~264 lines)
+    # Find text via OCR and click on it with smart offset calculation
+    # ============================================================================
+    
     @agent.tool
-    def desktop_show_all_ocr_boxes(
+    def desktop_click_text(
         context: RunContext,
         x: int | None = None,
         y: int | None = None,
@@ -571,7 +723,7 @@ def register_ocr_tools(agent):
                         int(bounds_result.height * scale_factor),
                     )
 
-            screenshot = pyautogui.screenshot(region=region)
+            screenshot = _safe_screenshot(region=region)
             draw = ImageDraw.Draw(screenshot, "RGBA")
 
             # Filter by confidence
@@ -725,6 +877,11 @@ def register_ocr_tools(agent):
                 error=str(e),
             )
 
+    # ============================================================================
+    # TOOL 5: SMART SCROLL TO TEXT (~167 lines)
+    # Scroll until specific text becomes visible on screen
+    # ============================================================================
+    
     @agent.tool
     def desktop_find_text_reliable(
         context: RunContext,
@@ -818,7 +975,7 @@ def register_ocr_tools(agent):
                 message_group=group_id,
             )
             return find_result
-        
+
         # Handle compacted results (matches=[] but best_match exists)
         if not find_result.matches and find_result.best_match:
             # Result was compacted - check best_match confidence
@@ -837,7 +994,7 @@ def register_ocr_tools(agent):
                 )
             # Best match meets confidence threshold - return it
             emit_info(
-                f"[green]✅ Found high-confidence match (compacted result)[/green]",
+                "[green]✅ Found high-confidence match (compacted result)[/green]",
                 message_group=group_id,
             )
             emit_info(
@@ -845,7 +1002,7 @@ def register_ocr_tools(agent):
                 message_group=group_id,
             )
             return find_result
-        
+
         # No matches at all
         if not find_result.matches:
             emit_warning(
@@ -892,6 +1049,11 @@ def register_ocr_tools(agent):
             matches=high_conf_matches,
         )
 
+    # ============================================================================
+    # TOOL 6: TOGGLE DEBUG SCREENSHOTS (~28 lines)
+    # Enable/disable debug screenshot saving for troubleshooting
+    # ============================================================================
+    
     @agent.tool
     def desktop_toggle_debug_screenshots(
         context: RunContext, enabled: bool

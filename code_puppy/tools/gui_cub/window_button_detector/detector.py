@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-try:
-    import cv2
-
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-    cv2 = None
-
 import numpy as np
 from PIL import Image
+
+from ..dependencies import CV2_AVAILABLE
+
+if CV2_AVAILABLE:
+    import cv2
+else:
+    cv2 = None
 
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id

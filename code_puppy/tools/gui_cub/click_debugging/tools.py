@@ -4,19 +4,24 @@ from __future__ import annotations
 
 from typing import Literal
 
-try:
-    import pyautogui
-    from PIL import Image, ImageDraw, ImageFont
+from pydantic_ai import RunContext
 
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
+from ..dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
     pyautogui = None
+
+if PIL_AVAILABLE:
+    from PIL import Image, ImageDraw, ImageFont
+else:
     Image = None
     ImageDraw = None
     ImageFont = None
 
-from pydantic_ai import RunContext
+# Import thread-safe screenshot function
+from ..screen_capture.capture import _safe_screenshot
 
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
@@ -32,8 +37,23 @@ from .visualization import draw_pixel_grid
 
 
 def register_click_debugging_tools(agent):
-    """Register click debugging and verification tools."""
+    """Register click debugging and verification tools.
+    
+    This file contains 5 click debugging tools (1,150 lines total):
+    1. desktop_hover_and_verify - Hover and verify cursor position (~506 lines)
+    2. desktop_highlight_click_target - Highlight click targets (~161 lines)
+    3. desktop_verify_coordinates - Verify coordinate accuracy (~89 lines)
+    4. desktop_click_with_verification - Click with pre/post verification (~114 lines)
+    5. desktop_click_smart - Smart clicking with auto-retry (~234 lines)
+    
+    Note: File is long but cohesive - all tools are related to click debugging/verification.
+    """
 
+    # ============================================================================
+    # TOOL 1: HOVER AND VERIFY (~506 lines)
+    # Move mouse and verify position before clicking - critical for debugging!
+    # ============================================================================
+    
     @agent.tool
     def desktop_hover_and_verify(
         context: RunContext,
@@ -100,7 +120,7 @@ def register_click_debugging_tools(agent):
             offset_y = actual_y - y
 
             # Take screenshot with cursor visible
-            screenshot = pyautogui.screenshot()
+            screenshot = _safe_screenshot()
 
             # Detect HiDPI/Retina scale to transform logical coords to screenshot pixel grid
             try:
@@ -389,7 +409,7 @@ def register_click_debugging_tools(agent):
                     actual_x, actual_y = pyautogui.position()
                     offset_x = actual_x - x
                     offset_y = actual_y - y
-                    screenshot = pyautogui.screenshot()
+                    screenshot = _safe_screenshot()
                     try:
                         from ..platform import get_screen_scale_factor
 
@@ -542,6 +562,11 @@ def register_click_debugging_tools(agent):
                 )
                 return HoverVerifyResult(success=False, error=str(e))
 
+    # ============================================================================
+    # TOOL 2: HIGHLIGHT CLICK TARGET (~161 lines)
+    # Draw visual indicators at click coordinates for debugging
+    # ============================================================================
+    
     @agent.tool
     def desktop_highlight_click_target(
         context: RunContext,
@@ -587,7 +612,7 @@ def register_click_debugging_tools(agent):
 
         try:
             # Take screenshot
-            screenshot = pyautogui.screenshot()
+            screenshot = _safe_screenshot()
 
             # Draw highlight
             draw = ImageDraw.Draw(screenshot)
@@ -705,6 +730,11 @@ def register_click_debugging_tools(agent):
                 error=str(e),
             )
 
+    # ============================================================================
+    # TOOL 3: VERIFY COORDINATES (~89 lines)
+    # Check if coordinates are within screen bounds and valid
+    # ============================================================================
+    
     @agent.tool
     def desktop_verify_coordinates(
         context: RunContext,
@@ -796,6 +826,11 @@ def register_click_debugging_tools(agent):
                 error=str(e),
             )
 
+    # ============================================================================
+    # TOOL 4: CLICK WITH VERIFICATION (~114 lines)
+    # Click and verify the action was successful with pre/post checks
+    # ============================================================================
+    
     @agent.tool
     def desktop_click_with_verification(
         context: RunContext,
@@ -866,7 +901,7 @@ def register_click_debugging_tools(agent):
                     )
 
             # Take screenshot of target before clicking
-            screenshot = pyautogui.screenshot()
+            screenshot = _safe_screenshot()
 
             # Transform logical coords to screenshot pixel grid for color sampling
             try:
@@ -912,6 +947,11 @@ def register_click_debugging_tools(agent):
                 y=y,
             )
 
+    # ============================================================================
+    # TOOL 5: SMART CLICK (~234 lines)
+    # Intelligent clicking with automatic retry, offset detection, and fallback
+    # ============================================================================
+    
     @agent.tool
     def desktop_click_smart(
         context: RunContext,
@@ -1014,7 +1054,7 @@ def register_click_debugging_tools(agent):
         before_screenshot = None
         before_pixel_color = None
         if verify_color_change:
-            before_screenshot = pyautogui.screenshot()
+            before_screenshot = _safe_screenshot()
             try:
                 from ..platform import get_screen_scale_factor
 
@@ -1053,7 +1093,7 @@ def register_click_debugging_tools(agent):
                 verification_passed = False
 
                 if verify_color_change:
-                    after_screenshot = pyautogui.screenshot()
+                    after_screenshot = _safe_screenshot()
                     check_x = verify_pixel_x if verify_pixel_x is not None else click_x
                     check_y = verify_pixel_y if verify_pixel_y is not None else click_y
                     s_check_x = int(check_x * scale_factor)

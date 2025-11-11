@@ -47,6 +47,21 @@ class VisionOCRProvider(OCRProvider):
     - macOS 10.15 (Catalina) or later
     - pyobjc-framework-Vision Python package
     - pyobjc-framework-Quartz Python package
+    
+    IMPORTANT - Confidence Score Interpretation:
+    Vision Framework reports confidence as internal model scores (0.0-1.0),
+    NOT calibrated probabilities. For clean UI text (12-16pt):
+    - Expected range: 0.35-0.55 (35-55%)
+    - 0.5 = "good match", NOT 50% certainty
+    - Values are non-linear, logistic scale
+    - Scores < 0.3 indicate uncertain segmentation
+    
+    Comparison to other engines:
+    - Tesseract: 80-99 (rescaled percentage)
+    - Google Vision: 0.8-1.0 (calibrated probability)  
+    - Vision: 0.3-0.8 (internal model space)
+    
+    Use confidence threshold of 0.25-0.3 for filtering, not 0.7!
     """
 
     def is_available(self) -> bool:
@@ -153,11 +168,23 @@ class VisionOCRProvider(OCRProvider):
             # Using accurate mode to ensure we don't miss text
             request.setRecognitionLevel_(1)
 
-            # Set language if not English
-            if language and language != "en":
-                request.setRecognitionLanguages_([language])
+            # Enable language correction for better accuracy on UI text
+            request.setUsesLanguageCorrection_(True)
+
+            # Set recognition language (default to English US for UI text)
+            # Using full locale (en-US) instead of just language code for better results
+            lang_locale = f"{language}-US" if language == "en" else language
+            request.setRecognitionLanguages_([lang_locale])
+
+            # Use latest revision if available (newer = better accuracy)
+            if hasattr(Vision.VNRecognizeTextRequest, "supportedRevisions"):
+                revisions = Vision.VNRecognizeTextRequest.supportedRevisions()
+                if revisions:
+                    request.setRevision_(max(revisions))
 
             # Create request handler
+            # Note: Orientation should be correct by default for screenshots
+            # Incorrect orientation can lower confidence scores
             handler = Vision.VNImageRequestHandler.alloc().initWithCGImage_options_(
                 cg_image, {}
             )

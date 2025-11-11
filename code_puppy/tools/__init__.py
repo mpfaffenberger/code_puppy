@@ -86,16 +86,21 @@ from code_puppy.tools.gui_cub.multi_strategy_click import (
 # from code_puppy.tools.gui_cub.vqa_hover_click import register_vqa_hover_tools
 from code_puppy.tools.gui_cub.vqa_two_stage_tools import register_vqa_two_stage_tools
 
-# Desktop Automation Accessibility API tools (macOS only) - platform-specific
-# Dependencies: atomacos, pyobjc-framework-Cocoa (installed on macOS via pyproject.toml)
+# macOS-specific tools
 try:
     from code_puppy.tools.gui_cub.accessibility import register_accessibility_tools
+    from code_puppy.tools.gui_cub.mac_app_launcher import (
+        register_mac_app_launcher_tools,
+    )
 
     ACCESSIBILITY_TOOLS_AVAILABLE = True
+    MAC_APP_LAUNCHER_AVAILABLE = True
 except ImportError:
     # Accessibility tools only available on macOS (atomacos, PyObjC)
     ACCESSIBILITY_TOOLS_AVAILABLE = False
+    MAC_APP_LAUNCHER_AVAILABLE = False
     register_accessibility_tools = None
+    register_mac_app_launcher_tools = None
 
 # Windows automation tools - platform-specific (Windows only)
 # Dependencies: pywinauto, pywin32 (installed on Windows via pyproject.toml)
@@ -488,6 +493,14 @@ if ACCESSIBILITY_TOOLS_AVAILABLE:
             "desktop_get_accessible_element_value": register_accessibility_tools,
             "desktop_list_accessible_tree": register_accessibility_tools,
             "desktop_list_windows": register_accessibility_tools,
+        }
+    )
+
+# Add macOS app launcher if available (macOS only)
+if MAC_APP_LAUNCHER_AVAILABLE:
+    TOOL_REGISTRY.update(
+        {
+            "mac_launch_app": register_mac_app_launcher_tools,
         }
     )
 

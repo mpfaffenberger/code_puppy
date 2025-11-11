@@ -221,7 +221,8 @@ def compare_with_ocr():
 
         # Get OCR text
         print("👁️  Running OCR...")
-        screenshot = pyautogui.screenshot()
+        from code_puppy.tools.gui_cub.screen_capture.capture import _safe_screenshot
+        screenshot = _safe_screenshot()
         ocr_result = extract_text_from_image(screenshot)
 
         if not ocr_result.success:

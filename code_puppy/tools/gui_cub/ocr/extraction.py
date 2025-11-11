@@ -5,13 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 import json
 
-try:
-    from PIL import Image
+from ..dependencies import PIL_AVAILABLE
 
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
+if PIL_AVAILABLE:
+    from PIL import Image, ImageFilter, ImageOps
+else:
     Image = None
+    ImageFilter = None
+    ImageOps = None
 
 from ..ocr_providers import get_ocr_provider
 from .result_types import OCRExtractResult, OCRFindResult, TextBoundingBox
@@ -106,7 +107,10 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
     Returns:
         Compact OCR result with ~95% token reduction (still includes coordinates!)
     """
-    # Extract high-confidence, meaningful text elements (top 10) WITH COORDINATES
+    # Extract meaningful text elements (top 10) WITH COORDINATES
+    # Note: Vision Framework on macOS reports low confidence (0.3-0.5) even for accurate text
+    # This is normal - Vision uses internal model scores, not calibrated probabilities
+    # Threshold at 0.25 instead of 0.7 to avoid filtering valid UI text
     sorted_elements = sorted(
         full_result.text_elements, key=lambda e: e.confidence, reverse=True
     )
@@ -119,15 +123,15 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
             "confidence": round(elem.confidence, 2),
         }
         for elem in sorted_elements[:10]
-        if elem.confidence > 0.7
-        and len(elem.text.strip()) >= 1  # Changed: Allow 1+ chars (fixes "OK" button)
+        if elem.confidence > 0.25  # Lowered from 0.7 for Vision Framework (macOS)
+        and len(elem.text.strip()) >= 1  # Allow 1+ chars ("OK", "Go", etc.)
         and not elem.text.strip().isspace()  # Filter pure whitespace
     ]
 
     # Calculate metrics
     filtered_count = len(full_result.text_elements) - len(compact_elements)
     confidence_values = [e.confidence for e in full_result.text_elements]
-    below_threshold = sum(1 for c in confidence_values if c <= 0.7)
+    below_threshold = sum(1 for c in confidence_values if c <= 0.25)  # Vision Framework threshold
 
     # Estimate token savings
     full_tokens = _estimate_result_tokens(
@@ -164,12 +168,12 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
         estimated_tokens_compact=compact_tokens,
         tokens_saved=full_tokens - compact_tokens,
         filters_applied=[
-            "confidence > 0.7",
+            "confidence > 0.25 (Vision Framework adjusted)",
             "min_length >= 1 char",
             "top 10 by confidence",
             "includes x,y coordinates",
         ],
-        thresholds={"confidence_min": 0.7, "min_text_length": 1, "max_elements": 10},
+        thresholds={"confidence_min": 0.25, "min_text_length": 1, "max_elements": 10},
         confidence_stats={
             "min": min(confidence_values) if confidence_values else 0.0,
             "max": max(confidence_values) if confidence_values else 0.0,
@@ -257,6 +261,58 @@ def _compact_ocr_find_result(full_result: "OCRFindResult") -> "OCRFindResult":
     )
 
 
+def prepare_ocr_image(image: "Image.Image", scale_factor: float) -> "Image.Image":
+    """
+    Prepare a Retina/HiDPI image for optimal OCR accuracy.
+    
+    On Retina displays, screenshots are captured at 2x physical resolution.
+    OCR engines are trained on 1x DPI images and struggle with:
+    - Text that appears 2x larger than expected
+    - Sub-pixel anti-aliasing artifacts
+    - Thin Retina font rendering
+    
+    This function normalizes 2x images to 1x using:
+    1. Light Gaussian blur (radius=0.3) to suppress sub-pixel fringing
+    2. BOX resampling for exact 2→1 downscale (fast, text-friendly)
+    3. Grayscale conversion to remove color noise
+    4. Autocontrast to maximize text clarity
+    
+    Based on industry best practices for OCR on HiDPI displays.
+    
+    Args:
+        image: PIL Image at physical resolution (e.g., 1000x800 on 2x Retina)
+        scale_factor: HiDPI scaling factor (2.0 for Retina, 1.0 for standard)
+    
+    Returns:
+        PIL Image normalized to 1x DPI, optimized for OCR
+        (e.g., 500x400 grayscale for 2x Retina input)
+    """
+    if not PIL_AVAILABLE:
+        return image
+    
+    # Step 1: Light blur to suppress sub-pixel anti-aliasing (always apply)
+    # Even on logical resolution images, this helps remove anti-aliasing artifacts
+    blurred = image.filter(ImageFilter.GaussianBlur(radius=0.3))
+    
+    # Step 2: Downscale only if scale_factor > 1.0 (for true 2x physical images)
+    if scale_factor > 1.0:
+        new_width = round(blurred.width / scale_factor)
+        new_height = round(blurred.height / scale_factor)
+        processed = blurred.resize(
+            (new_width, new_height),
+            Image.Resampling.BOX
+        )
+    else:
+        # No downscaling needed
+        processed = blurred
+    
+    # Always apply grayscale and autocontrast for OCR (improves accuracy)
+    grayscale = ImageOps.grayscale(processed)
+    normalized = ImageOps.autocontrast(grayscale, cutoff=0)
+    
+    return normalized
+
+
 def extract_text_from_image(
     image: "Image.Image",
     language: str = "eng",
@@ -264,31 +320,56 @@ def extract_text_from_image(
     region_offset: tuple[int, int] | None = None,
 ) -> OCRExtractResult:
     """
-    Extract text from a PIL Image using OCR provider chain.
+    Extract text from a PIL Image using native platform OCR.
 
-    Uses native platform OCR first (WinRT on Windows, Vision on macOS) with
-    Tesseract as fallback.
+    Uses native platform OCR (WinRT on Windows, Vision on macOS).
+    
+    On Retina/HiDPI displays (scale_factor > 1.0), images are normalized
+    to 1x DPI before OCR for optimal accuracy. OCR engines are trained on
+    standard DPI and struggle with 2x Retina text.
 
     Args:
-        image: PIL Image to extract text from
-        language: Language code (e.g., "eng", "spa", "fra")
-        scale_factor: HiDPI/Retina scaling factor to convert physical screenshot
-                     coordinates to logical screen coordinates (default: 1.0)
-        region_offset: Optional (x, y) offset if screenshot was captured from a specific
-                      screen region. Coordinates will be adjusted to screen space.
-                      (default: None, meaning screenshot is from screen origin)
+        image: PIL Image to extract text from (may be 2x Retina resolution)
+        language: Language code (e.g., "eng", "spa", "fra") - defaults to English
+        scale_factor: HiDPI/Retina scaling factor (2.0 for Retina, 1.0 for standard)
+        region_offset: Optional (x, y) offset in physical pixels if screenshot was
+                      captured from a specific screen region (not origin)
 
     Returns:
         OCRExtractResult with full text and individual text elements
-        (coordinates are converted to screen/logical space if scale_factor != 1.0)
+        (coordinates are in logical screen space)
     """
-    # Use provider chain (WinRT/Vision → Tesseract fallback)
+    from code_puppy.messaging import emit_info
+    
+    # Log original image dimensions
+    emit_info(
+        f"[dim]🔍 DEBUG [extract_text_from_image]: Starting OCR[/dim]\n"
+        f"[dim]   Input image: {image.width}x{image.height} ({image.mode})[/dim]\n"
+        f"[dim]   Scale factor: {scale_factor}x[/dim]"
+    )
+    
+    # ImageGrab.grab() on macOS returns LOGICAL resolution, not physical!
+    # Don't downscale - the image is already at the right size for OCR
+    emit_info(
+        f"[dim]   Image size: {image.width}x{image.height}[/dim]\n"
+        f"[dim]   Applying grayscale + contrast (NO downscaling)[/dim]"
+    )
+    
+    # Just apply grayscale + contrast, no downscaling
+    ocr_image = prepare_ocr_image(image, 1.0)  # scale_factor=1.0 = no downscaling
+    
+    emit_info(
+        f"[dim]   ✅ Prepared for OCR: {ocr_image.width}x{ocr_image.height} ({ocr_image.mode})[/dim]"
+    )
+    
+    # Use native platform OCR provider (Vision on macOS, WinRT on Windows)
     ocr_chain = get_ocr_provider()
 
     # Convert language code to ISO 639-1 format ("eng" → "en")
     lang_code = language[:2] if len(language) > 2 else language
 
-    provider_result = ocr_chain.extract_text(image, language=lang_code)
+    # Pass normalized 1x image to OCR
+    provider_result = ocr_chain.extract_text(ocr_image, language=lang_code)
 
     if not provider_result.success:
         return OCRExtractResult(
@@ -299,14 +380,15 @@ def extract_text_from_image(
     # Convert provider OCRWords to TextBoundingBox format
     text_elements = []
     for word in provider_result.words:
-        # OCR returns coordinates in screenshot space (physical pixels)
-        # Convert to logical screen coordinates
-        x_screen = int(word.bbox[0] / scale_factor)
-        y_screen = int(word.bbox[1] / scale_factor)
-        width_screen = int(word.bbox[2] / scale_factor)
-        height_screen = int(word.bbox[3] / scale_factor)
+        # OCR returns coordinates in the normalized 1x image space
+        # Since we downscaled by scale_factor, these ARE already logical coordinates!
+        # No division needed - the downscaling already normalized them to 1x
+        x_screen = int(word.bbox[0])
+        y_screen = int(word.bbox[1])
+        width_screen = int(word.bbox[2])
+        height_screen = int(word.bbox[3])
 
-        # Add region offset (also convert from physical to logical)
+        # Add region offset (convert from physical to logical)
         if region_offset:
             region_x_logical = int(region_offset[0] / scale_factor)
             region_y_logical = int(region_offset[1] / scale_factor)

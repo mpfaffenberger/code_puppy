@@ -8,6 +8,10 @@ from code_puppy.tools.common import generate_group_id
 from ..platform import get_screen_scale_factor
 from ..result_types import ElementClickResult
 from ..debug_screenshot_manager import save_temp_debug_screenshot
+
+# Import thread-safe screenshot function
+from ..screen_capture.capture import _safe_screenshot
+
 from .utils import (
     VQAElementLocation,
     crop_to_region,
@@ -240,7 +244,7 @@ def desktop_click_element_vqa(
                 )
 
         # Capture full screenshot
-        screenshot = pyautogui.screenshot()
+        screenshot = _safe_screenshot()
         if save_debug:
             save_temp_debug_screenshot(screenshot, "0_full_screenshot", group_id)
 

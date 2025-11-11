@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
+from pydantic import Field
 
-try:
+from ..dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
     import pyautogui
-    from PIL import Image, ImageDraw
-
-    PYAUTOGUI_AVAILABLE = True
-except ImportError:
-    PYAUTOGUI_AVAILABLE = False
+else:
     pyautogui = None
+
+if PIL_AVAILABLE:
+    from PIL import Image, ImageDraw
+else:
     Image = None
     ImageDraw = None
-
-from pydantic import Field
 
 
 from ..result_types import BaseAutomationResult

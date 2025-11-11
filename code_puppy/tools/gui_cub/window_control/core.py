@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import subprocess
-
+import time
 
 from ..constants import (
     DEFAULT_WINDOW_FOCUS_TIMEOUT,
@@ -125,6 +125,58 @@ def _get_window_bounds_by_app_name(app_name: str) -> WindowBoundsResult:
         )
 
 
+# Module-level call counter for tracking
+_get_active_window_bounds_call_count = {"count": 0}
+
+
+def _is_app_window_topmost(app_name: str) -> bool:
+    """
+    Check if the given app has a window at layer 0 (topmost visible layer).
+
+    This uses the CORRECT method of checking window focus by examining
+    kCGWindowLayer values, NOT NSWorkspace.frontmostApplication() which
+    returns stale/incorrect data.
+
+    Args:
+        app_name: Application name to check (e.g., "TextEdit", "Calculator")
+
+    Returns:
+        True if the app has a window at layer 0 (topmost), False otherwise
+    """
+    if not IS_MACOS:
+        return False
+
+    try:
+        from Quartz import (
+            CGWindowListCopyWindowInfo,
+            kCGWindowListOptionOnScreenOnly,
+            kCGNullWindowID,
+        )
+
+        # Get ALL on-screen windows
+        window_list = CGWindowListCopyWindowInfo(
+            kCGWindowListOptionOnScreenOnly, kCGNullWindowID
+        )
+
+        # Check if ANY window from this app is at layer 0 (topmost)
+        for window in window_list:
+            owner_name = window.get("kCGWindowOwnerName")
+            layer = window.get("kCGWindowLayer", 0)
+            bounds = window.get("kCGWindowBounds")
+
+            if owner_name == app_name and layer == 0 and bounds:
+                # Also check it's not a tiny window (notification/helper)
+                width = int(bounds.get("Width", 0))
+                height = int(bounds.get("Height", 0))
+                if width >= 100 and height >= 100:
+                    return True
+
+        return False
+
+    except Exception:
+        return False
+
+
 def _get_active_window_bounds_impl() -> WindowBoundsResult:
     """
     Internal helper to get active window bounds.
@@ -135,6 +187,15 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
     Returns:
         WindowBoundsResult with window position, size, and app name
     """
+    from code_puppy.messaging import emit_info
+
+    # Increment call counter
+    _get_active_window_bounds_call_count["count"] += 1
+    call_num = _get_active_window_bounds_call_count["count"]
+
+    emit_info(
+        f"[bold magenta]🔍 DEBUG [CALL #{call_num}]: _get_active_window_bounds_impl() - FRESH DETECTION STARTING[/bold magenta]"
+    )
     if IS_WINDOWS:
         # Windows implementation
         try:
@@ -181,79 +242,119 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
     elif IS_MACOS:
         # macOS implementation
         try:
-            from AppKit import NSWorkspace
             from Quartz import (
                 CGWindowListCopyWindowInfo,
                 kCGWindowListOptionOnScreenOnly,
                 kCGNullWindowID,
             )
 
-            # Get frontmost app
-            workspace = NSWorkspace.sharedWorkspace()
-            app = workspace.frontmostApplication()
-            app_name = app.localizedName()
-            pid = app.processIdentifier()
+            # LAYER-FIRST APPROACH: Use CGWindowLayer as GROUND TRUTH, NSWorkspace as fallback hint
+            #
+            # PROBLEM: NSWorkspace.frontmostApplication() is CACHED and STALE!
+            # When we call desktop_focus_window("TextEdit"), AppleScript activates it successfully,
+            # but NSWorkspace still returns "Calculator" for several seconds!
+            #
+            # SOLUTION: Trust the window layer ordering from CGWindowListCopyWindowInfo.
+            # The FIRST window at layer 0 (after filtering) IS the active window - no guessing needed!
+            #
+            # Strategy:
+            # 1. Get ALL windows in front-to-back order from CGWindowListCopyWindowInfo
+            # 2. Filter out non-normal windows (layer != 0, tiny size, mini-players)
+            # 3. Return FIRST valid window = frontmost window (GUARANTEED by macOS window server)
+            # 4. No NSWorkspace needed - layer 0 ordering is the ground truth!
+            #
+            # This fixes:
+            # - Focus race condition: Layer updates immediately, NSWorkspace doesn't
+            # - Stale menu bar data: We don't trust NSWorkspace at all
+            # - Reliable after focus: Works instantly after desktop_focus_window() succeeds
 
-            # Get window list and find the frontmost window for this app
+            # Get ALL on-screen windows (front-to-back order)
             window_list = CGWindowListCopyWindowInfo(
                 kCGWindowListOptionOnScreenOnly, kCGNullWindowID
             )
 
-            # Find the LARGEST window belonging to this PID
-            # This ensures we get the main app window, not mini players or notifications
-            candidate_windows = []
+            # CRITICAL: CGWindowListCopyWindowInfo returns windows in FRONT-TO-BACK order!
+            # The FIRST window at layer 0 is the frontmost window!
+            # We must preserve this order and NOT sort by area.
+            #
+            # Strategy:
+            # 1. Iterate in front-to-back order (preserve original list order)
+            # 2. Skip windows at layer != 0 (not normal app windows)
+            # 3. Skip windows < 100x100 (notifications/helpers)
+            # 4. Skip windows < 20,000px² (mini-players/utility windows)
+            # 5. Return FIRST window that passes all filters = frontmost main window
+
+            MIN_WIDTH = 100
+            MIN_HEIGHT = 100
+            MIN_AREA = 20_000  # ~141x141 - filters out tiny notification/helper windows
+
+            # Find the FIRST valid layer-0 window (this is the active window!)
+            active_window = None
+
             for window in window_list:
-                if window.get("kCGWindowOwnerPID") == pid:
-                    bounds = window.get("kCGWindowBounds")
-                    if bounds:
-                        width = int(bounds["Width"])
-                        height = int(bounds["Height"])
-                        # Filter out tiny windows (< 100x100) - likely helpers/notifications
-                        if width >= 100 and height >= 100:
-                            candidate_windows.append(
-                                {
-                                    "bounds": bounds,
-                                    "title": window.get("kCGWindowName"),
-                                    "area": width * height,
-                                    "layer": window.get("kCGWindowLayer", 0),
-                                }
-                            )
+                bounds = window.get("kCGWindowBounds")
+                owner_pid = window.get("kCGWindowOwnerPID")
+                owner_name = window.get("kCGWindowOwnerName")
+                layer = window.get("kCGWindowLayer", 0)
 
-            # Debug logging
-            from code_puppy.messaging import emit_info
-            from ..config_manager import get_debug_screenshots_enabled
+                # Skip non-normal windows (menus, desktop, etc.)
+                if layer != 0:
+                    continue
 
-            # Always log when debug mode is on, or when there are multiple windows
-            if get_debug_screenshots_enabled() or len(candidate_windows) > 1:
+                # Skip windows without required info
+                if not (bounds and owner_pid and owner_name):
+                    continue
+
+                width = int(bounds["Width"])
+                height = int(bounds["Height"])
+                area = width * height
+
+                # Filter out tiny windows (notifications, helpers)
+                if width < MIN_WIDTH or height < MIN_HEIGHT:
+                    continue
+
+                # Filter out mini-players / utility windows
+                # But allow small apps like Calculator (69,300px² ~= 263x263)
+                # Typical mini-players are < 50,000px² (~224x224)
+                if area < MIN_AREA:
+                    continue
+
+                # This is the active window! (First valid layer-0 window)
+                active_window = {
+                    "bounds": bounds,
+                    "title": window.get("kCGWindowName"),
+                    "area": area,
+                    "layer": layer,
+                    "pid": owner_pid,
+                    "app_name": owner_name,
+                }
+
                 emit_info(
-                    f"[dim]🔍 Found {len(candidate_windows)} windows for {app_name}:[/dim]\n"
-                    + "\n".join(
-                        f"[dim]   • {w['title'] or 'Untitled'}: {int(w['bounds']['Width'])}x{int(w['bounds']['Height'])} "
-                        f"at ({int(w['bounds']['X'])}, {int(w['bounds']['Y'])}) - area: {w['area']:,}px²[/dim]"
-                        for w in sorted(
-                            candidate_windows, key=lambda x: x["area"], reverse=True
-                        )
-                    )
+                    f"[dim]🔍 DEBUG: Found active window (first layer-0 window): '{owner_name}'[/dim]"
                 )
+                break  # First valid window IS the active window!
 
-            if not candidate_windows:
+            # Check if we found any valid window
+            if not active_window:
                 return WindowBoundsResult(
                     success=False,
-                    error=f"No visible windows found for {app_name} (might be minimized or menu bar app)",
+                    error=f"No visible windows found (all windows < {MIN_WIDTH}x{MIN_HEIGHT} or < {MIN_AREA:,}px²)",
                 )
 
-            # Sort by area (largest first), then by layer (lower layer = more visible)
-            candidate_windows.sort(key=lambda w: (w["area"], -w["layer"]), reverse=True)
-
-            # Return the largest window
-            best_window = candidate_windows[0]
+            # Use the active window we found
+            best_window = active_window
+            # Extract window info
             bounds = best_window["bounds"]
+            app_name = best_window["app_name"]
+            pid = best_window["pid"]
 
-            if len(candidate_windows) > 1:
-                emit_info(
-                    f"[green]✓ Selected largest window: {best_window['title'] or 'Untitled'} "
-                    f"({int(bounds['Width'])}x{int(bounds['Height'])})[/green]"
-                )
+            # Debug logging
+            emit_info(
+                f"[dim]🔍 DEBUG: Selected window:[/dim]\n"
+                f"[dim]   app_name={app_name!r}, pid={pid}[/dim]\n"
+                f"[dim]   window_title={best_window['title']!r}[/dim]\n"
+                f"[dim]   layer={best_window['layer']}, area={best_window['area']:,}px²[/dim]"
+            )
 
             # NOTE: macOS CGWindowListCopyWindowInfo returns coordinates in POINTS
             # (logical coordinates), not physical pixels. On Retina displays, points
@@ -265,17 +366,17 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
             logical_width = int(bounds["Width"])
             logical_height = int(bounds["Height"])
 
-            # Debug: show final bounds
-            if get_debug_screenshots_enabled():
-                from ..platform import get_screen_scale_factor
+            # Window bounds are in logical coordinates (points)
+            # On Retina displays, multiply by scale_factor to get physical pixels
 
-                scale_factor = get_screen_scale_factor()
-                emit_info(
-                    f"[yellow]🐛 DEBUG: Window bounds (in points/logical):[/yellow]\n"
-                    f"[yellow]   Points: ({int(bounds['X'])}, {int(bounds['Y'])}) {int(bounds['Width'])}x{int(bounds['Height'])}[/yellow]\n"
-                    f"[yellow]   Physical would be: ({int(bounds['X'] * scale_factor)}, {int(bounds['Y'] * scale_factor)}) {int(bounds['Width'] * scale_factor)}x{int(bounds['Height'] * scale_factor)}[/yellow]\n"
-                    f"[yellow]   Scale: {scale_factor}x[/yellow]"
-                )
+            # DEBUG: Log the bounds we're about to return
+            emit_info(
+                f"[dim]🔍 DEBUG [_get_active_window_bounds_impl]: Returning window bounds[/dim]\n"
+                f"[dim]   app_name={app_name}[/dim]\n"
+                f"[dim]   window_title={best_window['title']}[/dim]\n"
+                f"[dim]   LOGICAL coords (points): x={logical_x}, y={logical_y}, w={logical_width}, h={logical_height}[/dim]\n"
+                f"[dim]   These are macOS CGWindowBounds in POINTS (will be multiplied by scale_factor for physical pixels)[/dim]"
+            )
 
             return WindowBoundsResult(
                 success=True,
@@ -407,21 +508,96 @@ def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
                         error=f"Failed to focus {app_name}: {error_msg}",
                     )
 
-                return WindowFocusResult(success=True, focused_app=app_name)
+                # CRITICAL: AppleScript's 'activate' is asynchronous!
+                # We need to wait for the window to actually become frontmost
+                # before returning, otherwise subsequent OCR/screenshot calls will
+                # capture the WRONG window!
+
+                # Verification loop: wait until the app window is actually at layer 0 (topmost)
+                # NOTE: We use _is_app_window_topmost() instead of NSWorkspace.frontmostApplication()
+                # because NSWorkspace returns stale/incorrect data (it reports menu bar owner,
+                # not actual window focus).
+                max_wait_time = 3.0  # Maximum 3 seconds to wait
+                poll_interval = 0.1  # Check every 100ms
+                elapsed = 0.0
+
+                while elapsed < max_wait_time:
+                    time.sleep(poll_interval)
+                    elapsed += poll_interval
+
+                    # Check if app has a window at layer 0 (topmost)
+                    if _is_app_window_topmost(app_name):
+                        # Success! The window is now at the topmost layer
+                        # Add a tiny buffer to ensure it's fully settled
+                        time.sleep(0.2)  # Buffer for stability
+                        return WindowFocusResult(success=True, focused_app=app_name)
+
+                # Timeout - the window didn't reach layer 0 in time
+                # Try to provide helpful error message
+                bounds_result = _get_active_window_bounds_impl()
+                actual_topmost = (
+                    bounds_result.app_name if bounds_result.success else "unknown"
+                )
+
+                return WindowFocusResult(
+                    success=False,
+                    error=f"Failed to focus {app_name}: Window was activated but {actual_topmost} is still topmost after {max_wait_time}s. Try focusing the window manually or check if it's minimized.",
+                )
 
             else:
                 # Re-focus frontmost application
                 try:
-                    from AppKit import NSWorkspace
+                    # Get the ACTUAL topmost app using layer detection, not NSWorkspace
+                    bounds_result = _get_active_window_bounds_impl()
+                    if not bounds_result.success:
+                        return WindowFocusResult(
+                            success=False,
+                            error="Failed to determine current frontmost app",
+                        )
 
-                    workspace = NSWorkspace.sharedWorkspace()
-                    app = workspace.frontmostApplication()
-                    app_name_current = app.localizedName()
+                    app_name_current = bounds_result.app_name
 
-                    # Re-activate it
-                    app.activateWithOptions_(0)
+                    # Re-activate it via AppleScript
+                    script = f'tell application "{app_name_current}" to activate'
+                    result = subprocess.run(
+                        ["osascript", "-e", script],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=DEFAULT_WINDOW_FOCUS_TIMEOUT,
+                    )
 
-                    return WindowFocusResult(success=True, focused_app=app_name_current)
+                    if result.returncode != 0:
+                        return WindowFocusResult(
+                            success=False,
+                            error=f"Failed to re-focus {app_name_current}",
+                        )
+
+                    # Verification loop: ensure it's still at layer 0
+                    max_wait_time = 2.0
+                    poll_interval = 0.1
+                    elapsed = 0.0
+
+                    while elapsed < max_wait_time:
+                        time.sleep(poll_interval)
+                        elapsed += poll_interval
+
+                        if _is_app_window_topmost(app_name_current):
+                            time.sleep(0.2)  # Buffer
+                            return WindowFocusResult(
+                                success=True, focused_app=app_name_current
+                            )
+
+                    # Return failure if verification failed
+                    bounds_result = _get_active_window_bounds_impl()
+                    actual_topmost = (
+                        bounds_result.app_name if bounds_result.success else "unknown"
+                    )
+                    return WindowFocusResult(
+                        success=False,
+                        error=f"Failed to re-focus {app_name_current}: {actual_topmost} is frontmost instead",
+                    )
 
                 except ImportError:
                     return WindowFocusResult(success=False, error=ERROR_APPKIT_MISSING)

@@ -12,6 +12,9 @@ from .core.scaling import (
 from enum import Enum
 from typing import Callable
 
+# Import thread-safe screenshot function (defined later to avoid circular import)
+_safe_screenshot = None  # Will be set after screen_capture module loads
+
 
 class Platform(Enum):
     """Supported platforms for desktop automation (Windows/macOS only)."""
@@ -182,7 +185,9 @@ def get_screen_scale_factor(use_cache: bool = True) -> float:
         logical_width, logical_height = pyautogui.size()
 
         # Physical size from full screenshot
-        shot = pyautogui.screenshot()
+        # Import here to avoid circular dependency
+        from .screen_capture.capture import _safe_screenshot
+        shot = _safe_screenshot()
         physical_width, physical_height = shot.size
 
         # Use extracted pure logic to calculate scale factor
