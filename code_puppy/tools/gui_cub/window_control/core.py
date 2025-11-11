@@ -352,10 +352,8 @@ def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
     if IS_WINDOWS:
         # Windows implementation
         try:
-            from .windows_automation import (
-                WINDOWS_AUTOMATION_AVAILABLE,
-                focus_window,
-            )
+            from ..windows_automation import WINDOWS_AUTOMATION_AVAILABLE
+            from ..windows_automation.core import focus_window
 
             if not WINDOWS_AUTOMATION_AVAILABLE:
                 return WindowFocusResult(

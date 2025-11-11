@@ -95,7 +95,7 @@ def focus_window(
     Focus a window on Windows.
 
     Args:
-        window_title: Window title (exact or partial match)
+        window_title: Window title (exact or partial match, case-insensitive)
         class_name: Window class name
         hwnd: Window handle (direct)
 
@@ -106,19 +106,22 @@ def focus_window(
         return False
 
     try:
+        target_hwnd = None
+        
         # If hwnd provided directly
         if hwnd:
             target_hwnd = hwnd
         # Find by title
         elif window_title:
-            # Try exact match first
+            # Try exact match first (case-sensitive)
             target_hwnd = win32gui.FindWindow(None, window_title)
 
-            # If not found, try partial match
+            # If not found, try partial case-insensitive match
             if not target_hwnd:
-                windows = list_windows()
+                windows = list_windows(include_minimized=True)
+                search_term = window_title.lower()
                 for window in windows:
-                    if window_title.lower() in window["title"].lower():
+                    if search_term in window["title"].lower():
                         target_hwnd = window["hwnd"]
                         break
         # Find by class name
@@ -127,19 +130,23 @@ def focus_window(
         else:
             return False
 
-        if target_hwnd:
-            # Restore if minimized
-            if win32gui.IsIconic(target_hwnd):
-                win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+        if not target_hwnd:
+            return False
+            
+        # Restore if minimized
+        if win32gui.IsIconic(target_hwnd):
+            win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
 
-            # Bring to foreground
-            win32gui.SetForegroundWindow(target_hwnd)
-            return True
+        # Bring to foreground
+        win32gui.SetForegroundWindow(target_hwnd)
+        return True
 
-    except Exception:
-        pass
-
-    return False
+    except Exception as e:
+        # Log the error for debugging but still return False
+        # This helps diagnose issues in testing
+        import sys
+        print(f"focus_window error: {e}", file=sys.stderr)
+        return False
 
 
 def find_element(
