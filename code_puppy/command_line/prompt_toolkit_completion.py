@@ -29,6 +29,7 @@ from code_puppy.command_line.attachments import (
 from code_puppy.command_line.command_registry import get_unique_commands
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 from code_puppy.command_line.load_context_completion import LoadContextCompleter
+from code_puppy.command_line.mcp_completion import MCPCompleter
 from code_puppy.command_line.model_picker_completion import (
     ModelNameCompleter,
     get_active_model,
@@ -420,11 +421,13 @@ async def get_input_with_combined_completion(
         [
             FilePathCompleter(symbol="@"),
             ModelNameCompleter(trigger="/model"),
+            ModelNameCompleter(trigger="/m"),
             CDCompleter(trigger="/cd"),
             SetCompleter(trigger="/set"),
             LoadContextCompleter(trigger="/load_context"),
             PinCompleter(trigger="/pin_model"),
             AgentCompleter(trigger="/agent"),
+            MCPCompleter(trigger="/mcp"),
             SlashCompleter(),
         ]
     )
