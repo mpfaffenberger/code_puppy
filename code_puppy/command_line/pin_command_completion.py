@@ -59,16 +59,18 @@ class PinCompleter(Completer):
         cursor_position = document.cursor_position
         text_before_cursor = text[:cursor_position]
 
-        # Only trigger if /pin_model is at the very beginning of the line
+        # Only trigger if /pin_model is at the very beginning of the line and has a space after it
         stripped_text = text_before_cursor.lstrip()
-        if not stripped_text.startswith(self.trigger):
+        if not stripped_text.startswith(self.trigger + " "):
             return
 
         # Find where /pin_model actually starts (after any leading whitespace)
         trigger_pos = text_before_cursor.find(self.trigger)
 
-        # Get the command part (everything after the trigger)
-        command_part = text_before_cursor[trigger_pos + len(self.trigger) :].lstrip()
+        # Get the command part (everything after the trigger and space)
+        command_part = text_before_cursor[
+            trigger_pos + len(self.trigger) + 1 :
+        ].lstrip()
 
         # Check if we're positioned at the very end (cursor at end of text)
         cursor_at_end = cursor_position == len(text)

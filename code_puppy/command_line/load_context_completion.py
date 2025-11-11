@@ -10,36 +10,19 @@ class LoadContextCompleter(Completer):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
+        cursor_position = document.cursor_position
         text_before_cursor = document.text_before_cursor
         stripped_text_for_trigger_check = text_before_cursor.lstrip()
 
-        if not stripped_text_for_trigger_check.startswith(self.trigger):
+        # Require a space after /load_context before showing completions (consistency with other completers)
+        if not stripped_text_for_trigger_check.startswith(self.trigger + " "):
             return
 
-        # Determine the part of the text that is relevant for this completer
+        # Extract the session name after /load_context and space (up to cursor)
         actual_trigger_pos = text_before_cursor.find(self.trigger)
-        effective_input = text_before_cursor[actual_trigger_pos:]
-
-        tokens = effective_input.split()
-
-        # Case 1: Input is exactly the trigger (e.g., "/load_context") and nothing more
-        if (
-            len(tokens) == 1
-            and tokens[0] == self.trigger
-            and not effective_input.endswith(" ")
-        ):
-            yield Completion(
-                text=self.trigger + " ",
-                start_position=-len(tokens[0]),
-                display=self.trigger + " ",
-                display_meta="load saved context",
-            )
-            return
-
-        # Case 2: Input is trigger + space or trigger + partial session name
-        session_filter = ""
-        if len(tokens) > 1:  # e.g., ["/load_context", "partial"]
-            session_filter = tokens[1]
+        trigger_end = actual_trigger_pos + len(self.trigger) + 1  # +1 for the space
+        session_filter = text_before_cursor[trigger_end:cursor_position].lstrip()
+        start_position = -(len(session_filter))
 
         # Get available context files
         try:
@@ -50,7 +33,7 @@ class LoadContextCompleter(Completer):
                     if session_name.startswith(session_filter):
                         yield Completion(
                             session_name,
-                            start_position=-len(session_filter),
+                            start_position=start_position,
                             display=session_name,
                             display_meta="saved context session",
                         )
