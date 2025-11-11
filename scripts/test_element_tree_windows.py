@@ -198,7 +198,6 @@ def test_automation_id():
 
 def main():
     """Run all tests."""
-    import time
     
     print("\n" + "#" * 80)
     print("#  WINDOWS ELEMENT TREE TEST SUITE")

@@ -428,7 +428,7 @@ def register_windows_tools(agent):
                 
                 # Window is usable even if not foreground
                 emit_info(
-                    f"[cyan]💡 Window is restored and ready for interaction. Click inside the window to bring it to foreground if needed.[/cyan]",
+                    "[cyan]💡 Window is restored and ready for interaction. Click inside the window to bring it to foreground if needed.[/cyan]",
                     message_group=group_id,
                 )
                 # Return success=True because window IS usable, just not foreground
@@ -464,7 +464,7 @@ def register_windows_tools(agent):
                         )
                 
                 emit_info(
-                    f"[cyan]💡 NEXT STEP: Use desktop_vqa_click_two_stage() to visually find and click the taskbar button[/cyan]",
+                    "[cyan]💡 NEXT STEP: Use desktop_vqa_click_two_stage() to visually find and click the taskbar button[/cyan]",
                     message_group=group_id,
                 )
                 return WindowFocusResult(
@@ -792,7 +792,7 @@ def register_windows_tools(agent):
 
             if not windows_to_close:
                 emit_warning(
-                    f"[yellow]No windows found to close[/yellow]",
+                    "[yellow]No windows found to close[/yellow]",
                     message_group=group_id,
                 )
                 return {

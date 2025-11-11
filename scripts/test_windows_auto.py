@@ -6,8 +6,6 @@ Runs automatically on currently focused window.
 
 import sys
 from pathlib import Path
-import subprocess
-import time
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))

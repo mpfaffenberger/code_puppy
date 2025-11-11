@@ -37,6 +37,8 @@ class TestWindowsUnMinimizeVerification:
                 "gui": mock_gui,
                 "con": mock_con
             }
+
+    def test_un_minimize_verifies_window_is_restored(self, mock_win32):
         """Verify that un-minimize checks if window is actually restored."""
         from code_puppy.tools.gui_cub.windows_automation.tools import register_windows_tools
         from code_puppy.agents.base_agent import BaseAgent

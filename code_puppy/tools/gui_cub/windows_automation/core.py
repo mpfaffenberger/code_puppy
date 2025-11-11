@@ -243,15 +243,15 @@ def focus_window(
                 # Window restored but not foreground - this is actually OK for most use cases
                 return (True, None)  # Return success since window is usable
             else:
-                return (False, f"focus_failed: Window was minimized and could not be restored")
+                return (False, "focus_failed: Window was minimized and could not be restored")
                 
-        except Exception as e:
+        except Exception:
             # SetForegroundWindow failed (likely Windows focus stealing prevention)
             # This is normal Windows security behavior to prevent malicious focus stealing
             
             # FALLBACK STRATEGY 1: Try clicking the taskbar button
             # This often works when SetForegroundWindow is blocked
-            success, error = _find_and_click_taskbar_button(window_name or str(target_hwnd))
+            success, error = _find_and_click_taskbar_button(window_title or str(target_hwnd))
             if success:
                 # Verify the click worked
                 time.sleep(0.2)

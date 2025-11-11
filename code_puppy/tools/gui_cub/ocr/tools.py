@@ -882,7 +882,6 @@ def register_ocr_tools(agent):
         from ..config_manager import set_debug_screenshots_enabled
 
         set_debug_screenshots_enabled(enabled)
-        status = "enabled" if enabled else "disabled"
 
         return BaseAutomationResult(
             success=True,

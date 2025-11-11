@@ -63,7 +63,7 @@ if result.get('success'):
                     status = "❌"
                     print(f"  {status} [{i}] (no name) - automation_id: {auto_id}")
         
-        print(f"\n  Summary:")
+        print("\n  Summary:")
         print(f"    Buttons with names: {buttons_with_names}")
         print(f"    Buttons without names: {buttons_without_names}")
         print(f"    Percentage with names: {100*buttons_with_names/len(buttons):.1f}%")

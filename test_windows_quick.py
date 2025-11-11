@@ -47,7 +47,7 @@ if result:
     # Check compaction
     if result.get('summary'):
         summary = result.get('summary')
-        print(f"\n[COMPACTION CHECK]")
+        print("\n[COMPACTION CHECK]")
         print(f"  Found: {summary.get('found_count')}")
         print(f"  Returned: {summary.get('returned_count')}")
         print(f"  Filtered: {summary.get('filtered_count')}")

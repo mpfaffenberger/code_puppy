@@ -12,10 +12,9 @@ print("Testing Windows automation import...")
 try:
     from code_puppy.tools.gui_cub.windows_automation import (
         list_elements_in_window,
-        find_element,
         WINDOWS_AUTOMATION_AVAILABLE,
     )
-    print(f"✅ Import successful!")
+    print("✅ Import successful!")
     print(f"Windows automation available: {WINDOWS_AUTOMATION_AVAILABLE}")
     
     if WINDOWS_AUTOMATION_AVAILABLE:

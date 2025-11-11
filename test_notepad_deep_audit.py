@@ -116,18 +116,18 @@ try:
     print("\nActual findings:")
     if edit_controls:
         main_edit = edit_controls[0]
-        print(f"  ✓ Found Edit control")
+        print("  ✓ Found Edit control")
         print(f"  ✓ automation_id: '{main_edit['automation_id']}'")
-        print(f"  ? Is this really the text editor? Let's verify...")
+        print("  ? Is this really the text editor? Let's verify...")
         
         # Check if it's likely the main editor by size
         if main_edit['width'] and main_edit['height']:
             area = main_edit['width'] * main_edit['height']
             print(f"  - Area: {area:,} pixels²")
             if area > 100000:
-                print(f"  ✓ Large area suggests main editor")
+                print("  ✓ Large area suggests main editor")
             else:
-                print(f"  ? Small area - might not be main editor")
+                print("  ? Small area - might not be main editor")
     else:
         print("  ✗ No Edit controls found!")
     
