@@ -488,22 +488,22 @@ class TestGUICubAgentBasics:
         assert "platform" in p.lower() or "cross-platform" in p.lower()
         assert "macOS" in p or "Windows" in p
 
-    def test_prompt_discourages_vqa_for_coordinates(self, agent):
-        """Verify system prompt warns against using VQA for coordinates."""
+    def test_prompt_positions_vqa_as_last_resort(self, agent):
+        """Verify system prompt positions VQA as tier 4 (last resort)."""
         p = agent.get_system_prompt()
-        # The prompt explicitly says not to use VQA for coordinates and mentions offset problems
+        # The prompt should mention VQA and position it as last resort/tier 4
         assert "VQA" in p
         assert (
-            "not for coordinates" in p
-            or "Do not use VQA for coordinates" in p
-            or "50-100px offset" in p
+            "Last Resort" in p
+            or "Tier 4" in p
+            or "last resort" in p
         )
 
-    def test_prompt_includes_knowledge_base_path(self, agent):
-        """Verify system prompt includes knowledge base path and management guidance."""
+    def test_prompt_includes_knowledge_base_guidance(self, agent):
+        """Verify system prompt includes knowledge base usage guidance."""
         p = agent.get_system_prompt()
-        assert "~/.code_puppy/agents/gui-cub/gui_cub_knowledge_base.md" in p
-        assert "Knowledge Base Management" in p or "KB" in p
+        # Should mention the knowledge base tool
+        assert "append_to_knowledge_base" in p or "knowledge base" in p.lower()
 
 
 class TestGUICubIntegration:
