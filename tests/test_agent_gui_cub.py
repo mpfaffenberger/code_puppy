@@ -16,12 +16,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import sys
 
 from code_puppy.agents.agent_gui_cub import GUICubAgent
 from code_puppy.agents.base_agent import BaseAgent
 
 
-class TestGUICubAgent:
+class TestGUICubAgentBasics:
     """Test suite for GUI-Cub agent."""
 
     @pytest.fixture
@@ -540,3 +541,100 @@ class TestGUICubIntegration:
         prompt2 = agent.get_system_prompt()
 
         assert prompt1 == prompt2
+
+
+class TestGUICubMinimizedWindowHandling:
+    """Tests for minimized window restoration behavior.
+    
+    These tests verify that the agent properly handles minimized/hidden windows
+    by using taskbar-specific tools instead of blindly trusting un-minimize operations.
+    """
+
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="Windows-specific minimized window test"
+    )
+    def test_prompt_includes_taskbar_guidance_windows(self):
+        """Verify system prompt includes explicit taskbar tool guidance for Windows."""
+        agent = GUICubAgent()
+        prompt = agent.get_system_prompt()
+        
+        # Check for taskbar-specific guidance
+        assert "windows_click_taskbar_app" in prompt
+        assert "windows_list_taskbar_apps" in prompt
+        assert "minimized" in prompt.lower()
+        
+        # Check for emphasis on verification
+        assert "verify" in prompt.lower() or "screenshot" in prompt.lower()
+        
+    @pytest.mark.skipif(
+        sys.platform != "darwin",
+        reason="macOS-specific minimized window test"
+    )
+    def test_prompt_includes_dock_guidance_macos(self):
+        """Verify system prompt includes explicit dock tool guidance for macOS."""
+        agent = GUICubAgent()
+        prompt = agent.get_system_prompt()
+        
+        # Check for dock-specific guidance
+        assert "macos_click_dock_icon" in prompt or "dock" in prompt.lower()
+        assert "minimized" in prompt.lower()
+        
+    def test_prompt_emphasizes_element_tree_exploration(self):
+        """Verify prompt emphasizes exploring element tree before clicking."""
+        agent = GUICubAgent()
+        prompt = agent.get_system_prompt()
+        
+        # Should mention element tree exploration
+        assert "element tree" in prompt.lower() or "list_elements" in prompt
+        assert "ALWAYS" in prompt or "always" in prompt
+        
+        # Should mention exploring BEFORE clicking
+        before_mentions = [
+            "before" in prompt.lower(),
+            "first" in prompt.lower(),
+            "explore" in prompt.lower()
+        ]
+        assert any(before_mentions)
+        
+    def test_prompt_includes_tool_priority_hierarchy(self):
+        """Verify prompt clearly defines tool priority: Keyboard → Accessibility → OCR → VQA."""
+        agent = GUICubAgent()
+        prompt = agent.get_system_prompt()
+        
+        # Check for tool priority hierarchy
+        assert "Tier 1" in prompt or "Priority" in prompt
+        assert "Keyboard" in prompt
+        assert "Accessibility" in prompt
+        assert "OCR" in prompt
+        assert "VQA" in prompt
+        
+        # Check that keyboard is listed as preferred/first
+        keyboard_idx = prompt.find("Keyboard")
+        vqa_idx = prompt.find("VQA")
+        assert keyboard_idx > 0 and vqa_idx > 0
+        # In a proper priority list, keyboard should appear before VQA in context
+        
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="Windows-specific tool availability test"
+    )
+    def test_windows_taskbar_tools_available(self):
+        """Verify Windows taskbar tools are registered when on Windows."""
+        agent = GUICubAgent()
+        tools = agent.get_available_tools()
+        
+        # Should have windows_automation which includes taskbar tools
+        assert "windows_automation" in tools
+        
+    @pytest.mark.skipif(
+        sys.platform != "darwin",
+        reason="macOS-specific tool availability test"
+    )
+    def test_macos_dock_tools_available(self):
+        """Verify macOS dock tools are registered when on macOS."""
+        agent = GUICubAgent()
+        tools = agent.get_available_tools()
+        
+        # Should have macos_automation which includes dock tools
+        assert "macos_automation" in tools

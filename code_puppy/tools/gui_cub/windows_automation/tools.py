@@ -357,23 +357,66 @@ def register_windows_tools(agent):
                     message="Window not found",
                 )
 
+            import time
+
             # Restore if minimized
-            if win32gui.IsIconic(target_hwnd):
+            was_minimized = win32gui.IsIconic(target_hwnd)
+            if was_minimized:
                 win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+                time.sleep(0.2)  # Give Windows time to restore
 
             # Bring to foreground
-            win32gui.SetForegroundWindow(target_hwnd)
+            try:
+                win32gui.SetForegroundWindow(target_hwnd)
+                time.sleep(0.1)  # Give Windows time to focus
+            except Exception as e:
+                emit_warning(
+                    f"[yellow]⚠ Could not set foreground: {e}[/yellow]",
+                    message_group=group_id,
+                )
+                # Continue to verification - partial success is possible
 
-            emit_info(
-                "[green]✅ Un-minimized window[/green]",
-                message_group=group_id,
-            )
+            # ✅ VERIFY success before claiming victory
+            is_restored = not win32gui.IsIconic(target_hwnd)
+            try:
+                is_foreground = win32gui.GetForegroundWindow() == target_hwnd
+            except Exception:
+                is_foreground = False
 
-            return WindowFocusResult(
-                success=True,
-                message="Un-minimized window",
-                window_title=window_title or str(hwnd),
-            )
+            if is_restored and is_foreground:
+                emit_info(
+                    "[green]✅ Un-minimized window successfully[/green]",
+                    message_group=group_id,
+                )
+                return WindowFocusResult(
+                    success=True,
+                    message="Un-minimized window",
+                    window_title=window_title or str(hwnd),
+                )
+            elif is_restored and not is_foreground:
+                # Partial success - window restored but not foreground
+                emit_warning(
+                    f"[yellow]⚠ Window restored but not in foreground (may be blocked by focus stealing prevention)[/yellow]",
+                    message_group=group_id,
+                )
+                return WindowFocusResult(
+                    success=False,
+                    error="Window restored but could not bring to foreground",
+                    message="Partial restore - window visible but not focused. Try windows_click_taskbar_app() instead.",
+                    window_title=window_title or str(hwnd),
+                )
+            else:
+                # Failed to restore
+                emit_warning(
+                    f"[yellow]❌ Failed to restore window (restored={is_restored}, foreground={is_foreground})[/yellow]",
+                    message_group=group_id,
+                )
+                return WindowFocusResult(
+                    success=False,
+                    error="Window restoration incomplete",
+                    message=f"Could not restore window. Try windows_click_taskbar_app() or windows_list_elements() to find taskbar button.",
+                    window_title=window_title or str(hwnd),
+                )
 
         except Exception as e:
             emit_info(
