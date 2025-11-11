@@ -26,6 +26,7 @@ from code_puppy.command_line.attachments import (
     _detect_path_tokens,
     _tokenise,
 )
+from code_puppy.command_line.command_registry import get_unique_commands
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 from code_puppy.command_line.load_context_completion import LoadContextCompleter
 from code_puppy.command_line.model_picker_completion import (
@@ -48,60 +49,42 @@ class SetCompleter(Completer):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
+        cursor_position = document.cursor_position
         text_before_cursor = document.text_before_cursor
         stripped_text_for_trigger_check = text_before_cursor.lstrip()
 
-        if not stripped_text_for_trigger_check.startswith(self.trigger):
+        # Require a space after /set before showing completions
+        if not stripped_text_for_trigger_check.startswith(self.trigger + " "):
             return
 
         # Determine the part of the text that is relevant for this completer
         # This handles cases like "  /set foo" where the trigger isn't at the start of the string
         actual_trigger_pos = text_before_cursor.find(self.trigger)
-        effective_input = text_before_cursor[
-            actual_trigger_pos:
-        ]  # e.g., "/set keypart" or "/set "
 
-        tokens = effective_input.split()
-
-        # Case 1: Input is exactly the trigger (e.g., "/set") and nothing more (not even a trailing space on effective_input).
-        # Suggest adding a space.
-        if (
-            len(tokens) == 1
-            and tokens[0] == self.trigger
-            and not effective_input.endswith(" ")
-        ):
-            yield Completion(
-                text=self.trigger + " ",  # Text to insert
-                start_position=-len(tokens[0]),  # Replace the trigger itself
-                display=self.trigger + " ",  # Visual display
-                display_meta="set config key",
-            )
-            return
-
-        # Case 2: Input is trigger + space (e.g., "/set ") or trigger + partial key (e.g., "/set partial")
-        base_to_complete = ""
-        if len(tokens) > 1:  # e.g., ["/set", "partialkey"]
-            base_to_complete = tokens[1]
-        # If len(tokens) == 1, it implies effective_input was like "/set ", so base_to_complete remains ""
-        # This means we list all keys.
+        # Extract the input after /set and space (up to cursor)
+        trigger_end = actual_trigger_pos + len(self.trigger) + 1  # +1 for the space
+        text_after_trigger = text_before_cursor[trigger_end:cursor_position].lstrip()
+        start_position = -(len(text_after_trigger))
 
         # --- SPECIAL HANDLING FOR 'model' KEY ---
-        if base_to_complete == "model":
+        if text_after_trigger == "model":
             # Don't return any completions -- let ModelNameCompleter handle it
             return
-        for key in get_config_keys():
+
+        # Get config keys and sort them alphabetically for consistent display
+        config_keys = sorted(get_config_keys())
+
+        for key in config_keys:
             if key == "model" or key == "puppy_token":
                 continue  # exclude 'model' and 'puppy_token' from regular /set completions
-            if key.startswith(base_to_complete):
+            if key.startswith(text_after_trigger):
                 prev_value = get_value(key)
                 value_part = f" = {prev_value}" if prev_value is not None else " = "
                 completion_text = f"{key}{value_part}"
 
                 yield Completion(
                     completion_text,
-                    start_position=-len(
-                        base_to_complete
-                    ),  # Correctly replace only the typed part of the key
+                    start_position=start_position,
                     display_meta="",
                 )
 
@@ -230,20 +213,25 @@ class CDCompleter(Completer):
         self.trigger = trigger
 
     def get_completions(self, document, complete_event):
-        text = document.text_before_cursor
-        if not text.strip().startswith(self.trigger):
+        text_before_cursor = document.text_before_cursor
+        stripped_text = text_before_cursor.lstrip()
+
+        # Require a space after /cd before showing completions (consistency with other completers)
+        if not stripped_text.startswith(self.trigger + " "):
             return
-        tokens = text.strip().split()
-        if len(tokens) == 1:
-            base = ""
-        else:
-            base = tokens[1]
+
+        # Extract the directory path after /cd and space (up to cursor)
+        trigger_pos = text_before_cursor.find(self.trigger)
+        trigger_end = trigger_pos + len(self.trigger) + 1  # +1 for the space
+        dir_path = text_before_cursor[trigger_end:].lstrip()
+        start_position = -(len(dir_path))
+
         try:
-            prefix = os.path.expanduser(base)
+            prefix = os.path.expanduser(dir_path)
             part = os.path.dirname(prefix) if os.path.dirname(prefix) else "."
             dirs, _ = list_directory(part)
-            dirnames = [d for d in dirs if d.startswith(os.path.basename(base))]
-            base_dir = os.path.dirname(base)
+            dirnames = [d for d in dirs if d.startswith(os.path.basename(prefix))]
+            base_dir = os.path.dirname(prefix)
             for d in dirnames:
                 # Build the completion text so we keep the already-typed directory parts.
                 if base_dir and base_dir != ".":
@@ -254,13 +242,129 @@ class CDCompleter(Completer):
                 suggestion = suggestion.rstrip(os.sep) + os.sep
                 yield Completion(
                     suggestion,
-                    start_position=-len(base),
+                    start_position=start_position,
                     display=d + os.sep,
                     display_meta="Directory",
                 )
         except Exception:
             # Silently ignore errors (e.g., permission issues, non-existent dir)
             pass
+
+
+class AgentCompleter(Completer):
+    """
+    A completer that triggers on '/agent' to show available agents.
+
+    Usage: /agent <agent-name>
+    """
+
+    def __init__(self, trigger: str = "/agent"):
+        self.trigger = trigger
+
+    def get_completions(self, document, complete_event):
+        cursor_position = document.cursor_position
+        text_before_cursor = document.text_before_cursor
+        stripped_text = text_before_cursor.lstrip()
+
+        # Require a space after /agent before showing completions
+        if not stripped_text.startswith(self.trigger + " "):
+            return
+
+        # Extract the input after /agent and space (up to cursor)
+        trigger_pos = text_before_cursor.find(self.trigger)
+        trigger_end = trigger_pos + len(self.trigger) + 1  # +1 for the space
+        text_after_trigger = text_before_cursor[trigger_end:cursor_position].lstrip()
+        start_position = -(len(text_after_trigger))
+
+        # Load all available agent names
+        try:
+            from code_puppy.command_line.pin_command_completion import load_agent_names
+
+            agent_names = load_agent_names()
+        except Exception:
+            # If agent loading fails, return no completions
+            return
+
+        # Filter and yield agent completions
+        for agent_name in agent_names:
+            if agent_name.startswith(text_after_trigger):
+                yield Completion(
+                    agent_name,
+                    start_position=start_position,
+                    display=agent_name,
+                    display_meta="Agent",
+                )
+
+
+class SlashCompleter(Completer):
+    """
+    A completer that triggers on '/' at the beginning of the line
+    to show all available slash commands.
+    """
+
+    def get_completions(self, document, complete_event):
+        text_before_cursor = document.text_before_cursor
+        stripped_text = text_before_cursor.lstrip()
+
+        # Only trigger if '/' is the first non-whitespace character
+        if not stripped_text.startswith("/"):
+            return
+
+        # Get the text after the initial slash
+        if len(stripped_text) == 1:
+            # User just typed '/', show all commands
+            partial = ""
+            start_position = 0  # Don't replace anything, just insert at cursor
+        else:
+            # User is typing a command after the slash
+            partial = stripped_text[1:]  # text after '/'
+            start_position = -(len(partial))  # Replace what was typed after '/'
+
+        # Load all available commands
+        try:
+            commands = get_unique_commands()
+        except Exception:
+            # If command loading fails, return no completions
+            return
+
+        # Collect all primary commands and their aliases for proper alphabetical sorting
+        all_completions = []
+
+        for cmd in commands:
+            # Add primary command
+            if cmd.name.startswith(partial):
+                all_completions.append(
+                    {
+                        "text": cmd.name,
+                        "display": f"/{cmd.name}",
+                        "meta": cmd.description,
+                        "sort_key": cmd.name.lower(),  # Case-insensitive sort
+                    }
+                )
+
+            # Add all aliases
+            for alias in cmd.aliases:
+                if alias.startswith(partial):
+                    all_completions.append(
+                        {
+                            "text": alias,
+                            "display": f"/{alias} (alias for /{cmd.name})",
+                            "meta": cmd.description,
+                            "sort_key": alias.lower(),  # Sort by alias name, not primary command
+                        }
+                    )
+
+        # Sort all completions alphabetically
+        all_completions.sort(key=lambda x: x["sort_key"])
+
+        # Yield the sorted completions
+        for completion in all_completions:
+            yield Completion(
+                completion["text"],
+                start_position=start_position,
+                display=completion["display"],
+                display_meta=completion["meta"],
+            )
 
 
 def get_prompt_with_active_model(base: str = ">>> "):
@@ -320,6 +424,8 @@ async def get_input_with_combined_completion(
             SetCompleter(trigger="/set"),
             LoadContextCompleter(trigger="/load_context"),
             PinCompleter(trigger="/pin_model"),
+            AgentCompleter(trigger="/agent"),
+            SlashCompleter(),
         ]
     )
     # Add custom key bindings and multiline toggle
