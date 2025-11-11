@@ -27,15 +27,16 @@ class TestWindowsUnMinimizeVerification:
     @pytest.fixture
     def mock_win32(self):
         """Mock win32gui and win32con modules."""
-        with patch("code_puppy.tools.gui_cub.windows_automation.tools.win32gui") as mock_gui, \n             patch("code_puppy.tools.gui_cub.windows_automation.tools.win32con") as mock_con, \n             patch("code_puppy.tools.gui_cub.windows_automation.tools.WINDOWS_AUTOMATION_AVAILABLE", True):
-            
+        with (
+            patch("code_puppy.tools.gui_cub.windows_automation.tools.win32gui") as mock_gui,
+            patch("code_puppy.tools.gui_cub.windows_automation.tools.win32con") as mock_con,
+            patch("code_puppy.tools.gui_cub.windows_automation.tools.WINDOWS_AUTOMATION_AVAILABLE", True)
+        ):
             mock_con.SW_RESTORE = 9  # Standard Windows constant
             yield {
                 "gui": mock_gui,
                 "con": mock_con
             }
-
-    def test_un_minimize_verifies_window_is_restored(self, mock_win32):
         """Verify that un-minimize checks if window is actually restored."""
         from code_puppy.tools.gui_cub.windows_automation.tools import register_windows_tools
         from code_puppy.agents.base_agent import BaseAgent
