@@ -369,13 +369,13 @@ def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
                 # Provide more specific error message
                 if error_msg == "not_found":
                     return WindowFocusResult(
-                        success=False, 
-                        error=f"Window '{app_name}' not found. Window may need to be opened first."
+                        success=False,
+                        error=f"Window '{app_name}' not found. Window may need to be opened first.",
                     )
                 else:
                     return WindowFocusResult(
-                        success=False, 
-                        error=f"Window '{app_name}' found but focus failed: {error_msg}"
+                        success=False,
+                        error=f"Window '{app_name}' found but focus failed: {error_msg}",
                     )
 
         except Exception as e:

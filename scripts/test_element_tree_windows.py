@@ -32,17 +32,17 @@ def test_list_buttons():
     print(f"\nSuccess: {result.get('success', False)}")
     print(f"Total elements: {result.get('total_elements', 0)}")
 
-    elements = result.get('elements', [])
-    buttons = [e for e in elements if e.get('control_type') == 'Button']
-    
+    elements = result.get("elements", [])
+    buttons = [e for e in elements if e.get("control_type") == "Button"]
+
     print(f"Total buttons: {len(buttons)}")
 
     if buttons:
         print("\nButton details:")
         for i, btn in enumerate(buttons[:20]):  # Show first 20
-            name = btn.get('name', '')
-            auto_id = btn.get('automation_id', '')
-            class_name = btn.get('class_name', '')
+            name = btn.get("name", "")
+            auto_id = btn.get("automation_id", "")
+            class_name = btn.get("class_name", "")
             print(f"  [{i}] type='Button', name='{name}'")
             if auto_id:
                 print(f"      automation_id: '{auto_id}'")
@@ -72,7 +72,7 @@ def test_find_element(search_name: str, control_type: str = None):
     print(f"\nSuccess: {result.get('success', False)}")
     print(f"Found: {result.get('found', False)}")
 
-    if result.get('found'):
+    if result.get("found"):
         print("\nMatch details:")
         print(f"  Name: {result.get('name')}")
         print(f"  ControlType: {result.get('control_type')}")
@@ -82,7 +82,7 @@ def test_find_element(search_name: str, control_type: str = None):
         print(f"  Y: {result.get('y')}")
     else:
         print("\nNot found!")
-        if result.get('error'):
+        if result.get("error"):
             print(f"  Error: {result.get('error')}")
 
     return result
@@ -97,13 +97,13 @@ def test_calculator():
 
     # Test 1: List all buttons
     list_result = test_list_buttons()
-    
+
     # Test 2: Find Plus button
     test_find_element("Plus", control_type="Button")
-    
+
     # Test 3: Find Equals button
     test_find_element("Equals", control_type="Button")
-    
+
     # Test 4: Find Zero button
     test_find_element("Zero", control_type="Button")
 
@@ -119,24 +119,24 @@ def test_notepad():
 
     # Test 1: List all elements
     result = list_elements_in_window()
-    
+
     print(f"\nSuccess: {result.get('success', False)}")
     print(f"Total elements: {result.get('total_elements', 0)}")
 
-    elements = result.get('elements', [])
-    
+    elements = result.get("elements", [])
+
     # Find menu items
-    menu_items = [e for e in elements if e.get('control_type') == 'MenuItem']
+    menu_items = [e for e in elements if e.get("control_type") == "MenuItem"]
     print(f"\nMenu items found: {len(menu_items)}")
     for item in menu_items[:10]:
         print(f"  - {item.get('name')}")
-    
+
     # Find text editor
-    edit_controls = [e for e in elements if e.get('control_type') == 'Edit']
+    edit_controls = [e for e in elements if e.get("control_type") == "Edit"]
     print(f"\nEdit controls found: {len(edit_controls)}")
     for edit in edit_controls:
         print(f"  - {edit.get('name')} (automation_id: {edit.get('automation_id')})")
-    
+
     # Test finding File menu
     test_find_element("File", control_type="MenuItem")
 
@@ -152,25 +152,25 @@ def test_file_explorer():
 
     # Test 1: List all elements
     result = list_elements_in_window()
-    
+
     print(f"\nSuccess: {result.get('success', False)}")
     print(f"Total elements: {result.get('total_elements', 0)}")
 
-    elements = result.get('elements', [])
-    buttons = [e for e in elements if e.get('control_type') == 'Button']
-    
+    elements = result.get("elements", [])
+    buttons = [e for e in elements if e.get("control_type") == "Button"]
+
     print(f"\nButtons found: {len(buttons)}")
     for btn in buttons[:15]:
-        name = btn.get('name', '')
-        auto_id = btn.get('automation_id', '')
+        name = btn.get("name", "")
+        auto_id = btn.get("automation_id", "")
         print(f"  - {name} (automation_id: {auto_id})")
-    
+
     # Test finding Back button
     test_find_element("Back", control_type="Button")
-    
+
     # Test finding Forward button
     test_find_element("Forward", control_type="Button")
-    
+
     # Test finding Search
     test_find_element("Search", control_type="Edit")
 
@@ -186,19 +186,19 @@ def test_automation_id():
 
     # First, list all elements to see automation IDs
     result = list_elements_in_window()
-    elements = result.get('elements', [])
-    
+    elements = result.get("elements", [])
+
     print("\nElements with AutomationId:")
-    with_auto_id = [e for e in elements if e.get('automation_id')]
+    with_auto_id = [e for e in elements if e.get("automation_id")]
     print(f"Total: {len(with_auto_id)}")
-    
+
     for elem in with_auto_id[:20]:
         print(f"  - {elem.get('name')} (automation_id: {elem.get('automation_id')})")
 
 
 def main():
     """Run all tests."""
-    
+
     print("\n" + "#" * 80)
     print("#  WINDOWS ELEMENT TREE TEST SUITE")
     print("#" * 80)
@@ -214,17 +214,19 @@ def main():
         # Test Calculator
         input("\n[Press ENTER when Calculator is open and focused]")
         test_calculator()
-        
+
         # Test Notepad
         input("\n[Press ENTER when Notepad is open and focused]")
         test_notepad()
-        
+
         # Test File Explorer
         input("\n[Press ENTER when File Explorer is open and focused]")
         test_file_explorer()
-        
+
         # Test AutomationId
-        input("\n[Press ENTER when Calculator is open and focused for AutomationId test]")
+        input(
+            "\n[Press ENTER when Calculator is open and focused for AutomationId test]"
+        )
         test_automation_id()
 
         print("\n" + "=" * 80)
@@ -234,6 +236,7 @@ def main():
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

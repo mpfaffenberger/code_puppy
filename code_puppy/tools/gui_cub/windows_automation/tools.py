@@ -403,12 +403,17 @@ def register_windows_tools(agent):
                         message_group=group_id,
                     )
                     from .core import _find_and_click_taskbar_button
-                    success, error = _find_and_click_taskbar_button(window_title or str(target_hwnd))
-                    
+
+                    success, error = _find_and_click_taskbar_button(
+                        window_title or str(target_hwnd)
+                    )
+
                     if success:
                         time.sleep(0.2)
                         try:
-                            is_foreground = win32gui.GetForegroundWindow() == target_hwnd
+                            is_foreground = (
+                                win32gui.GetForegroundWindow() == target_hwnd
+                            )
                             if is_foreground:
                                 emit_info(
                                     "[green]✅ Taskbar button click successful![/green]",
@@ -425,7 +430,7 @@ def register_windows_tools(agent):
                             f"[yellow]⚠ Taskbar fallback failed: {error}[/yellow]",
                             message_group=group_id,
                         )
-                
+
                 # Window is usable even if not foreground
                 emit_info(
                     "[cyan]💡 Window is restored and ready for interaction. Click inside the window to bring it to foreground if needed.[/cyan]",
@@ -442,14 +447,17 @@ def register_windows_tools(agent):
                     f"[yellow]❌ Failed to restore window (restored={is_restored}, foreground={is_foreground})[/yellow]",
                     message_group=group_id,
                 )
-                
+
                 emit_info(
                     "[cyan]🔄 Trying fallback: clicking taskbar button...[/cyan]",
                     message_group=group_id,
                 )
                 from .core import _find_and_click_taskbar_button
-                success, error = _find_and_click_taskbar_button(window_title or str(target_hwnd))
-                
+
+                success, error = _find_and_click_taskbar_button(
+                    window_title or str(target_hwnd)
+                )
+
                 if success:
                     time.sleep(0.2)
                     is_restored = not win32gui.IsIconic(target_hwnd)
@@ -462,7 +470,7 @@ def register_windows_tools(agent):
                             success=True,
                             window=window_title or str(hwnd),
                         )
-                
+
                 emit_info(
                     "[cyan]💡 NEXT STEP: Use desktop_vqa_click_two_stage() to visually find and click the taskbar button[/cyan]",
                     message_group=group_id,
