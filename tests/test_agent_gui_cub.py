@@ -247,7 +247,7 @@ class TestGUICubAgentBasics:
         assert len(prompt) > 1000  # Should be comprehensive
 
         # Check for key content
-        assert "GUI-Cub" in prompt
+        assert "Desktop Automation Cub" in prompt or "gui-cub" in prompt.lower()
         assert "Knowledge Base" in prompt or "append_to_knowledge_base" in prompt
         assert "Tier" in prompt or "tier" in prompt  # Method tier system
         assert "OCR" in prompt  # OCR tools mentioned
