@@ -279,11 +279,11 @@ class TestGUICubAgentBasics:
         assert "Critical Rules" in prompt or "NEVER" in prompt or "Rules" in prompt
 
     def test_system_prompt_mentions_gui_cub(self, agent):
-        """Verify system prompt identifies the agent as GUI-Cub."""
+        """Verify system prompt identifies the agent properly."""
         prompt = agent.get_system_prompt()
 
-        # Should identify itself as GUI-Cub (minimal personality - name is enough)
-        assert "GUI-Cub" in prompt, "System prompt should mention GUI-Cub"
+        # Should identify itself (uses "Desktop Automation Cub" branding, with gui-cub references in tools/functions)
+        assert "Desktop Automation Cub" in prompt or "gui_cub" in prompt, "System prompt should mention the agent identity"
 
     def test_tools_config_consistency(self, agent):
         """Verify that tools mentioned in system prompt are actually available."""
