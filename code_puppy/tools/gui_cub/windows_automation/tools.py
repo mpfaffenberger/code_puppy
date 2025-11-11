@@ -393,17 +393,18 @@ def register_windows_tools(agent):
                 )
             elif is_restored and not is_foreground:
                 # Partial success - window restored but not foreground
+                # This is actually OK for most automation - the window is visible and restored
                 emit_warning(
                     f"[yellow]⚠ Window restored but not in foreground (blocked by focus stealing prevention)[/yellow]",
                     message_group=group_id,
                 )
                 emit_info(
-                    f"[cyan]💡 NEXT STEP: Use windows_click_taskbar_app('{window_title or 'app'}') to bring window to foreground[/cyan]",
+                    f"[cyan]💡 Window is restored and ready for interaction. Click inside the window to bring it to foreground if needed.[/cyan]",
                     message_group=group_id,
                 )
+                # Return success=True because window IS usable, just not foreground
                 return WindowFocusResult(
-                    success=False,
-                    error=f"SetForegroundWindow blocked by Windows focus stealing prevention. NEXT ACTION: Call windows_click_taskbar_app('{window_title or 'app'}') to click taskbar icon (this bypasses focus stealing prevention).",
+                    success=True,
                     window=window_title or str(hwnd),
                 )
             else:
@@ -413,12 +414,12 @@ def register_windows_tools(agent):
                     message_group=group_id,
                 )
                 emit_info(
-                    f"[cyan]💡 NEXT STEP: Use windows_click_taskbar_app('{window_title or 'app'}') OR windows_list_elements() to find taskbar button[/cyan]",
+                    f"[cyan]💡 NEXT STEP: Use windows_list_elements() to find and click the taskbar button manually[/cyan]",
                     message_group=group_id,
                 )
                 return WindowFocusResult(
                     success=False,
-                    error=f"Window restoration failed. NEXT ACTION: Call windows_click_taskbar_app('{window_title or 'app'}') to click taskbar icon, or use windows_list_elements() to explore taskbar.",
+                    error=f"Window restoration failed. Try using windows_list_elements() to find the taskbar button and click it.",
                     window=window_title or str(hwnd),
                 )
 
@@ -516,19 +517,22 @@ def register_windows_tools(agent):
         context: RunContext, window_title: str
     ) -> WindowFocusResult:
         """
-        Click on a taskbar icon to activate/un-minimize an application.
+        Attempt to restore and focus a window by title.
 
-        This is useful for bringing minimized windows back to front.
+        This is an alias for windows_un_minimize_window. If the window is
+        restored but not foreground due to focus stealing prevention,
+        consider the window usable and proceed with your automation.
+        You can click inside the window to bring it to foreground.
 
         Args:
-            window_title: Window title to find and click (partial match supported)
+            window_title: Window title to find and restore (partial match supported)
 
         Returns:
             WindowFocusResult indicating success
 
-        Note: Windows only. This calls windows_un_minimize_window internally.
+        Note: Windows only. This is equivalent to windows_un_minimize_window.
         """
-        # This is effectively the same as un-minimizing, so we delegate
+        # This delegates to un-minimize which handles restoration
         return windows_un_minimize_window(context, window_title=window_title)
 
     @agent.tool

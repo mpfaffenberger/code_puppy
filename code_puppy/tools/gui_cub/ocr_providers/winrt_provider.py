@@ -21,7 +21,6 @@ from PIL import Image
 try:
     import asyncio
 
-    from winrt.windows.foundation.collections import IVectorView  # Required for async iteration
     from winrt.windows.graphics.imaging import BitmapDecoder
     from winrt.windows.media.ocr import OcrEngine
     from winrt.windows.storage.streams import (
