@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable, Optional
+from typing import Iterable
 
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
@@ -114,23 +114,8 @@ class MCPCompleter(Completer):
         # Split by space but be careful with what we're currently typing
         parts = after_mcp.split()
 
-        # If we only have one part AND the text doesn't end with a space,
-        # we should be completing subcommands
-        if len(parts) == 1 and cursor_position == len(text) and not text.endswith(" "):
-            partial_subcommand = parts[0]
-            for subcommand, description in sorted(self.all_subcommands.items()):
-                if subcommand.startswith(partial_subcommand):
-                    yield Completion(
-                        subcommand,
-                        start_position=-(len(partial_subcommand)),
-                        display=subcommand,
-                        display_meta=description,
-                    )
-            return
-
-        # If we have a server subcommand and either:
-        # 1. We have exactly the subcommand and cursor is after it with a space
-        # 2. We have subcommand + partial server name
+        # Priority: Check for server name completion first when appropriate
+        # This handles cases like '/mcp start ' where the space indicates ready for server name
         if len(parts) >= 1:
             subcommand = parts[0].lower()
 
@@ -149,9 +134,12 @@ class MCPCompleter(Completer):
                             display=server_name,
                             display_meta="MCP Server",
                         )
+                    return
 
-                # Case 2: Subcommand + partial server name
-                elif len(parts) == 2 and cursor_position == len(text):
+                # Case 2: Subcommand + partial server name (require space after subcommand)
+                elif len(parts) == 2 and cursor_position > (
+                    mcp_end + 1 + len(subcommand) + 1
+                ):
                     partial_server = parts[1]
                     start_position = -(len(partial_server))
 
@@ -164,6 +152,22 @@ class MCPCompleter(Completer):
                                 display=server_name,
                                 display_meta="MCP Server",
                             )
+                    return
+
+        # If we only have one part and haven't returned above, show subcommand completions
+        # This includes cases like '/mcp start' where they might want 'start-all'
+        # But NOT when there's a space after the subcommand (which indicates they want arguments)
+        if len(parts) == 1 and not text.endswith(" "):
+            partial_subcommand = parts[0]
+            for subcommand, description in sorted(self.all_subcommands.items()):
+                if subcommand.startswith(partial_subcommand):
+                    yield Completion(
+                        subcommand,
+                        start_position=-(len(partial_subcommand)),
+                        display=subcommand,
+                        display_meta=description,
+                    )
+            return
 
         # For general subcommands, we don't provide argument completion
         # They may have their own specific completions in the future
