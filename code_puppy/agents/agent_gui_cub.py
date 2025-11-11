@@ -372,15 +372,35 @@ content = workflow["content"]
 4. **Take screenshot to SEE the application** - Understand what you're working with
 5. **Share your reasoning** - `agent_share_your_reasoning` about what you see and plan to try
 
+### Phase 1.5: EXPLORE ELEMENT TREE (Before Clicking!)
+
+6. **Verify window is focused with LIGHTWEIGHT check** - Use element tree exploration, NOT OCR:
+   - ✅ **PREFERRED:** `ui_list_windows()` - check if window is in active window list (~100-300 tokens)
+   - ✅ **ALTERNATIVE:** `windows_list_elements()` or `ui_list_elements()` - see what UI elements are available (~200-500 tokens)
+   - ❌ **AVOID:** `desktop_extract_text()` - OCR is NOT needed just to confirm a window opened (~500-2000 tokens on failure)
+   - **Example:** After `windows_click_taskbar_app("Calculator")`, use `ui_list_windows()` to verify it's focused
+6a. **Explore element tree to understand available UI elements:**
+   - Call `windows_list_elements()`, `ui_list_elements()`, or `macos_list_accessible_tree()`
+   - **Why:** See what buttons, text fields, and other elements are available BEFORE attempting to click
+   - **Token efficient:** Element trees are compact structured data vs verbose OCR output
+   - **Example:** `elements = ui_list_elements()` returns list of all clickable elements with their properties
+6b. **Use element tree info to inform your interaction strategy:**
+   - If element has `automation_id` or `title`, use accessibility API (Tier 2)
+   - If element has no labels, fall back to OCR (Tier 3)
+   - If element is visual-only (icon, image), use VQA (Tier 4)
+   - **This saves time:** You'll know which tool to use before trying multiple approaches
+6c. **Only use OCR/VQA if element tree is insufficient or unavailable:**
+   - Element tree empty? Try OCR to find text coordinates
+   - Custom UI framework with no accessibility? Use VQA
+   - **Don't default to OCR** - it's verbose and token-expensive compared to element trees
+
 ### Phase 2: TRY & TEST (Incrementally Interact!)
 
-6. **Verify window is focused** - If step 3/3a had any issues, take screenshot to confirm window is visible before proceeding
 7. **Try keyboard shortcuts FIRST** - Tab, Enter, hotkeys (most reliable)
-8. **If keyboard fails, explore element tree** - `ui_list_elements()` to find clickable elements
-9. **Interact via accessibility API** - `ui_click_element()` with fuzzy matching
-9. **Fallback to OCR if accessibility unavailable** - `desktop_find_text()` for text-based elements
-10. **Last resort: VQA** - `desktop_vqa_click_two_stage()` for visual-only elements
-11. **Validate each action** - Take screenshots or use OCR to confirm success
+8. **Interact via accessibility API** - Use element tree info from step 6a to call `ui_click_element()` with fuzzy matching
+9. **Fallback to OCR if accessibility unavailable** - `desktop_find_text()` for text-based elements (only if element tree had no labels)
+10. **Last resort: VQA** - `desktop_vqa_click_two_stage()` for visual-only elements (only after Tiers 1-3 fail)
+11. **Validate each action with LIGHTWEIGHT verification** - Use element tree checks first, OCR only if you need to verify specific text content
 12. **Share reasoning every 2-3 actions** - Keep user informed of progress
 
 ### Phase 3: TROUBLESHOOT (If Things Don't Work!)
@@ -431,6 +451,8 @@ content = workflow["content"]
 
 ## Tool Strategy - Priority Order
 
+### INTERACTION Hierarchy (for clicking/typing)
+
 **ALWAYS follow this hierarchy when automating tasks:**
 
 **Tier 1 - Keyboard (PREFERRED)**
@@ -464,6 +486,45 @@ content = workflow["content"]
 - ⛔ **SECURITY: NEVER on terminals/shells** (see Critical Rules - contains secrets/credentials)
 - Use `desktop_vqa_click_two_stage()` or `desktop_find_and_click()`
 - Use only after Tiers 1-3 all fail
+
+### VERIFICATION Hierarchy (for checking state/confirming actions)
+
+**When you need to verify a window is open, an action succeeded, or UI state changed:**
+
+**Tier 1 - Element Tree Exploration (PREFERRED, LIGHTWEIGHT)**
+- **Most token-efficient:** Element trees return compact structured data (~100-500 tokens)
+- Use `ui_list_elements()` or `windows_list_elements()` to check what UI elements exist
+- Use `ui_list_windows()` to verify a window is present and focused
+- **Perfect for:** Confirming window opened, checking if button exists, verifying element state
+- **Example:** After `windows_click_taskbar_app("Calculator")`, use `ui_list_windows()` to verify it's open
+- **When NOT to use:** When you need to find exact text coordinates for clicking
+
+**Tier 2 - Simple Screenshot Review**
+- Take screenshot and visually inspect (manual verification)
+- Useful for quick confirmation that something appeared/changed
+- **Token cost:** ~50-200 tokens for the screenshot operation itself
+
+**Tier 3 - OCR for Text Verification**
+- **Use OCR ONLY when you need to:**
+  - Find text coordinates for clicking (`desktop_find_text()`)
+  - Verify specific text content appeared (`desktop_verify_text()`)
+  - Read dynamic content that changes (error messages, results, etc.)
+- **Token cost:** ~500-2000 tokens on failure (verbose diagnostic output)
+- **NOT needed for:** Just confirming a window opened or an element exists
+- ⛔ **SECURITY: NEVER on terminals/shells** (see Critical Rules - contains secrets/credentials)
+
+**Tier 4 - VQA for Visual Verification**
+- Only when you need to verify visual-only content (icons, images, colors, layouts)
+- Most expensive in terms of tokens and processing time
+- Use `desktop_vqa_click_two_stage()` or custom VQA queries
+- ⛔ **SECURITY: NEVER on terminals/shells** (see Critical Rules - contains secrets/credentials)
+
+**⚡ Token Efficiency Rules:**
+- Element tree exploration: ~100-500 tokens (compact, structured)
+- Screenshot operation: ~50-200 tokens (just the capture)
+- OCR on failure: ~500-2000 tokens (verbose diagnostics)
+- VQA: ~1000-3000 tokens (image analysis + processing)
+- **Always prefer element trees for verification unless you specifically need text coordinates or visual analysis**
 
 ## User Context Adaptation
 
@@ -545,6 +606,26 @@ desktop_focus_window("MyApp")
 elements = ui_list_elements()  # Explore BEFORE clicking
 ui_click_element(title="Submit", fuzzy=True)
 desktop_keyboard_type("data")
+```
+
+**Window verification pattern (LIGHTWEIGHT):**  
+Use to verify a window opened without expensive OCR operations.
+```python
+# After focusing or restoring window
+windows_click_taskbar_app("Calculator")
+
+# ✅ LIGHTWEIGHT verification - check element tree (100-300 tokens)
+windows = ui_list_windows()
+# or
+elements = windows_list_elements()
+
+# ❌ AVOID: OCR is NOT needed just to confirm window opened (500-2000 tokens on failure)
+# Only use OCR if you need to find/click text coordinates:
+if need_to_click_button:
+    result = desktop_find_text("Submit")  # Now OCR is justified
+    desktop_mouse_click(result.center_x, result.center_y)
+
+# ✅ For simple verification, element tree is faster and more token-efficient
 ```
 
 **Tier fallback pattern:**  
