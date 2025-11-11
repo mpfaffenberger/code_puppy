@@ -316,7 +316,8 @@ def register_window_control_tools(agent):
 
         try:
             # Use DPI-safe neighborhood sampling utilities
-            from .pixel_utils import sample_neighborhood_rgb, match_rgb
+            # pixel_utils is in parent directory (gui_cub), not window_control
+            from ..pixel_utils import sample_neighborhood_rgb, match_rgb
 
             samples, center_rgb = sample_neighborhood_rgb(
                 x=x, y=y, neighborhood=neighborhood

@@ -810,7 +810,44 @@ def register_ocr_tools(agent):
             return find_result
 
         # Filter matches by confidence
-        if not find_result.found or not find_result.matches:
+        # NOTE: After compaction, matches=[] but best_match still exists!
+        # Check best_match instead of matches for compacted results
+        if not find_result.found:
+            emit_warning(
+                f"[yellow]No matches found for '{search_text}'[/yellow]",
+                message_group=group_id,
+            )
+            return find_result
+        
+        # Handle compacted results (matches=[] but best_match exists)
+        if not find_result.matches and find_result.best_match:
+            # Result was compacted - check best_match confidence
+            if find_result.best_match.confidence < min_confidence:
+                emit_warning(
+                    f"[yellow]Found match but confidence {find_result.best_match.confidence:.2%} below minimum {min_confidence:.2%}[/yellow]",
+                    message_group=group_id,
+                )
+                return OCRFindResult(
+                    success=True,
+                    search_text=search_text,
+                    found=False,
+                    total_matches=0,
+                    best_match=None,
+                    matches=[],
+                )
+            # Best match meets confidence threshold - return it
+            emit_info(
+                f"[green]✅ Found high-confidence match (compacted result)[/green]",
+                message_group=group_id,
+            )
+            emit_info(
+                f"[cyan]Match: '{find_result.best_match.text}' at ({find_result.best_match.center_x}, {find_result.best_match.center_y}) conf: {find_result.best_match.confidence:.2%}[/cyan]",
+                message_group=group_id,
+            )
+            return find_result
+        
+        # No matches at all
+        if not find_result.matches:
             emit_warning(
                 f"[yellow]No matches found for '{search_text}'[/yellow]",
                 message_group=group_id,
