@@ -365,15 +365,18 @@ def register_windows_tools(agent):
                 time.sleep(0.2)  # Give Windows time to restore
 
             # Bring to foreground
+            foreground_exception = None
             try:
                 win32gui.SetForegroundWindow(target_hwnd)
                 time.sleep(0.1)  # Give Windows time to focus
             except Exception as e:
+                foreground_exception = e
+                # Windows focus stealing prevention can block SetForegroundWindow
+                # This is normal Windows security behavior, not a real error
                 emit_warning(
-                    f"[yellow]⚠ Could not set foreground: {e}[/yellow]",
+                    f"[yellow]⚠ Could not set foreground (Windows focus stealing prevention): {type(e).__name__}[/yellow]",
                     message_group=group_id,
                 )
-                # Continue to verification - partial success is possible
 
             # ✅ VERIFY success before claiming victory
             is_restored = not win32gui.IsIconic(target_hwnd)
@@ -393,11 +396,37 @@ def register_windows_tools(agent):
                 )
             elif is_restored and not is_foreground:
                 # Partial success - window restored but not foreground
-                # This is actually OK for most automation - the window is visible and restored
-                emit_warning(
-                    f"[yellow]⚠ Window restored but not in foreground (blocked by focus stealing prevention)[/yellow]",
-                    message_group=group_id,
-                )
+                # Try taskbar button click as fallback
+                if foreground_exception:
+                    emit_info(
+                        "[cyan]🔄 Trying fallback: clicking taskbar button...[/cyan]",
+                        message_group=group_id,
+                    )
+                    from .core import _find_and_click_taskbar_button
+                    success, error = _find_and_click_taskbar_button(window_title or str(target_hwnd))
+                    
+                    if success:
+                        time.sleep(0.2)
+                        try:
+                            is_foreground = win32gui.GetForegroundWindow() == target_hwnd
+                            if is_foreground:
+                                emit_info(
+                                    "[green]✅ Taskbar button click successful![/green]",
+                                    message_group=group_id,
+                                )
+                                return WindowFocusResult(
+                                    success=True,
+                                    window=window_title or str(hwnd),
+                                )
+                        except Exception:
+                            pass
+                    else:
+                        emit_warning(
+                            f"[yellow]⚠ Taskbar fallback failed: {error}[/yellow]",
+                            message_group=group_id,
+                        )
+                
+                # Window is usable even if not foreground
                 emit_info(
                     f"[cyan]💡 Window is restored and ready for interaction. Click inside the window to bring it to foreground if needed.[/cyan]",
                     message_group=group_id,
@@ -408,18 +437,39 @@ def register_windows_tools(agent):
                     window=window_title or str(hwnd),
                 )
             else:
-                # Failed to restore
+                # Failed to restore - try taskbar button as last resort
                 emit_warning(
                     f"[yellow]❌ Failed to restore window (restored={is_restored}, foreground={is_foreground})[/yellow]",
                     message_group=group_id,
                 )
+                
                 emit_info(
-                    f"[cyan]💡 NEXT STEP: Use windows_list_elements() to find and click the taskbar button manually[/cyan]",
+                    "[cyan]🔄 Trying fallback: clicking taskbar button...[/cyan]",
+                    message_group=group_id,
+                )
+                from .core import _find_and_click_taskbar_button
+                success, error = _find_and_click_taskbar_button(window_title or str(target_hwnd))
+                
+                if success:
+                    time.sleep(0.2)
+                    is_restored = not win32gui.IsIconic(target_hwnd)
+                    if is_restored:
+                        emit_info(
+                            "[green]✅ Taskbar button click restored window![/green]",
+                            message_group=group_id,
+                        )
+                        return WindowFocusResult(
+                            success=True,
+                            window=window_title or str(hwnd),
+                        )
+                
+                emit_info(
+                    f"[cyan]💡 NEXT STEP: Use desktop_vqa_click_two_stage() to visually find and click the taskbar button[/cyan]",
                     message_group=group_id,
                 )
                 return WindowFocusResult(
                     success=False,
-                    error=f"Window restoration failed. Try using windows_list_elements() to find the taskbar button and click it.",
+                    error=f"Window restoration failed. Taskbar fallback: {error}. Try using desktop_vqa_click_two_stage() to click taskbar visually.",
                     window=window_title or str(hwnd),
                 )
 
@@ -669,6 +719,132 @@ def register_windows_tools(agent):
             )
 
         return result
+
+    @agent.tool
+    def windows_close_window(
+        context: RunContext,
+        window_title: str | None = None,
+        hwnd: int | None = None,
+        pid: int | None = None,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Close a window by title, handle, or process ID.
+
+        Useful for closing duplicate instances or cleaning up windows.
+        By default, sends WM_CLOSE (graceful shutdown). Use force=True
+        to terminate the process immediately.
+
+        Args:
+            window_title: Window title (exact or partial match)
+            hwnd: Window handle (if known)
+            pid: Process ID to close all windows from that process
+            force: If True, forcefully terminate process instead of graceful close
+
+        Returns:
+            Dictionary with:
+            - success: True if window(s) closed
+            - closed_count: Number of windows closed
+            - error: Error message if failed
+
+        Examples:
+            - windows_close_window(window_title="Calculator")  # Close Calculator gracefully
+            - windows_close_window(hwnd=12345)  # Close specific window
+            - windows_close_window(pid=5678, force=True)  # Force kill process
+
+        Note: Windows only. Requires pywin32.
+        """
+        if not WINDOWS_AUTOMATION_AVAILABLE:
+            return {"success": False, "error": ERROR_WINDOWS_AUTOMATION_MISSING}
+
+        group_id = generate_group_id(
+            "windows_close", window_title or str(hwnd) or str(pid)
+        )
+        emit_info(
+            f"[bold white on blue] CLOSE WINDOW [/bold white on blue] ✖️ {window_title or hwnd or f'PID {pid}'} (force={force})",
+            message_group=group_id,
+        )
+
+        try:
+            windows_to_close = []
+
+            # Find target window(s)
+            if hwnd:
+                windows_to_close.append(hwnd)
+            elif window_title:
+                # Find all matching windows
+                all_windows = list_windows(include_minimized=True)
+                search_term = window_title.lower()
+                for window in all_windows:
+                    if search_term in window["title"].lower():
+                        windows_to_close.append(window["hwnd"])
+            elif pid:
+                # Find all windows from this PID
+                all_windows = list_windows(include_minimized=True)
+                for window in all_windows:
+                    if window.get("pid") == pid:
+                        windows_to_close.append(window["hwnd"])
+            else:
+                return {
+                    "success": False,
+                    "error": "Must provide window_title, hwnd, or pid",
+                }
+
+            if not windows_to_close:
+                emit_warning(
+                    f"[yellow]No windows found to close[/yellow]",
+                    message_group=group_id,
+                )
+                return {
+                    "success": False,
+                    "closed_count": 0,
+                    "error": "No matching windows found",
+                }
+
+            closed_count = 0
+            errors = []
+
+            for target_hwnd in windows_to_close:
+                try:
+                    if force:
+                        # Force kill by terminating process
+                        _, pid_to_kill = win32process.GetWindowThreadProcessId(
+                            target_hwnd
+                        )
+                        handle = win32api.OpenProcess(1, False, pid_to_kill)
+                        win32api.TerminateProcess(handle, 0)
+                        win32api.CloseHandle(handle)
+                    else:
+                        # Graceful close using WM_CLOSE
+                        win32gui.PostMessage(target_hwnd, win32con.WM_CLOSE, 0, 0)
+
+                    closed_count += 1
+                except Exception as e:
+                    errors.append(f"hwnd {target_hwnd}: {str(e)}")
+
+            if closed_count > 0:
+                emit_info(
+                    f"[green]✅ Closed {closed_count} window(s)[/green]",
+                    message_group=group_id,
+                )
+                return {"success": True, "closed_count": closed_count}
+            else:
+                emit_error(
+                    f"[red]❌ Failed to close windows: {'; '.join(errors)}[/red]",
+                    message_group=group_id,
+                )
+                return {
+                    "success": False,
+                    "closed_count": 0,
+                    "error": f"Failed to close: {'; '.join(errors)}",
+                }
+
+        except Exception as e:
+            emit_error(
+                f"[red]❌ Error closing window: {e}[/red]",
+                message_group=group_id,
+            )
+            return {"success": False, "closed_count": 0, "error": str(e)}
 
     @agent.tool
     def windows_show_performance_summary(context: RunContext) -> dict[str, Any]:

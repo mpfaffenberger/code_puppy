@@ -1,138 +1,58 @@
+Review the GUI-Cub agent system prompt and update it to strengthen the guidance around verification and tool usage
+hierarchy. Specifically:
 
-🐶 Doc [Desktop Automation Cub 🐻] [claude-4-5-sonnet] (~\Toolbox\code-puppy) >>> sum three random numbers in calculato
-r, validate the result
-🔍 Checking platform configuration...
-♻️ No cached resolution, re-calibrating...
-🔧 GUI-Cub Platform Calibration
-Detecting platform capabilities, displays, and performance...
+1. **Add explicit guidance for verification strategies:**
+   - When you need to verify a window is open/focused, use `windows_list_elements()` or `ui_list_elements()` FIRST
+(lighter, faster)
+   - Only use `desktop_extract_text()` (OCR) when you need to:
+     a) Find text coordinates for clicking
+     b) Verify specific text content appeared
+     c) Read dynamic content
+   - OCR is NOT needed just to confirm a window opened
 
-🔍 Detecting platform...
-  • OS: Windows 11
-  • Arch: AMD64
+2. **Clarify the tool priority hierarchy with verification context:**
+   - Current hierarchy focuses on interaction (clicking/typing)
+   - Add a parallel hierarchy for VERIFICATION:
+     * Tier 1: Element tree exploration (`windows_list_elements()`, `ui_list_elements()`)
+     * Tier 2: Simple screenshot review (if available)
+     * Tier 3: OCR for text verification
+     * Tier 4: VQA for visual verification
 
-🖥️  Detecting displays...
-  • Primary: 1728x1080
-  • Scale: 1.0x
-  • Monitors: 1
+3. **Add to "Standard Workflow" Phase 1 (EXPLORE & UNDERSTAND):**
+   - After step 6 "Verify window is focused", add:
+     * "6a. Explore element tree to understand available UI elements (`windows_list_elements()` or
+`ui_list_elements()`)"
+     * "6b. Use element tree info to inform your interaction strategy"
+     * "6c. Only use OCR/VQA if element tree is insufficient or unavailable"
 
-📦 Detecting capabilities...
-  ✅ pyautogui
-  ❌ atomacos
-  ✅ pywinauto
-  ✅ opencv
+4. **Update "Common Patterns" section:**
+   - Add a "Window verification pattern" example:
+     ```python
+     # After focusing window
+     windows_click_taskbar_app("Calculator")
 
-✅ Platform calibrated successfully
-   Config saved to: C:\Users\c0b00wt\.code_puppy\agents\gui_cub\config.json
-────────────────────────────────────────────────────────────────────────────────────────────────────
+     # LIGHTWEIGHT verification - check element tree
+     elements = windows_list_elements()
+     # or
+     windows = ui_list_windows()
 
+     # Only use OCR if you need to find/click text
+     if need_to_click_button:
+         result = desktop_find_text("Submit")
+     ```
 
- AGENT REASONING
-Current reasoning:
+5. **Emphasize token efficiency:**
+   - Add note that OCR returns verbose output (500-2000 tokens on failure)
+   - Element tree exploration is more token-efficient
+   - Use OCR strategically, not as default verification
 
-Planned next steps:
-I need to automate the Calculator app to sum three random numbers and validate the result. Let me break this down:
+Please update the system prompt at the location where GUI-Cub agent is defined, maintaining the existing tone and
+structure while adding these clarifications.
+```
 
- 1 First, I'll check if there are any existing workflows for calculator automation
- 2 Focus the Calculator window (critical step!)
- 3 Take a screenshot to see the current state
- 4 Generate three random numbers
- 5 Use keyboard input to enter the calculation (most reliable method)
- 6 Validate the result
+---
 
-Let me start by checking for existing workflows and then proceeding with the automation.
-
- 1 Check existing workflows
- 2 Focus Calculator window
- 3 Take screenshot to see current state
- 4 Enter calculation using keyboard
- 5 Validate result
-------------------------------------------------------------
-
- LIST WORKFLOWS  📋
-✅ Found 1 workflow(s)
- READ WORKFLOW  📖 name='calculator_automation.md'
-✅ Workflow read successfully: calculator_automation.md
-────────────────────────────────────────────────────────────────────────────────────────────────────
-
-
- AGENT REASONING
-Current reasoning:
-
-Planned next steps:
-Perfect! I have a comprehensive calculator workflow to guide me. Based on the workflow, I'll:
-
- 1 Focus the Calculator window first (critical!)
- 2 Clear any previous calculations with Esc
- 3 Generate three random numbers (let's use: 42, 17, 25)
- 4 Use keyboard input to calculate: 42 + 17 + 25 = 84
- 5 Verify the result using OCR
-
-The workflow recommends keyboard-first approach which is most reliable. Let me start by focusing the Calculator window.
-------------------------------------------------------------
-
-
- 1 Focus Calculator window
- 2 Take screenshot to see current state
- 3 Clear calculator with Esc
- 4 Enter calculation: 42+17+25
- 5 Press Enter
- 6 Verify result equals 84
-No OCR providers available. Install Tesseract or use Windows 10+/macOS 10.15+
-⚠️ Could not detect active window, falling back to full screen capture
-📸 Screenshot strategy: full_screen (fallback)
-📸 CAPTURING SCREENSHOT
-   Mode: Full screen
-   Grid overlay: No
-✅ SCREENSHOT CAPTURED
-   Size: 1728x1080 pixels (0.25 MB)
-   Saved: C:\Users\c0b00wt\AppData\Local\Temp\code_puppy_rpa_screenshots_ln5ngrxb\desktop_screenshot_20251111_093650.png
-🤖 VQA REQUEST
-   Model: claude-4-5-sonnet
-   Image size: 0.25 MB
-   Media type: image/png
-   Question: What is currently displayed on the calculator screen? Is there any number or result showing?
-✅ VQA RESPONSE
-   Answer: The calculator screen is not visible in this screenshot. While there is a "Calculator" label shown in the
-taskbar at the bottom of the screen, the act...
-   Confidence: 95.00%
-   Observations: The screenshot shows multiple windows including PowerShell 7 (x64) terminals and what appears to be ...
-────────────────────────────────────────────────────────────────────────────────────────────────────
-
-
- AGENT REASONING
-Current reasoning:
-I see the Calculator app is running (visible in taskbar) but the window is not in the foreground. The focus attempt
-might not have worked because the window is minimized. According to my instructions, when desktop_focus_window() fails,
-I should use windows_click_taskbar_app() to restore the window from the taskbar.
-
-This is the recommended recovery method for minimized windows on Windows.
-
-Planned next steps:
-------------------------------------------------------------
-
-
- 1 Click taskbar to restore Calculator window
- 2 Verify window is visible with screenshot
- 3 Proceed with calculation
- UN-MINIMIZE WINDOW  ↗️ Calculator
-⚠ Window restored but not in foreground (blocked by focus stealing prevention)
-💡 NEXT STEP: Use windows_click_taskbar_app('Calculator') to bring window to foreground
- UI LIST ELEMENTS  📋 (win32)
-KEYBOARD HOTKEY ⌨️
-SLEEP 💤  seconds=0.3
-KEYBOARD TYPE ⌨️  text='calc' interval=0.0
-KEYBOARD PRESS ⌨️  key='enter' presses=1 interval=0.0
-SLEEP 💤  seconds=1.5
-📸 Screenshot strategy: active_window (Calculator)
-📸 CAPTURING SCREENSHOT
-   Mode: Region capture
-   Region (logical): (80, 70) size 1040x809
-   Region (physical): (80, 70) size 1040x809
-   Grid overlay: No
-✅ SCREENSHOT CAPTURED
-   Size: 1040x809 pixels (0.12 MB)
-   Saved: C:\Users\c0b00wt\AppData\Local\Temp\code_puppy_rpa_screenshots_ln5ngrxb\desktop_screenshot_20251111_093723.png
-🤖 VQA REQUEST
-   Model: claude-4-5-sonnet
-   Image size: 0.12 MB
-   Media type: image/png
+The core issue: I treated OCR as a general-purpose verification tool when it should be reserved for text-specific
+operations. Element trees are lighter, faster, and more aligned with the accessibility-first philosophy.
+🐾 Auto-saved session: 64 messages (8752 tokens)
+Enter your coding task:

@@ -51,10 +51,11 @@ dependencies = [
     # WinRT OCR dependencies (Windows 10+ native OCR) - modular PyWinRT packages
     # See: https://pywinrt.readthedocs.io
     "winrt-runtime>=2.0.0; sys_platform == 'win32'",
-    "winrt-Windows.Foundation>=2.0.0; sys_platform == 'win32'",
-    "winrt-Windows.Graphics.Imaging>=2.0.0; sys_platform == 'win32'",
-    "winrt-Windows.Media.Ocr>=2.0.0; sys_platform == 'win32'",
-    "winrt-Windows.Storage.Streams>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-foundation>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-foundation-collections>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-graphics-imaging>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-media-ocr>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-storage-streams>=2.0.0; sys_platform == 'win32'",
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
     "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",

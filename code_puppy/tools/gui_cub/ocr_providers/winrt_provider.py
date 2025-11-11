@@ -21,6 +21,7 @@ from PIL import Image
 try:
     import asyncio
 
+    # Import WinRT modules - note: these require winrt-* packages installed
     from winrt.windows.graphics.imaging import BitmapDecoder
     from winrt.windows.media.ocr import OcrEngine
     from winrt.windows.storage.streams import (
@@ -29,8 +30,13 @@ try:
     )
 
     WINRT_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     WINRT_AVAILABLE = False
+    # Store the import error for debugging
+    _IMPORT_ERROR = str(e)
+except Exception as e:
+    WINRT_AVAILABLE = False
+    _IMPORT_ERROR = f"Unexpected error: {str(e)}"
 
 from .base import OCRProvider, OCRResult, OCRWord
 
@@ -51,10 +57,11 @@ class WinRTOCRProvider(OCRProvider):
     - Windows 10 or later
     - PyWinRT packages (installed automatically):
       - winrt-runtime>=2.0.0
-      - winrt-Windows.Foundation>=2.0.0
-      - winrt-Windows.Graphics.Imaging>=2.0.0
-      - winrt-Windows.Media.Ocr>=2.0.0
-      - winrt-Windows.Storage.Streams>=2.0.0
+      - winrt-windows-foundation>=2.0.0
+      - winrt-windows-foundation-collections>=2.0.0
+      - winrt-windows-graphics-imaging>=2.0.0
+      - winrt-windows-media-ocr>=2.0.0
+      - winrt-windows-storage-streams>=2.0.0
     """
 
     def __init__(self):
@@ -169,9 +176,15 @@ class WinRTOCRProvider(OCRProvider):
         words: List[OCRWord] = []
         full_text_lines: List[str] = []
 
-        for line in ocr_result.lines:
+        # Convert WinRT collection to list to avoid iteration issues
+        # WinRT collections can cause import errors when iterating in some Python versions
+        lines = list(ocr_result.lines) if ocr_result.lines else []
+
+        for line in lines:
             line_words = []
-            for word in line.words:
+            # Convert words collection to list as well
+            words_list = list(line.words) if line.words else []
+            for word in words_list:
                 # WinRT returns bounding box as (x, y, width, height)
                 bbox = (
                     int(word.bounding_rect.x),

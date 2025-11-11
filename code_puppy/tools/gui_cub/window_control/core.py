@@ -361,12 +361,22 @@ def _focus_window_impl(app_name: str | None = None) -> WindowFocusResult:
                     error="Windows automation not available. Install: uv pip install pywin32 pywinauto",
                 )
 
-            success = focus_window(window_title=app_name)
+            success, error_msg = focus_window(window_title=app_name)
 
             if success:
                 return WindowFocusResult(success=True, focused_app=app_name)
             else:
-                return WindowFocusResult(success=False, error="Window not found")
+                # Provide more specific error message
+                if error_msg == "not_found":
+                    return WindowFocusResult(
+                        success=False, 
+                        error=f"Window '{app_name}' not found. Window may need to be opened first."
+                    )
+                else:
+                    return WindowFocusResult(
+                        success=False, 
+                        error=f"Window '{app_name}' found but focus failed: {error_msg}"
+                    )
 
         except Exception as e:
             return WindowFocusResult(

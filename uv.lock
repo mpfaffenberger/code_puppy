@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11, <3.14"
 
 [[package]]
@@ -478,6 +478,7 @@ dependencies = [
     { name = "uvicorn" },
     { name = "winrt-runtime", marker = "sys_platform == 'win32'" },
     { name = "winrt-windows-foundation", marker = "sys_platform == 'win32'" },
+    { name = "winrt-windows-foundation-collections", marker = "sys_platform == 'win32'" },
     { name = "winrt-windows-graphics-imaging", marker = "sys_platform == 'win32'" },
     { name = "winrt-windows-media-ocr", marker = "sys_platform == 'win32'" },
     { name = "winrt-windows-storage-streams", marker = "sys_platform == 'win32'" },
@@ -535,6 +536,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.29.0" },
     { name = "winrt-runtime", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
     { name = "winrt-windows-foundation", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
+    { name = "winrt-windows-foundation-collections", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
     { name = "winrt-windows-graphics-imaging", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
     { name = "winrt-windows-media-ocr", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
     { name = "winrt-windows-storage-streams", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
@@ -3632,6 +3634,26 @@ wheels = [
     { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/7b/71/5e87131e4aecc8546c76b9e190bfe4e1292d028bda3f9dd03b005d19c76c/winrt_windows_foundation-3.2.1-cp313-cp313-win32.whl", hash = "sha256:3998dc58ed50ecbdbabace1cdef3a12920b725e32a5806d648ad3f4829d5ba46" },
     { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ba/7f/8d5108461351d4f6017f550af8874e90c14007f9122fa2eab9f9e0e9b4e1/winrt_windows_foundation-3.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:6e98617c1e46665c7a56ce3f5d28e252798416d1ebfee3201267a644a4e3c479" },
     { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/44/f5/2edf70922a3d03500dab17121b90d368979bd30016f6dbca0d043f0c71f1/winrt_windows_foundation-3.2.1-cp313-cp313-win_arm64.whl", hash = "sha256:2a8c1204db5c352f6a563130a5a41d25b887aff7897bb677d4ff0b660315aad4" },
+]
+
+[[package]]
+name = "winrt-windows-foundation-collections"
+version = "3.2.1"
+source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
+dependencies = [
+    { name = "winrt-runtime" },
+]
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ef/62/d21e3f1eeb8d47077887bbf0c3882c49277a84d8f98f7c12bda64d498a07/winrt_windows_foundation_collections-3.2.1.tar.gz", hash = "sha256:0eff1ad0d8d763ad17e9e7bbd0c26a62b27215016393c05b09b046d6503ae6d5" }
+wheels = [
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/87/b3/7e4a75c62e86bedf9458b7ec8dfed74cff3236e0b4b2288f95967d5cc4d2/winrt_windows_foundation_collections-3.2.1-cp311-cp311-win32.whl", hash = "sha256:9b272d9936e7db4840881c5dcf921eb26789ae4ef23fb6ec15e13e19a16254e7" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/32/58/049db1d95fdfc0c8451dc6db17442ed4e6b2aba361c425c0bb8dc8c98c4a/winrt_windows_foundation_collections-3.2.1-cp311-cp311-win_amd64.whl", hash = "sha256:c646a5d442dd6540ade50890081ca118b41f073356e19032d0a5d7d0d38fbc89" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/5b/6b/a04974f5555c86452e54c19d063d9fd45f0fe9f2a6858e7fe12c639043fb/winrt_windows_foundation_collections-3.2.1-cp311-cp311-win_arm64.whl", hash = "sha256:2c4630027c93cdd518b0cf4cc726b8fbdbc3388e36d02aa1de190a0fc18ca523" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/1d/0b/7802349391466d3f7e8f62f588f36a1a0b6560abfcdbdaa426fe21d322b4/winrt_windows_foundation_collections-3.2.1-cp312-cp312-win32.whl", hash = "sha256:15704eef3125788f846f269cf54a3d89656fa09a1dc8428b70871f717d595ad6" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/37/94/5b888713e472746635a382e523513ab1b8200af55c5b56bc70e1e4369115/winrt_windows_foundation_collections-3.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:550dfb8c82fe74d9e0728a2a16a9175cc9e34ca2b8ef758d69b2a398894b698b" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/5f/3c/829273622c9b37c67b97f187b92be318404f7d33db045e31d72b7d50f54c/winrt_windows_foundation_collections-3.2.1-cp312-cp312-win_arm64.whl", hash = "sha256:810ad4bd11ab4a74fdbcd3ed33b597ef7c0b03af73fc9d7986c22bcf3bd24f84" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/a6/cd/99ef050d80bea2922fa1ded93e5c250732634095d8bd3595dd808083e5ca/winrt_windows_foundation_collections-3.2.1-cp313-cp313-win32.whl", hash = "sha256:4267a711b63476d36d39227883aeb3fb19ac92b88a9fc9973e66fbce1fd4aed9" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/94/93/4f75fd6a4c96f1e9bee198c5dc9a9b57e87a9c38117e1b5e423401886353/winrt_windows_foundation_collections-3.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:5e12a6e75036ee90484c33e204b85fb6785fcc9e7c8066ad65097301f48cdd10" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/40/76/de47ccc390017ec5575e7e7fd9f659ee3747c52049cdb2969b1b538ce947/winrt_windows_foundation_collections-3.2.1-cp313-cp313-win_arm64.whl", hash = "sha256:34b556255562f1b36d07fba933c2bcd9f0db167fa96727a6cbb4717b152ad7a2" },
 ]
 
 [[package]]

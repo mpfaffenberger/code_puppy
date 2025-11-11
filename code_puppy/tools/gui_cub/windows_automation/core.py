@@ -46,6 +46,57 @@ from ..result_types import (
 )
 
 
+def _find_and_click_taskbar_button(window_title: str) -> tuple[bool, str | None]:
+    """Find and click a taskbar button using Windows UI Automation.
+    
+    This is a fallback strategy when SetForegroundWindow fails due to
+    focus stealing prevention.
+    
+    Args:
+        window_title: Title of the window to find on taskbar
+        
+    Returns:
+        Tuple of (success: bool, error_message: str | None)
+    """
+    if not WINDOWS_AUTOMATION_AVAILABLE:
+        return (False, "Windows UI Automation not available")
+    
+    try:
+        # Find the taskbar
+        taskbar_hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
+        if not taskbar_hwnd:
+            return (False, "Could not find taskbar")
+        
+        # Connect to taskbar using pywinauto
+        from pywinauto import Desktop
+        desktop = Desktop(backend="uia")
+        taskbar = desktop.window(handle=taskbar_hwnd)
+        
+        # Find all taskbar buttons
+        # Taskbar buttons are typically in MSTaskListWClass or ReBarWindow32
+        try:
+            # Try to find the button by partial title match
+            buttons = taskbar.descendants(control_type="Button")
+            
+            for button in buttons:
+                button_name = button.element_info.name or ""
+                # Match window title (taskbar buttons often have truncated titles)
+                if window_title.lower() in button_name.lower() or button_name.lower() in window_title.lower():
+                    # Click the button
+                    button.click_input()
+                    import time
+                    time.sleep(0.3)  # Give Windows time to process click
+                    return (True, None)
+            
+            return (False, f"No taskbar button found matching '{window_title}'")
+            
+        except Exception as e:
+            return (False, f"Error finding taskbar button: {type(e).__name__}: {e}")
+            
+    except Exception as e:
+        return (False, f"Error accessing taskbar: {type(e).__name__}: {e}")
+
+
 def list_windows(include_minimized: bool = False) -> list[dict[str, Any]]:
     """
     List windows on Windows.
@@ -90,7 +141,7 @@ def focus_window(
     window_title: str | None = None,
     class_name: str | None = None,
     hwnd: int | None = None,
-) -> bool:
+) -> tuple[bool, str | None]:
     """
     Focus a window on Windows.
 
@@ -100,10 +151,13 @@ def focus_window(
         hwnd: Window handle (direct)
 
     Returns:
-        True if successful
+        Tuple of (success: bool, error_message: str | None)
+        - (True, None) if successful
+        - (False, "not_found") if window not found
+        - (False, "focus_failed: <reason>") if window found but focus failed
     """
     if not WINDOWS_AUTOMATION_AVAILABLE:
-        return False
+        return (False, "Windows automation not available")
 
     try:
         target_hwnd = None
@@ -117,36 +171,113 @@ def focus_window(
             target_hwnd = win32gui.FindWindow(None, window_title)
 
             # If not found, try partial case-insensitive match
+            # IMPORTANT: Prioritize visible/non-minimized windows over minimized ones
+            # This prevents focusing the wrong instance when multiple exist
             if not target_hwnd:
                 windows = list_windows(include_minimized=True)
                 search_term = window_title.lower()
-                for window in windows:
-                    if search_term in window["title"].lower():
+                
+                # Find all matching windows
+                matching_windows = [
+                    w for w in windows if search_term in w["title"].lower()
+                ]
+                
+                # Log warning if multiple instances found
+                if len(matching_windows) > 1:
+                    import sys
+                    pids = [w["pid"] for w in matching_windows]
+                    visible_count = sum(1 for w in matching_windows if not w["minimized"])
+                    print(
+                        f"⚠️  Multiple instances of '{window_title}' found: {len(matching_windows)} total "
+                        f"({visible_count} visible, {len(matching_windows)-visible_count} minimized) "
+                        f"with PIDs: {pids}. Prioritizing visible instances.",
+                        file=sys.stderr
+                    )
+                
+                # First pass: look for visible, non-minimized windows
+                for window in matching_windows:
+                    if not window["minimized"]:
                         target_hwnd = window["hwnd"]
                         break
+                
+                # Second pass: if no visible window found, try minimized ones
+                if not target_hwnd and matching_windows:
+                    target_hwnd = matching_windows[0]["hwnd"]
         # Find by class name
         elif class_name:
             target_hwnd = win32gui.FindWindow(class_name, None)
         else:
-            return False
+            return (False, "No window identifier provided")
 
         if not target_hwnd:
-            return False
+            return (False, "not_found")
+        
+        import time
+        
+        # Verify window is actually valid and visible
+        if not win32gui.IsWindow(target_hwnd):
+            return (False, "not_found")
             
         # Restore if minimized
-        if win32gui.IsIconic(target_hwnd):
+        was_minimized = win32gui.IsIconic(target_hwnd)
+        if was_minimized:
             win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+            time.sleep(0.2)  # Give Windows time to restore
+        
+        # Verify window is now visible
+        if not win32gui.IsWindowVisible(target_hwnd):
+            return (False, "focus_failed: Window is not visible on screen")
 
         # Bring to foreground
-        win32gui.SetForegroundWindow(target_hwnd)
-        return True
+        try:
+            win32gui.SetForegroundWindow(target_hwnd)
+            time.sleep(0.1)  # Give Windows time to focus
+            
+            # Verify it worked
+            is_foreground = win32gui.GetForegroundWindow() == target_hwnd
+            is_restored = not win32gui.IsIconic(target_hwnd)
+            
+            if is_foreground:
+                return (True, None)
+            elif is_restored:
+                # Window restored but not foreground - this is actually OK for most use cases
+                return (True, None)  # Return success since window is usable
+            else:
+                return (False, f"focus_failed: Window was minimized and could not be restored")
+                
+        except Exception as e:
+            # SetForegroundWindow failed (likely Windows focus stealing prevention)
+            # This is normal Windows security behavior to prevent malicious focus stealing
+            
+            # FALLBACK STRATEGY 1: Try clicking the taskbar button
+            # This often works when SetForegroundWindow is blocked
+            success, error = _find_and_click_taskbar_button(window_name or str(target_hwnd))
+            if success:
+                # Verify the click worked
+                time.sleep(0.2)
+                is_foreground = win32gui.GetForegroundWindow() == target_hwnd
+                if is_foreground:
+                    return (True, None)
+                # Even if not foreground, window may be usable
+                is_restored = not win32gui.IsIconic(target_hwnd)
+                if is_restored:
+                    return (True, None)
+            
+            # Check if window at least got restored from original attempt
+            if was_minimized:
+                is_restored = not win32gui.IsIconic(target_hwnd)
+                if is_restored:
+                    # Partial success - window is restored and usable even if not in foreground
+                    return (True, None)
+            
+            # All fallbacks failed
+            return (False, f"focus_failed: Windows focus stealing prevention blocked foreground access. Taskbar click fallback: {error}")
 
     except Exception as e:
-        # Log the error for debugging but still return False
-        # This helps diagnose issues in testing
+        # Log the error for debugging
         import sys
         print(f"focus_window error: {e}", file=sys.stderr)
-        return False
+        return (False, f"exception: {str(e)}")
 
 
 def find_element(

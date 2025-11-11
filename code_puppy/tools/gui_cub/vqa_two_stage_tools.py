@@ -144,6 +144,7 @@ def register_vqa_two_stage_tools(agent):
             Dictionary with success, coordinates, and confidence
         """
         return desktop_vqa_click_two_stage(
+            context=context,  # Pass context to avoid "missing positional argument" error
             element_description=element_description,
             window_title=window_title,
             save_debug=True,  # Always save debug for troubleshooting
