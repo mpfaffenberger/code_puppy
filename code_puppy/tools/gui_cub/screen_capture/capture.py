@@ -39,20 +39,20 @@ _TEMP_SCREENSHOT_ROOT = Path(
 def _safe_screenshot(region: tuple[int, int, int, int] | None = None):
     """
     Thread-safe screenshot capture.
-    
+
     CRITICAL: On macOS, pyautogui.screenshot() uses tkinter internally,
     which crashes with "NSWindow should only be instantiated on the main thread!"
     when called from background threads.
-    
+
     Solution: Use PIL's ImageGrab.grab() on macOS (thread-safe CoreGraphics),
     and pyautogui.screenshot() on other platforms.
-    
+
     Args:
         region: Optional tuple (x, y, width, height) in physical pixels
-    
+
     Returns:
         PIL Image object
-        
+
     Raises:
         RuntimeError: If PIL is not available on macOS (required for thread safety)
     """
@@ -63,23 +63,31 @@ def _safe_screenshot(region: tuple[int, int, int, int] | None = None):
                 "PIL/Pillow is required for thread-safe screenshots on macOS. "
                 "Install with: uv pip install Pillow --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple --allow-insecure-host pypi.ci.artifacts.walmart.com"
             )
-        
+
         if region:
             x, y, w, h = region
             # CRITICAL BUG FIX: ImageGrab.grab() on macOS expects LOGICAL coordinates (points),
             # not physical pixels! The region parameter passed to this function is in physical pixels,
             # so we must divide by the scale factor to convert to logical coordinates.
             from ..platform import get_screen_scale_factor
+
             scale_factor = get_screen_scale_factor()
-            
+
             # Convert physical pixels to logical points for ImageGrab
             logical_x = int(x / scale_factor)
             logical_y = int(y / scale_factor)
             logical_w = int(w / scale_factor)
             logical_h = int(h / scale_factor)
-            
+
             # ImageGrab.grab expects (left, top, right, bottom) in LOGICAL coordinates
-            return ImageGrab.grab(bbox=(logical_x, logical_y, logical_x + logical_w, logical_y + logical_h))
+            return ImageGrab.grab(
+                bbox=(
+                    logical_x,
+                    logical_y,
+                    logical_x + logical_w,
+                    logical_y + logical_h,
+                )
+            )
         else:
             return ImageGrab.grab()
     else:
@@ -89,7 +97,7 @@ def _safe_screenshot(region: tuple[int, int, int, int] | None = None):
                 "pyautogui is required for screenshots. "
                 "Install with: uv pip install pyautogui --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple --allow-insecure-host pypi.ci.artifacts.walmart.com"
             )
-        
+
         if region:
             return pyautogui.screenshot(region=region)
         else:

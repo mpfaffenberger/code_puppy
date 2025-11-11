@@ -17,7 +17,12 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum
 
-from ..dependencies import CV2_AVAILABLE, DEPS_AVAILABLE, PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
+from ..dependencies import (
+    CV2_AVAILABLE,
+    DEPS_AVAILABLE,
+    PIL_AVAILABLE,
+    PYAUTOGUI_AVAILABLE,
+)
 
 if DEPS_AVAILABLE:
     import numpy as np

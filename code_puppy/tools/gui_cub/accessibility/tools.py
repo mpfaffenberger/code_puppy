@@ -107,24 +107,26 @@ def register_accessibility_tools(agent):
             # Find app by name (case-insensitive, matches localizedName or bundleIdentifier)
             target_app = None
             app_name_lower = app_name.lower()
-            
+
             for app in running_apps:
                 localized_name = app.localizedName()
                 bundle_id = app.bundleIdentifier()
-                
+
                 # Try matching against localizedName (case-insensitive)
                 if localized_name and localized_name.lower() == app_name_lower:
                     target_app = app
                     break
-                
+
                 # Also try matching against bundle ID suffix (e.g., "Calculator" matches "com.apple.calculator")
                 if bundle_id and bundle_id.lower().endswith(f".{app_name_lower}"):
                     target_app = app
                     break
-            
+
             if not target_app:
                 # Provide more helpful debug info
-                running_app_names = [app.localizedName() for app in running_apps if app.localizedName()]
+                running_app_names = [
+                    app.localizedName() for app in running_apps if app.localizedName()
+                ]
                 emit_info(
                     f"[yellow]App '{app_name}' not found or not running[/yellow]\n"
                     f"[dim]Running apps: {', '.join(sorted(set(running_app_names))[:20])}[/dim]",
@@ -145,24 +147,27 @@ def register_accessibility_tools(agent):
             # We need to wait for the window to actually become frontmost
             # before returning, otherwise subsequent OCR/screenshot calls will
             # capture the WRONG window!
-            
+
             # Verification loop: wait until the app window is actually at layer 0 (topmost)
             # NOTE: We use _is_app_window_topmost() instead of NSWorkspace.frontmostApplication()
             # because NSWorkspace returns stale/incorrect data (it reports menu bar owner,
             # not actual window focus).
             import time
-            from ..window_control.core import _is_app_window_topmost, _get_active_window_bounds_impl
-            
+            from ..window_control.core import (
+                _is_app_window_topmost,
+                _get_active_window_bounds_impl,
+            )
+
             max_wait_time = 3.0  # Maximum 3 seconds to wait
             poll_interval = 0.1  # Check every 100ms
             elapsed = 0.0
-            
+
             actual_app_name = target_app.localizedName()
-            
+
             while elapsed < max_wait_time:
                 time.sleep(poll_interval)
                 elapsed += poll_interval
-                
+
                 # Check if app has a window at layer 0 (topmost)
                 if _is_app_window_topmost(actual_app_name):
                     # Success! The window is now at the topmost layer
@@ -176,19 +181,21 @@ def register_accessibility_tools(agent):
                         success=True,
                         window=app_name,
                     )
-            
+
             # Timeout - the window didn't reach layer 0 in time
             # Get the actual topmost app for error message
             bounds_result = _get_active_window_bounds_impl()
-            actual_topmost = bounds_result.app_name if bounds_result.success else "unknown"
-            
+            actual_topmost = (
+                bounds_result.app_name if bounds_result.success else "unknown"
+            )
+
             emit_info(
                 f"[yellow]⚠️  Un-minimized {app_name} but {actual_topmost} is still topmost[/yellow]",
                 message_group=group_id,
             )
             return WindowFocusResult(
                 success=False,
-                error=f"Un-minimized {app_name} but {actual_topmost} is still topmost after {max_wait_time}s. Window may need manual focus or could be minimized to a different space."
+                error=f"Un-minimized {app_name} but {actual_topmost} is still topmost after {max_wait_time}s. Window may need manual focus or could be minimized to a different space.",
             )
 
         except Exception as e:

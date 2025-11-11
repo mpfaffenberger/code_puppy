@@ -38,14 +38,14 @@ from .visualization import draw_pixel_grid
 
 def register_click_debugging_tools(agent):
     """Register click debugging and verification tools.
-    
+
     This file contains 5 click debugging tools (1,150 lines total):
     1. desktop_hover_and_verify - Hover and verify cursor position (~506 lines)
     2. desktop_highlight_click_target - Highlight click targets (~161 lines)
     3. desktop_verify_coordinates - Verify coordinate accuracy (~89 lines)
     4. desktop_click_with_verification - Click with pre/post verification (~114 lines)
     5. desktop_click_smart - Smart clicking with auto-retry (~234 lines)
-    
+
     Note: File is long but cohesive - all tools are related to click debugging/verification.
     """
 
@@ -53,7 +53,7 @@ def register_click_debugging_tools(agent):
     # TOOL 1: HOVER AND VERIFY (~506 lines)
     # Move mouse and verify position before clicking - critical for debugging!
     # ============================================================================
-    
+
     @agent.tool
     def desktop_hover_and_verify(
         context: RunContext,
@@ -566,7 +566,7 @@ def register_click_debugging_tools(agent):
     # TOOL 2: HIGHLIGHT CLICK TARGET (~161 lines)
     # Draw visual indicators at click coordinates for debugging
     # ============================================================================
-    
+
     @agent.tool
     def desktop_highlight_click_target(
         context: RunContext,
@@ -734,7 +734,7 @@ def register_click_debugging_tools(agent):
     # TOOL 3: VERIFY COORDINATES (~89 lines)
     # Check if coordinates are within screen bounds and valid
     # ============================================================================
-    
+
     @agent.tool
     def desktop_verify_coordinates(
         context: RunContext,
@@ -830,7 +830,7 @@ def register_click_debugging_tools(agent):
     # TOOL 4: CLICK WITH VERIFICATION (~114 lines)
     # Click and verify the action was successful with pre/post checks
     # ============================================================================
-    
+
     @agent.tool
     def desktop_click_with_verification(
         context: RunContext,
@@ -951,7 +951,7 @@ def register_click_debugging_tools(agent):
     # TOOL 5: SMART CLICK (~234 lines)
     # Intelligent clicking with automatic retry, offset detection, and fallback
     # ============================================================================
-    
+
     @agent.tool
     def desktop_click_smart(
         context: RunContext,

@@ -67,7 +67,7 @@ try:
     )
 
     # Verify compaction behavior
-    assert compact_result.found == True, "found should still be True"
+    assert compact_result.found, "found should still be True"
     assert compact_result.best_match is not None, "best_match should be preserved"
     assert len(compact_result.matches) == 0, "matches should be empty after compaction"
 

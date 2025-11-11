@@ -131,7 +131,9 @@ def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResu
     # Calculate metrics
     filtered_count = len(full_result.text_elements) - len(compact_elements)
     confidence_values = [e.confidence for e in full_result.text_elements]
-    below_threshold = sum(1 for c in confidence_values if c <= 0.25)  # Vision Framework threshold
+    below_threshold = sum(
+        1 for c in confidence_values if c <= 0.25
+    )  # Vision Framework threshold
 
     # Estimate token savings
     full_tokens = _estimate_result_tokens(
@@ -264,52 +266,49 @@ def _compact_ocr_find_result(full_result: "OCRFindResult") -> "OCRFindResult":
 def prepare_ocr_image(image: "Image.Image", scale_factor: float) -> "Image.Image":
     """
     Prepare a Retina/HiDPI image for optimal OCR accuracy.
-    
+
     On Retina displays, screenshots are captured at 2x physical resolution.
     OCR engines are trained on 1x DPI images and struggle with:
     - Text that appears 2x larger than expected
     - Sub-pixel anti-aliasing artifacts
     - Thin Retina font rendering
-    
+
     This function normalizes 2x images to 1x using:
     1. Light Gaussian blur (radius=0.3) to suppress sub-pixel fringing
     2. BOX resampling for exact 2→1 downscale (fast, text-friendly)
     3. Grayscale conversion to remove color noise
     4. Autocontrast to maximize text clarity
-    
+
     Based on industry best practices for OCR on HiDPI displays.
-    
+
     Args:
         image: PIL Image at physical resolution (e.g., 1000x800 on 2x Retina)
         scale_factor: HiDPI scaling factor (2.0 for Retina, 1.0 for standard)
-    
+
     Returns:
         PIL Image normalized to 1x DPI, optimized for OCR
         (e.g., 500x400 grayscale for 2x Retina input)
     """
     if not PIL_AVAILABLE:
         return image
-    
+
     # Step 1: Light blur to suppress sub-pixel anti-aliasing (always apply)
     # Even on logical resolution images, this helps remove anti-aliasing artifacts
     blurred = image.filter(ImageFilter.GaussianBlur(radius=0.3))
-    
+
     # Step 2: Downscale only if scale_factor > 1.0 (for true 2x physical images)
     if scale_factor > 1.0:
         new_width = round(blurred.width / scale_factor)
         new_height = round(blurred.height / scale_factor)
-        processed = blurred.resize(
-            (new_width, new_height),
-            Image.Resampling.BOX
-        )
+        processed = blurred.resize((new_width, new_height), Image.Resampling.BOX)
     else:
         # No downscaling needed
         processed = blurred
-    
+
     # Always apply grayscale and autocontrast for OCR (improves accuracy)
     grayscale = ImageOps.grayscale(processed)
     normalized = ImageOps.autocontrast(grayscale, cutoff=0)
-    
+
     return normalized
 
 
@@ -323,7 +322,7 @@ def extract_text_from_image(
     Extract text from a PIL Image using native platform OCR.
 
     Uses native platform OCR (WinRT on Windows, Vision on macOS).
-    
+
     On Retina/HiDPI displays (scale_factor > 1.0), images are normalized
     to 1x DPI before OCR for optimal accuracy. OCR engines are trained on
     standard DPI and struggle with 2x Retina text.
@@ -340,28 +339,28 @@ def extract_text_from_image(
         (coordinates are in logical screen space)
     """
     from code_puppy.messaging import emit_info
-    
+
     # Log original image dimensions
     emit_info(
         f"[dim]🔍 DEBUG [extract_text_from_image]: Starting OCR[/dim]\n"
         f"[dim]   Input image: {image.width}x{image.height} ({image.mode})[/dim]\n"
         f"[dim]   Scale factor: {scale_factor}x[/dim]"
     )
-    
+
     # ImageGrab.grab() on macOS returns LOGICAL resolution, not physical!
     # Don't downscale - the image is already at the right size for OCR
     emit_info(
         f"[dim]   Image size: {image.width}x{image.height}[/dim]\n"
         f"[dim]   Applying grayscale + contrast (NO downscaling)[/dim]"
     )
-    
+
     # Just apply grayscale + contrast, no downscaling
     ocr_image = prepare_ocr_image(image, 1.0)  # scale_factor=1.0 = no downscaling
-    
+
     emit_info(
         f"[dim]   ✅ Prepared for OCR: {ocr_image.width}x{ocr_image.height} ({ocr_image.mode})[/dim]"
     )
-    
+
     # Use native platform OCR provider (Vision on macOS, WinRT on Windows)
     ocr_chain = get_ocr_provider()
 

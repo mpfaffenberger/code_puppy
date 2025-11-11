@@ -192,7 +192,6 @@ def compare_with_ocr():
 
     try:
         from code_puppy.tools.gui_cub.ocr.extraction import extract_text_from_image
-        import pyautogui
 
         # Get accessibility elements
         print("📱 Fetching accessibility elements...")
@@ -222,6 +221,7 @@ def compare_with_ocr():
         # Get OCR text
         print("👁️  Running OCR...")
         from code_puppy.tools.gui_cub.screen_capture.capture import _safe_screenshot
+
         screenshot = _safe_screenshot()
         ocr_result = extract_text_from_image(screenshot)
 

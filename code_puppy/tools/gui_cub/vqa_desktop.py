@@ -96,7 +96,8 @@ def run_desktop_vqa_analysis(
 
         # Check if we're already in an event loop
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
+
             # We're in an async context - run in a separate thread with fresh event loop
             # This completely isolates the sync call from the parent event loop
             def _run_vqa_in_new_loop():
@@ -113,7 +114,7 @@ def run_desktop_vqa_analysis(
                 finally:
                     new_loop.close()
                     asyncio.set_event_loop(None)
-            
+
             with ThreadPoolExecutor(max_workers=1) as pool:
                 result = pool.submit(_run_vqa_in_new_loop).result()
         except RuntimeError:

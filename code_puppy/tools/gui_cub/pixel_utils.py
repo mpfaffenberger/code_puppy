@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import platform
 from typing import Literal, Tuple
 
 from .dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
@@ -57,6 +56,7 @@ def sample_neighborhood_rgb(
     # Take screenshot first using thread-safe function
     # Import here to avoid circular dependency
     from .screen_capture.capture import _safe_screenshot
+
     screenshot = _safe_screenshot()
 
     # Calculate scale factor from screenshot dimensions (source of truth!)

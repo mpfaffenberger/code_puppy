@@ -187,6 +187,7 @@ def get_screen_scale_factor(use_cache: bool = True) -> float:
         # Physical size from full screenshot
         # Import here to avoid circular dependency
         from .screen_capture.capture import _safe_screenshot
+
         shot = _safe_screenshot()
         physical_width, physical_height = shot.size
 

@@ -29,10 +29,10 @@ from .core import _focus_window_impl, _get_active_window_bounds_impl
 
 def register_window_control_tools(agent):
     """Register window control tools for desktop automation."""
-    
+
     # Global counters to track tool invocations
-    _focus_window_call_count = {'count': 0}
-    _get_active_window_call_count = {'count': 0}
+    _focus_window_call_count = {"count": 0}
+    _get_active_window_call_count = {"count": 0}
 
     @agent.tool
     @desktop_tool("SLEEP", requires="pyautogui")
@@ -152,17 +152,9 @@ def register_window_control_tools(agent):
         app_name: str | None = None,
     ) -> WindowFocusResult:
         # Increment call counter
-        _focus_window_call_count['count'] += 1
-        call_num = _focus_window_call_count['count']
+        _focus_window_call_count["count"] += 1
         """
         Focus (activate/bring to front) a window or application.
-        
-        from code_puppy.messaging import emit_info
-        
-        # DEBUG: Log call tracking
-        emit_info(
-            f"[bold cyan]🔢 DEBUG [CALL #{call_num}]: desktop_focus_window(app_name={app_name!r})[/bold cyan]"
-        )
 
         This ensures the target window is active before performing actions like:
         - Accessibility API element searches
@@ -201,17 +193,9 @@ def register_window_control_tools(agent):
     @agent.tool
     def desktop_get_active_window(context: RunContext) -> WindowBoundsResult:
         # Increment call counter
-        _get_active_window_call_count['count'] += 1
-        call_num = _get_active_window_call_count['count']
+        _get_active_window_call_count["count"] += 1
         """
         Get the bounds (position and size) of the active/frontmost window.
-        
-        from code_puppy.messaging import emit_info
-        
-        # DEBUG: Log call tracking
-        emit_info(
-            f"[bold cyan]🔢 DEBUG [CALL #{call_num}]: desktop_get_active_window()[/bold cyan]"
-        )
 
         This is useful for targeting specific windows for screenshots, OCR, or clicks
         instead of capturing the entire screen.
