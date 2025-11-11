@@ -118,8 +118,7 @@ def register_accessibility_tools(agent):
                 )
                 return WindowFocusResult(
                     success=False,
-                    error=f"Application '{app_name}' not found or not running",
-                    message=f"Could not find running app: {app_name}",
+                    error=f"Application '{app_name}' not found or not running. Check app name spelling or verify app is installed.",
                 )
 
             # Unhide the app (this un-minimizes it)
@@ -135,8 +134,7 @@ def register_accessibility_tools(agent):
 
             return WindowFocusResult(
                 success=True,
-                message=f"Un-minimized {app_name}",
-                window_title=app_name,
+                window=app_name,
             )
 
         except Exception as e:
@@ -147,7 +145,6 @@ def register_accessibility_tools(agent):
             return WindowFocusResult(
                 success=False,
                 error=f"Failed to un-minimize {app_name}: {e}",
-                message=str(e),
             )
 
     @agent.tool

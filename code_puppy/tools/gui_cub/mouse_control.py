@@ -299,7 +299,6 @@ def register_mouse_control_tools(agent):
                 success=True,
                 clicks=0,
                 direction="none",
-                message=f"Target y={target_y} already visible",
             )
 
         # Scroll until target is visible or max_scrolls reached
@@ -326,7 +325,6 @@ def register_mouse_control_tools(agent):
             success=True,
             clicks=total_clicks,
             direction=direction_str,
-            message=f"Scrolled {direction_str} {total_clicks} clicks to reach y={target_y}",
         )
 
     @agent.tool
@@ -380,7 +378,6 @@ def register_mouse_control_tools(agent):
                 success=True,
                 clicks=0,
                 direction="none",
-                message=f"Element at y={element_y} already visible",
             )
 
         # Determine scroll direction and amount
@@ -410,7 +407,6 @@ def register_mouse_control_tools(agent):
             success=True,
             clicks=total_clicks,
             direction=direction_str,
-            message=f"Scrolled element at y={element_y} into view",
         )
 
     @agent.tool
@@ -455,7 +451,6 @@ def register_mouse_control_tools(agent):
             success=True,
             clicks=abs(total_clicks),
             direction=direction_str,
-            message=f"Scrolled {pages} page(s) {direction_str}",
         )
 
     @agent.tool

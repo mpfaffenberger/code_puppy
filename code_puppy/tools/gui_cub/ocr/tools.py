@@ -177,7 +177,7 @@ def register_ocr_tools(agent):
             # DEBUG: Save screenshot to temp if debug mode enabled
             # Users can copy to pwd with /save_debug_image command
             from ..config_manager import get_debug_screenshots_enabled
-            from .debug_screenshot_manager import save_temp_debug_screenshot
+            from ..debug_screenshot_manager import save_temp_debug_screenshot
 
             if get_debug_screenshots_enabled():
                 save_temp_debug_screenshot(screenshot, "ocr_region", group_id)
@@ -691,7 +691,7 @@ def register_ocr_tools(agent):
             # DEBUG: Save to temp if debug mode enabled
             # Users can copy to pwd with /save_debug_image command
             from ..config_manager import get_debug_screenshots_enabled
-            from .debug_screenshot_manager import save_temp_debug_screenshot
+            from ..debug_screenshot_manager import save_temp_debug_screenshot
 
             if get_debug_screenshots_enabled():
                 save_temp_debug_screenshot(
@@ -886,5 +886,4 @@ def register_ocr_tools(agent):
 
         return BaseAutomationResult(
             success=True,
-            message=f"Debug screenshot copying {status}",
         )

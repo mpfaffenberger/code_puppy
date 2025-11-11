@@ -353,8 +353,7 @@ def register_windows_tools(agent):
                 )
                 return WindowFocusResult(
                     success=False,
-                    error=f"Window not found: {window_title}",
-                    message="Window not found",
+                    error=f"Window not found: {window_title}. Check spelling or use windows_list_windows() to see available windows.",
                 )
 
             import time
@@ -390,20 +389,22 @@ def register_windows_tools(agent):
                 )
                 return WindowFocusResult(
                     success=True,
-                    message="Un-minimized window",
-                    window_title=window_title or str(hwnd),
+                    window=window_title or str(hwnd),
                 )
             elif is_restored and not is_foreground:
                 # Partial success - window restored but not foreground
                 emit_warning(
-                    f"[yellow]⚠ Window restored but not in foreground (may be blocked by focus stealing prevention)[/yellow]",
+                    f"[yellow]⚠ Window restored but not in foreground (blocked by focus stealing prevention)[/yellow]",
+                    message_group=group_id,
+                )
+                emit_info(
+                    f"[cyan]💡 NEXT STEP: Use windows_click_taskbar_app('{window_title or 'app'}') to bring window to foreground[/cyan]",
                     message_group=group_id,
                 )
                 return WindowFocusResult(
                     success=False,
-                    error="Window restored but could not bring to foreground",
-                    message="Partial restore - window visible but not focused. Try windows_click_taskbar_app() instead.",
-                    window_title=window_title or str(hwnd),
+                    error=f"SetForegroundWindow blocked by Windows focus stealing prevention. NEXT ACTION: Call windows_click_taskbar_app('{window_title or 'app'}') to click taskbar icon (this bypasses focus stealing prevention).",
+                    window=window_title or str(hwnd),
                 )
             else:
                 # Failed to restore
@@ -411,11 +412,14 @@ def register_windows_tools(agent):
                     f"[yellow]❌ Failed to restore window (restored={is_restored}, foreground={is_foreground})[/yellow]",
                     message_group=group_id,
                 )
+                emit_info(
+                    f"[cyan]💡 NEXT STEP: Use windows_click_taskbar_app('{window_title or 'app'}') OR windows_list_elements() to find taskbar button[/cyan]",
+                    message_group=group_id,
+                )
                 return WindowFocusResult(
                     success=False,
-                    error="Window restoration incomplete",
-                    message=f"Could not restore window. Try windows_click_taskbar_app() or windows_list_elements() to find taskbar button.",
-                    window_title=window_title or str(hwnd),
+                    error=f"Window restoration failed. NEXT ACTION: Call windows_click_taskbar_app('{window_title or 'app'}') to click taskbar icon, or use windows_list_elements() to explore taskbar.",
+                    window=window_title or str(hwnd),
                 )
 
         except Exception as e:
@@ -426,7 +430,6 @@ def register_windows_tools(agent):
             return WindowFocusResult(
                 success=False,
                 error=f"Failed to un-minimize: {e}",
-                message=str(e),
             )
 
     @agent.tool

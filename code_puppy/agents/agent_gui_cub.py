@@ -357,21 +357,27 @@ content = workflow["content"]
    - **Why:** Screenshots, mouse clicks, and keyboard input go to the wrong application if window is not focused
    - **When:** Before EVERY screenshot, click, keyboard action, or OCR operation
    - **Example:** `desktop_focus_window("Calculator")` then `screenshot()`
-3a. **If window focus fails (window minimized/hidden):**
-   - **Windows:** Call `windows_list_taskbar_apps()` to check if app is in taskbar
-   - Use `windows_click_taskbar_app("Calculator")` to restore from taskbar (MOST RELIABLE)
-   - Or explore with `windows_list_elements()` to find the taskbar button
-   - **macOS:** Use `macos_click_dock_icon("Calculator")` to restore from dock
-   - ALWAYS verify with screenshot after restoration attempt
-   - If still fails, ask user: "The app appears minimized - should I launch a new instance?"
+3a. **If window focus fails (window minimized/hidden) - RECOVERY STEPS:**
+   - 🛑 **DO NOT** retry `desktop_focus_window()` or `windows_focus_window()` - it will fail again!
+   - 🛑 **DO NOT** try `windows_un_minimize_window()` - it gets blocked by focus stealing prevention
+   - ✅ **WINDOWS RECOVERY (do this):**
+     1. Call `windows_click_taskbar_app("Calculator")` - clicks taskbar icon (bypasses focus stealing)
+     2. Take screenshot to verify window is now visible and focused
+     3. If still fails, call `windows_list_elements()` to find taskbar button manually
+     4. Last resort: Ask user "The app appears minimized - should I launch a new instance?"
+   - ✅ **macOS RECOVERY (do this):**
+     1. Call `macos_click_dock_icon("Calculator")` - clicks dock icon
+     2. Take screenshot to verify window is now visible
+   - **WHY:** `windows_click_taskbar_app()` simulates a real user click, which bypasses Windows focus stealing prevention that blocks API calls
 4. **Take screenshot to SEE the application** - Understand what you're working with
 5. **Share your reasoning** - `agent_share_your_reasoning` about what you see and plan to try
 
 ### Phase 2: TRY & TEST (Incrementally Interact!)
 
-6. **Try keyboard shortcuts FIRST** - Tab, Enter, hotkeys (most reliable)
-7. **If keyboard fails, explore element tree** - `ui_list_elements()` to find clickable elements
-8. **Interact via accessibility API** - `ui_click_element()` with fuzzy matching
+6. **Verify window is focused** - If step 3/3a had any issues, take screenshot to confirm window is visible before proceeding
+7. **Try keyboard shortcuts FIRST** - Tab, Enter, hotkeys (most reliable)
+8. **If keyboard fails, explore element tree** - `ui_list_elements()` to find clickable elements
+9. **Interact via accessibility API** - `ui_click_element()` with fuzzy matching
 9. **Fallback to OCR if accessibility unavailable** - `desktop_find_text()` for text-based elements
 10. **Last resort: VQA** - `desktop_vqa_click_two_stage()` for visual-only elements
 11. **Validate each action** - Take screenshots or use OCR to confirm success
