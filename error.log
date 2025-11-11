@@ -1,0 +1,10 @@
+
+───────────────────────────────────────────────────────
+✓ Debug screenshot copying enabled
+Unexpected error: cannot import name '_focus_window_impl' from 'code_puppy.tools.gui_cub.window_control'
+(C:\Users\c0b00wt\Toolbox\code-puppy\code_puppy\tools\gui_cub\window_control\__init__.py)
+("cannot import name '_focus_window_impl' from 'code_puppy.tools.gui_cub.window_control'
+(C:\\Users\\c0b00wt\\Toolbox\\code-puppy\\code_puppy\\tools\\gui_cub\\window_control\\__init__.py)",)
+Enter your coding task:
+
+🐶 Doc [Desktop Automation Cub 🐻] [claude-4-5-sonnet] (~\Toolbox\code-puppy) >>>

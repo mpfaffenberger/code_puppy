@@ -167,6 +167,10 @@ def save_config(config: Dict[str, Any]) -> bool:
     config_path = get_config_path()
 
     try:
+        # Initialize metadata if not present
+        if "metadata" not in config:
+            config["metadata"] = {}
+        
         # Add hash for validation
         config["metadata"]["hash"] = _compute_config_hash(config)
 

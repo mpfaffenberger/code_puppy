@@ -138,7 +138,7 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
     if IS_WINDOWS:
         # Windows implementation
         try:
-            from .windows_automation import WINDOWS_AUTOMATION_AVAILABLE
+            from ..windows_automation import WINDOWS_AUTOMATION_AVAILABLE
 
             if not WINDOWS_AUTOMATION_AVAILABLE:
                 return WindowBoundsResult(

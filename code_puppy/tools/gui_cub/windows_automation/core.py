@@ -205,6 +205,8 @@ def find_element(
                 center_y=rect.mid_point().y,
                 title=element.element_info.name,
                 control_type=element.element_info.control_type,
+                class_name=element.element_info.class_name,
+                auto_id=element.element_info.automation_id,
             )
             return ElementSearchResult(
                 success=True, found=True, count=1, matches=[info], best_match=info
@@ -243,6 +245,8 @@ def find_element(
                         center_y=rect.mid_point().y,
                         title=best.name,
                         control_type=best.control_type,
+                        class_name=best.class_name,
+                        auto_id=best.automation_id,
                     )
                     return ElementSearchResult(
                         success=True,
@@ -373,11 +377,32 @@ def list_elements_in_window() -> ElementListResult:
 
             try:
                 info = element.element_info
+                
+                # Get coordinates
+                try:
+                    rect = element.rectangle()
+                    x = rect.left
+                    y = rect.top
+                    width = rect.width()
+                    height = rect.height()
+                    center_x = rect.mid_point().x
+                    center_y = rect.mid_point().y
+                except Exception:
+                    # Fallback if coordinates unavailable
+                    x = y = width = height = center_x = center_y = None
+                
                 elem_data = {
-                    "type": info.control_type,
-                    "name": info.name,
-                    "class": info.class_name,
+                    "control_type": info.control_type,
+                    "title": info.name,
+                    "class_name": info.class_name,
+                    "auto_id": info.automation_id,
                     "depth": depth,
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                    "center_x": center_x,
+                    "center_y": center_y,
                 }
 
                 elements.append(elem_data)
