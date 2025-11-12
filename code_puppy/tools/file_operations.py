@@ -577,17 +577,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         cmd.extend(["--ignore-file", ignore_file])
         cmd.extend([search_string, directory])
 
-        # Windows encoding fix: Ripgrep can output Unicode characters (emojis, symbols, etc.)
-        # Windows console defaults to CP1252/CP437 which causes UnicodeDecodeError.
-        # Force UTF-8 decoding with error replacement to handle all output safely.
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
         # Parse the JSON output from ripgrep
         for line in result.stdout.strip().split("\n"):
