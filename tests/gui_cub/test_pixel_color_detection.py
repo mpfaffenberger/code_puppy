@@ -53,19 +53,19 @@ class TestPixelColorDetection:
 
     def test_sample_single_pixel_1x_display(self):
         """Test single pixel sampling on 1x (non-Retina) display."""
-        # Mock both pyautogui and ImageGrab to simulate 1x display
-        # (Code uses ImageGrab on macOS, pyautogui elsewhere)
+        # Mock _safe_screenshot which is what sample_neighborhood_rgb actually uses
         with (
             patch("code_puppy.tools.gui_cub.pixel_utils.pyautogui") as mock_pg,
-            patch("code_puppy.tools.gui_cub.pixel_utils.ImageGrab") as mock_ig,
+            patch(
+                "code_puppy.tools.gui_cub.screen_capture.capture._safe_screenshot"
+            ) as mock_screenshot,
         ):
             # Logical size = Physical size (1x display)
             mock_pg.size.return_value = (1000, 800)
 
             # Create test image: solid red
             test_image = self.create_test_image(1000, 800, (255, 0, 0))
-            mock_pg.screenshot.return_value = test_image
-            mock_ig.grab.return_value = test_image  # Also mock ImageGrab for macOS
+            mock_screenshot.return_value = test_image
 
             # Sample at logical (500, 400) -> physical (500, 400)
             samples, center_rgb = sample_neighborhood_rgb(x=500, y=400, neighborhood=0)
@@ -81,15 +81,16 @@ class TestPixelColorDetection:
         """
         with (
             patch("code_puppy.tools.gui_cub.pixel_utils.pyautogui") as mock_pg,
-            patch("code_puppy.tools.gui_cub.pixel_utils.ImageGrab") as mock_ig,
+            patch(
+                "code_puppy.tools.gui_cub.screen_capture.capture._safe_screenshot"
+            ) as mock_screenshot,
         ):
             # Logical size = 1000x800, Physical size = 2000x1600 (2x Retina)
             mock_pg.size.return_value = (1000, 800)
 
             # Create test pattern at 2x resolution
             test_image = self.create_pattern_image(2000, 1600)
-            mock_pg.screenshot.return_value = test_image
-            mock_ig.grab.return_value = test_image  # Also mock ImageGrab for macOS
+            mock_screenshot.return_value = test_image
 
             # Sample at logical (250, 200) -> should map to physical (500, 400)
             # Physical (500, 400) is in top-left quadrant = RED
@@ -104,12 +105,13 @@ class TestPixelColorDetection:
         """Test sampling from all four quadrants on 2x display."""
         with (
             patch("code_puppy.tools.gui_cub.pixel_utils.pyautogui") as mock_pg,
-            patch("code_puppy.tools.gui_cub.pixel_utils.ImageGrab") as mock_ig,
+            patch(
+                "code_puppy.tools.gui_cub.screen_capture.capture._safe_screenshot"
+            ) as mock_screenshot,
         ):
             mock_pg.size.return_value = (1000, 800)
             test_image = self.create_pattern_image(2000, 1600)
-            mock_pg.screenshot.return_value = test_image
-            mock_ig.grab.return_value = test_image  # Also mock ImageGrab for macOS
+            mock_screenshot.return_value = test_image
 
             # Test all four quadrants
             # Top-left (logical 250, 200) -> physical (500, 400) = RED
@@ -132,12 +134,13 @@ class TestPixelColorDetection:
         """Test 3x3 neighborhood sampling (neighborhood=1)."""
         with (
             patch("code_puppy.tools.gui_cub.pixel_utils.pyautogui") as mock_pg,
-            patch("code_puppy.tools.gui_cub.pixel_utils.ImageGrab") as mock_ig,
+            patch(
+                "code_puppy.tools.gui_cub.screen_capture.capture._safe_screenshot"
+            ) as mock_screenshot,
         ):
             mock_pg.size.return_value = (100, 100)
             test_image = self.create_test_image(100, 100, (128, 128, 128))
-            mock_pg.screenshot.return_value = test_image
-            mock_ig.grab.return_value = test_image  # Also mock ImageGrab for macOS
+            mock_screenshot.return_value = test_image
 
             # Sample 3x3 neighborhood
             samples, center_rgb = sample_neighborhood_rgb(x=50, y=50, neighborhood=1)
@@ -160,13 +163,14 @@ class TestPixelColorDetection:
         """
         with (
             patch("code_puppy.tools.gui_cub.pixel_utils.pyautogui") as mock_pg,
-            patch("code_puppy.tools.gui_cub.pixel_utils.ImageGrab") as mock_ig,
+            patch(
+                "code_puppy.tools.gui_cub.screen_capture.capture._safe_screenshot"
+            ) as mock_screenshot,
         ):
             mock_pg.size.return_value = (100, 100)
             # 2x display
             test_image = self.create_test_image(200, 200, (64, 64, 64))
-            mock_pg.screenshot.return_value = test_image
-            mock_ig.grab.return_value = test_image  # Also mock ImageGrab for macOS
+            mock_screenshot.return_value = test_image
 
             # Sample 5x5 logical neighborhood (neighborhood=2)
             samples, center_rgb = sample_neighborhood_rgb(x=50, y=50, neighborhood=2)
@@ -182,12 +186,13 @@ class TestPixelColorDetection:
         """Test that coordinates near edges are clamped to image bounds."""
         with (
             patch("code_puppy.tools.gui_cub.pixel_utils.pyautogui") as mock_pg,
-            patch("code_puppy.tools.gui_cub.pixel_utils.ImageGrab") as mock_ig,
+            patch(
+                "code_puppy.tools.gui_cub.screen_capture.capture._safe_screenshot"
+            ) as mock_screenshot,
         ):
             mock_pg.size.return_value = (100, 100)
             test_image = self.create_test_image(100, 100, (200, 200, 200))
-            mock_pg.screenshot.return_value = test_image
-            mock_ig.grab.return_value = test_image  # Also mock ImageGrab for macOS
+            mock_screenshot.return_value = test_image
 
             # Sample near top-left corner
             samples, center_rgb = sample_neighborhood_rgb(x=0, y=0, neighborhood=1)
@@ -297,7 +302,9 @@ class TestRealWorldScenarios:
         """
         with (
             patch("code_puppy.tools.gui_cub.pixel_utils.pyautogui") as mock_pg,
-            patch("code_puppy.tools.gui_cub.pixel_utils.ImageGrab") as mock_ig,
+            patch(
+                "code_puppy.tools.gui_cub.screen_capture.capture._safe_screenshot"
+            ) as mock_screenshot,
         ):
             # Simulate term1-todo.md test environment
             # Display: 1728×1117 logical, 3456×2234 physical (2.0x Retina)
@@ -315,8 +322,7 @@ class TestRealWorldScenarios:
                 for x in range(2000, 2300):
                     pixels[x, y] = (255, 255, 255)
 
-            mock_pg.screenshot.return_value = test_image
-            mock_ig.grab.return_value = test_image  # Also mock ImageGrab for macOS
+            mock_screenshot.return_value = test_image
 
             # Test the buggy scenario
             # Logical (1075, 473) should map to physical (2150, 946)
@@ -334,7 +340,9 @@ class TestRealWorldScenarios:
         """Test that neighborhood sampling helps with anti-aliased UI elements."""
         with (
             patch("code_puppy.tools.gui_cub.pixel_utils.pyautogui") as mock_pg,
-            patch("code_puppy.tools.gui_cub.pixel_utils.ImageGrab") as mock_ig,
+            patch(
+                "code_puppy.tools.gui_cub.screen_capture.capture._safe_screenshot"
+            ) as mock_screenshot,
         ):
             mock_pg.size.return_value = (100, 100)
 
@@ -348,8 +356,7 @@ class TestRealWorldScenarios:
                 pixels[50, y] = (0, 0, 0)  # Black line
                 pixels[51, y] = (180, 180, 180)  # Anti-alias
 
-            mock_pg.screenshot.return_value = test_image
-            mock_ig.grab.return_value = test_image  # Also mock ImageGrab for macOS
+            mock_screenshot.return_value = test_image
 
             # Sample the black line with neighborhood
             samples, center_rgb = sample_neighborhood_rgb(x=50, y=50, neighborhood=1)
