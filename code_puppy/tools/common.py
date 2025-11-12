@@ -484,18 +484,22 @@ async def arrow_select_async(message: str, choices: list[str]) -> str:
     Raises:
         KeyboardInterrupt: If user cancels with Ctrl-C
     """
+    import html
 
     selected_index = [0]  # Mutable container for selected index
     result = [None]  # Mutable container for result
 
     def get_formatted_text():
         """Generate the formatted text for display."""
-        lines = [f"<b>{message}</b>", ""]
+        # Escape XML special characters to prevent parsing errors
+        safe_message = html.escape(message)
+        lines = [f"<b>{safe_message}</b>", ""]
         for i, choice in enumerate(choices):
+            safe_choice = html.escape(choice)
             if i == selected_index[0]:
-                lines.append(f"<ansigreen>❯ {choice}</ansigreen>")
+                lines.append(f"<ansigreen>❯ {safe_choice}</ansigreen>")
             else:
-                lines.append(f"  {choice}")
+                lines.append(f"  {safe_choice}")
         lines.append("")
         lines.append("<ansicyan>(Use ↑↓ arrows to select, Enter to confirm)</ansicyan>")
         return HTML("\n".join(lines))

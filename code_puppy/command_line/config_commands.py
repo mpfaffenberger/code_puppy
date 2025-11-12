@@ -294,186 +294,31 @@ def handle_pin_model_command(command: str) -> bool:
 )
 def handle_diff_command(command: str) -> bool:
     """Configure diff highlighting colors."""
+    import asyncio
+    import concurrent.futures
+
+    from code_puppy.command_line.diff_menu import interactive_diff_picker
     from code_puppy.config import (
-        get_diff_addition_color,
-        get_diff_deletion_color,
-        get_diff_highlight_style,
         set_diff_addition_color,
         set_diff_deletion_color,
         set_diff_highlight_style,
     )
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.messaging import emit_error
 
-    tokens = command.split()
+    # Show interactive picker for diff configuration
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(lambda: asyncio.run(interactive_diff_picker()))
+        result = future.result(timeout=300)  # 5 min timeout
 
-    if len(tokens) == 1:
-        # Show current diff configuration
-        add_color = get_diff_addition_color()
-        del_color = get_diff_deletion_color()
-
-        emit_info("[bold magenta]🎨 Diff Configuration[/bold magenta]")
-        # Show the actual color pairs being used
-        from code_puppy.tools.file_modifications import _get_optimal_color_pair
-
-        add_fg, add_bg = _get_optimal_color_pair(add_color, "green")
-        del_fg, del_bg = _get_optimal_color_pair(del_color, "orange1")
-        current_style = get_diff_highlight_style()
-        if current_style == "highlighted":
-            emit_info(
-                f"[bold]Additions:[/bold]       [{add_fg} on {add_bg}]■■■■■■■■■■[/{add_fg} on {add_bg}] {add_color}"
-            )
-            emit_info(
-                f"[bold]Deletions:[/bold]       [{del_fg} on {del_bg}]■■■■■■■■■■[/{del_fg} on {del_bg}] {del_color}"
-            )
-        if current_style == "text":
-            emit_info(
-                f"[bold]Additions:[/bold]       [{add_color}]■■■■■■■■■■[/{add_color}] {add_color}"
-            )
-            emit_info(
-                f"[bold]Deletions:[/bold]       [{del_color}]■■■■■■■■■■[/{del_color}] {del_color}"
-            )
-        emit_info("\n[yellow]Subcommands:[/yellow]")
-        emit_info(
-            "  [cyan]/diff style <style>[/cyan]                 Set diff style (text/highlighted)"
-        )
-        emit_info(
-            "  [cyan]/diff additions <color>[/cyan]             Set addition color (shows options if no color)"
-        )
-        emit_info(
-            "  [cyan]/diff deletions <color>[/cyan]             Set deletion color (shows options if no color)"
-        )
-        emit_info(
-            "  [cyan]/diff show[/cyan]                         Show current configuration with example"
-        )
-
-        if current_style == "text":
-            emit_info("\n[dim]Current mode: Plain text diffs (no highlighting)[/dim]")
-        else:
-            emit_info(
-                "\n[dim]Current mode: Intelligent color pairs for maximum contrast[/dim]"
-            )
-        return True
-
-    subcmd = tokens[1].lower()
-
-    if subcmd == "style":
-        if len(tokens) == 2:
-            # Show current style
-            current_style = get_diff_highlight_style()
-            emit_info("[bold magenta]🎨 Current Diff Style[/bold magenta]")
-            emit_info(f"Style: {current_style}")
-            emit_info("\n[yellow]Available styles:[/yellow]")
-            emit_info(
-                "  [cyan]text[/cyan]         - Plain text diffs with no highlighting"
-            )
-            emit_info(
-                "  [cyan]highlighted[/cyan]   - Intelligent color pairs for maximum contrast"
-            )
-            emit_info("\n[dim]Use '/diff style <style>' to change[/dim]")
-            return True
-        elif len(tokens) != 3:
-            emit_warning("Usage: /diff style <style>")
-            emit_info("[dim]Use '/diff style' to see available styles[/dim]")
-            return True
-
-        new_style = tokens[2].lower()
+    if result:
+        # Apply the changes silently (no console output)
         try:
-            set_diff_highlight_style(new_style)
-            emit_success(f"Diff style set to '{new_style}'")
+            set_diff_highlight_style(result["style"])
+            set_diff_addition_color(result["add_color"])
+            set_diff_deletion_color(result["del_color"])
         except Exception as e:
-            emit_error(f"Failed to set diff style: {e}")
-        return True
-
-    if subcmd == "additions":
-        if len(tokens) == 2:
-            # Show available color options
-            _show_color_options("additions")
-            return True
-        elif len(tokens) != 3:
-            emit_warning("Usage: /diff additions <color>")
-            emit_info("[dim]Use '/diff additions' to see available colors[/dim]")
-            return True
-
-        color = tokens[2]
-        try:
-            set_diff_addition_color(color)
-            emit_success(f"Addition color set to '{color}'")
-        except Exception as e:
-            emit_error(f"Failed to set addition color: {e}")
-        return True
-
-    elif subcmd == "deletions":
-        if len(tokens) == 2:
-            # Show available color options
-            _show_color_options("deletions")
-            return True
-        elif len(tokens) != 3:
-            emit_warning("Usage: /diff deletions <color>")
-            emit_info("[dim]Use '/diff deletions' to see available colors[/dim]")
-            return True
-
-        color = tokens[2]
-        try:
-            set_diff_deletion_color(color)
-            emit_success(f"Deletion color set to '{color}'")
-        except Exception as e:
-            emit_error(f"Failed to set deletion color: {e}")
-        return True
-
-    elif subcmd == "show":
-        # Show current configuration with example
-        from code_puppy.tools.file_modifications import _colorize_diff
-
-        add_color = get_diff_addition_color()
-        del_color = get_diff_deletion_color()
-
-        # Create a simple diff example
-        example_diff = """--- a/example.txt
-+++ b/example.txt
-@@ -1,3 +1,4 @@
- line 1
--old line 2
-+new line 2
- line 3
-+added line 4"""
-
-        current_style = get_diff_highlight_style()
-
-        emit_info("[bold magenta]🎨 Current Diff Configuration[/bold magenta]")
-        emit_info(f"Style: {current_style}")
-
-        if current_style == "highlighted":
-            # Show the actual color pairs being used
-            from code_puppy.tools.file_modifications import _get_optimal_color_pair
-
-            add_fg, add_bg = _get_optimal_color_pair(add_color, "green")
-            del_fg, del_bg = _get_optimal_color_pair(del_color, "orange1")
-            emit_info(
-                f"Additions: [{add_fg} on {add_bg}]■■■■■■■■■■[/{add_fg} on {add_bg}] {add_color}"
-            )
-            emit_info(
-                f"Deletions: [{del_fg} on {del_bg}]■■■■■■■■■■[/{del_fg} on {del_bg}] {del_color}"
-            )
-        else:
-            emit_info(f"Additions: {add_color} (plain text mode)")
-            emit_info(f"Deletions: {del_color} (plain text mode)")
-        emit_info(
-            "\n[bold cyan]── DIFF EXAMPLE ───────────────────────────────────[/bold cyan]"
-        )
-
-        # Show the colored example
-        colored_example = _colorize_diff(example_diff)
-        emit_info(colored_example, highlight=False)
-
-        emit_info(
-            "[bold cyan]───────────────────────────────────────────────[/bold cyan]\n"
-        )
-        return True
-
-    else:
-        emit_warning(f"Unknown diff subcommand: {subcmd}")
-        emit_info("Use '/diff' to see available subcommands")
-        return True
+            emit_error(f"Failed to apply diff settings: {e}")
+    return True
 
 
 # ============================================================================
