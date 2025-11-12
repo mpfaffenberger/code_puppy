@@ -809,7 +809,6 @@ def set_diff_highlight_style(style: str):
     if style.lower() not in ["text", "highlighted"]:
         raise ValueError("diff_highlight_style must be 'text' or 'highlighted'")
     set_config_value("diff_highlight_style", style.lower())
-    _emit_diff_style_example()
 
 
 def get_diff_addition_color() -> str:
@@ -830,7 +829,6 @@ def set_diff_addition_color(color: str):
         color: Rich color markup (e.g., 'green', 'on_green', 'bright_green')
     """
     set_config_value("diff_addition_color", color)
-    _emit_diff_style_example()
 
 
 def get_diff_deletion_color() -> str:
@@ -851,11 +849,11 @@ def set_diff_deletion_color(color: str):
         color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
     """
     set_config_value("diff_deletion_color", color)
-    _emit_diff_style_example()
 
 
 def _emit_diff_style_example():
     """Emit a small diff example showing the current style configuration."""
+
     try:
         from code_puppy.messaging import emit_info
         from code_puppy.tools.file_modifications import _colorize_diff
