@@ -703,7 +703,9 @@ def search_elements_smart(
     )
 
 
-def list_elements_in_window(compact: bool = True, max_depth: int = 15) -> ElementListResult:
+def list_elements_in_window(
+    compact: bool = True, max_depth: int = 15
+) -> ElementListResult:
     """
     List all UI elements in active window.
 
@@ -900,19 +902,19 @@ def list_elements_in_application(
         for win in all_windows:
             try:
                 window_title = win.window_text()
-                
+
                 if not window_title:  # Skip windows with no title
                     continue
-                
+
                 # Match by title pattern
                 if app_title_pattern:
                     if re.search(app_title_pattern, window_title, re.IGNORECASE):
                         matching_windows.append((win, window_title))
                         continue
-                
+
                 # Match by process name (TODO: implement process filtering)
                 # This would require getting process info from window
-                
+
             except Exception:
                 continue
 
@@ -1025,7 +1027,7 @@ def list_elements_in_application(
             "total_elements": len(all_elements),
             "element_types": len(all_by_type),
         }
-        
+
         full_result = ElementListResult(
             success=True,
             total_elements=len(all_elements),

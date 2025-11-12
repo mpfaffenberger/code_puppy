@@ -255,7 +255,6 @@ def handle_command(command: str):
         display_disclaimer()
         return True
 
-
     if command.strip().startswith("/compact"):
         # Functions have been moved to BaseAgent class
         from code_puppy.agents.agent_manager import get_current_agent

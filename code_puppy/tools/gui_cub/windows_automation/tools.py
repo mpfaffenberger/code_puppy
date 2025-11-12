@@ -621,18 +621,17 @@ def register_windows_tools(agent):
 
             # Show which windows were captured
             if result.elements:
-                unique_windows = set(
-                    e.get("window_title", "") for e in result.elements
-                )
+                unique_windows = set(e.get("window_title", "") for e in result.elements)
                 if unique_windows:
+                    windows_list = ", ".join(
+                        f"'{w}'" for w in sorted(unique_windows) if w
+                    )
                     emit_info(
-                        f"[dim]Windows: {', '.join(f'\'{w}\'' for w in sorted(unique_windows) if w)}[/dim]",
+                        f"[dim]Windows: {windows_list}[/dim]",
                         message_group=group_id,
                     )
         else:
-            emit_error(
-                f"[red]Failed: {result.error}[/red]", message_group=group_id
-            )
+            emit_error(f"[red]Failed: {result.error}[/red]", message_group=group_id)
 
         return result
 
