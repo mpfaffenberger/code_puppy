@@ -58,7 +58,7 @@ class TestOCRResultCompaction:
         assert "Element 1" in element_texts
 
     def test_filters_low_confidence_elements(self):
-        """Elements with confidence <= 0.7 should be filtered."""
+        """Elements with confidence <= 0.25 should be filtered (Vision Framework threshold)."""
         text_elements = [
             TextBoundingBox(
                 text="High confidence",
@@ -71,8 +71,8 @@ class TestOCRResultCompaction:
                 center_y=10,
             ),
             TextBoundingBox(
-                text="Low confidence",
-                confidence=0.5,  # Too low
+                text="Medium confidence",
+                confidence=0.5,  # Above 0.25 threshold - should be kept
                 x=100,
                 y=0,
                 width=100,
@@ -81,8 +81,8 @@ class TestOCRResultCompaction:
                 center_y=10,
             ),
             TextBoundingBox(
-                text="Borderline",
-                confidence=0.7,  # Exactly 0.7 - filtered
+                text="Low confidence",
+                confidence=0.15,  # Below 0.25 - filtered
                 x=200,
                 y=0,
                 width=100,
@@ -90,19 +90,30 @@ class TestOCRResultCompaction:
                 center_x=250,
                 center_y=10,
             ),
+            TextBoundingBox(
+                text="Borderline",
+                confidence=0.25,  # Exactly 0.25 - filtered (> not >=)
+                x=300,
+                y=0,
+                width=100,
+                height=20,
+                center_x=350,
+                center_y=10,
+            ),
         ]
 
         full_result = OCRExtractResult(
             success=True,
             text_elements=text_elements,
-            average_confidence=0.72,
+            average_confidence=0.46,
         )
 
         compact = _compact_ocr_extract_result(full_result)
 
-        # Only high confidence element should be kept (now dicts)
+        # High and medium confidence should be kept (> 0.25 threshold)
         element_texts = [e["text"] for e in compact.key_elements]
         assert "High confidence" in element_texts
+        assert "Medium confidence" in element_texts
         assert "Low confidence" not in element_texts
         assert "Borderline" not in element_texts
 
