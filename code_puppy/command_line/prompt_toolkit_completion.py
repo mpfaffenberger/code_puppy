@@ -33,7 +33,6 @@ from code_puppy.command_line.mcp_completion import MCPCompleter
 from code_puppy.command_line.model_picker_completion import (
     ModelNameCompleter,
     get_active_model,
-    update_model_in_input,
 )
 from code_puppy.command_line.pin_command_completion import PinCompleter
 from code_puppy.command_line.utils import list_directory
@@ -53,6 +52,20 @@ class SetCompleter(Completer):
         cursor_position = document.cursor_position
         text_before_cursor = document.text_before_cursor
         stripped_text_for_trigger_check = text_before_cursor.lstrip()
+
+        # If user types just /set (no space), suggest adding a space
+        if stripped_text_for_trigger_check == self.trigger:
+            from prompt_toolkit.formatted_text import FormattedText
+
+            yield Completion(
+                self.trigger + " ",
+                start_position=-len(self.trigger),
+                display=self.trigger + " ",
+                display_meta=FormattedText(
+                    [("class:set-completer-meta", "set config key")]
+                ),
+            )
+            return
 
         # Require a space after /set before showing completions
         if not stripped_text_for_trigger_check.startswith(self.trigger + " "):
@@ -233,9 +246,24 @@ class CDCompleter(Completer):
             dirs, _ = list_directory(part)
             dirnames = [d for d in dirs if d.startswith(os.path.basename(prefix))]
             base_dir = os.path.dirname(prefix)
+
+            # Preserve the user's original prefix (e.g., ~/ or relative paths)
+            # Extract what the user originally typed (with ~ or ./ preserved)
+            if dir_path.startswith("~"):
+                # User typed something with ~, preserve it
+                user_prefix = "~" + os.sep
+                # For suggestion, we replace the expanded base_dir back with ~/
+                original_prefix = dir_path.rstrip(os.sep)
+            else:
+                user_prefix = None
+                original_prefix = None
+
             for d in dirnames:
                 # Build the completion text so we keep the already-typed directory parts.
-                if base_dir and base_dir != ".":
+                if user_prefix and original_prefix:
+                    # Restore ~ prefix
+                    suggestion = user_prefix + d + os.sep
+                elif base_dir and base_dir != ".":
                     suggestion = os.path.join(base_dir, d)
                 else:
                     suggestion = d
@@ -511,9 +539,10 @@ async def get_input_with_combined_completion(
         }
     )
     text = await session.prompt_async(prompt_str, style=style)
-    possibly_stripped = update_model_in_input(text)
-    if possibly_stripped is not None:
-        return possibly_stripped
+    # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
+    # commands at the prompt level, but that prevented the command handler from running
+    # and emitting success messages. Now we let all /model commands fall through to
+    # the command handler in main.py for consistent handling.
     return text
 
 

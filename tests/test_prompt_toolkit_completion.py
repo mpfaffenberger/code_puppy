@@ -427,15 +427,13 @@ def test_cd_completer_permission_error_silently_handled(monkeypatch):
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
-@patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
 @patch("code_puppy.command_line.prompt_toolkit_completion.merge_completers")
 async def test_get_input_with_combined_completion_defaults(
-    mock_merge_completers, mock_update_model, mock_file_history, mock_prompt_session_cls
+    mock_merge_completers, mock_file_history, mock_prompt_session_cls
 ):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="test input")
     mock_prompt_session_cls.return_value = mock_session_instance
-    mock_update_model.return_value = "processed input"
     mock_merge_completers.return_value = MagicMock()  # Mocked merged completer
 
     result = await get_input_with_combined_completion()
@@ -462,22 +460,22 @@ async def test_get_input_with_combined_completion_defaults(
     )
     assert "style" in mock_session_instance.prompt_async.call_args[1]
 
-    mock_update_model.assert_called_once_with("test input")
-    assert result == "processed input"
+    # NOTE: update_model_in_input is no longer called from the prompt layer.
+    # Instead, /model commands are handled by the command handler.
+    # The prompt layer now just returns the input as-is.
+    assert result == "test input"
     mock_file_history.assert_not_called()
 
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
-@patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
 async def test_get_input_with_combined_completion_with_history(
-    mock_update_model, mock_file_history, mock_prompt_session_cls
+    mock_file_history, mock_prompt_session_cls
 ):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="input with history")
     mock_prompt_session_cls.return_value = mock_session_instance
-    mock_update_model.return_value = "processed history input"
     mock_history_instance = MagicMock()
     mock_file_history.return_value = mock_history_instance
 
@@ -486,20 +484,18 @@ async def test_get_input_with_combined_completion_with_history(
 
     mock_file_history.assert_called_once_with(history_path)
     assert mock_prompt_session_cls.call_args[1]["history"] == mock_history_instance
-    mock_update_model.assert_called_once_with("input with history")
-    assert result == "processed history input"
+    # NOTE: update_model_in_input is no longer called from the prompt layer.
+    assert result == "input with history"
 
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
-@patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
 async def test_get_input_with_combined_completion_custom_prompt(
-    mock_update_model, mock_prompt_session_cls
+    mock_prompt_session_cls,
 ):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="custom prompt input")
     mock_prompt_session_cls.return_value = mock_session_instance
-    mock_update_model.return_value = "processed custom prompt"
 
     # Test with string prompt
     custom_prompt_str = "Custom> "
@@ -516,12 +512,8 @@ async def test_get_input_with_combined_completion_custom_prompt(
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
-@patch(
-    "code_puppy.command_line.prompt_toolkit_completion.update_model_in_input",
-    return_value=None,
-)  # Simulate no model update
 async def test_get_input_with_combined_completion_no_model_update(
-    mock_update_model_no_change, mock_prompt_session_cls
+    mock_prompt_session_cls,
 ):
     raw_input = "raw user input"
     mock_session_instance = MagicMock()
@@ -529,7 +521,8 @@ async def test_get_input_with_combined_completion_no_model_update(
     mock_prompt_session_cls.return_value = mock_session_instance
 
     result = await get_input_with_combined_completion()
-    mock_update_model_no_change.assert_called_once_with(raw_input)
+    # NOTE: update_model_in_input is no longer called from the prompt layer.
+    # The prompt layer now just returns the input as-is.
     assert result == raw_input
 
 
