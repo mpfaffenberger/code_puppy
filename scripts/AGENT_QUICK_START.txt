@@ -1,0 +1,207 @@
+================================================================================
+CONNEXUS DEBUG - AGENT QUICK START
+================================================================================
+
+Doc the Puppy 🐶 | For Windows Code-Puppy Agent
+
+================================================================================
+ONE-COMMAND SOLUTION (RECOMMENDED)
+================================================================================
+
+Run this single command to do everything automatically:
+
+Batch Script (CMD):
+    scripts\run_connexus_debug.bat
+
+PowerShell:
+    scripts\run_connexus_debug.ps1
+
+What it does:
+  • Checks/installs comtypes
+  • Waits 3 seconds for you to focus Connexus window
+  • Runs full tree analysis
+  • Lists all AutomationIds
+  • Exports connexus_tree_debug.json
+  • Shows summary
+
+Expected output:
+  [SUCCESS] Found elements with AutomationId!
+  [FILE] connexus_tree_debug.json
+
+================================================================================
+MANUAL COMMANDS (ALTERNATIVE)
+================================================================================
+
+If you prefer step-by-step:
+
+Step 1 - Install dependencies:
+    pip install comtypes
+
+Step 2 - Full tree analysis:
+    python scripts/debug_connexus_tree.py --auto --output connexus_tree_debug.json
+
+Step 3 - List AutomationIds:
+    python scripts/debug_connexus_quick.py --list-all-ids --max-results 50
+
+Step 4 - Get JSON output:
+    python scripts/debug_connexus_quick.py --list-all-ids --json > connexus_ids.json
+
+================================================================================
+PREREQUISITES
+================================================================================
+
+BEFORE running any command:
+  1. Connexus.exe must be RUNNING
+  2. Connexus.exe must be LOGGED IN
+  3. Connexus window must be IN FOREGROUND (click on it!)
+
+================================================================================
+WHAT YOU'LL GET
+================================================================================
+
+File: connexus_tree_debug.json
+  • Complete UI element tree
+  • All properties for every element
+  • Statistics (total elements, AutomationId count, etc.)
+  • Hierarchical structure
+
+Console Output:
+  • Element statistics
+  • List of elements with AutomationId
+  • Element properties (Name, ClassName, ControlType)
+  • Success/failure indicators
+
+================================================================================
+EXIT CODES
+================================================================================
+
+Exit Code 0 = SUCCESS
+  • Tree walker completed
+  • JSON file created
+  • Elements found
+
+Exit Code 1 = FAILURE
+  • Error during execution
+  • No elements found
+  • Connexus not in foreground
+  • Missing dependencies
+
+================================================================================
+QUICK SEARCHES (OPTIONAL)
+================================================================================
+
+Find specific element by AutomationId:
+    python scripts/debug_connexus_quick.py --auto-id "SubmitButton"
+
+Find by name (partial match):
+    python scripts/debug_connexus_quick.py --name "Submit"
+
+Find all buttons:
+    python scripts/debug_connexus_quick.py --control-type "Button" --max-results 30
+
+Get JSON output:
+    python scripts/debug_connexus_quick.py --list-all-ids --json
+
+================================================================================
+KEY FINDINGS TO REPORT
+================================================================================
+
+1. Total Elements:
+   From: connexus_tree_debug.json > statistics > total_elements
+   Example: "Total elements: 482"
+
+2. Elements with AutomationId:
+   From: connexus_tree_debug.json > statistics > with_automation_id
+   Example: "With AutomationId: 67 (13.9%)"
+
+3. Control Type Breakdown:
+   From: connexus_tree_debug.json > statistics > by_control_type
+   Example: "Button: 89, Edit: 23, ..."
+
+4. Sample AutomationIds:
+   From: console output or JSON > flat_elements[].properties.automation_id
+   Example: "SubmitButton, UsernameField, LoginButton"
+
+5. Recommendation:
+   If with_automation_id > 0:
+     → "gui-cub CAN use AutomationId to find elements"
+   If with_automation_id = 0:
+     → "gui-cub should use Name or ClassName properties instead"
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Error: "Could not get foreground window"
+  Solution: Click on Connexus window, wait 2 seconds, re-run
+
+Error: "No module named 'comtypes'"
+  Solution: pip install comtypes
+
+Warning: "Script takes >2 minutes"
+  Normal: Complex UIs have 1000+ elements, be patient
+
+Error: "Total elements: 0"
+  Problem: Wrong window focused (not Connexus)
+  Solution: Bring Connexus to foreground, re-run
+
+================================================================================
+EXPECTED OUTPUT EXAMPLE
+================================================================================
+
+################################################################################
+#  Connexus UI Automation Element Tree Debugger
+#  Doc the Puppy 🐶 - Debugging element tree issues
+################################################################################
+
+🤖 AUTOMATIC MODE - Running immediately...
+🔍 Initializing UI Automation...
+📡 Getting foreground window...
+✅ Found window: Connexus
+🚶 Walking element tree (this may take a minute)...
+
+================================================================================
+📊 ELEMENT TREE STATISTICS
+================================================================================
+
+Total elements: 482
+Max depth: 12
+
+Elements WITH AutomationId: 67 (13.9%)
+Elements WITH Name: 234 (48.5%)
+Elements WITH ClassName: 412 (85.5%)
+
+📋 By Control Type:
+  Button                    89 (18.5%)
+  Edit                      23 ( 4.8%)
+  Pane                      54 (11.2%)
+  ...
+
+🎯 Elements WITH AutomationId (67):
+  Button          AutomationId: 'SubmitButton'
+                  Name: 'Submit'
+  Edit            AutomationId: 'UsernameField'
+                  Name: 'Username'
+  ...
+
+💾 Exported to: connexus_tree_debug.json
+   Total elements: 482
+   Max depth: 12
+   File size: 156.3 KB
+
+================================================================================
+✅ COMPLETE!
+================================================================================
+
+================================================================================
+FILES CREATED
+================================================================================
+
+connexus_tree_debug.json - Full element tree with properties
+connexus_ids.json        - (Optional) JSON list of AutomationIds
+
+================================================================================
+
+For full documentation, see: scripts/AGENT_PROMPT_CONNEXUS.md
+
+================================================================================

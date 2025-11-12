@@ -1,0 +1,163 @@
+=================================================================================
+CONNEXUS DEBUG COMMANDS - Copy/Paste Ready
+=================================================================================
+
+DOC THE PUPPY 🐶 | Connexus Element Tree Debugging
+
+=================================================================================
+PREREQUISITES
+=================================================================================
+
+1. Install comtypes (if not already installed):
+   pip install comtypes
+
+2. Open Connexus.exe and log in completely
+
+3. Click on the Connexus window to make it the active/foreground window
+
+=================================================================================
+COMMAND 1: FULL TREE ANALYSIS (Run this first!)
+=================================================================================
+
+python scripts/debug_connexus_tree.py
+
+What it does:
+  • Walks ENTIRE UI Automation element tree
+  • Shows hierarchy with visual indicators (🎯 = has AutomationId)
+  • Exports JSON: connexus_tree_YYYYMMDD_HHMMSS.json
+  • Lists ALL elements with AutomationId
+  • Shows statistics (how many elements, types, etc.)
+
+Expected output:
+  📊 ELEMENT TREE STATISTICS
+  Total elements: XXX
+  Elements WITH AutomationId: XX (XX%)
+  
+  🎯 Elements WITH AutomationId:
+    Button          AutomationId: 'SubmitButton'
+    Edit            AutomationId: 'UsernameField'
+    ...
+
+Result files:
+  connexus_tree_YYYYMMDD_HHMMSS.json (save this!)
+
+=================================================================================
+COMMAND 2: QUICK INTERACTIVE FINDER (For testing specific elements)
+=================================================================================
+
+python scripts/debug_connexus_quick.py
+
+What it does:
+  • Interactive menu for searching elements
+  • Search by AutomationId, Name, or Control Type
+  • Quick validation (no tree walking)
+
+Menu options:
+  1. Find by AutomationId        ← Use when you know the ID
+  2. Find by Name                ← Partial match search
+  3. Find by Control Type        ← Find all Buttons, Edits, etc.
+  4. List ALL AutomationIds      ← See everything findable
+  5. Exit
+
+Example usage:
+  Choice: 4  (List ALL elements with AutomationId)
+  → Shows every element that has an AutomationId
+  → These are the elements gui-cub agent CAN find!
+
+=================================================================================
+ANALYZING RESULTS
+=================================================================================
+
+1. Open the JSON file: connexus_tree_YYYYMMDD_HHMMSS.json
+
+2. Search for "automation_id" to find all AutomationIds:
+   • PowerShell:
+     Select-String -Path "connexus_tree_*.json" -Pattern '"automation_id"'
+   
+   • Linux/Mac:
+     grep '"automation_id"' connexus_tree_*.json
+
+3. Look at the "flat_elements" array - each element has:
+   {
+     "path": "root/Pane/Button[SubmitButton]",  ← Hierarchy
+     "properties": {
+       "name": "Submit",
+       "automation_id": "SubmitButton",          ← 🎯 This is findable!
+       "control_type": "Button",
+       "is_enabled": true,                        ← Can be clicked
+       "is_offscreen": false,                     ← Is visible
+       "bounding_rect": { ... }                   ← Position on screen
+     }
+   }
+
+=================================================================================
+USING FINDINGS IN GUI-CUB AGENT
+=================================================================================
+
+Once you find the AutomationId, use it in your agent prompts:
+
+✅ GOOD (using AutomationId):
+   "Click the button with AutomationId 'SubmitButton'"
+   "Type 'hello' in the field with AutomationId 'UsernameField'"
+
+⚠️ OK (using Name):
+   "Click the button named 'Submit'"
+   "Type 'hello' in the field named 'Username'"
+
+❌ AVOID (too vague):
+   "Click the submit button"
+   "Type in the username box"
+
+=================================================================================
+TROUBLESHOOTING
+=================================================================================
+
+Problem: "No elements found!"
+Solution: Make sure Connexus window is in foreground (click on it)
+
+Problem: "Found 0 elements with AutomationId"
+Solution: The app might not use AutomationIds. Use Name or ClassName instead.
+          Check the JSON for "name" and "class_name" fields.
+
+Problem: "Element exists but agent can't find it"
+Solution: Check in JSON:
+          • "is_offscreen": true → Element not visible
+          • "is_enabled": false → Element is disabled
+          • "bounding_rect": null → Element has no position
+
+Problem: "Script crashes with comtypes error"
+Solution: pip install comtypes
+
+Problem: "JSON file is 5MB+"
+Solution: This is normal! Complex UIs have 1000+ elements.
+          Use quick finder instead for faster searches.
+
+=================================================================================
+SUCCESS CRITERIA
+=================================================================================
+
+✅ You've successfully debugged when:
+   1. Tree walker completes without errors
+   2. JSON file is created
+   3. Statistics show >0 elements
+   4. Found elements with AutomationId (or Name/ClassName)
+   5. Quick finder can search and find elements
+   6. Element properties look correct (enabled, not offscreen)
+
+=================================================================================
+NEED HELP?
+=================================================================================
+
+See full guide: scripts/CONNEXUS_DEBUG_PROMPT.md
+
+Common questions:
+  • No AutomationIds found → Check Name/ClassName properties instead
+  • Can't click element → Verify is_enabled=true and is_offscreen=false
+  • Tree walker hangs → Some nested elements may cause delays (wait it out)
+  • Need specific element → Use quick finder menu option 1 or 2
+
+=================================================================================
+
+Doc the Puppy 🐶 | May 2025 | Part of code-puppy toolkit
+
+=================================================================================
