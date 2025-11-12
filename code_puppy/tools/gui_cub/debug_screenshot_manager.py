@@ -74,8 +74,8 @@ def save_temp_debug_screenshot(
 def copy_last_screenshot_to_pwd(filename: str | None = None) -> Path | None:
     """Copy the last saved temp screenshot to current working directory.
 
-    This is the main entry point for the /save_debug_image meta command and for
-    agents that need to save debug images on request.
+    This can be called programmatically by agents that need to save debug images
+    on request.
 
     Args:
         filename: Optional custom filename (default: auto-generated with timestamp)

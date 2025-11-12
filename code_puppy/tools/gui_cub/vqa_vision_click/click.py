@@ -198,8 +198,7 @@ def desktop_click_element_vqa(
         crop_region: Optional (x, y, width, height) in logical points
                     If None and use_active_window=True, crops to active window
         use_active_window: Whether to crop to active window bounds
-        save_debug: Whether to save debug images to temp (default: False)
-                   Use /save_debug_image meta command to copy to pwd if needed
+        save_debug: Whether to save debug images to temp directory (default: False)
 
     Returns:
         ElementClickResult with success status and confidence

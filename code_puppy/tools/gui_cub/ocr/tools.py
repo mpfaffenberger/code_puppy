@@ -744,7 +744,6 @@ def register_ocr_tools(agent):
             screenshot.save(save_path)
 
             # DEBUG: Save to temp if debug mode enabled
-            # Users can copy to pwd with /save_debug_image command
             from ..config_manager import get_debug_screenshots_enabled
             from ..debug_screenshot_manager import save_temp_debug_screenshot
 

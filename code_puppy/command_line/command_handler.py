@@ -52,10 +52,6 @@ def get_commands_help():
         ("/diff", "Configure diff highlighting colors (additions, deletions)"),
         ("/tools", "Show available tools and capabilities"),
         (
-            "/save_debug_image [filename]",
-            "Copy last debug screenshot to current directory (GUI-Cub VQA/OCR)",
-        ),
-        (
             "/truncate <N>",
             "Truncate history to N most recent messages (keeping system message)",
         ),
@@ -259,22 +255,6 @@ def handle_command(command: str):
         display_disclaimer()
         return True
 
-    if command.strip().startswith("/save_debug_image"):
-        from code_puppy.tools.gui_cub.debug_screenshot_manager import (
-            copy_last_screenshot_to_pwd,
-        )
-
-        tokens = command.split()
-        filename = tokens[1] if len(tokens) > 1 else None
-
-        result_path = copy_last_screenshot_to_pwd(filename)
-        if result_path:
-            emit_success(f"✅ Debug screenshot saved to: {result_path}")
-        else:
-            emit_warning(
-                "⚠️  No debug screenshot available. GUI-Cub VQA/OCR tools haven't captured any images yet."
-            )
-        return True
 
     if command.strip().startswith("/compact"):
         # Functions have been moved to BaseAgent class
