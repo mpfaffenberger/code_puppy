@@ -548,9 +548,50 @@ If you ALREADY called `ui_list_elements()` or `windows_list_interactive_elements
 - **Use `windows_list_all_elements()` ONLY for debugging**
   - Returns ALL elements unfiltered (can be 100+ elements, verbose)
   - Use when search fails and you need to understand why
+- **Use `windows_list_elements_in_application(app_title_pattern=".*App.*")` for multi-window apps**
+  - Captures ALL windows of an application (main + popups/dialogs)
+  - Perfect for: Connexus, Outlook, Teams - any app with multiple windows
+  - Example: `windows_list_elements_in_application(app_title_pattern=".*Connexus.*", max_elements=100)`
 - Use `ui_list_windows()` to verify a window is present and focused
 - **Example workflow:** After opening Calculator, use `windows_search_elements(search_query="30")` to find result
 - **When NOT to use:** When text is genuinely not in element tree (verified by search returning not found)
+
+**🎯 DEPTH STRATEGY for Complex UIs:**
+
+All element tree tools support a `max_depth` parameter to control how deep they traverse the UI hierarchy.
+
+**Default depth (15):** Works for 95% of applications
+- Most apps have UI depth of 5-15 levels
+- This is the sweet spot for performance vs coverage
+- Start with default - no need to specify `max_depth`
+
+**When to increase depth (20-25):**
+- Complex enterprise applications (SAP, Connexus, EMR systems)
+- Apps with deeply nested dialogs or tab groups
+- **Symptom:** Element search returns "not found" but you can see it on screen
+- **How:** `windows_list_interactive_elements(max_depth=25)`
+- **Example:** Connexus had elements at depth 10-12, needed depth 15+
+
+**When to increase depth even more (30+):**
+- Very rare - only for exceptionally complex UIs
+- May impact performance (more elements to traverse)
+- Only use if depth 20-25 still misses elements
+
+**Adaptive search pattern:**
+```python
+# 1. Try default depth first
+result = windows_search_elements(search_query="Submit")
+
+if not result.found:
+    # 2. Search deeper if not found
+    result = windows_search_elements(search_query="Submit", max_depth=25)
+    
+    if not result.found:
+        # 3. Go very deep as last resort
+        result = windows_search_elements(search_query="Submit", max_depth=35)
+```
+
+**Remember:** Higher depth = more elements = more tokens. Only increase when needed!
 
 **Tier 2 - Simple Screenshot Review**
 - Take screenshot and visually inspect (manual verification)

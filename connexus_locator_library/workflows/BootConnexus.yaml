@@ -1,0 +1,173 @@
+# BootConnexus.yaml
+# Workflow for launching Connexus Pharmacy Management System
+# Responsibility: Launch application and verify login screen appears
+# Does NOT perform login - see LoginConnexus.yaml for authentication
+
+workflow_name: boot_connexus
+workflow_version: "1.0"
+platform: windows
+description: "Launch Connexus.exe via Win+R dialog and wait for login screen"
+
+prerequisites:
+  - name: connexus_not_running
+    description: "Connexus.exe process should not be running, OR only login window present"
+    check_type: process
+    process_name: Connexus.exe
+    allowed_states:
+      - not_running
+      - login_window_only  # Allow if stuck at login screen with no credentials entered
+    validation:
+      - Check process list for Connexus.exe
+      - If running, check if main window (lblStationIcon) is present
+      - If main window present, workflow should abort (already logged in)
+      - If only login window present, workflow can proceed
+
+timing:
+  default_step_wait: 0.5  # seconds between steps
+  launch_wait_min: 12
+  launch_wait_max: 20
+  launch_wait_adaptive: true  # Poll and update timing based on actual performance
+  login_screen_appearance: 2  # Wait after launch for login screen to render
+
+steps:
+  - step_id: 1
+    name: verify_connexus_not_running
+    description: "Check that Connexus main window is not already open"
+    action: process_check
+    implementation:
+      method: keyboard  # No automation needed, just verification
+      notes: |
+        Use tasklist or PowerShell to check if Connexus.exe is running.
+        If running, attempt to find main window elements (lblStationIcon).
+        If main window found, abort workflow.
+        If only login window found, prompt user whether to proceed or restart.
+    fallback:
+      - Prompt user: "Connexus appears to be running. Terminate and restart? (y/n)"
+      - If yes, terminate process and continue
+      - If no, abort workflow
+
+  - step_id: 2
+    name: open_run_dialog
+    description: "Open Windows Run dialog with Win+R"
+    action: keyboard_hotkey
+    implementation:
+      method: keyboard
+      command: desktop_keyboard_hotkey(["win", "r"])
+      wait_after: 1.0
+    verification:
+      expected_state: "Run dialog window visible"
+      fallback: "Retry Win+R up to 3 times"
+
+  - step_id: 3
+    name: type_connexus_path
+    description: "Type full path to Connexus.exe"
+    action: keyboard_type
+    implementation:
+      method: keyboard
+      command: desktop_keyboard_type("C:\\Walmart Applications\\Connexus.Net\\UI\\Connexus.exe")
+      wait_after: 0.5
+    notes: |
+      Path is hardcoded for standard Walmart RXPC installations.
+      If path differs, update this step or make it configurable.
+
+  - step_id: 4
+    name: execute_launch
+    description: "Press Enter to launch Connexus"
+    action: keyboard_press
+    implementation:
+      method: keyboard
+      command: desktop_keyboard_press("enter")
+      wait_after: "${timing.launch_wait_min}"  # Start with minimum wait
+    notes: |
+      Initial wait is conservative (12s). Adaptive polling will measure actual time.
+
+  - step_id: 5
+    name: wait_for_splash_screen
+    description: "Wait for splash screen to clear and login window to appear"
+    action: adaptive_wait
+    implementation:
+      method: polling
+      poll_interval: 2  # Check every 2 seconds
+      max_wait: "${timing.launch_wait_max}"
+      success_criteria:
+        - Login window visible (title contains "Connex" or "Login")
+        - Username field accessible
+      adaptive_logic: |
+        Start timer when Enter pressed.
+        Poll every 2s for login window elements.
+        Record actual time when login window appears.
+        Update timing.launch_wait_min if actual time differs by >2s.
+        Log timing observation to knowledge base.
+
+  - step_id: 6
+    name: verify_login_screen
+    description: "Verify login screen is ready for credential input"
+    action: multi_element_verification
+    implementation:
+      method: windows_ui_automation
+      elements_to_verify:
+        - element_id: connexus_loginpage_loginScreenUserNameTextField
+          control_type: Edit
+          # Username field is unnamed - verify by finding any Edit control
+          # Or by finding Text element with name "Username"
+          notes: |
+            Username field has NO name attribute.
+            Verify by finding Edit controls or "Username" label.
+          fuzzy: true
+          fuzzy_threshold: 0.7
+          required: false  # May be unnamed, so make it optional
+        - element_id: connexus_loginpage_loginScreenPasswordTextField
+          control_type: Edit
+          name: Password
+          fuzzy: true
+          fuzzy_threshold: 0.7
+          required: true
+        - element_id: connexus_loginpage_acceptButton
+          control_type: Button
+          name: Accept
+          fuzzy: true
+          fuzzy_threshold: 0.7
+          required: true
+        - element_id: connexus_loginpage_homeoffice_checkbox
+          control_type: CheckBox
+          name: HomeOffice User
+          fuzzy: true
+          fuzzy_threshold: 0.7
+          required: false  # Optional verification
+          description: "HomeOffice User checkbox presence confirms login screen"
+    verification:
+      success_criteria:
+        - Password field found (name="Password")
+        - Accept button found (name="Accept")
+        - At least 2 of 4 elements found
+      failure_action:
+        - List all elements with ui_list_elements()
+        - Log element tree to KB
+        - Prompt user: "Login screen not detected. Retry or abort?"
+
+success_criteria:
+  - Login window visible and responsive
+  - Username field ready for input
+  - No error dialogs present
+
+output:
+  login_screen_ready: true
+  actual_launch_time: "${measured_time}"  # For adaptive timing updates
+  next_workflow: LoginConnexus.yaml
+
+fallback_strategy:
+  - If launch fails: Retry entire workflow up to 2 times
+  - If login screen doesn't appear: Check for error dialogs, log to KB, prompt user
+  - If old login screen detected: Log to KB, use fallback automation_ids
+
+error_handling:
+  - ConnectionError: "Check network connectivity and VPN status"
+  - ProcessNotFoundError: "Verify Connexus.exe path is correct"
+  - TimeoutError: "Increase launch_wait_max, check system performance"
+  - ElementNotFoundError: "Capture element tree, compare with known locators, update KB"
+
+knowledge_base_logging:
+  - Log actual launch time for adaptive timing
+  - Log any element locator changes (old vs new login screen)
+  - Log any errors or unexpected states
+  - Update timing configuration if performance differs significantly

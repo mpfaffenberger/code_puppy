@@ -152,7 +152,7 @@ def list_accessible_elements(
         return ElementListResult(success=False, error=str(e))
 
 
-def _build_element_tree(app_ref, max_depth: int = 5) -> list[dict[str, Any]]:
+def _build_element_tree(app_ref, max_depth: int = 15) -> list[dict[str, Any]]:
     """Traverse the accessibility tree for the frontmost app and build a list of nodes.
 
     OPTIMIZED: Now includes performance monitoring.

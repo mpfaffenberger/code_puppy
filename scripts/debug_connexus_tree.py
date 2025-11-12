@@ -36,14 +36,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     import comtypes.client
+    import win32gui
     from comtypes.gen.UIAutomationClient import (
         IUIAutomation,
         IUIAutomationElement,
         TreeScope_Children,
         TreeScope_Descendants,
     )
-except ImportError:
-    print("❌ Missing comtypes! Install with: pip install comtypes")
+except ImportError as e:
+    print(f"[ERROR] Missing required libraries! {e}")
+    print("Install with: pip install comtypes pywin32")
     sys.exit(1)
 
 
@@ -248,15 +250,15 @@ class ConnexusTreeWalker:
         has_name = bool(props.get("name"))
         is_enabled = props.get("is_enabled", False)
 
-        # Quality emoji
+        # Quality indicator
         if has_auto_id:
-            quality = "🎯"  # Has AutomationId - best!
+            quality = "[AID]"  # Has AutomationId - best!
         elif has_name:
-            quality = "✅"  # Has name - good
+            quality = "[NAME]"  # Has name - good
         elif props.get("control_type") in ["Button", "Edit", "ComboBox"]:
-            quality = "⚠️"  # Interactive but no good identifier
+            quality = "[WARN]"  # Interactive but no good identifier
         else:
-            quality = "  "  # Static/container element
+            quality = "     "  # Static/container element
 
         # Control type and identifiers
         control_type = props.get("control_type", "Unknown")
@@ -269,27 +271,27 @@ class ConnexusTreeWalker:
 
         # Print key properties
         if name:
-            print(f"{indent}   📝 Name: '{name}'")
+            print(f"{indent}     Name: '{name}'")
         if auto_id:
-            print(f"{indent}   🎯 AutomationId: '{auto_id}'")
+            print(f"{indent}     AutomationId: '{auto_id}'")
         if class_name:
-            print(f"{indent}   🏷️  ClassName: '{class_name}'")
+            print(f"{indent}     ClassName: '{class_name}'")
 
         # Print bounds if available
         bounds = props.get("bounding_rect")
         if bounds and not props.get("is_offscreen"):
             print(
-                f"{indent}   📐 Bounds: ({bounds['left']},{bounds['top']}) "
+                f"{indent}     Bounds: ({bounds['left']},{bounds['top']}) "
                 f"{bounds['width']}x{bounds['height']}"
             )
 
         # Print state flags
         if not is_enabled:
-            print(f"{indent}   ⛔ Disabled")
+            print(f"{indent}     [DISABLED]")
         if props.get("is_offscreen"):
-            print(f"{indent}   👻 Offscreen")
+            print(f"{indent}     [OFFSCREEN]")
         if props.get("is_password"):
-            print(f"{indent}   🔒 Password field")
+            print(f"{indent}     [PASSWORD]")
 
         # Show all properties if requested
         if show_all_props:
@@ -332,7 +334,7 @@ class ConnexusTreeWalker:
     def print_statistics(self):
         """Print collection statistics."""
         print("\n" + "=" * 80)
-        print("📊 ELEMENT TREE STATISTICS")
+        print("ELEMENT TREE STATISTICS")
         print("=" * 80 + "\n")
 
         print(f"Total elements: {self.stats['total_elements']}")
@@ -344,7 +346,7 @@ class ConnexusTreeWalker:
         print(f"Elements WITH ClassName: {self.stats['with_class_name']} "
               f"({self.stats['with_class_name'] / max(self.stats['total_elements'], 1) * 100:.1f}%)")
 
-        print("\n📋 By Control Type:")
+        print("\nBy Control Type:")
         sorted_types = sorted(
             self.stats["by_control_type"].items(), key=lambda x: x[1], reverse=True
         )
@@ -440,7 +442,7 @@ def main():
 
     print("\n" + "#" * 80)
     print("#  Connexus UI Automation Element Tree Debugger")
-    print("#  Doc the Puppy 🐶 - Debugging element tree issues")
+    print("#  Doc the Puppy - Debugging element tree issues")
     print("#" * 80 + "\n")
 
     if not args.auto:
@@ -452,26 +454,32 @@ def main():
         print("\n⚠️  IMPORTANT: Make sure Connexus.exe is running and in foreground!\n")
         input("Press ENTER when ready...")
     else:
-        print("🤖 AUTOMATIC MODE - Running immediately...")
-        print("⚠️  Assuming Connexus.exe is in foreground!\n")
+        print("[AUTOMATIC MODE] - Running immediately...")
+        print("[WARNING] Assuming Connexus.exe is in foreground!\n")
 
     try:
-        print("\n🔍 Initializing UI Automation...")
+        print("\n[*] Initializing UI Automation...")
         walker = ConnexusTreeWalker()
 
-        print("📡 Getting foreground window...")
-        root = walker.automation.GetForegroundWindow()
-
-        if not root:
-            print("❌ Could not get foreground window!")
+        print("[*] Getting foreground window...")
+        # Get foreground window HWND using win32gui
+        hwnd = win32gui.GetForegroundWindow()
+        if not hwnd:
+            print("[ERROR] Could not get foreground window!")
             print("   Make sure Connexus.exe is the active window.")
+            return 1
+        
+        # Convert HWND to UI Automation element
+        root = walker.automation.ElementFromHandle(hwnd)
+        if not root:
+            print("[ERROR] Could not get UI Automation element from window handle!")
             return 1
 
         # Get window info
         window_name = root.CurrentName or "(no name)"
-        print(f"✅ Found window: {window_name}\n")
+        print(f"[OK] Found window: {window_name}\n")
 
-        print("🚶 Walking element tree (this may take a minute)...")
+        print("[*] Walking element tree (this may take a minute)...")
         tree = walker.walk_tree(root)
 
         # Print statistics
@@ -479,7 +487,7 @@ def main():
 
         # Show elements with AutomationId
         auto_id_elements = walker.find_elements_with_automation_id()
-        print(f"\n🎯 Elements WITH AutomationId ({len(auto_id_elements)}):")
+        print(f"\n[*] Elements WITH AutomationId ({len(auto_id_elements)}):")
         print("=" * 80 + "\n")
         for elem in auto_id_elements[:20]:
             props = elem["properties"]
@@ -503,23 +511,23 @@ def main():
         # Show sample of tree (unless suppressed)
         if not args.no_console:
             print("\n" + "=" * 80)
-            print("📋 VISUAL TREE (showing all elements with depth)")
+            print("VISUAL TREE (showing all elements with depth)")
             print("=" * 80 + "\n")
             print("Legend:")
-            print("  🎯 = Has AutomationId (BEST for finding!)")
-            print("  ✅ = Has Name property")
-            print("  ⚠️  = Interactive but no good identifier")
+            print("  [AID] = Has AutomationId (BEST for finding!)")
+            print("  [NAME] = Has Name property")
+            print("  [WARN] = Interactive but no good identifier")
             print("\n" + "-" * 80 + "\n")
 
             walker.print_tree_node(tree, show_all_props=False)
 
         print("\n" + "=" * 80)
-        print("✅ COMPLETE!")
+        print("[SUCCESS] COMPLETE!")
         print("=" * 80 + "\n")
 
-        print("📁 Detailed JSON export saved to:", json_filename)
-        print("\n💡 Next steps:")
-        print("   1. Review elements with 🎯 (AutomationId) - these are findable!")
+        print("[*] Detailed JSON export saved to:", json_filename)
+        print("\n[*] Next steps:")
+        print("   1. Review elements with [AID] (AutomationId) - these are findable!")
         print("   2. Check the JSON file for complete property details")
         print("   3. Search for specific elements in the JSON using 'automation_id' field")
         print(f"   4. Total found: {walker.stats['with_automation_id']} elements with AutomationId\n")
@@ -527,7 +535,7 @@ def main():
         # Offer search (only if requested and not in auto mode)
         if args.search and not args.auto:
             print("\n" + "=" * 80)
-            print("🔍 SEARCH (optional)")
+            print("SEARCH (optional)")
             print("=" * 80 + "\n")
             search_choice = input("Want to search for specific elements? (y/n): ").strip().lower()
         else:
@@ -577,7 +585,7 @@ def main():
         return 0
 
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\n[ERROR]: {e}")
         import traceback
 
         traceback.print_exc()

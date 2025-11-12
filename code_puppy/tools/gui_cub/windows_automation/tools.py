@@ -44,6 +44,7 @@ from .core import (
     focus_window,
     get_element_value_by_pid,
     get_focused_element_by_pid,
+    list_elements_in_application,
     list_elements_in_window,
     list_windows,
     search_elements_smart,
@@ -286,6 +287,7 @@ def register_windows_tools(agent):
     def windows_list_interactive_elements(
         context: RunContext,
         max_elements: int = 20,
+        max_depth: int = 15,
     ) -> ElementListResult:
         """
         List interactive UI elements (buttons, fields, menus) in the active window.
@@ -295,6 +297,7 @@ def register_windows_tools(agent):
 
         Args:
             max_elements: Maximum elements to return (default: 20)
+            max_depth: Maximum tree traversal depth (default: 15, increase to 20-30 for very deep UIs)
 
         Returns:
             ElementListResult with interactive elements sorted by relevance
@@ -302,11 +305,17 @@ def register_windows_tools(agent):
         Examples:
             - windows_list_interactive_elements()  # Get top 20 buttons/fields
             - windows_list_interactive_elements(max_elements=50)  # More results
+            - windows_list_interactive_elements(max_depth=25)  # Search deeper for complex UIs
 
         Use Cases:
             - Exploring available buttons and fields for interaction
             - Building automation workflows
             - Finding what's clickable in the UI
+
+        **Depth Strategy:**
+        - Default (15): Works for 95% of applications
+        - Deep (20-25): For complex enterprise apps with nested dialogs
+        - Very Deep (30+): Rarely needed, may impact performance
 
         Note: Windows only. Requires pywinauto.
         """
@@ -322,7 +331,7 @@ def register_windows_tools(agent):
         )
 
         # Get compacted list of interactive elements
-        result = list_elements_in_window(compact=True)
+        result = list_elements_in_window(compact=True, max_depth=max_depth)
 
         # Further limit if max_elements is less than default 20
         if result.success and result.elements and len(result.elements) > max_elements:
@@ -417,7 +426,7 @@ def register_windows_tools(agent):
     @agent.tool
     def windows_list_all_elements(
         context: RunContext,
-        max_depth: int = 10,
+        max_depth: int = 15,
         include_invisible: bool = False,
     ) -> ElementListResult:
         """
@@ -428,7 +437,7 @@ def register_windows_tools(agent):
         windows_search_elements() instead.
 
         Args:
-            max_depth: Maximum tree traversal depth (default: 10, ignored for now)
+            max_depth: Maximum tree traversal depth (default: 15, increase to 20-30 for very deep UIs)
             include_invisible: Include hidden/disabled elements (default: False, ignored for now)
 
         Returns:
@@ -462,7 +471,7 @@ def register_windows_tools(agent):
         )
 
         # Get all elements without compaction
-        result = list_elements_in_window(compact=False)
+        result = list_elements_in_window(compact=False, max_depth=max_depth)
 
         if result.success:
             emit_info(
@@ -529,6 +538,103 @@ def register_windows_tools(agent):
             fuzzy_threshold=fuzzy_threshold,
             max_results=10,
         )
+
+    @agent.tool
+    def windows_list_elements_in_application(
+        context: RunContext,
+        app_title_pattern: str,
+        max_elements: int = 50,
+        max_depth: int = 15,
+    ) -> ElementListResult:
+        """
+        List UI elements across ALL windows of an application.
+
+        **MULTI-WINDOW SUPPORT:** Unlike windows_list_elements() which only captures
+        the active window, this captures ALL windows belonging to an application and
+        combines their element trees. Perfect for multi-window apps like Connexus,
+        Outlook, etc. that spawn separate windows for dialogs/subflows.
+
+        Args:
+            app_title_pattern: Regex pattern to match window titles
+                             (e.g., ".*Connexus.*", ".*Outlook.*")
+            max_elements: Maximum elements to return (default: 50)
+            max_depth: Maximum tree traversal depth (default: 15, increase to 20-30 for very deep UIs)
+
+        Returns:
+            ElementListResult with combined element tree from all matching windows.
+            Each element includes 'window_title' field to identify source window.
+
+        Examples:
+            - windows_list_elements_in_application(app_title_pattern=".*Connexus.*")
+            - windows_list_elements_in_application(app_title_pattern=".*Outlook.*", max_elements=100)
+
+        Use Cases:
+            - Multi-window applications (Connexus, Outlook, Teams)
+            - Finding elements across popup dialogs
+            - Comprehensive application state capture
+            - Searching across all windows of an app
+
+        **Why use this:**
+        - Connexus spawns separate windows for each subflow (Input, Resolution, etc.)
+        - Popup dialogs are separate windows
+        - Main window + all dialogs captured in one call
+        - No need to manually focus each window
+
+        **Performance:**
+        - Slower than single window (traverses multiple windows)
+        - Returns 10-100x more elements than single window
+        - Use max_elements to limit results
+
+        Note: Windows only. Requires pywinauto.
+        """
+        if not WINDOWS_AUTOMATION_AVAILABLE:
+            return ElementListResult(
+                success=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
+            )
+
+        group_id = generate_group_id(
+            "windows_list_app_elements", app_title_pattern[:20]
+        )
+        emit_info(
+            f"[bold white on blue] WINDOWS LIST APPLICATION ELEMENTS [/bold white on blue] 🪟\n"
+            f"[dim]Pattern: {app_title_pattern}[/dim]",
+            message_group=group_id,
+        )
+
+        result = list_elements_in_application(
+            app_title_pattern=app_title_pattern,
+            compact=True,
+            max_elements=max_elements,
+            max_depth=max_depth,
+        )
+
+        if result.success:
+            window_count = (
+                result.summary.get("window_count", 0)
+                if isinstance(result.summary, dict)
+                else 0
+            )
+            emit_info(
+                f"[green]Found {result.total_elements} elements across {window_count} windows[/green]",
+                message_group=group_id,
+            )
+
+            # Show which windows were captured
+            if result.elements:
+                unique_windows = set(
+                    e.get("window_title", "") for e in result.elements
+                )
+                if unique_windows:
+                    emit_info(
+                        f"[dim]Windows: {', '.join(f'\'{w}\'' for w in sorted(unique_windows) if w)}[/dim]",
+                        message_group=group_id,
+                    )
+        else:
+            emit_error(
+                f"[red]Failed: {result.error}[/red]", message_group=group_id
+            )
+
+        return result
 
     @agent.tool
     def windows_list_windows(

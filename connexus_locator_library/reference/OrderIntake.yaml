@@ -1,0 +1,1410 @@
+elements:
+- element_id: connexus_dropoffpage_lblStationIcon
+  platform: windows
+  automation_id: lblStationIcon
+  metadata:
+    page: DropOffPage
+    field_name: lblStationIcon
+- element_id: connexus_dropoffpage_txtPatientRxNo
+  platform: windows
+  automation_id: txtPatientRxNo
+  metadata:
+    page: DropOffPage
+    field_name: txtPatientRxNo
+- element_id: connexus_dropoffpage_btnSearch
+  platform: windows
+  automation_id: btnSearch
+  metadata:
+    page: DropOffPage
+    field_name: btnSearch
+- element_id: connexus_dropoffpage_cmbPriority
+  platform: windows
+  automation_id: cmbPriority
+  metadata:
+    page: DropOffPage
+    field_name: cmbPriority
+- element_id: connexus_dropoffpage_btnCmbBxOpen
+  platform: windows
+  automation_id: Open
+  metadata:
+    page: DropOffPage
+    field_name: btnCmbBxOpen
+- element_id: connexus_dropoffpage_btnCmbBxClose
+  platform: windows
+  automation_id: Close
+  metadata:
+    page: DropOffPage
+    field_name: btnCmbBxClose
+- element_id: connexus_dropoffpage_btnScanNewRx
+  platform: windows
+  automation_id: btnScan
+  metadata:
+    page: DropOffPage
+    field_name: btnScanNewRx
+- element_id: connexus_dropoffpage_txtBarCodeNum
+  platform: windows
+  automation_id: txtBarCodeNum
+  metadata:
+    page: DropOffPage
+    field_name: txtBarCodeNum
+- element_id: connexus_dropoffpage_btnCancel
+  platform: windows
+  automation_id: btnCancel
+  metadata:
+    page: DropOffPage
+    field_name: btnCancel
+- element_id: connexus_dropoffpage_cardDetails
+  platform: windows
+  automation_id: lblCardID
+  metadata:
+    page: DropOffPage
+    field_name: cardDetails
+- element_id: connexus_dropoffpage_btnAccept
+  platform: windows
+  automation_id: btnAccept
+  metadata:
+    page: DropOffPage
+    field_name: btnAccept
+- element_id: connexus_dropoffpage_btnYesVerifyBarcode
+  platform: windows
+  automation_id: '6'
+  metadata:
+    page: DropOffPage
+    field_name: btnYesVerifyBarcode
+- element_id: connexus_dropoffpage_cmbRxOrigin
+  platform: windows
+  automation_id: cmbRxOrigin
+  metadata:
+    page: DropOffPage
+    field_name: cmbRxOrigin
+- element_id: connexus_dropoffpage_txtOrderComment
+  platform: windows
+  automation_id: txtOrderComment
+  metadata:
+    page: DropOffPage
+    field_name: txtOrderComment
+- element_id: connexus_dropoffpage_cmbReadyBy
+  platform: windows
+  automation_id: cmbReadyBy
+  metadata:
+    page: DropOffPage
+    field_name: cmbReadyBy
+- element_id: connexus_dropoffpage_patientMaintenanceIcon
+  platform: windows
+  automation_id: btnPatientMaintenance
+  metadata:
+    page: DropOffPage
+    field_name: patientMaintenanceIcon
+- element_id: connexus_dropoffpage_patientMaintenanceIcon
+  platform: windows
+  name: Patient Information
+  metadata:
+    page: DropOffPage
+    field_name: patientMaintenanceIcon
+- element_id: connexus_dropoffpage_cnxMainPanel
+  platform: windows
+  automation_id: CnxMainPanel
+  metadata:
+    page: DropOffPage
+    field_name: cnxMainPanel
+- element_id: connexus_dropoffpage_verifiedButtons
+  platform: windows
+  name: Verified
+  metadata:
+    page: DropOffPage
+    field_name: verifiedButtons
+- element_id: connexus_dropoffpage_verifiedButtons
+  platform: windows
+  xpath: .//*[@Name='Verified']
+  metadata:
+    page: DropOffPage
+    field_name: verifiedButtons
+- element_id: connexus_dropoffpage_btnStationNo
+  platform: windows
+  automation_id: '7'
+  metadata:
+    page: DropOffPage
+    field_name: btnStationNo
+- element_id: connexus_dropoffpage_lblPopUp
+  platform: windows
+  automation_id: '65535'
+  metadata:
+    page: DropOffPage
+    field_name: lblPopUp
+- element_id: connexus_dropoffpage_txtBirth
+  platform: windows
+  automation_id: lblBirth
+  metadata:
+    page: DropOffPage
+    field_name: txtBirth
+- element_id: connexus_dropoffpage_txtAddress1
+  platform: windows
+  automation_id: lblAddress1
+  metadata:
+    page: DropOffPage
+    field_name: txtAddress1
+- element_id: connexus_dropoffpage_txtPatientName
+  platform: windows
+  automation_id: lblName
+  metadata:
+    page: DropOffPage
+    field_name: txtPatientName
+- element_id: connexus_dropoffpage_labelEnterBarCode
+  platform: windows
+  automation_id: lblEnterBarCode
+  metadata:
+    page: DropOffPage
+    field_name: labelEnterBarCode
+- element_id: connexus_dropoffpage_chkBoxTamperResistant
+  platform: windows
+  automation_id: chkTamperRes
+  metadata:
+    page: DropOffPage
+    field_name: chkBoxTamperResistant
+- element_id: connexus_dropoffpage_chkBoxEmergencyRx
+  platform: windows
+  automation_id: chkEmergencyRx
+  metadata:
+    page: DropOffPage
+    field_name: chkBoxEmergencyRx
+- element_id: connexus_dropoffpage_dtpDate
+  platform: windows
+  automation_id: dtpDate
+  metadata:
+    page: DropOffPage
+    field_name: dtpDate
+- element_id: connexus_dropoffpage_quickQuoteDrugTextBox
+  platform: windows
+  automation_id: txtName
+  metadata:
+    page: DropOffPage
+    field_name: quickQuoteDrugTextBox
+- element_id: connexus_dropoffpage_quickQuoteDrugQuantityTextBox
+  platform: windows
+  automation_id: txtQty
+  metadata:
+    page: DropOffPage
+    field_name: quickQuoteDrugQuantityTextBox
+- element_id: connexus_dropoffpage_quickQuotePriceButton
+  platform: windows
+  automation_id: btnPrice
+  metadata:
+    page: DropOffPage
+    field_name: quickQuotePriceButton
+- element_id: connexus_dropoffpage_quickQuoteDrugDescResults_Line1
+  platform: windows
+  name: Prescribed Drug Row 0
+  metadata:
+    page: DropOffPage
+    field_name: quickQuoteDrugDescResults_Line1
+- element_id: connexus_dropoffpage_quickQuoteCloseButton
+  platform: windows
+  automation_id: btnClose
+  metadata:
+    page: DropOffPage
+    field_name: quickQuoteCloseButton
+- element_id: connexus_dropoffpage_btnConfirmShipAddr
+  platform: windows
+  automation_id: btnConfirmShipAddr
+  metadata:
+    page: DropOffPage
+    field_name: btnConfirmShipAddr
+- element_id: connexus_dropoffpage_btnConfirmAddress
+  platform: windows
+  automation_id: btnConfirmAddress
+  metadata:
+    page: DropOffPage
+    field_name: btnConfirmAddress
+- element_id: connexus_dropoffpage_dispenseType
+  platform: windows
+  automation_id: cmbDispense
+  metadata:
+    page: DropOffPage
+    field_name: dispenseType
+- element_id: connexus_dropoffpage_btnOKOnRefillRequestPopUp
+  platform: windows
+  name: OK
+  metadata:
+    page: DropOffPage
+    field_name: btnOKOnRefillRequestPopUp
+- element_id: connexus_dropoffpage_btnOKOnRefillRequestPopUp
+  platform: windows
+  xpath: .//Window[@Name='Refill Request']//Button[@Name='OK']
+  metadata:
+    page: DropOffPage
+    field_name: btnOKOnRefillRequestPopUp
+- element_id: connexus_dropoffpage_btnSendToTS
+  platform: windows
+  automation_id: btnSendToTS
+  metadata:
+    page: DropOffPage
+    field_name: btnSendToTS
+- element_id: connexus_dropoffpage_btnSendFax
+  platform: windows
+  automation_id: btnSendFax
+  metadata:
+    page: DropOffPage
+    field_name: btnSendFax
+- element_id: connexus_dropoffpage_authRPH
+  platform: windows
+  automation_id: cmbAuthorizeRph
+  metadata:
+    page: DropOffPage
+    field_name: authRPH
+- element_id: connexus_dropoffpage_notFound
+  platform: windows
+  name: Not Found
+  metadata:
+    page: DropOffPage
+    field_name: notFound
+- element_id: connexus_dropoffpage_btnOK
+  platform: windows
+  automation_id: btnOK
+  metadata:
+    page: DropOffPage
+    field_name: btnOK
+- element_id: connexus_dropoffpage_btnThirdParty
+  platform: windows
+  automation_id: btnThirdParty
+  metadata:
+    page: DropOffPage
+    field_name: btnThirdParty
+- element_id: connexus_dropoffpage_btnEditTP
+  platform: windows
+  automation_id: btnEdit
+  metadata:
+    page: DropOffPage
+    field_name: btnEditTP
+- element_id: connexus_dropoffpage_chkEligible
+  platform: windows
+  automation_id: chkElgible
+  metadata:
+    page: DropOffPage
+    field_name: chkEligible
+- element_id: connexus_dropoffpage_btnOKButton
+  platform: windows
+  automation_id: '2'
+  metadata:
+    page: DropOffPage
+    field_name: btnOKButton
+- element_id: connexus_dropoffpage_patientNotPresentButton
+  platform: windows
+  automation_id: btnNotPresent
+  metadata:
+    page: DropOffPage
+    field_name: patientNotPresentButton
+- element_id: connexus_dropoffpage_btnYes
+  platform: windows
+  name: 'Yes'
+  metadata:
+    page: DropOffPage
+    field_name: btnYes
+- element_id: connexus_dropoffpage_btnNo
+  platform: windows
+  name: 'No'
+  metadata:
+    page: DropOffPage
+    field_name: btnNo
+- element_id: connexus_dropoffpage_grdOrder
+  platform: windows
+  automation_id: grdOrder
+  metadata:
+    page: DropOffPage
+    field_name: grdOrder
+- element_id: connexus_dropoffpage_titleBarStation
+  platform: windows
+  automation_id: TitleBar
+  metadata:
+    page: DropOffPage
+    field_name: titleBarStation
+- element_id: connexus_dropoffpage_orderType
+  platform: windows
+  automation_id: cmbOrderType
+  metadata:
+    page: DropOffPage
+    field_name: orderType
+- element_id: connexus_dropoffpage_naloxoneInStore
+  platform: windows
+  name: Naloxone - In Store
+  metadata:
+    page: DropOffPage
+    field_name: naloxoneInStore
+- element_id: connexus_dropoffpage_imzInStore
+  platform: windows
+  name: 'Immunization - In Store       '
+  metadata:
+    page: DropOffPage
+    field_name: imzInStore
+- element_id: connexus_dropoffpage_drugDropDown
+  platform: windows
+  automation_id: cmbDrug
+  metadata:
+    page: DropOffPage
+    field_name: drugDropDown
+- element_id: connexus_dropoffpage_naloxoneDrug
+  platform: windows
+  name: 'NALOXONE 1MG/ML     INJ       '
+  metadata:
+    page: DropOffPage
+    field_name: naloxoneDrug
+- element_id: connexus_dropoffpage_imzDrug
+  platform: windows
+  name: 'ADACEL              INJ       '
+  metadata:
+    page: DropOffPage
+    field_name: imzDrug
+- element_id: connexus_dropoffpage_addToOrder
+  platform: windows
+  automation_id: btnAddtoOrder
+  metadata:
+    page: DropOffPage
+    field_name: addToOrder
+- element_id: connexus_dropoffpage_rxHistoryRxnbr
+  platform: windows
+  name: 'Rx # Row 0'
+  metadata:
+    page: DropOffPage
+    field_name: rxHistoryRxnbr
+- element_id: connexus_dropoffpage_patientPaymentPopup
+  platform: windows
+  name: Patient Payment Method
+  metadata:
+    page: DropOffPage
+    field_name: patientPaymentPopup
+- element_id: connexus_dropoffpage_dropOffSearchName
+  platform: windows
+  name: Open
+  metadata:
+    page: DropOffPage
+    field_name: dropOffSearchName
+- element_id: connexus_dropoffpage_dropOffSearch
+  platform: windows
+  name: Search Now
+  metadata:
+    page: DropOffPage
+    field_name: dropOffSearch
+- element_id: connexus_dropoffpage_reasonDD
+  platform: windows
+  automation_id: cmbReason
+  metadata:
+    page: DropOffPage
+    field_name: reasonDD
+- element_id: connexus_dropoffpage_okBtn
+  platform: windows
+  automation_id: btnOk
+  metadata:
+    page: DropOffPage
+    field_name: okBtn
+- element_id: connexus_dropoffpage_presHistoryAttendingPhy
+  platform: windows
+  automation_id: grdRx
+  metadata:
+    page: DropOffPage
+    field_name: presHistoryAttendingPhy
+- element_id: connexus_dropoffpage_presHistoryAttendingPhy
+  platform: windows
+  name: Attending Physician
+  metadata:
+    page: DropOffPage
+    field_name: presHistoryAttendingPhy
+- element_id: connexus_dropoffpage_CovidTestingKitInStore
+  platform: windows
+  name: 'COVID Testing Kit             '
+  metadata:
+    page: DropOffPage
+    field_name: CovidTestingKitInStore
+- element_id: connexus_dropoffpage_CovidTestingKitDrug
+  platform: windows
+  name: BINAXNOW COVID19 HOME TEST KIT
+  metadata:
+    page: DropOffPage
+    field_name: CovidTestingKitDrug
+- element_id: connexus_dropoffpage_orderDetailsScreen
+  platform: windows
+  name: Order Details
+  metadata:
+    page: DropOffPage
+    field_name: orderDetailsScreen
+- element_id: connexus_dropoffpage_txtPatientDOB
+  platform: windows
+  automation_id: mtbDOB
+  metadata:
+    page: DropOffPage
+    field_name: txtPatientDOB
+- element_id: connexus_dropoffpage_autoRefill
+  platform: windows
+  name: Auto Refill
+  metadata:
+    page: DropOffPage
+    field_name: autoRefill
+- element_id: connexus_dropoffpage_naloxoneStatePartnership
+  platform: windows
+  name: Naloxone - State Partnership
+  metadata:
+    page: DropOffPage
+    field_name: naloxoneStatePartnership
+- element_id: connexus_dropoffpage_txtQuantity
+  platform: windows
+  automation_id: txtQuantity
+  metadata:
+    page: DropOffPage
+    field_name: txtQuantity
+- element_id: connexus_dropoffpage_imzEventOrderType
+  platform: windows
+  name: 'Immunization - Event          '
+  metadata:
+    page: DropOffPage
+    field_name: imzEventOrderType
+- element_id: connexus_dropoffpage_cmbEvent
+  platform: windows
+  automation_id: cmbEvent
+  metadata:
+    page: DropOffPage
+    field_name: cmbEvent
+- element_id: connexus_dropoffpage_btnScanImzForm
+  platform: windows
+  automation_id: gbScanImzForm
+  metadata:
+    page: DropOffPage
+    field_name: btnScanImzForm
+- element_id: connexus_dropoffpage_btnScanImzForm
+  platform: windows
+  automation_id: btnScanImzForm
+  metadata:
+    page: DropOffPage
+    field_name: btnScanImzForm
+- element_id: connexus_dropoffpage_btnScanImzFormView
+  platform: windows
+  automation_id: ScanImzFormView
+  metadata:
+    page: DropOffPage
+    field_name: btnScanImzFormView
+- element_id: connexus_dropoffpage_mtbBirthdate
+  platform: windows
+  automation_id: mtbBirthdate
+  metadata:
+    page: DropOffPage
+    field_name: mtbBirthdate
+- element_id: connexus_dropoffpage_cmbRaceVal
+  platform: windows
+  automation_id: cmbRaceVal
+  metadata:
+    page: DropOffPage
+    field_name: cmbRaceVal
+- element_id: connexus_dropoffpage_cmbEthnicityVal
+  platform: windows
+  automation_id: cmbEthnicityVal
+  metadata:
+    page: DropOffPage
+    field_name: cmbEthnicityVal
+- element_id: connexus_dropoffpage_cmbAdmnSite
+  platform: windows
+  automation_id: cmbAdmnSite
+  metadata:
+    page: DropOffPage
+    field_name: cmbAdmnSite
+- element_id: connexus_dropoffpage_leftArm
+  platform: windows
+  name: Left Arm
+  metadata:
+    page: DropOffPage
+    field_name: leftArm
+- element_id: connexus_dropoffpage_rightArm
+  platform: windows
+  name: Right Arm
+  metadata:
+    page: DropOffPage
+    field_name: rightArm
+- element_id: connexus_dropoffpage_cmbDrugList
+  platform: windows
+  xpath: //ComboBox[@AutomationId='cmbDrug']//ListItem
+  metadata:
+    page: DropOffPage
+    field_name: cmbDrugList
+- element_id: connexus_dropoffpage_btnRequestTransfer
+  platform: windows
+  automation_id: btnRequestTransfer
+  metadata:
+    page: DropOffPage
+    field_name: btnRequestTransfer
+- element_id: connexus_dropoffpage_requestETransferWindow
+  platform: windows
+  name: Request eTransfer
+  metadata:
+    page: DropOffPage
+    field_name: requestETransferWindow
+- element_id: connexus_dropoffpage_grpBoxPatientInformation
+  platform: windows
+  automation_id: grpBoxPatientInformation
+  metadata:
+    page: DropOffPage
+    field_name: grpBoxPatientInformation
+- element_id: connexus_dropoffpage_lblPatientNameHeader
+  platform: windows
+  automation_id: lblPatientNameHeader
+  metadata:
+    page: DropOffPage
+    field_name: lblPatientNameHeader
+- element_id: connexus_dropoffpage_lblPatientName
+  platform: windows
+  automation_id: lblPatientName
+  metadata:
+    page: DropOffPage
+    field_name: lblPatientName
+- element_id: connexus_dropoffpage_lblDobHeader
+  platform: windows
+  automation_id: lblDobHeader
+  metadata:
+    page: DropOffPage
+    field_name: lblDobHeader
+- element_id: connexus_dropoffpage_lblDob
+  platform: windows
+  automation_id: lblDob
+  metadata:
+    page: DropOffPage
+    field_name: lblDob
+- element_id: connexus_dropoffpage_priorityListItems
+  platform: windows
+  name: 'Priority:'
+  metadata:
+    page: DropOffPage
+    field_name: priorityListItems
+- element_id: connexus_dropoffpage_priorityListItems
+  platform: windows
+  xpath: //List[@Name='Priority:']/ListItem
+  metadata:
+    page: DropOffPage
+    field_name: priorityListItems
+- element_id: connexus_dropoffpage_priorityCritical
+  platform: windows
+  name: Critical
+  metadata:
+    page: DropOffPage
+    field_name: priorityCritical
+- element_id: connexus_dropoffpage_priorityToday
+  platform: windows
+  name: Today
+  metadata:
+    page: DropOffPage
+    field_name: priorityToday
+- element_id: connexus_dropoffpage_grpPharmacyInformation
+  platform: windows
+  automation_id: grpBoxTransferInformation
+  metadata:
+    page: DropOffPage
+    field_name: grpPharmacyInformation
+- element_id: connexus_dropoffpage_txtPharmacyLookUp
+  platform: windows
+  automation_id: pharmacyLookUp
+  metadata:
+    page: DropOffPage
+    field_name: txtPharmacyLookUp
+- element_id: connexus_dropoffpage_lblPharmacyHeader
+  platform: windows
+  automation_id: lblPharmacyHeader
+  metadata:
+    page: DropOffPage
+    field_name: lblPharmacyHeader
+- element_id: connexus_dropoffpage_lblPharmacyAddress
+  platform: windows
+  automation_id: lblStreet
+  metadata:
+    page: DropOffPage
+    field_name: lblPharmacyAddress
+- element_id: connexus_dropoffpage_lblPharmacyCity
+  platform: windows
+  automation_id: lblCity
+  metadata:
+    page: DropOffPage
+    field_name: lblPharmacyCity
+- element_id: connexus_dropoffpage_lblPharmacyState
+  platform: windows
+  automation_id: lblState
+  metadata:
+    page: DropOffPage
+    field_name: lblPharmacyState
+- element_id: connexus_dropoffpage_lblPharmacyZip
+  platform: windows
+  automation_id: lblZip
+  metadata:
+    page: DropOffPage
+    field_name: lblPharmacyZip
+- element_id: connexus_dropoffpage_lblPharmacyPhone
+  platform: windows
+  automation_id: lblPharmacyPhone
+  metadata:
+    page: DropOffPage
+    field_name: lblPharmacyPhone
+- element_id: connexus_dropoffpage_grpDrugInformation
+  platform: windows
+  automation_id: grpBoxDrugInformation
+  metadata:
+    page: DropOffPage
+    field_name: grpDrugInformation
+- element_id: connexus_dropoffpage_lblDrugName
+  platform: windows
+  automation_id: lblDrugName
+  metadata:
+    page: DropOffPage
+    field_name: lblDrugName
+- element_id: connexus_dropoffpage_lblNDC
+  platform: windows
+  automation_id: lblNDC
+  metadata:
+    page: DropOffPage
+    field_name: lblNDC
+- element_id: connexus_dropoffpage_lblRxNumberHeader
+  platform: windows
+  automation_id: lblRxNumberHeader
+  metadata:
+    page: DropOffPage
+    field_name: lblRxNumberHeader
+- element_id: connexus_dropoffpage_chkProductNotAvailable
+  platform: windows
+  automation_id: chkProductNotAvailable
+  metadata:
+    page: DropOffPage
+    field_name: chkProductNotAvailable
+- element_id: connexus_dropoffpage_btnDrugDelete
+  platform: windows
+  automation_id: btnDelete
+  metadata:
+    page: DropOffPage
+    field_name: btnDrugDelete
+- element_id: connexus_dropoffpage_btnDrugAdd
+  platform: windows
+  automation_id: btnAdd
+  metadata:
+    page: DropOffPage
+    field_name: btnDrugAdd
+- element_id: connexus_dropoffpage_btnRequestETransferAccept
+  platform: windows
+  xpath: //Window[@Name='Request eTransfer']//Pane[@AutomationId='ErxTransferInRequestView']//Button[@AutomationId='btnAccept'
+    and @Name='Accept']
+  metadata:
+    page: DropOffPage
+    field_name: btnRequestETransferAccept
+- element_id: connexus_dropoffpage_txtDrugSearch
+  platform: windows
+  automation_id: txtDrugSearch
+  metadata:
+    page: DropOffPage
+    field_name: txtDrugSearch
+- element_id: connexus_dropoffpage_headerDrugName
+  platform: windows
+  name: Drug Name
+  metadata:
+    page: DropOffPage
+    field_name: headerDrugName
+- element_id: connexus_dropoffpage_headerRxNameNotAvailable
+  platform: windows
+  name: Rx name not available
+  metadata:
+    page: DropOffPage
+    field_name: headerRxNameNotAvailable
+- element_id: connexus_dropoffpage_headerRxNumber
+  platform: windows
+  name: 'Rx #'
+  metadata:
+    page: DropOffPage
+    field_name: headerRxNumber
+- element_id: connexus_dropoffpage_headerNumber
+  platform: windows
+  name: '#'
+  metadata:
+    page: DropOffPage
+    field_name: headerNumber
+- element_id: connexus_dropoffpage_btnDrugThreeDot
+  platform: windows
+  automation_id: grpMedicationInfo
+  metadata:
+    page: DropOffPage
+    field_name: btnDrugThreeDot
+- element_id: connexus_dropoffpage_transferSuccessMessage
+  platform: windows
+  name: Transfer request initiated successfully.
+  metadata:
+    page: DropOffPage
+    field_name: transferSuccessMessage
+- element_id: connexus_dropoffpage_transferSuccessMessage
+  platform: windows
+  xpath: //*[@Name='Transfer request initiated successfully.']
+  metadata:
+    page: DropOffPage
+    field_name: transferSuccessMessage
+- element_id: connexus_dropoffpage_eTransferRequestWindow
+  platform: windows
+  name: eTransfer Request
+  metadata:
+    page: DropOffPage
+    field_name: eTransferRequestWindow
+- element_id: connexus_dropoffpage_eTransferRequestWindow
+  platform: windows
+  xpath: //*[@Name='eTransfer Request']
+  metadata:
+    page: DropOffPage
+    field_name: eTransferRequestWindow
+- element_id: connexus_dropoffpage_btnCloseTransferPopup
+  platform: windows
+  xpath: //*[@AutomationId='Close']
+  metadata:
+    page: DropOffPage
+    field_name: btnCloseTransferPopup
+- element_id: connexus_dropoffpage_btnOkTransferPopup
+  platform: windows
+  xpath: //*[@Name='OK']
+  metadata:
+    page: DropOffPage
+    field_name: btnOkTransferPopup
+- element_id: connexus_inputpage_patientMaintenanceIcon
+  platform: windows
+  automation_id: lkpPatient
+  metadata:
+    page: InputPage
+    field_name: patientMaintenanceIcon
+- element_id: connexus_inputpage_patientMaintenanceIcon
+  platform: windows
+  name: CnxLabel1
+  metadata:
+    page: InputPage
+    field_name: patientMaintenanceIcon
+- element_id: connexus_inputpage_patientMaintenanceIcon
+  platform: windows
+  xpath: .//*
+  metadata:
+    page: InputPage
+    field_name: patientMaintenanceIcon
+- element_id: connexus_inputpage_patientMaintenanceIcon
+  platform: windows
+  xpath: .//Button[2]
+  metadata:
+    page: InputPage
+    field_name: patientMaintenanceIcon
+- element_id: connexus_inputpage_dtpRxExpDate
+  platform: windows
+  automation_id: dtpRxExpDate
+  metadata:
+    page: InputPage
+    field_name: dtpRxExpDate
+- element_id: connexus_inputpage_txtPrescibedProduct
+  platform: windows
+  automation_id: txtName
+  metadata:
+    page: InputPage
+    field_name: txtPrescibedProduct
+- element_id: connexus_inputpage_txtPrescribedQty
+  platform: windows
+  automation_id: txtPrescribedQty
+  metadata:
+    page: InputPage
+    field_name: txtPrescribedQty
+- element_id: connexus_inputpage_txtSig
+  platform: windows
+  automation_id: txtSig
+  metadata:
+    page: InputPage
+    field_name: txtSig
+- element_id: connexus_inputpage_txtRefills
+  platform: windows
+  automation_id: txtRefills
+  metadata:
+    page: InputPage
+    field_name: txtRefills
+- element_id: connexus_inputpage_txtPrescriberName
+  platform: windows
+  xpath: //Pane[@AutomationId='lkpPrescriber']/Pane[@AutomationId='CnxSplitContainer2']/Pane[1]/Edit[@AutomationId='txtName']
+  metadata:
+    page: InputPage
+    field_name: txtPrescriberName
+- element_id: connexus_inputpage_btnAccept
+  platform: windows
+  automation_id: btnAccept
+  metadata:
+    page: InputPage
+    field_name: btnAccept
+- element_id: connexus_inputpage_btnCancel
+  platform: windows
+  automation_id: btnCancel
+  metadata:
+    page: InputPage
+    field_name: btnCancel
+- element_id: connexus_inputpage_btnSelect
+  platform: windows
+  automation_id: btnSelect
+  metadata:
+    page: InputPage
+    field_name: btnSelect
+- element_id: connexus_inputpage_prescriberRow0
+  platform: windows
+  name: Zip Row 0
+  metadata:
+    page: InputPage
+    field_name: prescriberRow0
+- element_id: connexus_inputpage_prescriberRow1
+  platform: windows
+  name: Zip Row 1
+  metadata:
+    page: InputPage
+    field_name: prescriberRow1
+- element_id: connexus_inputpage_PhoneRow2
+  platform: windows
+  name: Phone Row 0
+  metadata:
+    page: InputPage
+    field_name: PhoneRow2
+- element_id: connexus_inputpage_statusRow0
+  platform: windows
+  name: Status Row 0
+  metadata:
+    page: InputPage
+    field_name: statusRow0
+- element_id: connexus_inputpage_drpdwnDAW
+  platform: windows
+  automation_id: cboDAW
+  metadata:
+    page: InputPage
+    field_name: drpdwnDAW
+- element_id: connexus_inputpage_btnOk
+  platform: windows
+  automation_id: btnOK
+  metadata:
+    page: InputPage
+    field_name: btnOk
+- element_id: connexus_inputpage_btnPrescribedProductSearch3Dots
+  platform: windows
+  automation_id: btnSearch
+  metadata:
+    page: InputPage
+    field_name: btnPrescribedProductSearch3Dots
+- element_id: connexus_inputpage_diagnosisCode
+  platform: windows
+  automation_id: txtDXCode
+  metadata:
+    page: InputPage
+    field_name: diagnosisCode
+- element_id: connexus_inputpage_ageInInputScreen
+  platform: windows
+  automation_id: lblPAge
+  metadata:
+    page: InputPage
+    field_name: ageInInputScreen
+- element_id: connexus_inputpage_earliestFillDate
+  platform: windows
+  automation_id: dtpEarliestFillDt
+  metadata:
+    page: InputPage
+    field_name: earliestFillDate
+- element_id: connexus_inputpage_expandedSig
+  platform: windows
+  automation_id: txtExpandedSig
+  metadata:
+    page: InputPage
+    field_name: expandedSig
+- element_id: connexus_inputpage_yes
+  platform: windows
+  name: 'Yes'
+  metadata:
+    page: InputPage
+    field_name: 'yes'
+- element_id: connexus_inputpage_txtTriplicate
+  platform: windows
+  automation_id: txtTriplicateNo
+  metadata:
+    page: InputPage
+    field_name: txtTriplicate
+- element_id: connexus_inputpage_btnNonMedSendtoTS
+  platform: windows
+  automation_id: btnNonMedSendtoTS
+  metadata:
+    page: InputPage
+    field_name: btnNonMedSendtoTS
+- element_id: connexus_inputpage_btnMedSendtoTS
+  platform: windows
+  automation_id: btnMedSendToTS
+  metadata:
+    page: InputPage
+    field_name: btnMedSendtoTS
+- element_id: connexus_inputpage_rdbContactPrescriber
+  platform: windows
+  automation_id: optContactDr
+  metadata:
+    page: InputPage
+    field_name: rdbContactPrescriber
+- element_id: connexus_inputpage_rxResolutionAccept
+  platform: windows
+  automation_id: SendTSView
+  metadata:
+    page: InputPage
+    field_name: rxResolutionAccept
+- element_id: connexus_inputpage_rxResolutionAccept
+  platform: windows
+  xpath: .//Button[1]
+  metadata:
+    page: InputPage
+    field_name: rxResolutionAccept
+- element_id: connexus_inputpage_reasonForResolutionTextBox
+  platform: windows
+  xpath: .//Edit[1]
+  metadata:
+    page: InputPage
+    field_name: reasonForResolutionTextBox
+- element_id: connexus_inputpage_buttonOK
+  platform: windows
+  automation_id: '2'
+  metadata:
+    page: InputPage
+    field_name: buttonOK
+- element_id: connexus_inputpage_prescriberSearchRecordCount
+  platform: windows
+  automation_id: stbFindPatient
+  metadata:
+    page: InputPage
+    field_name: prescriberSearchRecordCount
+- element_id: connexus_inputpage_btnSearchHost
+  platform: windows
+  automation_id: btnSearchHost
+  metadata:
+    page: InputPage
+    field_name: btnSearchHost
+- element_id: connexus_inputpage_btnSearch
+  platform: windows
+  automation_id: btnFind
+  metadata:
+    page: InputPage
+    field_name: btnSearch
+- element_id: connexus_inputpage_rxWrittenDate
+  platform: windows
+  automation_id: dtpRxWrittenDate
+  metadata:
+    page: InputPage
+    field_name: rxWrittenDate
+- element_id: connexus_inputpage_cmbTMCode
+  platform: windows
+  automation_id: cmbTMCode
+  metadata:
+    page: InputPage
+    field_name: cmbTMCode
+- element_id: connexus_inputpage_showreportbtn
+  platform: windows
+  automation_id: btnShow
+  metadata:
+    page: InputPage
+    field_name: showreportbtn
+- element_id: connexus_inputpage_partialpopup
+  platform: windows
+  automation_id: btnOk
+  metadata:
+    page: InputPage
+    field_name: partialpopup
+- element_id: connexus_inputpage_partialpopup
+  platform: windows
+  name: Partial Fill
+  metadata:
+    page: InputPage
+    field_name: partialpopup
+- element_id: connexus_inputpage_popupMessage
+  platform: windows
+  automation_id: '65535'
+  metadata:
+    page: InputPage
+    field_name: popupMessage
+- element_id: connexus_inputpage_btnAddRx
+  platform: windows
+  automation_id: btnAddRx
+  metadata:
+    page: InputPage
+    field_name: btnAddRx
+- element_id: connexus_inputpage_noOfRx
+  platform: windows
+  automation_id: txtRxCount
+  metadata:
+    page: InputPage
+    field_name: noOfRx
+- element_id: connexus_inputpage_patientDOB
+  platform: windows
+  automation_id: lblBirthDate
+  metadata:
+    page: InputPage
+    field_name: patientDOB
+- element_id: connexus_inputpage_patientAddress
+  platform: windows
+  automation_id: lblAddress
+  metadata:
+    page: InputPage
+    field_name: patientAddress
+- element_id: connexus_inputpage_patientCarrier
+  platform: windows
+  automation_id: lblCarrier
+  metadata:
+    page: InputPage
+    field_name: patientCarrier
+- element_id: connexus_inputpage_patientPlan
+  platform: windows
+  automation_id: lblPlan
+  metadata:
+    page: InputPage
+    field_name: patientPlan
+- element_id: connexus_inputpage_patientPhone
+  platform: windows
+  automation_id: lblPatPhone
+  metadata:
+    page: InputPage
+    field_name: patientPhone
+- element_id: connexus_inputpage_btnShowOrder
+  platform: windows
+  automation_id: btnShowOrder
+  metadata:
+    page: InputPage
+    field_name: btnShowOrder
+- element_id: connexus_inputpage_btnClose
+  platform: windows
+  automation_id: btnClose
+  metadata:
+    page: InputPage
+    field_name: btnClose
+- element_id: connexus_inputpage_prescriberAddress
+  platform: windows
+  automation_id: lblPresAddressVal
+  metadata:
+    page: InputPage
+    field_name: prescriberAddress
+- element_id: connexus_inputpage_prescriberDEAnum
+  platform: windows
+  automation_id: lblPresDEAVal
+  metadata:
+    page: InputPage
+    field_name: prescriberDEAnum
+- element_id: connexus_inputpage_prescriberNPInum
+  platform: windows
+  automation_id: lblPresNPIVal
+  metadata:
+    page: InputPage
+    field_name: prescriberNPInum
+- element_id: connexus_inputpage_prescriberPhone
+  platform: windows
+  automation_id: lblPresPhoneVal
+  metadata:
+    page: InputPage
+    field_name: prescriberPhone
+- element_id: connexus_inputpage_dispensedProductName
+  platform: windows
+  automation_id: lblDispensedPrdName
+  metadata:
+    page: InputPage
+    field_name: dispensedProductName
+- element_id: connexus_inputpage_productsmallPackSize
+  platform: windows
+  automation_id: lblSmallPckSize
+  metadata:
+    page: InputPage
+    field_name: productsmallPackSize
+- element_id: connexus_inputpage_productpackSize
+  platform: windows
+  automation_id: lblPackSize
+  metadata:
+    page: InputPage
+    field_name: productpackSize
+- element_id: connexus_inputpage_productndcNumber
+  platform: windows
+  automation_id: lblNDC
+  metadata:
+    page: InputPage
+    field_name: productndcNumber
+- element_id: connexus_inputpage_productmfg
+  platform: windows
+  automation_id: lblMfg
+  metadata:
+    page: InputPage
+    field_name: productmfg
+- element_id: connexus_inputpage_productMaintenanceIcon
+  platform: windows
+  automation_id: lkpProduct
+  metadata:
+    page: InputPage
+    field_name: productMaintenanceIcon
+- element_id: connexus_inputpage_prescriptionBottleIcon
+  platform: windows
+  automation_id: btnDrugExplain
+  metadata:
+    page: InputPage
+    field_name: prescriptionBottleIcon
+- element_id: connexus_inputpage_txtDispensedQty
+  platform: windows
+  automation_id: txtDispensedQty
+  metadata:
+    page: InputPage
+    field_name: txtDispensedQty
+- element_id: connexus_inputpage_txtDaysSupply
+  platform: windows
+  automation_id: txtDaysSupply
+  metadata:
+    page: InputPage
+    field_name: txtDaysSupply
+- element_id: connexus_inputpage_drpDownDawItems
+  platform: windows
+  xpath: .//ComboBox[@AutomationId='cboDAW']/List/*
+  metadata:
+    page: InputPage
+    field_name: drpDownDawItems
+- element_id: connexus_inputpage_cancelNo
+  platform: windows
+  automation_id: '7'
+  metadata:
+    page: InputPage
+    field_name: cancelNo
+- element_id: connexus_inputpage_DawValidationYesButton
+  platform: windows
+  automation_id: '6'
+  metadata:
+    page: InputPage
+    field_name: DawValidationYesButton
+- element_id: connexus_inputpage_lblPatientLanguage
+  platform: windows
+  automation_id: lblPatientLanguage
+  metadata:
+    page: InputPage
+    field_name: lblPatientLanguage
+- element_id: connexus_inputpage_txtAttendingPhysicianName
+  platform: windows
+  automation_id: lkpAPrescriber
+  metadata:
+    page: InputPage
+    field_name: txtAttendingPhysicianName
+- element_id: connexus_inputpage_txtAttendingPhysicianName
+  platform: windows
+  xpath: .//Edit[@AutomationId='txtName']
+  metadata:
+    page: InputPage
+    field_name: txtAttendingPhysicianName
+- element_id: connexus_inputpage_attendingPhysicianDeaValue
+  platform: windows
+  automation_id: lblAPDeaVal
+  metadata:
+    page: InputPage
+    field_name: attendingPhysicianDeaValue
+- element_id: connexus_inputpage_attendingPhysicianNpiValue
+  platform: windows
+  automation_id: lblAPNpiVal
+  metadata:
+    page: InputPage
+    field_name: attendingPhysicianNpiValue
+- element_id: connexus_inputpage_attendingPhysicianTab
+  platform: windows
+  automation_id: tcPrescriber
+  metadata:
+    page: InputPage
+    field_name: attendingPhysicianTab
+- element_id: connexus_inputpage_attendingPhysicianTab
+  platform: windows
+  name: Attending Physician
+  metadata:
+    page: InputPage
+    field_name: attendingPhysicianTab
+- element_id: connexus_inputpage_attendingPhysicianAddValue
+  platform: windows
+  automation_id: lblAPAddressVal
+  metadata:
+    page: InputPage
+    field_name: attendingPhysicianAddValue
+- element_id: connexus_inputpage_prescriberTab
+  platform: windows
+  name: Prescriber
+  metadata:
+    page: InputPage
+    field_name: prescriberTab
+- element_id: connexus_inputpage_txtOrderComment
+  platform: windows
+  automation_id: txtOrderComment
+  metadata:
+    page: InputPage
+    field_name: txtOrderComment
+- element_id: connexus_inputpage_rxImageIcon
+  platform: windows
+  automation_id: pvImage
+  metadata:
+    page: InputPage
+    field_name: rxImageIcon
+- element_id: connexus_inputpage_btnMaximizeRxImage
+  platform: windows
+  automation_id: pbMaxImg
+  metadata:
+    page: InputPage
+    field_name: btnMaximizeRxImage
+- element_id: connexus_inputpage_btnMinimizeRxImage
+  platform: windows
+  automation_id: pbMinImg
+  metadata:
+    page: InputPage
+    field_name: btnMinimizeRxImage
+- element_id: connexus_inputpage_btnRotateRxImage
+  platform: windows
+  automation_id: pbRotateImg
+  metadata:
+    page: InputPage
+    field_name: btnRotateRxImage
+- element_id: connexus_inputpage_btnZoomInRxImage
+  platform: windows
+  automation_id: pbZoomIn
+  metadata:
+    page: InputPage
+    field_name: btnZoomInRxImage
+- element_id: connexus_inputpage_btnZoomOutRxImage
+  platform: windows
+  automation_id: pbZoomOut
+  metadata:
+    page: InputPage
+    field_name: btnZoomOutRxImage
+- element_id: connexus_inputpage_rdbManualResolution
+  platform: windows
+  automation_id: optManualTrouble
+  metadata:
+    page: InputPage
+    field_name: rdbManualResolution
+- element_id: connexus_inputpage_rdbContactCustomer
+  platform: windows
+  automation_id: optContactCustomer
+  metadata:
+    page: InputPage
+    field_name: rdbContactCustomer
+- element_id: connexus_inputpage_lblTamper
+  platform: windows
+  automation_id: lblTamper
+  metadata:
+    page: InputPage
+    field_name: lblTamper
+- element_id: connexus_inputpage_btnYes
+  platform: windows
+  automation_id: btnYes
+  metadata:
+    page: InputPage
+    field_name: btnYes
+- element_id: connexus_inputpage_txtMaxDose
+  platform: windows
+  automation_id: txtMaxDose
+  metadata:
+    page: InputPage
+    field_name: txtMaxDose
+- element_id: connexus_inputpage_btnMaxDoseOk
+  platform: windows
+  name: OK
+  metadata:
+    page: InputPage
+    field_name: btnMaxDoseOk
+- element_id: connexus_inputpage_cnxpopupMessageOk
+  platform: windows
+  automation_id: '1'
+  metadata:
+    page: InputPage
+    field_name: cnxpopupMessageOk
+- element_id: connexus_inputpage_downTimeButton
+  platform: windows
+  automation_id: btnDownTime
+  metadata:
+    page: InputPage
+    field_name: downTimeButton
+- element_id: connexus_inputpage_prescriberProductName
+  platform: windows
+  automation_id: frmDrug
+  metadata:
+    page: InputPage
+    field_name: prescriberProductName
+- element_id: connexus_inputpage_patientMaintenanceIconButton
+  platform: windows
+  automation_id: btnMaintenance
+  metadata:
+    page: InputPage
+    field_name: patientMaintenanceIconButton
+- element_id: connexus_inputpage_prescriberDEA
+  platform: windows
+  name: Degree
+  metadata:
+    page: InputPage
+    field_name: prescriberDEA
+- element_id: connexus_inputpage_stateDropdown
+  platform: windows
+  automation_id: cmbState
+  metadata:
+    page: InputPage
+    field_name: stateDropdown
+- element_id: connexus_inputpage_addressValidationViewPopup
+  platform: windows
+  automation_id: txtAddressLine1
+  metadata:
+    page: InputPage
+    field_name: addressValidationViewPopup
+- element_id: connexus_inputpage_checkDiagnosisCode
+  platform: windows
+  automation_id: chkDiagCodeOnRx
+  metadata:
+    page: InputPage
+    field_name: checkDiagnosisCode
+- element_id: connexus_inputpage_checkSpecificDirections
+  platform: windows
+  automation_id: chkSpecificDirections
+  metadata:
+    page: InputPage
+    field_name: checkSpecificDirections
+- element_id: connexus_inputpage_textDiagnosisCode
+  platform: windows
+  automation_id: txtDiagCode
+  metadata:
+    page: InputPage
+    field_name: textDiagnosisCode
+- element_id: connexus_inputpage_prescriberDegree
+  platform: windows
+  automation_id: cmbDegree
+  metadata:
+    page: InputPage
+    field_name: prescriberDegree
+- element_id: connexus_inputpage_triplicate
+  platform: windows
+  automation_id: chkEmergencyRx
+  metadata:
+    page: InputPage
+    field_name: triplicate
+- element_id: connexus_inputpage_prescriberPhoneNumber
+  platform: windows
+  automation_id: dgvLocation
+  metadata:
+    page: InputPage
+    field_name: prescriberPhoneNumber
+- element_id: connexus_inputpage_dispensedErrorPopup
+  platform: windows
+  name: Dispensed Quantity is not Valid
+  metadata:
+    page: InputPage
+    field_name: dispensedErrorPopup
+- element_id: connexus_inputpage_walmartPolicyPopup
+  platform: windows
+  name: Walmart policy limits the dispensing of Schedule 2 controlled substances to
+    a maximum 90-day supply
+  metadata:
+    page: InputPage
+    field_name: walmartPolicyPopup
+- element_id: connexus_inputpage_prescriberStatePopup
+  platform: windows
+  xpath: .//*[contains(@Name,'This controlled prescription requires a prescriber with
+    an in-state address. Validate that the correct prescriber and address have been
+    entered or cancel the prescription. Notify the patient and prescriber')]
+  metadata:
+    page: InputPage
+    field_name: prescriberStatePopup
+- element_id: connexus_inputpage_outOfStockPopUp
+  platform: windows
+  xpath: .//*[contains(@Name,'out of stock')]
+  metadata:
+    page: InputPage
+    field_name: outOfStockPopUp
+- element_id: connexus_inputpage_RxExpiredPopup
+  platform: windows
+  xpath: .//*[contains(@Name,'Rx has expired. Select the Earliest fill date if provided
+    by the prescriber on the prescription')]
+  metadata:
+    page: InputPage
+    field_name: RxExpiredPopup
+- element_id: connexus_inputpage_rxComment
+  platform: windows
+  automation_id: txtRxComment
+  metadata:
+    page: InputPage
+    field_name: rxComment

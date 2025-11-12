@@ -292,7 +292,7 @@ def register_accessibility_tools(agent):
 
     @agent.tool
     def desktop_list_accessible_tree(
-        context: RunContext, max_depth: int = 5
+        context: RunContext, max_depth: int = 15
     ) -> ElementListResult:
         """
         List a hierarchical accessibility element tree for the frontmost app.
@@ -300,7 +300,7 @@ def register_accessibility_tools(agent):
         Returns an ElementListResult with elements and by_type to mirror Windows parity.
 
         Args:
-            max_depth: Maximum recursion depth (default: 5)
+            max_depth: Maximum recursion depth (default: 15, increased from 5 for complex UIs)
 
         Note: macOS only. Requires atomacos.
         """

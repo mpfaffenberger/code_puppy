@@ -1,0 +1,449 @@
+# LoginConnexus.yaml
+# Workflow for authenticating to Connexus Pharmacy Management System
+# Responsibility: Login with credentials, verify success, clear post-login popups
+# Prerequisite: BootConnexus.yaml completed (login screen visible)
+
+workflow_name: login_connexus
+workflow_version: "1.1"
+platform: windows
+description: "Authenticate to Connexus and clear post-login popups"
+
+CRITICAL_FOCUS_MANAGEMENT:
+  WARNING: |
+    Connexus runs FULLSCREEN and LOSES FOCUS when navigating between modules.
+    MUST call windows_focus_window() BEFORE submitting actions that navigate to new screens.
+    Focus once per module/dialog, then multiple fields can be filled without refocusing.
+  
+  required_pattern: |
+    # Focus once when entering a module/dialog
+    windows_focus_window(window_title="Connexus")
+    desktop_sleep(0.5)  # Allow focus to settle
+    
+    # Fill multiple fields without refocusing
+    desktop_keyboard_type("username")
+    desktop_keyboard_press("tab")
+    desktop_keyboard_type("password")
+    desktop_keyboard_press("tab")
+    desktop_keyboard_press("space")  # Check checkbox
+    desktop_keyboard_press("tab")
+    
+    # Refocus BEFORE submitting/navigating to new module
+    windows_focus_window(window_title="Connexus")
+    desktop_sleep(0.3)
+    desktop_keyboard_press("enter")  # Submit - causes navigation
+  
+  applies_to:
+    - Before pressing Enter/Accept that navigates to new module
+    - When entering a new dialog/window
+    - After popups are dismissed and returning to main window
+  
+  tested_and_verified: true
+  test_date: "2025-01-15"
+  test_result: "Login successful with refocus before navigation actions"
+
+prerequisites:
+  - name: login_screen_ready
+    description: "Login screen must be visible with username field focused"
+    workflow: BootConnexus.yaml
+    required_output: login_screen_ready = true
+
+configuration:
+  login_type:
+    description: "Type of user login (affects checkbox handling)"
+    type: enum
+    values:
+      - HOMEOFFICE  # Requires chkHOUser checkbox
+      - TECHNICIAN  # Regular store login
+      - PHARMACIST  # Regular store login
+    default: HOMEOFFICE
+  credentials:
+    username:
+      description: "Login username"
+      type: string
+      required: true
+      example: "SVCRX1U"
+    password:
+      description: "Login password"
+      type: string
+      required: true
+      sensitive: true
+      example: "wfMUckcd1hYCK4GbP"
+    store_number:
+      description: "Store number (optional, for change store checkbox)"
+      type: string
+      required: false
+      example: "5504"
+      notes: "Only used if changing from default store"
+
+timing:
+  default_step_wait: 0.5
+  focus_settle_time: 0.3  # Wait after focus before keyboard action
+  login_submit_wait: 50  # Observed: ~48s actual login time
+  login_wait_adaptive: true
+  security_popup_wait: 5  # Security Warning appears within 5s
+  popup_check_interval: 2
+  popup_max_retries: 7
+  popup_typical_count: 3  # Observed: Security Warning + 2x Warning!
+
+steps:
+  - step_id: 1
+    name: focus_connexus_window
+    description: "Ensure Connexus login window has focus before filling form"
+    action: focus_window
+    implementation:
+      method: windows_api
+      command: windows_focus_window(window_title="Connex")
+      wait_after: 0.5
+    notes: |
+      Connexus window title may be "Connexus" or "Connex" during login.
+      Fuzzy match on partial title.
+      Focus once at start - can fill multiple fields without refocusing.
+      Refocus again before pressing Accept button (navigation action).
+
+  - step_id: 2
+    name: enter_username
+    description: "Type username into username field"
+    action: keyboard_type
+    implementation:
+      method: keyboard
+      target_element:
+        element_id: connexus_loginpage_loginScreenUserNameTextField
+        control_type: Edit
+        # Username field is unnamed - identify by tab order (first Edit field)
+        # Or by proximity to Text element with name "Username"
+        notes: |
+          CRITICAL: Username field has NO name attribute on this RXPC.
+          It's the first Edit control in tab order.
+          After focusing Connexus window, cursor should be in username field by default.
+        fuzzy: true
+        fuzzy_threshold: 0.7
+      command: desktop_keyboard_type("${credentials.username}")
+      wait_after: 0.5
+    verification:
+      method: accessibility_api
+      command: |
+        Verify value via Windows UI Automation:
+        # Find first Edit control (username field)
+        element = ui_find_element(control_type="Edit", fuzzy=True)
+        # Note: May not be able to read value directly if field is unnamed
+        # Consider using OCR verification as primary method
+      fallback_verification:
+        method: ocr
+        command: desktop_verify_text(expected_text="${credentials.username}", use_active_window=True, fuzzy=True, fuzzy_threshold=0.75)
+        notes: |
+          OCR may show username in different case (svcrxiu vs SVCRX1U).
+          This is the PRIMARY verification method for username field.
+
+  - step_id: 3
+    name: navigate_to_password
+    description: "Tab to password field"
+    action: keyboard_press
+    implementation:
+      method: keyboard
+      command: desktop_keyboard_press("tab")
+      wait_after: 0.3
+
+  - step_id: 4
+    name: enter_password
+    description: "Type password into password field"
+    action: keyboard_type
+    implementation:
+      method: keyboard
+      target_element:
+        element_id: connexus_loginpage_loginScreenPasswordTextField
+        control_type: Edit
+        name: Password
+        fuzzy: true
+        fuzzy_threshold: 0.7
+      command: desktop_keyboard_type("${credentials.password}")
+      wait_after: 0.5
+    verification:
+      method: accessibility_api
+      command: |
+        Verify password field has focus:
+        element = ui_find_element(control_type="Edit", name="Password", fuzzy=True, fuzzy_threshold=0.7)
+        # Password is masked, cannot read value
+      notes: |
+        Password field is masked - cannot verify via OCR.
+        Can verify field has focus via name="Password" match.
+        Trust keyboard input was successful.
+
+  - step_id: 5
+    name: handle_homeoffice_checkbox
+    description: "Check HOMEOFFICE checkbox if login_type is HOMEOFFICE"
+    action: conditional_checkbox
+    implementation:
+      method: keyboard
+      condition: "${configuration.login_type} == 'HOMEOFFICE'"
+      if_true:
+        - action: navigate_to_checkbox
+          command: desktop_keyboard_press("tab")  # Tab from password field
+          wait_after: 0.3
+          notes: |
+            After password field, tab order goes to checkboxes.
+            May need multiple tabs to reach HomeOffice User checkbox.
+        - action: check_checkbox
+          target_element:
+            element_id: connexus_loginpage_loginScreenHomeOfficeCheckBox
+            control_type: CheckBox
+            name: HomeOffice User
+            fuzzy: true
+            fuzzy_threshold: 0.7
+          command: desktop_keyboard_press("space")  # Space to toggle checkbox
+          wait_after: 0.5
+      if_false:
+        - action: skip
+          notes: "TECHNICIAN/PHARMACIST login does not require HOMEOFFICE checkbox"
+    verification:
+      method: accessibility_api
+      condition: "${configuration.login_type} == 'HOMEOFFICE'"
+      command: |
+        Verify checkbox is checked via Windows UI Automation:
+        element = ui_find_element(control_type="CheckBox", name="HomeOffice User", fuzzy=True, fuzzy_threshold=0.7)
+        # Check toggle state if accessible
+      fallback_verification:
+        method: ocr
+        command: desktop_verify_text(expected_text="HomeOffice", use_active_window=True, fuzzy=True, fuzzy_threshold=0.75)
+        notes: |
+          OCR may detect checkbox label "HomeOffice User" or checked state indicator.
+          Fuzzy match will handle "HomeOffice" vs "HomeOffice User".
+
+  - step_id: 6
+    name: navigate_to_accept
+    description: "Tab to Accept button (2 tabs from HomeOffice User checkbox)"
+    action: keyboard_press
+    implementation:
+      method: keyboard
+      command: |
+        # From HomeOffice User checkbox to Accept button requires 2 tabs:
+        # Tab 1: HomeOffice User → Cancel button
+        # Tab 2: Cancel button → Accept button
+        windows_focus_window(window_title="Connexus")
+        desktop_sleep(0.3)
+        desktop_keyboard_press("tab")  # To Cancel
+        desktop_sleep(0.3)
+        
+        windows_focus_window(window_title="Connexus")
+        desktop_sleep(0.3)
+        desktop_keyboard_press("tab")  # To Accept
+        desktop_sleep(0.3)
+      target_element:
+        element_id: connexus_loginpage_acceptButton
+        control_type: Button
+        name: Accept
+        fuzzy: true
+        fuzzy_threshold: 0.7
+      notes: |
+        Tab order from password field (CONFIRMED via testing):
+        1. Password → Change Store No. checkbox (Tab 1)
+        2. Change Store No. → HomeOffice User checkbox (Tab 2)
+        3. HomeOffice User → Cancel button (Tab 3)
+        4. Cancel button → Accept button (Tab 4)
+        
+        Total tabs from password to Accept: 4 tabs
+        Total tabs from HomeOffice User to Accept: 2 tabs
+
+  - step_id: 7
+    name: submit_login
+    description: "Press Enter to submit login"
+    action: keyboard_press
+    implementation:
+      method: keyboard
+      command: |
+        # Refocus before submitting (navigation action)
+        windows_focus_window(window_title="Connexus")
+        desktop_sleep(0.3)
+        desktop_keyboard_press("enter")
+      wait_after: "${timing.login_submit_wait}"
+    notes: |
+      Refocus before Enter because this navigates to new module.
+      Login can take 50+ seconds for HOMEOFFICE users.
+      Adaptive timing will measure actual login duration.
+
+  - step_id: 8
+    name: wait_for_security_popup
+    description: "Wait for Security Warning popup to appear (appears within 5s)"
+    action: wait_and_check
+    implementation:
+      method: polling
+      poll_interval: 2
+      max_wait: "${timing.security_popup_wait}"
+      check_for:
+        - Window title: "Security Warning Message"
+        - Or window title: "Login"
+      notes: |
+        Security Warning popup appears within ~5 seconds of pressing Accept.
+        This is NOT the final login - it's a post-authentication popup.
+        Must be dismissed before main window appears.
+  
+  - step_id: 9
+    name: dismiss_security_popup
+    description: "Dismiss Security Warning popup"
+    action: keyboard_press
+    implementation:
+      method: keyboard
+      command: |
+        windows_focus_window(window_title="Security Warning")
+        desktop_sleep(0.3)
+        desktop_keyboard_press("enter")
+        desktop_sleep(3)
+      notes: |
+        Pressing Enter dismisses the Security Warning.
+        Wait 3s for next popup or main window to appear.
+  
+  - step_id: 10
+    name: wait_for_login_completion
+    description: "Wait for login to complete and main window to appear"
+    action: adaptive_wait
+    implementation:
+      method: polling
+      poll_interval: 5  # Check every 5 seconds after security popup
+      max_wait: 45  # Remaining time after security popup (~50s total - 5s security)
+      success_criteria:
+        - Main window title: "Wal*Mart Connexus"
+        - Main menu bar visible (File, Search, WorkQueue, Tools, Reports, Help)
+        - Status bar shows username (SVCRX1U)
+        - No login window visible
+      adaptive_logic: |
+        Start timer when Security Warning dismissed.
+        Poll every 5s for main window title change.
+        Record actual time when main window appears.
+        Total login time = security_popup_wait + this wait.
+        Update timing.login_submit_wait if actual differs by >5s.
+        Log timing observation to knowledge base.
+
+  - step_id: 11
+    name: verify_login_success
+    description: "Multi-point verification that login succeeded"
+    action: multi_element_verification
+    implementation:
+      method: windows_ui_automation
+      elements_to_verify:
+        - element_id: connexus_connexusstartpage_leftBarWorkQueueButtonList
+          # Note: automation_id may vary, use name-based matching
+          control_type: Text
+          fuzzy: true
+          fuzzy_threshold: 0.7
+          required: false
+          description: "Work queue icon on left sidebar (optional verification)"
+        - element_id: connexus_menubar_fileMenu
+          control_type: MenuItem
+          name: File
+          fuzzy: true
+          fuzzy_threshold: 0.7
+          required: true
+          description: "File menu in menu bar"
+        - element_id: connexus_menubar_search
+          control_type: MenuItem
+          name: Search
+          fuzzy: true
+          fuzzy_threshold: 0.7
+          required: true
+          description: "Search menu in menu bar"
+        - element_id: connexus_menubar_toolsButton
+          control_type: MenuItem
+          name: Tools
+          fuzzy: true
+          fuzzy_threshold: 0.7
+          required: true
+          description: "Tools menu in menu bar"
+      fallback_verification:
+        method: ocr
+        command: |
+          desktop_verify_text(expected_text="File", use_active_window=True, fuzzy=True, fuzzy_threshold=0.75)
+          desktop_verify_text(expected_text="Search", use_active_window=True, fuzzy=True, fuzzy_threshold=0.75)
+          desktop_verify_text(expected_text="WorkQueue", use_active_window=True, fuzzy=True, fuzzy_threshold=0.75)
+        notes: "OCR fallback for menu bar text detection"
+    verification:
+      success_criteria:
+        - At least 3 of 4 menu elements found (allow some variance)
+        - Work queue icon visible
+        - Login window no longer present
+      failure_action:
+        - Take screenshot for debugging
+        - Check for error dialogs ("Invalid credentials", "Login failed")
+        - Log element tree diff
+        - Prompt user: "Login verification failed. Check credentials and retry?"
+
+  - step_id: 12
+    name: clear_post_login_popups
+    description: "Clear all post-login popups (Warning!, POS Queue Warning, etc.)"
+    action: retry_loop
+    implementation:
+      method: keyboard
+      max_retries: "${timing.popup_max_retries}"
+      retry_interval: "${timing.popup_check_interval}"
+      loop_logic: |
+        for attempt in range(1, max_retries + 1):
+          # Check for Warning! dialog
+          warning_window = ui_list_windows()  # Check for "Warning !" title
+          if "Warning" in window_titles:
+            windows_focus_window(window_title="Warning")
+            desktop_sleep(0.3)
+            desktop_keyboard_press("enter")  # Dismiss popup
+            desktop_sleep(retry_interval)
+          else:
+            # No more popups, exit loop
+            break
+      
+      observed_sequence: |
+        Tested 2025-01-15, observed popup sequence:
+        1. Security Warning Message (appears ~5s after login submit)
+        2. Warning ! (popup #1)
+        3. Warning ! (popup #2)
+        Total: 3 popups cleared before main window accessible
+      fallback_detection:
+        method: ocr
+        command: |
+          result = desktop_find_text(search_text="OK", use_active_window=True, fuzzy=True, fuzzy_threshold=0.75)
+          if result.found:
+            desktop_keyboard_press("enter")
+            desktop_sleep(retry_interval)
+    verification:
+      success_criteria:
+        - No OK buttons visible
+        - No popup windows present
+        - Main interface is clean and accessible
+      failure_action:
+        - Log remaining popups to KB
+        - Take screenshot
+        - Prompt user: "Popups remain after ${max_retries} attempts. Manually close and continue?"
+
+success_criteria:
+  - Login completed successfully
+  - Main window visible and responsive
+  - All post-login popups cleared
+  - User can access work queue and menus
+
+output:
+  login_successful: true
+  actual_login_time: "${measured_time}"
+  popups_cleared_count: "${popup_count}"
+  ready_for_workflow: true
+
+fallback_strategy:
+  - If login fails: Check credentials, verify HOMEOFFICE checkbox state, retry
+  - If verification fails: Lower fuzzy_threshold to 0.6, retry element detection
+  - If popups persist: Prompt user to manually clear, then re-verify
+  - If old login screen detected: Use fallback automation_ids (txtUserName, BtnOk)
+
+error_handling:
+  - InvalidCredentialsError: "Verify username/password in configuration"
+  - LoginTimeoutError: "Increase login_submit_wait, check network/VPN"
+  - ElementNotFoundError: "Capture element tree, update locators, log to KB"
+  - CheckboxToggleError: "Verify chkHOUser element exists, try multiple Space presses"
+
+knowledge_base_logging:
+  - Log actual login time for adaptive timing
+  - Log popup count and types encountered
+  - Log any element locator changes or failures
+  - Log HOMEOFFICE checkbox behavior (toggle count, verification method)
+  - Update timing configuration if performance differs significantly
+  - Log any credential validation issues (non-sensitive info only)
+
+notes: |
+  This workflow assumes BootConnexus.yaml has completed successfully.
+  Login type (HOMEOFFICE vs TECHNICIAN/PHARMACIST) affects checkbox handling.
+  Store number field (txtStoreNum) is optional and not currently used.
+  Multi-point verification ensures login robustness across different RXPC configurations.
+  Popup handling is aggressive (7 retries) to ensure clean main window state.

@@ -703,7 +703,7 @@ def search_elements_smart(
     )
 
 
-def list_elements_in_window(compact: bool = True) -> ElementListResult:
+def list_elements_in_window(compact: bool = True, max_depth: int = 15) -> ElementListResult:
     """
     List all UI elements in active window.
 
@@ -712,6 +712,7 @@ def list_elements_in_window(compact: bool = True) -> ElementListResult:
     Args:
         compact: If True and >20 elements, return top 20 actionable elements.
                  If False, return all elements unfiltered.
+        max_depth: Maximum tree traversal depth (default: 15, can be increased for very deep UIs)
 
     Returns:
         ElementListResult with element tree
@@ -729,7 +730,7 @@ def list_elements_in_window(compact: bool = True) -> ElementListResult:
         by_type = {}
 
         def traverse(element, depth=0):
-            if depth > 5:  # Max depth to avoid recursion hell
+            if depth > max_depth:  # Configurable max depth (default 15, was 5)
                 return
 
             try:
@@ -825,6 +826,223 @@ def list_elements_in_window(compact: bool = True) -> ElementListResult:
         # Apply compaction if requested and >20 elements
         if compact and len(elements) > 20:
             compact_result = _compact_element_list_result(full_result, max_elements=20)
+            return compact_result
+
+        return full_result
+
+    except Exception as e:
+        return ElementListResult(success=False, error=str(e))
+
+
+def list_elements_in_application(
+    app_title_pattern: str | None = None,
+    process_name: str | None = None,
+    compact: bool = True,
+    max_elements: int = 50,
+    max_depth: int = 15,
+) -> ElementListResult:
+    """
+    List all UI elements across ALL windows of an application.
+
+    This function addresses multi-window applications like Connexus that spawn
+    separate windows for dialogs/subflows. Unlike list_elements_in_window() which
+    only captures the active window, this captures ALL windows belonging to the
+    target application and combines their element trees.
+
+    Args:
+        app_title_pattern: Regex pattern to match window titles (e.g., ".*Connexus.*")
+        process_name: Process name to filter by (e.g., "Connexus.exe")
+        compact: If True, return top N actionable elements across all windows
+        max_elements: Maximum elements to return when compact=True
+        max_depth: Maximum tree traversal depth (default: 15, can be increased for very deep UIs)
+
+    Returns:
+        ElementListResult with combined element tree from all windows.
+        Each element includes 'window_title' field to identify source window.
+
+    Examples:
+        # Get all elements from any Connexus window
+        >>> list_elements_in_application(app_title_pattern=".*Connexus.*")
+
+        # Get all elements from a specific process
+        >>> list_elements_in_application(process_name="Connexus.exe")
+
+    Use Cases:
+        - Multi-window applications (Connexus, Outlook, etc.)
+        - Finding elements across dialogs/popups
+        - Comprehensive app automation
+    """
+    monitor = get_monitor()
+
+    if not WINDOWS_AUTOMATION_AVAILABLE:
+        return ElementListResult(success=False, error=ERROR_WINDOWS_AUTOMATION_MISSING)
+
+    if not app_title_pattern and not process_name:
+        return ElementListResult(
+            success=False,
+            error="Must provide either app_title_pattern or process_name",
+        )
+
+    try:
+        from pywinauto import Desktop
+        import re
+
+        desktop = Desktop(backend="uia")
+        all_elements = []
+        all_by_type = {}
+        window_count = 0
+
+        # Get all top-level windows
+        all_windows = desktop.windows()
+
+        # Filter windows by criteria
+        matching_windows = []
+        for win in all_windows:
+            try:
+                window_title = win.window_text()
+                
+                if not window_title:  # Skip windows with no title
+                    continue
+                
+                # Match by title pattern
+                if app_title_pattern:
+                    if re.search(app_title_pattern, window_title, re.IGNORECASE):
+                        matching_windows.append((win, window_title))
+                        continue
+                
+                # Match by process name (TODO: implement process filtering)
+                # This would require getting process info from window
+                
+            except Exception:
+                continue
+
+        if not matching_windows:
+            return ElementListResult(
+                success=False,
+                error=f"No windows found matching pattern '{app_title_pattern}'",
+            )
+
+        # Traverse each matching window
+        def traverse(element, depth, window_title):
+            if depth > max_depth:  # Configurable depth limit
+                return []
+
+            elements_from_node = []
+
+            try:
+                info = element.element_info
+
+                # Get coordinates
+                try:
+                    rect = element.rectangle()
+                    x = rect.left
+                    y = rect.top
+                    width = rect.width()
+                    height = rect.height()
+                    center_x = rect.mid_point().x
+                    center_y = rect.mid_point().y
+                except Exception:
+                    x = y = width = height = center_x = center_y = None
+
+                # Get value property
+                value = None
+                try:
+                    if hasattr(element, "legacy_properties"):
+                        value = element.legacy_properties().get("Value")
+                    elif hasattr(element, "texts"):
+                        texts = element.texts()
+                        if texts:
+                            value = texts[0] if len(texts) > 0 else None
+                except Exception:
+                    pass
+
+                # Calculate area
+                area = (width * height) if (width and height) else 0
+
+                # Check visibility and enabled state
+                visible = True
+                enabled = True
+                try:
+                    if hasattr(element, "is_visible"):
+                        visible = element.is_visible()
+                    if hasattr(element, "is_enabled"):
+                        enabled = element.is_enabled()
+                except Exception:
+                    pass
+
+                elem_data = {
+                    "control_type": info.control_type,
+                    "title": info.name,
+                    "class_name": info.class_name,
+                    "auto_id": info.automation_id,
+                    "value": value,
+                    "depth": depth,
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                    "center_x": center_x,
+                    "center_y": center_y,
+                    "area": area,
+                    "visible": visible,
+                    "enabled": enabled,
+                    "window_title": window_title,  # NEW: Track source window
+                }
+
+                elements_from_node.append(elem_data)
+
+                # Group by type
+                elem_type = info.control_type
+                if elem_type not in all_by_type:
+                    all_by_type[elem_type] = []
+                all_by_type[elem_type].append(elem_data)
+
+                # Traverse children
+                for child in element.children():
+                    child_elements = traverse(child, depth + 1, window_title)
+                    elements_from_node.extend(child_elements)
+
+            except Exception:
+                pass
+
+            return elements_from_node
+
+        # Process each matching window
+        with monitor.measure("build_multi_window_tree"):
+            for window, window_title in matching_windows:
+                try:
+                    # window is already a UIAWrapper from desktop.windows()
+                    # Don't call wrapper_object() on it!
+                    window_elements = traverse(window, 0, window_title)
+                    all_elements.extend(window_elements)
+                    window_count += 1
+                except Exception:
+                    continue
+
+        # Build full result with window count in summary
+        summary_data = {
+            "window_count": window_count,
+            "total_elements": len(all_elements),
+            "element_types": len(all_by_type),
+        }
+        
+        full_result = ElementListResult(
+            success=True,
+            total_elements=len(all_elements),
+            elements=all_elements,
+            by_type=all_by_type,
+            types=list(all_by_type.keys()),
+            summary=summary_data,
+        )
+
+        # Apply compaction if requested
+        if compact and len(all_elements) > max_elements:
+            compact_result = _compact_element_list_result(
+                full_result, max_elements=max_elements
+            )
+            # Preserve window count in summary
+            if isinstance(compact_result.summary, dict):
+                compact_result.summary["window_count"] = window_count
             return compact_result
 
         return full_result

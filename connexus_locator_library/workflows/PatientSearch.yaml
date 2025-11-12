@@ -1,0 +1,233 @@
+# Workflow: Patient Search - Search for Existing Patient (Connexus)
+# Tier: Keyboard-only, UIA field validation
+# Platform: Windows
+# Last Updated: 2024-10-28
+# Status: Functional - verified end-to-end
+
+name: PatientSearch_SearchExisting_v2
+version: 2.0
+tested_date: 2024-10-28
+
+purpose: >
+  Search for an existing patient by Last Name and Date of Birth.
+  Returns search results showing matching patient records.
+
+assumptions:
+  - Connexus is running and logged in
+  - Main window title: "Wal*Mart Connexus"
+  - Patient exists in database (e.g., from PatientCreation workflow)
+
+hotkeys:
+  open_patient_search: ["ctrl", "shift", "p"]
+
+steps:
+  - focus_connexus:
+      window_title: "Wal*Mart Connexus"
+      wait_seconds: 0.5
+      note: "Focus main window only - do NOT refocus Search after opening"
+
+  - open_patient_search:
+      hotkey: ["ctrl", "shift", "p"]
+      wait_seconds: 0.5
+      window_appears: "Search"
+      note: "Search dialog opens with Name field preselected"
+
+  - fill_search_criteria:
+      # CRITICAL: Do NOT call focus functions after Search opens
+      # Name field is preselected - type immediately
+      
+      last_name:
+        field: "Last Name"
+        automation_id: "1001" # verified via windows_get_focused_element
+        value: "Testerson"
+        method: "type_immediately"
+        verify:
+          - windows_get_focused_element(pid=6988)
+          - name: "Name"
+          - control_type: "Edit"
+      
+      date_of_birth:
+        field: "DOB"
+        automation_id: "mtbDOB" # verified
+        value: "01021990" # format: MMDDYYYY
+        method: "tab_then_type"
+        display_format: "01/02/1990" # auto-formatted with slashes
+        verify:
+          - windows_get_focused_element(pid=6988)
+          - automation_id: "mtbDOB"
+          - value: "__/__/____" before typing
+      
+      timing:
+        - interval_between_keys: 0.02
+        - wait_after_tab: 0.1
+
+  - execute_search:
+      method: "enter_key"
+      action: "press_enter"
+      wait_seconds: 1.0
+      note: "Enter key triggers search from DOB field"
+      
+      search_trigger:
+        - "Enter key is default action in Search dialog"
+        - "No button click or mnemonic required"
+        - "Search executes immediately from any field"
+
+  - verify_results:
+      assertion: "At least one row matching search criteria OR zero rows if no match"
+      
+      verification_strategy:
+        preferred_methods:
+          - "Keyboard navigation: Tab to results table and check if rows are focusable"
+          - "UIA element inspection: Check for result row elements in Search window"
+          - "Window state: Results area becomes interactive after successful search"
+        
+        avoid_unless_necessary:
+          - "OCR: Only if UIA/keyboard methods fail"
+          - "VQA: Last resort only"
+      
+      keyboard_verification:
+        method: "tab_navigation"
+        steps:
+          - "From DOB field, press Tab multiple times"
+          - "If results exist: Focus moves to result row (can arrow up/down)"
+          - "If no results: Focus stays in search fields or moves to buttons"
+        
+        success_indicators:
+          - "Result row becomes keyboard-selectable"
+          - "Arrow keys navigate between result rows"
+          - "Enter or double-click opens selected patient record"
+        
+        no_results_indicators:
+          - "Tab cycles through search fields and buttons only"
+          - "No arrow key navigation available in results area"
+          - "Results table remains empty/inactive"
+      
+      uia_verification:
+        method: "windows_list_elements or ui_list_elements"
+        note: "Search window has known UIA attach issues - may fail intermittently"
+        fallback: "Use keyboard navigation as primary verification"
+        
+        if_uia_works:
+          - "Look for DataGrid or Table control_type in element tree"
+          - "Check if table has child row elements"
+          - "Count number of rows (0 = no results, 1+ = results found)"
+      
+      success_scenario:
+        expected_behavior:
+          - "Result row appears in table below search fields"
+          - "Result row contains: Name, DOB, Address, City, State, Phone"
+          - "Result row is keyboard-selectable (Tab to focus, arrows to navigate)"
+          - "Status bar shows '1 record(s) found' (or higher number)"
+        
+        example_result:
+          name: "TESTERSON, JOHN"
+          dob: "01/02/1990"
+          address: "123 MAIN STREET"
+          city: "BENTONVILLE"
+          state: "AR"
+          phone: ""
+        
+        next_actions:
+          - "Select result row (click or Tab + Enter)"
+          - "Press Enter or double-click to open Patient Maintenance"
+          - "Or press Alt+N to create new patient (if different result needed)"
+      
+      no_results_scenario:
+        expected_behavior:
+          - "Results table remains empty (only column headers visible)"
+          - "No rows are keyboard-selectable"
+          - "Status bar shows '0 record(s) found'"
+          - "New Search button available to retry"
+        
+        next_actions:
+          - "Modify search criteria (change name, DOB, or add phone/zip)"
+          - "Press Search Now again"
+          - "Or press New Search to clear fields and start over"
+      
+      tested_scenarios:
+        - scenario: "Search for existing patient (Testerson, 01/02/1990)"
+          result: "1 record found - TESTERSON, JOHN displayed in results"
+          verified: "2024-10-28"
+        
+        - scenario: "Search for non-existent patient (invalid criteria)"
+          result: "0 records found - empty results table"
+          verified: "2024-10-28"
+      
+      implementation_notes:
+        - "Keyboard navigation is most reliable verification method"
+        - "UIA element listing may fail due to known attach issues on Search dialog"
+        - "OCR/VQA should only be used if keyboard/UIA methods both fail"
+        - "Status bar text ('N record(s) found') is reliable but requires OCR if UIA unavailable"
+        - "Result row selection and navigation confirmed working via keyboard"
+
+# Field Automation IDs
+automation_ids:
+  search_dialog:
+    last_name: "1001" # labeled as "Name" in UIA
+    dob: "mtbDOB"
+    phone: "txtPatientPhone" # not used in this search workflow
+
+# Timing Observations
+timing:
+  search_open: 0.5 # Ctrl+Shift+P to Search window visible
+  search_execution: 1.0 # Enter to results displayed
+
+# Example Search Scenarios
+examples:
+  - scenario: "Search for newly created patient"
+    inputs:
+      last_name: "Testerson"
+      dob: "01021990"
+    expected_output:
+      records_found: 1
+      patient_name: "TESTERSON, JOHN"
+  
+  - scenario: "Search with partial name"
+    inputs:
+      last_name: "Tester"
+      dob: ""
+    expected_output:
+      records_found: "multiple (if database has variants)"
+  
+  - scenario: "No results"
+    inputs:
+      last_name: "NonExistent"
+      dob: "12121999"
+    expected_output:
+      records_found: 0
+      status_bar: "0 record(s) found."
+
+# Workflow Integration
+integration:
+  precondition_workflow: "PatientCreation_NewPatient_v2"
+  postcondition_actions:
+    - "Select patient from results (double-click or Enter)"
+    - "Open Patient Maintenance for editing"
+    - "Create new prescription for patient"
+    - "View patient history"
+
+# Troubleshooting
+troubleshooting:
+  no_results_found:
+    - "Verify patient exists in database"
+    - "Check spelling of Last Name"
+    - "Verify DOB format is MMDDYYYY"
+    - "Try search with Last Name only (omit DOB)"
+  
+  search_not_executing:
+    - "Ensure Enter key pressed from a filled field (DOB recommended)"
+    - "Verify Search dialog is focused (not terminal/shell)"
+    - "Check that at least one search field contains data"
+  
+  fields_not_filling:
+    - "Do NOT call desktop_focus_window after Search opens"
+    - "Name field is preselected - type immediately"
+    - "Use windows_get_focused_element(pid=6988) to verify field before typing"
+
+notes:
+  - "Successfully tested end-to-end: 2024-10-28"
+  - "Enter key is the simplest and most reliable search trigger"
+  - "No OCR required - pure keyboard workflow"
+  - "Field validation via windows_get_focused_element confirmed working"
+  - "Search executes in ~1 second with results displayed"
+  - "Integrates seamlessly with PatientCreation workflow for verification"
