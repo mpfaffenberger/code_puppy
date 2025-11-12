@@ -55,8 +55,6 @@ from code_puppy.tools.browser.browser_workflows import (
     register_read_workflow,
     register_save_workflow,
 )
-
-
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -72,107 +70,25 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
-from code_puppy.tools.tool_metadata import (
-    ToolMetadata,
-    CATEGORY_AGENT,
-    CATEGORY_FILE_OPS,
-    CATEGORY_COMMAND,
-    CATEGORY_COMMUNICATION,
-)
 
 # Import GUI-Cub tools from separate registry to minimize diff noise
 from code_puppy.tools.registry.gui_cub import GUI_CUB_TOOLS
 
-# Map of tool names to their metadata and registration functions
-# New format: Each entry can be either:
-#   - A bare function (old format, backward compatible)
-#   - A ToolMetadata dict with 'register' function + metadata
-TOOL_REGISTRY: dict[str, ToolMetadata] = {
+# Map of tool names to their individual registration functions
+TOOL_REGISTRY = {
     # Agent Tools
-    "list_agents": {
-        "register": register_list_agents,
-        "category": CATEGORY_AGENT,
-        "description": "List all available sub-agents that can be invoked",
-        "keywords": ["agent", "list", "sub-agent", "available"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["discover available agents", "check agent capabilities"],
-    },
-    "invoke_agent": {
-        "register": register_invoke_agent,
-        "category": CATEGORY_AGENT,
-        "description": "Invoke a specific sub-agent with a prompt",
-        "keywords": ["agent", "invoke", "delegate", "sub-agent"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["delegate tasks to specialized agents", "multi-agent workflows"],
-    },
+    "list_agents": register_list_agents,
+    "invoke_agent": register_invoke_agent,
     # File Operations
-    "list_files": {
-        "register": register_list_files,
-        "category": CATEGORY_FILE_OPS,
-        "description": "List files and directories with filtering",
-        "keywords": ["file", "directory", "list", "browse"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["explore directory structures", "find files"],
-    },
-    "read_file": {
-        "register": register_read_file,
-        "category": CATEGORY_FILE_OPS,
-        "description": "Read file contents with optional line-range selection",
-        "keywords": ["file", "read", "content", "view"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["read code files", "inspect file contents"],
-    },
-    "grep": {
-        "register": register_grep,
-        "category": CATEGORY_FILE_OPS,
-        "description": "Recursively search for text patterns across files",
-        "keywords": ["search", "grep", "find", "pattern", "text"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["search code", "find text in files"],
-    },
+    "list_files": register_list_files,
+    "read_file": register_read_file,
+    "grep": register_grep,
     # File Modifications
-    "edit_file": {
-        "register": register_edit_file,
-        "category": CATEGORY_FILE_OPS,
-        "description": "Comprehensive file editing (create, replace, delete snippets)",
-        "keywords": ["edit", "write", "modify", "file", "create"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["modify code", "create files", "update configuration"],
-    },
-    "delete_file": {
-        "register": register_delete_file,
-        "category": CATEGORY_FILE_OPS,
-        "description": "Safely delete files with diff generation",
-        "keywords": ["delete", "remove", "file"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["remove files", "clean up"],
-    },
+    "edit_file": register_edit_file,
+    "delete_file": register_delete_file,
     # Command Runner
-    "agent_run_shell_command": {
-        "register": register_agent_run_shell_command,
-        "category": CATEGORY_COMMAND,
-        "description": "Execute shell commands with streaming output",
-        "keywords": ["command", "shell", "terminal", "execute", "run"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["run scripts", "execute commands", "build projects"],
-    },
-    "agent_share_your_reasoning": {
-        "register": register_agent_share_your_reasoning,
-        "category": CATEGORY_COMMUNICATION,
-        "description": "Share reasoning and planned next steps with user",
-        "keywords": ["reasoning", "explain", "communicate", "transparency"],
-        "platform": "all",
-        "requires_typing": False,
-        "use_cases": ["explain thought process", "show planning"],
-    },
+    "agent_run_shell_command": register_agent_run_shell_command,
+    "agent_share_your_reasoning": register_agent_share_your_reasoning,
     # Browser Control
     "browser_initialize": register_initialize_browser,
     "browser_close": register_close_browser,
@@ -236,17 +152,24 @@ def register_tools_for_agent(agent, tool_names: list[str]):
         agent: The agent to register tools to.
         tool_names: List of tool names to register.
     """
-    from code_puppy.tools.tool_metadata import get_tool_register
-
     for tool_name in tool_names:
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
             continue
 
-        # Register the individual tool (supports both old and new format)
-        tool_entry = TOOL_REGISTRY[tool_name]
-        register_func = get_tool_register(tool_entry)
+        # Get the registry entry (can be function or dict with metadata)
+        registry_entry = TOOL_REGISTRY[tool_name]
+        
+        # Handle both formats: dict with metadata or direct function reference
+        if isinstance(registry_entry, dict):
+            # New format: {"register": func, "category": ..., "description": ...}
+            register_func = registry_entry["register"]
+        else:
+            # Old format: direct function reference (backward compatibility)
+            register_func = registry_entry
+        
+        # Register the tool
         register_func(agent)
 
 
@@ -267,80 +190,3 @@ def get_available_tool_names() -> list[str]:
         List of all tool names that can be registered.
     """
     return list(TOOL_REGISTRY.keys())
-
-
-def get_tool_info(query: str | None = None) -> str:
-    """Get one-liner information about available tools.
-
-    Single global function for agent-builder to discover tools.
-    Returns formatted tool information based on query.
-
-    Args:
-        query: Optional search query (keywords, intent, category name).
-               If None, returns all tools grouped by category.
-
-    Returns:
-        Formatted string with tool information (one-liners).
-
-    Examples:
-        >>> get_tool_info()  # All tools by category
-        >>> get_tool_info("click")  # Tools matching "click"
-        >>> get_tool_info("Desktop Automation")  # Category
-    """
-    from code_puppy.tools.tool_discovery import (
-        suggest_tools,
-        get_tools_by_category,
-    )
-    from code_puppy.tools.tool_metadata import get_tool_metadata
-
-    # If query provided, search for relevant tools
-    if query:
-        # Check if it's a category name
-        category_tools = get_tools_by_category(TOOL_REGISTRY, query)
-        if category_tools:
-            # It's a category
-            lines = [f"### {query}\n"]
-            for name in sorted(category_tools):
-                metadata = get_tool_metadata(TOOL_REGISTRY[name])
-                desc = metadata.get("description", "No description")
-                platform = metadata.get("platform", "all")
-                platform_tag = f" [{platform.upper()}]" if platform != "all" else ""
-                lines.append(f"- {name}: {desc}{platform_tag}")
-            return "\n".join(lines)
-
-        # Not a category - use intent-based search
-        suggestions = suggest_tools(TOOL_REGISTRY, query)
-        if suggestions:
-            lines = [f"### Tools matching '{query}'\n"]
-            # Show only tools with metadata (representative tools)
-            for name in sorted(suggestions):
-                metadata = get_tool_metadata(TOOL_REGISTRY[name])
-                if "description" in metadata:  # Only show if it has metadata
-                    desc = metadata.get("description", "No description")
-                    platform = metadata.get("platform", "all")
-                    platform_tag = f" [{platform.upper()}]" if platform != "all" else ""
-                    lines.append(f"- {name}: {desc}{platform_tag}")
-            return "\n".join(lines) if len(lines) > 1 else "No tools found."
-
-        return "No tools found."
-
-    # No query - return all tools grouped by category
-    categories = {}
-    for name, entry in TOOL_REGISTRY.items():
-        metadata = get_tool_metadata(entry)
-        category = metadata.get("category")
-        if category:  # Only show tools with metadata
-            if category not in categories:
-                categories[category] = []
-            categories[category].append((name, metadata))
-
-    lines = []
-    for category in sorted(categories.keys()):
-        lines.append(f"\n### {category}\n")
-        for name, metadata in sorted(categories[category], key=lambda x: x[0]):
-            desc = metadata.get("description", "No description")
-            platform = metadata.get("platform", "all")
-            platform_tag = f" [{platform.upper()}]" if platform != "all" else ""
-            lines.append(f"- {name}: {desc}{platform_tag}")
-
-    return "\n".join(lines)

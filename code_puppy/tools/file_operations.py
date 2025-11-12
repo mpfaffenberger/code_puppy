@@ -576,7 +576,6 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
         cmd.extend(["--ignore-file", ignore_file])
         cmd.extend([search_string, directory])
-
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
         # Parse the JSON output from ripgrep

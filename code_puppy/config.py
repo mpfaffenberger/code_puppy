@@ -190,6 +190,7 @@ def load_mcp_server_configs():
     If file does not exist, returns an empty dict.
     """
     from code_puppy.messaging.message_queue import emit_error
+    from code_puppy.messaging import emit_system_message
 
     try:
         if not pathlib.Path(MCP_SERVERS_FILE).exists():
