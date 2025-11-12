@@ -393,13 +393,21 @@ content = workflow["content"]
    - **Why:** See what buttons, text fields, and other elements are available BEFORE attempting to click
    - **Token efficient:** Element trees are compact structured data vs verbose OCR output
    - **Example:** `elements = ui_list_elements()` returns list of all clickable elements with their properties
-6b. **Use element tree info to inform your interaction strategy:**
+6b. **Search element tree for text BEFORE using OCR:**
+   - **🚨 CRITICAL:** After listing elements, use `windows_search_text_in_elements(search_text="...")` to search for text
+   - **Why:** Text in element tree (titles, labels, values) is MORE RELIABLE than OCR
+   - **Token efficient:** Element tree search is ~100-300 tokens vs OCR ~500-2000 tokens
+   - **Example:** After `windows_list_elements()`, call `windows_search_text_in_elements(search_text="180")` to find Calculator result
+   - Only if text NOT FOUND in element tree, then fall back to OCR
+6c. **Use element tree info to inform your interaction strategy:**
+   - If element found via `windows_search_text_in_elements()`, use its coordinates directly (Tier 2)
    - If element has `automation_id` or `title`, use accessibility API (Tier 2)
-   - If element has no labels, fall back to OCR (Tier 3)
+   - If element has no labels AND not searchable, fall back to OCR (Tier 3)
    - If element is visual-only (icon, image), use VQA (Tier 4)
    - **This saves time:** You'll know which tool to use before trying multiple approaches
-6c. **Only use OCR/VQA if element tree is insufficient or unavailable:**
+6d. **Only use OCR/VQA if element tree is insufficient or unavailable:**
    - Element tree empty? Try OCR to find text coordinates
+   - Text not found via `windows_search_text_in_elements()`? Then use OCR
    - Custom UI framework with no accessibility? Use VQA
    - **Don't default to OCR** - it's verbose and token-expensive compared to element trees
 
@@ -500,13 +508,49 @@ content = workflow["content"]
 
 **When you need to verify a window is open, an action succeeded, or UI state changed:**
 
+**🚨 CRITICAL RULE: Don't Call OCR After Getting Element Tree Data!**
+
+If you ALREADY called `ui_list_elements()` or `windows_list_interactive_elements()` and received element data:
+- ❌ **DO NOT** immediately call `desktop_find_text()` or `desktop_extract_text()` to search for text
+- ✅ **DO** use `windows_search_elements(search_query="...")` to search the element tree FIRST
+- **Example of WRONG behavior:**
+  ```python
+  elements = windows_list_interactive_elements()  # Got 20 interactive elements
+  result = desktop_find_text("180")    # ❌ WRONG - search element tree first!
+  ```
+- **Example of CORRECT behavior:**
+  ```python
+  # ✅ CORRECT - use smart search directly
+  result = windows_search_elements(search_query="180")
+  if result.found:
+      # Found in element tree! No OCR needed.
+      click(result.best_match.center_x, result.best_match.center_y)
+  else:
+      # Not in element tree - NOW use OCR as fallback
+      ocr_result = desktop_find_text("180")
+  ```
+- **Only call OCR after element tree if:**
+  - `windows_search_elements()` did NOT find the text
+  - Element tree was EMPTY or had no useful data
+  - You need to read dynamic text content that's not in element properties
+
 **Tier 1 - Element Tree Exploration (PREFERRED, LIGHTWEIGHT)**
 - **Most token-efficient:** Element trees return compact structured data (~100-500 tokens)
-- Use `ui_list_elements()` or `windows_list_elements()` to check what UI elements exist
+- **Use `windows_search_elements(search_query="...")` when looking for specific text/values**
+  - Searches ALL elements with intelligent ranking
+  - Perfect for: Calculator results, button labels, field names
+  - Example: `windows_search_elements(search_query="180")` to find Calculator result
+  - Example: `windows_search_elements(search_query="Submit", element_types=["Button"])` to find Submit button
+- **Use `windows_list_interactive_elements()` when exploring clickable elements**
+  - Returns top 20 buttons/fields/menus (compacted, actionable)
+  - Perfect for: Building workflows, finding what's clickable
+  - Example: `windows_list_interactive_elements(max_elements=50)` for more results
+- **Use `windows_list_all_elements()` ONLY for debugging**
+  - Returns ALL elements unfiltered (can be 100+ elements, verbose)
+  - Use when search fails and you need to understand why
 - Use `ui_list_windows()` to verify a window is present and focused
-- **Perfect for:** Confirming window opened, checking if button exists, verifying element state
-- **Example:** After `windows_click_taskbar_app("Calculator")`, use `ui_list_windows()` to verify it's open
-- **When NOT to use:** When you need to find exact text coordinates for clicking
+- **Example workflow:** After opening Calculator, use `windows_search_elements(search_query="30")` to find result
+- **When NOT to use:** When text is genuinely not in element tree (verified by search returning not found)
 
 **Tier 2 - Simple Screenshot Review**
 - Take screenshot and visually inspect (manual verification)

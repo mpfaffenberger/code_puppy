@@ -46,6 +46,7 @@ from .core import (
     get_focused_element_by_pid,
     list_elements_in_window,
     list_windows,
+    search_elements_smart,
 )
 
 
@@ -243,6 +244,9 @@ def register_windows_tools(agent):
         """
         List all UI elements in the active window.
 
+        ⚠️ DEPRECATED: Use windows_list_interactive_elements(), windows_search_elements(),
+        or windows_list_all_elements() instead for better control.
+
         Returns:
             ElementListResult with element tree and statistics
 
@@ -257,12 +261,18 @@ def register_windows_tools(agent):
             )
 
         group_id = generate_group_id("windows_list_elements", "all")
+        emit_warning(
+            "[yellow]⚠️ windows_list_elements() is deprecated. "
+            "Use windows_list_interactive_elements(), windows_search_elements(), "
+            "or windows_list_all_elements() instead.[/yellow]",
+            message_group=group_id,
+        )
         emit_info(
             "[bold white on blue] WINDOWS LIST ELEMENTS [/bold white on blue] 📋",
             message_group=group_id,
         )
 
-        result = list_elements_in_window()
+        result = list_elements_in_window(compact=True)
 
         if result.success:
             emit_info(
@@ -271,6 +281,254 @@ def register_windows_tools(agent):
             )
 
         return result
+
+    @agent.tool
+    def windows_list_interactive_elements(
+        context: RunContext,
+        max_elements: int = 20,
+    ) -> ElementListResult:
+        """
+        List interactive UI elements (buttons, fields, menus) in the active window.
+
+        Optimized for finding clickable/typeable elements. Automatically filters
+        out static text, labels, and other non-interactive elements.
+
+        Args:
+            max_elements: Maximum elements to return (default: 20)
+
+        Returns:
+            ElementListResult with interactive elements sorted by relevance
+
+        Examples:
+            - windows_list_interactive_elements()  # Get top 20 buttons/fields
+            - windows_list_interactive_elements(max_elements=50)  # More results
+
+        Use Cases:
+            - Exploring available buttons and fields for interaction
+            - Building automation workflows
+            - Finding what's clickable in the UI
+
+        Note: Windows only. Requires pywinauto.
+        """
+        if not WINDOWS_AUTOMATION_AVAILABLE:
+            return ElementListResult(
+                success=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
+            )
+
+        group_id = generate_group_id("windows_list_interactive", str(max_elements))
+        emit_info(
+            f"[bold white on blue] WINDOWS LIST INTERACTIVE ELEMENTS [/bold white on blue] 🔘 (max={max_elements})",
+            message_group=group_id,
+        )
+
+        # Get compacted list of interactive elements
+        result = list_elements_in_window(compact=True)
+
+        # Further limit if max_elements is less than default 20
+        if result.success and result.elements and len(result.elements) > max_elements:
+            # Use compaction logic again with custom max
+            from ..accessibility.element_list import _compact_element_list_result
+
+            result = _compact_element_list_result(result, max_elements=max_elements)
+
+        if result.success:
+            emit_info(
+                f"[green]Found {len(result.elements or [])} interactive elements ({result.total_elements} total)[/green]",
+                message_group=group_id,
+            )
+
+        return result
+
+    @agent.tool
+    def windows_search_elements(
+        context: RunContext,
+        search_query: str,
+        fuzzy: bool = True,
+        fuzzy_threshold: float = 0.6,
+        max_results: int = 10,
+        element_types: list[str] | None = None,
+    ) -> ElementSearchResult:
+        """
+        Search for elements matching a query across ALL elements in the window.
+
+        Uses intelligent ranking that considers:
+        - Fuzzy text matching against title, auto_id, value, class_name
+        - Element type relevance to query
+        - Visual prominence (size, position)
+        - Accessibility properties
+
+        Args:
+            search_query: Text to search for (e.g., "Submit", "30", "Display")
+            fuzzy: Enable fuzzy matching (default: True)
+            fuzzy_threshold: Minimum similarity score 0.0-1.0 (default: 0.6)
+            max_results: Maximum matches to return (default: 10)
+            element_types: Optional filter by control types (e.g., ["Button", "Text"])
+
+        Returns:
+            ElementSearchResult with matches sorted by relevance score
+
+        Examples:
+            - windows_search_elements(search_query="Submit")  # Find Submit button
+            - windows_search_elements(search_query="30", element_types=["Text", "Edit"])  # Find Calculator result
+            - windows_search_elements(search_query="OK", fuzzy=False)  # Exact match only
+
+        Use Cases:
+            - Finding Calculator display value: search_query="30"
+            - Finding button by label: search_query="Submit"
+            - Finding text field by name: search_query="Username"
+            - Debugging: search_query="Display", max_results=50
+
+        Note: Windows only. Requires pywinauto.
+        """
+        if not WINDOWS_AUTOMATION_AVAILABLE:
+            return ElementSearchResult(
+                success=False, found=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
+            )
+
+        group_id = generate_group_id("windows_search_elements", search_query)
+        emit_info(
+            f"[bold white on blue] WINDOWS SEARCH ELEMENTS [/bold white on blue] 🔍 '{search_query}' (fuzzy={fuzzy})",
+            message_group=group_id,
+        )
+
+        result = search_elements_smart(
+            search_query=search_query,
+            fuzzy=fuzzy,
+            fuzzy_threshold=fuzzy_threshold,
+            max_results=max_results,
+            element_types=element_types,
+        )
+
+        if result.found and result.best_match:
+            emit_info(
+                f"[green]✅ Found '{search_query}': {result.best_match.title or result.best_match.control_type} "
+                f"at ({result.best_match.center_x}, {result.best_match.center_y}) "
+                f"confidence={result.best_match.confidence:.1%}[/green]",
+                message_group=group_id,
+            )
+        else:
+            emit_info(
+                f"[yellow]No elements matching '{search_query}' found[/yellow]",
+                message_group=group_id,
+            )
+
+        return result
+
+    @agent.tool
+    def windows_list_all_elements(
+        context: RunContext,
+        max_depth: int = 10,
+        include_invisible: bool = False,
+    ) -> ElementListResult:
+        """
+        List ALL UI elements in the active window without filtering.
+
+        ⚠️ WARNING: Can return 100+ elements. Use for debugging only.
+        For normal automation, use windows_list_interactive_elements() or
+        windows_search_elements() instead.
+
+        Args:
+            max_depth: Maximum tree traversal depth (default: 10, ignored for now)
+            include_invisible: Include hidden/disabled elements (default: False, ignored for now)
+
+        Returns:
+            ElementListResult with complete unfiltered element tree
+
+        Examples:
+            - windows_list_all_elements()  # Get everything
+            - windows_list_all_elements(max_depth=5)  # Shallower traversal
+            - windows_list_all_elements(include_invisible=True)  # Include hidden
+
+        Use Cases:
+            - Debugging why search failed
+            - Understanding application structure
+            - Finding obscure UI elements
+
+        Note: Windows only. Requires pywinauto.
+        """
+        if not WINDOWS_AUTOMATION_AVAILABLE:
+            return ElementListResult(
+                success=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
+            )
+
+        group_id = generate_group_id("windows_list_all", "all")
+        emit_warning(
+            "[yellow]⚠️ Getting ALL elements (no filtering). This can be verbose![/yellow]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[bold white on blue] WINDOWS LIST ALL ELEMENTS [/bold white on blue] 📋",
+            message_group=group_id,
+        )
+
+        # Get all elements without compaction
+        result = list_elements_in_window(compact=False)
+
+        if result.success:
+            emit_info(
+                f"[green]Found {result.total_elements} elements across {len(result.types or [])} types[/green]",
+                message_group=group_id,
+            )
+
+        return result
+
+    @agent.tool
+    def windows_search_text_in_elements(
+        context: RunContext,
+        search_text: str,
+        fuzzy: bool = False,
+        fuzzy_threshold: float = 0.7,
+    ) -> ElementSearchResult:
+        """
+        Search for text in the element tree of the active window.
+
+        **IMPORTANT: Use this BEFORE OCR to find text!**
+        This searches through UI element titles/names/VALUES in the accessibility tree,
+        which is faster, more reliable, and more token-efficient than OCR.
+
+        **UPGRADED:** Now delegates to windows_search_elements() which uses intelligent
+        ranking to find the best matches!
+
+        **FIXED CALCULATOR QUIRK:** Searches the VALUE property! This fixes the
+        issue where Calculator display text (e.g., "153") is stored in value property
+        of Text/Edit controls, not in title or auto_id. Previously required OCR fallback.
+
+        Args:
+            search_text: Text to search for in element titles/names/values
+            fuzzy: Enable fuzzy matching (default: False)
+            fuzzy_threshold: Minimum similarity score for fuzzy matching (default: 0.7)
+
+        Returns:
+            ElementSearchResult with matching elements and their coordinates
+
+        Examples:
+            - windows_search_text_in_elements(search_text="Submit")
+            - windows_search_text_in_elements(search_text="180")  # Find Calculator result (now works!)
+            - windows_search_text_in_elements(search_text="OK", fuzzy=True)
+
+        Use Cases:
+            - Find button/text by label ("Submit", "Cancel", "OK")
+            - ✅ Verify calculation results in Calculator ("180", "42") - NOW WORKS!
+            - Locate form fields by name
+            - Find menu items by title
+            - Read text field values
+
+        **Workflow:**
+        1. Call windows_list_elements() to get element tree
+        2. Call windows_search_text_in_elements() to find specific text
+        3. If not found, THEN fall back to OCR (desktop_find_text)
+
+        Note: Windows only. Requires pywinauto.
+        Note: Consider using windows_search_elements() directly for more control.
+        """
+        # Delegate to the new smart search function
+        return windows_search_elements(
+            context=context,
+            search_query=search_text,
+            fuzzy=fuzzy,
+            fuzzy_threshold=fuzzy_threshold,
+            max_results=10,
+        )
 
     @agent.tool
     def windows_list_windows(

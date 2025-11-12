@@ -505,11 +505,213 @@ def click_element(
     return ElementClickResult(success=False, error="Could not click element")
 
 
-def list_elements_in_window() -> ElementListResult:
+def rank_element_by_query(
+    element: dict,
+    query: str,
+    fuzzy: bool = True,
+    threshold: float = 0.6,
+) -> float:
+    """
+    Calculate relevance score for an element given a search query.
+
+    Uses intelligent ranking that considers:
+    - Text match score (70% weight) - exact/fuzzy/substring matching
+    - Element type relevance (20% weight) - boost appropriate types
+    - Visual prominence (10% weight) - size and position
+
+    Args:
+        element: Element dictionary with title, value, auto_id, etc.
+        query: Search query string
+        fuzzy: Enable fuzzy matching
+        threshold: Minimum similarity score for fuzzy matches
+
+    Returns:
+        Score from 0.0 to 1.0 (higher = more relevant)
+    """
+    query_lower = query.lower().strip()
+
+    # 1. TEXT MATCH SCORE (70% weight)
+    text_score = 0.0
+
+    # Check value property (highest priority for Calculator, text fields)
+    value = (element.get("value") or "").lower().strip()
+    if query_lower == value:  # Exact match
+        text_score = 1.0
+    elif query_lower in value:  # Substring match
+        text_score = 0.8
+    elif fuzzy and value:
+        try:
+            from rapidfuzz import fuzz
+
+            text_score = max(text_score, fuzz.ratio(query_lower, value) / 100.0)
+        except ImportError:
+            pass
+
+    # Check title/name
+    title = (element.get("title") or "").lower().strip()
+    if not text_score:  # Only check if value didn't match
+        if query_lower == title:
+            text_score = 1.0
+        elif query_lower in title:
+            text_score = 0.8
+        elif fuzzy and title:
+            try:
+                from rapidfuzz import fuzz
+
+                text_score = max(text_score, fuzz.ratio(query_lower, title) / 100.0)
+            except ImportError:
+                pass
+
+    # Check auto_id
+    auto_id = (element.get("auto_id") or "").lower().strip()
+    if text_score < 0.8:  # Only check if we don't have a good match yet
+        if query_lower in auto_id:
+            text_score = max(text_score, 0.6)
+        elif fuzzy and auto_id:
+            try:
+                from rapidfuzz import fuzz
+
+                text_score = max(
+                    text_score, fuzz.ratio(query_lower, auto_id) / 100.0 * 0.7
+                )
+            except ImportError:
+                pass
+
+    # If no match, return 0
+    if text_score < threshold:
+        return 0.0
+
+    # 2. ELEMENT TYPE RELEVANCE (20% weight)
+    type_score = 0.5  # Baseline
+    control_type = element.get("control_type", "")
+
+    # Boost Text/Edit for numeric/value queries
+    if query.strip().replace(".", "").replace("-", "").isdigit():
+        if control_type in ["Text", "Edit"]:
+            type_score = 1.0
+    # Boost Button for action words
+    elif any(
+        word in query_lower
+        for word in ["submit", "ok", "cancel", "close", "save", "delete"]
+    ):
+        if control_type == "Button":
+            type_score = 1.0
+
+    # 3. VISUAL PROMINENCE (10% weight)
+    prominence_score = 0.5  # Baseline
+    area = element.get("area", 0)
+    if area > 10000:  # Large element
+        prominence_score = 0.8
+    elif area > 5000:  # Medium element
+        prominence_score = 0.6
+
+    # Near top-left is slightly more prominent
+    x = element.get("x", 1000)
+    y = element.get("y", 1000)
+    if x < 200 and y < 200:
+        prominence_score = min(1.0, prominence_score + 0.2)
+
+    # COMBINED SCORE
+    final_score = text_score * 0.7 + type_score * 0.2 + prominence_score * 0.1
+
+    return final_score
+
+
+def search_elements_smart(
+    search_query: str,
+    fuzzy: bool = True,
+    fuzzy_threshold: float = 0.6,
+    max_results: int = 10,
+    element_types: list[str] | None = None,
+) -> ElementSearchResult:
+    """
+    Search for elements matching a query using intelligent ranking.
+
+    Searches ALL elements (no compaction), ranks by relevance to query.
+
+    Args:
+        search_query: Text to search for
+        fuzzy: Enable fuzzy matching
+        fuzzy_threshold: Minimum similarity score
+        max_results: Maximum matches to return
+        element_types: Optional filter by control types
+
+    Returns:
+        ElementSearchResult with ranked matches
+    """
+    if not WINDOWS_AUTOMATION_AVAILABLE:
+        return ElementSearchResult(
+            success=False, found=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
+        )
+
+    # Get ALL elements without compaction
+    elements_result = list_elements_in_window(compact=False)
+    if not elements_result.success or not elements_result.elements:
+        return ElementSearchResult(
+            success=False,
+            found=False,
+            error="Could not retrieve element tree",
+        )
+
+    # Filter by element_types if specified
+    elements_to_search = elements_result.elements
+    if element_types:
+        elements_to_search = [
+            e for e in elements_to_search if e.get("control_type") in element_types
+        ]
+
+    # Rank all elements by query relevance
+    scored_elements = []
+    for element in elements_to_search:
+        score = rank_element_by_query(
+            element, search_query, fuzzy=fuzzy, threshold=fuzzy_threshold
+        )
+        if score > 0:
+            # Create ElementInfo with score as confidence
+            elem_info = ElementInfo(
+                title=element.get("title"),
+                control_type=element.get("control_type"),
+                class_name=element.get("class_name"),
+                auto_id=element.get("auto_id"),
+                center_x=element.get("center_x"),
+                center_y=element.get("center_y"),
+                x=element.get("x"),
+                y=element.get("y"),
+                width=element.get("width"),
+                height=element.get("height"),
+                confidence=score,
+            )
+            scored_elements.append(elem_info)
+
+    if not scored_elements:
+        return ElementSearchResult(
+            success=True,
+            found=False,
+            error=f"No elements matching '{search_query}' found",
+        )
+
+    # Sort by score (highest first) and limit results
+    scored_elements.sort(key=lambda x: x.confidence or 0.0, reverse=True)
+    top_matches = scored_elements[:max_results]
+
+    return ElementSearchResult(
+        success=True,
+        found=True,
+        matches=top_matches,
+        best_match=top_matches[0],
+        count=len(top_matches),
+    )
+
+
+def list_elements_in_window(compact: bool = True) -> ElementListResult:
     """
     List all UI elements in active window.
 
     OPTIMIZED: Now includes performance monitoring.
+
+    Args:
+        compact: If True and >20 elements, return top 20 actionable elements.
+                 If False, return all elements unfiltered.
 
     Returns:
         ElementListResult with element tree
@@ -546,11 +748,41 @@ def list_elements_in_window() -> ElementListResult:
                     # Fallback if coordinates unavailable
                     x = y = width = height = center_x = center_y = None
 
+                # Try to get value property for controls like Text/Edit (Calculator display, etc.)
+                value = None
+                try:
+                    # Some controls have a Value pattern that contains their actual content
+                    # This is critical for Calculator display, text fields, etc.
+                    if hasattr(element, "legacy_properties"):
+                        value = element.legacy_properties().get("Value")
+                    elif hasattr(element, "texts"):
+                        texts = element.texts()
+                        if texts:
+                            value = texts[0] if len(texts) > 0 else None
+                except Exception:
+                    # Value not available for this element type
+                    pass
+
+                # Calculate area for ranking
+                area = (width * height) if (width and height) else 0
+
+                # Check visibility and enabled state
+                visible = True
+                enabled = True
+                try:
+                    if hasattr(element, "is_visible"):
+                        visible = element.is_visible()
+                    if hasattr(element, "is_enabled"):
+                        enabled = element.is_enabled()
+                except Exception:
+                    pass
+
                 elem_data = {
                     "control_type": info.control_type,
                     "title": info.name,
                     "class_name": info.class_name,
                     "auto_id": info.automation_id,
+                    "value": value,  # NEW: Capture value property for text displays
                     "depth": depth,
                     "x": x,
                     "y": y,
@@ -558,6 +790,9 @@ def list_elements_in_window() -> ElementListResult:
                     "height": height,
                     "center_x": center_x,
                     "center_y": center_y,
+                    "area": area,  # For prominence ranking
+                    "visible": visible,
+                    "enabled": enabled,
                 }
 
                 elements.append(elem_data)
@@ -587,8 +822,8 @@ def list_elements_in_window() -> ElementListResult:
             types=list(by_type.keys()),
         )
 
-        # Apply compaction like macOS does (return top 20 actionable elements)
-        if len(elements) > 20:
+        # Apply compaction if requested and >20 elements
+        if compact and len(elements) > 20:
             compact_result = _compact_element_list_result(full_result, max_elements=20)
             return compact_result
 
@@ -596,6 +831,261 @@ def list_elements_in_window() -> ElementListResult:
 
     except Exception as e:
         return ElementListResult(success=False, error=str(e))
+
+
+def search_text_in_elements(
+    search_text: str,
+    fuzzy: bool = False,
+    fuzzy_threshold: float = 0.7,
+) -> ElementSearchResult:
+    """
+    Search for text in the element tree of the active window.
+
+    This searches through all UI elements' titles/names AND VALUE properties
+    to find text matches BEFORE falling back to OCR. More efficient and reliable
+    than OCR for finding text that exists in accessibility tree.
+
+    **FIXED QUIRK:** Now searches the VALUE property in addition to title/auto_id.
+    This fixes the Calculator display issue where result text (e.g., "153") is
+    stored in the value property of Text/Edit controls, not in title or auto_id.
+    See error.log for full details on this quirk.
+
+    Args:
+        search_text: Text to search for in element titles/names/values
+        fuzzy: Enable fuzzy matching (uses rapidfuzz)
+        fuzzy_threshold: Minimum similarity score (default: 0.7)
+
+    Returns:
+        ElementSearchResult with matching elements
+
+    Example:
+        # Search for "180" in Calculator result display
+        # Now finds it in the value property!
+        result = search_text_in_elements(search_text="180")
+        if result.found:
+            # Found in element tree - no OCR needed!
+            click(result.best_match.center_x, result.best_match.center_y)
+    """
+    if not WINDOWS_AUTOMATION_AVAILABLE:
+        return ElementSearchResult(
+            success=False, found=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
+        )
+
+    # First, get all elements in the window (NO COMPACTION - search all elements)
+    elements_result = list_elements_in_window(compact=False)
+    if not elements_result.success or not elements_result.elements:
+        return ElementSearchResult(
+            success=False,
+            found=False,
+            error="Could not retrieve element tree",
+        )
+
+    # Search through elements for matching text
+    matches = []
+    search_lower = search_text.lower().strip()
+
+    for element in elements_result.elements:
+        title = element.get("title") or ""
+        auto_id = element.get("auto_id") or ""
+        value = element.get("value") or ""  # NEW: Also search value property
+
+        # Check title, auto_id, AND value for matches
+        # This fixes the Calculator quirk where display text is in value, not title
+        match_score = 0.0
+        matched_field = None
+
+        if fuzzy:
+            # Use fuzzy matching with rapidfuzz
+            try:
+                from rapidfuzz import fuzz
+
+                title_score = fuzz.ratio(search_lower, title.lower().strip()) / 100.0
+                auto_id_score = (
+                    fuzz.ratio(search_lower, auto_id.lower().strip()) / 100.0
+                )
+                value_score = fuzz.ratio(search_lower, value.lower().strip()) / 100.0
+
+                # Prioritize value matches for text displays (Calculator, text fields)
+                if value_score >= fuzzy_threshold:
+                    match_score = value_score
+                    matched_field = "value"
+                elif title_score >= fuzzy_threshold:
+                    match_score = title_score
+                    matched_field = "title"
+                elif auto_id_score >= fuzzy_threshold:
+                    match_score = auto_id_score
+                    matched_field = "auto_id"
+
+            except ImportError:
+                # Fallback to exact matching if rapidfuzz not available
+                if search_lower in value.lower():
+                    match_score = 1.0
+                    matched_field = "value"
+                elif search_lower in title.lower():
+                    match_score = 1.0
+                    matched_field = "title"
+                elif search_lower in auto_id.lower():
+                    match_score = 1.0
+                    matched_field = "auto_id"
+        else:
+            # Exact substring matching - check value FIRST for text displays
+            if search_lower in value.lower():
+                match_score = 1.0
+                matched_field = "value"
+            elif search_lower in title.lower():
+                match_score = 1.0
+                matched_field = "title"
+            elif search_lower in auto_id.lower():
+                match_score = 1.0
+                matched_field = "auto_id"
+
+        if match_score > 0:
+            # Create ElementInfo for this match
+            elem_info = ElementInfo(
+                title=title,
+                control_type=element.get("control_type"),
+                class_name=element.get("class_name"),
+                auto_id=element.get("auto_id"),
+                center_x=element.get("center_x"),
+                center_y=element.get("center_y"),
+                x=element.get("x"),
+                y=element.get("y"),
+                width=element.get("width"),
+                height=element.get("height"),
+                confidence=match_score,
+                matched_field=matched_field,
+            )
+            matches.append(elem_info)
+
+    if not matches:
+        return ElementSearchResult(
+            success=True,
+            found=False,
+            error=f"Text '{search_text}' not found in element tree",
+        )
+
+    # Sort by confidence (highest first)
+    matches.sort(key=lambda m: m.confidence or 0.0, reverse=True)
+
+    return ElementSearchResult(
+        success=True,
+        found=True,
+        matches=matches,
+        best_match=matches[0],
+        count=len(matches),
+    )
+
+
+def search_element_by_value(
+    value_text: str,
+    fuzzy: bool = False,
+    fuzzy_threshold: float = 0.7,
+) -> ElementSearchResult:
+    """
+    Search for elements specifically by their VALUE property.
+
+    **USE CASE:** Calculator displays, text fields, read-only text controls.
+    This is a specialized version of search_text_in_elements that ONLY searches
+    the value property, ignoring title and auto_id.
+
+    **WHY THIS EXISTS:** Documents the Calculator quirk where display text
+    (e.g., "153") lives in value property, not title. This function makes
+    that use case explicit and clear.
+
+    Args:
+        value_text: Text to search for in element value properties
+        fuzzy: Enable fuzzy matching (uses rapidfuzz)
+        fuzzy_threshold: Minimum similarity score (default: 0.7)
+
+    Returns:
+        ElementSearchResult with elements matching the value
+
+    Example:
+        # Find Calculator result by value
+        result = search_element_by_value(value_text="153")
+        if result.found:
+            print(f"Found display at ({result.best_match.center_x}, {result.best_match.center_y})")
+
+    Note:
+        For general text search, use search_text_in_elements() which searches
+        title, auto_id, AND value. Use this function when you specifically
+        need value-only searches.
+    """
+    if not WINDOWS_AUTOMATION_AVAILABLE:
+        return ElementSearchResult(
+            success=False, found=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
+        )
+
+    # Get all elements (NO COMPACTION - search all elements for values)
+    elements_result = list_elements_in_window(compact=False)
+    if not elements_result.success or not elements_result.elements:
+        return ElementSearchResult(
+            success=False,
+            found=False,
+            error="Could not retrieve element tree",
+        )
+
+    # Search ONLY value property
+    matches = []
+    search_lower = value_text.lower().strip()
+
+    for element in elements_result.elements:
+        value = element.get("value") or ""
+        if not value:  # Skip elements without value property
+            continue
+
+        match_score = 0.0
+
+        if fuzzy:
+            try:
+                from rapidfuzz import fuzz
+
+                value_score = fuzz.ratio(search_lower, value.lower().strip()) / 100.0
+                if value_score >= fuzzy_threshold:
+                    match_score = value_score
+            except ImportError:
+                # Fallback to exact matching
+                if search_lower in value.lower():
+                    match_score = 1.0
+        else:
+            # Exact substring matching
+            if search_lower in value.lower():
+                match_score = 1.0
+
+        if match_score > 0:
+            elem_info = ElementInfo(
+                title=element.get("title"),
+                control_type=element.get("control_type"),
+                class_name=element.get("class_name"),
+                auto_id=element.get("auto_id"),
+                center_x=element.get("center_x"),
+                center_y=element.get("center_y"),
+                x=element.get("x"),
+                y=element.get("y"),
+                width=element.get("width"),
+                height=element.get("height"),
+                confidence=match_score,
+                matched_field="value",
+            )
+            matches.append(elem_info)
+
+    if not matches:
+        return ElementSearchResult(
+            success=True,
+            found=False,
+            error=f"No elements with value='{value_text}' found in element tree",
+        )
+
+    # Sort by confidence
+    matches.sort(key=lambda x: x.confidence, reverse=True)
+
+    return ElementSearchResult(
+        success=True,
+        found=True,
+        matches=matches,
+        best_match=matches[0],
+        count=len(matches),
+    )
 
 
 def get_focused_element_by_pid(

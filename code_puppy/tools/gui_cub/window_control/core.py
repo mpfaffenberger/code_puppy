@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 import time
 
+from code_puppy.messaging import emit_info
+
 from ..constants import (
     DEFAULT_WINDOW_FOCUS_TIMEOUT,
     ERROR_APPKIT_MISSING,
@@ -187,15 +189,8 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
     Returns:
         WindowBoundsResult with window position, size, and app name
     """
-    from code_puppy.messaging import emit_info
-
     # Increment call counter
     _get_active_window_bounds_call_count["count"] += 1
-    call_num = _get_active_window_bounds_call_count["count"]
-
-    emit_info(
-        f"[bold magenta]🔍 DEBUG [CALL #{call_num}]: _get_active_window_bounds_impl() - FRESH DETECTION STARTING[/bold magenta]"
-    )
     if IS_WINDOWS:
         # Windows implementation
         try:

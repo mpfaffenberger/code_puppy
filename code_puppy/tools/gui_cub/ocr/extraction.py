@@ -338,28 +338,10 @@ def extract_text_from_image(
         OCRExtractResult with full text and individual text elements
         (coordinates are in logical screen space)
     """
-    from code_puppy.messaging import emit_info
-
-    # Log original image dimensions
-    emit_info(
-        f"[dim]🔍 DEBUG [extract_text_from_image]: Starting OCR[/dim]\n"
-        f"[dim]   Input image: {image.width}x{image.height} ({image.mode})[/dim]\n"
-        f"[dim]   Scale factor: {scale_factor}x[/dim]"
-    )
-
     # ImageGrab.grab() on macOS returns LOGICAL resolution, not physical!
     # Don't downscale - the image is already at the right size for OCR
-    emit_info(
-        f"[dim]   Image size: {image.width}x{image.height}[/dim]\n"
-        f"[dim]   Applying grayscale + contrast (NO downscaling)[/dim]"
-    )
-
     # Just apply grayscale + contrast, no downscaling
     ocr_image = prepare_ocr_image(image, 1.0)  # scale_factor=1.0 = no downscaling
-
-    emit_info(
-        f"[dim]   ✅ Prepared for OCR: {ocr_image.width}x{ocr_image.height} ({ocr_image.mode})[/dim]"
-    )
 
     # Use native platform OCR provider (Vision on macOS, WinRT on Windows)
     ocr_chain = get_ocr_provider()
