@@ -97,7 +97,8 @@ def update_model_in_input(text: str) -> Optional[str]:
     # Check for /model command (require space after /model)
     if content.startswith("/model "):
         rest = content[7:].strip()  # Remove '/model '
-        for model in load_model_names():
+        model_names = load_model_names()
+        for model in model_names:
             if rest == model:
                 set_active_model(model)
                 # Remove /model from the input
@@ -111,7 +112,8 @@ def update_model_in_input(text: str) -> Optional[str]:
     # Check for /m command
     elif content.startswith("/m "):
         rest = content[3:].strip()  # Remove '/m '
-        for model in load_model_names():
+        model_names = load_model_names()
+        for model in model_names:
             if rest == model:
                 set_active_model(model)
                 # Remove /m from the input

@@ -14,6 +14,16 @@ class LoadContextCompleter(Completer):
         text_before_cursor = document.text_before_cursor
         stripped_text_for_trigger_check = text_before_cursor.lstrip()
 
+        # If user types just /load_context (no space), suggest adding a space
+        if stripped_text_for_trigger_check == self.trigger:
+            yield Completion(
+                self.trigger + " ",
+                start_position=-len(self.trigger),
+                display=self.trigger + " ",
+                display_meta="load saved context",
+            )
+            return
+
         # Require a space after /load_context before showing completions (consistency with other completers)
         if not stripped_text_for_trigger_check.startswith(self.trigger + " "):
             return
