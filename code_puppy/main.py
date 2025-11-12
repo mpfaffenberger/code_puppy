@@ -716,6 +716,8 @@ async def run_prompt_with_attachments(
         summary_parts.append(f"binary files: {len(processed_prompt.attachments)}")
     if processed_prompt.link_attachments:
         summary_parts.append(f"urls: {len(processed_prompt.link_attachments)}")
+    if processed_prompt.pdf_texts:
+        summary_parts.append(f"PDFs: {len(processed_prompt.pdf_texts)}")
     if summary_parts:
         emit_system_message(
             "[dim]Attachments detected -> " + ", ".join(summary_parts) + "[/dim]"
