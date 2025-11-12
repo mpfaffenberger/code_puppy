@@ -59,6 +59,7 @@ dependencies = [
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
     "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
+    "python-pptx>=1.0.2",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
