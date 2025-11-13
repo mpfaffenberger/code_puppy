@@ -100,3 +100,57 @@ code_puppy.command_line
 - `confluence_search` - CQL-powered search
 - `confluence_read_page` - Full page content retrieval
 - `confluence_search_by_space` - Space-specific browsing
+
+### BigQuery Explorer 📊
+
+**Purpose:** Explore and query Google BigQuery databases using gcloud authentication.
+
+**Key Capabilities:**
+- Show your default GCP project (fast, always works)
+- List ALL accessible GCP projects (uses gcloud CLI)
+- List datasets within projects
+- List tables within datasets
+- Get detailed table schemas
+- Execute SQL queries with cost tracking (SELECT only - read-only for safety)
+- Work with multiple projects by specifying project_id
+
+**Getting Started:**
+
+1. Authenticate with `/bigquery_auth` command
+   - Automatically installs gcloud CLI if not present (using brew/apt/yum/winget/choco)
+   - Automatically installs Python dependencies (google-cloud-bigquery)
+   - Opens browser for Google authentication (auto-retries with manual flow if needed)
+   - Saves credentials locally
+   - Shows your default project
+2. Switch to agent: `/agent bigquery-explorer`
+3. Start exploring!
+
+**Example Usage:**
+
+- "What's my default GCP project?"
+- "List all my GCP projects" (uses gcloud CLI - reliable and fast)
+- "Show me datasets in my project"
+- "Show me datasets in project-name" (for other projects)
+- "What tables are in dataset-name?"
+- "Get the schema for table-name in dataset-name"
+- "SELECT * FROM project.dataset.table LIMIT 10"
+
+**Technical Details:**
+
+- Uses Application Default Credentials from gcloud CLI
+- Credentials stored by gcloud (typically in `~/.config/gcloud`)
+- Lists all projects via `gcloud projects list` (no API setup needed)
+- Auto-installs gcloud CLI and Python dependencies if missing
+- Detects Walmart network and uses corporate proxy automatically
+- Supports multiple package managers (Homebrew, apt, yum, winget, Chocolatey)
+- Re-run `/bigquery_auth` if credentials expire or for different account
+- Provides query cost information (bytes processed/billed)
+
+**Available Tools:**
+
+- `bigquery_get_default_project` - Show default GCP project (instant)
+- `bigquery_list_all_projects` - List ALL accessible projects (via gcloud CLI)
+- `bigquery_list_datasets` - List datasets in a project
+- `bigquery_list_tables` - List tables in a dataset
+- `bigquery_get_table_schema` - Get detailed table schema
+- `bigquery_execute_query` - Execute SQL queries (SELECT only, read-only for safety)

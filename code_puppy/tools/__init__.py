@@ -59,6 +59,14 @@ from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
 )
+from code_puppy.tools.bigquery_tools import (
+    register_bigquery_execute_query,
+    register_bigquery_get_table_schema,
+    register_bigquery_list_all_projects,
+    register_bigquery_list_datasets,
+    register_bigquery_get_default_project,
+    register_bigquery_list_tables,
+)
 from code_puppy.tools.confluence_tools import (
     register_confluence_search,
     register_confluence_read_page,
@@ -136,6 +144,13 @@ TOOL_REGISTRY = {
     "confluence_search": register_confluence_search,
     "confluence_read_page": register_confluence_read_page,
     "confluence_search_by_space": register_confluence_search_by_space,
+    # BigQuery Tools
+    "bigquery_get_default_project": register_bigquery_get_default_project,
+    "bigquery_list_all_projects": register_bigquery_list_all_projects,
+    "bigquery_list_datasets": register_bigquery_list_datasets,
+    "bigquery_list_tables": register_bigquery_list_tables,
+    "bigquery_execute_query": register_bigquery_execute_query,
+    "bigquery_get_table_schema": register_bigquery_get_table_schema,
 }
 
 

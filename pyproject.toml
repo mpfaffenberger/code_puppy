@@ -64,6 +64,12 @@ classifiers = [
 url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
 trusted-host = "pypi.ci.artifacts.walmart.com"
 
+[project.optional-dependencies]
+bigquery = [
+    "google-cloud-bigquery>=3.0.0",
+    "sqlparse>=0.4.0",
+]
+
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
 pup = "code_puppy.main:main_entry"
