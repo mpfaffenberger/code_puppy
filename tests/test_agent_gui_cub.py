@@ -428,13 +428,13 @@ class TestGUICubAgentBasics:
         assert "Accessibility" in p or "accessibility" in p.lower()
         assert "fallback" in p.lower() or "LAST RESORT" in p
 
-    def test_prompt_includes_yaml_element_tree_guidance(self, agent):
-        """Verify system prompt mentions YAML workflows."""
+    def test_prompt_includes_markdown_workflow_guidance(self, agent):
+        """Verify system prompt mentions Markdown workflows."""
         p = agent.get_system_prompt()
-        # YAML workflows should be mentioned
-        assert "YAML" in p or "workflow" in p.lower()
+        # Markdown workflows should be mentioned
+        assert "markdown" in p.lower() or "workflow" in p.lower()
         # Should reference workflow files
-        assert ".yaml" in p or "workflows" in p.lower()
+        assert ".md" in p or "workflows" in p.lower()
 
     def test_prompt_includes_timing_guidelines(self, agent):
         """Verify system prompt includes timing guidance."""

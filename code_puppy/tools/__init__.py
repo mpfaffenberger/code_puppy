@@ -160,7 +160,7 @@ def register_tools_for_agent(agent, tool_names: list[str]):
 
         # Get the registry entry (can be function or dict with metadata)
         registry_entry = TOOL_REGISTRY[tool_name]
-        
+
         # Handle both formats: dict with metadata or direct function reference
         if isinstance(registry_entry, dict):
             # New format: {"register": func, "category": ..., "description": ...}
@@ -168,7 +168,7 @@ def register_tools_for_agent(agent, tool_names: list[str]):
         else:
             # Old format: direct function reference (backward compatibility)
             register_func = registry_entry
-        
+
         # Register the tool
         register_func(agent)
 

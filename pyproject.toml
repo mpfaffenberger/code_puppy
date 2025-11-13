@@ -37,12 +37,10 @@ dependencies = [
     "camoufox>=0.4.11",
     "dbos>=2.0.0",
     "markdownify>=0.11.0",
-    "pyyaml>=6.0.0",
     # GUI-Cub dependencies
     "pyautogui>=0.9.40,<0.9.42", # Locked for atomacos compatibility (macOS)
     "pillow>=11.0.0", # Updated from 10.0.0 - latest with security fixes
     "opencv-python>=4.10.0", # Updated from 4.8.0 - latest stable
-    "openpyxl>=3.1.5", # Updated from 3.1.0 - latest stable
     # Platform-specific GUI-Cub dependencies (auto-detected)
     "atomacos>=3.2.0; sys_platform == 'darwin'",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
@@ -59,7 +57,6 @@ dependencies = [
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
     "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
-    "python-pptx>=1.0.2",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
