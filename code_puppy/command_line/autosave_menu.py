@@ -69,7 +69,7 @@ def _extract_last_user_message(history: list) -> str:
         for part in msg.parts:
             if hasattr(part, "content"):
                 return part.content
-    return "[No user messages found]"
+    return "[No messages found]"
 
 
 def _render_menu_panel(
@@ -162,7 +162,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     )
     lines.append(("", "\n\n"))
 
-    lines.append(("bold", "  Last User Message:"))
+    lines.append(("bold", "  Last Message:"))
     lines.append(("", "\n"))
 
     # Try to load and preview the last message

@@ -570,47 +570,66 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 continue
             elif isinstance(command_result, str):
                 if command_result == "__AUTOSAVE_LOAD__":
-                    # Handle async autosave loading with new TUI
+                    # Handle async autosave loading
                     try:
-                        from code_puppy.agents.agent_manager import get_current_agent
-                        from code_puppy.command_line.autosave_menu import (
-                            interactive_autosave_picker,
-                        )
-                        from code_puppy.config import (
-                            set_current_autosave_from_session_name,
-                        )
-                        from code_puppy.messaging import (
-                            emit_error,
-                            emit_success,
-                            emit_warning,
-                        )
-                        from code_puppy.session_storage import load_session
+                        # Check if we're in a real interactive terminal
+                        # (not pexpect/tests) - TUI requires proper TTY
+                        use_tui = sys.stdin.isatty() and sys.stdout.isatty()
 
-                        chosen_session = await interactive_autosave_picker()
+                        # Allow environment variable override for tests
+                        if os.getenv("CODE_PUPPY_NO_TUI") == "1":
+                            use_tui = False
 
-                        if not chosen_session:
-                            emit_warning("Autosave load cancelled")
-                            continue
+                        if use_tui:
+                            # Use new TUI picker for interactive sessions
+                            from code_puppy.agents.agent_manager import (
+                                get_current_agent,
+                            )
+                            from code_puppy.command_line.autosave_menu import (
+                                interactive_autosave_picker,
+                            )
+                            from code_puppy.config import (
+                                set_current_autosave_from_session_name,
+                            )
+                            from code_puppy.messaging import (
+                                emit_error,
+                                emit_success,
+                                emit_warning,
+                            )
+                            from code_puppy.session_storage import (
+                                load_session,
+                                restore_autosave_interactively,
+                            )
 
-                        # Load the session
-                        base_dir = Path(AUTOSAVE_DIR)
-                        history = load_session(chosen_session, base_dir)
+                            chosen_session = await interactive_autosave_picker()
 
-                        agent = get_current_agent()
-                        agent.set_message_history(history)
+                            if not chosen_session:
+                                emit_warning("Autosave load cancelled")
+                                continue
 
-                        # Set current autosave session
-                        set_current_autosave_from_session_name(chosen_session)
+                            # Load the session
+                            base_dir = Path(AUTOSAVE_DIR)
+                            history = load_session(chosen_session, base_dir)
 
-                        total_tokens = sum(
-                            agent.estimate_tokens_for_message(msg) for msg in history
-                        )
-                        session_path = base_dir / f"{chosen_session}.pkl"
+                            agent = get_current_agent()
+                            agent.set_message_history(history)
 
-                        emit_success(
-                            f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
-                            f"📁 From: {session_path}"
-                        )
+                            # Set current autosave session
+                            set_current_autosave_from_session_name(chosen_session)
+
+                            total_tokens = sum(
+                                agent.estimate_tokens_for_message(msg)
+                                for msg in history
+                            )
+                            session_path = base_dir / f"{chosen_session}.pkl"
+
+                            emit_success(
+                                f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
+                                f"📁 From: {session_path}"
+                            )
+                        else:
+                            # Fall back to old text-based picker for tests/non-TTY environments
+                            await restore_autosave_interactively(Path(AUTOSAVE_DIR))
 
                     except Exception as e:
                         from code_puppy.messaging import emit_error
