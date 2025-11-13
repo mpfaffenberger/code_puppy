@@ -7,8 +7,6 @@ clean and minimize diff noise.
 
 import sys
 
-from code_puppy.tools.tool_metadata import CATEGORY_DESKTOP
-
 # GUI-Cub workflow and knowledge base tools (always available)
 from code_puppy.tools.gui_cub.workflows import (
     register_workflow_tools as register_gui_cub_workflows,
@@ -67,6 +65,9 @@ else:
     WINDOWS_TOOLS_AVAILABLE = False
     register_windows_tools = None
 
+
+# Tool category constant
+CATEGORY_DESKTOP = "Desktop Automation"
 
 # Build the GUI-Cub tool registry
 GUI_CUB_TOOLS = {}
