@@ -156,6 +156,49 @@ def load_claude_models() -> Dict[str, Any]:
     return {}
 
 
+def load_claude_models_filtered() -> Dict[str, Any]:
+    """Load Claude models and filter to only the latest versions.
+
+    This loads the stored models and applies the same filtering logic
+    used during saving to ensure only the latest haiku, sonnet, and opus
+    models are returned.
+    """
+    try:
+        all_models = load_claude_models()
+        if not all_models:
+            return {}
+
+        # Extract model names from the configuration
+        model_names = []
+        for name, config in all_models.items():
+            if config.get("oauth_source") == "claude-code-plugin":
+                model_names.append(config.get("name", ""))
+            else:
+                # For non-OAuth models, use the full key
+                model_names.append(name)
+
+        # Filter to only latest models
+        latest_names = set(filter_latest_claude_models(model_names))
+
+        # Return only the filtered models
+        filtered_models = {}
+        for name, config in all_models.items():
+            model_name = config.get("name", name)
+            if model_name in latest_names:
+                filtered_models[name] = config
+
+        logger.info(
+            "Loaded %d models, filtered to %d latest models",
+            len(all_models),
+            len(filtered_models),
+        )
+        return filtered_models
+
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Failed to load and filter Claude models: %s", exc)
+    return {}
+
+
 def save_claude_models(models: Dict[str, Any]) -> bool:
     try:
         models_path = get_claude_models_path()
