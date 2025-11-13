@@ -4,7 +4,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from prompt_toolkit import Application
 from prompt_toolkit.formatted_text import HTML
@@ -471,12 +471,18 @@ def format_diff_with_colors(diff_text: str) -> str:
     return "\n".join(formatted_lines)
 
 
-async def arrow_select_async(message: str, choices: list[str]) -> str:
-    """Async version: Show an arrow-key navigable selector.
+async def arrow_select_async(
+    message: str,
+    choices: list[str],
+    preview_callback: Optional[Callable[[int], str]] = None,
+) -> str:
+    """Async version: Show an arrow-key navigable selector with optional preview.
 
     Args:
         message: The prompt message to display
         choices: List of choice strings
+        preview_callback: Optional callback that takes the selected index and returns
+                         preview text to display below the choices
 
     Returns:
         The selected choice string
@@ -501,6 +507,40 @@ async def arrow_select_async(message: str, choices: list[str]) -> str:
             else:
                 lines.append(f"  {safe_choice}")
         lines.append("")
+
+        # Add preview section if callback provided
+        if preview_callback is not None:
+            preview_text = preview_callback(selected_index[0])
+            if preview_text:
+                import textwrap
+
+                # Box width (excluding borders and padding)
+                box_width = 60
+                border_top = (
+                    "<ansiyellow>┌─ Preview "
+                    + "─" * (box_width - 10)
+                    + "┐</ansiyellow>"
+                )
+                border_bottom = "<ansiyellow>└" + "─" * box_width + "┘</ansiyellow>"
+
+                lines.append(border_top)
+
+                # Wrap text to fit within box width (minus padding)
+                wrapped_lines = textwrap.wrap(preview_text, width=box_width - 2)
+
+                # If no wrapped lines (empty text), add empty line
+                if not wrapped_lines:
+                    wrapped_lines = [""]
+
+                for wrapped_line in wrapped_lines:
+                    safe_preview = html.escape(wrapped_line)
+                    # Pad line to box width for consistent appearance
+                    padded_line = safe_preview.ljust(box_width - 2)
+                    lines.append(f"<dim>│ {padded_line} │</dim>")
+
+                lines.append(border_bottom)
+                lines.append("")
+
         lines.append("<ansicyan>(Use ↑↓ arrows to select, Enter to confirm)</ansicyan>")
         return HTML("\n".join(lines))
 
@@ -510,10 +550,12 @@ async def arrow_select_async(message: str, choices: list[str]) -> str:
     @kb.add("up")
     def move_up(event):
         selected_index[0] = (selected_index[0] - 1) % len(choices)
+        event.app.invalidate()  # Force redraw to update preview
 
     @kb.add("down")
     def move_down(event):
         selected_index[0] = (selected_index[0] + 1) % len(choices)
+        event.app.invalidate()  # Force redraw to update preview
 
     @kb.add("enter")
     def accept(event):
@@ -585,10 +627,12 @@ def arrow_select(message: str, choices: list[str]) -> str:
     @kb.add("up")
     def move_up(event):
         selected_index[0] = (selected_index[0] - 1) % len(choices)
+        event.app.invalidate()  # Force redraw to update preview
 
     @kb.add("down")
     def move_down(event):
         selected_index[0] = (selected_index[0] + 1) % len(choices)
+        event.app.invalidate()  # Force redraw to update preview
 
     @kb.add("enter")
     def accept(event):
