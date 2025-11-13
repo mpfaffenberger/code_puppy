@@ -139,40 +139,100 @@ def handle_agent_command(command: str) -> bool:
     tokens = command.split()
 
     if len(tokens) == 1:
-        # Show current agent and available agents
-        current_agent = get_current_agent()
-        available_agents = get_available_agents()
-        descriptions = get_agent_descriptions()
+        # Show interactive agent picker
+        try:
+            # Run the async picker using asyncio utilities
+            # Since we're called from an async context but this function is sync,
+            # we need to carefully schedule and wait for the coroutine
+            import asyncio
+            import concurrent.futures
+            import uuid
 
-        # Generate a group ID for all messages in this command
-        import uuid
+            # Create a new event loop in a thread and run the picker there
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    lambda: asyncio.run(interactive_agent_picker())
+                )
+                selected_agent = future.result(timeout=300)  # 5 min timeout
 
-        group_id = str(uuid.uuid4())
+            if selected_agent:
+                current_agent = get_current_agent()
+                # Check if we're already using this agent
+                if current_agent.name == selected_agent:
+                    group_id = str(uuid.uuid4())
+                    emit_info(
+                        f"Already using agent: {current_agent.display_name}",
+                        message_group=group_id,
+                    )
+                    return True
 
-        emit_info(
-            f"[bold green]Current Agent:[/bold green] {current_agent.display_name}",
-            message_group=group_id,
-        )
-        emit_info(f"[dim]{current_agent.description}[/dim]\n", message_group=group_id)
+                # Switch to the new agent
+                group_id = str(uuid.uuid4())
+                new_session_id = finalize_autosave_session()
+                if not set_current_agent(selected_agent):
+                    emit_warning(
+                        "Agent switch failed after autosave rotation. Your context was preserved.",
+                        message_group=group_id,
+                    )
+                    return True
 
-        emit_info(
-            "[bold magenta]Available Agents:[/bold magenta]", message_group=group_id
-        )
-        for name, display_name in available_agents.items():
-            description = descriptions.get(name, "No description")
-            current_marker = (
-                " [green]← current[/green]" if name == current_agent.name else ""
-            )
+                new_agent = get_current_agent()
+                new_agent.reload_code_generation_agent()
+                emit_success(
+                    f"Switched to agent: {new_agent.display_name}",
+                    message_group=group_id,
+                )
+                emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
+                emit_info(
+                    f"[dim]Auto-save session rotated to: {new_session_id}[/dim]",
+                    message_group=group_id,
+                )
+            else:
+                emit_warning("Agent selection cancelled")
+            return True
+        except Exception as e:
+            # Fallback to old behavior if picker fails
+            import traceback
+            import uuid
+
+            emit_warning(f"Interactive picker failed: {e}")
+            emit_warning(f"Traceback: {traceback.format_exc()}")
+
+            # Show current agent and available agents
+            current_agent = get_current_agent()
+            available_agents = get_available_agents()
+            descriptions = get_agent_descriptions()
+
+            # Generate a group ID for all messages in this command
+            group_id = str(uuid.uuid4())
+
             emit_info(
-                f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}",
+                f"[bold green]Current Agent:[/bold green] {current_agent.display_name}",
                 message_group=group_id,
             )
-            emit_info(f"    [dim]{description}[/dim]", message_group=group_id)
+            emit_info(
+                f"[dim]{current_agent.description}[/dim]\n", message_group=group_id
+            )
 
-        emit_info(
-            "\n[yellow]Usage:[/yellow] /agent <agent-name>", message_group=group_id
-        )
-        return True
+            emit_info(
+                "[bold magenta]Available Agents:[/bold magenta]", message_group=group_id
+            )
+            for name, display_name in available_agents.items():
+                description = descriptions.get(name, "No description")
+                current_marker = (
+                    " [green]← current[/green]" if name == current_agent.name else ""
+                )
+                emit_info(
+                    f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}",
+                    message_group=group_id,
+                )
+                emit_info(f"    [dim]{description}[/dim]", message_group=group_id)
+
+            emit_info(
+                "\n[yellow]Usage:[/yellow] /agent <agent-name>",
+                message_group=group_id,
+            )
+            return True
 
     elif len(tokens) == 2:
         agent_name = tokens[1].lower()
@@ -222,6 +282,115 @@ def handle_agent_command(command: str) -> bool:
     else:
         emit_warning("Usage: /agent [agent-name]")
         return True
+
+
+async def interactive_agent_picker() -> str | None:
+    """Show an interactive arrow-key selector to pick an agent (async version).
+
+    Returns:
+        The selected agent name, or None if cancelled
+    """
+    import sys
+    import time
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.text import Text
+
+    from code_puppy.agents import (
+        get_agent_descriptions,
+        get_available_agents,
+        get_current_agent,
+    )
+    from code_puppy.tools.command_runner import set_awaiting_user_input
+    from code_puppy.tools.common import arrow_select_async
+
+    # Load available agents
+    available_agents = get_available_agents()
+    descriptions = get_agent_descriptions()
+    current_agent = get_current_agent()
+
+    # Build choices with current agent indicator and keep track of agent names
+    choices = []
+    agent_names = list(available_agents.keys())
+    for agent_name in agent_names:
+        display_name = available_agents[agent_name]
+        if agent_name == current_agent.name:
+            choices.append(f"✓ {agent_name} - {display_name} (current)")
+        else:
+            choices.append(f"  {agent_name} - {display_name}")
+
+    # Create preview callback to show agent description
+    def get_preview(index: int) -> str:
+        """Get the description for the agent at the given index."""
+        agent_name = agent_names[index]
+        description = descriptions.get(agent_name, "No description available")
+        return description
+
+    # Create panel content
+    panel_content = Text()
+    panel_content.append("🐶 Select an agent to use\n", style="bold cyan")
+    panel_content.append("Current agent: ", style="dim")
+    panel_content.append(f"{current_agent.name}", style="bold green")
+    panel_content.append(" - ", style="dim")
+    panel_content.append(current_agent.display_name, style="bold green")
+    panel_content.append("\n", style="dim")
+    panel_content.append(current_agent.description, style="dim italic")
+
+    # Display panel
+    panel = Panel(
+        panel_content,
+        title="[bold white]Agent Selection[/bold white]",
+        border_style="cyan",
+        padding=(1, 2),
+    )
+
+    # Pause spinners BEFORE showing panel
+    set_awaiting_user_input(True)
+    time.sleep(0.3)  # Let spinners fully stop
+
+    console = Console()
+    console.print()
+    console.print(panel)
+    console.print()
+
+    # Flush output before prompt_toolkit takes control
+    sys.stdout.flush()
+    sys.stderr.flush()
+    time.sleep(0.1)
+
+    selected_agent = None
+
+    try:
+        # Final flush
+        sys.stdout.flush()
+
+        # Show arrow-key selector with preview (async version)
+        choice = await arrow_select_async(
+            "💭 Which agent would you like to use?",
+            choices,
+            preview_callback=get_preview,
+        )
+
+        # Extract agent name from choice (remove prefix and suffix)
+        if choice:
+            # Remove the "✓ " or "  " prefix and extract agent name (before " - ")
+            choice_stripped = choice.strip().lstrip("✓").strip()
+            # Split on " - " and take the first part (agent name)
+            agent_name = choice_stripped.split(" - ")[0].strip()
+            # Remove " (current)" suffix if present
+            if agent_name.endswith(" (current)"):
+                agent_name = agent_name[:-10].strip()
+            selected_agent = agent_name
+
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[bold red]⊗ Cancelled by user[/bold red]")
+        selected_agent = None
+
+    finally:
+        set_awaiting_user_input(False)
+
+    return selected_agent
 
 
 async def interactive_model_picker() -> str | None:
