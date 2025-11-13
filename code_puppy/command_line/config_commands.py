@@ -209,6 +209,11 @@ def handle_pin_model_command(command: str) -> bool:
     agent_name = tokens[1].lower()
     model_name = tokens[2]
 
+    # Handle special case: (unpin) option
+    if model_name == "(unpin)":
+        # Delegate to unpin command
+        return handle_unpin_command(f"/unpin {agent_name}")
+
     # Check if model exists
     available_models = load_model_names()
     if model_name not in available_models:
@@ -283,6 +288,113 @@ def handle_pin_model_command(command: str) -> bool:
 
     except Exception as e:
         emit_error(f"Failed to pin model to agent '{agent_name}': {e}")
+        return True
+
+
+@register_command(
+    name="unpin",
+    description="Unpin a model from an agent (resets to default)",
+    usage="/unpin <agent>",
+    category="config",
+)
+def handle_unpin_command(command: str) -> bool:
+    """Unpin a model from an agent (resets to default)."""
+    from code_puppy.agents.json_agent import discover_json_agents
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
+    tokens = command.split()
+
+    if len(tokens) != 2:
+        emit_warning("Usage: /unpin <agent-name>")
+
+        # Show available agents
+        json_agents = discover_json_agents()
+
+        # Get built-in agents
+        from code_puppy.agents.agent_manager import get_agent_descriptions
+
+        builtin_agents = get_agent_descriptions()
+
+        if builtin_agents:
+            emit_info("Available built-in agents:")
+            for agent_name, description in builtin_agents.items():
+                emit_info(f"  [cyan]{agent_name}[/cyan] - {description}")
+
+        if json_agents:
+            emit_info("\nAvailable JSON agents:")
+            for agent_name, agent_path in json_agents.items():
+                emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
+        return True
+
+    agent_name = tokens[1].lower()
+
+    # Check if this is a JSON agent or a built-in Python agent
+    json_agents = discover_json_agents()
+
+    # Get list of available built-in agents
+    from code_puppy.agents.agent_manager import get_agent_descriptions
+
+    builtin_agents = get_agent_descriptions()
+
+    is_json_agent = agent_name in json_agents
+    is_builtin_agent = agent_name in builtin_agents
+
+    if not is_json_agent and not is_builtin_agent:
+        emit_error(f"Agent '{agent_name}' not found")
+
+        # Show available agents
+        if builtin_agents:
+            emit_info("Available built-in agents:")
+            for name, desc in builtin_agents.items():
+                emit_info(f"  [cyan]{name}[/cyan] - {desc}")
+
+        if json_agents:
+            emit_info("\nAvailable JSON agents:")
+            for name, path in json_agents.items():
+                emit_info(f"  [cyan]{name}[/cyan] ({path})")
+        return True
+
+    try:
+        if is_json_agent:
+            # Handle JSON agent - remove the model from JSON file
+            agent_file_path = json_agents[agent_name]
+
+            with open(agent_file_path, "r", encoding="utf-8") as f:
+                agent_config = json.load(f)
+
+            # Remove the model key if it exists
+            if "model" in agent_config:
+                del agent_config["model"]
+
+            # Save the updated configuration
+            with open(agent_file_path, "w", encoding="utf-8") as f:
+                json.dump(agent_config, f, indent=2, ensure_ascii=False)
+
+        else:
+            # Handle built-in Python agent - clear from config
+            from code_puppy.config import clear_agent_pinned_model
+
+            clear_agent_pinned_model(agent_name)
+
+        emit_success(f"Model unpinned from agent '{agent_name}' (reset to default)")
+
+        # If this is the current agent, refresh it so the prompt updates immediately
+        from code_puppy.agents import get_current_agent
+
+        current_agent = get_current_agent()
+        if current_agent.name == agent_name:
+            try:
+                if is_json_agent and hasattr(current_agent, "refresh_config"):
+                    current_agent.refresh_config()
+                current_agent.reload_code_generation_agent()
+                emit_info("Active agent reloaded with default model")
+            except Exception as reload_error:
+                emit_warning(f"Model unpinned but reload failed: {reload_error}")
+
+        return True
+
+    except Exception as e:
+        emit_error(f"Failed to unpin model from agent '{agent_name}': {e}")
         return True
 
 

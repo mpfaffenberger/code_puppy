@@ -891,6 +891,7 @@ class TestGetCommandsHelp:
     def test_help_parses_tuple_format(self):
         """Test that help system parses single tuple format."""
         from unittest.mock import patch
+
         from code_puppy.command_line.command_handler import get_commands_help
 
         # Mock a plugin that returns a single tuple
@@ -903,6 +904,7 @@ class TestGetCommandsHelp:
     def test_help_parses_list_of_tuples_format(self):
         """Test that help system parses list of tuples format."""
         from unittest.mock import patch
+
         from code_puppy.command_line.command_handler import get_commands_help
 
         # Mock a plugin that returns a list of tuples
@@ -919,6 +921,7 @@ class TestGetCommandsHelp:
     def test_help_parses_list_of_strings_format(self):
         """Test that help system parses legacy list of strings format."""
         from unittest.mock import patch
+
         from code_puppy.command_line.command_handler import get_commands_help
 
         # Mock a plugin that returns a list of strings (legacy format)
@@ -938,6 +941,7 @@ class TestGetCommandsHelp:
     def test_help_handles_mixed_formats(self):
         """Test that help system handles multiple plugins with different formats."""
         from unittest.mock import patch
+
         from code_puppy.command_line.command_handler import get_commands_help
 
         # Mock multiple plugins returning different formats
@@ -958,6 +962,7 @@ class TestGetCommandsHelp:
     def test_help_ignores_invalid_formats(self):
         """Test that help system gracefully ignores invalid formats."""
         from unittest.mock import patch
+
         from code_puppy.command_line.command_handler import get_commands_help
 
         # Mock a plugin that returns invalid formats
@@ -1068,6 +1073,12 @@ class TestCommandRegistry:
     def test_pin_model_command_registered(self):
         """Test that pin_model command is registered."""
         cmd = get_command("pin_model")
+        assert cmd is not None
+        assert cmd.category == "config"
+
+    def test_unpin_command_registered(self):
+        """Test that unpin command is registered."""
+        cmd = get_command("unpin")
         assert cmd is not None
         assert cmd.category == "config"
 

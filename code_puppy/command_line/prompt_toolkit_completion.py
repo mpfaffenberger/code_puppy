@@ -34,7 +34,7 @@ from code_puppy.command_line.model_picker_completion import (
     ModelNameCompleter,
     get_active_model,
 )
-from code_puppy.command_line.pin_command_completion import PinCompleter
+from code_puppy.command_line.pin_command_completion import PinCompleter, UnpinCompleter
 from code_puppy.command_line.utils import list_directory
 from code_puppy.config import (
     COMMAND_HISTORY_FILE,
@@ -454,6 +454,7 @@ async def get_input_with_combined_completion(
             SetCompleter(trigger="/set"),
             LoadContextCompleter(trigger="/load_context"),
             PinCompleter(trigger="/pin_model"),
+            UnpinCompleter(trigger="/unpin"),
             AgentCompleter(trigger="/agent"),
             MCPCompleter(trigger="/mcp"),
             SlashCompleter(),
