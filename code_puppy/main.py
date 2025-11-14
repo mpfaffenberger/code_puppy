@@ -392,12 +392,12 @@ async def main():
 
     # Check if user is in 2% DBOS sample and enable DBOS by default if they are
     if is_user_in_dbos_sample():
-        from code_puppy.config import set_use_dbos
+        from code_puppy.config import set_config_value
         from code_puppy.messaging import emit_system_message
         
         # Only set if not already explicitly configured
         if not get_use_dbos():
-            set_use_dbos(True)
+            set_config_value("enable_dbos", "true")
             emit_system_message("[dim]🎲 You've been selected for DBOS beta testing (2% sample)[/dim]")
 
     # Initialize DBOS if not disabled
