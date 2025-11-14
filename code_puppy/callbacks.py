@@ -99,11 +99,27 @@ def _trigger_callbacks_sync(phase: PhaseType, *args, **kwargs) -> List[Any]:
     for callback in callbacks:
         try:
             result = callback(*args, **kwargs)
+            # Handle async callbacks - if we get a coroutine, run it
+            if asyncio.iscoroutine(result):
+                # Try to get the running event loop
+                try:
+                    asyncio.get_running_loop()
+                    # We're in an async context already - this shouldn't happen for sync triggers
+                    # but if it does, we can't use run_until_complete
+                    logger.warning(
+                        f"Async callback {callback.__name__} called from async context in sync trigger"
+                    )
+                    results.append(None)
+                    continue
+                except RuntimeError:
+                    # No running loop - we're in a sync/worker thread context
+                    # Use asyncio.run() which is safe here since we're in an isolated thread
+                    result = asyncio.run(result)
             results.append(result)
-            logger.debug(f"Successfully executed async callback {callback.__name__}")
+            logger.debug(f"Successfully executed callback {callback.__name__}")
         except Exception as e:
             logger.error(
-                f"Async callback {callback.__name__} failed in phase '{phase}': {e}\n"
+                f"Callback {callback.__name__} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
             results.append(None)
@@ -170,8 +186,8 @@ def on_delete_file(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("delete_file", *args, **kwargs)
 
 
-def on_run_shell_command(*args, **kwargs) -> Any:
-    return _trigger_callbacks_sync("run_shell_command", *args, **kwargs)
+async def on_run_shell_command(*args, **kwargs) -> Any:
+    return await _trigger_callbacks("run_shell_command", *args, **kwargs)
 
 
 def on_agent_reload(*args, **kwargs) -> Any:
