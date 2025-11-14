@@ -247,7 +247,16 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
     emit_info("📦 Detecting capabilities...", message_group=group_id)
     capabilities = detect_capabilities()
 
+    # Skip platform-specific capabilities when displaying
+    # (atomacos is macOS-only, pywinauto is Windows-only)
     for cap, available in capabilities.items():
+        # Skip atomacos on non-macOS platforms
+        if cap == "atomacos" and sys.platform != "darwin":
+            continue
+        # Skip pywinauto on non-Windows platforms
+        if cap == "pywinauto" and sys.platform != "win32":
+            continue
+        
         status = "✅" if available else "❌"
         emit_info(
             f"  {status} {cap}",
