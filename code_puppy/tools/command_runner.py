@@ -6,7 +6,7 @@ import threading
 import time
 import traceback
 from contextlib import contextmanager
-from typing import Callable, Optional, Set
+from typing import Callable, Literal, Optional, Set
 
 from pydantic import BaseModel
 from pydantic_ai import RunContext
@@ -205,6 +205,24 @@ class ShellCommandOutput(BaseModel):
     timeout: bool | None = False
     user_interrupted: bool | None = False
     user_feedback: str | None = None  # User feedback when command is rejected
+
+
+class ShellSafetyAssessment(BaseModel):
+    """Assessment of shell command safety risks.
+
+    This model represents the structured output from the shell safety checker agent.
+    It provides a risk level classification and reasoning for that assessment.
+
+    Attributes:
+        risk: Risk level classification. Can be None (unknown/error), or one of:
+              'none' (completely safe), 'low' (minimal risk), 'medium' (moderate risk),
+              'high' (significant risk), 'critical' (severe/destructive risk).
+        reasoning: Brief explanation (max 1-2 sentences) of why this risk level
+                   was assigned. Should be concise and actionable.
+    """
+
+    risk: Literal["none", "low", "medium", "high", "critical"] | None
+    reasoning: str
 
 
 def _listen_for_ctrl_x_windows(
@@ -587,7 +605,7 @@ def run_shell_command_streaming(
         )
 
 
-def run_shell_command(
+async def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> ShellCommandOutput:
     command_displayed = False
@@ -595,16 +613,38 @@ def run_shell_command(
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
 
+    emit_info(
+        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] 📂 [bold green]$ {command}[/bold green]",
+        message_group=group_id,
+    )
+
+    # Invoke safety check callbacks (only active in yolo_mode)
+    # This allows plugins to intercept and assess commands before execution
+    from code_puppy.callbacks import on_run_shell_command
+
+    callback_results = await on_run_shell_command(context, command, cwd, timeout)
+
+    # Check if any callback blocked the command
+    # Callbacks can return None (allow) or a dict with blocked=True (reject)
+    for result in callback_results:
+        if result and isinstance(result, dict) and result.get("blocked"):
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error=result.get("error_message", "Command blocked by safety check"),
+                user_feedback=result.get("reasoning", ""),
+                stdout=None,
+                stderr=None,
+                exit_code=None,
+                execution_time=None,
+            )
+
+    # Rest of the existing function continues...
     if not command or not command.strip():
         emit_error("Command cannot be empty", message_group=group_id)
         return ShellCommandOutput(
             **{"success": False, "error": "Command cannot be empty"}
         )
-
-    emit_info(
-        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] 📂 [bold green]$ {command}[/bold green]",
-        message_group=group_id,
-    )
 
     from code_puppy.config import get_yolo_mode
 
@@ -778,7 +818,7 @@ def register_agent_run_shell_command(agent):
     """Register only the agent_run_shell_command tool."""
 
     @agent.tool
-    def agent_run_shell_command(
+    async def agent_run_shell_command(
         context: RunContext, command: str = "", cwd: str = None, timeout: int = 60
     ) -> ShellCommandOutput:
         """Execute a shell command with comprehensive monitoring and safety features.
@@ -827,7 +867,7 @@ def register_agent_run_shell_command(agent):
             This tool can execute arbitrary shell commands. Exercise caution when
             running untrusted commands, especially those that modify system state.
         """
-        return run_shell_command(context, command, cwd, timeout)
+        return await run_shell_command(context, command, cwd, timeout)
 
 
 def register_agent_share_your_reasoning(agent):
