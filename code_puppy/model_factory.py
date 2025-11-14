@@ -20,6 +20,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from code_puppy.messaging import emit_warning
 from code_puppy.plugins.chatgpt_oauth.config import get_chatgpt_models_path
 from code_puppy.plugins.claude_code_oauth.config import get_claude_models_path
+from code_puppy.plugins.claude_code_oauth.utils import load_claude_models_filtered
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
@@ -132,9 +133,13 @@ class ModelFactory:
             if not path.exists():
                 continue
             try:
-                with open(path, "r") as f:
-                    extra_config = json.load(f)
-                    config.update(extra_config)
+                # Use filtered loading for Claude Code OAuth models to show only latest versions
+                if "Claude Code OAuth" in label:
+                    extra_config = load_claude_models_filtered()
+                else:
+                    with open(path, "r") as f:
+                        extra_config = json.load(f)
+                config.update(extra_config)
             except json.JSONDecodeError as exc:
                 logging.getLogger(__name__).warning(
                     f"Failed to load {label} config from {path}: Invalid JSON - {exc}"

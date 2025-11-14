@@ -72,18 +72,24 @@
     "name": "gpt-5-codex",
     "context_length": 272000
   },
+  "gpt-5.1": {
+    "type": "openai",
+    "name": "gpt-5.1",
+    "context_length": 272000
+  },
+  "gpt-5.1-codex-api": {
+    "type": "openai",
+    "name": "gpt-5.1-codex",
+    "context_length": 272000
+  },
+  "gpt-5.1-codex-mini-api": {
+    "type": "openai",
+    "name": "gpt-5.1-codex-mini",
+    "context_length": 272000
+  },
   "Cerebras-GLM-4.6": {
     "type": "cerebras",
     "name": "zai-glm-4.6",
-    "custom_endpoint": {
-      "url": "https://api.cerebras.ai/v1",
-      "api_key": "$CEREBRAS_API_KEY"
-    },
-    "context_length": 131072
-  },
-  "Cerebras-Qwen3-Coder-480b": {
-    "type": "cerebras",
-    "name": "qwen-3-coder-480b",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
       "api_key": "$CEREBRAS_API_KEY"
@@ -117,33 +123,38 @@
     },
     "context_length": 65536
   },
+  "claude-4-5-haiku": {
+    "type": "anthropic",
+    "name": "claude-haiku-4-5",
+    "context_length": 200000
+  },
   "claude-4-0-sonnet": {
     "type": "anthropic",
-    "name": "claude-sonnet-4-20250514",
+    "name": "claude-sonnet-4-0",
     "context_length": 200000
   },
   "claude-4-5-sonnet": {
     "type": "anthropic",
-    "name": "claude-sonnet-4-5-20250929",
+    "name": "claude-sonnet-4-5",
     "context_length": 200000
   },
   "claude-4-1-opus": {
     "type": "anthropic",
-    "name": "claude-opus-4-1-20250805",
+    "name": "claude-opus-4-1",
     "context_length": 200000
   },
-  "glm-4.5-coding": {
+  "glm-4.5-air-coding": {
     "type": "zai_coding",
-    "name": "glm-4.5"
+    "name": "glm-4.5-air"
   },
   "glm-4.6-coding": {
     "type": "zai_coding",
     "name": "glm-4.6",
     "context_length": 200000
   },
-  "glm-4.5-api": {
+  "glm-4.5-air-api": {
     "type": "zai_api",
-    "name": "glm-4.5"
+    "name": "glm-4.5-air"
   },
   "glm-4.6-api": {
     "type": "zai_api",
