@@ -186,7 +186,7 @@ class ModelFactory:
 
             provider = OpenAIProvider(api_key=api_key)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            if model_name == "gpt-5-codex-api" or model_name == "gpt-5.1-codex-api":
+            if "codex" in model_name:
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
                 )
