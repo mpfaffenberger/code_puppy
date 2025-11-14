@@ -846,6 +846,171 @@ def get_user_approval(
     return confirmed, user_feedback
 
 
+async def get_user_approval_async(
+    title: str,
+    content: Text | str,
+    preview: str | None = None,
+    border_style: str = "dim white",
+    puppy_name: str | None = None,
+) -> tuple[bool, str | None]:
+    """Async version of get_user_approval - show a beautiful approval panel with arrow-key selector.
+
+    Args:
+        title: Title for the panel (e.g., "File Operation", "Shell Command")
+        content: Main content to display (Rich Text object or string)
+        preview: Optional preview content (like a diff)
+        border_style: Border color/style for the panel
+        puppy_name: Name of the assistant (defaults to config value)
+
+    Returns:
+        Tuple of (confirmed: bool, user_feedback: str | None)
+        - confirmed: True if approved, False if rejected
+        - user_feedback: Optional feedback text if user provided it
+    """
+    import asyncio
+
+    from code_puppy.tools.command_runner import set_awaiting_user_input
+
+    if puppy_name is None:
+        from code_puppy.config import get_puppy_name
+
+        puppy_name = get_puppy_name().title()
+
+    # Build panel content
+    if isinstance(content, str):
+        panel_content = Text(content)
+    else:
+        panel_content = content
+
+    # Add preview if provided
+    if preview:
+        panel_content.append("\n\n", style="")
+        panel_content.append("Preview of changes:", style="bold underline")
+        panel_content.append("\n", style="")
+        formatted_preview = format_diff_with_colors(preview)
+        preview_text = Text.from_markup(formatted_preview)
+        panel_content.append(preview_text)
+
+        # Mark that we showed a diff preview
+        try:
+            from code_puppy.plugins.file_permission_handler.register_callbacks import (
+                set_diff_already_shown,
+            )
+
+            set_diff_already_shown(True)
+        except ImportError:
+            pass
+
+    # Create panel
+    panel = Panel(
+        panel_content,
+        title=f"[bold white]{title}[/bold white]",
+        border_style=border_style,
+        padding=(1, 2),
+    )
+
+    # Pause spinners BEFORE showing panel
+    set_awaiting_user_input(True)
+    # Also explicitly pause spinners to ensure they're fully stopped
+    try:
+        from code_puppy.messaging.spinner import pause_all_spinners
+
+        pause_all_spinners()
+    except (ImportError, Exception):
+        pass
+
+    await asyncio.sleep(0.3)  # Let spinners fully stop
+
+    # Display panel
+    console = Console()
+    console.print()
+    console.print(panel)
+    console.print()
+
+    # Flush and buffer before selector
+    sys.stdout.flush()
+    sys.stderr.flush()
+    await asyncio.sleep(0.1)
+
+    user_feedback = None
+    confirmed = False
+
+    try:
+        # Final flush
+        sys.stdout.flush()
+
+        # Show arrow-key selector (ASYNC VERSION)
+        choice = await arrow_select_async(
+            "💭 What would you like to do?",
+            [
+                "✓ Approve",
+                "✗ Reject",
+                f"💬 Reject with feedback (tell {puppy_name} what to change)",
+            ],
+        )
+
+        if choice == "✓ Approve":
+            confirmed = True
+        elif choice == "✗ Reject":
+            confirmed = False
+        else:
+            # User wants to provide feedback
+            confirmed = False
+            console.print()
+            console.print(f"[bold cyan]Tell {puppy_name} what to change:[/bold cyan]")
+            user_feedback = Prompt.ask(
+                "[bold green]➤[/bold green]",
+                default="",
+            ).strip()
+
+            if not user_feedback:
+                user_feedback = None
+
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[bold red]⊗ Cancelled by user[/bold red]")
+        confirmed = False
+
+    finally:
+        set_awaiting_user_input(False)
+        # Explicitly resume spinners
+        try:
+            from code_puppy.messaging.spinner import resume_all_spinners
+
+            resume_all_spinners()
+        except (ImportError, Exception):
+            pass
+
+        # Force Rich console to reset display state to prevent artifacts
+        try:
+            # Clear Rich's internal display state to prevent artifacts
+            console.file.write("\r")  # Return to start of line
+            console.file.write("\x1b[K")  # Clear current line
+            console.file.flush()
+        except Exception:
+            pass
+
+        # Ensure streams are flushed
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # Add small delay to let spinner stabilize
+        await asyncio.sleep(0.1)
+
+    # Show result with explicit cursor reset
+    console.print()
+    if not confirmed:
+        if user_feedback:
+            console.print("[bold red]✗ Rejected with feedback![/bold red]")
+            console.print(
+                f'[bold yellow]📝 Telling {puppy_name}: "{user_feedback}"[/bold yellow]'
+            )
+        else:
+            console.print("[bold red]✗ Rejected.[/bold red]")
+    else:
+        console.print("[bold green]✓ Approved![/bold green]")
+
+    return confirmed, user_feedback
+
+
 def _find_best_window(
     haystack_lines: list[str],
     needle: str,

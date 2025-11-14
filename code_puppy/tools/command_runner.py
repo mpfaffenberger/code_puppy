@@ -20,7 +20,7 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-from code_puppy.tools.common import generate_group_id, get_user_approval
+from code_puppy.tools.common import generate_group_id, get_user_approval_async
 from code_puppy.tui_state import is_tui_mode
 
 # Maximum line length for shell command output to prevent massive token usage
@@ -680,8 +680,8 @@ async def run_shell_command(
             panel_content.append("📂 Working directory: ", style="dim")
             panel_content.append(cwd, style="dim cyan")
 
-        # Use the common approval function
-        confirmed, user_feedback = get_user_approval(
+        # Use the common approval function (async version)
+        confirmed, user_feedback = await get_user_approval_async(
             title="Shell Command",
             content=panel_content,
             preview=None,
