@@ -72,6 +72,16 @@
     "name": "gpt-5-codex",
     "context_length": 272000
   },
+  "gpt-5.1": {
+    "type": "openai",
+    "name": "gpt-5.1",
+    "context_length": 272000
+  },
+  "gpt-5.1-codex-api": {
+    "type": "openai",
+    "name": "gpt-5.1-codex",
+    "context_length": 272000
+  },
   "Cerebras-GLM-4.6": {
     "type": "cerebras",
     "name": "zai-glm-4.6",
