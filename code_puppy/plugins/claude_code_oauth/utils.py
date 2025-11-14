@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -155,6 +156,49 @@ def load_claude_models() -> Dict[str, Any]:
     return {}
 
 
+def load_claude_models_filtered() -> Dict[str, Any]:
+    """Load Claude models and filter to only the latest versions.
+
+    This loads the stored models and applies the same filtering logic
+    used during saving to ensure only the latest haiku, sonnet, and opus
+    models are returned.
+    """
+    try:
+        all_models = load_claude_models()
+        if not all_models:
+            return {}
+
+        # Extract model names from the configuration
+        model_names = []
+        for name, config in all_models.items():
+            if config.get("oauth_source") == "claude-code-plugin":
+                model_names.append(config.get("name", ""))
+            else:
+                # For non-OAuth models, use the full key
+                model_names.append(name)
+
+        # Filter to only latest models
+        latest_names = set(filter_latest_claude_models(model_names))
+
+        # Return only the filtered models
+        filtered_models = {}
+        for name, config in all_models.items():
+            model_name = config.get("name", name)
+            if model_name in latest_names:
+                filtered_models[name] = config
+
+        logger.info(
+            "Loaded %d models, filtered to %d latest models",
+            len(all_models),
+            len(filtered_models),
+        )
+        return filtered_models
+
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Failed to load and filter Claude models: %s", exc)
+    return {}
+
+
 def save_claude_models(models: Dict[str, Any]) -> bool:
     try:
         models_path = get_claude_models_path()
@@ -211,6 +255,53 @@ def exchange_code_for_tokens(
     return None
 
 
+def filter_latest_claude_models(models: List[str]) -> List[str]:
+    """Filter models to keep only the latest haiku, sonnet, and opus.
+
+    Parses model names in the format claude-{family}-{major}-{minor}-{date}
+    and returns only the latest version of each family (haiku, sonnet, opus).
+    """
+    # Dictionary to store the latest model for each family
+    # family -> (model_name, major, minor, date)
+    latest_models: Dict[str, Tuple[str, int, int, int]] = {}
+
+    for model_name in models:
+        # Match pattern: claude-{family}-{major}-{minor}-{date}
+        # Examples: claude-haiku-3-5-20241022, claude-sonnet-4-5-20250929
+        match = re.match(r"claude-(haiku|sonnet|opus)-(\d+)-(\d+)-(\d+)", model_name)
+        if not match:
+            # Also try pattern with dots: claude-{family}-{major}.{minor}-{date}
+            match = re.match(
+                r"claude-(haiku|sonnet|opus)-(\d+)\.(\d+)-(\d+)", model_name
+            )
+
+        if not match:
+            continue
+
+        family = match.group(1)
+        major = int(match.group(2))
+        minor = int(match.group(3))
+        date = int(match.group(4))
+
+        if family not in latest_models:
+            latest_models[family] = (model_name, major, minor, date)
+        else:
+            # Compare versions: first by major, then minor, then date
+            _, cur_major, cur_minor, cur_date = latest_models[family]
+            if (major, minor, date) > (cur_major, cur_minor, cur_date):
+                latest_models[family] = (model_name, major, minor, date)
+
+    # Return only the model names
+    filtered = [model_data[0] for model_data in latest_models.values()]
+    logger.info(
+        "Filtered %d models to %d latest models: %s",
+        len(models),
+        len(filtered),
+        filtered,
+    )
+    return filtered
+
+
 def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
     try:
         api_url = f"{CLAUDE_CODE_OAUTH_CONFIG['api_base_url']}/v1/models"
@@ -245,13 +336,16 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
 
 def add_models_to_extra_config(models: List[str]) -> bool:
     try:
+        # Filter to only latest haiku, sonnet, and opus models
+        filtered_models = filter_latest_claude_models(models)
+
         # Start fresh - overwrite the file on every auth instead of loading existing
         claude_models = {}
         added = 0
         tokens = load_stored_tokens()
         access_token = tokens["access_token"]
 
-        for model_name in models:
+        for model_name in filtered_models:
             prefixed = f"{CLAUDE_CODE_OAUTH_CONFIG['prefix']}{model_name}"
             claude_models[prefixed] = {
                 "type": "claude_code",
