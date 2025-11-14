@@ -27,6 +27,47 @@ from code_puppy.tools.common import _find_best_window, generate_group_id
 # File permission handling is now managed by the file_permission_handler plugin
 
 
+def _create_rejection_response(file_path: str) -> Dict[str, Any]:
+    """Create a standardized rejection response with user feedback if available.
+
+    Args:
+        file_path: Path to the file that was rejected
+
+    Returns:
+        Dict containing rejection details and any user feedback
+    """
+    # Check for user feedback from permission handler
+    try:
+        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+            clear_user_feedback,
+            get_last_user_feedback,
+        )
+
+        user_feedback = get_last_user_feedback()
+        # Clear feedback after reading it
+        clear_user_feedback()
+    except ImportError:
+        user_feedback = None
+
+    rejection_message = (
+        "USER REJECTED: The user explicitly rejected these file changes."
+    )
+    if user_feedback:
+        rejection_message += f" User feedback: {user_feedback}"
+    else:
+        rejection_message += " Please do not retry the same changes or any other changes - immediately ask for clarification."
+
+    return {
+        "success": False,
+        "path": file_path,
+        "message": rejection_message,
+        "changed": False,
+        "user_rejection": True,
+        "rejection_type": "explicit_user_denial",
+        "user_feedback": user_feedback,
+    }
+
+
 class DeleteSnippetPayload(BaseModel):
     file_path: str
     delete_snippet: str
@@ -262,7 +303,24 @@ def _get_valid_background_color(color: str, fallback: str) -> str:
 
 
 def _print_diff(diff_text: str, message_group: str | None = None) -> None:
-    """Pretty-print *diff_text* with colour-coding (always runs)."""
+    """Pretty-print *diff_text* with colour-coding.
+
+    Skips printing if the diff was already shown during permission approval.
+    """
+    # Check if diff was already shown during permission prompt
+    try:
+        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+            clear_diff_shown_flag,
+            was_diff_already_shown,
+        )
+
+        if was_diff_already_shown():
+            # Diff already displayed in permission panel, skip redundant display
+            clear_diff_shown_flag()
+            return
+    except ImportError:
+        pass  # Permission handler not available, show diff anyway
+
     emit_info(
         "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]",
         message_group=message_group,
@@ -470,14 +528,7 @@ def delete_snippet_from_file(
     if permission_results and any(
         not result for result in permission_results if result is not None
     ):
-        return {
-            "success": False,
-            "path": file_path,
-            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
-            "changed": False,
-            "user_rejection": True,
-            "rejection_type": "explicit_user_denial",
-        }
+        return _create_rejection_response(file_path)
 
     res = _delete_snippet_from_file(
         context, file_path, snippet, message_group=message_group
@@ -507,15 +558,7 @@ def write_to_file(
     if permission_results and any(
         not result for result in permission_results if result is not None
     ):
-        return {
-            "success": False,
-            "path": path,
-            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
-            "changed": False,
-            "user_rejection": True,
-            "rejection_type": "explicit_user_denial",
-            "guidance": "Always immediately ask the user what they prefer, don't do anything else.",
-        }
+        return _create_rejection_response(path)
 
     res = _write_to_file(
         context, path, content, overwrite=overwrite, message_group=message_group
@@ -544,15 +587,7 @@ def replace_in_file(
     if permission_results and any(
         not result for result in permission_results if result is not None
     ):
-        return {
-            "success": False,
-            "path": path,
-            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
-            "changed": False,
-            "user_rejection": True,
-            "rejection_type": "explicit_user_denial",
-            "guidance": "Always immediately ask the user what they prefer, don't do anything else.",
-        }
+        return _create_rejection_response(path)
 
     res = _replace_in_file(context, path, replacements, message_group=message_group)
     diff = res.get("diff", "")
@@ -672,14 +707,7 @@ def _delete_file(
     if permission_results and any(
         not result for result in permission_results if result is not None
     ):
-        return {
-            "success": False,
-            "path": file_path,
-            "message": "USER REJECTED: The user explicitly rejected these file changes. Please do not retry the same changes or any other changes - immediately ask for clarification.",
-            "changed": False,
-            "user_rejection": True,
-            "rejection_type": "explicit_user_denial",
-        }
+        return _create_rejection_response(file_path)
 
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):

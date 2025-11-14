@@ -7,6 +7,7 @@ print("🐶 Code Puppy is Loading...", flush=True)
 import argparse
 import asyncio
 import os
+import platform
 import subprocess
 import time
 import traceback
@@ -34,7 +35,6 @@ from code_puppy.config import (
 )
 from code_puppy.http_utils import find_available_port
 from code_puppy.messaging import emit_info
-from code_puppy.session_storage import restore_autosave_interactively
 from code_puppy.tools.common import console
 
 # message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
@@ -430,10 +430,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message("[dim]Type 'clear' to reset the conversation history.[/dim]")
     emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
-        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
+        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/model[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
     )
     emit_system_message(
-        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference.[/dim]"
+        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference. Use [bold red]Ctrl+X[/bold red] to interrupt running shell commands.[/dim]"
     )
     emit_system_message(
         "[dim]Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session.[/dim]"
@@ -620,7 +620,65 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if command_result == "__AUTOSAVE_LOAD__":
                     # Handle async autosave loading
                     try:
-                        await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+                        # Check if we're in a real interactive terminal
+                        # (not pexpect/tests) - TUI requires proper TTY
+                        use_tui = sys.stdin.isatty() and sys.stdout.isatty()
+
+                        # Allow environment variable override for tests
+                        if os.getenv("CODE_PUPPY_NO_TUI") == "1":
+                            use_tui = False
+
+                        if use_tui:
+                            # Use new TUI picker for interactive sessions
+                            from code_puppy.agents.agent_manager import (
+                                get_current_agent,
+                            )
+                            from code_puppy.command_line.autosave_menu import (
+                                interactive_autosave_picker,
+                            )
+                            from code_puppy.config import (
+                                set_current_autosave_from_session_name,
+                            )
+                            from code_puppy.messaging import (
+                                emit_error,
+                                emit_success,
+                                emit_warning,
+                            )
+                            from code_puppy.session_storage import (
+                                load_session,
+                                restore_autosave_interactively,
+                            )
+
+                            chosen_session = await interactive_autosave_picker()
+
+                            if not chosen_session:
+                                emit_warning("Autosave load cancelled")
+                                continue
+
+                            # Load the session
+                            base_dir = Path(AUTOSAVE_DIR)
+                            history = load_session(chosen_session, base_dir)
+
+                            agent = get_current_agent()
+                            agent.set_message_history(history)
+
+                            # Set current autosave session
+                            set_current_autosave_from_session_name(chosen_session)
+
+                            total_tokens = sum(
+                                agent.estimate_tokens_for_message(msg)
+                                for msg in history
+                            )
+                            session_path = base_dir / f"{chosen_session}.pkl"
+
+                            emit_success(
+                                f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
+                                f"📁 From: {session_path}"
+                            )
+                        else:
+                            # Fall back to old text-based picker for tests/non-TTY environments
+                            await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+
                     except Exception as e:
                         from code_puppy.messaging import emit_error
 
@@ -867,6 +925,15 @@ def main_entry():
         if get_use_dbos():
             DBOS.destroy()
         return 0
+    finally:
+        # Reset terminal on Unix-like systems (not Windows)
+        if platform.system() != "Windows":
+            try:
+                # Reset terminal to sanity state
+                subprocess.run(["reset"], check=True, capture_output=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Silently fail if reset command isn't available
+                pass
 
 
 if __name__ == "__main__":

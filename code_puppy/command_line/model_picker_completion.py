@@ -63,12 +63,24 @@ class ModelNameCompleter(Completer):
         text = document.text
         cursor_position = document.cursor_position
         text_before_cursor = text[:cursor_position]
-        if self.trigger not in text_before_cursor:
+
+        # Only trigger if /model is at the very beginning of the line and has a space after it
+        stripped_text = text_before_cursor.lstrip()
+        if not stripped_text.startswith(self.trigger + " "):
             return
-        symbol_pos = text_before_cursor.rfind(self.trigger)
-        text_after_trigger = text_before_cursor[symbol_pos + len(self.trigger) :]
+
+        # Find where /model actually starts (after any leading whitespace)
+        symbol_pos = text_before_cursor.find(self.trigger)
+        text_after_trigger = text_before_cursor[
+            symbol_pos + len(self.trigger) + 1 :
+        ].lstrip()
         start_position = -(len(text_after_trigger))
+
+        # Filter model names based on what's typed after /model
         for model_name in self.model_names:
+            if text_after_trigger and not model_name.startswith(text_after_trigger):
+                continue  # Skip models that don't match the typed text
+
             meta = "Model (selected)" if model_name == get_active_model() else "Model"
             yield Completion(
                 model_name,
@@ -82,24 +94,26 @@ def update_model_in_input(text: str) -> Optional[str]:
     # If input starts with /model or /m and a model name, set model and strip it out
     content = text.strip()
 
-    # Check for /model command
-    if content.startswith("/model"):
-        rest = content[6:].strip()  # Remove '/model'
-        for model in load_model_names():
+    # Check for /model command (require space after /model)
+    if content.startswith("/model "):
+        rest = content[7:].strip()  # Remove '/model '
+        model_names = load_model_names()
+        for model in model_names:
             if rest == model:
                 set_active_model(model)
                 # Remove /model from the input
-                idx = text.find("/model" + model)
+                idx = text.find("/model " + model)
                 if idx != -1:
                     new_text = (
-                        text[:idx] + text[idx + len("/model" + model) :]
+                        text[:idx] + text[idx + len("/model " + model) :]
                     ).strip()
                     return new_text
 
     # Check for /m command
     elif content.startswith("/m "):
         rest = content[3:].strip()  # Remove '/m '
-        for model in load_model_names():
+        model_names = load_model_names()
+        for model in model_names:
             if rest == model:
                 set_active_model(model)
                 # Remove /m from the input

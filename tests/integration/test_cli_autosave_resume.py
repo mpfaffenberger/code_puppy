@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import sys
 import time
@@ -55,11 +54,7 @@ def test_autosave_resume_roundtrip(
 
             # Manually trigger autosave loading
             second_run.sendline("/autosave_load\r")
-            second_run.child.expect("Autosave Sessions Available", timeout=20)
-            second_run.child.expect(re.compile(r"Pick .*name/Enter:"), timeout=20)
             time.sleep(0.2)
-            second_run.send("1")
-            time.sleep(0.3)
             second_run.send("\r")
             time.sleep(0.3)
             second_run.child.expect("Autosave loaded", timeout=60)
