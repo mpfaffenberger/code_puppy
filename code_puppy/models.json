@@ -123,19 +123,24 @@
     },
     "context_length": 65536
   },
+  "claude-4-5-haiku": {
+    "type": "anthropic",
+    "name": "claude-haiku-4-5",
+    "context_length": 200000
+  },
   "claude-4-0-sonnet": {
     "type": "anthropic",
-    "name": "claude-sonnet-4-20250514",
+    "name": "claude-sonnet-4-0",
     "context_length": 200000
   },
   "claude-4-5-sonnet": {
     "type": "anthropic",
-    "name": "claude-sonnet-4-5-20250929",
+    "name": "claude-sonnet-4-5",
     "context_length": 200000
   },
   "claude-4-1-opus": {
     "type": "anthropic",
-    "name": "claude-opus-4-1-20250805",
+    "name": "claude-opus-4-1",
     "context_length": 200000
   },
   "glm-4.5-air-coding": {
