@@ -233,6 +233,9 @@ class ElementInfo(BaseModel):
     class_name: str | None = None  # Windows
     auto_id: str | None = None  # Windows (alias for identifier)
 
+    # Matching/search confidence
+    confidence: float | None = None  # Match confidence score (0.0-1.0)
+
 
 class ElementSearchResult(BaseAutomationResult):
     """Result from element search operation."""
