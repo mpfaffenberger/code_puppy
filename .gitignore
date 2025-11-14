@@ -22,3 +22,5 @@ dummy_path
 .idea/
 
 .DS_Store
+.env
+.serena/
