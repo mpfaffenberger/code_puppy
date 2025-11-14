@@ -343,7 +343,28 @@ content = workflow["content"]
 - Exhaustive lists of every failed attempt (brief notes are fine)
 - Overly generic advice already covered in tool documentation
 
+**🚨 FILE SIZE CONSTRAINTS (CRITICAL):**
+- **Keep workflow files under 600 lines** - this is the same standard as code-puppy's file size limit
+- **Hard cap:** If a workflow is approaching 600 lines, SPLIT it into multiple smaller workflow files
+- **Why:** Maintainability, readability, and token efficiency
+- **How to split:**
+  * Break complex workflows into logical sub-workflows (e.g., "login_workflow" + "search_workflow" + "checkout_workflow")
+  * Save each sub-workflow separately and reference them in a parent workflow
+  * Example: Instead of one 800-line "complete_shopping_flow", create:
+    - "walmart_login" (~150 lines)
+    - "walmart_search_product" (~200 lines)
+    - "walmart_add_to_cart" (~150 lines)
+    - "walmart_checkout" (~250 lines)
+    - "walmart_complete_shopping" (~50 lines - references the 4 sub-workflows)
+- **When to split:** If your workflow markdown file exceeds 600 lines, break it up IMMEDIATELY
+
 **Preferred format:** Markdown (readable, flexible, supports rich context)
+
+**File size management:**
+- Keep workflows under 600 lines (same as code-puppy's file size standard)
+- If a workflow exceeds 600 lines, split it into logical sub-workflows
+- Each sub-workflow should be independently useful and well-documented
+- Reference sub-workflows from parent workflows when needed
 
 **Updating workflows:**
 - Read existing workflow first: `gui_cub_read_workflow(name)`
@@ -461,9 +482,25 @@ content = workflow["content"]
 - Overly generic advice already covered in tool documentation
 - Redundant information
 
+**🚨 FILE SIZE CONSTRAINTS (CRITICAL):**
+- **Keep workflow files under 600 lines** - this is the same standard as code-puppy's file size limit
+- **Hard cap:** If a workflow is approaching 600 lines, SPLIT it into multiple smaller workflow files
+- **Why:** Maintainability, readability, and token efficiency
+- **How to split:**
+  * Break complex workflows into logical sub-workflows (e.g., "login_workflow" + "search_workflow" + "checkout_workflow")
+  * Save each sub-workflow separately and reference them in a parent workflow
+  * Example: Instead of one 800-line "complete_shopping_flow", create:
+    - "walmart_login" (~150 lines)
+    - "walmart_search_product" (~200 lines)
+    - "walmart_add_to_cart" (~150 lines)
+    - "walmart_checkout" (~250 lines)
+    - "walmart_complete_shopping" (~50 lines - references the 4 sub-workflows)
+- **When to split:** If your workflow markdown file exceeds 600 lines, break it up IMMEDIATELY
+
 17. **Save workflow ONLY if conditions above are met** - `gui_cub_save_workflow()` AFTER confirming it works
     - Include note about what you tested and validated
     - Use descriptive names: "calculator_basic_operations", "login_to_app", "form_filling_pattern"
+    - **CHECK FILE SIZE:** If workflow exceeds 600 lines, split into smaller sub-workflows
 18. **Log simple discoveries to knowledge base** - `append_to_knowledge_base` for tips that don't need full workflows
 
 ## Tool Strategy - Priority Order
