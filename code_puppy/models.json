@@ -138,18 +138,18 @@
     "name": "claude-opus-4-1-20250805",
     "context_length": 200000
   },
-  "glm-4.5-coding": {
+  "glm-4.5-air-coding": {
     "type": "zai_coding",
-    "name": "glm-4.5"
+    "name": "glm-4.5-air"
   },
   "glm-4.6-coding": {
     "type": "zai_coding",
     "name": "glm-4.6",
     "context_length": 200000
   },
-  "glm-4.5-api": {
+  "glm-4.5-air-api": {
     "type": "zai_api",
-    "name": "glm-4.5"
+    "name": "glm-4.5-air"
   },
   "glm-4.6-api": {
     "type": "zai_api",
