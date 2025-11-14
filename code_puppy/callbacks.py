@@ -12,6 +12,7 @@ PhaseType = Literal[
     "edit_file",
     "delete_file",
     "run_shell_command",
+    "run_shell_command_output",
     "load_model_config",
     "load_prompt",
     "agent_reload",
@@ -30,6 +31,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "edit_file": [],
     "delete_file": [],
     "run_shell_command": [],
+    "run_shell_command_output": [],
     "load_model_config": [],
     "load_prompt": [],
     "agent_reload": [],
@@ -188,6 +190,10 @@ def on_delete_file(*args, **kwargs) -> Any:
 
 async def on_run_shell_command(*args, **kwargs) -> Any:
     return await _trigger_callbacks("run_shell_command", *args, **kwargs)
+
+
+async def on_run_shell_command_output(*args, **kwargs) -> Any:
+    return await _trigger_callbacks("run_shell_command_output", *args, **kwargs)
 
 
 def on_agent_reload(*args, **kwargs) -> Any:

@@ -76,9 +76,7 @@ async def _scrape_confluence_session_playwright() -> Dict[str, Any]:
             headless=False,
             channel="chrome",  # Use system Chrome if available
             viewport={"width": 1280, "height": 720},
-            proxy={
-                "server": "http://sysproxy.wal-mart.com:8080"
-            },
+            proxy={"server": "http://sysproxy.wal-mart.com:8080"},
             args=[
                 "--disable-blink-features=AutomationControlled",  # Make it less detectable
             ],
@@ -91,7 +89,7 @@ async def _scrape_confluence_session_playwright() -> Dict[str, Any]:
             # Wait for browser to fully initialize before navigating
             emit_info("⏳ Waiting for browser to initialize...")
             await asyncio.sleep(4)
-            
+
             emit_info(f"📍 Navigating to {CONFLUENCE_URL}...")
             await page.goto(CONFLUENCE_URL, timeout=30000)
 

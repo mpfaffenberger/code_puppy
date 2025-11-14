@@ -13,6 +13,7 @@ from pydantic_ai import RunContext
 from rich.markdown import Markdown
 from rich.text import Text
 
+from code_puppy.callbacks import on_run_shell_command_output
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
@@ -867,7 +868,9 @@ def register_agent_run_shell_command(agent):
             This tool can execute arbitrary shell commands. Exercise caution when
             running untrusted commands, especially those that modify system state.
         """
-        return await run_shell_command(context, command, cwd, timeout)
+        result = await run_shell_command(context, command, cwd, timeout)
+        await on_run_shell_command_output(result)
+        return result
 
 
 def register_agent_share_your_reasoning(agent):
