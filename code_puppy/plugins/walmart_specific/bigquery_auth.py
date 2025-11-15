@@ -80,7 +80,7 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
         ):
             pass
 
-    # For Windows: Use Invoke-WebRequest to download and extract
+    # For Windows: Use Net.WebClient (Google's recommended method) to download and extract
     if system == "Windows":
         proxy_cmd = ""
         if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get("WALMART_NETWORK"):
@@ -92,19 +92,19 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "powershell",
                 "-Command",
                 proxy_cmd +
-                "$ProgressPreference='SilentlyContinue'; "
+                "$ErrorActionPreference='Stop'; "
                 "$zipUrl = 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-windows-x86_64.zip'; "
                 "$zipFile = Join-Path $env:TEMP 'google-cloud-sdk.zip'; "
                 "$extractPath = Join-Path $env:LOCALAPPDATA 'Google'; "
-                "Write-Host 'Downloading Google Cloud SDK (~100MB)...'; "
-                "Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing; "
-                "Write-Host 'Extracting SDK...'; "
+                "Write-Host 'Downloading Google Cloud SDK...'; "
+                "(New-Object Net.WebClient).DownloadFile($zipUrl, $zipFile); "
+                "Write-Host 'Extracting...'; "
                 "Expand-Archive -Path $zipFile -DestinationPath $extractPath -Force; "
                 "$installScript = Join-Path $extractPath 'google-cloud-sdk\\install.bat'; "
-                "Write-Host 'Running installer...'; "
-                "cmd /c \"$installScript --quiet --usage-reporting=false --path-update=true 2>nul\"; "
+                "Write-Host 'Installing...'; "
+                "Start-Process cmd.exe -ArgumentList '/c', $installScript, '--quiet', '--usage-reporting=false', '--path-update=true' -Wait -NoNewWindow; "
                 "Remove-Item $zipFile -Force; "
-                "Write-Host 'Done!'",
+                "Write-Host 'Complete!'",
             ],
         )
 
