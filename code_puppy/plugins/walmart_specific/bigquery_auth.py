@@ -98,9 +98,11 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "$zipFile = Join-Path $env:TEMP 'google-cloud-sdk.zip'; "
                 "$installPath = Join-Path $env:LOCALAPPDATA 'Google\\CloudSDK'; "
                 "Write-Host 'Downloading Google Cloud SDK (~100MB)...'; "
+                "[Console]::Out.Flush(); "
                 "$webClient = New-Object Net.WebClient; "
                 "$webClient.DownloadFile($zipUrl, $zipFile); "
                 "Write-Host 'Download complete. Extracting...'; "
+                "[Console]::Out.Flush(); "
                 "if (Test-Path $installPath) { Remove-Item $installPath -Recurse -Force }; "
                 "$zip = [System.IO.Compression.ZipFile]::OpenRead($zipFile); "
                 "$totalFiles = $zip.Entries.Count; "
@@ -117,9 +119,7 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "$env:PATH = \"$binPath;$env:PATH\"; "
                 "Remove-Item $zipFile -Force -ErrorAction SilentlyContinue; "
                 "Write-Host ''; "
-                "Write-Host 'Installation complete! gcloud is now available in this session.' -ForegroundColor Green; "
-                "Write-Host 'Running: gcloud version'; "
-                "& (Join-Path $binPath 'gcloud.cmd') version --format=json | ConvertFrom-Json | Select-Object -ExpandProperty 'Google Cloud SDK'",
+                "Write-Host 'Installation complete!' -ForegroundColor Green",
             ],
         )
 
@@ -177,10 +177,45 @@ def _install_gcloud_cli() -> bool:
 
         if result.returncode == 0:
             emit_success("✅ gcloud CLI installed successfully!")
-            if system == "Windows":
-                emit_info("🔄 Please restart your PowerShell/terminal to use gcloud commands.")
+            
+            # For Windows, update current Python process PATH
+            if system == "Windows" and manager_name == "PowerShell Installer":
+                import os
+                gcloud_bin = os.path.join(
+                    os.environ.get("LOCALAPPDATA", ""),
+                    "Google",
+                    "CloudSDK",
+                    "google-cloud-sdk",
+                    "bin"
+                )
+                if os.path.exists(gcloud_bin):
+                    # Add to current Python process PATH
+                    os.environ["PATH"] = f"{gcloud_bin};{os.environ['PATH']}"
+                    emit_info(f"✅ Added gcloud to current session PATH: {gcloud_bin}")
+                    
+                    # Verify gcloud is now accessible
+                    gcloud_cmd = os.path.join(gcloud_bin, "gcloud.cmd")
+                    if os.path.exists(gcloud_cmd):
+                        emit_success("✅ gcloud is now available in this session!")
+                        emit_info("💡 Running: gcloud version")
+                        try:
+                            version_result = subprocess.run(
+                                [gcloud_cmd, "version", "--format=value(basic)"],
+                                capture_output=True,
+                                text=True,
+                                timeout=10
+                            )
+                            if version_result.returncode == 0:
+                                emit_info(f"📦 Installed version: {version_result.stdout.strip()}")
+                        except Exception:
+                            pass  # Version check is optional
+                    else:
+                        emit_warning("⚠️ gcloud.cmd not found. You may need to restart your terminal.")
+                else:
+                    emit_warning("⚠️ Installation directory not found. Please restart your terminal.")
             else:
                 emit_info("🔄 You may need to restart your terminal or run: source ~/.zshrc (or ~/.bashrc)")
+            
             return True
         else:
             error_msg = result.stderr or result.stdout if capture_output else "Check output above"
