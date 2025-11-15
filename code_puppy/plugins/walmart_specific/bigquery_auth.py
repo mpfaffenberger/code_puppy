@@ -82,13 +82,17 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
 
     # For Windows: Direct installer (PRIMARY)
     if system == "Windows":
+        # Use PowerShell's ${env:TEMP} syntax which is more reliable
         return (
             "Direct Installer",
             [
                 "powershell",
                 "-Command",
-                "Invoke-WebRequest -Uri 'https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe' -OutFile '$env:TEMP\gcloudsdk.exe'; "
-                "Start-Process -FilePath '$env:TEMP\gcloudsdk.exe' -ArgumentList '/S' -Wait",
+                "& { "
+                "$installer = Join-Path $env:TEMP 'gcloudsdk.exe'; "
+                "Invoke-WebRequest -Uri 'https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe' -OutFile $installer; "
+                "Start-Process -FilePath $installer -ArgumentList '/S' -Wait "
+                "}",
             ],
         )
 
