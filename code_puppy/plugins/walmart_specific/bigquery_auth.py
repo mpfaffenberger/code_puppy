@@ -80,21 +80,31 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
         ):
             pass
 
-    # For Windows: Direct installer
+    # For Windows: Use Invoke-WebRequest to download and extract
     if system == "Windows":
-        # Build proxy command if on Walmart network
         proxy_cmd = ""
         if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get("WALMART_NETWORK"):
-            proxy_cmd = "$ProgressPreference='SilentlyContinue'; [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy('http://sysproxy.wal-mart.com:8080'); "
+            proxy_cmd = "[System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy('http://sysproxy.wal-mart.com:8080'); "
         
         return (
-            "Direct Installer",
+            "PowerShell Installer",
             [
                 "powershell",
                 "-Command",
-                proxy_cmd + "$installer = Join-Path $env:TEMP 'gcloudsdk.exe'; "
-                "Invoke-WebRequest -Uri 'https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe' -OutFile $installer -UseBasicParsing; "
-                "Start-Process -FilePath $installer -ArgumentList '/S','/norestart' -Wait -NoNewWindow",
+                proxy_cmd +
+                "$ProgressPreference='SilentlyContinue'; "
+                "$zipUrl = 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-windows-x86_64.zip'; "
+                "$zipFile = Join-Path $env:TEMP 'google-cloud-sdk.zip'; "
+                "$extractPath = Join-Path $env:LOCALAPPDATA 'Google'; "
+                "Write-Host 'Downloading Google Cloud SDK (~100MB)...'; "
+                "Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing; "
+                "Write-Host 'Extracting SDK...'; "
+                "Expand-Archive -Path $zipFile -DestinationPath $extractPath -Force; "
+                "$installScript = Join-Path $extractPath 'google-cloud-sdk\\install.bat'; "
+                "Write-Host 'Running installer...'; "
+                "cmd /c \"$installScript --quiet --usage-reporting=false --path-update=true 2>nul\"; "
+                "Remove-Item $zipFile -Force; "
+                "Write-Host 'Done!'",
             ],
         )
 
@@ -131,27 +141,32 @@ def _install_gcloud_cli() -> bool:
         env["HTTPS_PROXY"] = "http://sysproxy.wal-mart.com:8080"
         emit_info("🌐 Detected Walmart network, using corporate proxy")
 
+    # Adjust timeout based on installation method
+    timeout = 600 if manager_name == "PowerShell Installer" else 300
+    
     try:
         result = subprocess.run(
             install_cmd,
             capture_output=True,
             text=True,
-            timeout=300,  # 5 minutes
+            timeout=timeout,
             env=env,
         )
 
         if result.returncode == 0:
             emit_success("✅ gcloud CLI installed successfully!")
-            emit_info(
-                "🔄 You may need to restart your terminal or run: source ~/.zshrc (or ~/.bashrc)"
-            )
+            system = platform.system()
+            if system == "Windows":
+                emit_info("🔄 Please restart your PowerShell/terminal to use gcloud commands.")
+            else:
+                emit_info("🔄 You may need to restart your terminal or run: source ~/.zshrc (or ~/.bashrc)")
             return True
         else:
             emit_error(f"❌ Installation failed:\n{result.stderr or result.stdout}")
             return False
 
     except subprocess.TimeoutExpired:
-        emit_error("❌ Installation timed out after 5 minutes.")
+        emit_error(f"❌ Installation timed out after {timeout // 60} minutes.")
         return False
     except Exception as e:
         emit_error(f"❌ Installation failed: {str(e)}")
