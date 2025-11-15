@@ -100,19 +100,26 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "Write-Host 'Downloading Google Cloud SDK (~100MB)...'; "
                 "$webClient = New-Object Net.WebClient; "
                 "$webClient.DownloadFile($zipUrl, $zipFile); "
-                "Write-Host 'Download complete. Extracting (fast method)...'; "
+                "Write-Host 'Download complete. Extracting...'; "
                 "if (Test-Path $installPath) { Remove-Item $installPath -Recurse -Force }; "
+                "$zip = [System.IO.Compression.ZipFile]::OpenRead($zipFile); "
+                "$totalFiles = $zip.Entries.Count; "
+                "$zip.Dispose(); "
+                "Write-Progress -Activity 'Extracting Google Cloud SDK' -Status 'Processing files...' -PercentComplete 0; "
                 "[System.IO.Compression.ZipFile]::ExtractToDirectory($zipFile, $installPath); "
-                "Write-Host 'Extracted. Adding to PATH...'; "
+                "Write-Progress -Activity 'Extracting Google Cloud SDK' -Status 'Complete' -PercentComplete 100 -Completed; "
+                "Write-Host 'Extraction complete. Configuring PATH...'; "
                 "$binPath = Join-Path $installPath 'google-cloud-sdk\\bin'; "
                 "$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
                 "if ($currentPath -notlike \"*$binPath*\") { "
                 "  [Environment]::SetEnvironmentVariable('Path', \"$currentPath;$binPath\", 'User'); "
-                "  Write-Host 'PATH configured.'; "
                 "}; "
+                "$env:PATH = \"$binPath;$env:PATH\"; "
                 "Remove-Item $zipFile -Force -ErrorAction SilentlyContinue; "
                 "Write-Host ''; "
-                "Write-Host 'Installation complete! Restart your terminal.' -ForegroundColor Green",
+                "Write-Host 'Installation complete! gcloud is now available in this session.' -ForegroundColor Green; "
+                "Write-Host 'Running: gcloud version'; "
+                "& (Join-Path $binPath 'gcloud.cmd') version --format=json | ConvertFrom-Json | Select-Object -ExpandProperty 'Google Cloud SDK'",
             ],
         )
 
