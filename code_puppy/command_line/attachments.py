@@ -27,7 +27,7 @@ DEFAULT_ACCEPTED_IMAGE_EXTENSIONS = {
     ".webp",
     ".tiff",
 }
-DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS = set()
+DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS = {".pdf"}
 
 
 @dataclass
@@ -54,6 +54,7 @@ class ProcessedPrompt:
     attachments: List[PromptAttachment]
     link_attachments: List[PromptLinkAttachment]
     warnings: List[str]
+    pdf_texts: List[str]
 
 
 class AttachmentParsingError(RuntimeError):
@@ -98,13 +99,15 @@ def _normalise_path(token: str) -> Path:
 
 
 def _determine_media_type(path: Path) -> str:
-    """Best-effort media type detection for images only."""
+    """Best-effort media type detection for images and documents."""
 
     mime, _ = mimetypes.guess_type(path.name)
     if mime:
         return mime
     if path.suffix.lower() in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS:
         return "image/png"
+    if path.suffix.lower() == ".pdf":
+        return "application/pdf"
     return "application/octet-stream"
 
 
@@ -315,6 +318,7 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
     """Extract attachments from the prompt returning cleaned text and metadata."""
 
     attachments: List[PromptAttachment] = []
+    pdf_texts: List[str] = []
 
     detections, detection_warnings = _detect_path_tokens(prompt)
     warnings: List[str] = list(detection_warnings)
@@ -330,6 +334,19 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
             # Skip unsupported attachments without warning noise
             continue
 
+        # Handle PDF files specially - parse and extract text
+        if detection.path.suffix.lower() == ".pdf":
+            try:
+                from code_puppy.tools.pdf_parser import format_pdf_for_llm, parse_pdf
+
+                parse_result = parse_pdf(detection.path)
+                formatted_text = format_pdf_for_llm(parse_result)
+                pdf_texts.append(formatted_text)
+            except Exception as e:
+                warnings.append(f"Failed to parse PDF {detection.path.name}: {str(e)}")
+            continue
+
+        # Handle images and other binary attachments
         try:
             media_type = _determine_media_type(detection.path)
             data = _load_binary(detection.path)
@@ -370,6 +387,13 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
     cleaned_prompt = " ".join(cleaned_parts).strip()
     cleaned_prompt = " ".join(cleaned_prompt.split())
 
+    # Append PDF texts to the cleaned prompt
+    if pdf_texts:
+        if cleaned_prompt:
+            cleaned_prompt += "\n\n" + "\n\n".join(pdf_texts)
+        else:
+            cleaned_prompt = "\n\n".join(pdf_texts)
+
     if cleaned_prompt == "" and attachments:
         cleaned_prompt = "Describe the attached files in detail."
 
@@ -378,6 +402,7 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
         attachments=attachments,
         link_attachments=link_attachments,
         warnings=warnings,
+        pdf_texts=pdf_texts,
     )
 
 
