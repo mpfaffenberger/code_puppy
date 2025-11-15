@@ -93,24 +93,26 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "-Command",
                 proxy_cmd +
                 "$ErrorActionPreference='Stop'; "
+                "Add-Type -Assembly System.IO.Compression.FileSystem; "
                 "$zipUrl = 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-windows-x86_64.zip'; "
                 "$zipFile = Join-Path $env:TEMP 'google-cloud-sdk.zip'; "
                 "$installPath = Join-Path $env:LOCALAPPDATA 'Google\\CloudSDK'; "
-                "Write-Host 'Downloading Google Cloud SDK (~100MB, please wait)...'; "
+                "Write-Host 'Downloading Google Cloud SDK (~100MB)...'; "
                 "$webClient = New-Object Net.WebClient; "
                 "$webClient.DownloadFile($zipUrl, $zipFile); "
-                "Write-Host 'Download complete. Extracting...'; "
-                "Expand-Archive -Path $zipFile -DestinationPath $installPath -Force; "
-                "Write-Host 'Extraction complete. Configuring PATH...'; "
+                "Write-Host 'Download complete. Extracting (fast method)...'; "
+                "if (Test-Path $installPath) { Remove-Item $installPath -Recurse -Force }; "
+                "[System.IO.Compression.ZipFile]::ExtractToDirectory($zipFile, $installPath); "
+                "Write-Host 'Extracted. Adding to PATH...'; "
                 "$binPath = Join-Path $installPath 'google-cloud-sdk\\bin'; "
                 "$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
                 "if ($currentPath -notlike \"*$binPath*\") { "
                 "  [Environment]::SetEnvironmentVariable('Path', \"$currentPath;$binPath\", 'User'); "
-                "  Write-Host 'PATH updated.'; "
+                "  Write-Host 'PATH configured.'; "
                 "}; "
                 "Remove-Item $zipFile -Force -ErrorAction SilentlyContinue; "
                 "Write-Host ''; "
-                "Write-Host 'Installation complete! Restart your terminal to use gcloud commands.' -ForegroundColor Green",
+                "Write-Host 'Installation complete! Restart your terminal.' -ForegroundColor Green",
             ],
         )
 
