@@ -80,19 +80,21 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
         ):
             pass
 
-    # For Windows: Direct installer (PRIMARY)
+    # For Windows: Direct installer
     if system == "Windows":
-        # Use PowerShell's ${env:TEMP} syntax which is more reliable
+        # Build proxy command if on Walmart network
+        proxy_cmd = ""
+        if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get("WALMART_NETWORK"):
+            proxy_cmd = "$ProgressPreference='SilentlyContinue'; [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy('http://sysproxy.wal-mart.com:8080'); "
+        
         return (
             "Direct Installer",
             [
                 "powershell",
                 "-Command",
-                "& { "
-                "$installer = Join-Path $env:TEMP 'gcloudsdk.exe'; "
-                "Invoke-WebRequest -Uri 'https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe' -OutFile $installer; "
-                "Start-Process -FilePath $installer -ArgumentList '/S' -Wait "
-                "}",
+                proxy_cmd + "$installer = Join-Path $env:TEMP 'gcloudsdk.exe'; "
+                "Invoke-WebRequest -Uri 'https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe' -OutFile $installer -UseBasicParsing; "
+                "Start-Process -FilePath $installer -ArgumentList '/S','/norestart' -Wait -NoNewWindow",
             ],
         )
 
