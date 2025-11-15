@@ -180,41 +180,35 @@ def _install_gcloud_cli() -> bool:
             
             # For Windows, update current Python process PATH
             if system == "Windows" and manager_name == "PowerShell Installer":
-                import os
-                gcloud_bin = os.path.join(
-                    os.environ.get("LOCALAPPDATA", ""),
-                    "Google",
-                    "CloudSDK",
-                    "google-cloud-sdk",
-                    "bin"
-                )
-                if os.path.exists(gcloud_bin):
-                    # Add to current Python process PATH
-                    os.environ["PATH"] = f"{gcloud_bin};{os.environ['PATH']}"
-                    emit_info(f"✅ Added gcloud to current session PATH: {gcloud_bin}")
+                try:
+                    gcloud_bin = os.path.join(
+                        os.environ.get("LOCALAPPDATA", ""),
+                        "Google",
+                        "CloudSDK",
+                        "google-cloud-sdk",
+                        "bin"
+                    )
                     
-                    # Verify gcloud is now accessible
-                    gcloud_cmd = os.path.join(gcloud_bin, "gcloud.cmd")
-                    if os.path.exists(gcloud_cmd):
-                        emit_success("✅ gcloud is now available in this session!")
-                        emit_info("💡 Running: gcloud version")
-                        try:
-                            version_result = subprocess.run(
-                                [gcloud_cmd, "version", "--format=value(basic)"],
-                                capture_output=True,
-                                text=True,
-                                timeout=10
-                            )
-                            if version_result.returncode == 0:
-                                emit_info(f"📦 Installed version: {version_result.stdout.strip()}")
-                        except Exception:
-                            pass  # Version check is optional
+                    if os.path.exists(gcloud_bin):
+                        # Add to current Python process PATH
+                        os.environ["PATH"] = f"{gcloud_bin};{os.environ['PATH']}"
+                        emit_info(f"✅ Added gcloud to current session: {gcloud_bin}")
+                        
+                        # Verify gcloud.cmd exists
+                        gcloud_cmd = os.path.join(gcloud_bin, "gcloud.cmd")
+                        if os.path.exists(gcloud_cmd):
+                            emit_success("✅ gcloud is now available!")
+                        else:
+                            emit_warning("⚠️ gcloud.cmd not found, may need terminal restart")
                     else:
-                        emit_warning("⚠️ gcloud.cmd not found. You may need to restart your terminal.")
-                else:
-                    emit_warning("⚠️ Installation directory not found. Please restart your terminal.")
+                        emit_warning(f"⚠️ Installation directory not found: {gcloud_bin}")
+                        emit_info("Please restart your terminal and try again")
+                        
+                except Exception as e:
+                    emit_warning(f"⚠️ Could not update PATH automatically: {str(e)}")
+                    emit_info("Please restart your terminal to use gcloud")
             else:
-                emit_info("🔄 You may need to restart your terminal or run: source ~/.zshrc (or ~/.bashrc)")
+                emit_info("🔄 Restart terminal or run: source ~/.zshrc (or ~/.bashrc)")
             
             return True
         else:
@@ -366,9 +360,25 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
             return "Failed to install Python dependencies. Please install manually with: pip install google-cloud-bigquery google-cloud-resource-manager"
 
     # Step 2: Check if gcloud is installed, if not, install it
+    gcloud_cmd = "gcloud"
+    system = platform.system()
+    
+    # On Windows, check for gcloud.cmd in the expected location
+    if system == "Windows":
+        gcloud_bin = os.path.join(
+            os.environ.get("LOCALAPPDATA", ""),
+            "Google",
+            "CloudSDK",
+            "google-cloud-sdk",
+            "bin",
+            "gcloud.cmd"
+        )
+        if os.path.exists(gcloud_bin):
+            gcloud_cmd = gcloud_bin
+    
     try:
         result = subprocess.run(
-            ["gcloud", "--version"],
+            [gcloud_cmd, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -386,22 +396,40 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
                 "Please install it manually from: https://cloud.google.com/sdk/docs/install"
             )
 
-        # After installation, verify it worked
+        # After installation on Windows, use full path
+        if system == "Windows":
+            gcloud_cmd = os.path.join(
+                os.environ.get("LOCALAPPDATA", ""),
+                "Google",
+                "CloudSDK",
+                "google-cloud-sdk",
+                "bin",
+                "gcloud.cmd"
+            )
+            if not os.path.exists(gcloud_cmd):
+                return (
+                    "gcloud CLI installation completed, but gcloud.cmd not found. "
+                    "Please restart your terminal and try again."
+                )
+            emit_info(f"Using gcloud at: {gcloud_cmd}")
+        
+        # Verify installation worked
         try:
             subprocess.run(
-                ["gcloud", "--version"],
+                [gcloud_cmd, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10,
                 check=True,
             )
+            emit_success("✅ gcloud CLI verified successfully")
         except (
             FileNotFoundError,
             subprocess.CalledProcessError,
             subprocess.TimeoutExpired,
-        ):
+        ) as e:
             return (
-                "gcloud CLI installation completed, but command not found. "
+                f"gcloud CLI installation completed, but verification failed: {str(e)}. "
                 "Please restart your terminal and try again."
             )
 
@@ -430,7 +458,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
             emit_info("⏳ Please complete authentication in the browser window...")
 
         try:
-            cmd = ["gcloud", "auth", "application-default", "login"]
+            cmd = [gcloud_cmd, "auth", "application-default", "login"]
             if use_no_browser:
                 cmd.append("--no-browser")
 
