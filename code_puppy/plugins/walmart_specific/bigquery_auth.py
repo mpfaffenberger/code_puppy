@@ -96,18 +96,21 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "$zipUrl = 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-windows-x86_64.zip'; "
                 "$zipFile = Join-Path $env:TEMP 'google-cloud-sdk.zip'; "
                 "$installPath = Join-Path $env:LOCALAPPDATA 'Google\\CloudSDK'; "
-                "Write-Host 'Downloading Google Cloud SDK...'; "
-                "(New-Object Net.WebClient).DownloadFile($zipUrl, $zipFile); "
-                "Write-Host 'Extracting...'; "
+                "Write-Host 'Downloading Google Cloud SDK (~100MB, please wait)...'; "
+                "$webClient = New-Object Net.WebClient; "
+                "$webClient.DownloadFile($zipUrl, $zipFile); "
+                "Write-Host 'Download complete. Extracting...'; "
                 "Expand-Archive -Path $zipFile -DestinationPath $installPath -Force; "
+                "Write-Host 'Extraction complete. Configuring PATH...'; "
                 "$binPath = Join-Path $installPath 'google-cloud-sdk\\bin'; "
                 "$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
                 "if ($currentPath -notlike \"*$binPath*\") { "
-                "  Write-Host 'Adding to PATH...'; "
                 "  [Environment]::SetEnvironmentVariable('Path', \"$currentPath;$binPath\", 'User'); "
+                "  Write-Host 'PATH updated.'; "
                 "}; "
-                "Remove-Item $zipFile -Force; "
-                "Write-Host 'Complete! Restart terminal to use gcloud.'",
+                "Remove-Item $zipFile -Force -ErrorAction SilentlyContinue; "
+                "Write-Host ''; "
+                "Write-Host 'Installation complete! Restart your terminal to use gcloud commands.' -ForegroundColor Green",
             ],
         )
 
@@ -144,28 +147,35 @@ def _install_gcloud_cli() -> bool:
         env["HTTPS_PROXY"] = "http://sysproxy.wal-mart.com:8080"
         emit_info("🌐 Detected Walmart network, using corporate proxy")
 
-    # Windows PowerShell Installer is faster now (no install.bat)
-    timeout = 300
+    # Windows needs longer timeout and should show progress
+    system = platform.system()
+    if system == "Windows" and manager_name == "PowerShell Installer":
+        timeout = 600  # 10 minutes for large download on corporate network
+        capture_output = False  # Show progress to user
+        emit_info("⏳ This may take several minutes. Progress will be shown below...")
+    else:
+        timeout = 300
+        capture_output = True
     
     try:
         result = subprocess.run(
             install_cmd,
-            capture_output=True,
-            text=True,
+            capture_output=capture_output,
+            text=True if capture_output else False,
             timeout=timeout,
             env=env,
         )
 
         if result.returncode == 0:
             emit_success("✅ gcloud CLI installed successfully!")
-            system = platform.system()
             if system == "Windows":
                 emit_info("🔄 Please restart your PowerShell/terminal to use gcloud commands.")
             else:
                 emit_info("🔄 You may need to restart your terminal or run: source ~/.zshrc (or ~/.bashrc)")
             return True
         else:
-            emit_error(f"❌ Installation failed:\n{result.stderr or result.stdout}")
+            error_msg = result.stderr or result.stdout if capture_output else "Check output above"
+            emit_error(f"❌ Installation failed:\n{error_msg}")
             return False
 
     except subprocess.TimeoutExpired:
