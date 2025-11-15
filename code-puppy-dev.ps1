@@ -21,9 +21,17 @@ $env:UV_INDEX_URL = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/
 Write-Host "🐶 Reinstalling code-puppy in development mode..." -ForegroundColor Cyan
 
 # Build and reinstall in development mode (suppress output)
-uv pip install --no-deps --force-reinstall -e . 2>&1 | Out-Null
+# Temporarily ignore errors from native commands since uv outputs to stderr
+$ErrorActionPreference = "SilentlyContinue"
+$output = uv pip install --no-deps --force-reinstall -e . 2>&1
+$ErrorActionPreference = "Continue"
 
-Write-Host "✅ Reinstall complete!" -ForegroundColor Green
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "✅ Reinstall complete!" -ForegroundColor Green
+} else {
+    Write-Host "⚠️  Reinstall failed with exit code $LASTEXITCODE" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 Write-Host "🚀 Running code-puppy with arguments: $args_string" -ForegroundColor Yellow
 Write-Host ""
 
