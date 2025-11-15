@@ -80,7 +80,7 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
         ):
             pass
 
-    # For Windows: Use Net.WebClient (Google's recommended method) to download and extract
+    # For Windows: Download, extract, and add to PATH (skip install.bat which hangs)
     if system == "Windows":
         proxy_cmd = ""
         if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get("WALMART_NETWORK"):
@@ -95,16 +95,19 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "$ErrorActionPreference='Stop'; "
                 "$zipUrl = 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-windows-x86_64.zip'; "
                 "$zipFile = Join-Path $env:TEMP 'google-cloud-sdk.zip'; "
-                "$extractPath = Join-Path $env:LOCALAPPDATA 'Google'; "
+                "$installPath = Join-Path $env:LOCALAPPDATA 'Google\\CloudSDK'; "
                 "Write-Host 'Downloading Google Cloud SDK...'; "
                 "(New-Object Net.WebClient).DownloadFile($zipUrl, $zipFile); "
                 "Write-Host 'Extracting...'; "
-                "Expand-Archive -Path $zipFile -DestinationPath $extractPath -Force; "
-                "$installScript = Join-Path $extractPath 'google-cloud-sdk\\install.bat'; "
-                "Write-Host 'Installing...'; "
-                "Start-Process cmd.exe -ArgumentList '/c', $installScript, '--quiet', '--usage-reporting=false', '--path-update=true' -Wait -NoNewWindow; "
+                "Expand-Archive -Path $zipFile -DestinationPath $installPath -Force; "
+                "$binPath = Join-Path $installPath 'google-cloud-sdk\\bin'; "
+                "$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
+                "if ($currentPath -notlike \"*$binPath*\") { "
+                "  Write-Host 'Adding to PATH...'; "
+                "  [Environment]::SetEnvironmentVariable('Path', \"$currentPath;$binPath\", 'User'); "
+                "}; "
                 "Remove-Item $zipFile -Force; "
-                "Write-Host 'Complete!'",
+                "Write-Host 'Complete! Restart terminal to use gcloud.'",
             ],
         )
 
@@ -141,8 +144,8 @@ def _install_gcloud_cli() -> bool:
         env["HTTPS_PROXY"] = "http://sysproxy.wal-mart.com:8080"
         emit_info("🌐 Detected Walmart network, using corporate proxy")
 
-    # Adjust timeout based on installation method
-    timeout = 600 if manager_name == "PowerShell Installer" else 300
+    # Windows PowerShell Installer is faster now (no install.bat)
+    timeout = 300
     
     try:
         result = subprocess.run(
