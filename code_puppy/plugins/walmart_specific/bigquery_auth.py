@@ -498,11 +498,13 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
             gcloud_cmd = gcloud_bin
 
     try:
+        # Use longer timeout on Windows for potential first-time initialization
+        check_timeout = 30 if system == "Windows" else 10
         result = subprocess.run(
             [gcloud_cmd, "--version"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=check_timeout,
         )
         if result.returncode != 0:
             raise FileNotFoundError("gcloud command failed")
@@ -535,20 +537,29 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
             emit_info(f"Using gcloud at: {gcloud_cmd}")
 
         # Verify installation worked
+        # Use longer timeout on Windows for first-time initialization
+        verification_timeout = 30 if system == "Windows" else 10
+        emit_info(
+            f"Verifying gcloud installation (timeout: {verification_timeout}s)..."
+        )
+
         try:
             subprocess.run(
                 [gcloud_cmd, "--version"],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=verification_timeout,
                 check=True,
             )
             emit_success("✅ gcloud CLI verified successfully")
-        except (
-            FileNotFoundError,
-            subprocess.CalledProcessError,
-            subprocess.TimeoutExpired,
-        ) as e:
+        except subprocess.TimeoutExpired:
+            emit_warning(
+                f"⚠️  gcloud verification timed out after {verification_timeout} seconds.\n"
+                "This can happen on first run. The installation appears complete.\n"
+                "If you encounter issues, please restart your terminal."
+            )
+            # Don't return error - installation succeeded, just verification timed out
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
             return (
                 f"gcloud CLI installation completed, but verification failed: {str(e)}. "
                 "Please restart your terminal and try again."
