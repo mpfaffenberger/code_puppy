@@ -482,8 +482,9 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
 
     # Step 2: Check if gcloud is installed, if not, install it
     system = platform.system()
+    gcloud_cmd = "gcloud"
 
-    # On Windows, check if gcloud exists in the standard location and ensure PATH is set
+    # On Windows, check if gcloud exists in the standard location
     if system == "Windows":
         gcloud_bin_dir = os.path.join(
             os.environ.get("LOCALAPPDATA", ""),
@@ -494,15 +495,13 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
         )
         gcloud_cmd_path = os.path.join(gcloud_bin_dir, "gcloud.cmd")
 
-        # If gcloud is installed but not in current session PATH, add it
-        if os.path.exists(gcloud_cmd_path) and gcloud_bin_dir not in os.environ.get(
-            "PATH", ""
-        ):
-            os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
-            emit_info(f"✅ Added gcloud to current session PATH: {gcloud_bin_dir}")
-
-    # Always use 'gcloud' to rely on PATH
-    gcloud_cmd = "gcloud"
+        # If gcloud is installed, use full path and ensure it's in PATH
+        if os.path.exists(gcloud_cmd_path):
+            gcloud_cmd = gcloud_cmd_path
+            # Also add to PATH for subprocess calls
+            if gcloud_bin_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
+                emit_info(f"✅ Added gcloud to current session PATH: {gcloud_bin_dir}")
 
     try:
         # Use longer timeout on Windows for potential first-time initialization
@@ -527,25 +526,35 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
             )
 
         # After installation, gcloud should be in PATH (updated in _install_gcloud_cli)
-        # Verify gcloud.cmd exists in the expected location
+        # Verify gcloud.cmd exists and ensure PATH is set for this session
         if system == "Windows":
-            gcloud_path = os.path.join(
+            gcloud_bin_dir = os.path.join(
                 os.environ.get("LOCALAPPDATA", ""),
                 "Google",
                 "CloudSDK",
                 "google-cloud-sdk",
                 "bin",
-                "gcloud.cmd",
             )
+            gcloud_path = os.path.join(gcloud_bin_dir, "gcloud.cmd")
+
             if not os.path.exists(gcloud_path):
                 return (
                     "gcloud CLI installation completed, but gcloud.cmd not found. "
                     "Please restart your terminal and try again."
                 )
-            emit_info(f"Using gcloud from PATH (installed at: {gcloud_path})")
 
-        # Use 'gcloud' command to rely on PATH (which was updated during installation)
-        gcloud_cmd = "gcloud"
+            # Ensure gcloud bin directory is in PATH for this session
+            # This allows bigquery_client.py to use "gcloud" command via subprocess
+            if gcloud_bin_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
+                emit_success(f"✅ Added gcloud to session PATH: {gcloud_bin_dir}")
+
+            emit_info(f"Using gcloud from PATH (installed at: {gcloud_path})")
+            # For immediate verification after install, use full path
+            gcloud_cmd = gcloud_path
+        else:
+            # Use 'gcloud' command to rely on PATH
+            gcloud_cmd = "gcloud"
 
         # Verify installation worked
         # Use longer timeout on Windows for first-time initialization
