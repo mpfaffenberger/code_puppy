@@ -12,7 +12,9 @@ print("🐶 Code Puppy is Loading...", flush=True)
 # ruff: noqa: E402
 import argparse
 import asyncio
+import hashlib
 import os
+import platform
 import subprocess
 import time
 import traceback
@@ -40,7 +42,6 @@ from code_puppy.config import (
 )
 from code_puppy.http_utils import find_available_port
 from code_puppy.messaging import emit_info
-from code_puppy.session_storage import restore_autosave_interactively
 from code_puppy.tools.common import console
 
 # message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
@@ -48,6 +49,53 @@ from code_puppy.tui_state import is_tui_mode, set_tui_mode
 from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
+
+
+def is_user_in_dbos_sample() -> bool:
+    """
+    Check if the current user (based on puppy token username) is in the 2% DBOS sample.
+    Uses SHA1 hash of username to deterministically sample 2% of users.
+    
+    Returns:
+        bool: True if user should have DBOS enabled by default, False otherwise
+    """
+    try:
+        from code_puppy.config import get_puppy_token
+        from code_puppy.plugins.walmart_specific.auth import decode_jwt_without_validation
+        
+        token = get_puppy_token()
+        if not token:
+            return False
+        
+        # Decode the JWT to get username
+        decoded = decode_jwt_without_validation(token)
+        if not decoded:
+            return False
+        
+        # Extract username from common JWT claims (same order as confluence_client.py)
+        username = (
+            decoded.get("sub")
+            or decoded.get("user_id")
+            or decoded.get("userId")
+            or decoded.get("uid")
+        )
+        
+        if not username:
+            return False
+        
+        # Hash username with SHA1
+        username_hash = hashlib.sha1(str(username).encode('utf-8')).hexdigest()
+        
+        # Convert first 8 hex chars to int and mod 100 to get 0-99 range
+        # Users with hash % 100 < 2 are in the 2% sample
+        hash_value = int(username_hash[:8], 16)
+        is_sampled = (hash_value % 100) < 2
+        
+        return is_sampled
+        
+    except Exception:
+        # If anything fails, don't enable DBOS by default
+        return False
 
 
 def escape_system32_if_needed():
@@ -347,6 +395,16 @@ async def main():
 
     await callbacks.on_startup()
 
+    # Check if user is in 2% DBOS sample and enable DBOS by default if they are
+    if is_user_in_dbos_sample():
+        from code_puppy.config import set_config_value
+        from code_puppy.messaging import emit_system_message
+        
+        # Only set if not already explicitly configured
+        if not get_use_dbos():
+            set_config_value("enable_dbos", "true")
+            emit_system_message("[dim]🎲 You've been selected for DBOS beta testing (2% sample)[/dim]")
+
     # Initialize DBOS if not disabled
     if get_use_dbos():
         # Append a Unix timestamp in ms to the version for uniqueness
@@ -435,10 +493,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message("[dim]Type 'clear' to reset the conversation history.[/dim]")
     emit_system_message("[dim]Type /help to view all commands[/dim]")
     emit_system_message(
-        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/m[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
+        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/model[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
     )
     emit_system_message(
-        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference.[/dim]"
+        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference. Use [bold red]Ctrl+X[/bold red] to interrupt running shell commands.[/dim]"
     )
     emit_system_message(
         "[dim]Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session.[/dim]"
@@ -625,7 +683,65 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if command_result == "__AUTOSAVE_LOAD__":
                     # Handle async autosave loading
                     try:
-                        await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+                        # Check if we're in a real interactive terminal
+                        # (not pexpect/tests) - TUI requires proper TTY
+                        use_tui = sys.stdin.isatty() and sys.stdout.isatty()
+
+                        # Allow environment variable override for tests
+                        if os.getenv("CODE_PUPPY_NO_TUI") == "1":
+                            use_tui = False
+
+                        if use_tui:
+                            # Use new TUI picker for interactive sessions
+                            from code_puppy.agents.agent_manager import (
+                                get_current_agent,
+                            )
+                            from code_puppy.command_line.autosave_menu import (
+                                interactive_autosave_picker,
+                            )
+                            from code_puppy.config import (
+                                set_current_autosave_from_session_name,
+                            )
+                            from code_puppy.messaging import (
+                                emit_error,
+                                emit_success,
+                                emit_warning,
+                            )
+                            from code_puppy.session_storage import (
+                                load_session,
+                                restore_autosave_interactively,
+                            )
+
+                            chosen_session = await interactive_autosave_picker()
+
+                            if not chosen_session:
+                                emit_warning("Autosave load cancelled")
+                                continue
+
+                            # Load the session
+                            base_dir = Path(AUTOSAVE_DIR)
+                            history = load_session(chosen_session, base_dir)
+
+                            agent = get_current_agent()
+                            agent.set_message_history(history)
+
+                            # Set current autosave session
+                            set_current_autosave_from_session_name(chosen_session)
+
+                            total_tokens = sum(
+                                agent.estimate_tokens_for_message(msg)
+                                for msg in history
+                            )
+                            session_path = base_dir / f"{chosen_session}.pkl"
+
+                            emit_success(
+                                f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
+                                f"📁 From: {session_path}"
+                            )
+                        else:
+                            # Fall back to old text-based picker for tests/non-TTY environments
+                            await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+
                     except Exception as e:
                         from code_puppy.messaging import emit_error
 
@@ -872,6 +988,15 @@ def main_entry():
         if get_use_dbos():
             DBOS.destroy()
         return 0
+    finally:
+        # Reset terminal on Unix-like systems (not Windows)
+        if platform.system() != "Windows":
+            try:
+                # Reset terminal to sanity state
+                subprocess.run(["reset"], check=True, capture_output=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Silently fail if reset command isn't available
+                pass
 
 
 if __name__ == "__main__":

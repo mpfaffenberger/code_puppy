@@ -434,7 +434,11 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
+<<<<<<< HEAD
 version = "0.0.253"
+=======
+version = "0.0.268"
+>>>>>>> main
 source = { editable = "." }
 dependencies = [
     { name = "atomacos", marker = "sys_platform == 'darwin'" },

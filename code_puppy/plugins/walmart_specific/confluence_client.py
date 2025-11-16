@@ -12,8 +12,14 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from code_puppy import __version__
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_warning
+from code_puppy.plugins.walmart_specific.auth import (
+    decode_jwt_without_validation,
+    get_puppy_token,
+)
+from code_puppy.plugins.walmart_specific.rate_limiter import SharedRateLimiter
 
 
 # =============================================================================
@@ -106,11 +112,22 @@ class ConfluenceClient:
         # Check if session is stale
         self._check_staleness()
 
+        # Build custom User-Agent with version and user_id from puppy token
+        user_agent = self._build_user_agent()
+
         # Create HTTP client with cookies (SSL verification disabled for Walmart network)
         self.client = httpx.Client(
             cookies=self.cookies,
             timeout=30.0,
             verify=False,
+            headers={"User-Agent": user_agent},
+        )
+
+        # Initialize shared rate limiter (20 requests per minute, shared across all instances)
+        self.rate_limiter = SharedRateLimiter(
+            name="confluence_api",
+            max_requests=20,
+            time_window=60,
         )
 
     def _load_session(self) -> dict[str, Any]:
@@ -125,7 +142,7 @@ class ConfluenceClient:
         if not self.session_file_path.exists():
             raise ConfluenceError(
                 f"Session file not found: {self.session_file_path}\n"
-                "Please run 'code-puppy confluence login' to create a session."
+                "Please run '/confluence_auth' to create a session."
             )
 
         try:
@@ -171,10 +188,41 @@ class ConfluenceClient:
                 hours_old = age.total_seconds() / 3600
                 emit_warning(
                     f"Confluence session is {hours_old:.1f} hours old. "
-                    "Consider running 'code-puppy confluence login' to refresh."
+                    "Consider running '/confluence_auth' to refresh."
                 )
         except ValueError:
             emit_warning(f"Invalid timestamp format in session file: {timestamp_str}")
+
+    def _build_user_agent(self) -> str:
+        """Build a custom User-Agent header with version and user_id.
+
+        Returns:
+            User-Agent string in format: 'Code Puppy Walmart Internal Version {version} ({user_id})'
+            Falls back to 'Code Puppy Walmart Internal Version {version}' if user_id cannot be determined.
+        """
+        # Start with version
+        user_agent = f"Code Puppy Walmart Internal Version {__version__}"
+
+        # Try to get user_id from puppy token
+        try:
+            token = get_puppy_token()
+            if token:
+                decoded = decode_jwt_without_validation(token)
+                if decoded:
+                    # Common JWT claims for user identity: sub, user_id, userId, uid
+                    user_id = (
+                        decoded.get("sub")
+                        or decoded.get("user_id")
+                        or decoded.get("userId")
+                        or decoded.get("uid")
+                    )
+                    if user_id:
+                        user_agent += f" ({user_id})"
+        except Exception:
+            # Silently fall back to version-only if token decoding fails
+            pass
+
+        return user_agent
 
     def _make_request(
         self,
@@ -197,6 +245,9 @@ class ConfluenceClient:
             ConfluenceNotFoundError: If resource is not found (404).
             ConfluenceAPIError: For other API errors.
         """
+        # Wait if rate limit is exceeded (shared across all Code Puppy instances)
+        self.rate_limiter.wait_if_needed()
+
         url = f"{self.base_url}{endpoint}"
 
         try:
@@ -206,7 +257,7 @@ class ConfluenceClient:
             if response.status_code in (401, 403):
                 raise ConfluenceAuthError(
                     f"Authentication failed (HTTP {response.status_code}). "
-                    "Please run 'code-puppy confluence login' to refresh your session."
+                    "Please run '/confluence_auth' to refresh your session."
                 )
 
             # Handle not found errors
@@ -226,6 +277,9 @@ class ConfluenceClient:
                     error_msg += f": {response.text[:200]}"
 
                 raise ConfluenceAPIError(error_msg, status_code=response.status_code)
+
+            # Record successful request for rate limiting (only count successful requests)
+            self.rate_limiter.record_request()
 
             # Return JSON response
             return response.json()

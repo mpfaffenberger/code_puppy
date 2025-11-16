@@ -434,7 +434,6 @@ async def test_get_input_with_combined_completion_defaults(
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="test input")
     mock_prompt_session_cls.return_value = mock_session_instance
-    mock_update_model.return_value = "processed input"
     mock_merge_completers.return_value = MagicMock()  # Mocked merged completer
 
     result = await get_input_with_combined_completion()
@@ -544,12 +543,11 @@ async def test_get_input_with_combined_completion_empty_history(
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.update_model_in_input")
 async def test_get_input_with_combined_completion_custom_prompt(
-    mock_update_model, mock_prompt_session_cls
+    mock_prompt_session_cls,
 ):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="custom prompt input")
     mock_prompt_session_cls.return_value = mock_session_instance
-    mock_update_model.return_value = "processed custom prompt"
 
     # Test with string prompt
     custom_prompt_str = "Custom> "
@@ -566,12 +564,8 @@ async def test_get_input_with_combined_completion_custom_prompt(
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
-@patch(
-    "code_puppy.command_line.prompt_toolkit_completion.update_model_in_input",
-    return_value=None,
-)  # Simulate no model update
 async def test_get_input_with_combined_completion_no_model_update(
-    mock_update_model_no_change, mock_prompt_session_cls
+    mock_prompt_session_cls,
 ):
     raw_input = "raw user input"
     mock_session_instance = MagicMock()
@@ -579,7 +573,8 @@ async def test_get_input_with_combined_completion_no_model_update(
     mock_prompt_session_cls.return_value = mock_session_instance
 
     result = await get_input_with_combined_completion()
-    mock_update_model_no_change.assert_called_once_with(raw_input)
+    # NOTE: update_model_in_input is no longer called from the prompt layer.
+    # The prompt layer now just returns the input as-is.
     assert result == raw_input
 
 

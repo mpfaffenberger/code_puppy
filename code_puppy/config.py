@@ -598,6 +598,22 @@ def get_yolo_mode():
     return True
 
 
+def get_safety_permission_level():
+    """
+    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
+    Defaults to 'medium' if not set.
+    Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
+    Returns the normalized lowercase string.
+    """
+    valid_levels = {"none", "low", "medium", "high", "critical"}
+    cfg_val = get_value("safety_permission_level")
+    if cfg_val is not None:
+        normalized = str(cfg_val).strip().lower()
+        if normalized in valid_levels:
+            return normalized
+    return "medium"  # Default to medium risk threshold
+
+
 def get_mcp_disabled():
     """
     Checks puppy.cfg for 'disable_mcp' (case-insensitive in value only).
@@ -614,59 +630,22 @@ def get_mcp_disabled():
     return False
 
 
-def get_safety_permission_level() -> str:
+def get_grep_output_verbose():
     """
-    Get the safety permission level for shell command validation.
+    Checks puppy.cfg for 'grep_output_verbose' (case-insensitive in value only).
+    Defaults to False (concise output) if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
 
-    This determines which commands are blocked based on their risk level:
-    - "safe": Only block critical commands (most permissive)
-    - "low": Block high and critical commands
-    - "medium": Block high and critical commands (default, balanced)
-    - "high": Block medium, high, and critical commands
-    - "critical": Block low, medium, high, and critical commands (most restrictive)
-
-    Returns:
-        str: The safety permission level (defaults to "medium")
+    When False (default): Shows only file names with match counts
+    When True: Shows full output with line numbers and content
     """
-    valid_levels = {"safe", "low", "medium", "high", "critical"}
-    cfg_val = get_value("safety_permission_level")
-
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("grep_output_verbose")
     if cfg_val is not None:
-        level = str(cfg_val).strip().lower()
-        if level in valid_levels:
-            return level
-
-    return "medium"  # Default to medium (balanced)
-
-
-def set_safety_permission_level(level: str) -> bool:
-    """
-    Set the safety permission level for shell command validation.
-
-    Args:
-        level: One of "safe", "low", "medium", "high", "critical"
-
-    Returns:
-        bool: True if successfully set, False if invalid level
-    """
-    valid_levels = {"safe", "low", "medium", "high", "critical"}
-    level = level.strip().lower()
-
-    if level not in valid_levels:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
         return False
-
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-
-    if DEFAULT_SECTION not in config:
-        config[DEFAULT_SECTION] = {}
-
-    config[DEFAULT_SECTION]["safety_permission_level"] = level
-
-    with open(CONFIG_FILE, "w") as f:
-        config.write(f)
-
-    return True
+    return False
 
 
 def get_protected_token_count():
@@ -889,7 +868,6 @@ def set_diff_highlight_style(style: str):
     if style.lower() not in ["text", "highlighted"]:
         raise ValueError("diff_highlight_style must be 'text' or 'highlighted'")
     set_config_value("diff_highlight_style", style.lower())
-    _emit_diff_style_example()
 
 
 def get_diff_addition_color() -> str:
@@ -910,7 +888,6 @@ def set_diff_addition_color(color: str):
         color: Rich color markup (e.g., 'green', 'on_green', 'bright_green')
     """
     set_config_value("diff_addition_color", color)
-    _emit_diff_style_example()
 
 
 def get_diff_deletion_color() -> str:
@@ -931,11 +908,11 @@ def set_diff_deletion_color(color: str):
         color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
     """
     set_config_value("diff_deletion_color", color)
-    _emit_diff_style_example()
 
 
 def _emit_diff_style_example():
     """Emit a small diff example showing the current style configuration."""
+
     try:
         from code_puppy.messaging import emit_info
         from code_puppy.tools.file_modifications import _colorize_diff
