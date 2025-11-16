@@ -298,30 +298,102 @@ def _install_python_dependencies() -> bool:
         return False
 
 
-def _verify_credentials() -> bool:
+def _get_default_project(gcloud_cmd: str = "gcloud") -> Optional[str]:
+    """Get default project from gcloud config or list of available projects.
+    
+    Args:
+        gcloud_cmd: Path to gcloud command
+        
+    Returns:
+        Default project ID or None
+    """
+    try:
+        # First try to get the configured default project
+        result = subprocess.run(
+            [gcloud_cmd, "config", "get-value", "project"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            project = result.stdout.strip()
+            if project and project != "(unset)":
+                emit_info(f"📊 Found default project from gcloud config: {project}")
+                return project
+        
+        # If no default project, list all projects and pick the first one
+        emit_info("🔍 No default project set, fetching your available projects...")
+        result = subprocess.run(
+            [gcloud_cmd, "projects", "list", "--format=value(projectId)", "--limit=1"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            project = result.stdout.strip().split('\n')[0]
+            emit_info(f"📊 Auto-selected first available project: {project}")
+            
+            # Set it as the default for future use
+            subprocess.run(
+                [gcloud_cmd, "config", "set", "project", project],
+                capture_output=True,
+                timeout=10,
+            )
+            emit_success(f"✅ Set {project} as default project")
+            return project
+            
+    except Exception as e:
+        emit_warning(f"⚠️  Could not determine default project: {str(e)}")
+    
+    return None
+
+
+def _verify_credentials(project_id: Optional[str] = None) -> bool:
     """Verify that application default credentials are valid.
 
+    Args:
+        project_id: Optional project ID to use for verification
+        
     Returns:
         True if credentials are valid, False otherwise
     """
     try:
-        # Try to create a client to verify credentials
-        if bigquery is None:
-            return False
-
-        # Suppress quota project warning (expected when using gcloud auth)
+        # Check if credentials file exists
+        from google.auth import default
+        from google.auth.exceptions import DefaultCredentialsError
+        
+        # Try to load default credentials
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
                 message=".*Your application has authenticated using end user credentials.*",
                 category=UserWarning,
             )
-            client = bigquery.Client()
-            # Try a simple operation to verify credentials work
+            credentials, detected_project = default()
+            
+        # Require a project - don't allow authentication without one
+        final_project = project_id or detected_project
+        
+        if not final_project:
+            emit_error("❌ No default project available. Cannot verify credentials.")
+            return False
+        
+        # Verify we can create a client with this project
+        if bigquery is not None:
+            client = bigquery.Client(project=final_project, credentials=credentials)
+            # Simple check - accessing project property
             _ = client.project
+            emit_info(f"✅ Credentials verified with project: {final_project}")
+        else:
+            emit_info(f"✅ Credentials loaded (project: {final_project})")
+            
         return True
-    except Exception as e:
+        
+    except DefaultCredentialsError as e:
         emit_warning(f"⚠️  Credential verification failed: {str(e)}")
+        return False
+    except Exception as e:
+        emit_warning(f"⚠️  Unexpected error during verification: {str(e)}")
         return False
 
 
@@ -488,27 +560,28 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
                     "Application Default Credentials have been saved."
                 )
 
+                # Get and set default project automatically
+                emit_info("🔍 Setting up default project...")
+                default_project = _get_default_project(gcloud_cmd)
+                
+                if not default_project:
+                    emit_error(
+                        "❌ Could not determine a default GCP project.\n"
+                        "Please set one manually: gcloud config set project YOUR_PROJECT_ID"
+                    )
+                    return "Authentication completed but no default project available. Please set one with: gcloud config set project YOUR_PROJECT_ID"
+                
                 # Verify credentials actually work
                 emit_info("🔍 Verifying credentials...")
-                if _verify_credentials():
+                if _verify_credentials(project_id=default_project):
                     emit_success(
                         "✅ Credentials verified successfully!\n"
                         "You can now use BigQuery tools."
                     )
-
-                    # Get the default project for helpful info
-                    try:
-                        from google.cloud import bigquery
-
-                        client = bigquery.Client()
-                        default_project = client.project
-                        emit_info(
-                            f"📊 Default project: {default_project}\n"
-                            f"💡 Tip: You can work with other projects by specifying project_id in commands."
-                        )
-                    except Exception:
-                        pass  # Ignore if we can't get project info
-
+                    emit_info(
+                        f"💡 Default project '{default_project}' is now set.\n"
+                        f"   You can work with other projects by specifying project_id in commands."
+                    )
                     return "BigQuery authentication successful!"
                 else:
                     emit_warning(
