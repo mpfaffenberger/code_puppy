@@ -498,10 +498,10 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
         # If gcloud is installed, use full path and ensure it's in PATH
         if os.path.exists(gcloud_cmd_path):
             gcloud_cmd = gcloud_cmd_path
-            # Also add to PATH for subprocess calls
-            if gcloud_bin_dir not in os.environ.get("PATH", ""):
-                os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
-                emit_info(f"✅ Added gcloud to current session PATH: {gcloud_bin_dir}")
+            # Always add to PATH for subprocess calls (even if it might be there already)
+            # This ensures bigquery_client.py can use "gcloud" command
+            os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
+            emit_info(f"✅ Added gcloud to current session PATH: {gcloud_bin_dir}")
 
     try:
         # Use longer timeout on Windows for potential first-time initialization
@@ -543,11 +543,10 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
                     "Please restart your terminal and try again."
                 )
 
-            # Ensure gcloud bin directory is in PATH for this session
-            # This allows bigquery_client.py to use "gcloud" command via subprocess
-            if gcloud_bin_dir not in os.environ.get("PATH", ""):
-                os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
-                emit_success(f"✅ Added gcloud to session PATH: {gcloud_bin_dir}")
+            # Always add gcloud bin directory to PATH for this session
+            # This ensures bigquery_client.py can use "gcloud" command via subprocess
+            os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
+            emit_success(f"✅ Added gcloud to session PATH: {gcloud_bin_dir}")
 
             emit_info(f"Using gcloud from PATH (installed at: {gcloud_path})")
             # For immediate verification after install, use full path
