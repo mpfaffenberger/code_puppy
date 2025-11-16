@@ -83,16 +83,17 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
     # For Windows: Download, extract, and add to PATH (skip install.bat which hangs)
     if system == "Windows":
         proxy_cmd = ""
-        if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get("WALMART_NETWORK"):
+        if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get(
+            "WALMART_NETWORK"
+        ):
             proxy_cmd = "[System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy('http://sysproxy.wal-mart.com:8080'); "
-        
+
         return (
             "PowerShell Installer",
             [
                 "powershell",
                 "-Command",
-                proxy_cmd +
-                "$ErrorActionPreference='Stop'; "
+                proxy_cmd + "$ErrorActionPreference='Stop'; "
                 "Add-Type -Assembly System.IO.Compression.FileSystem; "
                 "$zipUrl = 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-windows-x86_64.zip'; "
                 "$zipFile = Join-Path $env:TEMP 'google-cloud-sdk.zip'; "
@@ -113,10 +114,10 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "Write-Host 'Extraction complete. Configuring PATH...'; "
                 "$binPath = Join-Path $installPath 'google-cloud-sdk\\bin'; "
                 "$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
-                "if ($currentPath -notlike \"*$binPath*\") { "
+                'if ($currentPath -notlike "*$binPath*") { '
                 "  [Environment]::SetEnvironmentVariable('Path', \"$currentPath;$binPath\", 'User'); "
                 "}; "
-                "$env:PATH = \"$binPath;$env:PATH\"; "
+                '$env:PATH = "$binPath;$env:PATH"; '
                 "Remove-Item $zipFile -Force -ErrorAction SilentlyContinue; "
                 "Write-Host ''; "
                 "Write-Host 'Installation complete!' -ForegroundColor Green",
@@ -165,7 +166,7 @@ def _install_gcloud_cli() -> bool:
     else:
         timeout = 300
         capture_output = True
-    
+
     try:
         result = subprocess.run(
             install_cmd,
@@ -177,7 +178,7 @@ def _install_gcloud_cli() -> bool:
 
         if result.returncode == 0:
             emit_success("✅ gcloud CLI installed successfully!")
-            
+
             # For Windows, update current Python process PATH
             if system == "Windows" and manager_name == "PowerShell Installer":
                 try:
@@ -186,33 +187,41 @@ def _install_gcloud_cli() -> bool:
                         "Google",
                         "CloudSDK",
                         "google-cloud-sdk",
-                        "bin"
+                        "bin",
                     )
-                    
+
                     if os.path.exists(gcloud_bin):
                         # Add to current Python process PATH
                         os.environ["PATH"] = f"{gcloud_bin};{os.environ['PATH']}"
                         emit_info(f"✅ Added gcloud to current session: {gcloud_bin}")
-                        
+
                         # Verify gcloud.cmd exists
                         gcloud_cmd = os.path.join(gcloud_bin, "gcloud.cmd")
                         if os.path.exists(gcloud_cmd):
                             emit_success("✅ gcloud is now available!")
                         else:
-                            emit_warning("⚠️ gcloud.cmd not found, may need terminal restart")
+                            emit_warning(
+                                "⚠️ gcloud.cmd not found, may need terminal restart"
+                            )
                     else:
-                        emit_warning(f"⚠️ Installation directory not found: {gcloud_bin}")
+                        emit_warning(
+                            f"⚠️ Installation directory not found: {gcloud_bin}"
+                        )
                         emit_info("Please restart your terminal and try again")
-                        
+
                 except Exception as e:
                     emit_warning(f"⚠️ Could not update PATH automatically: {str(e)}")
                     emit_info("Please restart your terminal to use gcloud")
             else:
                 emit_info("🔄 Restart terminal or run: source ~/.zshrc (or ~/.bashrc)")
-            
+
             return True
         else:
-            error_msg = result.stderr or result.stdout if capture_output else "Check output above"
+            error_msg = (
+                result.stderr or result.stdout
+                if capture_output
+                else "Check output above"
+            )
             emit_error(f"❌ Installation failed:\n{error_msg}")
             return False
 
@@ -299,11 +308,11 @@ def _install_python_dependencies() -> bool:
 
 
 def _get_default_project(gcloud_cmd: str = "gcloud") -> Optional[str]:
-    """Get default project from gcloud config or list of available projects.
-    
+    """Get default project from gcloud config or prompt user to select one.
+
     Args:
         gcloud_cmd: Path to gcloud command
-        
+
     Returns:
         Default project ID or None
     """
@@ -318,34 +327,74 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> Optional[str]:
         if result.returncode == 0 and result.stdout.strip():
             project = result.stdout.strip()
             if project and project != "(unset)":
-                emit_info(f"📊 Found default project from gcloud config: {project}")
+                emit_success(f"✅ Found default project from gcloud config: {project}")
                 return project
-        
-        # If no default project, list all projects and pick the first one
-        emit_info("🔍 No default project set, fetching your available projects...")
-        result = subprocess.run(
-            [gcloud_cmd, "projects", "list", "--format=value(projectId)", "--limit=1"],
-            capture_output=True,
-            text=True,
+
+        # If no default project, list all projects and let user choose
+        emit_info("📊 No default project set. Listing your available projects...")
+        emit_info("")
+
+        # Show projects in table format
+        list_result = subprocess.run(
+            [gcloud_cmd, "projects", "list", "--format=table(projectId, name)"],
+            capture_output=False,  # Show output directly to user
             timeout=30,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            project = result.stdout.strip().split('\n')[0]
-            emit_info(f"📊 Auto-selected first available project: {project}")
-            
-            # Set it as the default for future use
-            subprocess.run(
-                [gcloud_cmd, "config", "set", "project", project],
-                capture_output=True,
-                timeout=10,
+
+        if list_result.returncode != 0:
+            emit_error("❌ Failed to list projects")
+            return None
+
+        emit_info("")
+        emit_info("💡 Please enter the Project ID from the list above:")
+
+        # Get user input with retry
+        max_attempts = 3
+        project_id = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                project_id = input("Project ID: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                emit_warning("\n⚠️  Project selection cancelled")
+                return None
+
+            if project_id:
+                break
+            else:
+                emit_error(
+                    f"❌ No project ID provided (attempt {attempt}/{max_attempts})"
+                )
+                if attempt < max_attempts:
+                    emit_info("Please try again:")
+                else:
+                    emit_error("❌ Failed to get project ID after 3 attempts")
+                    return None
+
+        # Set it as the default
+        emit_info(f"Setting {project_id} as default project...")
+        set_result = subprocess.run(
+            [gcloud_cmd, "config", "set", "project", project_id],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if set_result.returncode == 0:
+            emit_success(f"✅ Set {project_id} as default project")
+            return project_id
+        else:
+            emit_error(
+                f"❌ Failed to set default project: {set_result.stderr or set_result.stdout}"
             )
-            emit_success(f"✅ Set {project} as default project")
-            return project
-            
+            return None
+
+    except subprocess.TimeoutExpired:
+        emit_error("❌ Timeout while accessing gcloud projects")
+        return None
     except Exception as e:
         emit_warning(f"⚠️  Could not determine default project: {str(e)}")
-    
-    return None
+        return None
 
 
 def _verify_credentials(project_id: Optional[str] = None) -> bool:
@@ -353,7 +402,7 @@ def _verify_credentials(project_id: Optional[str] = None) -> bool:
 
     Args:
         project_id: Optional project ID to use for verification
-        
+
     Returns:
         True if credentials are valid, False otherwise
     """
@@ -361,7 +410,7 @@ def _verify_credentials(project_id: Optional[str] = None) -> bool:
         # Check if credentials file exists
         from google.auth import default
         from google.auth.exceptions import DefaultCredentialsError
-        
+
         # Try to load default credentials
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -370,14 +419,14 @@ def _verify_credentials(project_id: Optional[str] = None) -> bool:
                 category=UserWarning,
             )
             credentials, detected_project = default()
-            
+
         # Require a project - don't allow authentication without one
         final_project = project_id or detected_project
-        
+
         if not final_project:
             emit_error("❌ No default project available. Cannot verify credentials.")
             return False
-        
+
         # Verify we can create a client with this project
         if bigquery is not None:
             client = bigquery.Client(project=final_project, credentials=credentials)
@@ -386,9 +435,9 @@ def _verify_credentials(project_id: Optional[str] = None) -> bool:
             emit_info(f"✅ Credentials verified with project: {final_project}")
         else:
             emit_info(f"✅ Credentials loaded (project: {final_project})")
-            
+
         return True
-        
+
     except DefaultCredentialsError as e:
         emit_warning(f"⚠️  Credential verification failed: {str(e)}")
         return False
@@ -434,7 +483,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
     # Step 2: Check if gcloud is installed, if not, install it
     gcloud_cmd = "gcloud"
     system = platform.system()
-    
+
     # On Windows, check for gcloud.cmd in the expected location
     if system == "Windows":
         gcloud_bin = os.path.join(
@@ -443,11 +492,11 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
             "CloudSDK",
             "google-cloud-sdk",
             "bin",
-            "gcloud.cmd"
+            "gcloud.cmd",
         )
         if os.path.exists(gcloud_bin):
             gcloud_cmd = gcloud_bin
-    
+
     try:
         result = subprocess.run(
             [gcloud_cmd, "--version"],
@@ -476,7 +525,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
                 "CloudSDK",
                 "google-cloud-sdk",
                 "bin",
-                "gcloud.cmd"
+                "gcloud.cmd",
             )
             if not os.path.exists(gcloud_cmd):
                 return (
@@ -484,7 +533,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
                     "Please restart your terminal and try again."
                 )
             emit_info(f"Using gcloud at: {gcloud_cmd}")
-        
+
         # Verify installation worked
         try:
             subprocess.run(
@@ -563,14 +612,14 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
                 # Get and set default project automatically
                 emit_info("🔍 Setting up default project...")
                 default_project = _get_default_project(gcloud_cmd)
-                
+
                 if not default_project:
                     emit_error(
                         "❌ Could not determine a default GCP project.\n"
                         "Please set one manually: gcloud config set project YOUR_PROJECT_ID"
                     )
                     return "Authentication completed but no default project available. Please set one with: gcloud config set project YOUR_PROJECT_ID"
-                
+
                 # Verify credentials actually work
                 emit_info("🔍 Verifying credentials...")
                 if _verify_credentials(project_id=default_project):
