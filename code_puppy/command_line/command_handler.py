@@ -1,6 +1,7 @@
 # Import to trigger command registration
 import code_puppy.command_line.config_commands  # noqa: F401
 import code_puppy.command_line.core_commands  # noqa: F401
+import code_puppy.command_line.sandbox_commands  # noqa: F401
 import code_puppy.command_line.session_commands  # noqa: F401
 
 # Global flag to track if plugins have been loaded

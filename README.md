@@ -174,6 +174,107 @@ The following environment variables control DBOS behavior:
 - `DBOS_APP_VERSION`: If set, Code Puppy uses it as the [DBOS application version](https://docs.dbos.dev/architecture#application-and-workflow-versions) and automatically tries to recover pending workflows for this version. Default: Code Puppy version + Unix timestamp in millisecond (disable automatic recovery).
 
 
+## Sandboxing for Code Execution
+
+Code Puppy now includes **optional sandboxing** for shell command execution, inspired by [Anthropic's Claude Code sandboxing approach](https://www.anthropic.com/engineering/claude-code-sandboxing).
+
+### What is Sandboxing?
+
+Sandboxing provides two layers of isolation:
+
+1. **Filesystem Isolation** - Restricts file access to the current working directory, preventing access to sensitive files like `~/.ssh`, `~/.aws`, etc.
+2. **Network Isolation** - Routes network traffic through a monitored proxy with domain allowlisting
+
+### Platform Support
+
+- **Linux**: Uses `bubblewrap` (install: `apt install bubblewrap` or `yum install bubblewrap`)
+- **macOS**: Uses built-in `sandbox-exec` (no installation needed)
+- **Windows**: Not yet supported
+
+### Quick Start
+
+```bash
+# Check if sandboxing is available on your system
+/sandbox test
+
+# Enable sandboxing (opt-in)
+/sandbox enable
+
+# Check status
+/sandbox status
+
+# Allow additional domains for network access
+/sandbox allow-domain example.com
+
+# Allow additional filesystem paths
+/sandbox allow-path /tmp/safe-directory
+
+# Disable sandboxing
+/sandbox disable
+```
+
+### Commands
+
+- `/sandbox enable` - Enable sandboxing for shell commands
+- `/sandbox disable` - Disable sandboxing
+- `/sandbox status` - Show current sandbox configuration
+- `/sandbox test` - Test if sandboxing is available on this system
+- `/sandbox allow-domain <domain>` - Add domain to network allowlist
+- `/sandbox allow-path <path>` - Add write access for a path
+- `/sandbox allow-read-path <path>` - Add read-only access for a path
+
+### Pre-Approved Safe Domains
+
+The following domains are pre-approved for network access:
+- Package registries: pypi.org, npmjs.com, rubygems.org, crates.io
+- Version control: github.com, gitlab.com, bitbucket.org
+- CDNs: cdn.jsdelivr.net, unpkg.com
+- AI providers: api.openai.com, api.anthropic.com
+
+### How It Works
+
+**Filesystem Isolation:**
+- Commands run in an isolated filesystem namespace
+- Only the current working directory has read-write access
+- System directories are mounted read-only
+- Sensitive paths like `~/.ssh`, `~/.aws` are explicitly blocked
+
+**Network Isolation:**
+- All HTTP/HTTPS traffic routes through a proxy
+- New domain requests can be configured to require user approval
+- All network activity is logged for audit purposes
+
+### Configuration
+
+Sandbox settings are stored in `~/.code_puppy/sandbox_config.json` and can be managed via:
+- CLI commands (`/sandbox ...`)
+- Configuration file (manual editing)
+
+### Security Benefits
+
+- ✅ Prevents malicious code from accessing SSH keys, cloud credentials
+- ✅ Blocks unauthorized network exfiltration
+- ✅ Limits blast radius of compromised dependencies
+- ✅ Provides visibility into subprocess behavior
+- ✅ Opt-in by default (explicit user control)
+
+### Example: Protected Execution
+
+```bash
+# With sandboxing enabled
+$ /sandbox enable
+✅ Sandbox enabled!
+
+# This command runs isolated - can only access current directory
+$ npm install some-package
+
+# This would be blocked - no access outside working directory
+$ cat ~/.ssh/id_rsa  # ❌ BLOCKED
+
+# This would prompt for approval (new domain)
+$ curl https://untrusted-site.com  # ⚠️  APPROVAL REQUIRED
+```
+
 ## Requirements
 
 - Python 3.11+
@@ -182,6 +283,7 @@ The following environment variables control DBOS behavior:
 - Cerebras API key (for Cerebras models)
 - Anthropic key (for Claude models)
 - Ollama endpoint available
+- **Optional**: bubblewrap (Linux) for sandboxing
 
 ## License
 

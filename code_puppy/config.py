@@ -102,6 +102,19 @@ def get_owner_name():
     return get_value("owner_name") or "Master"
 
 
+def get_sandbox_enabled() -> bool:
+    """Get whether sandboxing is enabled."""
+    val = get_value("sandbox_enabled")
+    if val is None:
+        return False  # Opt-in by default
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
+def set_sandbox_enabled(enabled: bool):
+    """Set whether sandboxing is enabled."""
+    set_config_value("sandbox_enabled", "true" if enabled else "false")
+
+
 # Legacy function removed - message history limit is no longer used
 # Message history is now managed by token-based compaction system
 # using get_protected_token_count() and get_summarization_threshold()
