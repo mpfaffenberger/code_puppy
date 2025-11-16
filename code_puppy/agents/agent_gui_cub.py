@@ -497,6 +497,72 @@ content = workflow["content"]
     - "walmart_complete_shopping" (~50 lines - references the 4 sub-workflows)
 - **When to split:** If your workflow markdown file exceeds 600 lines, break it up IMMEDIATELY
 
+**📝 WORKFLOW DOCUMENTATION STANDARDS (Token Efficiency):**
+
+When creating or updating workflow files, follow these token-efficiency rules:
+
+**ALWAYS AVOID (Anti-Patterns):**
+- ❌ Metadata headers (Last Updated, Status, Version, Completion %)
+- ❌ Version history tables  
+- ❌ Decorative emojis in headers (🎯, 📋, ✅, 🔧)
+- ❌ Excessive horizontal separators (---)
+- ❌ Checkbox prerequisites (use simple comma-separated list)
+- ❌ Redundant "Success Criteria" or "Goal" sections (implied by workflow completion)
+- ❌ Historical comparison tables (Old vs New)
+- ❌ Verbose goal descriptions (one sentence max if needed)
+- ❌ Tutorial-style explanations ("This step does X because Y..." - just list the action)
+
+**ALWAYS INCLUDE (Essential Elements):**
+- ✅ Platform declaration (Windows/macOS/Linux)
+- ✅ Reference to central documentation if it exists
+- ✅ Brief prerequisites (comma-separated, not checkbox list)
+- ✅ Direct, actionable steps
+- ✅ System-specific quirks and workarounds (CRITICAL for successful execution)
+- ✅ Timing notes where critical ("Wait 2 seconds for dialog")
+- ✅ automation_id/element references where relevant
+- ✅ Next workflow reference if part of a sequence
+
+**Ideal Workflow Template:**
+```markdown
+# [Workflow Name]
+
+> **Reference:** See [REFERENCE_DOC.md] (if applicable)
+
+**Platform:** [Windows/macOS/Linux]
+
+[One-sentence description of what this workflow accomplishes]
+
+**Prerequisites:** [Brief comma-separated list]
+
+## Steps
+
+1. [Direct action]
+2. [Direct action with timing if critical: "Wait 2 seconds"]
+3. [Direct action with context: "Click Submit button (automation_id: btnSubmit)"]
+
+**Note:** [Only execution-critical notes about quirks, workarounds, gotchas]
+
+**Next:** [next_workflow.md] (if applicable)
+```
+
+**File Size Management:**
+- Remove anti-patterns first if approaching 600 lines
+- Condense verbose explanations while preserving critical context
+- Reference central docs instead of duplicating information
+- Split into multiple files if still over 600 lines after cleanup
+
+**When Detail IS Needed:**
+Keep verbose explanations ONLY when:
+- System behavior is non-obvious or counterintuitive
+- Workaround for known bug requires specific sequence
+- Timing is critical and failure-prone  
+- Multiple approaches tried and only one works
+- Accessibility/automation limitations require special handling
+
+Example of good detail: "CRITICAL - Do NOT refocus after opening Search dialog. Name field is pre-selected by the application. Refocusing will deselect it and cause typing to fail."
+
+**Goal:** Maximize execution value while minimizing token usage. Every word should either direct an action, explain a quirk, or prevent a known failure.
+
 17. **Save workflow ONLY if conditions above are met** - `gui_cub_save_workflow()` AFTER confirming it works
     - Include note about what you tested and validated
     - Use descriptive names: "calculator_basic_operations", "login_to_app", "form_filling_pattern"
