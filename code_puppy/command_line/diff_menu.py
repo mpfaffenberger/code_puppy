@@ -3,16 +3,18 @@
 Now using the fixed arrow_select_async with proper HTML escaping.
 """
 
+import io
 import sys
 import time
 from typing import Callable, Optional
 
 from prompt_toolkit import Application
-from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
+from rich.console import Console
 
 
 class DiffConfiguration:
@@ -155,7 +157,7 @@ async def _split_panel_selector(
     title: str,
     choices: list[str],
     on_change: Callable[[str], None],
-    get_preview: Callable[[], list],
+    get_preview: Callable[[], ANSI],
 ) -> Optional[str]:
     """Split-panel selector with menu on left and live preview on right."""
     selected_index = [0]
@@ -188,9 +190,11 @@ async def _split_panel_selector(
     def get_right_panel_text():
         """Generate the preview panel text."""
         try:
-            return FormattedText(get_preview())
-        except Exception:
-            return FormattedText([("fg:ansired", "Preview unavailable")])
+            preview = get_preview()
+            # get_preview() now returns ANSI, which is already FormattedText-compatible
+            return preview
+        except Exception as e:
+            return FormattedText([("fg:ansired", f"Preview error: {e}")])
 
     kb = KeyBindings()
 
@@ -337,102 +341,102 @@ def _convert_rich_color_to_prompt_toolkit(color: str) -> str:
     return "white"
 
 
-def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> list:
-    """Get preview as FormattedText for embedding in selector with live colors."""
+def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> ANSI:
+    """Get preview as ANSI for embedding in selector with live colors.
 
-    lines = []
-    lines.append(("bold", "═" * 50))
-    lines.append(("", "\n"))
-    lines.append(("bold cyan", " LIVE PREVIEW"))
-    lines.append(("", "\n"))
-    lines.append(("bold", "═" * 50))
-    lines.append(("", "\n"))
-    lines.append(("", "\n"))
+    Returns ANSI-formatted text that prompt_toolkit can render with full colors.
+    """
+    from code_puppy.tools.common import format_diff_with_colors
 
-    # Show current settings
-    lines.append(("", " Style: "))
-    lines.append(("bold", f"{config.current_style}"))
-    lines.append(("", "\n"))
+    # Build header with current settings info using Rich markup
+    header_parts = []
+    header_parts.append("[bold]═" * 50 + "[/bold]")
+    header_parts.append("[bold cyan] LIVE PREVIEW[/bold cyan]")
+    header_parts.append("[bold]═" * 50 + "[/bold]")
+    header_parts.append("")
+    header_parts.append(f" Style: [bold]{config.current_style}[/bold]")
 
     if config.current_style == "text":
-        lines.append(("", f" Additions: {config.current_add_color}"))
-        lines.append(("", "\n"))
-        lines.append(("", f" Deletions: {config.current_del_color}"))
-        lines.append(("", "\n"))
+        header_parts.append(f" Additions: {config.current_add_color}")
+        header_parts.append(f" Deletions: {config.current_del_color}")
     elif config.current_style == "highlight":
-        lines.append(("", " Mode: Full syntax highlighting"))
-        lines.append(("", "\n"))
-        lines.append(("", " Colors: Monokai theme"))
-        lines.append(("", "\n"))
-        lines.append(("", " Backgrounds: Dark themed"))
-        lines.append(("", "\n"))
+        header_parts.append(" Mode: Full syntax highlighting")
+        header_parts.append(" Colors: Monokai theme")
+        header_parts.append(" Backgrounds: Dark themed")
 
-    lines.append(("", "\n"))
-    lines.append(("bold", " Example Diff:"))
-    lines.append(("", "\n"))
-    lines.append(("", "\n"))
+    header_parts.append("")
+    header_parts.append("[bold] Example Diff:[/bold]")
+    header_parts.append("")
 
-    # Show a simple example using prompt_toolkit compatible colors
-    if config.current_style == "text":
-        # For text mode, show with the selected colors
-        add_color = config.current_add_color
-        del_color = config.current_del_color
+    header_text = "\n".join(header_parts)
 
-        # Convert to prompt_toolkit format
-        add_color_pt = _convert_rich_color_to_prompt_toolkit(add_color)
-        del_color_pt = _convert_rich_color_to_prompt_toolkit(del_color)
-        add_style = f"fg:{add_color_pt}"
-        del_style = f"fg:{del_color_pt}"
+    # Create a sample diff that shows off the highlighting
+    sample_diff = """--- a/example.py
++++ b/example.py
+@@ -1,5 +1,7 @@
+ def hello(name):
+-    return "old"
++    msg = "new"
++    return msg
+ 
+ def goodbye():
+-    pass
++    print("bye!")
++    return None"""
 
-        lines.append(("fg:yellow", "  --- a/example.py"))
-        lines.append(("", "\n"))
-        lines.append(("fg:yellow", "  +++ b/example.py"))
-        lines.append(("", "\n"))
-        lines.append(("fg:cyan", "  @@ -1,3 +1,4 @@"))
-        lines.append(("", "\n"))
-        lines.append(("", "   def hello(name):"))
-        lines.append(("", "\n"))
-        lines.append((del_style, '  -    return "old"'))
-        lines.append(("", "\n"))
-        lines.append((add_style, '  +    msg = "new"'))
-        lines.append(("", "\n"))
-        lines.append((add_style, "  +    return msg"))
-        lines.append(("", "\n"))
-    else:
-        # For highlight mode, show a description since we can't render
-        # the actual syntax highlighting in prompt_toolkit's format
-        lines.append(("fg:yellow", "  --- a/example.py"))
-        lines.append(("", "\n"))
-        lines.append(("fg:yellow", "  +++ b/example.py"))
-        lines.append(("", "\n"))
-        lines.append(("fg:cyan", "  @@ -1,3 +1,4 @@"))
-        lines.append(("", "\n"))
-        lines.append(("", "\n"))
-        lines.append(("fg:ansigreen", "  ✓ Full syntax highlighting enabled!"))
-        lines.append(("", "\n"))
-        lines.append(("", "  • Keywords: "))
-        lines.append(("fg:#f92672", "pink"))
-        lines.append(("", " (def, return, etc)"))
-        lines.append(("", "\n"))
-        lines.append(("", "  • Strings: "))
-        lines.append(("fg:#e6db74", "yellow"))
-        lines.append(("", " ('text', f-strings)"))
-        lines.append(("", "\n"))
-        lines.append(("", "  • Functions: "))
-        lines.append(("fg:#a6e22e", "green"))
-        lines.append(("", " (function names)"))
-        lines.append(("", "\n"))
-        lines.append(("", "  • Backgrounds: Dark themed"))
-        lines.append(("", "\n"))
-        lines.append(("", "\n"))
-        lines.append(("dim", "  (Live preview in actual diffs!)"))
-        lines.append(("", "\n"))
+    # Temporarily override config to use current preview settings
+    from code_puppy.config import (
+        get_diff_addition_color,
+        get_diff_deletion_color,
+        get_diff_highlight_style,
+        set_diff_addition_color,
+        set_diff_deletion_color,
+        set_diff_highlight_style,
+    )
 
-    lines.append(("", "\n"))
-    lines.append(("bold", "═" * 50))
-    lines.append(("", "\n"))
+    # Save original values
+    original_style = get_diff_highlight_style()
+    original_add_color = get_diff_addition_color()
+    original_del_color = get_diff_deletion_color()
 
-    return lines
+    try:
+        # Temporarily set config to preview values
+        set_diff_highlight_style(config.current_style)
+        set_diff_addition_color(config.current_add_color)
+        set_diff_deletion_color(config.current_del_color)
+
+        # Get the formatted diff (either Rich Text or Rich markup string)
+        formatted_diff = format_diff_with_colors(sample_diff)
+
+        # Render everything with Rich Console to get ANSI output
+        buffer = io.StringIO()
+        console = Console(
+            file=buffer,
+            force_terminal=True,
+            width=60,
+            legacy_windows=False,
+            color_system="truecolor",
+        )
+
+        # Print header
+        console.print(header_text, end="\n")
+
+        # Print diff (handles both Text objects and markup strings)
+        console.print(formatted_diff, end="\n\n")
+
+        # Print footer
+        console.print("[bold]═" * 50 + "[/bold]", end="")
+
+        ansi_output = buffer.getvalue()
+
+    finally:
+        # Restore original config values
+        set_diff_highlight_style(original_style)
+        set_diff_addition_color(original_add_color)
+        set_diff_deletion_color(original_del_color)
+
+    # Wrap in ANSI() so prompt_toolkit can render it
+    return ANSI(ansi_output)
 
 
 async def _handle_color_menu(config: DiffConfiguration, color_type: str) -> None:
