@@ -872,7 +872,7 @@ def _emit_diff_style_example():
 
     try:
         from code_puppy.messaging import emit_info
-        from code_puppy.tools.file_modifications import _colorize_diff
+        from code_puppy.tools.common import format_diff_with_colors as _colorize_diff
 
         # Create a simple diff example
         example_diff = """--- a/example.txt
@@ -889,7 +889,7 @@ def _emit_diff_style_example():
         del_color = get_diff_deletion_color()
 
         # Get the actual color pairs being used
-        from code_puppy.tools.file_modifications import _get_optimal_color_pair
+        from code_puppy.tools.common import _get_optimal_color_pair
 
         add_fg, add_bg = _get_optimal_color_pair(add_color, "green")
         del_fg, del_bg = _get_optimal_color_pair(del_color, "orange1")
