@@ -60,8 +60,18 @@ def create_client(
     # Check if HTTP/2 is enabled in config
     http2_enabled = get_http2()
 
+    # Check if custom retry transport should be disabled (e.g., for integration tests with proxies)
+    disable_retry_transport = os.environ.get(
+        "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
+    ).lower() in ("1", "true", "yes")
+
     # If retry components are available, create a client with retry transport
-    if TenacityTransport and RetryConfig and wait_retry_after:
+    if (
+        TenacityTransport
+        and RetryConfig
+        and wait_retry_after
+        and not disable_retry_transport
+    ):
 
         def should_retry_status(response):
             """Raise exceptions for retryable HTTP status codes."""
@@ -111,8 +121,40 @@ def create_async_client(
     # Check if HTTP/2 is enabled in config
     http2_enabled = get_http2()
 
+    # Check if custom retry transport should be disabled (e.g., for integration tests with proxies)
+    disable_retry_transport = os.environ.get(
+        "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
+    ).lower() in ("1", "true", "yes")
+
+    # Check if proxy environment variables are set
+    has_proxy = bool(
+        os.environ.get("HTTP_PROXY")
+        or os.environ.get("HTTPS_PROXY")
+        or os.environ.get("http_proxy")
+        or os.environ.get("https_proxy")
+    )
+
+    # When retry transport is disabled (test mode), disable SSL verification
+    # for proxy testing. For production proxies, SSL should still be verified!
+    if disable_retry_transport:
+        verify = False
+        trust_env = True
+    elif has_proxy:
+        # Production proxy detected - keep SSL verification enabled for security
+        trust_env = True
+    else:
+        trust_env = False
+
     # If retry components are available, create a client with retry transport
-    if AsyncTenacityTransport and RetryConfig and wait_retry_after:
+    # BUT: disable retry transport when proxies are detected because custom transports
+    # don't play nicely with proxy configuration
+    if (
+        AsyncTenacityTransport
+        and RetryConfig
+        and wait_retry_after
+        and not disable_retry_transport
+        and not has_proxy
+    ):
 
         def should_retry_status(response):
             """Raise exceptions for retryable HTTP status codes."""
@@ -122,6 +164,19 @@ def create_async_client(
                 )
                 return True
 
+        # Create transport (with or without proxy base)
+        if has_proxy:
+            # Extract proxy URL from environment
+            proxy_url = (
+                os.environ.get("HTTPS_PROXY")
+                or os.environ.get("https_proxy")
+                or os.environ.get("HTTP_PROXY")
+                or os.environ.get("http_proxy")
+            )
+        else:
+            proxy_url = None
+
+        # Create retry transport wrapper
         transport = AsyncTenacityTransport(
             config=RetryConfig(
                 retry=lambda e: isinstance(e, httpx.HTTPStatusError)
@@ -135,15 +190,34 @@ def create_async_client(
 
         return httpx.AsyncClient(
             transport=transport,
+            proxy=proxy_url,  # Pass proxy to client, not transport
             verify=verify,
             headers=headers or {},
             timeout=timeout,
             http2=http2_enabled,
+            trust_env=trust_env,
         )
     else:
-        # Fallback to regular client if retry components are not available
+        # Fallback to regular client if retry components are not available,
+        # when retry transport is explicitly disabled, or when proxies are detected
+        # Extract proxy URL if needed
+        if has_proxy:
+            proxy_url = (
+                os.environ.get("HTTPS_PROXY")
+                or os.environ.get("https_proxy")
+                or os.environ.get("HTTP_PROXY")
+                or os.environ.get("http_proxy")
+            )
+        else:
+            proxy_url = None
+
         return httpx.AsyncClient(
-            verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
+            proxy=proxy_url,
+            verify=verify,
+            headers=headers or {},
+            timeout=timeout,
+            http2=http2_enabled,
+            trust_env=trust_env,
         )
 
 
@@ -199,8 +273,38 @@ def create_reopenable_async_client(
     # Check if HTTP/2 is enabled in config
     http2_enabled = get_http2()
 
+    # Check if custom retry transport should be disabled (e.g., for integration tests with proxies)
+    disable_retry_transport = os.environ.get(
+        "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
+    ).lower() in ("1", "true", "yes")
+
+    # Check if proxy environment variables are set
+    has_proxy = bool(
+        os.environ.get("HTTP_PROXY")
+        or os.environ.get("HTTPS_PROXY")
+        or os.environ.get("http_proxy")
+        or os.environ.get("https_proxy")
+    )
+
+    # When retry transport is disabled (test mode), disable SSL verification
+    if disable_retry_transport:
+        verify = False
+        trust_env = True
+    elif has_proxy:
+        trust_env = True
+    else:
+        trust_env = False
+
     # If retry components are available, create a client with retry transport
-    if AsyncTenacityTransport and RetryConfig and wait_retry_after:
+    # BUT: disable retry transport when proxies are detected because custom transports
+    # don't play nicely with proxy configuration
+    if (
+        AsyncTenacityTransport
+        and RetryConfig
+        and wait_retry_after
+        and not disable_retry_transport
+        and not has_proxy
+    ):
 
         def should_retry_status(response):
             """Raise exceptions for retryable HTTP status codes."""
@@ -224,39 +328,70 @@ def create_reopenable_async_client(
             validate_response=should_retry_status,
         )
 
+        # Extract proxy URL if needed
+        if has_proxy:
+            proxy_url = (
+                os.environ.get("HTTPS_PROXY")
+                or os.environ.get("https_proxy")
+                or os.environ.get("HTTP_PROXY")
+                or os.environ.get("http_proxy")
+            )
+        else:
+            proxy_url = None
+
         if ReopenableAsyncClient is not None:
             return ReopenableAsyncClient(
                 transport=transport,
+                proxy=proxy_url,
                 verify=verify,
                 headers=headers or {},
                 timeout=timeout,
                 http2=http2_enabled,
+                trust_env=trust_env,
             )
         else:
             # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
             return httpx.AsyncClient(
                 transport=transport,
+                proxy=proxy_url,
                 verify=verify,
                 headers=headers or {},
                 timeout=timeout,
                 http2=http2_enabled,
+                trust_env=trust_env,
             )
     else:
         # Fallback to regular clients if retry components are not available
+        # or when proxies are detected
+        # Extract proxy URL if needed
+        if has_proxy:
+            proxy_url = (
+                os.environ.get("HTTPS_PROXY")
+                or os.environ.get("https_proxy")
+                or os.environ.get("HTTP_PROXY")
+                or os.environ.get("http_proxy")
+            )
+        else:
+            proxy_url = None
+
         if ReopenableAsyncClient is not None:
             return ReopenableAsyncClient(
+                proxy=proxy_url,
                 verify=verify,
                 headers=headers or {},
                 timeout=timeout,
                 http2=http2_enabled,
+                trust_env=trust_env,
             )
         else:
             # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
             return httpx.AsyncClient(
+                proxy=proxy_url,
                 verify=verify,
                 headers=headers or {},
                 timeout=timeout,
                 http2=http2_enabled,
+                trust_env=trust_env,
             )
 
 
