@@ -807,23 +807,23 @@ def set_max_saved_sessions(max_sessions: int):
 def get_diff_highlight_style() -> str:
     """
     Get the diff highlight style preference.
-    Options: 'text' (plain text, no highlighting), 'highlighted' (intelligent color pairs)
-    Returns 'highlighted' if not set or invalid.
+    Options: 'text' (plain text), 'highlight' (syntax highlighting with Pygments)
+    Returns 'highlight' if not set or invalid.
     """
     val = get_value("diff_highlight_style")
-    if val and val.lower() in ["text", "highlighted"]:
+    if val and val.lower() in ["text", "highlight"]:
         return val.lower()
-    return "text"  # Default to intelligent highlighting
+    return "highlight"  # Default to beautiful syntax highlighting
 
 
 def set_diff_highlight_style(style: str):
     """Set the diff highlight style.
 
     Args:
-        style: 'text' for plain text diffs, 'highlighted' for intelligent color pairs
+        style: 'text' for plain text diffs, 'highlight' for full syntax highlighting with Pygments
     """
-    if style.lower() not in ["text", "highlighted"]:
-        raise ValueError("diff_highlight_style must be 'text' or 'highlighted'")
+    if style.lower() not in ["text", "highlight"]:
+        raise ValueError("diff_highlight_style must be 'text' or 'highlight'")
     set_config_value("diff_highlight_style", style.lower())
 
 

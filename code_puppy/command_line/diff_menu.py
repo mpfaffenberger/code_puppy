@@ -64,7 +64,7 @@ async def interactive_diff_picker() -> Optional[dict]:
         # Main menu loop
         while True:
             choices = [
-                # "Configure Style",  # Disabled - highlighted mode has issues
+                "Configure Style",
                 "Configure Addition Color",
                 "Configure Deletion Color",
             ]
@@ -92,9 +92,9 @@ async def interactive_diff_picker() -> Optional[dict]:
                 break
 
             # Handle selection
-            # if "Style" in selected:
-            #     await _handle_style_menu(config)
-            if "Addition" in selected:
+            if "Style" in selected:
+                await _handle_style_menu(config)
+            elif "Addition" in selected:
                 await _handle_color_menu(config, "additions")
             elif "Deletion" in selected:
                 await _handle_color_menu(config, "deletions")
@@ -126,10 +126,10 @@ async def _handle_style_menu(config: DiffConfiguration) -> None:
     """Handle style selection."""
     from code_puppy.tools.common import arrow_select_async
 
-    styles = ["text", "highlighted"]
+    styles = ["text", "highlight"]
     descriptions = {
-        "text": "Plain text diffs with no highlighting",
-        "highlighted": "Intelligent color pairs for maximum contrast",
+        "text": "Plain text diffs with simple colors",
+        "highlight": "Full syntax highlighting with Pygments (beautiful!)",
     }
 
     choices = []
@@ -347,71 +347,86 @@ def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> list:
     lines.append(("", "\n"))
     lines.append(("bold", "═" * 50))
     lines.append(("", "\n"))
-
-    lines.append(("", f" Additions: {config.current_add_color}"))
-    lines.append(("", "\n"))
-    lines.append(("", f" Deletions: {config.current_del_color}"))
-    lines.append(("", "\n"))
     lines.append(("", "\n"))
 
-    # Show actual colored diff example
+    # Show current settings
+    lines.append(("", " Style: "))
+    lines.append(("bold", f"{config.current_style}"))
+    lines.append(("", "\n"))
+
+    if config.current_style == "text":
+        lines.append(("", f" Additions: {config.current_add_color}"))
+        lines.append(("", "\n"))
+        lines.append(("", f" Deletions: {config.current_del_color}"))
+        lines.append(("", "\n"))
+    elif config.current_style == "highlight":
+        lines.append(("", " Mode: Full syntax highlighting"))
+        lines.append(("", "\n"))
+        lines.append(("", " Colors: Monokai theme"))
+        lines.append(("", "\n"))
+        lines.append(("", " Backgrounds: Dark themed"))
+        lines.append(("", "\n"))
+
+    lines.append(("", "\n"))
     lines.append(("bold", " Example Diff:"))
     lines.append(("", "\n"))
+    lines.append(("", "\n"))
 
-    # Get colors for text mode only
-    try:
+    # Show a simple example using prompt_toolkit compatible colors
+    if config.current_style == "text":
+        # For text mode, show with the selected colors
         add_color = config.current_add_color
         del_color = config.current_del_color
 
-        # Always use text mode (highlighted disabled for now)
+        # Convert to prompt_toolkit format
         add_color_pt = _convert_rich_color_to_prompt_toolkit(add_color)
         del_color_pt = _convert_rich_color_to_prompt_toolkit(del_color)
         add_style = f"fg:{add_color_pt}"
         del_style = f"fg:{del_color_pt}"
 
-        lines.append(("fg:yellow", "  --- a/code_puppy/biscuit.py"))
+        lines.append(("fg:yellow", "  --- a/example.py"))
         lines.append(("", "\n"))
-        lines.append(("fg:yellow", "  +++ b/code_puppy/biscuit.py"))
+        lines.append(("fg:yellow", "  +++ b/example.py"))
         lines.append(("", "\n"))
-        lines.append(("fg:cyan", "  @@ -42,8 +42,12 @@ class Biscuit:"))
+        lines.append(("fg:cyan", "  @@ -1,3 +1,4 @@"))
         lines.append(("", "\n"))
-        lines.append(("", "       def fetch_data(self, url: str) -> dict:"))
+        lines.append(("", "   def hello(name):"))
         lines.append(("", "\n"))
-        lines.append(("", '           """Fetch data like a good puppy!"""'))
+        lines.append((del_style, '  -    return "old"'))
         lines.append(("", "\n"))
-        lines.append((del_style, "  -        response = requests.get(url)"))
+        lines.append((add_style, '  +    msg = "new"'))
         lines.append(("", "\n"))
-        lines.append((del_style, "  -        return response.json()"))
+        lines.append((add_style, "  +    return msg"))
         lines.append(("", "\n"))
-        lines.append((add_style, "  +        # Much better error handling! 🐕"))
+    else:
+        # For highlight mode, show a description since we can't render
+        # the actual syntax highlighting in prompt_toolkit's format
+        lines.append(("fg:yellow", "  --- a/example.py"))
         lines.append(("", "\n"))
-        lines.append((add_style, "  +        try:"))
+        lines.append(("fg:yellow", "  +++ b/example.py"))
         lines.append(("", "\n"))
-        lines.append(
-            (add_style, "  +            response = requests.get(url, timeout=10)")
-        )
+        lines.append(("fg:cyan", "  @@ -1,3 +1,4 @@"))
         lines.append(("", "\n"))
-        lines.append((add_style, "  +            response.raise_for_status()"))
         lines.append(("", "\n"))
-        lines.append((add_style, "  +            return response.json()"))
+        lines.append(("fg:ansigreen", "  ✓ Full syntax highlighting enabled!"))
         lines.append(("", "\n"))
-        lines.append((add_style, "  +        except requests.RequestException as e:"))
+        lines.append(("", "  • Keywords: "))
+        lines.append(("fg:#f92672", "pink"))
+        lines.append(("", " (def, return, etc)"))
         lines.append(("", "\n"))
-        lines.append((add_style, '  +            logger.error(f"Fetch failed: {e}")'))
+        lines.append(("", "  • Strings: "))
+        lines.append(("fg:#e6db74", "yellow"))
+        lines.append(("", " ('text', f-strings)"))
         lines.append(("", "\n"))
-        lines.append((add_style, "  +            return {}"))
+        lines.append(("", "  • Functions: "))
+        lines.append(("fg:#a6e22e", "green"))
+        lines.append(("", " (function names)"))
         lines.append(("", "\n"))
-        lines.append(("", "   "))
+        lines.append(("", "  • Backgrounds: Dark themed"))
         lines.append(("", "\n"))
-        lines.append(("", "       def process_results(self, data: dict):"))
         lines.append(("", "\n"))
-    except Exception:
-        # Fallback: safe colors if conversion fails
-        lines.append(("fg:yellow", "  --- a/example.py\n"))
-        lines.append(("fg:yellow", "  +++ b/example.py\n"))
-        lines.append(("", "   def hello():\n"))
-        lines.append(("fg:ansired", '  -    return "old"\n'))
-        lines.append(("fg:ansigreen", '  +    return "new"\n'))
+        lines.append(("dim", "  (Live preview in actual diffs!)"))
+        lines.append(("", "\n"))
 
     lines.append(("", "\n"))
     lines.append(("bold", "═" * 50))
