@@ -430,16 +430,138 @@ def should_ignore_dir_path(path: str) -> bool:
     return False
 
 
+def _get_optimal_color_pair(background_color: str, fallback_bg: str) -> tuple[str, str]:
+    """Get optimal foreground/background color pair for maximum contrast and readability.
+
+    This function maps each background color to the best foreground color
+    for optimal contrast, following accessibility guidelines and color theory.
+
+    Args:
+        background_color: The requested background color name
+        fallback_bg: A fallback background color that's known to work
+
+    Returns:
+        A tuple of (foreground_color, background_color) for optimal contrast
+    """
+    # Clean the color name (remove 'on_' prefix if present)
+    clean_color = background_color.replace("on_", "")
+
+    # Known valid background colors that work well as backgrounds
+    valid_background_colors = {
+        "red",
+        "bright_red",
+        "dark_red",
+        "indian_red",
+        "green",
+        "bright_green",
+        "dark_green",
+        "sea_green",
+        "blue",
+        "bright_blue",
+        "dark_blue",
+        "deep_sky_blue",
+        "yellow",
+        "bright_yellow",
+        "gold",
+        "dark_gold",
+        "magenta",
+        "bright_magenta",
+        "dark_magenta",
+        "cyan",
+        "bright_cyan",
+        "dark_cyan",
+        "white",
+        "bright_white",
+        "grey",
+        "dark_grey",
+        "orange1",
+        "orange3",
+        "orange4",
+        "purple",
+        "bright_purple",
+        "dark_purple",
+        "pink",
+        "bright_pink",
+        "dark_pink",
+    }
+
+    # Color mappings for common names that don't work as backgrounds
+    color_mappings = {
+        "orange": "orange1",
+        "bright_orange": "bright_yellow",
+        "dark_orange": "orange3",
+        "gold": "yellow",
+        "dark_gold": "dark_yellow",
+    }
+
+    # Apply mappings first
+    if clean_color in color_mappings:
+        clean_color = color_mappings[clean_color]
+
+    # If the color is not valid as a background, use fallback
+    if clean_color not in valid_background_colors:
+        clean_color = fallback_bg
+
+    # Optimal foreground color mapping for each background
+    # Based on contrast ratios and readability
+    optimal_foreground_map = {
+        # Light backgrounds → dark text
+        "white": "black",
+        "bright_white": "black",
+        "grey": "black",
+        "yellow": "black",
+        "bright_yellow": "black",
+        "orange1": "black",
+        "orange3": "white",
+        "orange4": "white",
+        "bright_green": "black",
+        "sea_green": "black",
+        "bright_cyan": "black",
+        "bright_blue": "white",
+        "bright_magenta": "white",
+        "bright_purple": "white",
+        "bright_pink": "black",
+        "bright_red": "white",
+        # Dark backgrounds → light text
+        "dark_grey": "white",
+        "dark_red": "white",
+        "dark_green": "white",
+        "dark_blue": "white",
+        "dark_magenta": "white",
+        "dark_cyan": "white",
+        "dark_purple": "white",
+        "dark_pink": "white",
+        "dark_yellow": "black",
+        # Medium/saturated backgrounds → specific choices
+        "red": "white",
+        "green": "white",
+        "blue": "white",
+        "magenta": "white",
+        "cyan": "black",
+        "purple": "white",
+        "pink": "black",
+        "indian_red": "white",
+        "deep_sky_blue": "black",
+    }
+
+    # Get the optimal foreground color, defaulting to white for safety
+    foreground_color = optimal_foreground_map.get(clean_color, "white")
+
+    return foreground_color, clean_color
+
+
 def format_diff_with_colors(diff_text: str) -> str:
     """Format diff text with Rich markup for colored display.
 
     This is the canonical diff formatting function used across the codebase.
-    It applies consistent color coding to diff lines:
-    - Additions (+): bold green
-    - Deletions (-): bold red
-    - Hunk headers (@@): bold cyan
-    - File headers (+++/---): dim white
-    - Context lines: no formatting
+    It applies user-configurable color coding to diff lines with support for
+    two rendering modes: 'text' (simple colors) and 'highlighted' (optimal
+    foreground/background contrast pairs).
+
+    The function respects user preferences from config:
+    - get_diff_addition_color(): Color for added lines
+    - get_diff_deletion_color(): Color for deleted lines
+    - get_diff_highlight_style(): 'text' or 'highlighted' mode
 
     Args:
         diff_text: Raw diff text to format
@@ -447,28 +569,71 @@ def format_diff_with_colors(diff_text: str) -> str:
     Returns:
         Formatted diff text with Rich markup
     """
+    from code_puppy.config import (
+        get_diff_addition_color,
+        get_diff_deletion_color,
+        get_diff_highlight_style,
+    )
+
     if not diff_text or not diff_text.strip():
         return "[dim]-- no diff available --[/dim]"
 
-    formatted_lines = []
-    for line in diff_text.splitlines():
-        if line.startswith("+") and not line.startswith("+++"):
-            # Addition line - bold green
-            formatted_lines.append(f"[bold green]{line}[/bold green]")
-        elif line.startswith("-") and not line.startswith("---"):
-            # Deletion line - bold red
-            formatted_lines.append(f"[bold red]{line}[/bold red]")
-        elif line.startswith("@@"):
-            # Hunk header - bold cyan
-            formatted_lines.append(f"[bold cyan]{line}[/bold cyan]")
-        elif line.startswith("+++") or line.startswith("---"):
-            # File header - dim white
-            formatted_lines.append(f"[dim white]{line}[/dim white]")
-        else:
-            # Context line - no formatting
-            formatted_lines.append(line)
+    style = get_diff_highlight_style()
+    addition_base_color = get_diff_addition_color()
+    deletion_base_color = get_diff_deletion_color()
 
-    return "\n".join(formatted_lines)
+    if style == "text":
+        # Plain text mode - use simple Rich markup for additions and deletions
+        colored_lines = []
+        for line in diff_text.split("\n"):
+            if line.startswith("+") and not line.startswith("+++"):
+                # Added lines - green
+                colored_lines.append(
+                    f"[{addition_base_color}]{line}[/{addition_base_color}]"
+                )
+            elif line.startswith("-") and not line.startswith("---"):
+                # Removed lines - red
+                colored_lines.append(
+                    f"[{deletion_base_color}]{line}[/{deletion_base_color}]"
+                )
+            elif line.startswith("@@"):
+                # Diff headers - cyan
+                colored_lines.append(f"[cyan]{line}[/cyan]")
+            elif line.startswith("+++") or line.startswith("---"):
+                # File headers - yellow
+                colored_lines.append(f"[yellow]{line}[/yellow]")
+            else:
+                # Unchanged lines - no color
+                colored_lines.append(line)
+        return "\n".join(colored_lines)
+
+    # Highlighted mode - use intelligent color pairs
+    addition_fg, addition_bg = _get_optimal_color_pair(addition_base_color, "green")
+    deletion_fg, deletion_bg = _get_optimal_color_pair(deletion_base_color, "orange1")
+
+    # Create the color combinations
+    addition_color = f"{addition_fg} on {addition_bg}"
+    deletion_color = f"{deletion_fg} on {deletion_bg}"
+
+    colored_lines = []
+    for line in diff_text.split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
+            # Added lines - optimal contrast text on chosen background
+            colored_lines.append(f"[{addition_color}]{line}[/{addition_color}]")
+        elif line.startswith("-") and not line.startswith("---"):
+            # Removed lines - optimal contrast text on chosen background
+            colored_lines.append(f"[{deletion_color}]{line}[/{deletion_color}]")
+        elif line.startswith("@@"):
+            # Diff headers (cyan)
+            colored_lines.append(f"[cyan]{line}[/cyan]")
+        elif line.startswith("+++") or line.startswith("---"):
+            # File headers (yellow)
+            colored_lines.append(f"[yellow]{line}[/yellow]")
+        else:
+            # Unchanged lines (default color)
+            colored_lines.append(line)
+
+    return "\n".join(colored_lines)
 
 
 async def arrow_select_async(
