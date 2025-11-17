@@ -281,6 +281,7 @@ async def main():
             gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
             emit_system_message("\n\n")
 
+            lines = []
             # Apply gradient line by line
             logo = []
             for line_num, line in enumerate(intro_lines):
