@@ -258,6 +258,7 @@ def _install_python_dependencies() -> bool:
     # Install optional dependencies
     packages = [
         "google-cloud-bigquery>=3.0.0",
+        "sqlparse>=0.4.0",
     ]
 
     # Set proxy and index URL for Walmart network

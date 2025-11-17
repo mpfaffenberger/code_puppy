@@ -314,7 +314,9 @@ class BigQueryClient:
         """
         if sqlparse is None:
             emit_warning(
-                "sqlparse not installed. Install with: uv pip install .[bigquery]"
+                "⚠️  sqlparse not installed - cannot validate query safety.\n"
+                "Please run '/bigquery_auth' again to install all dependencies.\n"
+                "Or manually install: uv pip install sqlparse>=0.4.0"
             )
             return False  # Reject if we can't parse
 
