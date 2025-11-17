@@ -536,20 +536,22 @@ def _get_token_color(token_type) -> str:
     return "#cccccc"  # Default light-grey for unmatched tokens
 
 
-def _highlight_code_line(code: str, bg_color: str, lexer) -> Text:
-    """Highlight a line of code with syntax highlighting and background color.
+def _highlight_code_line(code: str, bg_color: str | None, lexer) -> Text:
+    """Highlight a line of code with syntax highlighting and optional background color.
 
     Args:
         code: The code string to highlight
-        bg_color: Background color in hex format
+        bg_color: Background color in hex format, or None for no background
         lexer: Pygments lexer instance to use
 
     Returns:
         Rich Text object with styling applied
     """
     if not PYGMENTS_AVAILABLE or lexer is None:
-        # Fallback: just return text with background
-        return Text(code, style=f"on {bg_color}")
+        # Fallback: just return text with optional background
+        if bg_color:
+            return Text(code, style=f"on {bg_color}")
+        return Text(code)
 
     text = Text()
 
@@ -563,8 +565,11 @@ def _highlight_code_line(code: str, bg_color: str, lexer) -> Text:
             continue
 
         fg_color = _get_token_color(token_type)
-        # Apply BOTH foreground color AND background to every token
-        text.append(value, style=f"{fg_color} on {bg_color}")
+        # Apply foreground color and optional background
+        if bg_color:
+            text.append(value, style=f"{fg_color} on {bg_color}")
+        else:
+            text.append(value, style=fg_color)
 
     return text
 
@@ -650,11 +655,12 @@ def _format_diff_with_syntax_highlighting(
     add_fg = brighten_hex(addition_color, 0.6)
     del_fg = brighten_hex(deletion_color, 0.6)
 
-    # Background colors for different line types (dark theme)
+    # Background colors for different line types
+    # Context lines have no background (None) for clean, minimal diffs
     bg_colors = {
         "removed": deletion_color,
         "added": addition_color,
-        "context": "#1e1e1e",  # Dark grey
+        "context": None,  # No background for unchanged lines
     }
 
     lines = diff_text.split("\n")
@@ -694,11 +700,15 @@ def _format_diff_with_syntax_highlighting(
             else:
                 line_type = "context"
                 code = line[1:] if line.startswith(" ") else line
-                marker_style = f"on {bg_colors[line_type]}"
+                # Context lines have no background - clean and minimal
+                marker_style = ""  # No special styling for context markers
                 prefix = "  "
 
             # Add the marker prefix
-            result.append(prefix, style=marker_style)
+            if marker_style:  # Only apply style if we have one
+                result.append(prefix, style=marker_style)
+            else:
+                result.append(prefix)
 
             # Add syntax-highlighted code
             highlighted = _highlight_code_line(code, bg_colors[line_type], lexer)

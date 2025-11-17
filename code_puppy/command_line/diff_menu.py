@@ -1,6 +1,7 @@
 """Interactive nested menu for diff configuration.
 
 Now using the fixed arrow_select_async with proper HTML escaping.
+Supports cycling through all supported languages with left/right arrows!
 """
 
 import io
@@ -15,6 +16,341 @@ from prompt_toolkit.layout import Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 from rich.console import Console
+
+# Import language mappings from common.py
+from code_puppy.tools.common import EXTENSION_TO_LEXER_NAME
+
+
+# Sample code snippets for each language
+LANGUAGE_SAMPLES = {
+    "python": (
+        "calculator.py",
+        """--- a/calculator.py
++++ b/calculator.py
+@@ -1,12 +1,15 @@
+ def calculate_total(items, tax_rate=0.08):
++    # Calculate total price
++    total = 0
++    for item in items:
++        total += item['price']
+-    # Calculate subtotal with discount
+-    subtotal = sum(item['price'] * item.get('quantity', 1) for item in items)
+-    discount = subtotal * 0.1 if subtotal > 100 else 0
+     
++    # Add tax
++    tax = total * tax_rate
++    final_total = total + tax
+-    # Apply tax to discounted amount
+-    taxable_amount = subtotal - discount
+-    tax = round(taxable_amount * tax_rate, 2)
+-    final_total = taxable_amount + tax
+     
++    return final_total
+-    return {
+-        'subtotal': subtotal,
+-        'discount': discount,
+-        'tax': tax,
+-        'total': final_total
+-    }""",
+    ),
+    "javascript": (
+        "app.js",
+        """--- a/app.js
++++ b/app.js
+@@ -1,10 +1,12 @@
+-function fetchUserData(userId) {
+-    return fetch(`/api/users/${userId}`)
+-        .then(response => response.json())
+-        .then(data => {
+-            return data.user;
+-        })
+-        .catch(error => console.error(error));
++async function fetchUserData(userId) {
++    try {
++        const response = await fetch(`/api/users/${userId}`);
++        const data = await response.json();
++        return data.user;
++    } catch (error) {
++        console.error('Failed to fetch user:', error);
++        throw error;
++    }
+ }""",
+    ),
+    "typescript": (
+        "service.ts",
+        """--- a/service.ts
++++ b/service.ts
+@@ -1,8 +1,11 @@
+-class UserService {
+-    getUser(id: number) {
+-        return this.http.get(`/users/${id}`);
++interface User {
++    id: number;
++    name: string;
++}
++
++class UserService {
++    async getUser(id: number): Promise<User> {
++        const response = await this.http.get<User>(`/users/${id}`);
++        return response.data;
+     }
+-    deleteUser(id: number) {
+-        return this.http.delete(`/users/${id}`);
+-    }
+ }""",
+    ),
+    "rust": (
+        "main.rs",
+        """--- a/main.rs
++++ b/main.rs
+@@ -1,8 +1,10 @@
+-fn calculate_sum(numbers: Vec<i32>) -> i32 {
+-    let mut total = 0;
+-    for num in numbers {
+-        total = total + num;
++fn calculate_sum(numbers: &[i32]) -> i32 {
++    numbers.iter().sum()
++}
++
++fn calculate_average(numbers: &[i32]) -> f64 {
++    if numbers.is_empty() {
++        return 0.0;
+     }
+-    total
++    calculate_sum(numbers) as f64 / numbers.len() as f64
+ }""",
+    ),
+    "go": (
+        "handler.go",
+        """--- a/handler.go
++++ b/handler.go
+@@ -1,10 +1,15 @@
+-func HandleRequest(w http.ResponseWriter, r *http.Request) {
+-    data := getData()
+-    json.NewEncoder(w).Encode(data)
++func HandleRequest(w http.ResponseWriter, r *http.Request) error {
++    data, err := getData()
++    if err != nil {
++        http.Error(w, err.Error(), http.StatusInternalServerError)
++        return err
++    }
++    w.Header().Set("Content-Type", "application/json")
++    return json.NewEncoder(w).Encode(data)
+ }
+ 
+-func getData() map[string]interface{} {
+-    return map[string]interface{}{"status": "ok"}
++func getData() (map[string]interface{}, error) {
++    return map[string]interface{}{"status": "ok"}, nil
+ }""",
+    ),
+    "java": (
+        "Calculator.java",
+        """--- a/Calculator.java
++++ b/Calculator.java
+@@ -1,8 +1,12 @@
+ public class Calculator {
+-    public int add(int a, int b) {
+-        return a + b;
++    public double calculateTotal(List<Double> prices) {
++        return prices.stream()
++            .reduce(0.0, Double::sum);
+     }
+     
+-    public int multiply(int a, int b) {
+-        return a * b;
++    public double calculateAverage(List<Double> prices) {
++        if (prices.isEmpty()) {
++            return 0.0;
++        }
++        return calculateTotal(prices) / prices.size();
+     }
+ }""",
+    ),
+    "ruby": (
+        "calculator.rb",
+        """--- a/calculator.rb
++++ b/calculator.rb
+@@ -1,8 +1,10 @@
+ class Calculator
+-  def add(a, b)
+-    a + b
++  def calculate_total(items)
++    items.sum { |item| item[:price] }
+   end
+   
+-  def multiply(a, b)
+-    a * b
++  def calculate_average(items)
++    return 0 if items.empty?
++    
++    calculate_total(items) / items.size.to_f
+   end
+ end""",
+    ),
+    "csharp": (
+        "Calculator.cs",
+        """--- a/Calculator.cs
++++ b/Calculator.cs
+@@ -1,10 +1,14 @@
+-public class Calculator {
+-    public int Add(int a, int b) {
+-        return a + b;
++public class Calculator 
++{
++    public decimal CalculateTotal(IEnumerable<decimal> prices) 
++    {
++        return prices.Sum();
+     }
+     
+-    public int Multiply(int a, int b) {
+-        return a * b;
++    public decimal CalculateAverage(IEnumerable<decimal> prices) 
++    {
++        var priceList = prices.ToList();
++        return priceList.Any() ? priceList.Average() : 0m;
+     }
+ }""",
+    ),
+    "php": (
+        "Calculator.php",
+        """--- a/Calculator.php
++++ b/Calculator.php
+@@ -1,10 +1,14 @@
+ <?php
+ class Calculator {
+-    public function add($a, $b) {
+-        return $a + $b;
++    public function calculateTotal(array $items): float {
++        return array_sum(array_column($items, 'price'));
+     }
+     
+-    public function multiply($a, $b) {
+-        return $a * $b;
++    public function calculateAverage(array $items): float {
++        if (empty($items)) {
++            return 0.0;
++        }
++        return $this->calculateTotal($items) / count($items);
+     }
+ }""",
+    ),
+    "html": (
+        "index.html",
+        """--- a/index.html
++++ b/index.html
+@@ -1,5 +1,8 @@
+ <div class="container">
+-    <h1>Welcome</h1>
+-    <p>Hello World</p>
++    <header>
++        <h1>Welcome to Our Site</h1>
++        <nav>
++            <a href="#home">Home</a>
++            <a href="#about">About</a>
++        </nav>
++    </header>
+ </div>""",
+    ),
+    "css": (
+        "styles.css",
+        """--- a/styles.css
++++ b/styles.css
+@@ -1,5 +1,10 @@
+ .container {
+-    width: 100%;
+-    padding: 20px;
++    max-width: 1200px;
++    margin: 0 auto;
++    padding: 2rem;
++}
++
++.container header {
++    display: flex;
++    justify-content: space-between;
++    align-items: center;
+ }""",
+    ),
+    "json": (
+        "config.json",
+        """--- a/config.json
++++ b/config.json
+@@ -1,5 +1,8 @@
+ {
+-    "name": "app",
+-    "version": "1.0.0"
++    "name": "my-awesome-app",
++    "version": "2.0.0",
++    "description": "An awesome application",
++    "author": "Code Puppy",
++    "license": "MIT"
+ }""",
+    ),
+    "yaml": (
+        "config.yml",
+        """--- a/config.yml
++++ b/config.yml
+@@ -1,4 +1,8 @@
+ app:
+   name: myapp
+-  version: 1.0
++  version: 2.0
++  environment: production
++  
++database:
++  host: localhost
++  port: 5432""",
+    ),
+    "bash": (
+        "deploy.sh",
+        """--- a/deploy.sh
++++ b/deploy.sh
+@@ -1,5 +1,9 @@
+ #!/bin/bash
+-echo \"Deploying...\"
+-npm run build
++set -e
++
++echo \"Starting deployment...\"
++npm run build --production
++npm run test
++echo \"Deployment complete!\"""",
+    ),
+    "sql": (
+        "schema.sql",
+        """--- a/schema.sql
++++ b/schema.sql
+@@ -1,5 +1,9 @@
+ CREATE TABLE users (
+     id INTEGER PRIMARY KEY,
+-    name TEXT
++    name TEXT NOT NULL,
++    email TEXT UNIQUE NOT NULL,
++    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+ );
++
++CREATE INDEX idx_users_email ON users(email);""",
+    ),
+}
+
+# Get all supported languages in a consistent order
+SUPPORTED_LANGUAGES = [
+    "python",
+    "javascript",
+    "typescript",
+    "rust",
+    "go",
+    "java",
+    "ruby",
+    "csharp",
+    "php",
+    "html",
+    "css",
+    "json",
+    "yaml",
+    "bash",
+    "sql",
+]
 
 
 class DiffConfiguration:
@@ -31,6 +367,7 @@ class DiffConfiguration:
         self.current_del_color = get_diff_deletion_color()
         self.original_add_color = self.current_add_color
         self.original_del_color = self.current_del_color
+        self.current_language_index = 0  # Track current language for preview
 
     def has_changes(self) -> bool:
         """Check if any changes have been made."""
@@ -38,6 +375,22 @@ class DiffConfiguration:
             self.current_add_color != self.original_add_color
             or self.current_del_color != self.original_del_color
         )
+
+    def next_language(self):
+        """Cycle to the next language."""
+        self.current_language_index = (
+            self.current_language_index + 1
+        ) % len(SUPPORTED_LANGUAGES)
+
+    def prev_language(self):
+        """Cycle to the previous language."""
+        self.current_language_index = (
+            self.current_language_index - 1
+        ) % len(SUPPORTED_LANGUAGES)
+
+    def get_current_language(self) -> str:
+        """Get the currently selected language."""
+        return SUPPORTED_LANGUAGES[self.current_language_index]
 
 
 async def interactive_diff_picker() -> Optional[dict]:
@@ -84,6 +437,7 @@ async def interactive_diff_picker() -> Optional[dict]:
                     choices,
                     dummy_update,
                     get_preview=get_main_preview,
+                    config=config,
                 )
             except KeyboardInterrupt:
                 break
@@ -121,8 +475,12 @@ async def _split_panel_selector(
     choices: list[str],
     on_change: Callable[[str], None],
     get_preview: Callable[[], ANSI],
+    config: Optional[DiffConfiguration] = None,
 ) -> Optional[str]:
-    """Split-panel selector with menu on left and live preview on right."""
+    """Split-panel selector with menu on left and live preview on right.
+    
+    Supports left/right arrow navigation through languages if config is provided.
+    """
     selected_index = [0]
     result = [None]
 
@@ -143,6 +501,14 @@ async def _split_panel_selector(
                 lines.append(("", "\n"))
 
             lines.append(("", "\n"))
+            
+            # Add language navigation hint if config is available
+            if config is not None:
+                current_lang = config.get_current_language()
+                lang_hint = f"Language: {current_lang.upper()}  (←→ to change)"
+                lines.append(("fg:ansiyellow", lang_hint))
+                lines.append(("", "\n"))
+            
             lines.append(
                 ("fg:ansicyan", "↑↓ Navigate  │  Enter Confirm  │  Ctrl-C Cancel")
             )
@@ -172,6 +538,18 @@ async def _split_panel_selector(
         selected_index[0] = (selected_index[0] + 1) % len(choices)
         on_change(choices[selected_index[0]])
         event.app.invalidate()
+
+    @kb.add("left")
+    def prev_lang(event):
+        if config is not None:
+            config.prev_language()
+            event.app.invalidate()
+
+    @kb.add("right")
+    def next_lang(event):
+        if config is not None:
+            config.next_language()
+            event.app.invalidate()
 
     @kb.add("enter")
     def accept(event):
@@ -340,6 +718,13 @@ def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> ANSI:
     """
     from code_puppy.tools.common import format_diff_with_colors
 
+    # Get the current language and its sample
+    current_lang = config.get_current_language()
+    filename, sample_diff = LANGUAGE_SAMPLES.get(
+        current_lang,
+        LANGUAGE_SAMPLES["python"],  # Fallback to Python
+    )
+
     # Build header with current settings info using Rich markup
     header_parts = []
     header_parts.append("[bold]═" * 50 + "[/bold]")
@@ -351,39 +736,15 @@ def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> ANSI:
     header_parts.append(f" Addition Color: [bold]{config.current_add_color}[/bold]")
     header_parts.append(f" Deletion Color: [bold]{config.current_del_color}[/bold]")
     header_parts.append("")
-    header_parts.append("[bold] Example:[/bold]")
+    header_parts.append(
+        f" [bold yellow]Language: {current_lang.upper()}[/bold yellow]  "
+        f"[dim](← → to cycle)[/dim]"
+    )
+    header_parts.append("")
+    header_parts.append(f"[bold] Example ({filename}):[/bold]")
     header_parts.append("")
 
     header_text = "\n".join(header_parts)
-
-    # Create a sample diff that shows off the highlighting
-    sample_diff = """--- a/calculator.py
-+++ b/calculator.py
-@@ -1,12 +1,15 @@
- def calculate_total(items, tax_rate=0.08):
-+    # Calculate total price
-+    total = 0
-+    for item in items:
-+        total += item['price']
--    # Calculate subtotal with discount
--    subtotal = sum(item['price'] * item.get('quantity', 1) for item in items)
--    discount = subtotal * 0.1 if subtotal > 100 else 0
-     
-+    # Add tax
-+    tax = total * tax_rate
-+    final_total = total + tax
--    # Apply tax to discounted amount
--    taxable_amount = subtotal - discount
--    tax = round(taxable_amount * tax_rate, 2)
--    final_total = taxable_amount + tax
-     
-+    return final_total
--    return {
--        'subtotal': subtotal,
--        'discount': discount,
--        'tax': tax,
--        'total': final_total
--    }"""
 
     # Temporarily override config to use current preview settings
     from code_puppy.config import (
@@ -473,9 +834,9 @@ async def _handle_color_menu(config: DiffConfiguration, color_type: str) -> None
         return _get_preview_text_for_prompt_toolkit(config)
 
     try:
-        # Use split panel selector with live preview
+        # Use split panel selector with live preview (pass config for language switching)
         await _split_panel_selector(
-            title, choices, update_preview, get_preview=get_preview_header
+            title, choices, update_preview, get_preview=get_preview_header, config=config
         )
     except KeyboardInterrupt:
         # Restore original color on cancel
