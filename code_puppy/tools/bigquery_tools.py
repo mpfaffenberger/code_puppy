@@ -4,12 +4,32 @@ Provides tools for exploring and querying Google BigQuery databases,
 including listing projects, datasets, tables, and executing queries.
 """
 
+import os
+import platform
 from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
+# Ensure gcloud is in PATH on Windows before any subprocess calls
+# This is critical for the same-session usage after /bigquery_auth
+if platform.system() == "Windows":
+    gcloud_bin_dir = os.path.join(
+        os.environ.get("LOCALAPPDATA", ""),
+        "Google",
+        "CloudSDK",
+        "google-cloud-sdk",
+        "bin",
+    )
+    if os.path.exists(os.path.join(gcloud_bin_dir, "gcloud.cmd")):
+        # Prepend to PATH if not already there
+        current_path = os.environ.get("PATH", "")
+        # Use case-insensitive check for Windows paths
+        if gcloud_bin_dir.lower() not in current_path.lower():
+            os.environ["PATH"] = f"{gcloud_bin_dir};{current_path}"
+
 from code_puppy.plugins.walmart_specific.bigquery_client import (
     BigQueryAPIError,
     BigQueryAuthError,
