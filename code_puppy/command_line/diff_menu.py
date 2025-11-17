@@ -25,21 +25,17 @@ class DiffConfiguration:
         from code_puppy.config import (
             get_diff_addition_color,
             get_diff_deletion_color,
-            get_diff_highlight_style,
         )
 
-        self.current_style = get_diff_highlight_style()
         self.current_add_color = get_diff_addition_color()
         self.current_del_color = get_diff_deletion_color()
-        self.original_style = self.current_style
         self.original_add_color = self.current_add_color
         self.original_del_color = self.current_del_color
 
     def has_changes(self) -> bool:
         """Check if any changes have been made."""
         return (
-            self.current_style != self.original_style
-            or self.current_add_color != self.original_add_color
+            self.current_add_color != self.original_add_color
             or self.current_del_color != self.original_del_color
         )
 
@@ -66,7 +62,6 @@ async def interactive_diff_picker() -> Optional[dict]:
         # Main menu loop
         while True:
             choices = [
-                "Configure Style",
                 "Configure Addition Color",
                 "Configure Deletion Color",
             ]
@@ -85,7 +80,7 @@ async def interactive_diff_picker() -> Optional[dict]:
 
             try:
                 selected = await _split_panel_selector(
-                    "Diff Configuration",
+                    "Diff Color Configuration",
                     choices,
                     dummy_update,
                     get_preview=get_main_preview,
@@ -94,9 +89,7 @@ async def interactive_diff_picker() -> Optional[dict]:
                 break
 
             # Handle selection
-            if "Style" in selected:
-                await _handle_style_menu(config)
-            elif "Addition" in selected:
+            if "Addition" in selected:
                 await _handle_color_menu(config, "additions")
             elif "Deletion" in selected:
                 await _handle_color_menu(config, "deletions")
@@ -116,41 +109,11 @@ async def interactive_diff_picker() -> Optional[dict]:
     # Return changes if any
     if config.has_changes():
         return {
-            "style": config.current_style,
             "add_color": config.current_add_color,
             "del_color": config.current_del_color,
         }
 
     return None
-
-
-async def _handle_style_menu(config: DiffConfiguration) -> None:
-    """Handle style selection."""
-    from code_puppy.tools.common import arrow_select_async
-
-    styles = ["text", "highlight"]
-    descriptions = {
-        "text": "Plain text diffs with simple colors",
-        "highlight": "Full syntax highlighting with Pygments (beautiful!)",
-    }
-
-    choices = []
-    for style in styles:
-        marker = " (current)" if style == config.current_style else ""
-        choices.append(f"{style.upper()} - {descriptions[style]}{marker}")
-
-    try:
-        selected = await arrow_select_async("Select diff style:", choices)
-
-        # Update config instantly - no delay
-        for style in styles:
-            if style.upper() in selected:
-                config.current_style = style
-                break
-    except KeyboardInterrupt:
-        pass
-    except Exception:
-        pass  # Silent error handling
 
 
 async def _split_panel_selector(
@@ -244,6 +207,7 @@ async def _split_panel_selector(
         key_bindings=kb,
         full_screen=False,  # Don't use full_screen to avoid buffer issues
         mouse_support=False,
+        color_depth="DEPTH_24_BIT",  # Enable truecolor support
     )
 
     sys.stdout.flush()
@@ -265,53 +229,81 @@ async def _split_panel_selector(
     return result[0]
 
 
-# Color palettes with nice names
 ADDITION_COLORS = {
-    "Green": "green",
-    "Bright Green": "bright_green",
-    "Cyan": "cyan",
-    "Bright Cyan": "bright_cyan",
-    "Blue": "blue",
-    "Bright Blue": "bright_blue",
-    "Lime": "#00ff00",
-    "Spring Green": "#00ff7f",
-    "Aqua": "#00ffff",
-    "Chartreuse": "#7fff00",
-    "Medium Spring Green": "#00fa9a",
-    "Lime Green": "#32cd32",
-    "Turquoise": "#40e0d0",
-    "Bright Spring Green": "#00ff80",
-    "Caribbean Green": "#00d4aa",
-    "Dodger Blue": "#1e90ff",
-    "Deep Sky Blue": "#00bfff",
-    "Sky Blue": "#87ceeb",
-    "Royal Blue": "#4169e1",
-    "Azure": "#0080ff",
-    "Spring": "#00ffaa",
+    # primary first (darkened)
+    "dark green": "#0b3e0b",
+    "darker green": "#0b1f0b",
+    "dark aqua": "#164952",
+    "deep teal": "#143f3c",
+    # blues (darkened)
+    "sky blue": "#406884",
+    "soft blue": "#315c78",
+    "steel blue": "#20394e",
+    "forest teal": "#124831",
+    "cool teal": "#1b4b54",
+    "marine aqua": "#275860",
+    "slate blue": "#304f69",
+    "deep steel": "#1e3748",
+    "shadow olive": "#2f3a15",
+    "deep moss": "#1f3310",
+    # G
+    "midnight spruce": "#0f3a29",
+    "shadow jade": "#0d4a3a",
+    # B
+    "abyss blue": "#0d2f4d",
+    "midnight fjord": "#133552",
+    # I
+    "dusky indigo": "#1a234d",
+    "nocturne indigo": "#161d3f",
+    # V
+    "midnight violet": "#2a1a3f",
+    "deep amethyst": "#3a2860",
 }
 
 DELETION_COLORS = {
-    "Red": "red",
-    "Bright Red": "bright_red",
-    "Magenta": "magenta",
-    "Bright Magenta": "bright_magenta",
-    "Yellow": "yellow",
-    "Bright Yellow": "bright_yellow",
-    "Pure Red": "#ff0000",
-    "Orange Red": "#ff4500",
-    "Tomato": "#ff6347",
-    "Orange": "#ffa500",
-    "Deep Pink": "#ff1493",
-    "Fuchsia": "#ff00ff",
-    "Orchid": "#da70d6",
-    "Electric Yellow": "#ffff00",
-    "Vivid Magenta": "#ff00aa",
-    "Safety Orange": "#ff7700",
-    "Vivid Orange": "#ffaa00",
-    "Dark Orange": "#ff8800",
-    "Violet": "#ee82ee",
-    "Neon Magenta": "#ff55ff",
-    "Purple Magenta": "#cc00ff",
+    # primary first (darkened)
+    "dark red": "#4a0f0f",
+    # pinks / reds (darkened)
+    "pink": "#7f143b",
+    "soft red": "#741f3c",
+    "salmon": "#842848",
+    "rose": "#681c35",
+    "deep rose": "#4f1428",
+    # oranges (darkened)
+    "burnt orange": "#753b10",
+    "deep orange": "#5b2b0d",
+    # yellows (darkened)
+    "amber": "#69551c",
+    # reds (darkened)
+    "red": "#5d0b0b",
+    "ruby": "#5b141f",
+    "wine": "#390e1a",
+    # purples (darkened)
+    "purple": "#5a4284",
+    "soft purple": "#503977",
+    "violet": "#432758",
+    # ROYGBIV deletions (unchanged)
+    # R
+    "ember crimson": "#5a0e12",
+    "smoked ruby": "#4b0b16",
+    # O
+    "molten orange": "#70340c",
+    "baked amber": "#5c2b0a",
+    # Y
+    "burnt ochre": "#5a4110",
+    "tawny umber": "#4c3810",
+    # G
+    "swamp olive": "#3c3a14",
+    "bog green": "#343410",
+    # B
+    "dusky petrol": "#2a3744",
+    "warm slate": "#263038",
+    # I
+    "wine indigo": "#311b3f",
+    "mulberry dusk": "#3f1f52",
+    # V
+    "garnet plum": "#4a1e3a",
+    "dusky magenta": "#5a1f4c",
 }
 
 
@@ -351,71 +343,78 @@ def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> ANSI:
     # Build header with current settings info using Rich markup
     header_parts = []
     header_parts.append("[bold]═" * 50 + "[/bold]")
-    header_parts.append("[bold cyan] LIVE PREVIEW[/bold cyan]")
+    header_parts.append(
+        "[bold cyan] LIVE PREVIEW - Syntax Highlighted Diff[/bold cyan]"
+    )
     header_parts.append("[bold]═" * 50 + "[/bold]")
     header_parts.append("")
-    header_parts.append(f" Style: [bold]{config.current_style}[/bold]")
-
-    if config.current_style == "text":
-        header_parts.append(f" Additions: {config.current_add_color}")
-        header_parts.append(f" Deletions: {config.current_del_color}")
-    elif config.current_style == "highlight":
-        header_parts.append(" Mode: Full syntax highlighting")
-        header_parts.append(" Colors: Monokai theme")
-        header_parts.append(" Backgrounds: Dark themed")
-
+    header_parts.append(f" Addition Color: [bold]{config.current_add_color}[/bold]")
+    header_parts.append(f" Deletion Color: [bold]{config.current_del_color}[/bold]")
     header_parts.append("")
-    header_parts.append("[bold] Example Diff:[/bold]")
+    header_parts.append("[bold] Example:[/bold]")
     header_parts.append("")
 
     header_text = "\n".join(header_parts)
 
     # Create a sample diff that shows off the highlighting
-    sample_diff = """--- a/example.py
-+++ b/example.py
-@@ -1,5 +1,7 @@
- def hello(name):
--    return "old"
-+    msg = "new"
-+    return msg
- 
- def goodbye():
--    pass
-+    print("bye!")
-+    return None"""
+    sample_diff = """--- a/calculator.py
++++ b/calculator.py
+@@ -1,12 +1,15 @@
+ def calculate_total(items, tax_rate=0.08):
++    # Calculate total price
++    total = 0
++    for item in items:
++        total += item['price']
+-    # Calculate subtotal with discount
+-    subtotal = sum(item['price'] * item.get('quantity', 1) for item in items)
+-    discount = subtotal * 0.1 if subtotal > 100 else 0
+     
++    # Add tax
++    tax = total * tax_rate
++    final_total = total + tax
+-    # Apply tax to discounted amount
+-    taxable_amount = subtotal - discount
+-    tax = round(taxable_amount * tax_rate, 2)
+-    final_total = taxable_amount + tax
+     
++    return final_total
+-    return {
+-        'subtotal': subtotal,
+-        'discount': discount,
+-        'tax': tax,
+-        'total': final_total
+-    }"""
 
     # Temporarily override config to use current preview settings
     from code_puppy.config import (
         get_diff_addition_color,
         get_diff_deletion_color,
-        get_diff_highlight_style,
         set_diff_addition_color,
         set_diff_deletion_color,
-        set_diff_highlight_style,
     )
 
     # Save original values
-    original_style = get_diff_highlight_style()
     original_add_color = get_diff_addition_color()
     original_del_color = get_diff_deletion_color()
 
     try:
         # Temporarily set config to preview values
-        set_diff_highlight_style(config.current_style)
         set_diff_addition_color(config.current_add_color)
         set_diff_deletion_color(config.current_del_color)
 
         # Get the formatted diff (either Rich Text or Rich markup string)
         formatted_diff = format_diff_with_colors(sample_diff)
 
-        # Render everything with Rich Console to get ANSI output
+        # Render everything with Rich Console to get ANSI output with proper color support
         buffer = io.StringIO()
         console = Console(
             file=buffer,
             force_terminal=True,
-            width=60,
+            width=90,
             legacy_windows=False,
             color_system="truecolor",
+            no_color=False,
+            force_interactive=True,  # Force interactive mode for better color support
         )
 
         # Print header
@@ -431,7 +430,6 @@ def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> ANSI:
 
     finally:
         # Restore original config values
-        set_diff_highlight_style(original_style)
         set_diff_addition_color(original_add_color)
         set_diff_deletion_color(original_del_color)
 
