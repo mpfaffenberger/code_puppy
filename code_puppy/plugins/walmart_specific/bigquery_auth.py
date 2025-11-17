@@ -498,10 +498,35 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
         # If gcloud is installed, use full path and ensure it's in PATH
         if os.path.exists(gcloud_cmd_path):
             gcloud_cmd = gcloud_cmd_path
-            # Always add to PATH for subprocess calls (even if it might be there already)
-            # This ensures bigquery_client.py can use "gcloud" command
+
+            # Update PATH for current Python process
             os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
-            emit_info(f"✅ Added gcloud to current session PATH: {gcloud_bin_dir}")
+
+            # Also update user PATH in Windows registry so it persists and is immediately available
+            # This ensures subprocess calls work even if os.environ doesn't propagate properly
+            try:
+                subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        f'$path = [Environment]::GetEnvironmentVariable("Path", "User"); '
+                        f'if ($path -notlike "*{gcloud_bin_dir}*") {{ '
+                        f'[Environment]::SetEnvironmentVariable("Path", "{gcloud_bin_dir};$path", "User"); '
+                        f'$env:PATH = "{gcloud_bin_dir};$env:PATH" }}',
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=True,
+                )
+                emit_success(
+                    "✅ Added gcloud to PATH (current session and user registry)"
+                )
+            except Exception as e:
+                # Fallback - at least we have it in current process
+                emit_warning(f"⚠️  Could not update user PATH registry: {e}")
+                emit_info(f"✅ Added gcloud to current session PATH: {gcloud_bin_dir}")
 
     try:
         # Use longer timeout on Windows for potential first-time initialization
@@ -543,10 +568,34 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
                     "Please restart your terminal and try again."
                 )
 
-            # Always add gcloud bin directory to PATH for this session
-            # This ensures bigquery_client.py can use "gcloud" command via subprocess
+            # Update PATH for current Python process
             os.environ["PATH"] = f"{gcloud_bin_dir};{os.environ['PATH']}"
-            emit_success(f"✅ Added gcloud to session PATH: {gcloud_bin_dir}")
+
+            # Also update user PATH in Windows registry for persistence
+            try:
+                subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        f'$path = [Environment]::GetEnvironmentVariable("Path", "User"); '
+                        f'if ($path -notlike "*{gcloud_bin_dir}*") {{ '
+                        f'[Environment]::SetEnvironmentVariable("Path", "{gcloud_bin_dir};$path", "User"); '
+                        f'$env:PATH = "{gcloud_bin_dir};$env:PATH" }}',
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=True,
+                )
+                emit_success(
+                    "✅ Added gcloud to PATH (current session and user registry)"
+                )
+            except Exception as e:
+                emit_warning(f"⚠️  Could not update user PATH registry: {e}")
+                emit_success(
+                    f"✅ Added gcloud to current session PATH: {gcloud_bin_dir}"
+                )
 
             emit_info(f"Using gcloud from PATH (installed at: {gcloud_path})")
             # For immediate verification after install, use full path
