@@ -474,12 +474,13 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
     # Step 1: Check and install Python dependencies
     try:
         import google.cloud.bigquery  # noqa: F401
+        import sqlparse  # noqa: F401
 
         emit_success("✅ BigQuery Python dependencies already installed")
     except ImportError:
         emit_warning("⚠️  BigQuery Python dependencies not found")
         if not _install_python_dependencies():
-            return "Failed to install Python dependencies. Please install manually with: pip install google-cloud-bigquery google-cloud-resource-manager"
+            return "Failed to install Python dependencies. Please install manually with: pip install google-cloud-bigquery sqlparse"
 
     # Step 2: Check if gcloud is installed, if not, install it
     system = platform.system()
