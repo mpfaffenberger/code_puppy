@@ -323,6 +323,7 @@ class BigQueryClient:
         try:
             parsed = sqlparse.parse(query)
             if not parsed:
+                emit_warning("⚠️  Query parsing returned no statements")
                 return False
 
             # Dangerous keywords that modify or destroy data
@@ -339,11 +340,15 @@ class BigQueryClient:
             }
 
             # Check each statement
-            for statement in parsed:
+            for idx, statement in enumerate(parsed):
                 stmt_type = statement.get_type()
 
                 # Only allow SELECT and WITH (CTEs)
                 if stmt_type not in ("SELECT", "WITH", "UNKNOWN"):
+                    emit_warning(
+                        f"⚠️  Query validation failed: Statement type '{stmt_type}' is not allowed.\n"
+                        f"   Only SELECT and WITH (CTEs) queries are permitted."
+                    )
                     return False
 
                 # Check tokens for dangerous keywords
@@ -354,12 +359,16 @@ class BigQueryClient:
                         in (sqlparse.tokens.Keyword.DDL, sqlparse.tokens.Keyword.DML)
                         and token.value.upper() in dangerous_keywords
                     ):
+                        emit_warning(
+                            f"⚠️  Query validation failed: Dangerous keyword '{token.value.upper()}' detected.\n"
+                            f"   Only read-only SELECT queries are allowed."
+                        )
                         return False
 
             return True
 
         except Exception as e:
-            emit_warning(f"Error parsing query for read-only check: {e}")
+            emit_warning(f"⚠️  Error parsing query for read-only check: {e}")
             return False  # Reject on parse errors (safe default)
 
     def execute_query(
