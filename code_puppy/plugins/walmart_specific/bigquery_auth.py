@@ -10,7 +10,6 @@ Also handles automatic installation of gcloud CLI and Python dependencies.
 import os
 import platform
 import subprocess
-import sys
 import warnings
 from typing import List, Optional
 
@@ -234,78 +233,19 @@ def _install_gcloud_cli() -> bool:
 
 
 def _install_python_dependencies() -> bool:
-    """Install BigQuery Python dependencies.
+    """Check BigQuery Python dependencies.
+
+    Note: As of recent updates, google-cloud-bigquery and sqlparse are core
+    dependencies and should always be available. This function is kept for
+    backward compatibility but no longer performs installation.
 
     Returns:
-        True if installation succeeded, False otherwise
+        True (dependencies should always be available)
     """
-    emit_info("📦 Installing BigQuery Python dependencies...")
-
-    # Determine the correct pip command
-    pip_cmd = [sys.executable, "-m", "pip", "install"]
-
-    # Check if we're using uv
-    try:
-        subprocess.run(["uv", "--version"], capture_output=True, timeout=5, check=True)
-        pip_cmd = ["uv", "pip", "install"]
-    except (
-        FileNotFoundError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-    ):
-        pass
-
-    # Install optional dependencies
-    packages = [
-        "google-cloud-bigquery>=3.0.0",
-        "sqlparse>=0.4.0",
-    ]
-
-    # Set proxy and index URL for Walmart network
-    env = os.environ.copy()
-    extra_args = []
-    if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get(
-        "WALMART_NETWORK"
-    ):
-        env["HTTP_PROXY"] = "http://sysproxy.wal-mart.com:8080"
-        env["HTTPS_PROXY"] = "http://sysproxy.wal-mart.com:8080"
-        extra_args.extend(
-            [
-                "--index-url",
-                "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple",
-                "--trusted-host",
-                "pypi.ci.artifacts.walmart.com",
-            ]
-        )
-        emit_info("🌐 Using Walmart PyPI registry")
-
-    try:
-        cmd = pip_cmd + packages + extra_args
-        emit_info(f"Running: {' '.join(cmd)}")
-
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=env,
-        )
-
-        if result.returncode == 0:
-            emit_success("✅ Python dependencies installed successfully!")
-            return True
-        else:
-            emit_warning(
-                f"⚠️  Dependency installation completed with warnings:\n{result.stderr or result.stdout}"
-            )
-            return True  # Continue anyway
-
-    except subprocess.TimeoutExpired:
-        emit_error("❌ Dependency installation timed out.")
-        return False
-    except Exception as e:
-        emit_error(f"❌ Dependency installation failed: {str(e)}")
-        return False
+    # Both google-cloud-bigquery and sqlparse are now core dependencies
+    # No installation needed - they're installed with code-puppy
+    emit_info("📦 BigQuery dependencies are core dependencies (already installed)")
+    return True
 
 
 def _get_default_project(gcloud_cmd: str = "gcloud") -> Optional[str]:
@@ -471,16 +411,19 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
 
     emit_info("🔐 Starting BigQuery authentication flow...")
 
-    # Step 1: Check and install Python dependencies
+    # Step 1: Verify Python dependencies (should always be available as core dependencies)
+    # Note: google-cloud-bigquery and sqlparse are now core dependencies
     try:
         import google.cloud.bigquery  # noqa: F401
         import sqlparse  # noqa: F401
 
-        emit_success("✅ BigQuery Python dependencies already installed")
-    except ImportError:
-        emit_warning("⚠️  BigQuery Python dependencies not found")
-        if not _install_python_dependencies():
-            return "Failed to install Python dependencies. Please install manually with: pip install google-cloud-bigquery sqlparse"
+        emit_success("✅ BigQuery Python dependencies available")
+    except ImportError as e:
+        emit_error(
+            f"❌ BigQuery dependencies missing: {e}\n"
+            "This should not happen - please reinstall code-puppy with: uv pip install --upgrade code-puppy"
+        )
+        return "BigQuery dependencies not found. Please reinstall code-puppy."
 
     # Step 2: Check if gcloud is installed, if not, install it
     system = platform.system()

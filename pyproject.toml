@@ -37,6 +37,8 @@ dependencies = [
     "camoufox>=0.4.11",
     "dbos>=2.0.0",
     "markdownify>=0.11.0",
+    "sqlparse>=0.4.0",
+    "google-cloud-bigquery>=3.0.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
@@ -65,10 +67,8 @@ url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/
 trusted-host = "pypi.ci.artifacts.walmart.com"
 
 [project.optional-dependencies]
-bigquery = [
-    "google-cloud-bigquery>=3.0.0",
-    "sqlparse>=0.4.0",
-]
+# BigQuery dependencies are now core dependencies
+# bigquery = []
 
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
