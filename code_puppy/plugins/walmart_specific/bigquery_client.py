@@ -8,6 +8,8 @@ import datetime
 import decimal
 import json
 import math
+import os
+import platform
 import subprocess
 import warnings
 from typing import Any, Dict, List, Optional
@@ -30,6 +32,36 @@ except ImportError:
 DEFAULT_QUERY_TIMEOUT_SECONDS = 300  # 5 minutes
 DEFAULT_MAX_RESULTS = 100
 MAX_RESULTS_LIMIT = 10000  # Hard limit to prevent OOM
+
+
+def _get_gcloud_command() -> str:
+    """Get the gcloud command path.
+
+    On Windows, tries to find gcloud in standard install location.
+    Falls back to 'gcloud' for other platforms or if not found.
+
+    Returns:
+        Absolute path to gcloud.cmd on Windows, or 'gcloud' as fallback
+    """
+    system = platform.system()
+
+    if system == "Windows":
+        # Standard Windows installation path
+        gcloud_bin_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA", ""),
+            "Google",
+            "CloudSDK",
+            "google-cloud-sdk",
+            "bin",
+        )
+        gcloud_cmd_path = os.path.join(gcloud_bin_dir, "gcloud.cmd")
+
+        # If gcloud.cmd exists, use absolute path
+        if os.path.exists(gcloud_cmd_path):
+            return gcloud_cmd_path
+
+    # Fallback to 'gcloud' (works on macOS/Linux, or if in PATH on Windows)
+    return "gcloud"
 
 
 class BigQueryError(Exception):
@@ -136,7 +168,7 @@ class BigQueryClient:
 
             # Run gcloud projects list with JSON output
             result = subprocess.run(
-                ["gcloud", "projects", "list", "--format=json"],
+                [_get_gcloud_command(), "projects", "list", "--format=json"],
                 capture_output=True,
                 text=True,
                 timeout=30,
