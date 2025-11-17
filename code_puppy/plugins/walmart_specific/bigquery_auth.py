@@ -94,6 +94,7 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "powershell",
                 "-Command",
                 proxy_cmd + "$ErrorActionPreference='Stop'; "
+                "Add-Type -Assembly System.IO.Compression.FileSystem; "
                 "$zipUrl = 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-windows-x86_64.zip'; "
                 "$zipFile = Join-Path $env:TEMP 'google-cloud-sdk.zip'; "
                 "$installPath = Join-Path $env:LOCALAPPDATA 'Google\\CloudSDK'; "
@@ -104,7 +105,12 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
                 "Write-Host 'Download complete. Extracting...'; "
                 "[Console]::Out.Flush(); "
                 "if (Test-Path $installPath) { Remove-Item $installPath -Recurse -Force }; "
-                "Expand-Archive -Path $zipFile -DestinationPath $installPath -Force; "
+                "$zip = [System.IO.Compression.ZipFile]::OpenRead($zipFile); "
+                "$totalFiles = $zip.Entries.Count; "
+                "$zip.Dispose(); "
+                "Write-Progress -Activity 'Extracting Google Cloud SDK' -Status 'Processing files...' -PercentComplete 0; "
+                "[System.IO.Compression.ZipFile]::ExtractToDirectory($zipFile, $installPath); "
+                "Write-Progress -Activity 'Extracting Google Cloud SDK' -Status 'Complete' -PercentComplete 100 -Completed; "
                 "Write-Host 'Extraction complete. Configuring PATH...'; "
                 "$binPath = Join-Path $installPath 'google-cloud-sdk\\bin'; "
                 "$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
