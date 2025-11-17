@@ -108,6 +108,31 @@ uv run python --version
 
 ## Usage
 
+### Session Management
+
+Code Puppy automatically saves your conversation history as autosave sessions. You can resume previous sessions using the `--continue` flag:
+
+```bash
+# Continue from the most recent session
+code-puppy --continue
+
+# Or use the short form
+code-puppy -c
+
+# Continue from a specific session
+code-puppy --continue auto_session_20231201_120000
+
+# Continue in interactive mode
+code-puppy --continue -i
+```
+
+When you use `--continue`, Code Puppy will:
+- Load the conversation history from the session
+- Restore the full context of your previous work
+- Continue where you left off
+
+Sessions are stored in `~/.code_puppy/autosave/` and can also be managed with the `/autosave_load` command in interactive mode.
+
 ### Custom Commands
 Create markdown files in `.claude/commands/`, `.github/prompts/`, or `.agents/commands/` to define custom slash commands. The filename becomes the command name and the content runs as a prompt.
 
