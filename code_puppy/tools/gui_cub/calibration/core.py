@@ -296,7 +296,7 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
         "code_puppy_version": code_puppy_version,
         "calibrated_at": datetime.now().isoformat(),
         "platform": platform_info,
-        "displays": display_info,
+        "display": display_info,
         "capabilities": capabilities,
         "permissions": permissions,
         "missing_capabilities": missing_capabilities,
