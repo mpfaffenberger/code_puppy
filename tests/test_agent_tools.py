@@ -64,8 +64,8 @@ class TestAgentTools:
 
             # Verify the content contains expected file permission instructions
             file_permission_text = "".join(prompt_additions)
-            assert "FILE PERMISSION REJECTION" in file_permission_text
-            assert "IMMEDIATE STOP" in file_permission_text
+            assert "USER FEEDBACK SYSTEM" in file_permission_text
+            assert "How User Approval Works" in file_permission_text
 
 
 class TestSessionIdValidation:

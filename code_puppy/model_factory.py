@@ -20,10 +20,12 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from code_puppy.messaging import emit_warning
 from code_puppy.plugins.chatgpt_oauth.config import get_chatgpt_models_path
 from code_puppy.plugins.claude_code_oauth.config import get_claude_models_path
+from code_puppy.plugins.claude_code_oauth.utils import load_claude_models_filtered
 
 from . import callbacks
+from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
 from .config import EXTRA_MODELS_FILE
-from .http_utils import create_async_client
+from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
 
 # Environment variables used in this module:
@@ -131,9 +133,13 @@ class ModelFactory:
             if not path.exists():
                 continue
             try:
-                with open(path, "r") as f:
-                    extra_config = json.load(f)
-                    config.update(extra_config)
+                # Use filtered loading for Claude Code OAuth models to show only latest versions
+                if "Claude Code OAuth" in label:
+                    extra_config = load_claude_models_filtered()
+                else:
+                    with open(path, "r") as f:
+                        extra_config = json.load(f)
+                config.update(extra_config)
             except json.JSONDecodeError as exc:
                 logging.getLogger(__name__).warning(
                     f"Failed to load {label} config from {path}: Invalid JSON - {exc}"
@@ -180,7 +186,7 @@ class ModelFactory:
 
             provider = OpenAIProvider(api_key=api_key)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            if model_name == "gpt-5-codex-api":
+            if "codex" in model_name:
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
                 )
@@ -220,10 +226,28 @@ class ModelFactory:
                     f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
                 )
                 return None
-            client = create_async_client(headers=headers, verify=verify)
-            anthropic_client = AsyncAnthropic(
-                base_url=url, http_client=client, auth_token=api_key
+
+            # Use a dedicated client wrapper that injects cache_control on /v1/messages
+            if verify is None:
+                verify = get_cert_bundle_path()
+
+            http2_enabled = get_http2()
+
+            client = ClaudeCacheAsyncClient(
+                headers=headers,
+                verify=verify,
+                timeout=180,
+                http2=http2_enabled,
             )
+
+            anthropic_client = AsyncAnthropic(
+                base_url=url,
+                http_client=client,
+                auth_token=api_key,
+            )
+            # Ensure cache_control is injected at the Anthropic SDK layer too
+            # so we don't depend solely on httpx internals.
+            patch_anthropic_client_messages(anthropic_client)
             anthropic_client.api_key = None
             anthropic_client.auth_token = api_key
             provider = AnthropicProvider(anthropic_client=anthropic_client)
