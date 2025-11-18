@@ -32,7 +32,7 @@ def register_vqa_two_stage_tools(agent):
         context: RunContext[Any],
         element_description: str,
         window_title: str | None = None,
-        save_debug: bool = True,
+        save_debug: bool = False,
     ) -> dict:
         """Click an element using two-stage coarse-to-fine VQA.
 
@@ -43,7 +43,7 @@ def register_vqa_two_stage_tools(agent):
         Features:
         - Bounding box detection (30% more accurate than direct points)
         - Window boundary clipping (no background capture)
-        - Debug image saving (4 images per run)
+        - Optional debug image saving (disabled by default)
         - Visual bbox visualization (blue=Stage1, red=Stage2)
         - Automatic fallback if Stage 2 fails
 
@@ -57,8 +57,9 @@ def register_vqa_two_stage_tools(agent):
                                (e.g., "yellow minimize button", "Submit button")
             window_title: Optional window to focus first (e.g., "Spotify")
                          If None, uses active window
-            save_debug: Whether to save debug images to vqa_debug_output/
-                       Saves: full screenshot, stage1 crop, stage2 crop, visualization
+            save_debug: Whether to save debug images to temp directory (default: False)
+                       When enabled, saves 4 debug images to system temp for troubleshooting.
+                       Use only when explicitly requested by user for debugging!
 
         Returns:
             Dictionary with:
@@ -69,7 +70,7 @@ def register_vqa_two_stage_tools(agent):
             - error: Error message if failed
 
         Debug Images (if save_debug=True):
-            Saved to vqa_debug_output/ with timestamp:
+            Saved to system temp directory (/tmp/code_puppy_debug_screenshots/) with timestamp:
             1. 0_full_screenshot.png - Full screen capture
             2. 1_stage1_coarse_crop.png - Stage 1 input (full window)
             3. 2_stage2_fine_crop.png - Stage 2 input (±100px zoom)
@@ -77,12 +78,21 @@ def register_vqa_two_stage_tools(agent):
                - Blue box + crosshair = Stage 1 coarse detection
                - Red box + crosshair + dot = Stage 2 fine detection
 
+            Note: Debug images are NOT saved to user's working directory by default.
+            Only save when explicitly requested for troubleshooting!
+
         Example:
-            # Click minimize button on Spotify
+            # Click minimize button on Spotify (no debug images)
+            result = await desktop_vqa_click_two_stage(
+                element_description="yellow minimize button",
+                window_title="Spotify"
+            )
+
+            # Click with debug images (only when user requests for troubleshooting)
             result = await desktop_vqa_click_two_stage(
                 element_description="yellow minimize button",
                 window_title="Spotify",
-                save_debug=True
+                save_debug=True  # User explicitly asked for debug images
             )
 
             if result["success"]:
@@ -133,7 +143,7 @@ def register_vqa_two_stage_tools(agent):
     ) -> dict:
         """Find and click an element using two-stage VQA.
 
-        This is an alias for desktop_vqa_click_two_stage with save_debug=True.
+        This is an alias for desktop_vqa_click_two_stage with save_debug=False.
         Provided for backward compatibility with old VQA tool.
 
         Args:
@@ -144,10 +154,10 @@ def register_vqa_two_stage_tools(agent):
             Dictionary with success, coordinates, and confidence
         """
         return desktop_vqa_click_two_stage(
-            context=context,  # Pass context to avoid "missing positional argument" error
+            context=context,
             element_description=element_description,
             window_title=window_title,
-            save_debug=True,  # Always save debug for troubleshooting
+            save_debug=False,  # Don't save debug images unless explicitly requested
         )
 
     return agent

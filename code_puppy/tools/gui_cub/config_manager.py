@@ -228,6 +228,10 @@ def get_vqa_model_name() -> str:
 
 def get_debug_screenshots_enabled() -> bool:
     """Check if debug screenshot copying to CWD is enabled.
+    
+    This feature is disabled by default (set to False during initial calibration).
+    When enabled, all screenshots will be copied to the current working directory
+    in addition to being saved in the temp directory.
 
     Returns:
         True if debug screenshots should be copied to current working directory

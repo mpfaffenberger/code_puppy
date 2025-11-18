@@ -364,6 +364,10 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
         "ocr_providers": ocr_info,
         "permissions": permissions,
         "missing_capabilities": missing_capabilities,
+        # Explicitly set debug defaults (makes config self-documenting)
+        "debug": {
+            "copy_screenshots_to_cwd": False,
+        },
     }
 
     # Save config

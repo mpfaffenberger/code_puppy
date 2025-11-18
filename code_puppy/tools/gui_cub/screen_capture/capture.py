@@ -361,9 +361,11 @@ def screenshot(
 
     # Determine if we should save to disk
     # - Always save if user provided custom save_path
-    # - Save focused captures (active_window, region) by default
-    # - Don't save full_screen by default (large files, less useful)
-    should_save = save_path is not None or mode != "full_screen"
+    # - Otherwise only save if debug mode is enabled
+    # This prevents cluttering disk with screenshots unless explicitly requested
+    from ..config_manager import get_debug_screenshots_enabled
+
+    should_save = save_path is not None or get_debug_screenshots_enabled()
 
     # Capture the screenshot using existing capture_screen
     result = capture_screen(

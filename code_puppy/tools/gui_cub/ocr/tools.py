@@ -540,6 +540,9 @@ def register_ocr_tools(agent):
 
         Use this to see exactly where OCR thinks text is located!
 
+        🚨 Note: This tool ALWAYS saves a debug screenshot (to system temp) since it's
+        explicitly for debugging. Use only when user requests OCR visualization!
+
         Args:
             x: Optional left coordinate of region
             y: Optional top coordinate of region
@@ -553,9 +556,10 @@ def register_ocr_tools(agent):
 
         Returns:
             OCRDebugVisualization with screenshot path showing all bounding boxes
+            Screenshot saved to system temp directory (not user's pwd)
 
         Examples:
-            # Debug active window OCR
+            # Debug active window OCR (only when user explicitly requests)
             result = desktop_show_all_ocr_boxes()
             print(f"Saved debug visualization: {result.screenshot_path}")
 
@@ -731,28 +735,20 @@ def register_ocr_tools(agent):
                 )
                 legend_y += 20
 
-            # Save screenshot
-            from datetime import datetime
-            from pathlib import Path
-            from tempfile import gettempdir
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"ocr_debug_all_boxes_{timestamp}.png"
-            save_path = Path(gettempdir()) / "code_puppy_rpa_debug" / filename
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            screenshot.save(save_path)
-
-            # DEBUG: Save to temp if debug mode enabled
-            from ..config_manager import get_debug_screenshots_enabled
+            # Save screenshot to temp directory
+            # This tool is explicitly for debugging, so saving is expected
             from ..debug_screenshot_manager import save_temp_debug_screenshot
 
-            if get_debug_screenshots_enabled():
-                save_temp_debug_screenshot(
-                    screenshot, "ocr_debug_visualization", group_id
-                )
+            save_path = save_temp_debug_screenshot(
+                screenshot, "ocr_debug_visualization", group_id
+            )
 
             emit_info(
-                f"[green]✅ OCR debug visualization saved: {save_path}[/green]",
+                f"[green]✅ OCR debug visualization saved to temp: {save_path}[/green]",
+                message_group=group_id,
+            )
+            emit_info(
+                "[dim]   (Use gui_cub_save_debug_screenshot() to copy to current directory if needed)[/dim]",
                 message_group=group_id,
             )
             emit_info(
