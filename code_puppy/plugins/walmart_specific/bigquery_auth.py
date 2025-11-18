@@ -252,6 +252,68 @@ def _install_python_dependencies() -> bool:
     return True
 
 
+def _ensure_gcloud_account_authenticated(gcloud_cmd: str = "gcloud") -> bool:
+    """Ensure gcloud has an active account for CLI commands.
+
+    gcloud auth application-default login sets up ADC but doesn't activate
+    the gcloud CLI account. This function checks if there's an active account
+    and prompts for gcloud auth login if needed.
+
+    Args:
+        gcloud_cmd: Path to gcloud command
+
+    Returns:
+        True if account is active or successfully authenticated, False otherwise
+    """
+    try:
+        # Check if there's an active gcloud account
+        result = subprocess.run(
+            [
+                gcloud_cmd,
+                "auth",
+                "list",
+                "--filter=status:ACTIVE",
+                "--format=value(account)",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            # Active account exists
+            active_account = result.stdout.strip()
+            emit_info(f"✅ Active gcloud account: {active_account}")
+            return True
+
+        # No active account - need to run gcloud auth login
+        emit_warning(
+            "⚠️  No active gcloud account found.\n"
+            "   Running 'gcloud auth login' to activate your account..."
+        )
+        emit_info("🌐 Opening browser for gcloud CLI authentication...")
+
+        # Run gcloud auth login (this will use the same Google account)
+        login_result = subprocess.run(
+            [gcloud_cmd, "auth", "login"],
+            timeout=300,
+        )
+
+        if login_result.returncode == 0:
+            emit_success("✅ gcloud account activated successfully!")
+            return True
+        else:
+            emit_error("❌ Failed to activate gcloud account")
+            return False
+
+    except subprocess.TimeoutExpired:
+        emit_error("❌ Timeout while checking/activating gcloud account")
+        return False
+    except Exception as e:
+        emit_warning(f"⚠️  Error checking gcloud account: {str(e)}")
+        return False
+
+
 def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
     """Get default project from gcloud config or prompt user to select one.
 
@@ -283,7 +345,7 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
         list_result = subprocess.run(
             [gcloud_cmd, "projects", "list", "--format=table(projectId, name)"],
             capture_output=False,  # Show output directly to user
-            timeout=30,
+            timeout=120,  # 2 minutes - can be slow on corporate networks
         )
 
         if list_result.returncode != 0:
@@ -472,7 +534,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
 
     try:
         # Use longer timeout on Windows for potential first-time initialization
-        check_timeout = 30 if system == "Windows" else 10
+        check_timeout = 120 if system == "Windows" else 10
         result = subprocess.run(
             [gcloud_cmd, "--version"],
             capture_output=True,
@@ -541,7 +603,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
 
         # Verify installation worked
         # Use longer timeout on Windows for first-time initialization
-        verification_timeout = 30 if system == "Windows" else 10
+        verification_timeout = 120 if system == "Windows" else 10
         emit_info(
             f"Verifying gcloud installation (timeout: {verification_timeout}s)..."
         )
@@ -622,6 +684,15 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                     "🎉 BigQuery authentication complete!\n"
                     "Application Default Credentials have been saved."
                 )
+
+                # Ensure gcloud account is active before listing projects
+                emit_info("🔍 Checking gcloud account status...")
+                if not _ensure_gcloud_account_authenticated(gcloud_cmd):
+                    emit_warning(
+                        "⚠️  Could not activate gcloud account.\n"
+                        "   You may need to run 'gcloud auth login' manually."
+                    )
+                    return "Authentication completed but gcloud account activation failed. Please run: gcloud auth login"
 
                 # Get and set default project automatically
                 emit_info("🔍 Setting up default project...")
