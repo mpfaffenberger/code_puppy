@@ -354,6 +354,7 @@ def register_accessibility_tools(agent):
         context: RunContext,
         role: str | None = None,
         title: str | None = None,
+        identifier: str | None = None,
         in_frontmost_app: bool = True,
         fuzzy: bool = True,
         fuzzy_threshold: float = 0.6,
@@ -378,6 +379,13 @@ def register_accessibility_tools(agent):
                    Examples:
                    - "Submit" matches: "Submit", "Submit Form", "submitBtn", "btn_submit"
                    - "Save" matches: "Save", "Save As...", "saveButton", "btn-save"
+            identifier: AXIdentifier for exact matching (HIGHEST PRIORITY!)
+                       Use this when elements don't have titles.
+                       Examples:
+                       - Calculator: identifier="Seven" for "7" button
+                       - Calculator: identifier="Add" for "+" button
+                       - Calculator: identifier="Equals" for "=" button
+                       Tip: Check element tree output for identifier values!
             in_frontmost_app: Search only in active app (faster) vs system-wide
             fuzzy: Enable intelligent fuzzy matching (default: True)
             fuzzy_threshold: Minimum similarity score (0.0-1.0, default: 0.6)
@@ -388,17 +396,30 @@ def register_accessibility_tools(agent):
             - If found: center_x, center_y for pixel-perfect clicking!
             - Multiple matches returned if found, sorted by match quality
 
+        Search Priority:
+            1. Identifier (exact match) - MOST RELIABLE
+            2. Title (exact match)
+            3. Fuzzy match on title/description/placeholder
+
         Examples:
             - desktop_find_accessible_element(role="AXButton", title="Save")
             - desktop_find_accessible_element(title="Submit")  # Fuzzy matches "Submit Button", "submitBtn", etc.
+            - desktop_find_accessible_element(role="AXButton", identifier="Seven")  # Calculator "7" button
+            - desktop_find_accessible_element(identifier="AllClear")  # Calculator AC button
             - desktop_find_accessible_element(role="AXButton", title="close", fuzzy_threshold=0.8)  # Stricter matching
             - desktop_find_accessible_element(title="login", fuzzy=False)  # Exact match only
+
+        Troubleshooting:
+            - If title search fails, check element tree for identifier attribute
+            - Some apps (Calculator, custom UIs) use identifiers instead of titles
+            - Use desktop_list_accessible_elements() to inspect available attributes
 
         Note: macOS only. Requires atomacos library.
         """
         return find_accessible_element(
             role=role,
             title=title,
+            identifier=identifier,
             in_frontmost_app=in_frontmost_app,
             fuzzy=fuzzy,
             fuzzy_threshold=fuzzy_threshold,
@@ -449,10 +470,10 @@ def register_accessibility_tools(agent):
         context: RunContext,
         role: str | None = None,
         title: str | None = None,
-        identifier: str | None = None,  # NEW: AXIdentifier exact match
+        identifier: str | None = None,
         in_frontmost_app: bool = True,
         fuzzy: bool = True,
-        fuzzy_threshold: float = 0.25,  # Lowered to match find_accessible_element
+        fuzzy_threshold: float = 0.25,
     ) -> ElementClickResult:
         """
         Find and click a UI element using Accessibility API with FUZZY MATCHING (MOST ACCURATE!).
@@ -466,7 +487,13 @@ def register_accessibility_tools(agent):
             title: Element title/name to search for (supports fuzzy matching!)
                    Examples: "Submit" matches "Submit Button", "submitBtn", "btn_submit"
                    Also searches: description, placeholder, help text, role_description
-            identifier: AXIdentifier for exact match (most reliable!) e.g., "_SC_SEARCH_FIELD"
+            identifier: AXIdentifier for exact match (HIGHEST PRIORITY!)
+                       Use this when elements don't have titles.
+                       Examples:
+                       - Calculator: identifier="Seven" for "7" button
+                       - Calculator: identifier="Add" for "+" button
+                       - Calculator: identifier="Equals" for "=" button
+                       Tip: Check element tree output for identifier values!
             in_frontmost_app: Search only in active app
             fuzzy: Enable intelligent fuzzy matching (default: True)
             fuzzy_threshold: Minimum similarity score (0.0-1.0, default: 0.25)
@@ -474,11 +501,22 @@ def register_accessibility_tools(agent):
         Returns:
             ElementClickResult with success status and click coordinates
 
+        Search Priority:
+            1. Identifier (exact match) - MOST RELIABLE
+            2. Title (exact match)
+            3. Fuzzy match on title/description/placeholder
+
         Examples:
-            - desktop_click_accessible_element(identifier="_SC_SEARCH_FIELD")  # Exact match!
+            - desktop_click_accessible_element(identifier="Seven")  # Calculator "7" button
+            - desktop_click_accessible_element(identifier="AllClear")  # Calculator AC button
             - desktop_click_accessible_element(role="AXButton", title="Save")
             - desktop_click_accessible_element(title="Submit")  # Fuzzy matches variations
             - desktop_click_accessible_element(title="Search")  # Matches placeholder text!
+
+        Troubleshooting:
+            - If title search fails, check element tree for identifier attribute
+            - Some apps (Calculator, custom UIs) use identifiers instead of titles
+            - Use desktop_list_accessible_elements() to inspect available attributes
 
         Note: macOS only. Uses native AX Press action or mouse click.
         """

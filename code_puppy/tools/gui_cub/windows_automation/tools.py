@@ -187,6 +187,7 @@ def register_windows_tools(agent):
         title: str | None = None,
         control_type: str | None = None,
         class_name: str | None = None,
+        automation_id: str | None = None,
         fuzzy: bool = False,
         fuzzy_threshold: float = 0.7,
     ) -> ElementClickResult:
@@ -194,16 +195,37 @@ def register_windows_tools(agent):
         Find and click UI element on Windows.
 
         Args:
-            title: Element title/name
-            control_type: Control type
+            title: Element title/name (supports fuzzy matching!)
+            control_type: Control type (e.g., "Button", "Edit", "CheckBox")
             class_name: Windows class name
+            automation_id: AutomationId for exact match (HIGHEST PRIORITY!)
+                          Use this when elements don't have titles.
+                          Examples:
+                          - Calculator: automation_id="num7Button" for "7" button
+                          - Calculator: automation_id="plusButton" for "+" button
+                          Tip: Check element tree output for automation_id values!
+            fuzzy: Enable fuzzy matching for title (default: False)
+            fuzzy_threshold: Minimum similarity score (0.0-1.0, default: 0.7)
 
         Returns:
             ElementClickResult with success status
 
+        Search Priority:
+            1. AutomationId (exact match) - MOST RELIABLE
+            2. Title (exact or fuzzy match)
+            3. Combination of control_type + class_name
+
         Examples:
+            - windows_click_element(automation_id="num7Button")  # Calculator "7" button
+            - windows_click_element(automation_id="clearButton")  # Calculator C button
             - windows_click_element(title="OK", control_type="Button")
-            - windows_click_element(title="File")
+            - windows_click_element(title="File", fuzzy=True)
+            - windows_click_element(control_type="Button", title="Submit")
+
+        Troubleshooting:
+            - If title search fails, check element tree for automation_id attribute
+            - Some apps (Calculator, custom UIs) use automation_id instead of titles
+            - Use windows_list_elements_in_application() to inspect available attributes
 
         Note: Windows only. Requires pywinauto.
         """
@@ -224,6 +246,7 @@ def register_windows_tools(agent):
             title=title,
             control_type=control_type,
             class_name=class_name,
+            auto_id=automation_id,
             fuzzy=fuzzy,
             fuzzy_threshold=fuzzy_threshold,
         )

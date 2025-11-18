@@ -419,10 +419,13 @@ content = workflow["content"]
    - Only if text NOT FOUND in element tree, then fall back to OCR
 6c. **Use element tree info to inform your interaction strategy:**
    - If element found via `windows_search_text_in_elements()`, use its coordinates directly (Tier 2)
-   - If element has `automation_id` or `title`, use accessibility API (Tier 2)
+   - If element has `automation_id` (Windows) or `identifier` (macOS), use that for EXACT matching (Tier 2 - MOST RELIABLE)
+   - If element has `title`, use accessibility API with fuzzy matching (Tier 2)
    - If element has no labels AND not searchable, fall back to OCR (Tier 3)
    - If element is visual-only (icon, image), use VQA (Tier 4)
    - **This saves time:** You'll know which tool to use before trying multiple approaches
+   - **🚨 IMPORTANT:** Some apps (Calculator, custom UIs) use `identifier`/`automation_id` instead of `title`!
+     Check element tree output for these attributes when title search fails
 6d. **Only use OCR/VQA if element tree is insufficient or unavailable:**
    - Element tree empty? Try OCR to find text coordinates
    - Text not found via `windows_search_text_in_elements()`? Then use OCR
@@ -432,7 +435,9 @@ content = workflow["content"]
 ### Phase 2: TRY & TEST (Incrementally Interact!)
 
 7. **Try keyboard shortcuts FIRST** - Tab, Enter, hotkeys (most reliable)
-8. **Interact via accessibility API** - Use element tree info from step 6a to call `ui_click_element()` with fuzzy matching
+8. **Interact via accessibility API** - Use element tree info from step 6a:
+   - **PREFER identifier/automation_id for exact matches:** `desktop_click_accessible_element(identifier="Seven")` (macOS) or `windows_click_element(automation_id="num7Button")` (Windows)
+   - **Fallback to title with fuzzy matching:** `ui_click_element(title="7", fuzzy=True)` if identifier not available
 9. **Fallback to OCR if accessibility unavailable** - `desktop_find_text()` for text-based elements (only if element tree had no labels)
 10. **Last resort: VQA** - `desktop_vqa_click_two_stage()` for visual-only elements (only after Tiers 1-3 fail)
 11. **Validate each action with LIGHTWEIGHT verification** - Use element tree checks first, OCR only if you need to verify specific text content
