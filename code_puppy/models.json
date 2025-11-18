@@ -160,5 +160,20 @@
     "type": "zai_api",
     "name": "glm-4.6",
     "context_length": 200000
+  },
+  "gemini-3-pro-preview": {
+    "type": "gemini",
+    "name": "gemini-3-pro-preview",
+    "context_length": 1048576
+  },
+  "gemini-2.5-flash": {
+    "type": "gemini",
+    "name": "gemini-2.5-flash",
+    "context_length": 1048576
+  },
+  "gemini-2.5-pro": {
+    "type": "gemini",
+    "name": "gemini-2.5-pro",
+    "context_length": 1048576
   }
 }
