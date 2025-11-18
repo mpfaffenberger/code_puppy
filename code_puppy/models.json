@@ -53,14 +53,15 @@
     },
     "context_length": 262144
   },
-  "openrouter-polaris-alpha": {
-    "type": "custom_openai",
-    "name": "openrouter/polaris-alpha",
-    "custom_endpoint": {
-      "url": "https://openrouter.ai/api/v1",
-      "api_key": "$OPENROUTER_API_KEY"
-    },
-    "context_length": 262144
+  "Gemini-3": {
+    "type": "gemini",
+    "name": "gemini-3-pro-preview",
+    "context_length": 200000
+  },
+  "Gemini-3-Long-Context": {
+    "type": "gemini",
+    "name": "gemini-3-pro-preview",
+    "context_length": 1000000
   },
   "gpt-5": {
     "type": "openai",
