@@ -130,6 +130,13 @@ def set_debug_screenshots_enabled(enabled: bool):
     """
     config = load_config() or {}
 
+    # Check if value is already set (skip unnecessary save)
+    current_value = config.get("debug", {}).get("copy_screenshots_to_cwd", False)
+    if current_value == enabled:
+        status = "enabled" if enabled else "disabled"
+        emit_info(f"[green]✓ Debug screenshot copying already {status}[/green]")
+        return
+
     if "debug" not in config:
         config["debug"] = {}
 
@@ -152,6 +159,11 @@ def set_vqa_model_name(model: str):
         model: Model name to use for VQA tasks
     """
     config = load_config() or {}
+
+    # Check if value is already set (skip unnecessary save)
+    current_value = config.get("vqa", {}).get("model_name")
+    if current_value == model:
+        return  # No change needed
 
     if "vqa" not in config:
         config["vqa"] = {}
