@@ -353,6 +353,7 @@ dependencies = [
     { name = "camoufox" },
     { name = "dbos" },
     { name = "fastapi" },
+    { name = "google-cloud-bigquery" },
     { name = "httpx", extra = ["http2"] },
     { name = "httpx-limiter" },
     { name = "json-repair" },
@@ -372,17 +373,12 @@ dependencies = [
     { name = "rich" },
     { name = "ripgrep" },
     { name = "ruff" },
+    { name = "sqlparse" },
     { name = "tenacity" },
     { name = "termcolor" },
     { name = "textual" },
     { name = "textual-dev" },
     { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-bigquery = [
-    { name = "google-cloud-bigquery" },
-    { name = "sqlparse" },
 ]
 
 [package.dev-dependencies]
@@ -400,7 +396,7 @@ requires-dist = [
     { name = "camoufox", specifier = ">=0.4.11" },
     { name = "dbos", specifier = ">=2.0.0" },
     { name = "fastapi", specifier = ">=0.110.0" },
-    { name = "google-cloud-bigquery", marker = "extra == 'bigquery'", specifier = ">=3.0.0" },
+    { name = "google-cloud-bigquery", specifier = ">=3.0.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx-limiter", specifier = ">=0.3.0" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -420,14 +416,13 @@ requires-dist = [
     { name = "rich", specifier = ">=13.4.2" },
     { name = "ripgrep", specifier = "==14.1.0" },
     { name = "ruff", specifier = ">=0.11.11" },
-    { name = "sqlparse", marker = "extra == 'bigquery'", specifier = ">=0.4.0" },
+    { name = "sqlparse", specifier = ">=0.4.0" },
     { name = "tenacity", specifier = ">=8.2.0" },
     { name = "termcolor", specifier = ">=3.1.0" },
     { name = "textual", specifier = ">=5.0.0" },
     { name = "textual-dev", specifier = ">=1.7.0" },
     { name = "uvicorn", specifier = ">=0.29.0" },
 ]
-provides-extras = ["bigquery"]
 
 [package.metadata.requires-dev]
 dev = [

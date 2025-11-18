@@ -12,7 +12,7 @@ import os
 import platform
 import subprocess
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from code_puppy.messaging import emit_info, emit_warning
 
@@ -34,6 +34,23 @@ DEFAULT_MAX_RESULTS = 100
 MAX_RESULTS_LIMIT = 10000  # Hard limit to prevent OOM
 
 
+def _get_windows_gcloud_paths() -> tuple[str, str]:
+    """Get Windows gcloud bin directory and command path.
+
+    Returns:
+        Tuple of (bin_directory, command_path)
+    """
+    gcloud_bin_dir = os.path.join(
+        os.environ.get("LOCALAPPDATA", ""),
+        "Google",
+        "CloudSDK",
+        "google-cloud-sdk",
+        "bin",
+    )
+    gcloud_cmd_path = os.path.join(gcloud_bin_dir, "gcloud.cmd")
+    return gcloud_bin_dir, gcloud_cmd_path
+
+
 def _get_gcloud_command() -> str:
     """Get the gcloud command path.
 
@@ -46,15 +63,7 @@ def _get_gcloud_command() -> str:
     system = platform.system()
 
     if system == "Windows":
-        # Standard Windows installation path
-        gcloud_bin_dir = os.path.join(
-            os.environ.get("LOCALAPPDATA", ""),
-            "Google",
-            "CloudSDK",
-            "google-cloud-sdk",
-            "bin",
-        )
-        gcloud_cmd_path = os.path.join(gcloud_bin_dir, "gcloud.cmd")
+        _, gcloud_cmd_path = _get_windows_gcloud_paths()
 
         # If gcloud.cmd exists, use absolute path
         if os.path.exists(gcloud_cmd_path):
@@ -95,7 +104,7 @@ class BigQueryClient:
     Credentials are expected to be set via `gcloud auth application-default login`.
     """
 
-    def __init__(self, project_id: Optional[str] = None):
+    def __init__(self, project_id: str | None = None):
         """Initialize BigQuery client.
 
         Args:
@@ -133,7 +142,7 @@ class BigQueryClient:
         """Get the current project ID."""
         return self._project_id
 
-    def list_projects(self) -> List[Dict[str, Any]]:
+    def list_projects(self) -> list[dict[str, Any]]:
         """Get the default/current GCP project.
 
         Note: This method returns the current/default project only.
@@ -151,7 +160,7 @@ class BigQueryClient:
             }
         ]
 
-    def list_all_projects(self) -> List[Dict[str, Any]]:
+    def list_all_projects(self) -> list[dict[str, Any]]:
         """List all accessible GCP projects using gcloud CLI.
 
         Uses `gcloud projects list` command which is more reliable than the API.
@@ -220,7 +229,7 @@ class BigQueryClient:
                 "Please make sure you're authenticated with: /bigquery_auth"
             )
 
-    def list_datasets(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_datasets(self, project_id: str | None = None) -> list[dict[str, Any]]:
         """List all datasets in a project.
 
         Args:
@@ -249,8 +258,8 @@ class BigQueryClient:
             raise BigQueryAPIError(f"Failed to list datasets: {e}") from e
 
     def list_tables(
-        self, dataset_id: str, project_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, dataset_id: str, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """List all tables in a dataset.
 
         Args:
@@ -373,7 +382,7 @@ class BigQueryClient:
 
     def execute_query(
         self, query: str, max_results: int = DEFAULT_MAX_RESULTS
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute a BigQuery SQL query.
 
         Only SELECT queries are allowed. Destructive operations (DELETE, DROP, TRUNCATE, etc.)
@@ -460,8 +469,8 @@ class BigQueryClient:
             raise BigQueryAPIError(f"Query execution failed: {e}") from e
 
     def get_table_schema(
-        self, table_id: str, dataset_id: str, project_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, table_id: str, dataset_id: str, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """Get schema for a specific table.
 
         Args:

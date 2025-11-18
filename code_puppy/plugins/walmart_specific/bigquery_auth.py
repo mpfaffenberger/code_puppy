@@ -11,14 +11,28 @@ import os
 import platform
 import subprocess
 import warnings
-from typing import List, Optional
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.plugins.walmart_specific.bigquery_client import (
+    _get_windows_gcloud_paths,
+)
 
 try:
     from google.cloud import bigquery
 except ImportError:
     bigquery = None  # type: ignore
+
+
+def _is_walmart_network() -> bool:
+    """Check if running on Walmart network.
+
+    Returns:
+        True if on Walmart network, False otherwise
+    """
+    return (
+        "wal-mart.com" in os.environ.get("HOSTNAME", "").lower()
+        or os.environ.get("WALMART_NETWORK") is not None
+    )
 
 
 def _get_package_manager() -> tuple[str, list[str]] | None:
@@ -82,9 +96,7 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
     # For Windows: Download, extract, and add to PATH (skip install.bat which hangs)
     if system == "Windows":
         proxy_cmd = ""
-        if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get(
-            "WALMART_NETWORK"
-        ):
+        if _is_walmart_network():
             proxy_cmd = "[System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy('http://sysproxy.wal-mart.com:8080'); "
 
         return (
@@ -149,9 +161,7 @@ def _install_gcloud_cli() -> bool:
 
     # Set proxy for Walmart network if needed
     env = os.environ.copy()
-    if "wal-mart.com" in os.environ.get("HOSTNAME", "").lower() or os.environ.get(
-        "WALMART_NETWORK"
-    ):
+    if _is_walmart_network():
         env["HTTP_PROXY"] = "http://sysproxy.wal-mart.com:8080"
         env["HTTPS_PROXY"] = "http://sysproxy.wal-mart.com:8080"
         emit_info("🌐 Detected Walmart network, using corporate proxy")
@@ -181,13 +191,7 @@ def _install_gcloud_cli() -> bool:
             # For Windows, update current Python process PATH
             if system == "Windows" and manager_name == "PowerShell Installer":
                 try:
-                    gcloud_bin = os.path.join(
-                        os.environ.get("LOCALAPPDATA", ""),
-                        "Google",
-                        "CloudSDK",
-                        "google-cloud-sdk",
-                        "bin",
-                    )
+                    gcloud_bin, _ = _get_windows_gcloud_paths()
 
                     if os.path.exists(gcloud_bin):
                         # Add to current Python process PATH
@@ -248,7 +252,7 @@ def _install_python_dependencies() -> bool:
     return True
 
 
-def _get_default_project(gcloud_cmd: str = "gcloud") -> Optional[str]:
+def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
     """Get default project from gcloud config or prompt user to select one.
 
     Args:
@@ -338,7 +342,7 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> Optional[str]:
         return None
 
 
-def _verify_credentials(project_id: Optional[str] = None) -> bool:
+def _verify_credentials(project_id: str | None = None) -> bool:
     """Verify that application default credentials are valid.
 
     Args:
@@ -387,7 +391,7 @@ def _verify_credentials(project_id: Optional[str] = None) -> bool:
         return False
 
 
-def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
+def handle_bigquery_auth_command(command: str, name: str) -> str | None:
     """Handle the /bigquery_auth command.
 
     This command:
@@ -431,14 +435,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
 
     # On Windows, check if gcloud exists in the standard location
     if system == "Windows":
-        gcloud_bin_dir = os.path.join(
-            os.environ.get("LOCALAPPDATA", ""),
-            "Google",
-            "CloudSDK",
-            "google-cloud-sdk",
-            "bin",
-        )
-        gcloud_cmd_path = os.path.join(gcloud_bin_dir, "gcloud.cmd")
+        gcloud_bin_dir, gcloud_cmd_path = _get_windows_gcloud_paths()
 
         # If gcloud is installed, use full path and ensure it's in PATH
         if os.path.exists(gcloud_cmd_path):
@@ -498,14 +495,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
         # After installation, gcloud should be in PATH (updated in _install_gcloud_cli)
         # Verify gcloud.cmd exists and ensure PATH is set for this session
         if system == "Windows":
-            gcloud_bin_dir = os.path.join(
-                os.environ.get("LOCALAPPDATA", ""),
-                "Google",
-                "CloudSDK",
-                "google-cloud-sdk",
-                "bin",
-            )
-            gcloud_path = os.path.join(gcloud_bin_dir, "gcloud.cmd")
+            gcloud_bin_dir, gcloud_path = _get_windows_gcloud_paths()
 
             if not os.path.exists(gcloud_path):
                 return (
@@ -711,7 +701,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> Optional[str]:
     return "Authentication failed after all retry attempts."
 
 
-def get_bigquery_auth_help() -> List[str]:
+def get_bigquery_auth_help() -> list[str]:
     """Get help information for BigQuery authentication.
 
     Returns:
