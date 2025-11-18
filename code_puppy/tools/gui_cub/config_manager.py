@@ -9,24 +9,44 @@ Follows the same pattern as QA-Kitten's Camoufox manager:
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from code_puppy.messaging import emit_info, emit_warning
-
-from .dependencies import PYAUTOGUI_AVAILABLE
-
-if PYAUTOGUI_AVAILABLE:
-    import pyautogui
-else:
-    pyautogui = None
 from code_puppy.tools.common import generate_group_id
 
 from .core.config_validation import (
     validate_resolution_match,
     validate_platform_match,
 )
+from .dependencies import PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
+    pyautogui = None
+
+
+def _is_debug_logging_enabled() -> bool:
+    """Check if verbose debug logging is enabled (environment variable only to avoid circular deps).
+    
+    Returns:
+        True if GUI_CUB_DEBUG_LOGGING environment variable is set to 1
+    """
+    return os.getenv("GUI_CUB_DEBUG_LOGGING", "0") == "1"
+
+
+def _emit_debug(message: str, **kwargs):
+    """Emit debug log message only if debug logging is enabled.
+    
+    Args:
+        message: Debug message to emit
+        **kwargs: Additional arguments passed to emit_info
+    """
+    if _is_debug_logging_enabled():
+        emit_info(message, **kwargs)
 
 
 def get_gui_cub_base_dir() -> Path:
@@ -68,27 +88,27 @@ def load_config() -> Optional[Dict[str, Any]]:
         with open(config_path, "r") as f:
             config = json.load(f)
         
-        emit_info(
+        _emit_debug(
             f"[dim]📂 Loaded config from {config_path}[/dim]"
         )
-        emit_info(
+        _emit_debug(
             f"[dim]   Top-level keys: {list(config.keys())}[/dim]"
         )
         
         # Debug: Check display key structure
         if "display" in config:
-            emit_info(
+            _emit_debug(
                 f"[dim]   display keys: {list(config['display'].keys())}[/dim]"
             )
             if "primary_resolution" in config["display"]:
-                emit_info(
+                _emit_debug(
                     f"[dim]   primary_resolution: {config['display']['primary_resolution']}[/dim]"
                 )
         elif "displays" in config:
-            emit_info(
-                f"[dim]   ⚠️  Found OLD 'displays' key (needs migration)[/dim]"
+            _emit_debug(
+                "[dim]   ⚠️  Found OLD 'displays' key (needs migration)[/dim]"
             )
-            emit_info(
+            _emit_debug(
                 f"[dim]   displays keys: {list(config['displays'].keys())}[/dim]"
             )
 
@@ -97,20 +117,20 @@ def load_config() -> Optional[Dict[str, Any]]:
         needs_save = False
         migrations_applied = []
         
-        emit_info(
+        _emit_debug(
             "[dim]🔄 Checking for config migrations...[/dim]"
         )
         
         # Migrate "displays" → "display" (config structure change)
         if "displays" in config and "display" not in config:
-            emit_info(
+            _emit_debug(
                 "[dim]   Migrating 'displays' → 'display'...[/dim]"
             )
             config["display"] = config["displays"]
             del config["displays"]
             needs_save = True
             migrations_applied.append("displays→display")
-            emit_info(
+            _emit_debug(
                 f"[dim]   ✅ Migrated display info: {list(config['display'].keys())}[/dim]"
             )
         
@@ -120,7 +140,7 @@ def load_config() -> Optional[Dict[str, Any]]:
             
             # Remove deprecated tesseract on all platforms
             if "tesseract" in ocr_providers:
-                emit_info(
+                _emit_debug(
                     "[dim]   Removing deprecated 'tesseract' OCR provider...[/dim]"
                 )
                 del ocr_providers["tesseract"]
@@ -130,7 +150,7 @@ def load_config() -> Optional[Dict[str, Any]]:
             # Remove platform-specific providers on wrong platform
             if sys.platform == "win32" and "vision_framework" in ocr_providers:
                 # Remove macOS provider on Windows
-                emit_info(
+                _emit_debug(
                     "[dim]   Removing macOS-only 'vision_framework' on Windows...[/dim]"
                 )
                 del ocr_providers["vision_framework"]
@@ -138,7 +158,7 @@ def load_config() -> Optional[Dict[str, Any]]:
                 migrations_applied.append("removed vision_framework")
             elif sys.platform == "darwin" and "winrt_ocr" in ocr_providers:
                 # Remove Windows provider on macOS
-                emit_info(
+                _emit_debug(
                     "[dim]   Removing Windows-only 'winrt_ocr' on macOS...[/dim]"
                 )
                 del ocr_providers["winrt_ocr"]
@@ -147,19 +167,19 @@ def load_config() -> Optional[Dict[str, Any]]:
         
         # Save the cleaned config if needed
         if needs_save:
-            emit_info(
+            _emit_debug(
                 f"[dim]💾 Saving migrated config ({', '.join(migrations_applied)})...[/dim]"
             )
             if save_config(config):
-                emit_info(
-                    f"[dim]   ✅ Config migration saved successfully[/dim]"
+                _emit_debug(
+                    "[dim]   ✅ Config migration saved successfully[/dim]"
                 )
             else:
                 emit_warning(
                     "[yellow]⚠️  Config migration failed to save![/yellow]"
                 )
         else:
-            emit_info(
+            _emit_debug(
                 "[dim]   No migrations needed[/dim]"
             )
 
@@ -203,6 +223,7 @@ def get_vqa_model_name() -> str:
     from code_puppy.config import _default_vqa_model_from_models_json
 
     return _default_vqa_model_from_models_json()
+
 
 
 def get_debug_screenshots_enabled() -> bool:
@@ -278,7 +299,7 @@ def save_config(config: Dict[str, Any]) -> bool:
     """
     config_path = get_config_path()
     
-    emit_info(
+    _emit_debug(
         f"[dim]💾 Saving config to {config_path}...[/dim]"
     )
 
@@ -290,15 +311,15 @@ def save_config(config: Dict[str, Any]) -> bool:
         # Add hash for validation
         config["metadata"]["hash"] = _compute_config_hash(config)
         
-        emit_info(
+        _emit_debug(
             f"[dim]   Config hash: {config['metadata']['hash'][:16]}...[/dim]"
         )
 
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
         
-        emit_info(
-            f"[dim]   ✅ Config saved successfully[/dim]"
+        _emit_debug(
+            "[dim]   ✅ Config saved successfully[/dim]"
         )
 
         return True
@@ -317,7 +338,7 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, reason)
     """
-    emit_info(
+    _emit_debug(
         "[dim]🔍 Validating cached config...[/dim]"
     )
     
@@ -326,10 +347,10 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
         current_resolution = list(pyautogui.size())
         cached_resolution = config.get("display", {}).get("primary_resolution")
         
-        emit_info(
+        _emit_debug(
             f"[dim]   Current resolution: {current_resolution}[/dim]"
         )
-        emit_info(
+        _emit_debug(
             f"[dim]   Cached resolution: {cached_resolution}[/dim]"
         )
 
@@ -337,13 +358,13 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
             cached_resolution, current_resolution
         )
         
-        emit_info(
+        _emit_debug(
             f"[dim]   Resolution check: {message}[/dim]"
         )
         
         if not is_valid:
-            emit_warning(
-                f"[yellow]⚠️  Validation failed: {message}[/yellow]"
+            _emit_debug(
+                f"[dim]⚠️  Validation failed: {message}[/dim]"
             )
             return (False, message)
     except Exception as e:
@@ -353,22 +374,22 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
     current_os = sys.platform
     cached_os = config.get("platform", {}).get("os")
     
-    emit_info(
+    _emit_debug(
         f"[dim]   Current platform: {current_os}[/dim]"
     )
-    emit_info(
+    _emit_debug(
         f"[dim]   Cached platform: {cached_os}[/dim]"
     )
 
     is_valid, message = validate_platform_match(cached_os, current_os)
     
-    emit_info(
+    _emit_debug(
         f"[dim]   Platform check: {message}[/dim]"
     )
     
     if not is_valid:
-        emit_warning(
-            f"[yellow]⚠️  Validation failed: {message}[/yellow]"
+        _emit_debug(
+            f"[dim]⚠️  Validation failed: {message}[/dim]"
         )
         return (False, message)
 
@@ -391,7 +412,7 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
             )
 
     # Config is valid
-    emit_info(
+    _emit_debug(
         "[dim]   ✅ All validation checks passed[/dim]"
     )
     return True, "Config is valid"
@@ -415,14 +436,14 @@ async def ensure_calibrated() -> Dict[str, Any]:
     )
 
     config_path = get_config_path()
-    emit_info(
+    _emit_debug(
         f"[dim]Config path: {config_path}[/dim]",
         message_group=group_id,
     )
 
     # Check if config exists
     if not config_path.exists():
-        emit_info(
+        _emit_debug(
             f"[dim]Config file not found at {config_path}[/dim]",
             message_group=group_id,
         )
@@ -435,7 +456,7 @@ async def ensure_calibrated() -> Dict[str, Any]:
         return await run_calibration()
 
     # Load cached config
-    emit_info(
+    _emit_debug(
         f"[dim]Loading config from {config_path}...[/dim]",
         message_group=group_id,
     )
@@ -450,29 +471,25 @@ async def ensure_calibrated() -> Dict[str, Any]:
         return await run_calibration()
 
     # Validate config
-    emit_info(
+    _emit_debug(
         "[dim]Validating config...[/dim]",
         message_group=group_id,
     )
     is_valid, reason = validate_config(config)
     if not is_valid:
-        emit_warning(
-            f"[yellow]♻️ Validation failed: {reason}[/yellow]",
-            message_group=group_id,
-        )
         emit_info(
-            "[cyan]Re-calibrating platform...[/cyan]",
+            f"[cyan]♻️ {reason}, re-calibrating...[/cyan]",
             message_group=group_id,
         )
         # Delete stale config to ensure fresh calibration
         try:
-            emit_info(
+            _emit_debug(
                 f"[dim]Deleting stale config at {config_path}[/dim]",
                 message_group=group_id,
             )
             config_path.unlink()
         except Exception as e:
-            emit_info(
+            _emit_debug(
                 f"[dim]Failed to delete config: {e}[/dim]",
                 message_group=group_id,
             )
@@ -486,7 +503,7 @@ async def ensure_calibrated() -> Dict[str, Any]:
         "[green]✅ Using cached platform config[/green]",
         message_group=group_id,
     )
-    emit_info(
+    _emit_debug(
         f"[dim]Config loaded from {config_path}[/dim]",
         message_group=group_id,
     )
