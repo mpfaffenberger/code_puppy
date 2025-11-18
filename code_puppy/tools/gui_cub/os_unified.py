@@ -228,7 +228,7 @@ def register_os_unified_tools(agent):
                             _build_element_tree,
                         )
                         from code_puppy.tools.gui_cub.result_types import (
-                            ElementListResult as _ELR,
+                            ElementListResult,
                         )
                         from code_puppy.tools.gui_cub.accessibility import (
                             get_frontmost_app,
@@ -236,7 +236,7 @@ def register_os_unified_tools(agent):
 
                         app = get_frontmost_app()
                         if not app:
-                            return _ELR(success=False, error="No frontmost app")
+                            return ElementListResult(success=False, error="No frontmost app")
                         elements = _build_element_tree(app, max_depth=depth)
                         by_type: dict[str, list[dict[str, Any]]] = {}
                         for node in elements:
@@ -246,7 +246,7 @@ def register_os_unified_tools(agent):
                         if role:
                             filtered = [n for n in elements if n.get("type") == role]
                             elements = filtered
-                        return _ELR(
+                        return ElementListResult(
                             success=True,
                             elements=elements,
                             by_type=by_type,

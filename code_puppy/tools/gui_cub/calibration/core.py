@@ -256,7 +256,7 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
         # Skip pywinauto on non-Windows platforms
         if cap == "pywinauto" and sys.platform != "win32":
             continue
-        
+
         status = "✅" if available else "❌"
         emit_info(
             f"  {status} {cap}",

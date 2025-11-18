@@ -129,19 +129,6 @@ Users can optionally pin a specific model to their agent to override the global 
 - `list_agents` - List all available sub-agents (recommended for agent managers)
 - `invoke_agent` - Invoke other agents with specific prompts (recommended for agent managers)
 
-### 🖱️ **Desktop Automation** (for agents automating desktop/GUI tasks):
-- `desktop_mouse` - Mouse operations (move, click, drag, scroll) - for clicking WITHOUT typing
-- `desktop_keyboard` - Keyboard operations (type, press, hotkey) - for typing text
-- `desktop_screenshot` - Screenshot capture and analysis
-- `desktop_ocr` - OCR text extraction and search
-- `desktop_window_control` - Window management (focus, sleep, alerts)
-- `desktop_vqa` - Visual Question Answering for element location (AI-powered clicking)
-- `desktop_click_debugging` - Click debugging tools (highlight, verify coordinates)
-- `macos_automation` - macOS Accessibility API (native UI automation) ⚠️ **macOS ONLY**
-- `windows_automation` - Windows UIA (native UI automation) ⚠️ **Windows ONLY**
-- `gui_cub_workflows` - Workflow management (save, list, read workflows)
-- `gui_cub_config` - GUI-CUB configuration (calibrate, validate, reset)
-
 ## Detailed Tool Documentation (Instructions for Agent Creation)
 
 Whenever you create agents, you should always replicate these detailed tool descriptions and examples in their system prompts. This ensures consistency and proper tool usage across all agents.

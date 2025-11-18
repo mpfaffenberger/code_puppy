@@ -24,6 +24,11 @@ if sys.platform == "win32":
     import winreg
     import ctypes
 
+    # Windows constants for SendMessageTimeoutW
+    HWND_BROADCAST = 0xFFFF
+    WM_SETTINGCHANGE = 0x001A
+    SMTO_ABORTIFHUNG = 0x0002
+
 from code_puppy.messaging import emit_info
 
 try:
@@ -170,9 +175,6 @@ def _update_system_path_registry(path_to_add: str) -> tuple[bool, str]:
 
             # Broadcast WM_SETTINGCHANGE to notify system of environment change
             try:
-                HWND_BROADCAST = 0xFFFF
-                WM_SETTINGCHANGE = 0x001A
-                SMTO_ABORTIFHUNG = 0x0002
                 result = ctypes.c_long()
 
                 ctypes.windll.user32.SendMessageTimeoutW(

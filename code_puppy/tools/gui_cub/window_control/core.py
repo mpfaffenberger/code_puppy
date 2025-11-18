@@ -17,6 +17,11 @@ from ..result_types import (
     WindowBoundsResult,
 )
 
+# Window size filter constants
+MIN_WINDOW_WIDTH = 100
+MIN_WINDOW_HEIGHT = 100
+MIN_WINDOW_AREA = 20_000  # ~141x141 - filters out tiny notification/helper windows
+
 
 def _get_window_bounds_by_app_name(app_name: str) -> WindowBoundsResult:
     """
@@ -279,10 +284,6 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
             # 4. Skip windows < 20,000px² (mini-players/utility windows)
             # 5. Return FIRST window that passes all filters = frontmost main window
 
-            MIN_WIDTH = 100
-            MIN_HEIGHT = 100
-            MIN_AREA = 20_000  # ~141x141 - filters out tiny notification/helper windows
-
             # Find the FIRST valid layer-0 window (this is the active window!)
             active_window = None
 
@@ -305,13 +306,13 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
                 area = width * height
 
                 # Filter out tiny windows (notifications, helpers)
-                if width < MIN_WIDTH or height < MIN_HEIGHT:
+                if width < MIN_WINDOW_WIDTH or height < MIN_WINDOW_HEIGHT:
                     continue
 
                 # Filter out mini-players / utility windows
                 # But allow small apps like Calculator (69,300px² ~= 263x263)
                 # Typical mini-players are < 50,000px² (~224x224)
-                if area < MIN_AREA:
+                if area < MIN_WINDOW_AREA:
                     continue
 
                 # This is the active window! (First valid layer-0 window)
@@ -333,7 +334,7 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
             if not active_window:
                 return WindowBoundsResult(
                     success=False,
-                    error=f"No visible windows found (all windows < {MIN_WIDTH}x{MIN_HEIGHT} or < {MIN_AREA:,}px²)",
+                    error=f"No visible windows found (all windows < {MIN_WINDOW_WIDTH}x{MIN_WINDOW_HEIGHT} or < {MIN_WINDOW_AREA:,}px²)",
                 )
 
             # Use the active window we found
