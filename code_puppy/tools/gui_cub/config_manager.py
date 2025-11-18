@@ -68,6 +68,31 @@ def load_config() -> Optional[Dict[str, Any]]:
         with open(config_path, "r") as f:
             config = json.load(f)
 
+        # Migrate old configs: Remove deprecated and platform-specific OCR providers
+        if "ocr_providers" in config:
+            ocr_providers = config["ocr_providers"].get("providers", {})
+            needs_save = False
+            
+            # Remove deprecated tesseract on all platforms
+            if "tesseract" in ocr_providers:
+                del ocr_providers["tesseract"]
+                needs_save = True
+            
+            # Remove platform-specific providers on wrong platform
+            import sys
+            if sys.platform == "win32" and "vision_framework" in ocr_providers:
+                # Remove macOS provider on Windows
+                del ocr_providers["vision_framework"]
+                needs_save = True
+            elif sys.platform == "darwin" and "winrt_ocr" in ocr_providers:
+                # Remove Windows provider on macOS
+                del ocr_providers["winrt_ocr"]
+                needs_save = True
+            
+            # Save the cleaned config if needed
+            if needs_save:
+                save_config(config)
+
         # Validate hash
         stored_hash = config.get("metadata", {}).get("hash")
         if stored_hash:
