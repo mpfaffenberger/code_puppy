@@ -86,7 +86,7 @@ def register_ocr_tools(agent):
             height: Optional height of region to extract text from
             use_active_window: Capture only the active window (default: True)
             use_full_screen: Capture the entire screen instead of active window (default: False)
-            language: Tesseract language code (default: "eng" for English)
+            language: Language code for OCR (default: "eng" for English)
                       Supports: "eng", "spa", "fra", "deu", "chi_sim", etc.
 
         Returns:
@@ -113,8 +113,7 @@ def register_ocr_tools(agent):
                 error=f"{ERROR_PYAUTOGUI_MISSING} and {ERROR_PILLOW_MISSING}",
             )
 
-        # Note: Tesseract check removed - now optional fallback
-        # Native OCR (WinRT/Vision) used first, Tesseract as fallback
+        # Native OCR (WinRT on Windows, Vision on macOS) is used
 
         # Increment call counter FIRST
         _extract_text_call_count["count"] += 1
@@ -314,7 +313,7 @@ def register_ocr_tools(agent):
             height: Optional height of region to search within
             use_active_window: Search only the active window (default: True)
             use_full_screen: Search the entire screen instead of active window (default: False)
-            language: Tesseract language code (default: "eng")
+            language: Language code for OCR (default: "eng")
 
         Returns:
             OCRFindResult with matches sorted by confidence, including coordinates
@@ -431,7 +430,7 @@ def register_ocr_tools(agent):
             height: Optional height of region to check
             use_active_window: Check only the active window (default: True)
             use_full_screen: Check the entire screen instead of active window (default: False)
-            language: Tesseract language code (default: "eng")
+            language: Language code for OCR (default: "eng")
             case_sensitive: Whether to match case exactly (default: False)
 
         Returns:
@@ -548,7 +547,7 @@ def register_ocr_tools(agent):
             height: Optional height of region
             use_active_window: Capture only active window (default: True)
             use_full_screen: Capture entire screen (default: False)
-            language: Tesseract language code (default: "eng")
+            language: Language code for OCR (default: "eng")
             show_confidence: Whether to show confidence scores in labels (default: True)
             min_confidence: Minimum confidence to display (0.0-1.0, default: 0.0)
 
@@ -819,7 +818,7 @@ def register_ocr_tools(agent):
             height: Optional height of search region
             use_active_window: Search only active window (default: True)
             use_full_screen: Search entire screen (default: False)
-            language: Tesseract language code (default: "eng")
+            language: Language code for OCR (default: "eng")
 
         Returns:
             OCRFindResult with only high-confidence matches

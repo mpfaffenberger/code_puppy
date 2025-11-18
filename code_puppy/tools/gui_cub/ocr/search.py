@@ -88,8 +88,8 @@ def find_text_in_elements(
 def _check_ocr_capability() -> tuple[bool, str]:
     """Check if any OCR provider is available.
 
-    With native OCR providers (WinRT, Vision Framework), Tesseract is now
-    optional. This check verifies that at least one OCR provider is available.
+    Native OCR providers (WinRT on Windows, Vision Framework on macOS) are used.
+    This check verifies that at least one OCR provider is available.
 
     Returns:
         Tuple of (is_available, error_message)
@@ -100,7 +100,7 @@ def _check_ocr_capability() -> tuple[bool, str]:
     if not config:
         return False, "Platform not calibrated. Run gui_cub_calibrate() first."
 
-    # Check if any OCR provider is available (native or Tesseract)
+    # Check if native OCR provider is available
     ocr_chain = get_ocr_provider()
     available_providers = ocr_chain.get_available_providers()
 
@@ -108,10 +108,10 @@ def _check_ocr_capability() -> tuple[bool, str]:
         # No OCR providers available at all
         return False, (
             "No OCR providers available. "
-            "Install Tesseract or use Windows 10+/macOS 10.15+"
+            "Requires Windows 10+ or macOS 10.15+ for native OCR"
         )
 
-    # At least one provider available (native or Tesseract)
+    # Native provider available
     return True, ""
 
     return True, ""

@@ -1,7 +1,7 @@
 """Windows WinRT OCR provider (Windows 10+ native OCR).
 
 This module provides OCR using Windows Runtime (WinRT) APIs via PyWinRT,
-specifically Windows.Media.Ocr. This is significantly faster than Tesseract
+specifically Windows.Media.Ocr. This provides native Windows OCR
 and requires no external dependencies on Windows 10+.
 
 Uses the modern PyWinRT modular packages (winrt-* namespace).
@@ -45,10 +45,10 @@ class WinRTOCRProvider(OCRProvider):
     """Windows Runtime OCR provider using Windows.Media.Ocr.
 
     Provides fast, native OCR on Windows 10 and later without requiring
-    external dependencies like Tesseract.
+    external dependencies.
 
     Advantages:
-    - Fast (2-5x faster than Tesseract)
+    - Fast native performance
     - No external dependencies
     - Native Windows integration
     - Handles DPI scaling automatically

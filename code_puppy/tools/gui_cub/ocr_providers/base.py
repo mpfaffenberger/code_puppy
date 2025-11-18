@@ -2,7 +2,7 @@
 
 This module defines the abstract interface that all OCR providers must implement,
 allowing GUI-Cub to use native platform OCR (WinRT, Vision Framework) with
-Tesseract as a fallback.
+
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ class OCRResult(BaseModel):
 class OCRProvider(ABC):
     """Abstract base class for OCR providers.
 
-    All OCR providers (WinRT, Vision Framework, Tesseract) must implement this
+    All OCR providers (WinRT, Vision Framework) must implement this
     interface to be usable in the provider chain.
 
     Design principles:
@@ -131,6 +131,6 @@ class OCRProvider(ABC):
         """Get human-readable name of this provider for logging.
 
         Returns:
-            Provider name (e.g. 'WinRT OCR', 'Apple Vision', 'Tesseract')
+            Provider name (e.g. 'WinRT OCR', 'Apple Vision')
         """
         pass

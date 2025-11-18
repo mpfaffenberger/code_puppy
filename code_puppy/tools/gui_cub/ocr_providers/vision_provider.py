@@ -1,12 +1,12 @@
 """macOS Vision Framework OCR provider (macOS 10.15+ native OCR).
 
 This module provides OCR using Apple's Vision framework, specifically
-VNRecognizeTextRequest. This is significantly faster than Tesseract and
+VNRecognizeTextRequest. This provides native macOS OCR and
 requires no external dependencies on macOS 10.15+.
 
 Key advantages:
 - Native Retina/HiDPI handling (normalized coordinates)
-- Fast (2-5x faster than Tesseract)
+- Fast native performance
 - No external dependencies
 """
 
@@ -34,10 +34,10 @@ class VisionOCRProvider(OCRProvider):
     """Apple Vision Framework OCR provider using VNRecognizeTextRequest.
 
     Provides fast, native OCR on macOS 10.15 (Catalina) and later without
-    requiring external dependencies like Tesseract.
+    requiring external dependencies.
 
     Advantages:
-    - Fast (2-5x faster than Tesseract)
+    - Fast native performance
     - No external dependencies
     - Native macOS integration
     - Handles Retina/HiDPI automatically (normalized coordinates)
@@ -57,7 +57,7 @@ class VisionOCRProvider(OCRProvider):
     - Scores < 0.3 indicate uncertain segmentation
 
     Comparison to other engines:
-    - Tesseract: 80-99 (rescaled percentage)
+    
     - Google Vision: 0.8-1.0 (calibrated probability)
     - Vision: 0.3-0.8 (internal model space)
 

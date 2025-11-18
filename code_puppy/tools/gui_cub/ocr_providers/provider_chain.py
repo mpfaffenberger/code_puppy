@@ -25,10 +25,10 @@ class OCRProviderChain:
     Example:
         >>> chain = OCRProviderChain([
         ...     WinRTOCRProvider(),
-        ...     TesseractOCRProvider()
+        
         ... ])
         >>> result = chain.extract_text(screenshot)
-        # Tries WinRT first, falls back to Tesseract if WinRT fails
+        # Uses native WinRT OCR on Windows
     """
 
     def __init__(self, providers: List[OCRProvider]):
@@ -45,7 +45,7 @@ class OCRProviderChain:
 
         if not self.providers:
             emit_warning(
-                "No OCR providers available. Install Tesseract or use Windows 10+/macOS 10.15+",
+                "No OCR providers available. Requires Windows 10+ or macOS 10.15+",
                 message_group="ocr_init",
             )
 

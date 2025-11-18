@@ -139,9 +139,6 @@ def detect_capabilities() -> Dict[str, bool]:
                 except ImportError:
                     capabilities["pywinauto"] = False
 
-    # OCR is now handled by native platform APIs (WinRT on Windows, Vision on macOS)
-    # No external dependencies required
-
     # Test opencv
     try:
         import cv2  # noqa: F401 - testing availability
@@ -151,6 +148,43 @@ def detect_capabilities() -> Dict[str, bool]:
         capabilities["opencv"] = False
 
     return capabilities
+
+
+def detect_ocr_providers() -> Dict[str, Any]:
+    """Detect available OCR providers.
+    
+    Returns:
+        Dictionary with OCR provider availability and primary provider
+    """
+    providers = {}
+    primary_provider = None
+    
+    # Check WinRT OCR (Windows 10+ only)
+    if sys.platform == "win32":
+        try:
+            from code_puppy.tools.gui_cub.ocr_providers.winrt_provider import WinRTOCRProvider
+            provider = WinRTOCRProvider()
+            providers["winrt_ocr"] = provider.is_available()
+            if providers["winrt_ocr"]:
+                primary_provider = "winrt"
+        except ImportError:
+            providers["winrt_ocr"] = False
+    
+    # Check Vision Framework (macOS 10.15+ only)
+    if sys.platform == "darwin":
+        try:
+            from code_puppy.tools.gui_cub.ocr_providers.vision_provider import VisionOCRProvider
+            provider = VisionOCRProvider()
+            providers["vision_framework"] = provider.is_available()
+            if providers["vision_framework"]:
+                primary_provider = "vision"
+        except ImportError:
+            providers["vision_framework"] = False
+    
+    return {
+        "providers": providers,
+        "primary": primary_provider,
+    }
 
 
 def detect_permissions() -> Dict[str, Any]:
@@ -264,6 +298,35 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
         )
     emit_info("", message_group=group_id)
 
+    # Detect OCR providers
+    emit_info("🔍 Detecting OCR providers...", message_group=group_id)
+    ocr_info = detect_ocr_providers()
+    ocr_providers = ocr_info["providers"]
+    primary_ocr = ocr_info["primary"]
+    
+    # Display OCR providers (skip platform-specific ones)
+    for provider, available in ocr_providers.items():
+        # Skip winrt_ocr on non-Windows platforms
+        if provider == "winrt_ocr" and sys.platform != "win32":
+            continue
+        # Skip vision_framework on non-macOS platforms
+        if provider == "vision_framework" and sys.platform != "darwin":
+            continue
+        
+        status = "✅" if available else "❌"
+        emit_info(
+            f"  {status} {provider}",
+            message_group=group_id,
+        )
+    
+    # Show primary OCR provider
+    if primary_ocr:
+        emit_info(
+            f"  ⭐ Primary: {primary_ocr}",
+            message_group=group_id,
+        )
+    emit_info("", message_group=group_id)
+
     # Check permissions (macOS only)
     permissions = detect_permissions()
     if permissions:
@@ -298,6 +361,7 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
         "platform": platform_info,
         "display": display_info,
         "capabilities": capabilities,
+        "ocr_providers": ocr_info,
         "permissions": permissions,
         "missing_capabilities": missing_capabilities,
     }

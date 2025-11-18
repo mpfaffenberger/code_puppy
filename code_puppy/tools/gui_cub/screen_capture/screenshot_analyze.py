@@ -49,7 +49,7 @@ async def screenshot_analyze(
         grid_spacing: Grid line spacing in pixels
         confidence_threshold: Min confidence for auto-refine
         auto_refine: Automatically add grid if confidence low
-        language: Tesseract language code (OCR only)
+        language: Language code for OCR (default: "eng")
         include_image: Include base64 image in result (default: False for token savings)
 
     Returns:
