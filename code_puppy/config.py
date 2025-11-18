@@ -743,6 +743,25 @@ def get_message_limit(default: int = 100) -> int:
         return default
 
 
+def get_command_timeout_seconds() -> int:
+    """
+    Returns the user-configured absolute timeout for shell commands in seconds.
+    This is the maximum time any single command can run before being terminated.
+    Defaults to 270 seconds if unset or misconfigured.
+    Valid range: 60-900 seconds. Values outside this range default to 270.
+    Configurable by 'command_timeout_seconds' key.
+    """
+    val = get_value("command_timeout_seconds")
+    try:
+        timeout = int(val) if val else 270
+        # Enforce bounds: min 60, max 900, default 270 if outside bounds
+        if timeout < 60 or timeout > 900:
+            return 270
+        return timeout
+    except (ValueError, TypeError):
+        return 270
+
+
 def save_command_to_history(command: str):
     """Save a command to the history file with an ISO format timestamp.
 

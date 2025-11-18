@@ -765,3 +765,124 @@ class TestDefaultModelSelection:
         assert len(result) > 0
         # And it shouldn't be our fake "non-existent-model"
         assert result != "non-existent-model"
+
+
+class TestGetCommandTimeoutSeconds:
+    """Test suite for get_command_timeout_seconds configuration function."""
+
+    def test_returns_default_when_no_config_value(self, monkeypatch):
+        """Test that default value (270) is returned when config key is not set."""
+        monkeypatch.setattr(cp_config, "get_value", lambda key: None)
+        result = cp_config.get_command_timeout_seconds()
+        assert result == 270
+
+    def test_returns_valid_value_within_bounds(self, monkeypatch):
+        """Test that valid values within bounds (60-900) are returned correctly."""
+        # Test minimum bound
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "60")
+        assert cp_config.get_command_timeout_seconds() == 60
+
+        # Test maximum bound
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "900")
+        assert cp_config.get_command_timeout_seconds() == 900
+
+        # Test value in the middle
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "500")
+        assert cp_config.get_command_timeout_seconds() == 500
+
+        # Test default value
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "270")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+    def test_returns_default_for_value_below_minimum(self, monkeypatch):
+        """Test that values below 60 seconds return default (270)."""
+        # Test value just below minimum
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "59")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test very low value
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "1")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test negative value
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "-100")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test zero
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "0")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+    def test_returns_default_for_value_above_maximum(self, monkeypatch):
+        """Test that values above 900 seconds return default (270)."""
+        # Test value just above maximum
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "901")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test very high value
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "10000")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+    def test_returns_default_for_non_numeric_values(self, monkeypatch):
+        """Test that non-numeric values return default (270)."""
+        # Test alphabetic string
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "abc")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test alphanumeric string
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "123abc")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test float string (should fail int conversion)
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "270.5")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test boolean string
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "true")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test empty string
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+    def test_boundary_values(self, monkeypatch):
+        """Test exact boundary values to ensure they are handled correctly."""
+        # Test one less than minimum (should default)
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "59")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test exact minimum (should accept)
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "60")
+        assert cp_config.get_command_timeout_seconds() == 60
+
+        # Test exact maximum (should accept)
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "900")
+        assert cp_config.get_command_timeout_seconds() == 900
+
+        # Test one more than maximum (should default)
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "901")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+    def test_handles_integer_instead_of_string(self, monkeypatch):
+        """Test that the function handles integer values correctly (edge case)."""
+        # In practice, get_value returns strings, but test robustness
+        monkeypatch.setattr(cp_config, "get_value", lambda key: 150)
+        result = cp_config.get_command_timeout_seconds()
+        # Should convert integer to int successfully
+        assert result == 150
+
+    def test_whitespace_handling(self, monkeypatch):
+        """Test that values with whitespace are handled correctly."""
+        # String with leading/trailing whitespace should still parse
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "  300  ")
+        # int() can handle whitespace, so this should work
+        assert cp_config.get_command_timeout_seconds() == 300
+
+    def test_special_characters(self, monkeypatch):
+        """Test that special characters cause fallback to default."""
+        # Test with special characters
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "@#$")
+        assert cp_config.get_command_timeout_seconds() == 270
+
+        # Test with mixed valid/invalid
+        monkeypatch.setattr(cp_config, "get_value", lambda key: "100!")
+        assert cp_config.get_command_timeout_seconds() == 270
