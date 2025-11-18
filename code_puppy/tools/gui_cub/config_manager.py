@@ -249,9 +249,6 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
                 "Windows dependencies not installed, will attempt installation",
             )
 
-        # Tesseract removed - OCR now uses native platform APIs (WinRT/Vision)
-        # No external OCR dependencies to check
-
     # Config is valid
     return True, "Config is valid"
 

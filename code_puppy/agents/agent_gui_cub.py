@@ -57,9 +57,6 @@ class GUICubAgent(BaseAgent):
             await ensure_calibrated()
             self._calibrated = True
 
-            # Tesseract removed - OCR now uses native platform APIs
-            # No missing capability warnings needed
-
     @property
     def name(self) -> str:
         return "gui-cub"

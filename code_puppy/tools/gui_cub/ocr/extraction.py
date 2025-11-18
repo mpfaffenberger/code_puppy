@@ -404,7 +404,3 @@ def extract_text_from_image(
         average_confidence=avg_confidence,
         language=language,
     )
-
-
-# Legacy Tesseract function removed - now using native platform OCR providers
-# See ocr_providers/ for WinRT (Windows) and Vision (macOS) implementations
