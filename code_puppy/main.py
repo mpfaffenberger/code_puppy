@@ -80,6 +80,14 @@ async def main():
         help="Specify which model to use (e.g., --model gpt-5)",
     )
     parser.add_argument(
+        "--continue",
+        "-c",
+        nargs="?",
+        const="__LATEST__",
+        metavar="SESSION",
+        help="Continue from a previous session. Optionally specify session name, or use most recent if omitted.",
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
@@ -272,6 +280,92 @@ async def main():
             emit_system_message(f"🤖 Using agent: {agent_name}")
         except Exception as e:
             emit_system_message(f"[bold red]Error setting agent:[/bold red] {str(e)}")
+            sys.exit(1)
+
+    # Handle --continue flag to resume a previous session
+    continue_session = getattr(args, 'continue', None)
+    if continue_session is not None:
+        from pathlib import Path
+
+        from code_puppy.config import set_current_autosave_from_session_name
+        from code_puppy.session_storage import list_sessions, load_session
+
+        autosave_dir = Path(AUTOSAVE_DIR)
+
+        try:
+            # Get list of available sessions
+            sessions = list_sessions(autosave_dir)
+
+            if not sessions:
+                emit_system_message("[bold red]Error:[/bold red] No saved sessions found")
+                emit_system_message(f"Session directory: {autosave_dir}")
+                sys.exit(1)
+
+            # Determine which session to load
+            if continue_session == "__LATEST__":
+                # Load most recent session (sessions are already sorted by list_sessions)
+                import json
+                from datetime import datetime
+
+                # Find the most recent session by timestamp
+                latest_session = None
+                latest_time = None
+
+                for session_name in sessions:
+                    meta_path = autosave_dir / f"{session_name}_meta.json"
+                    try:
+                        with meta_path.open("r", encoding="utf-8") as f:
+                            metadata = json.load(f)
+                            timestamp_str = metadata.get("timestamp")
+                            if timestamp_str:
+                                timestamp = datetime.fromisoformat(timestamp_str)
+                                if latest_time is None or timestamp > latest_time:
+                                    latest_time = timestamp
+                                    latest_session = session_name
+                    except Exception:
+                        # If metadata doesn't exist or can't be parsed, skip
+                        continue
+
+                if latest_session is None and sessions:
+                    # Fallback to last alphabetically if no timestamps
+                    latest_session = sessions[-1]
+
+                session_to_load = latest_session
+                emit_system_message(f"[bold blue]Continuing from most recent session:[/bold blue] {session_to_load}")
+            else:
+                # User specified a session name
+                session_to_load = continue_session
+                # Check if it exists in the sessions list
+                if session_to_load not in sessions:
+                    emit_system_message(f"[bold red]Error:[/bold red] Session '{session_to_load}' not found")
+                    emit_system_message(f"Available sessions: {', '.join(sessions[:5])}{'...' if len(sessions) > 5 else ''}")
+                    sys.exit(1)
+                emit_system_message(f"[bold blue]Continuing from session:[/bold blue] {session_to_load}")
+
+            # Load the session history
+            history = load_session(session_to_load, autosave_dir)
+
+            # Get agent and set history
+            from code_puppy.agents.agent_manager import get_current_agent
+            agent = get_current_agent()
+            agent.set_message_history(history)
+
+            # Set this as the current autosave session
+            set_current_autosave_from_session_name(session_to_load)
+
+            # Calculate and display token count
+            total_tokens = sum(agent.estimate_tokens_for_message(msg) for msg in history)
+            emit_system_message(
+                f"[green]✅ Session loaded:[/green] {len(history)} messages ({total_tokens:,} tokens)"
+            )
+
+        except FileNotFoundError as e:
+            emit_system_message(f"[bold red]Error:[/bold red] Session file not found: {e}")
+            sys.exit(1)
+        except Exception as e:
+            emit_system_message(f"[bold red]Error loading session:[/bold red] {str(e)}")
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
 
     current_version = __version__

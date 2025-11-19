@@ -1,0 +1,23 @@
+{
+  "name": "code-puppy",
+  "version": "0.0.269",
+  "description": "Code generation agent",
+  "scripts": {
+    "build": "uv build",
+    "install": "uv sync",
+    "test": "uv run pytest",
+    "lint": "uv run ruff check .",
+    "lint:fix": "uv run ruff check --fix .",
+    "format": "uv run ruff format .",
+    "clean": "rimraf dist build ./*.egg-info"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mpfaffenberger/code_puppy.git"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1"
+  },
+  "author": "Michael Pfaffenberger",
+  "license": "MIT"
+}
