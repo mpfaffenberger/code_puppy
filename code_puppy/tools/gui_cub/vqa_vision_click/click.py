@@ -20,6 +20,173 @@ from .utils import (
 )
 
 
+# ============================================================================
+# Smart Detection Helpers for OS Elements
+# ============================================================================
+
+
+def _has_screen_position_context(element_description: str) -> bool:
+    """Detect if description includes screen position keywords.
+
+    These indicate the element is positioned relative to the screen,
+    not within a window.
+
+    Args:
+        element_description: Natural language description of the target element
+
+    Returns:
+        True if description mentions screen-relative positioning
+
+    Examples:
+        >>> _has_screen_position_context("button in top-left corner of screen")
+        True
+        >>> _has_screen_position_context("icon at the bottom of the screen")
+        True
+        >>> _has_screen_position_context("menu bar")
+        False
+    """
+    screen_position_keywords = [
+        "top-left corner",
+        "top-right corner",
+        "bottom-left corner",
+        "bottom-right corner",
+        "top of the screen",
+        "top of screen",
+        "bottom of the screen",
+        "bottom of screen",
+        "left of the screen",
+        "left of screen",
+        "right of the screen",
+        "right of screen",
+        "screen corner",
+        "edge of the screen",
+        "edge of screen",
+        "screen edge",
+    ]
+
+    desc_lower = element_description.lower()
+    return any(keyword in desc_lower for keyword in screen_position_keywords)
+
+
+def _is_os_element(element_description: str) -> bool:
+    """Detect if element description refers to OS-level UI (not window content).
+
+    Uses conservative matching to avoid false positives. Only triggers when
+    the description CLEARLY refers to OS-level UI, not application UI.
+
+    Strategy:
+    1. Explicit OS branding (Apple icon, Windows button) - Always triggers
+    2. System UI + Screen position context - Requires both
+    3. When in doubt, returns False (safer to use window mode)
+
+    Args:
+        element_description: Natural language description of the target element
+
+    Returns:
+        True if the description CLEARLY refers to an OS-level element
+
+    Examples:
+        >>> _is_os_element("Apple menu icon")
+        True  # Explicit OS branding
+        >>> _is_os_element("dock at bottom of screen")
+        True  # System UI + screen position
+        >>> _is_os_element("menu bar")
+        False  # Too ambiguous (could be app menu bar)
+        >>> _is_os_element("Submit button")
+        False
+        >>> _is_os_element("icon in the dock")
+        True  # "dock" is macOS-specific
+    """
+    desc_lower = element_description.lower()
+
+    # Tier 1: Explicit OS Branding (unambiguous, always triggers)
+    # These are brand-specific and can't be confused with app UI
+    explicit_os_branding = [
+        "apple icon",
+        "apple menu",
+        "apple logo",
+        "windows icon",
+        "windows button",
+        "windows logo",
+        "start button",
+        "start menu",
+    ]
+
+    for brand in explicit_os_branding:
+        if brand in desc_lower:
+            return True
+
+    # Tier 2: macOS-Specific UI (dock, spotlight are unique to macOS)
+    macos_specific = [
+        "dock",  # macOS application dock
+        "spotlight",  # macOS search
+    ]
+
+    for term in macos_specific:
+        if term in desc_lower:
+            return True
+
+    # Tier 3: System UI + Screen Position Context (requires both)
+    # Only trigger if we have BOTH a system term AND screen position
+    system_ui_terms = [
+        "taskbar",  # Windows taskbar
+        "system tray",  # Windows system tray
+        "notification center",  # macOS/Windows notifications
+        "control center",  # macOS control center
+        "activities",  # GNOME activities
+    ]
+
+    has_system_term = any(term in desc_lower for term in system_ui_terms)
+    has_screen_position = _has_screen_position_context(element_description)
+
+    if has_system_term and has_screen_position:
+        return True
+
+    # Default: When in doubt, assume it's a window element (safer)
+    return False
+
+
+def _is_near_window_edge(
+    center_x: int,
+    center_y: int,
+    window_bounds: tuple[int, int, int, int],
+    threshold: int = 50,
+) -> bool:
+    """Check if a point is within threshold pixels of window boundary.
+
+    This helps detect when Stage 1 VQA found an element that's actually
+    outside the window (e.g., in the menu bar or dock), which would cause
+    Stage 2 to fail if we clip to window bounds.
+
+    Args:
+        center_x: X coordinate of the point (logical pixels)
+        center_y: Y coordinate of the point (logical pixels)
+        window_bounds: (x, y, width, height) of window in logical pixels
+        threshold: Distance in pixels to consider "near edge" (default: 50)
+
+    Returns:
+        True if the point is within threshold pixels of any window edge
+
+    Examples:
+        >>> _is_near_window_edge(100, 100, (0, 0, 800, 600), threshold=50)
+        False  # Center of window, far from edges
+        >>> _is_near_window_edge(10, 100, (0, 0, 800, 600), threshold=50)
+        True   # Within 10px of left edge
+    """
+    wx, wy, ww, wh = window_bounds
+    wx2, wy2 = wx + ww, wy + wh
+
+    # Calculate distance to each edge
+    dist_left = center_x - wx
+    dist_top = center_y - wy
+    dist_right = wx2 - center_x
+    dist_bottom = wy2 - center_y
+
+    # Check if any edge is closer than threshold
+    min_distance = min(dist_left, dist_top, dist_right, dist_bottom)
+    return min_distance < threshold
+
+
 def vqa_find_element_in_crop(
     crop: Image.Image,
     element_description: str,
@@ -140,7 +307,9 @@ Example for a 12px button at position (100, 50):
             # Fallback: treat as not found
             location = VQAElementLocation(
                 found=False,
-                reasoning=f"Could not parse JSON from response: {vqa_result.answer[:200]}",
+                reasoning=(
+                    f"Could not parse JSON from response: {vqa_result.answer[:200]}"
+                ),
             )
 
         # Adjust bounding box back to original crop scale
@@ -152,7 +321,8 @@ Example for a 12px button at position (100, 50):
 
         emit_info(
             f"   Result: found={location.found}, "
-            f"bbox=({location.bbox.x}, {location.bbox.y}, {location.bbox.width}x{location.bbox.height}), "
+            f"bbox=({location.bbox.x}, {location.bbox.y}, "
+            f"{location.bbox.width}x{location.bbox.height}), "
             f"center=({location.center_x}, {location.center_y}), "
             f"confidence={location.confidence:.0%}"
             if location.found and location.bbox
@@ -175,6 +345,7 @@ def desktop_click_element_vqa(
     crop_region: tuple[int, int, int, int] | None = None,
     use_active_window: bool = True,
     save_debug: bool = False,
+    scope: str | None = None,
 ) -> ElementClickResult:
     """Click an element using two-stage coarse-to-fine VQA.
 
@@ -185,20 +356,30 @@ def desktop_click_element_vqa(
         Stage 1 (Coarse): VQA on full window → approximate location (~70% confidence)
         Stage 2 (Fine): VQA on ±100px crop → precise center (~95% confidence)
 
+    Smart OS Element Detection:
+        Automatically detects OS-level elements (menu bar, dock, taskbar)
+        and switches to full-screen Stage 1 + screen-bounded Stage 2.
+        This prevents clipping issues when targeting system UI.
+
     Benefits:
         - 93% success rate vs 82% for single-stage
         - Mean error: 2.1px vs 3.4px for direct point
         - Stage 2 crop 10-100x smaller than full screen
         - Faster processing on focused region
+        - Automatic handling of OS elements (menu bar, dock, etc.)
 
     Args:
-        context: Pydantic AI context
         element_description: Natural language description
-                           (e.g., "yellow minimize button", "Submit button")
+                           (e.g., "yellow minimize button", "Submit button",
+                            "Apple menu icon", "Start button")
         crop_region: Optional (x, y, width, height) in logical points
                     If None and use_active_window=True, crops to active window
         use_active_window: Whether to crop to active window bounds
         save_debug: Whether to save debug images to temp directory (default: False)
+        scope: Search scope - "window" or "screen"
+              If None (default), auto-detects based on element_description:
+              - "screen" for OS elements (menu bar, dock, taskbar)
+              - "window" for application UI elements
 
     Returns:
         ElementClickResult with success status and confidence
@@ -220,8 +401,18 @@ def desktop_click_element_vqa(
         scale_factor = get_screen_scale_factor()
         emit_info(f"   Scale: {scale_factor}x", message_group=group_id)
 
+        # ============================================================
+        # Smart OS Element Detection
+        # ============================================================
+        # Auto-detect scope if not specified
+        if scope is None:
+            scope = "screen" if _is_os_element(element_description) else "window"
+
+        # Store original window bounds for later edge detection
+        original_window_bounds = None
+
         # Determine crop region for Stage 1
-        if crop_region is None and use_active_window:
+        if crop_region is None and use_active_window and scope == "window":
             from ..window_control import get_active_window_bounds
 
             window_info = get_active_window_bounds()
@@ -232,8 +423,10 @@ def desktop_click_element_vqa(
                     window_info.width or 800,
                     window_info.height or 600,
                 )
+                original_window_bounds = crop_region  # Save for edge detection
                 emit_info(
-                    f"   Window: {crop_region[2]}x{crop_region[3]} at ({crop_region[0]}, {crop_region[1]})",
+                    f"   Window: {crop_region[2]}x{crop_region[3]} at "
+                    f"({crop_region[0]}, {crop_region[1]})",
                     message_group=group_id,
                 )
             else:
@@ -241,6 +434,13 @@ def desktop_click_element_vqa(
                     "Could not detect active window, using full screen",
                     message_group=group_id,
                 )
+        elif scope == "screen":
+            # OS element detected - use full screen for Stage 1
+            crop_region = None
+            emit_info(
+                "   Scope: Full screen (OS element detected)",
+                message_group=group_id,
+            )
 
         # Capture full screenshot
         screenshot = _safe_screenshot()
@@ -289,7 +489,8 @@ def desktop_click_element_vqa(
         )
 
         emit_info(
-            f"   Stage 1 center (screen): ({stage1_center_screen_x}, {stage1_center_screen_y})",
+            f"   Stage 1 center (screen): "
+            f"({stage1_center_screen_x}, {stage1_center_screen_y})",
             message_group=group_id,
         )
 
@@ -308,8 +509,47 @@ def desktop_click_element_vqa(
         fine_crop_x2 = stage1_center_screen_x + crop_radius
         fine_crop_y2 = stage1_center_screen_y + crop_radius
 
-        # Clip to window boundaries if we have crop_region
-        if crop_region:
+        # ============================================================
+        # Smart Boundary Detection
+        # ============================================================
+        # Determine if we should use screen bounds or window bounds
+        # for Stage 2 clipping
+        use_screen_bounds_for_stage2 = False
+
+        # Check if element is likely outside the window
+        if scope == "screen":
+            # Explicitly marked as OS element
+            use_screen_bounds_for_stage2 = True
+        elif original_window_bounds and _is_near_window_edge(
+            stage1_center_screen_x,
+            stage1_center_screen_y,
+            original_window_bounds,
+            threshold=50,
+        ):
+            # Stage 1 found element near window edge - likely outside
+            use_screen_bounds_for_stage2 = True
+            emit_info(
+                "   Stage 1 result near window edge, using screen bounds for Stage 2",
+                message_group=group_id,
+            )
+
+        # Apply appropriate clipping
+        if use_screen_bounds_for_stage2:
+            # Clip to screen bounds (for OS elements)
+            screen_width = screenshot.width // int(scale_factor)
+            screen_height = screenshot.height // int(scale_factor)
+
+            fine_crop_x = max(fine_crop_x, 0)
+            fine_crop_y = max(fine_crop_y, 0)
+            fine_crop_x2 = min(fine_crop_x2, screen_width)
+            fine_crop_y2 = min(fine_crop_y2, screen_height)
+
+            emit_info(
+                "   Clipped to screen bounds",
+                message_group=group_id,
+            )
+        elif crop_region:
+            # Clip to window bounds (for window elements)
             window_x, window_y, window_w, window_h = crop_region
             window_x2 = window_x + window_w
             window_y2 = window_y + window_h
@@ -328,7 +568,8 @@ def desktop_click_element_vqa(
         fine_crop_height = fine_crop_y2 - fine_crop_y
 
         emit_info(
-            f"   Fine crop: {fine_crop_width}x{fine_crop_height} at ({fine_crop_x}, {fine_crop_y})",
+            f"   Fine crop: {fine_crop_width}x{fine_crop_height} at "
+            f"({fine_crop_x}, {fine_crop_y})",
             message_group=group_id,
         )
 
@@ -398,7 +639,8 @@ def desktop_click_element_vqa(
         # Click!
         # ============================================================
         emit_info(
-            f"\n🖱️  Clicking at ({click_x_logical}, {click_y_logical}) [confidence: {final_confidence:.0%}]",
+            f"\n🖱️  Clicking at ({click_x_logical}, {click_y_logical}) "
+            f"[confidence: {final_confidence:.0%}]",
             message_group=group_id,
         )
 

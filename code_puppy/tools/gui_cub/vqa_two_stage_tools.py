@@ -33,6 +33,7 @@ def register_vqa_two_stage_tools(agent):
         element_description: str,
         window_title: str | None = None,
         save_debug: bool = False,
+        scope: str | None = None,
     ) -> dict:
         """Click an element using two-stage coarse-to-fine VQA.
 
@@ -40,9 +41,15 @@ def register_vqa_two_stage_tools(agent):
         - Stage 1 (Coarse): VQA on full window → approximate location (~70% confidence)
         - Stage 2 (Fine): VQA on ±100px crop → precise center (~95% confidence)
 
+        Smart OS Element Detection:
+        - Automatically detects OS-level elements (menu bar, dock, taskbar)
+        - Switches to full-screen Stage 1 for OS elements
+        - Uses screen bounds (not window bounds) for Stage 2 clipping
+        - Prevents clipping issues when targeting system UI
+
         Features:
         - Bounding box detection (30% more accurate than direct points)
-        - Window boundary clipping (no background capture)
+        - Smart boundary clipping (window (no background capture) or screen based on element type)
         - Optional debug image saving (disabled by default)
         - Visual bbox visualization (blue=Stage1, red=Stage2)
         - Automatic fallback if Stage 2 fails
@@ -54,12 +61,18 @@ def register_vqa_two_stage_tools(agent):
 
         Args:
             element_description: Natural language description of element
-                               (e.g., "yellow minimize button", "Submit button")
+                               (e.g., "yellow minimize button", "Submit button",
+                                "Apple menu icon", "Start button")
             window_title: Optional window to focus first (e.g., "Spotify")
                          If None, uses active window
-            save_debug: Whether to save debug images to temp directory (default: False)
-                       When enabled, saves 4 debug images to system temp for troubleshooting.
-                       Use only when explicitly requested by user for debugging!
+            save_debug: Whether to save debug images to temp directory
+                       (default: False). When enabled, saves 4 debug images
+                       to system temp for troubleshooting. Use only when
+                       explicitly requested by user for debugging!
+            scope: Search scope - "window" or "screen" (default: None for auto-detect)
+                  - None (default): Auto-detects based on element_description
+                  - "screen": Use full screen (for OS elements like menu bar, dock)
+                  - "window": Use active window only (for application UI)
 
         Returns:
             Dictionary with:
@@ -70,7 +83,8 @@ def register_vqa_two_stage_tools(agent):
             - error: Error message if failed
 
         Debug Images (if save_debug=True):
-            Saved to system temp directory (/tmp/code_puppy_debug_screenshots/) with timestamp:
+            Saved to system temp directory
+            (/tmp/code_puppy_debug_screenshots/) with timestamp:
             1. 0_full_screenshot.png - Full screen capture
             2. 1_stage1_coarse_crop.png - Stage 1 input (full window)
             3. 2_stage2_fine_crop.png - Stage 2 input (±100px zoom)
@@ -122,6 +136,7 @@ def register_vqa_two_stage_tools(agent):
             crop_region=None,  # Auto-detect from active window
             use_active_window=True,
             save_debug=save_debug,
+            scope=scope,  # Pass through scope parameter
         )
 
         # Convert ElementClickResult to dict
