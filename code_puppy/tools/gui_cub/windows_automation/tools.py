@@ -546,7 +546,7 @@ def register_windows_tools(agent):
             - Read text field values
 
         **Workflow:**
-        1. Call windows_list_elements() to get element tree
+        1. Call windows_list_interactive_elements() to get element tree
         2. Call windows_search_text_in_elements() to find specific text
         3. If not found, THEN fall back to OCR (desktop_find_text)
 
@@ -572,7 +572,7 @@ def register_windows_tools(agent):
         """
         List UI elements across ALL windows of an application.
 
-        **MULTI-WINDOW SUPPORT:** Unlike windows_list_elements() which only captures
+        **MULTI-WINDOW SUPPORT:** Unlike windows_list_interactive_elements() which only captures
         the active window, this captures ALL windows belonging to an application and
         combines their element trees. Perfect for multi-window apps like Connexus,
         Outlook, etc. that spawn separate windows for dialogs/subflows.

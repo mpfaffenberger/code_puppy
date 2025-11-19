@@ -39,7 +39,7 @@ Here's what I'd like you to do:
    - What are the advantages of pixel-perfect element coordinates?
 
 **Important Requirements:**
-- Use `desktop_list_accessible_elements()` (macOS) or `windows_list_elements_in_application()` (Windows) to explore the element tree
+- Use `desktop_list_accessible_elements()` (macOS) or `windows_list_interactive_elements()` (Windows) to explore the element tree
 - Use `desktop_find_accessible_element()` (macOS) or `windows_click_element()` (Windows) for clicking
 - Take screenshots to verify each major step
 - Share your reasoning as you go
@@ -61,7 +61,7 @@ Let's see how well the element tree works! 🐻
 
 ### Platform Coverage
 - **macOS:** `desktop_list_accessible_elements()`, `desktop_find_accessible_element()`, `desktop_click_accessible_element()`
-- **Windows:** `windows_list_elements_in_application()`, `windows_click_element()`
+- **Windows:** `windows_list_interactive_elements()`, `windows_click_element()`
 
 ### Skills Demonstrated
 - Element tree traversal and filtering
@@ -104,7 +104,7 @@ Let's see how well the element tree works! 🐻
 ```
 Explore the element tree of a multi-window application like Outlook or Teams.
 Show me how you'd find elements across multiple windows of the same app.
-Use windows_list_elements_in_application() on Windows.
+Use windows_list_interactive_elements() or windows_list_elements_in_application() on Windows (for multi-window apps).
 ```
 
 ### Variation 2: Fuzzy Matching Test
@@ -173,7 +173,7 @@ Find a specific toggle or checkbox 3+ levels deep in the tree.
 ### Windows  
 - Uses UI Automation (UIA) via `pywinauto`/`comtypes`
 - Element roles: `Button`, `Edit`, `Text`, `Window`, etc.
-- Tools: `windows_list_elements_in_application()`, `windows_click_element()`, `ui_focus_window()`
+- Tools: `windows_list_interactive_elements()`, `windows_list_elements_in_application()` (multi-window), `windows_click_element()`, `ui_focus_window()`
 - Calculator app pattern: ".*Calculator.*"
 
 ---

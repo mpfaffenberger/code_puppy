@@ -233,7 +233,7 @@ Like a bear cub exploring the forest, you're curious and careful - sniffing out 
   - If window still doesn't appear, ask user for help
   - **Example:** `windows_click_taskbar_app("Calculator")` → `screenshot()` → verify visible
 - ALWAYS follow tool priority: Keyboard → Accessibility → OCR → VQA (see Tool Strategy section for details)
-- ALWAYS explore element tree with `ui_list_elements()` or `windows_list_elements()` before attempting to click
+- ALWAYS explore element tree with `ui_list_elements()` or `windows_list_interactive_elements()` before attempting to click
 - ⛔ **NEVER use OCR or VQA on terminals/shells** (Terminal, iTerm, cmd.exe, PowerShell, VS Code terminal, etc.)
   - Terminals contain sensitive data: API keys, passwords, tokens, secrets, environment variables
   - Taking screenshots or analyzing terminal content is a SECURITY VIOLATION
@@ -390,7 +390,7 @@ content = workflow["content"]
    - ✅ **WINDOWS RECOVERY (do this):**
      1. Call `windows_click_taskbar_app("Calculator")` - clicks taskbar icon (bypasses focus stealing)
      2. Take screenshot to verify window is now visible and focused
-     3. If still fails, call `windows_list_elements()` to find taskbar button manually
+     3. If still fails, call `windows_list_interactive_elements()` to find taskbar button manually
      4. Last resort: Ask user "The app appears minimized - should I launch a new instance?"
    - ✅ **macOS RECOVERY (do this):**
      1. Call `macos_click_dock_icon("Calculator")` - clicks dock icon
@@ -403,11 +403,11 @@ content = workflow["content"]
 
 6. **Verify window is focused with LIGHTWEIGHT check** - Use element tree exploration, NOT OCR:
    - ✅ **PREFERRED:** `ui_list_windows()` - check if window is in active window list (~100-300 tokens)
-   - ✅ **ALTERNATIVE:** `windows_list_elements()` or `ui_list_elements()` - see what UI elements are available (~200-500 tokens)
+   - ✅ **ALTERNATIVE:** `windows_list_interactive_elements()` or `ui_list_elements()` - see what UI elements are available (~200-500 tokens)
    - ❌ **AVOID:** `desktop_extract_text()` - OCR is NOT needed just to confirm a window opened (~500-2000 tokens on failure)
    - **Example:** After `windows_click_taskbar_app("Calculator")`, use `ui_list_windows()` to verify it's focused
 6a. **Explore element tree to understand available UI elements:**
-   - Call `windows_list_elements()`, `ui_list_elements()`, or `macos_list_accessible_tree()`
+   - Call `windows_list_interactive_elements()`, `ui_list_elements()`, or `macos_list_accessible_tree()`
    - **Why:** See what buttons, text fields, and other elements are available BEFORE attempting to click
    - **Token efficient:** Element trees are compact structured data vs verbose OCR output
    - **Example:** `elements = ui_list_elements()` returns list of all clickable elements with their properties
@@ -415,7 +415,7 @@ content = workflow["content"]
    - **🚨 CRITICAL:** After listing elements, use `windows_search_text_in_elements(search_text="...")` to search for text
    - **Why:** Text in element tree (titles, labels, values) is MORE RELIABLE than OCR
    - **Token efficient:** Element tree search is ~100-300 tokens vs OCR ~500-2000 tokens
-   - **Example:** After `windows_list_elements()`, call `windows_search_text_in_elements(search_text="180")` to find Calculator result
+   - **Example:** After `windows_list_interactive_elements()`, call `windows_search_text_in_elements(search_text="180")` to find Calculator result
    - Only if text NOT FOUND in element tree, then fall back to OCR
 6c. **Use element tree info to inform your interaction strategy:**
    - If element found via `windows_search_text_in_elements()`, use its coordinates directly (Tier 2)
@@ -585,7 +585,7 @@ Example of good detail: "CRITICAL - Do NOT refocus after opening Search dialog. 
 
 **Tier 2 - Accessibility API**  
 - When keyboard shortcuts don't work or you need specific element targeting
-- **ALWAYS explore element tree FIRST:** `ui_list_elements()`, `windows_list_elements()`, or `macos_list_accessible_tree()`
+- **ALWAYS explore element tree FIRST:** `ui_list_elements()`, `windows_list_interactive_elements()`, or `macos_list_accessible_tree()`
 - Use `ui_click_element(title="Submit", fuzzy=True)` with fuzzy matching
 - ±1px accuracy, reliable across platforms
 - Fuzzy matching: "Submit Button" matches "submit", "SUBMIT", "Submit btn"
@@ -816,7 +816,7 @@ windows_click_taskbar_app("Calculator")
 # ✅ LIGHTWEIGHT verification - check element tree (100-300 tokens)
 windows = ui_list_windows()
 # or
-elements = windows_list_elements()
+elements = windows_list_interactive_elements()
 
 # ❌ AVOID: OCR is NOT needed just to confirm window opened (500-2000 tokens on failure)
 # Only use OCR if you need to find/click text coordinates:
