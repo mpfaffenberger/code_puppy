@@ -413,7 +413,6 @@ def handle_diff_command(command: str) -> bool:
     from code_puppy.config import (
         set_diff_addition_color,
         set_diff_deletion_color,
-        set_diff_highlight_style,
     )
     from code_puppy.messaging import emit_error
 
@@ -425,7 +424,6 @@ def handle_diff_command(command: str) -> bool:
     if result:
         # Apply the changes silently (no console output)
         try:
-            set_diff_highlight_style(result["style"])
             set_diff_addition_color(result["add_color"])
             set_diff_deletion_color(result["del_color"])
         except Exception as e:
