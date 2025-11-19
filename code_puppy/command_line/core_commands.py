@@ -123,7 +123,8 @@ def handle_exit_command(command: str) -> bool:
 @register_command(
     name="agent",
     description="Switch to a different agent or show available agents",
-    usage="/agent <name>",
+    usage="/agent <name>, /a <name>",
+    aliases=["a"],
     category="core",
 )
 def handle_agent_command(command: str) -> bool:

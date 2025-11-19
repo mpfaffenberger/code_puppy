@@ -123,7 +123,7 @@ class PinCompleter(Completer):
                 start_pos = -(len(partial_agent))
 
                 for agent_name in agent_names:
-                    if agent_name.startswith(partial_agent):
+                    if agent_name.lower().startswith(partial_agent.lower()):
                         yield Completion(
                             agent_name,
                             start_position=start_pos,
@@ -158,8 +158,8 @@ class PinCompleter(Completer):
                 # Filter based on what the user has typed
                 start_pos = -(len(partial_model))
 
-                # Check if (unpin) matches the partial input
-                if "(unpin)".startswith(partial_model):
+                # Check if (unpin) matches the partial input (case-insensitive)
+                if "(unpin)".lower().startswith(partial_model.lower()):
                     yield Completion(
                         "(unpin)",
                         start_position=start_pos,
@@ -167,9 +167,9 @@ class PinCompleter(Completer):
                         display_meta="Reset to default",
                     )
 
-                # Filter models based on what the user has typed
+                # Filter models based on what the user has typed (case-insensitive)
                 for model_name in model_names:
-                    if model_name.startswith(partial_model):
+                    if model_name.lower().startswith(partial_model.lower()):
                         yield Completion(
                             model_name,
                             start_position=start_pos,
@@ -178,7 +178,7 @@ class PinCompleter(Completer):
                         )
 
         # Case 4: Handle special case when user selected (unpin)
-        elif len(tokens) >= 2 and tokens[1] == "(unpin)":
+        elif len(tokens) >= 2 and tokens[1].lower() == "(unpin)".lower():
             # No completion needed, the (unpin) option is complete
             return
 
@@ -238,7 +238,7 @@ class UnpinCompleter(Completer):
             start_pos = -(len(partial_agent))
 
             for agent_name in agent_names:
-                if agent_name.startswith(partial_agent):
+                if agent_name.lower().startswith(partial_agent.lower()):
                     yield Completion(
                         agent_name,
                         start_position=start_pos,

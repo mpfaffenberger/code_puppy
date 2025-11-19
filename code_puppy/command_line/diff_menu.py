@@ -17,10 +17,6 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 from rich.console import Console
 
-# Import language mappings from common.py
-from code_puppy.tools.common import EXTENSION_TO_LEXER_NAME
-
-
 # Sample code snippets for each language
 LANGUAGE_SAMPLES = {
     "python": (
@@ -378,15 +374,15 @@ class DiffConfiguration:
 
     def next_language(self):
         """Cycle to the next language."""
-        self.current_language_index = (
-            self.current_language_index + 1
-        ) % len(SUPPORTED_LANGUAGES)
+        self.current_language_index = (self.current_language_index + 1) % len(
+            SUPPORTED_LANGUAGES
+        )
 
     def prev_language(self):
         """Cycle to the previous language."""
-        self.current_language_index = (
-            self.current_language_index - 1
-        ) % len(SUPPORTED_LANGUAGES)
+        self.current_language_index = (self.current_language_index - 1) % len(
+            SUPPORTED_LANGUAGES
+        )
 
     def get_current_language(self) -> str:
         """Get the currently selected language."""
@@ -478,7 +474,7 @@ async def _split_panel_selector(
     config: Optional[DiffConfiguration] = None,
 ) -> Optional[str]:
     """Split-panel selector with menu on left and live preview on right.
-    
+
     Supports left/right arrow navigation through languages if config is provided.
     """
     selected_index = [0]
@@ -501,14 +497,14 @@ async def _split_panel_selector(
                 lines.append(("", "\n"))
 
             lines.append(("", "\n"))
-            
+
             # Add language navigation hint if config is available
             if config is not None:
                 current_lang = config.get_current_language()
                 lang_hint = f"Language: {current_lang.upper()}  (←→ to change)"
                 lines.append(("fg:ansiyellow", lang_hint))
                 lines.append(("", "\n"))
-            
+
             lines.append(
                 ("fg:ansicyan", "↑↓ Navigate  │  Enter Confirm  │  Ctrl-C Cancel")
             )
@@ -836,7 +832,11 @@ async def _handle_color_menu(config: DiffConfiguration, color_type: str) -> None
     try:
         # Use split panel selector with live preview (pass config for language switching)
         await _split_panel_selector(
-            title, choices, update_preview, get_preview=get_preview_header, config=config
+            title,
+            choices,
+            update_preview,
+            get_preview=get_preview_header,
+            config=config,
         )
     except KeyboardInterrupt:
         # Restore original color on cancel

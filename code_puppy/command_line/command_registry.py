@@ -120,7 +120,10 @@ def get_unique_commands() -> List[CommandInfo]:
 
 
 def get_command(name: str) -> Optional[CommandInfo]:
-    """Get command info by name or alias.
+    """Get command info by name or alias (case-insensitive).
+
+    First tries exact match for backward compatibility, then falls back to
+    case-insensitive matching.
 
     Args:
         name: Command name or alias (without leading /)
@@ -128,7 +131,18 @@ def get_command(name: str) -> Optional[CommandInfo]:
     Returns:
         CommandInfo if found, None otherwise
     """
-    return _COMMAND_REGISTRY.get(name)
+    # First try exact match (for backward compatibility)
+    exact_match = _COMMAND_REGISTRY.get(name)
+    if exact_match is not None:
+        return exact_match
+
+    # If no exact match, try case-insensitive matching
+    name_lower = name.lower()
+    for registered_name, cmd_info in _COMMAND_REGISTRY.items():
+        if registered_name.lower() == name_lower:
+            return cmd_info
+
+    return None
 
 
 def clear_registry():
