@@ -71,6 +71,9 @@ from code_puppy.tools.file_operations import (
     register_read_file,
 )
 
+# Import GUI-Cub tools from separate registry to minimize diff noise
+from code_puppy.tools.registry.gui_cub import GUI_CUB_TOOLS
+
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
     # Agent Tools
@@ -138,6 +141,9 @@ TOOL_REGISTRY = {
     "confluence_search_by_space": register_confluence_search_by_space,
 }
 
+# Merge in GUI-Cub tools from separate registry
+TOOL_REGISTRY.update(GUI_CUB_TOOLS)
+
 
 def register_tools_for_agent(agent, tool_names: list[str]):
     """Register specific tools for an agent based on tool names.
@@ -152,8 +158,18 @@ def register_tools_for_agent(agent, tool_names: list[str]):
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
             continue
 
-        # Register the individual tool
-        register_func = TOOL_REGISTRY[tool_name]
+        # Get the registry entry (can be function or dict with metadata)
+        registry_entry = TOOL_REGISTRY[tool_name]
+
+        # Handle both formats: dict with metadata or direct function reference
+        if isinstance(registry_entry, dict):
+            # New format: {"register": func, "category": ..., "description": ...}
+            register_func = registry_entry["register"]
+        else:
+            # Old format: direct function reference (backward compatibility)
+            register_func = registry_entry
+
+        # Register the tool
         register_func(agent)
 
 

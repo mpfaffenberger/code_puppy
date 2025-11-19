@@ -1,0 +1,663 @@
+"""Platform configuration manager for GUI-Cub (QA-Kitten pattern).
+
+Follows the same pattern as QA-Kitten's Camoufox manager:
+- Check config on initialization
+- Run calibration on first run
+- Cache for fast subsequent runs
+- Auto re-calibrate if environment changes
+"""
+
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from code_puppy.messaging import emit_info, emit_warning
+from code_puppy.tools.common import generate_group_id
+
+from .core.config_validation import (
+    validate_resolution_match,
+    validate_platform_match,
+)
+from .dependencies import PYAUTOGUI_AVAILABLE
+
+if PYAUTOGUI_AVAILABLE:
+    import pyautogui
+else:
+    pyautogui = None
+
+
+def _is_debug_logging_enabled() -> bool:
+    """Check if verbose debug logging is enabled (environment variable only to avoid circular deps).
+
+    Returns:
+        True if GUI_CUB_DEBUG_LOGGING environment variable is set to 1
+    """
+    return os.getenv("GUI_CUB_DEBUG_LOGGING", "0") == "1"
+
+
+def _emit_debug(message: str, **kwargs):
+    """Emit debug log message only if debug logging is enabled.
+
+    Args:
+        message: Debug message to emit
+        **kwargs: Additional arguments passed to emit_info
+    """
+    if _is_debug_logging_enabled():
+        emit_info(message, **kwargs)
+
+
+def get_gui_cub_base_dir() -> Path:
+    """Get the base directory for GUI-Cub data storage."""
+    base_dir = Path.home() / ".code_puppy" / "agents" / "gui_cub"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir
+
+
+def get_config_path() -> Path:
+    """Get the config.json path."""
+    return get_gui_cub_base_dir() / "config.json"
+
+
+def _compute_config_hash(config: Dict[str, Any]) -> str:
+    """Compute SHA256 hash of important config fields for validation."""
+    # Hash platform, display, and capabilities (not metadata)
+    hashable = {
+        "platform": config.get("platform", {}),
+        "display": config.get("display", {}),
+        "capabilities": config.get("capabilities", {}),
+    }
+    content = json.dumps(hashable, sort_keys=True)
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
+def load_config() -> Optional[Dict[str, Any]]:
+    """Load cached config from disk.
+
+    Returns:
+        Config dict if exists and valid, None otherwise
+    """
+    config_path = get_config_path()
+
+    if not config_path.exists():
+        return None
+
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+
+        _emit_debug(f"[dim]📂 Loaded config from {config_path}[/dim]")
+        _emit_debug(f"[dim]   Top-level keys: {list(config.keys())}[/dim]")
+
+        # Debug: Check display key structure
+        if "display" in config:
+            _emit_debug(f"[dim]   display keys: {list(config['display'].keys())}[/dim]")
+            if "primary_resolution" in config["display"]:
+                _emit_debug(
+                    f"[dim]   primary_resolution: {config['display']['primary_resolution']}[/dim]"
+                )
+        elif "displays" in config:
+            _emit_debug("[dim]   ⚠️  Found OLD 'displays' key (needs migration)[/dim]")
+            _emit_debug(
+                f"[dim]   displays keys: {list(config['displays'].keys())}[/dim]"
+            )
+
+        # Migrate old configs
+        import sys
+
+        needs_save = False
+        migrations_applied = []
+
+        _emit_debug("[dim]🔄 Checking for config migrations...[/dim]")
+
+        # Migrate "displays" → "display" (config structure change)
+        if "displays" in config and "display" not in config:
+            _emit_debug("[dim]   Migrating 'displays' → 'display'...[/dim]")
+            config["display"] = config["displays"]
+            del config["displays"]
+            needs_save = True
+            migrations_applied.append("displays→display")
+            _emit_debug(
+                f"[dim]   ✅ Migrated display info: {list(config['display'].keys())}[/dim]"
+            )
+
+        # Remove deprecated and platform-specific OCR providers
+        if "ocr_providers" in config:
+            ocr_providers = config["ocr_providers"].get("providers", {})
+
+            # Remove deprecated tesseract on all platforms
+            if "tesseract" in ocr_providers:
+                _emit_debug(
+                    "[dim]   Removing deprecated 'tesseract' OCR provider...[/dim]"
+                )
+                del ocr_providers["tesseract"]
+                needs_save = True
+                migrations_applied.append("removed tesseract")
+
+            # Remove platform-specific providers on wrong platform
+            if sys.platform == "win32" and "vision_framework" in ocr_providers:
+                # Remove macOS provider on Windows
+                _emit_debug(
+                    "[dim]   Removing macOS-only 'vision_framework' on Windows...[/dim]"
+                )
+                del ocr_providers["vision_framework"]
+                needs_save = True
+                migrations_applied.append("removed vision_framework")
+            elif sys.platform == "darwin" and "winrt_ocr" in ocr_providers:
+                # Remove Windows provider on macOS
+                _emit_debug(
+                    "[dim]   Removing Windows-only 'winrt_ocr' on macOS...[/dim]"
+                )
+                del ocr_providers["winrt_ocr"]
+                needs_save = True
+                migrations_applied.append("removed winrt_ocr")
+
+        # Save the cleaned config if needed
+        if needs_save:
+            _emit_debug(
+                f"[dim]💾 Saving migrated config ({', '.join(migrations_applied)})...[/dim]"
+            )
+            if save_config(config):
+                _emit_debug("[dim]   ✅ Config migration saved successfully[/dim]")
+            else:
+                emit_warning("[yellow]⚠️  Config migration failed to save![/yellow]")
+        else:
+            _emit_debug("[dim]   No migrations needed[/dim]")
+
+        # Validate hash
+        stored_hash = config.get("metadata", {}).get("hash")
+        if stored_hash:
+            computed_hash = _compute_config_hash(config)
+            if stored_hash != computed_hash:
+                emit_warning("[yellow]Config hash mismatch, may be corrupted[/yellow]")
+
+        return config
+
+    except Exception as e:
+        emit_warning(f"[yellow]Failed to load config: {e}[/yellow]")
+        return None
+
+
+def get_vqa_model_name() -> str:
+    """Get the VQA model name from GUI-Cub config or fall back to global model.
+
+    Priority:
+    1. GUI-Cub specific VQA model override
+    2. Global model (user's current selection)
+    3. Default vision-capable model from models.json
+    """
+    # Check GUI-Cub config first
+    config = load_config()
+    if config:
+        vqa_model = config.get("vqa", {}).get("model_name")
+        if vqa_model:
+            return vqa_model
+
+    # Fall back to global model
+    from code_puppy.config import get_global_model_name
+
+    current_model = get_global_model_name()
+    if current_model:
+        return current_model
+
+    # Final fallback: default vision model from models.json
+    from code_puppy.config import _default_vqa_model_from_models_json
+
+    return _default_vqa_model_from_models_json()
+
+
+def get_debug_screenshots_enabled() -> bool:
+    """Check if debug screenshot copying to CWD is enabled.
+
+    This feature is disabled by default (set to False during initial calibration).
+    When enabled, all screenshots will be copied to the current working directory
+    in addition to being saved in the temp directory.
+
+    Returns:
+        True if debug screenshots should be copied to current working directory
+    """
+    config = load_config()
+    if config:
+        return config.get("debug", {}).get("copy_screenshots_to_cwd", False)
+    return False
+
+
+def set_debug_screenshots_enabled(enabled: bool):
+    """Enable or disable debug screenshot copying to CWD.
+
+    Args:
+        enabled: Whether to copy screenshots to current working directory
+    """
+    config = load_config() or {}
+
+    # Check if value is already set (skip unnecessary save)
+    current_value = config.get("debug", {}).get("copy_screenshots_to_cwd", False)
+    if current_value == enabled:
+        status = "enabled" if enabled else "disabled"
+        emit_info(f"[green]✓ Debug screenshot copying already {status}[/green]")
+        return
+
+    if "debug" not in config:
+        config["debug"] = {}
+
+    config["debug"]["copy_screenshots_to_cwd"] = enabled
+
+    # Initialize metadata if not present
+    if "metadata" not in config:
+        config["metadata"] = {}
+
+    save_config(config)
+
+    status = "enabled" if enabled else "disabled"
+    emit_info(f"[green]✓ Debug screenshot copying {status}[/green]")
+
+
+def set_vqa_model_name(model: str):
+    """Set the VQA model name in GUI-Cub config.
+
+    Args:
+        model: Model name to use for VQA tasks
+    """
+    config = load_config() or {}
+
+    # Check if value is already set (skip unnecessary save)
+    current_value = config.get("vqa", {}).get("model_name")
+    if current_value == model:
+        return  # No change needed
+
+    if "vqa" not in config:
+        config["vqa"] = {}
+
+    config["vqa"]["model_name"] = model
+    save_config(config)
+
+
+def save_config(config: Dict[str, Any]) -> bool:
+    """Save config to disk.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        True if saved successfully, False otherwise
+    """
+    config_path = get_config_path()
+
+    _emit_debug(f"[dim]💾 Saving config to {config_path}...[/dim]")
+
+    try:
+        # Initialize metadata if not present
+        if "metadata" not in config:
+            config["metadata"] = {}
+
+        # Add hash for validation
+        config["metadata"]["hash"] = _compute_config_hash(config)
+
+        _emit_debug(f"[dim]   Config hash: {config['metadata']['hash'][:16]}...[/dim]")
+
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        _emit_debug("[dim]   ✅ Config saved successfully[/dim]")
+
+        return True
+
+    except Exception as e:
+        emit_warning(f"[red]❌ Failed to save config: {e}[/red]")
+        return False
+
+
+def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
+    """Validate if cached config is still valid.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        Tuple of (is_valid, reason)
+    """
+    _emit_debug("[dim]🔍 Validating cached config...[/dim]")
+
+    # Check screen resolution hasn't changed using extracted logic
+    try:
+        current_resolution = list(pyautogui.size())
+        cached_resolution = config.get("display", {}).get("primary_resolution")
+
+        _emit_debug(f"[dim]   Current resolution: {current_resolution}[/dim]")
+        _emit_debug(f"[dim]   Cached resolution: {cached_resolution}[/dim]")
+
+        is_valid, message = validate_resolution_match(
+            cached_resolution, current_resolution
+        )
+
+        _emit_debug(f"[dim]   Resolution check: {message}[/dim]")
+
+        if not is_valid:
+            _emit_debug(f"[dim]⚠️  Validation failed: {message}[/dim]")
+            return (False, message)
+    except Exception as e:
+        return False, f"Failed to check display: {e}"
+
+    # Check OS hasn't changed using extracted logic
+    current_os = sys.platform
+    cached_os = config.get("platform", {}).get("os")
+
+    _emit_debug(f"[dim]   Current platform: {current_os}[/dim]")
+    _emit_debug(f"[dim]   Cached platform: {cached_os}[/dim]")
+
+    is_valid, message = validate_platform_match(cached_os, current_os)
+
+    _emit_debug(f"[dim]   Platform check: {message}[/dim]")
+
+    if not is_valid:
+        _emit_debug(f"[dim]⚠️  Validation failed: {message}[/dim]")
+        return (False, message)
+
+    # On Windows, check if dependencies are actually installed
+    if sys.platform == "win32":
+        capabilities = config.get("capabilities", {})
+
+        # Check if pywinauto is marked as available but isn't actually installed
+        if capabilities.get("pywinauto", False):
+            try:
+                import pywinauto  # noqa: F401 - testing availability
+            except ImportError:
+                return False, "Windows dependencies missing (pywinauto not installed)"
+
+        # If pywinauto was marked unavailable, we should try to install it
+        if not capabilities.get("pywinauto", False):
+            return (
+                False,
+                "Windows dependencies not installed, will attempt installation",
+            )
+
+    # Config is valid
+    _emit_debug("[dim]   ✅ All validation checks passed[/dim]")
+    return True, "Config is valid"
+
+
+async def ensure_calibrated() -> Dict[str, Any]:
+    """Ensure platform is calibrated (QA-Kitten pattern).
+
+    This runs on agent initialization and checks if calibration is needed.
+    Fast on subsequent runs (just reads cached config).
+
+    Similar to QA-Kitten's _prefetch_camoufox().
+
+    Returns:
+        Dict with success status and config
+    """
+    group_id = generate_group_id("ensure_calibrated")
+    emit_info(
+        "[bold cyan]🔍 Checking platform configuration...[/bold cyan]",
+        message_group=group_id,
+    )
+
+    config_path = get_config_path()
+    _emit_debug(
+        f"[dim]Config path: {config_path}[/dim]",
+        message_group=group_id,
+    )
+
+    # Check if config exists
+    if not config_path.exists():
+        _emit_debug(
+            f"[dim]Config file not found at {config_path}[/dim]",
+            message_group=group_id,
+        )
+        emit_info(
+            "[cyan]📋 First run detected, calibrating platform...[/cyan]",
+            message_group=group_id,
+        )
+        from code_puppy.tools.gui_cub.calibration import run_calibration
+
+        return await run_calibration()
+
+    # Load cached config
+    _emit_debug(
+        f"[dim]Loading config from {config_path}...[/dim]",
+        message_group=group_id,
+    )
+    config = load_config()
+    if not config:
+        emit_warning(
+            "[yellow]♻️ Failed to load config, re-calibrating...[/yellow]",
+            message_group=group_id,
+        )
+        from code_puppy.tools.gui_cub.calibration import run_calibration
+
+        return await run_calibration()
+
+    # Validate config
+    _emit_debug(
+        "[dim]Validating config...[/dim]",
+        message_group=group_id,
+    )
+    is_valid, reason = validate_config(config)
+    if not is_valid:
+        emit_info(
+            f"[cyan]♻️ {reason}, re-calibrating...[/cyan]",
+            message_group=group_id,
+        )
+        # Delete stale config to ensure fresh calibration
+        try:
+            _emit_debug(
+                f"[dim]Deleting stale config at {config_path}[/dim]",
+                message_group=group_id,
+            )
+            config_path.unlink()
+        except Exception as e:
+            _emit_debug(
+                f"[dim]Failed to delete config: {e}[/dim]",
+                message_group=group_id,
+            )
+
+        from code_puppy.tools.gui_cub.calibration import run_calibration
+
+        return await run_calibration()
+
+    # Config is valid, use cached version
+    emit_info(
+        "[green]✅ Using cached platform config[/green]",
+        message_group=group_id,
+    )
+    _emit_debug(
+        f"[dim]Config loaded from {config_path}[/dim]",
+        message_group=group_id,
+    )
+
+    return {
+        "success": True,
+        "config": config,
+        "cached": True,
+        "path": str(config_path),
+    }
+
+
+# Tool registration functions (following QA-Kitten patterns)
+
+
+def register_debug_screenshot_tools(agent):
+    """Register debug screenshot management tools."""
+
+    from pydantic_ai import RunContext
+
+    @agent.tool
+    async def save_debug_screenshot(
+        context: RunContext,
+        filename: str | None = None,
+    ) -> Dict[str, Any]:
+        """Save the last debug screenshot (from VQA or OCR) to current directory.
+
+        Use this when the user asks to see debug screenshots, save images for debugging,
+        or wants to inspect what the vision system captured.
+
+        Trigger phrases:
+        - "show me the screenshot"
+        - "save that debug image"
+        - "I want to see what you captured"
+        - "copy the screenshot for me"
+        - "let me see the last image"
+
+        Args:
+            context: Pydantic AI context
+            filename: Optional custom filename (default: auto-generated with timestamp)
+
+        Returns:
+            Dict with success status and file path
+        """
+        from code_puppy.tools.gui_cub.debug_screenshot_manager import (
+            copy_last_screenshot_to_pwd,
+        )
+
+        group_id = generate_group_id("save_debug_screenshot")
+        emit_info(
+            "[bold cyan]📸 Saving debug screenshot...[/bold cyan]",
+            message_group=group_id,
+        )
+
+        result_path = copy_last_screenshot_to_pwd(filename)
+
+        if result_path:
+            emit_info(
+                f"[green]✅ Debug screenshot saved: {result_path}[/green]",
+                message_group=group_id,
+            )
+            return {
+                "success": True,
+                "path": str(result_path),
+                "message": f"Screenshot saved to {result_path.name}",
+            }
+        else:
+            emit_warning(
+                "[yellow]⚠️ No debug screenshot available[/yellow]",
+                message_group=group_id,
+            )
+            return {
+                "success": False,
+                "message": "No debug screenshot available. VQA/OCR tools haven't captured any images yet.",
+            }
+
+
+def register_config_tools(agent):
+    """Register config management tools."""
+
+    from pydantic_ai import RunContext
+
+    @agent.tool
+    async def gui_cub_get_config(context: RunContext) -> Dict[str, Any]:
+        """Get current platform configuration.
+
+        Returns cached config if valid, otherwise triggers re-calibration.
+        Similar to browser_status in QA-Kitten.
+
+        Returns:
+            Dict with success, config, and metadata
+        """
+        return await ensure_calibrated()
+
+    @agent.tool
+    async def gui_cub_calibrate(context: RunContext) -> Dict[str, Any]:
+        """Force platform re-calibration.
+
+        Useful when:
+        - You changed monitors
+        - You updated libraries
+        - Config seems incorrect
+
+        Returns:
+            Dict with success, config, and calibration results
+        """
+        group_id = generate_group_id("gui_cub_calibrate")
+        emit_info(
+            "[bold green] CALIBRATE [/bold green] 🔧 Forcing platform re-calibration...",
+            message_group=group_id,
+        )
+
+        from code_puppy.tools.gui_cub.calibration import run_calibration
+
+        return await run_calibration()
+
+    @agent.tool
+    async def gui_cub_validate_config(context: RunContext) -> Dict[str, Any]:
+        """Validate current cached config without re-calibrating.
+
+        Quick check to see if config is still valid.
+
+        Returns:
+            Dict with valid status and reason
+        """
+        group_id = generate_group_id("gui_cub_validate")
+        emit_info(
+            "[bold cyan] VALIDATE CONFIG [/bold cyan] ✓",
+            message_group=group_id,
+        )
+
+        config = load_config()
+        if not config:
+            return {
+                "success": False,
+                "valid": False,
+                "message": "No config found",
+            }
+
+        is_valid, reason = validate_config(config)
+
+        if is_valid:
+            emit_info(
+                f"[green]✅ {reason}[/green]",
+                message_group=group_id,
+            )
+        else:
+            emit_info(
+                f"[yellow]⚠️ {reason}[/yellow]",
+                message_group=group_id,
+            )
+
+        return {
+            "success": True,
+            "valid": is_valid,
+            "message": reason,
+            "config": config if is_valid else None,
+        }
+
+    @agent.tool
+    async def gui_cub_reset_config(context: RunContext) -> Dict[str, Any]:
+        """Delete cached config to force re-calibration on next run.
+
+        Useful for troubleshooting config issues.
+
+        Returns:
+            Dict with success status
+        """
+        group_id = generate_group_id("gui_cub_reset")
+        emit_info(
+            "[bold yellow] RESET CONFIG [/bold yellow] 🗑️",
+            message_group=group_id,
+        )
+
+        config_path = get_config_path()
+
+        if config_path.exists():
+            try:
+                config_path.unlink()
+                emit_info(
+                    "[green]✅ Config deleted, will re-calibrate on next run[/green]",
+                    message_group=group_id,
+                )
+                return {
+                    "success": True,
+                    "message": "Config reset successfully",
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to delete config: {e}",
+                }
+        else:
+            return {
+                "success": True,
+                "message": "No config found to delete",
+            }

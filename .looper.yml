@@ -67,7 +67,6 @@ flows:
             - shell: uv pip install --native-tls -e .
             - call: pre_commit
 
-
   pr:
     - node(docker-daemon):
         - dockerAgent(python-agent):

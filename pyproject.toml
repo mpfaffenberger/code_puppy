@@ -37,6 +37,24 @@ dependencies = [
     "camoufox>=0.4.11",
     "dbos>=2.0.0",
     "markdownify>=0.11.0",
+    # GUI-Cub dependencies
+    "atomacos>=3.2.0; sys_platform == 'darwin'",
+    "pillow>=11.0.0", # Updated from 10.0.0 - latest with security fixes
+    "pyautogui>=0.9.40,<0.9.42", # Locked for atomacos compatibility (macOS)
+    # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
+    # WinRT OCR dependencies (Windows 10+ native OCR) - modular PyWinRT packages
+    # See: https://pywinrt.readthedocs.io
+    "pywin32>=306; sys_platform == 'win32'",
+    "pywinauto>=0.6.8; sys_platform == 'win32'",
+    "winrt-runtime>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-foundation-collections>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-foundation>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-graphics-imaging>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-media-ocr>=2.0.0; sys_platform == 'win32'",
+    "winrt-windows-storage-streams>=2.0.0; sys_platform == 'win32'",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
