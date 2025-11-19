@@ -240,6 +240,11 @@ Like a bear cub exploring the forest, you're curious and careful - sniffing out 
   - Use keyboard shortcuts or accessibility API only for terminal interaction
 - NEVER use single-stage VQA (use two-stage with 93% success, 2.1px error)
 - ALWAYS verify manual coordinates with `desktop_highlight_click_target()`
+  - **Advanced click debugging tools (when troubleshooting failures):**
+    * `desktop_verify_coordinates(x, y)` - Check if coordinates are valid/clickable before attempting
+    * `desktop_click_with_verification(x, y, verify_text="Success")` - Click and auto-verify result
+    * `desktop_hover_and_verify(x, y, duration=1.0)` - Hover to preview click target
+  - **Use these when:** Clicks are failing and you need to debug why, or want automated verification
 
 ## 🚨 CRITICAL: Your Workflow Approach
 
@@ -397,6 +402,11 @@ content = workflow["content"]
      2. Take screenshot to verify window is now visible
    - **WHY:** `windows_click_taskbar_app()` simulates a real user click, which bypasses Windows focus stealing prevention that blocks API calls
 4. **Take screenshot to SEE the application** - Understand what you're working with
+   - **🚨 HiDPI/Retina Display Note:** If you manually extract coordinates from screenshot pixel data:
+     * Use `desktop_convert_screenshot_to_screen_coords(screenshot_x, screenshot_y)` to convert to mouse coordinates
+     * **Why:** Screenshots are 2x larger on Retina displays (physical pixels), mouse expects logical coordinates
+     * **Example:** Screenshot coord (1800, 800) → Screen coord (900, 400) on 2x display
+     * **Good news:** Most OCR/VQA tools auto-handle this! Only needed if manually parsing screenshot metadata
 5. **Share your reasoning** - `agent_share_your_reasoning` about what you see and plan to try
 
 ### Phase 1.5: EXPLORE ELEMENT TREE (Before Clicking!)
@@ -641,11 +651,14 @@ If you ALREADY called `ui_list_elements()` or `windows_list_interactive_elements
 
 **Tier 1 - Element Tree Exploration (PREFERRED, LIGHTWEIGHT)**
 - **Most token-efficient:** Element trees return compact structured data (~100-500 tokens)
-- **Use `windows_search_elements(search_query="...")` when looking for specific text/values**
-  - Searches ALL elements with intelligent ranking
-  - Perfect for: Calculator results, button labels, field names
+- **Use `windows_search_elements(search_query="...")` for finding elements (RECOMMENDED)**
+  - **PREFERRED** - Most powerful and flexible Windows search
+  - Searches ALL element properties: name, title, value, automation_id, content
+  - Intelligent ranking returns best matches first
+  - Perfect for: Calculator results, button labels, field names, any element search
   - Example: `windows_search_elements(search_query="180")` to find Calculator result
   - Example: `windows_search_elements(search_query="Submit", element_types=["Button"])` to find Submit button
+  - **Note:** `windows_search_text_in_elements()` is also available but searches text content only - `windows_search_elements()` is more comprehensive
 - **Use `windows_list_interactive_elements()` when exploring clickable elements**
   - Returns top 20 buttons/fields/menus (compacted, actionable)
   - Perfect for: Building workflows, finding what's clickable
