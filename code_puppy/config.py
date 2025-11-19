@@ -744,6 +744,25 @@ def get_message_limit(default: int = 100) -> int:
         return default
 
 
+def get_command_timeout_seconds() -> int:
+    """
+    Returns the user-configured absolute timeout for shell commands in seconds.
+    This is the maximum time any single command can run before being terminated.
+    Defaults to 270 seconds if unset or misconfigured.
+    Valid range: 60-900 seconds. Values outside this range default to 270.
+    Configurable by 'command_timeout_seconds' key.
+    """
+    val = get_value("command_timeout_seconds")
+    try:
+        timeout = int(val) if val else 270
+        # Enforce bounds: min 60, max 900, default 270 if outside bounds
+        if timeout < 60 or timeout > 900:
+            return 270
+        return timeout
+    except (ValueError, TypeError):
+        return 270
+
+
 def save_command_to_history(command: str):
     """Save a command to the history file with an ISO format timestamp.
 
@@ -847,38 +866,28 @@ def set_max_saved_sessions(max_sessions: int):
     set_config_value("max_saved_sessions", str(max_sessions))
 
 
-def get_diff_highlight_style() -> str:
-    """
-    Get the diff highlight style preference.
-    Options: 'text' (plain text, no highlighting), 'highlighted' (intelligent color pairs)
-    Returns 'highlighted' if not set or invalid.
-    """
-    val = get_value("diff_highlight_style")
-    if val and val.lower() in ["text", "highlighted"]:
-        return val.lower()
-    return "text"  # Default to intelligent highlighting
-
-
 def set_diff_highlight_style(style: str):
     """Set the diff highlight style.
 
+    Note: Text mode has been removed. This function is kept for backwards compatibility
+    but does nothing. All diffs use beautiful syntax highlighting now!
+
     Args:
-        style: 'text' for plain text diffs, 'highlighted' for intelligent color pairs
+        style: Ignored (always uses 'highlight' mode)
     """
-    if style.lower() not in ["text", "highlighted"]:
-        raise ValueError("diff_highlight_style must be 'text' or 'highlighted'")
-    set_config_value("diff_highlight_style", style.lower())
+    # Do nothing - we always use highlight mode now!
+    pass
 
 
 def get_diff_addition_color() -> str:
     """
     Get the base color for diff additions.
-    Default: green
+    Default: darker green
     """
-    val = get_value("diff_addition_color")
+    val = get_value("highlight_addition_color")
     if val:
         return val
-    return "sea_green1"  # Default to green
+    return "#0b1f0b"  # Default to darker green
 
 
 def set_diff_addition_color(color: str):
@@ -887,18 +896,18 @@ def set_diff_addition_color(color: str):
     Args:
         color: Rich color markup (e.g., 'green', 'on_green', 'bright_green')
     """
-    set_config_value("diff_addition_color", color)
+    set_config_value("highlight_addition_color", color)
 
 
 def get_diff_deletion_color() -> str:
     """
     Get the base color for diff deletions.
-    Default: orange1
+    Default: wine
     """
-    val = get_value("diff_deletion_color")
+    val = get_value("highlight_deletion_color")
     if val:
         return val
-    return "orange1"  # Default to orange1
+    return "#390e1a"  # Default to wine
 
 
 def set_diff_deletion_color(color: str):
@@ -907,67 +916,7 @@ def set_diff_deletion_color(color: str):
     Args:
         color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
     """
-    set_config_value("diff_deletion_color", color)
-
-
-def _emit_diff_style_example():
-    """Emit a small diff example showing the current style configuration."""
-
-    try:
-        from code_puppy.messaging import emit_info
-        from code_puppy.tools.file_modifications import _colorize_diff
-
-        # Create a simple diff example
-        example_diff = """--- a/example.txt
-+++ b/example.txt
-@@ -1,3 +1,4 @@
- line 1
--old line 2
-+new line 2
- line 3
-+added line 4"""
-
-        style = get_diff_highlight_style()
-        add_color = get_diff_addition_color()
-        del_color = get_diff_deletion_color()
-
-        # Get the actual color pairs being used
-        from code_puppy.tools.file_modifications import _get_optimal_color_pair
-
-        add_fg, add_bg = _get_optimal_color_pair(add_color, "green")
-        del_fg, del_bg = _get_optimal_color_pair(del_color, "orange1")
-
-        emit_info("\n🎨 [bold]Diff Style Updated![/bold]")
-        emit_info(f"Style: {style}", highlight=False)
-
-        if style == "highlighted":
-            # Show the actual color pairs being used
-            emit_info(
-                f"Additions: {add_fg} on {add_bg} (requested: {add_color})",
-                highlight=False,
-            )
-            emit_info(
-                f"Deletions: {del_fg} on {del_bg} (requested: {del_color})",
-                highlight=False,
-            )
-        else:
-            emit_info(f"Additions: {add_color} (plain text mode)", highlight=False)
-            emit_info(f"Deletions: {del_color} (plain text mode)", highlight=False)
-        emit_info(
-            "\n[bold cyan]── DIFF EXAMPLE ───────────────────────────────────[/bold cyan]"
-        )
-
-        # Show the colored example
-        colored_example = _colorize_diff(example_diff)
-        emit_info(colored_example, highlight=False)
-
-        emit_info(
-            "[bold cyan]───────────────────────────────────────────────[/bold cyan]\n"
-        )
-
-    except Exception:
-        # Fail silently if we can't emit the example
-        pass
+    set_config_value("highlight_deletion_color", color)
 
 
 def get_current_autosave_id() -> str:

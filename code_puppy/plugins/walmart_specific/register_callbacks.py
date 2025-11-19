@@ -61,6 +61,9 @@ register_callback("version_check", _handle_update)
 async def auth_flow() -> None:
     # HTTP server starts silently in the background
 
+    # Find an available port before starting the HTTP server
+    available_port = find_available_port()
+
     # Start the HTTP server in the background
     async def run_http_server() -> None:
         try:
@@ -88,7 +91,6 @@ async def auth_flow() -> None:
 
     register_callback("shutdown", shutdown_http_server)
 
-    available_port = find_available_port()
     await authenticate_puppy(available_port)
 
     token = get_puppy_token()
