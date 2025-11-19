@@ -9,7 +9,7 @@ ERROR_PYAUTOGUI_MISSING = (
 ERROR_PILLOW_MISSING = (
     "Screenshot tools require Pillow. Install with: uv pip install pillow"
 )
-ERROR_OPENCV_MISSING = "Image recognition requires opencv-python. Install with: uv pip install opencv-python"
+
 ERROR_ATOMACOS_MISSING = (
     "Accessibility API requires atomacos. Install with: uv pip install atomacos"
 )

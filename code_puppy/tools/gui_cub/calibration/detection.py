@@ -3,7 +3,7 @@
 Runs on first use (like QA-Kitten downloading Camoufox) to detect:
 - Platform (OS, version, architecture)
 - Displays (all monitors, resolutions, DPI, scaling)
-- Libraries (atomacos, pywinauto, opencv)
+- Libraries (atomacos, pywinauto)
 - Performance (screenshot, mouse, keyboard latencies)
 - Permissions (accessibility, screen recording on macOS)
 """

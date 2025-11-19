@@ -25,7 +25,7 @@ class OCRProviderChain:
     Example:
         >>> chain = OCRProviderChain([
         ...     WinRTOCRProvider(),
-        
+
         ... ])
         >>> result = chain.extract_text(screenshot)
         # Uses native WinRT OCR on Windows

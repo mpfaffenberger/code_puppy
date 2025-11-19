@@ -36,17 +36,8 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-# OpenCV - Computer vision
-try:
-    import cv2  # noqa: F401
 
-    CV2_AVAILABLE = True
-    OPENCV_AVAILABLE = True  # Alias for compatibility
-except ImportError:
-    CV2_AVAILABLE = False
-    OPENCV_AVAILABLE = False
-
-# NumPy - Numerical computing (often used with PIL/CV2)
+# NumPy - Numerical computing (often used with PIL)
 try:
     import numpy  # noqa: F401
 
@@ -79,17 +70,13 @@ else:
 
 # Combined dependency checks for common combinations
 DEPS_AVAILABLE = PIL_AVAILABLE and NUMPY_AVAILABLE
-VISION_AVAILABLE = CV2_AVAILABLE and NUMPY_AVAILABLE
 
 # Export all availability flags
 __all__ = [
     "PYAUTOGUI_AVAILABLE",
     "PIL_AVAILABLE",
-    "CV2_AVAILABLE",
-    "OPENCV_AVAILABLE",
     "NUMPY_AVAILABLE",
     "ATOMACOS_AVAILABLE",
     "WINDOWS_AUTOMATION_AVAILABLE",
     "DEPS_AVAILABLE",
-    "VISION_AVAILABLE",
 ]

@@ -11,7 +11,6 @@ from code_puppy.tools.common import generate_group_id
 from .constants import (
     ERROR_ATOMACOS_MISSING,
     ERROR_FAILSAFE_TRIGGERED,
-    ERROR_OPENCV_MISSING,
     ERROR_PILLOW_MISSING,
     ERROR_PYAUTOGUI_MISSING,
     ERROR_WINDOWS_AUTOMATION_MISSING,
@@ -22,7 +21,7 @@ def check_library_available(library: str) -> tuple[bool, str | None]:
     """Check if a required library is available.
 
     Args:
-        library: Library name to check (pyautogui, pillow, opencv, atomacos, windows)
+        library: Library name to check (pyautogui, pillow, atomacos, windows)
 
     Returns:
         Tuple of (is_available, error_message)
@@ -42,14 +41,6 @@ def check_library_available(library: str) -> tuple[bool, str | None]:
             return True, None
         except ImportError:
             return False, ERROR_PILLOW_MISSING
-
-    elif library == "opencv":
-        try:
-            import cv2  # noqa: F401 - testing availability
-
-            return True, None
-        except ImportError:
-            return False, ERROR_OPENCV_MISSING
 
     elif library == "atomacos":
         try:
@@ -143,7 +134,7 @@ def desktop_tool(
 
     Args:
         tool_name: Display name for the tool (e.g., "MOUSE MOVE")
-        requires: Library or list of libraries required (pyautogui, pillow, opencv, atomacos, windows)
+        requires: Library or list of libraries required (pyautogui, pillow, atomacos, windows)
         emit_start: Whether to emit start message
         emit_success: Whether to emit success message
         emit_errors: Whether to emit error messages

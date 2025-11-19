@@ -31,7 +31,7 @@ else:
 
 def _is_debug_logging_enabled() -> bool:
     """Check if verbose debug logging is enabled (environment variable only to avoid circular deps).
-    
+
     Returns:
         True if GUI_CUB_DEBUG_LOGGING environment variable is set to 1
     """
@@ -40,7 +40,7 @@ def _is_debug_logging_enabled() -> bool:
 
 def _emit_debug(message: str, **kwargs):
     """Emit debug log message only if debug logging is enabled.
-    
+
     Args:
         message: Debug message to emit
         **kwargs: Additional arguments passed to emit_info
@@ -87,45 +87,34 @@ def load_config() -> Optional[Dict[str, Any]]:
     try:
         with open(config_path, "r") as f:
             config = json.load(f)
-        
-        _emit_debug(
-            f"[dim]📂 Loaded config from {config_path}[/dim]"
-        )
-        _emit_debug(
-            f"[dim]   Top-level keys: {list(config.keys())}[/dim]"
-        )
-        
+
+        _emit_debug(f"[dim]📂 Loaded config from {config_path}[/dim]")
+        _emit_debug(f"[dim]   Top-level keys: {list(config.keys())}[/dim]")
+
         # Debug: Check display key structure
         if "display" in config:
-            _emit_debug(
-                f"[dim]   display keys: {list(config['display'].keys())}[/dim]"
-            )
+            _emit_debug(f"[dim]   display keys: {list(config['display'].keys())}[/dim]")
             if "primary_resolution" in config["display"]:
                 _emit_debug(
                     f"[dim]   primary_resolution: {config['display']['primary_resolution']}[/dim]"
                 )
         elif "displays" in config:
-            _emit_debug(
-                "[dim]   ⚠️  Found OLD 'displays' key (needs migration)[/dim]"
-            )
+            _emit_debug("[dim]   ⚠️  Found OLD 'displays' key (needs migration)[/dim]")
             _emit_debug(
                 f"[dim]   displays keys: {list(config['displays'].keys())}[/dim]"
             )
 
         # Migrate old configs
         import sys
+
         needs_save = False
         migrations_applied = []
-        
-        _emit_debug(
-            "[dim]🔄 Checking for config migrations...[/dim]"
-        )
-        
+
+        _emit_debug("[dim]🔄 Checking for config migrations...[/dim]")
+
         # Migrate "displays" → "display" (config structure change)
         if "displays" in config and "display" not in config:
-            _emit_debug(
-                "[dim]   Migrating 'displays' → 'display'...[/dim]"
-            )
+            _emit_debug("[dim]   Migrating 'displays' → 'display'...[/dim]")
             config["display"] = config["displays"]
             del config["displays"]
             needs_save = True
@@ -133,11 +122,11 @@ def load_config() -> Optional[Dict[str, Any]]:
             _emit_debug(
                 f"[dim]   ✅ Migrated display info: {list(config['display'].keys())}[/dim]"
             )
-        
+
         # Remove deprecated and platform-specific OCR providers
         if "ocr_providers" in config:
             ocr_providers = config["ocr_providers"].get("providers", {})
-            
+
             # Remove deprecated tesseract on all platforms
             if "tesseract" in ocr_providers:
                 _emit_debug(
@@ -146,7 +135,7 @@ def load_config() -> Optional[Dict[str, Any]]:
                 del ocr_providers["tesseract"]
                 needs_save = True
                 migrations_applied.append("removed tesseract")
-            
+
             # Remove platform-specific providers on wrong platform
             if sys.platform == "win32" and "vision_framework" in ocr_providers:
                 # Remove macOS provider on Windows
@@ -164,24 +153,18 @@ def load_config() -> Optional[Dict[str, Any]]:
                 del ocr_providers["winrt_ocr"]
                 needs_save = True
                 migrations_applied.append("removed winrt_ocr")
-        
+
         # Save the cleaned config if needed
         if needs_save:
             _emit_debug(
                 f"[dim]💾 Saving migrated config ({', '.join(migrations_applied)})...[/dim]"
             )
             if save_config(config):
-                _emit_debug(
-                    "[dim]   ✅ Config migration saved successfully[/dim]"
-                )
+                _emit_debug("[dim]   ✅ Config migration saved successfully[/dim]")
             else:
-                emit_warning(
-                    "[yellow]⚠️  Config migration failed to save![/yellow]"
-                )
+                emit_warning("[yellow]⚠️  Config migration failed to save![/yellow]")
         else:
-            _emit_debug(
-                "[dim]   No migrations needed[/dim]"
-            )
+            _emit_debug("[dim]   No migrations needed[/dim]")
 
         # Validate hash
         stored_hash = config.get("metadata", {}).get("hash")
@@ -225,10 +208,9 @@ def get_vqa_model_name() -> str:
     return _default_vqa_model_from_models_json()
 
 
-
 def get_debug_screenshots_enabled() -> bool:
     """Check if debug screenshot copying to CWD is enabled.
-    
+
     This feature is disabled by default (set to False during initial calibration).
     When enabled, all screenshots will be copied to the current working directory
     in addition to being saved in the temp directory.
@@ -302,10 +284,8 @@ def save_config(config: Dict[str, Any]) -> bool:
         True if saved successfully, False otherwise
     """
     config_path = get_config_path()
-    
-    _emit_debug(
-        f"[dim]💾 Saving config to {config_path}...[/dim]"
-    )
+
+    _emit_debug(f"[dim]💾 Saving config to {config_path}...[/dim]")
 
     try:
         # Initialize metadata if not present
@@ -314,17 +294,13 @@ def save_config(config: Dict[str, Any]) -> bool:
 
         # Add hash for validation
         config["metadata"]["hash"] = _compute_config_hash(config)
-        
-        _emit_debug(
-            f"[dim]   Config hash: {config['metadata']['hash'][:16]}...[/dim]"
-        )
+
+        _emit_debug(f"[dim]   Config hash: {config['metadata']['hash'][:16]}...[/dim]")
 
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        
-        _emit_debug(
-            "[dim]   ✅ Config saved successfully[/dim]"
-        )
+
+        _emit_debug("[dim]   ✅ Config saved successfully[/dim]")
 
         return True
 
@@ -342,34 +318,24 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, reason)
     """
-    _emit_debug(
-        "[dim]🔍 Validating cached config...[/dim]"
-    )
-    
+    _emit_debug("[dim]🔍 Validating cached config...[/dim]")
+
     # Check screen resolution hasn't changed using extracted logic
     try:
         current_resolution = list(pyautogui.size())
         cached_resolution = config.get("display", {}).get("primary_resolution")
-        
-        _emit_debug(
-            f"[dim]   Current resolution: {current_resolution}[/dim]"
-        )
-        _emit_debug(
-            f"[dim]   Cached resolution: {cached_resolution}[/dim]"
-        )
+
+        _emit_debug(f"[dim]   Current resolution: {current_resolution}[/dim]")
+        _emit_debug(f"[dim]   Cached resolution: {cached_resolution}[/dim]")
 
         is_valid, message = validate_resolution_match(
             cached_resolution, current_resolution
         )
-        
-        _emit_debug(
-            f"[dim]   Resolution check: {message}[/dim]"
-        )
-        
+
+        _emit_debug(f"[dim]   Resolution check: {message}[/dim]")
+
         if not is_valid:
-            _emit_debug(
-                f"[dim]⚠️  Validation failed: {message}[/dim]"
-            )
+            _emit_debug(f"[dim]⚠️  Validation failed: {message}[/dim]")
             return (False, message)
     except Exception as e:
         return False, f"Failed to check display: {e}"
@@ -377,24 +343,16 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
     # Check OS hasn't changed using extracted logic
     current_os = sys.platform
     cached_os = config.get("platform", {}).get("os")
-    
-    _emit_debug(
-        f"[dim]   Current platform: {current_os}[/dim]"
-    )
-    _emit_debug(
-        f"[dim]   Cached platform: {cached_os}[/dim]"
-    )
+
+    _emit_debug(f"[dim]   Current platform: {current_os}[/dim]")
+    _emit_debug(f"[dim]   Cached platform: {cached_os}[/dim]")
 
     is_valid, message = validate_platform_match(cached_os, current_os)
-    
-    _emit_debug(
-        f"[dim]   Platform check: {message}[/dim]"
-    )
-    
+
+    _emit_debug(f"[dim]   Platform check: {message}[/dim]")
+
     if not is_valid:
-        _emit_debug(
-            f"[dim]⚠️  Validation failed: {message}[/dim]"
-        )
+        _emit_debug(f"[dim]⚠️  Validation failed: {message}[/dim]")
         return (False, message)
 
     # On Windows, check if dependencies are actually installed
@@ -416,9 +374,7 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
             )
 
     # Config is valid
-    _emit_debug(
-        "[dim]   ✅ All validation checks passed[/dim]"
-    )
+    _emit_debug("[dim]   ✅ All validation checks passed[/dim]")
     return True, "Config is valid"
 
 

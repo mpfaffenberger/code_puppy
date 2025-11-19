@@ -57,7 +57,7 @@ class VisionOCRProvider(OCRProvider):
     - Scores < 0.3 indicate uncertain segmentation
 
     Comparison to other engines:
-    
+
     - Google Vision: 0.8-1.0 (calibrated probability)
     - Vision: 0.3-0.8 (internal model space)
 

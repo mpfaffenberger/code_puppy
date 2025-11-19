@@ -236,7 +236,9 @@ def register_os_unified_tools(agent):
 
                         app = get_frontmost_app()
                         if not app:
-                            return ElementListResult(success=False, error="No frontmost app")
+                            return ElementListResult(
+                                success=False, error="No frontmost app"
+                            )
                         elements = _build_element_tree(app, max_depth=depth)
                         by_type: dict[str, list[dict[str, Any]]] = {}
                         for node in elements:
