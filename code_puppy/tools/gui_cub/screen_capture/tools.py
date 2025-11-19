@@ -200,7 +200,7 @@ def register_desktop_screenshot_tools(agent):
 
         return VQAResult(
             success=result.get("success", False),
-            question=result.get("question"),
+            question=question,  # Use function parameter, not dict result
             answer=result.get("answer", ""),
             confidence=result.get("confidence", 0.0),
             observations=result.get("observations"),

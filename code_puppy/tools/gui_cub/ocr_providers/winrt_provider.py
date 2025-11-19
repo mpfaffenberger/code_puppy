@@ -9,11 +9,17 @@ See: https://pywinrt.readthedocs.io
 
 Note: WinRT APIs are async, but we wrap them with asyncio.run() to provide
 a synchronous interface consistent with the OCRProvider contract.
+
+WinRT OCR Concurrency Handling:
+    The WinRT OCR engine does NOT support concurrent RecognizeAsync operations.
+    This provider implements automatic retry with exponential backoff to handle
+    the common case where rapid successive OCR calls trigger concurrency errors.
 """
 
 from __future__ import annotations
 
 import io
+import time
 from typing import List
 
 from PIL import Image
@@ -97,6 +103,9 @@ class WinRTOCRProvider(OCRProvider):
         This method wraps the async WinRT APIs with asyncio.run() to provide
         a synchronous interface.
 
+        Implements automatic retry with exponential backoff to handle WinRT
+        OCR concurrency errors when operations are called in rapid succession.
+
         Args:
             image: PIL Image to perform OCR on
             language: Language code (currently ignored, uses system language)
@@ -122,18 +131,37 @@ class WinRTOCRProvider(OCRProvider):
                 error="WinRT OCR engine not initialized",
             )
 
-        try:
-            # Run async OCR operation synchronously
-            result = asyncio.run(self._extract_text_async(image))
-            return result
-        except Exception as e:
-            return OCRResult(
-                success=False,
-                words=[],
-                full_text="",
-                provider="winrt",
-                error=f"WinRT OCR failed: {str(e)}",
-            )
+        # Retry logic to handle WinRT OCR concurrency errors
+        max_retries = 3
+        base_delay = 0.5  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                # Run async OCR operation synchronously
+                result = asyncio.run(self._extract_text_async(image))
+                return result
+            except Exception as e:
+                error_msg = str(e)
+                # Check if it's a WinRT concurrency error
+                is_concurrency_error = (
+                    "RecognizeAsync" in error_msg
+                    or "-2147467260" in error_msg  # E_ILLEGAL_METHOD_CALL
+                )
+
+                if is_concurrency_error and attempt < max_retries - 1:
+                    # Exponential backoff: 0.5s, 1.0s, 2.0s
+                    delay = base_delay * (2**attempt)
+                    time.sleep(delay)
+                    continue  # Retry
+
+                # Either not a concurrency error, or we've exhausted retries
+                return OCRResult(
+                    success=False,
+                    words=[],
+                    full_text="",
+                    provider="winrt",
+                    error=f"WinRT OCR failed: {error_msg}",
+                )
 
     async def _extract_text_async(self, image: Image.Image) -> OCRResult:
         """Async implementation of text extraction.
@@ -177,7 +205,8 @@ class WinRTOCRProvider(OCRProvider):
         full_text_lines: List[str] = []
 
         # Convert WinRT collection to list to avoid iteration issues
-        # WinRT collections can cause import errors when iterating in some Python versions
+        # WinRT collections can cause import errors when iterating
+        # in some Python versions
         lines = list(ocr_result.lines) if ocr_result.lines else []
 
         for line in lines:
