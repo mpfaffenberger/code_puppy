@@ -11,6 +11,7 @@ import os
 import platform
 import subprocess
 import warnings
+from pathlib import Path
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.walmart_specific.bigquery_client import (
@@ -33,6 +34,22 @@ def _is_walmart_network() -> bool:
         "wal-mart.com" in os.environ.get("HOSTNAME", "").lower()
         or os.environ.get("WALMART_NETWORK") is not None
     )
+
+
+def _get_adc_path() -> Path:
+    """Get the path to Application Default Credentials file.
+
+    Returns:
+        Path to ADC credentials file
+    """
+    system = platform.system()
+    if system == "Windows":
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            return Path(appdata) / "gcloud" / "application_default_credentials.json"
+    # Unix-like systems (macOS, Linux)
+    home = os.path.expanduser("~")
+    return Path(home) / ".config" / "gcloud" / "application_default_credentials.json"
 
 
 def _get_package_manager() -> tuple[str, list[str]] | None:
@@ -414,6 +431,11 @@ def _verify_credentials(project_id: str | None = None) -> bool:
         True if credentials are valid, False otherwise
     """
     try:
+        # Check if GOOGLE_APPLICATION_CREDENTIALS env var is set
+        adc_path_str = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if adc_path_str:
+            emit_info(f"✅ Using credentials from: {adc_path_str}")
+
         # Check if credentials file exists
         from google.auth import default
         from google.auth.exceptions import DefaultCredentialsError
@@ -684,6 +706,12 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                     "🎉 BigQuery authentication complete!\n"
                     "Application Default Credentials have been saved."
                 )
+
+                # Set GOOGLE_APPLICATION_CREDENTIALS env var to point to ADC file
+                # This ensures google-auth libraries know exactly where to look
+                adc_path = _get_adc_path()
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(adc_path)
+                emit_success(f"✅ Set GOOGLE_APPLICATION_CREDENTIALS to: {adc_path}")
 
                 # Ensure gcloud account is active before listing projects
                 emit_info("🔍 Checking gcloud account status...")
