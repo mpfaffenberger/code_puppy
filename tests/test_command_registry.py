@@ -253,12 +253,27 @@ class TestGetCommand:
         cmd = get_command("")
         assert cmd is None
 
-    def test_get_command_is_case_sensitive(self):
-        """Test that command retrieval is case-sensitive."""
-        cmd = get_command("TEST")  # Wrong case
-        assert cmd is None
+    def test_get_command_case_insensitive(self):
+        """Test that command retrieval is case-insensitive with backward compatibility."""
+        # Exact match should still work (backward compatibility)
+        cmd = get_command("test")  # Exact match
+        assert cmd is not None
+        assert cmd.name == "test"
 
-        cmd = get_command("test")  # Correct case
+        # Case-insensitive matches should work
+        cmd = get_command("TEST")  # All uppercase
+        assert cmd is not None
+        assert cmd.name == "test"
+
+        cmd = get_command("Test")  # Title case
+        assert cmd is not None
+        assert cmd.name == "test"
+
+        cmd = get_command("tEsT")  # Mixed case
+        assert cmd is not None
+        assert cmd.name == "test"
+
+        cmd = get_command("test")  # Correct case (for backward compatibility)
         assert cmd is not None
 
 
