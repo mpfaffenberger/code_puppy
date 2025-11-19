@@ -76,12 +76,18 @@ class ModelNameCompleter(Completer):
         ].lstrip()
         start_position = -(len(text_after_trigger))
 
-        # Filter model names based on what's typed after /model
+        # Filter model names based on what's typed after /model (case-insensitive)
         for model_name in self.model_names:
-            if text_after_trigger and not model_name.startswith(text_after_trigger):
+            if text_after_trigger and not model_name.lower().startswith(
+                text_after_trigger.lower()
+            ):
                 continue  # Skip models that don't match the typed text
 
-            meta = "Model (selected)" if model_name == get_active_model() else "Model"
+            meta = (
+                "Model (selected)"
+                if model_name.lower() == get_active_model().lower()
+                else "Model"
+            )
             yield Completion(
                 model_name,
                 start_position=start_position,
@@ -94,32 +100,42 @@ def update_model_in_input(text: str) -> Optional[str]:
     # If input starts with /model or /m and a model name, set model and strip it out
     content = text.strip()
 
-    # Check for /model command (require space after /model)
-    if content.startswith("/model "):
-        rest = content[7:].strip()  # Remove '/model '
+    # Check for /model command (require space after /model, case-insensitive)
+    if content.lower().startswith("/model "):
+        # Find the actual /model command (case-insensitive)
+        model_cmd = content.split(" ", 1)[0]  # Get the command part
+        rest = content[len(model_cmd) :].strip()  # Remove the actual command
         model_names = load_model_names()
         for model in model_names:
-            if rest == model:
+            if rest.lower() == model.lower():
                 set_active_model(model)
-                # Remove /model from the input
-                idx = text.find("/model " + model)
+                # Remove the actual /model command from the input (preserves case)
+                model_cmd_with_space = model_cmd + " " + model
+                idx = text.find(model_cmd_with_space)
                 if idx != -1:
                     new_text = (
-                        text[:idx] + text[idx + len("/model " + model) :]
+                        text[:idx] + text[idx + len(model_cmd_with_space) :]
                     ).strip()
                     return new_text
 
-    # Check for /m command
-    elif content.startswith("/m "):
-        rest = content[3:].strip()  # Remove '/m '
+    # Check for /m command (case-insensitive)
+    elif content.lower().startswith("/m ") and not content.lower().startswith(
+        "/model "
+    ):
+        # Find the actual /m command (case-insensitive)
+        m_cmd = content.split(" ", 1)[0]  # Get the command part
+        rest = content[len(m_cmd) :].strip()  # Remove the actual command
         model_names = load_model_names()
         for model in model_names:
-            if rest == model:
+            if rest.lower() == model.lower():
                 set_active_model(model)
-                # Remove /m from the input
-                idx = text.find("/m " + model)
+                # Remove the actual /m command from the input (preserves case)
+                m_cmd_with_space = m_cmd + " " + model
+                idx = text.find(m_cmd_with_space)
                 if idx != -1:
-                    new_text = (text[:idx] + text[idx + len("/m " + model) :]).strip()
+                    new_text = (
+                        text[:idx] + text[idx + len(m_cmd_with_space) :]
+                    ).strip()
                     return new_text
 
     return None

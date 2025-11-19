@@ -316,7 +316,7 @@ class AgentCompleter(Completer):
 
         # Filter and yield agent completions
         for agent_name in agent_names:
-            if agent_name.startswith(text_after_trigger):
+            if agent_name.lower().startswith(text_after_trigger.lower()):
                 yield Completion(
                     agent_name,
                     start_position=start_position,
@@ -359,9 +359,12 @@ class SlashCompleter(Completer):
         # Collect all primary commands and their aliases for proper alphabetical sorting
         all_completions = []
 
+        # Convert partial to lowercase for case-insensitive matching
+        partial_lower = partial.lower()
+
         for cmd in commands:
-            # Add primary command
-            if cmd.name.startswith(partial):
+            # Add primary command (case-insensitive matching)
+            if cmd.name.lower().startswith(partial_lower):
                 all_completions.append(
                     {
                         "text": cmd.name,
@@ -371,9 +374,9 @@ class SlashCompleter(Completer):
                     }
                 )
 
-            # Add all aliases
+            # Add all aliases (case-insensitive matching)
             for alias in cmd.aliases:
-                if alias.startswith(partial):
+                if alias.lower().startswith(partial_lower):
                     all_completions.append(
                         {
                             "text": alias,
@@ -456,6 +459,7 @@ async def get_input_with_combined_completion(
             PinCompleter(trigger="/pin_model"),
             UnpinCompleter(trigger="/unpin"),
             AgentCompleter(trigger="/agent"),
+            AgentCompleter(trigger="/a"),
             MCPCompleter(trigger="/mcp"),
             SlashCompleter(),
         ]
