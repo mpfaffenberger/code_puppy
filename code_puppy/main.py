@@ -876,10 +876,10 @@ async def run_prompt_with_attachments(
         with ConsoleSpinner(console=spinner_console):
             try:
                 result = await agent_task
-                return result, agent_task
             except asyncio.CancelledError:
                 emit_info("Agent task cancelled")
                 return None, agent_task
+        return result, agent_task
     else:
         try:
             result = await agent_task
@@ -894,11 +894,11 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     from code_puppy.messaging import emit_info, emit_system_message
 
     emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
-
+    
     try:
         # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
-        response = await run_prompt_with_attachments(
+        response, agent_task = await run_prompt_with_attachments(
             agent,
             prompt,
             spinner_console=message_renderer.console,
@@ -910,6 +910,10 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         emit_system_message(
             f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
         )
+        
+        # Give the message renderer time to flush all queued messages before exiting
+        import asyncio
+        await asyncio.sleep(0.2)
 
     except asyncio.CancelledError:
         from code_puppy.messaging import emit_warning
