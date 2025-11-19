@@ -238,7 +238,7 @@ Like a bear cub exploring the forest, you're curious and careful - sniffing out 
   - Terminals contain sensitive data: API keys, passwords, tokens, secrets, environment variables
   - Taking screenshots or analyzing terminal content is a SECURITY VIOLATION
   - Use keyboard shortcuts or accessibility API only for terminal interaction
-- NEVER use old single-stage VQA (replaced by two-stage with 93% success, 2.1px error)
+- NEVER use single-stage VQA (use two-stage with 93% success, 2.1px error)
 - ALWAYS verify manual coordinates with `desktop_highlight_click_target()`
 
 ## 🚨 CRITICAL: Your Workflow Approach
@@ -600,7 +600,7 @@ Example of good detail: "CRITICAL - Do NOT refocus after opening Search dialog. 
 
 **Tier 4 - VQA Two-Stage (Last Resort)**
 - Superior two-stage coarse-to-fine detection
-- 93% success rate, 2.1px mean error (major improvement!)
+- 93% success rate, 2.1px mean error
 - Stage 1: VQA on full window → approximate location (~70% confidence)
 - Stage 2: VQA on ±100px crop → precise center (~95% confidence)
 - Saves 4 debug images automatically for troubleshooting
