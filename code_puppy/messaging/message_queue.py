@@ -1,8 +1,7 @@
 """
 Message queue system for decoupling Rich console output from renderers.
 
-This allows both TUI and interactive modes to consume the same messages
-but render them differently based on their capabilities.
+This allows interactive mode to consume messages and render them appropriately.
 """
 
 import asyncio
@@ -218,10 +217,8 @@ class MessageQueue:
 
         start_time = time.time()
 
-        # Check if we're in TUI mode - if so, try to yield control to the event loop
-        from code_puppy.tui_state import is_tui_mode
-
-        sleep_interval = 0.05 if is_tui_mode() else 0.1
+        # TUI mode has been removed, use standard sleep interval
+        sleep_interval = 0.1
 
         while True:
             if prompt_id in self._prompt_responses:
@@ -327,20 +324,14 @@ def emit_system_message(content: Any, **metadata):
 
 def emit_divider(content: str = "[dim]" + "─" * 100 + "\n" + "[/dim]", **metadata):
     """Emit a divider line"""
-    from code_puppy.tui_state import is_tui_mode
-
-    if not is_tui_mode():
-        emit_message(MessageType.DIVIDER, content, **metadata)
-    else:
-        pass
+    # TUI mode has been removed, always emit dividers
+    emit_message(MessageType.DIVIDER, content, **metadata)
 
 
 def emit_prompt(prompt_text: str, timeout: float = None) -> str:
     """Emit a human input request and wait for response."""
-    from code_puppy.tui_state import is_tui_mode
-
-    # In interactive mode, use direct input instead of the queue system
-    if not is_tui_mode():
+    # TUI mode has been removed, always use interactive mode input
+    if True:
         # Emit the prompt as a message for display
         from code_puppy.messaging import emit_info
 
