@@ -33,11 +33,21 @@ class TestToolRegistration:
         for tool in expected_tools:
             assert tool in TOOL_REGISTRY, f"Tool {tool} missing from registry"
 
-        # Check structure of registry entries
-        for tool_name, reg_func in TOOL_REGISTRY.items():
-            assert callable(reg_func), (
-                f"Registration function for {tool_name} is not callable"
-            )
+        # Check structure of registry entries (supports both dict and function formats)
+        for tool_name, registry_entry in TOOL_REGISTRY.items():
+            if isinstance(registry_entry, dict):
+                # New format: dict with metadata
+                assert "register" in registry_entry, (
+                    f"Registry entry for {tool_name} is a dict but missing 'register' key"
+                )
+                assert callable(registry_entry["register"]), (
+                    f"Registration function for {tool_name} is not callable"
+                )
+            else:
+                # Old format: direct function reference
+                assert callable(registry_entry), (
+                    f"Registration function for {tool_name} is not callable"
+                )
 
     def test_get_available_tool_names(self):
         """Test that get_available_tool_names returns the correct tools."""
