@@ -200,7 +200,25 @@ class ModelFactory:
                     f"ANTHROPIC_API_KEY is not set; skipping Anthropic model '{model_config.get('name')}'."
                 )
                 return None
-            anthropic_client = AsyncAnthropic(api_key=api_key)
+
+            # Use the same caching client as claude_code models
+            verify = get_cert_bundle_path()
+            http2_enabled = get_http2()
+
+            client = ClaudeCacheAsyncClient(
+                verify=verify,
+                timeout=180,
+                http2=http2_enabled,
+            )
+
+            anthropic_client = AsyncAnthropic(
+                api_key=api_key,
+                http_client=client,
+            )
+
+            # Ensure cache_control is injected at the Anthropic SDK layer
+            patch_anthropic_client_messages(anthropic_client)
+
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
@@ -211,12 +229,29 @@ class ModelFactory:
                     f"API key is not set for custom Anthropic endpoint; skipping model '{model_config.get('name')}'."
                 )
                 return None
-            client = create_async_client(headers=headers, verify=verify)
+
+            # Use the same caching client as claude_code models
+            if verify is None:
+                verify = get_cert_bundle_path()
+
+            http2_enabled = get_http2()
+
+            client = ClaudeCacheAsyncClient(
+                headers=headers,
+                verify=verify,
+                timeout=180,
+                http2=http2_enabled,
+            )
+
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
                 api_key=api_key,
             )
+
+            # Ensure cache_control is injected at the Anthropic SDK layer
+            patch_anthropic_client_messages(anthropic_client)
+
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "claude_code":

@@ -1,5 +1,5 @@
 """
-Shared spinner implementation for both TUI and CLI modes.
+Shared spinner implementation for CLI mode.
 
 This module provides consistent spinner animations across different UI modes.
 """
