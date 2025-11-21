@@ -431,12 +431,6 @@ def _verify_credentials(project_id: str | None = None) -> bool:
         True if credentials are valid, False otherwise
     """
     try:
-        # Check if GOOGLE_APPLICATION_CREDENTIALS env var is set
-        adc_path_str = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if adc_path_str:
-            emit_info(f"✅ Using credentials from: {adc_path_str}")
-
-        # Check if credentials file exists
         from google.auth import default
         from google.auth.exceptions import DefaultCredentialsError
 
@@ -694,10 +688,9 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                     timeout=300,
                 )
             else:
+                # Don't capture output - let user see what gcloud is doing
                 result = subprocess.run(
                     cmd,
-                    capture_output=True,
-                    text=True,
                     timeout=300,
                 )
 
@@ -707,11 +700,21 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                     "Application Default Credentials have been saved."
                 )
 
-                # Set GOOGLE_APPLICATION_CREDENTIALS env var to point to ADC file
-                # This ensures google-auth libraries know exactly where to look
+                # Verify credentials file was actually created
                 adc_path = _get_adc_path()
+                if not adc_path.exists():
+                    emit_error(
+                        f"❌ Authentication succeeded but credentials file not found!\n"
+                        f"   Expected: {adc_path}\n"
+                        f"   \n"
+                        f"   gcloud may have written credentials elsewhere or failed silently.\n"
+                        f"   Check the output above for clues."
+                    )
+                    return "Authentication succeeded but credentials were not saved. See output above."
+
+                # File exists, set env var
                 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(adc_path)
-                emit_success(f"✅ Set GOOGLE_APPLICATION_CREDENTIALS to: {adc_path}")
+                emit_success(f"✅ Credentials saved to: {adc_path}")
 
                 # Ensure gcloud account is active before listing projects
                 emit_info("🔍 Checking gcloud account status...")
