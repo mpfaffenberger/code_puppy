@@ -43,6 +43,78 @@ def handle_help_command(command: str) -> bool:
 
 
 @register_command(
+    name="shell",
+    description="Run a shell command directly without sending to agent",
+    usage="/shell <command>, /! <command>",
+    aliases=["!"],
+    category="core",
+)
+def handle_shell_command(command: str) -> bool:
+    """Execute a shell command directly."""
+    import subprocess
+    import sys
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
+    tokens = command.split(maxsplit=1)
+    if len(tokens) < 2:
+        emit_warning("Usage: /shell <command> or /! <command>")
+        emit_info("[dim]Example: /shell ls -la or /! git status[/dim]")
+        return True
+
+    shell_command = tokens[1]
+    
+    try:
+        # Show what we're running
+        emit_info(f"[bold cyan]$[/bold cyan] {shell_command}")
+        
+        # Run the command with shell=True for full shell features
+        # Use Popen for real-time output streaming
+        process = subprocess.Popen(
+            shell_command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+        )
+        
+        # Stream output in real-time
+        stdout_lines = []
+        stderr_lines = []
+        
+        # Read stdout
+        if process.stdout:
+            for line in process.stdout:
+                line = line.rstrip()
+                if line:
+                    print(line)  # Print directly to terminal for real-time feedback
+                    stdout_lines.append(line)
+        
+        # Wait for process to complete and get stderr
+        _, stderr = process.communicate()
+        if stderr:
+            stderr_lines = stderr.strip().split('\n')
+            for line in stderr_lines:
+                if line:
+                    emit_warning(f"[dim]{line}[/dim]")
+        
+        # Show exit code if non-zero
+        if process.returncode != 0:
+            emit_error(f"Command exited with code {process.returncode}")
+        else:
+            emit_success(f"[dim]Command completed successfully[/dim]")
+            
+    except KeyboardInterrupt:
+        emit_warning("\nCommand interrupted by user")
+    except FileNotFoundError:
+        emit_error(f"Command not found: {shell_command.split()[0]}")
+    except Exception as e:
+        emit_error(f"Error executing command: {e}")
+    
+    return True
+
+
+@register_command(
     name="cd",
     description="Change directory or show directories",
     usage="/cd <dir>",
