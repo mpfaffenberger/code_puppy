@@ -44,23 +44,38 @@ def handle_help_command(command: str) -> bool:
 
 @register_command(
     name="shell",
-    description="Run a shell command directly without sending to agent",
-    usage="/shell <command>, /! <command>",
+    description="Run shell commands or enter interactive shell mode",
+    usage="/shell [command], /! [command]",
     aliases=["!"],
     category="core",
 )
 def handle_shell_command(command: str) -> bool:
-    """Execute a shell command directly."""
+    """Execute a shell command directly or enter interactive shell mode."""
+    import asyncio
+    import concurrent.futures
     import subprocess
     import sys
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     tokens = command.split(maxsplit=1)
+    
+    # If no arguments provided, enter interactive shell mode
     if len(tokens) < 2:
-        emit_warning("Usage: /shell <command> or /! <command>")
-        emit_info("[dim]Example: /shell ls -la or /! git status[/dim]")
-        return True
+        try:
+            # Run the async shell mode using asyncio utilities
+            # Since we're called from an async context but this function is sync,
+            # we need to carefully schedule and wait for the coroutine
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    lambda: asyncio.run(shell_interactive_mode())
+                )
+                future.result(timeout=3600)  # 1 hour timeout
+            return True
+        except Exception as e:
+            emit_error(f"Error entering interactive shell: {e}")
+            return True
 
+    # Single command execution (original behavior)
     shell_command = tokens[1]
     
     try:
@@ -112,6 +127,149 @@ def handle_shell_command(command: str) -> bool:
         emit_error(f"Error executing command: {e}")
     
     return True
+
+
+async def shell_interactive_mode() -> None:
+    """Run an interactive shell session until user exits.
+    
+    This creates a mini shell environment where commands are executed directly.
+    User can type 'exit', 'quit', or '/back' to return to code puppy mode.
+    """
+    import os
+    import subprocess
+    import sys
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_system_message, emit_warning
+    
+    # Check if prompt_toolkit is available for better input
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.history import InMemoryHistory
+        use_prompt_toolkit = True
+    except ImportError:
+        use_prompt_toolkit = False
+    
+    # Show welcome message
+    emit_system_message("\n[bold green]🐚 Entering Interactive Shell Mode[/bold green]")
+    emit_info("[dim]Type commands directly. Use 'exit', 'quit', or '/back' to return to Code Puppy.[/dim]")
+    emit_info(f"[dim]Working directory: {os.getcwd()}[/dim]\n")
+    
+    # Create session if using prompt_toolkit
+    if use_prompt_toolkit:
+        session = PromptSession(history=InMemoryHistory())
+    
+    while True:
+        try:
+            # Get current working directory for prompt
+            cwd = os.getcwd()
+            # Abbreviate home directory
+            if cwd.startswith(os.path.expanduser("~")):
+                cwd = cwd.replace(os.path.expanduser("~"), "~", 1)
+            
+            # Create a colorful shell prompt
+            prompt_text = f"\n[bold cyan]shell[/bold cyan] [yellow]{cwd}[/yellow] [bold green]$[/bold green] "
+            
+            # Get input
+            if use_prompt_toolkit:
+                # Use prompt_toolkit for better history and editing
+                # Convert rich markup to plain text for prompt_toolkit
+                plain_prompt = f"shell {cwd} $ "
+                try:
+                    import asyncio
+                    shell_cmd = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: session.prompt(plain_prompt)
+                    )
+                except EOFError:
+                    # Ctrl+D pressed
+                    emit_info("\n[dim]Exiting shell mode...[/dim]")
+                    break
+            else:
+                # Fallback to basic input
+                emit_info(prompt_text, end="")
+                shell_cmd = input()
+            
+            # Strip whitespace
+            shell_cmd = shell_cmd.strip()
+            
+            # Check for exit commands
+            if shell_cmd.lower() in ['exit', 'quit', '/back', '/exit', '/quit']:
+                emit_success("\n[bold green]🐶 Returning to Code Puppy mode[/bold green]\n")
+                break
+            
+            # Skip empty commands
+            if not shell_cmd:
+                continue
+            
+            # Handle 'cd' command specially to change directory
+            if shell_cmd.startswith('cd '):
+                try:
+                    # Parse the directory (handle ~ and relative paths)
+                    target_dir = shell_cmd[3:].strip()
+                    if not target_dir:
+                        # 'cd' with no args goes to home
+                        target_dir = os.path.expanduser("~")
+                    else:
+                        target_dir = os.path.expanduser(target_dir)
+                        if not os.path.isabs(target_dir):
+                            target_dir = os.path.join(os.getcwd(), target_dir)
+                    
+                    # Change directory
+                    os.chdir(target_dir)
+                    emit_success(f"[dim]Changed to: {os.getcwd()}[/dim]")
+                    continue
+                except FileNotFoundError:
+                    emit_error(f"cd: no such directory: {target_dir}")
+                    continue
+                except Exception as e:
+                    emit_error(f"cd: {e}")
+                    continue
+            
+            # Execute other commands
+            try:
+                # Run the command with shell=True for full shell features
+                # Use Popen for real-time output streaming
+                process = subprocess.Popen(
+                    shell_cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                    cwd=os.getcwd(),  # Preserve current directory
+                )
+                
+                # Stream output in real-time
+                if process.stdout:
+                    for line in process.stdout:
+                        line = line.rstrip()
+                        if line:
+                            print(line)  # Print directly to terminal
+                
+                # Wait for process to complete and get stderr
+                _, stderr = process.communicate()
+                if stderr:
+                    stderr_lines = stderr.strip().split('\n')
+                    for line in stderr_lines:
+                        if line:
+                            # Print stderr in red/warning color
+                            print(f"\033[91m{line}\033[0m")  # ANSI red
+                
+                # Show exit code if non-zero (but quietly for success)
+                if process.returncode != 0:
+                    emit_warning(f"[dim]→ exit code: {process.returncode}[/dim]")
+                    
+            except FileNotFoundError:
+                emit_error(f"Command not found: {shell_cmd.split()[0]}")
+            except Exception as e:
+                emit_error(f"Error: {e}")
+                
+        except KeyboardInterrupt:
+            # Ctrl+C pressed - just show a new prompt
+            emit_warning("\n^C")
+            continue
+        except EOFError:
+            # Ctrl+D pressed - exit shell mode
+            emit_info("\n[dim]Exiting shell mode...[/dim]")
+            break
 
 
 @register_command(
