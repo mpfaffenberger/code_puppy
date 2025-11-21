@@ -54,17 +54,12 @@ async def main():
         action="store_true",
         help="Run in interactive mode",
     )
-    parser.add_argument(
-        "--tui",
-        "-t",
-        action="store_true",
-        help="Run in interactive mode (alias for -i)",
-    )
+    parser.add_argument("--tui", "-t", action="store_true", help="Run in TUI mode")
     parser.add_argument(
         "--web",
         "-w",
         action="store_true",
-        help="Run in web mode (deprecated - TUI has been removed)",
+        help="Run in web mode (serves TUI in browser)",
     )
     parser.add_argument(
         "--prompt",
@@ -89,11 +84,9 @@ async def main():
     )
     args = parser.parse_args()
 
-    # TUI has been removed - args.tui now just means interactive mode
-    # We keep web mode for backward compatibility (it will fail gracefully)
-    if args.web:
+    if args.tui or args.web:
         set_tui_mode(True)
-    else:
+    elif args.interactive or args.command or args.prompt:
         set_tui_mode(False)
 
     message_renderer = None
@@ -113,8 +106,8 @@ async def main():
         message_renderer.start()
 
     if (
-        not args.interactive
-        and not args.tui
+        not args.tui
+        and not args.interactive
         and not args.web
         and not args.command
         and not args.prompt
@@ -135,8 +128,7 @@ async def main():
                 )
                 sys.exit(1)
             python_executable = sys.executable
-            # Note: Web mode will fail since TUI has been removed
-            serve_command = f"{python_executable} -m code_puppy -i"
+            serve_command = f"{python_executable} -m code_puppy --tui"
             textual_serve_cmd = [
                 "textual",
                 "serve",
@@ -178,9 +170,9 @@ async def main():
             sys.exit(1)
     from code_puppy.messaging import emit_system_message
 
-    # Show the awesome Code Puppy logo only in interactive mode
-    # Note: -t now just means interactive, so we show the logo
-    if (args.interactive or args.tui) and not args.web:
+    # Show the awesome Code Puppy logo only in interactive mode (never in TUI mode)
+    # Always check both command line args AND runtime TUI state for safety
+    if args.interactive and not args.tui and not args.web and not is_tui_mode():
         try:
             import pyfiglet
 
@@ -347,8 +339,26 @@ async def main():
 
         if prompt_only_mode:
             await execute_single_prompt(initial_command, message_renderer)
-        elif args.interactive or args.tui or initial_command:
-            # -t flag now just runs interactive mode (TUI has been removed)
+        elif is_tui_mode():
+            try:
+                from code_puppy.tui import run_textual_ui
+
+                await run_textual_ui(initial_command=initial_command)
+            except ImportError:
+                from code_puppy.messaging import emit_error, emit_warning
+
+                emit_error(
+                    "Error: Textual UI not available. Install with: pip install textual"
+                )
+                emit_warning("Falling back to interactive mode...")
+                await interactive_mode(message_renderer)
+            except Exception as e:
+                from code_puppy.messaging import emit_error, emit_warning
+
+                emit_error(f"TUI Error: {str(e)}")
+                emit_warning("Falling back to interactive mode...")
+                await interactive_mode(message_renderer)
+        elif args.interactive or initial_command:
             await interactive_mode(message_renderer, initial_command=initial_command)
         else:
             await prompt_then_interactive_mode(message_renderer)
@@ -563,17 +573,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # Handle async autosave loading
                     try:
                         # Check if we're in a real interactive terminal
-                        # (not pexpect/tests) - interactive picker requires proper TTY
-                        use_interactive_picker = (
-                            sys.stdin.isatty() and sys.stdout.isatty()
-                        )
+                        # (not pexpect/tests) - TUI requires proper TTY
+                        use_tui = sys.stdin.isatty() and sys.stdout.isatty()
 
                         # Allow environment variable override for tests
                         if os.getenv("CODE_PUPPY_NO_TUI") == "1":
-                            use_interactive_picker = False
+                            use_tui = False
 
-                        if use_interactive_picker:
-                            # Use interactive picker for terminal sessions
+                        if use_tui:
+                            # Use new TUI picker for interactive sessions
                             from code_puppy.agents.agent_manager import (
                                 get_current_agent,
                             )
