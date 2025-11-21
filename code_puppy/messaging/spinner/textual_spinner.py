@@ -1,5 +1,5 @@
 """
-Textual spinner implementation (deprecated - TUI has been removed).
+Textual spinner implementation for TUI mode.
 """
 
 from textual.widgets import Static

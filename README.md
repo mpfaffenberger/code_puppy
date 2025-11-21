@@ -196,6 +196,8 @@ For examples and more information about agent rules, visit [https://agent.md](ht
 
 Use the `/mcp` command to manage MCP (list, start, stop, status, etc.)
 
+In the TUI you can click on MCP settings on the footer and interact with a mini-marketplace.
+
 Watch this video for examples! https://www.youtube.com/watch?v=1t1zEetOqlo
 
 
