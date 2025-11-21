@@ -66,7 +66,7 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
             subprocess.run(
                 ["brew", "--version"],
                 capture_output=True,
-                timeout=5,
+                timeout=10,
                 check=True,
             )
             return ("Homebrew", ["brew", "install", "--cask", "google-cloud-sdk"])
@@ -83,7 +83,7 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
             subprocess.run(
                 ["apt", "--version"],
                 capture_output=True,
-                timeout=5,
+                timeout=10,
                 check=True,
             )
             return ("apt", ["sudo", "apt-get", "install", "-y", "google-cloud-sdk"])
@@ -99,7 +99,7 @@ def _get_package_manager() -> tuple[str, list[str]] | None:
             subprocess.run(
                 ["yum", "--version"],
                 capture_output=True,
-                timeout=5,
+                timeout=10,
                 check=True,
             )
             return ("yum", ["sudo", "yum", "install", "-y", "google-cloud-sdk"])
@@ -294,7 +294,7 @@ def _ensure_gcloud_account_authenticated(gcloud_cmd: str = "gcloud") -> bool:
             ],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=30,
         )
 
         if result.returncode == 0 and result.stdout.strip():
@@ -346,7 +346,7 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
             [gcloud_cmd, "config", "get-value", "project"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=30,
         )
         if result.returncode == 0 and result.stdout.strip():
             project = result.stdout.strip()
@@ -362,7 +362,7 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
         list_result = subprocess.run(
             [gcloud_cmd, "projects", "list", "--format=table(projectId, name)"],
             capture_output=False,  # Show output directly to user
-            timeout=120,  # 2 minutes - can be slow on corporate networks
+            timeout=240,  # 4 minutes - can be slow on corporate networks with many projects
         )
 
         if list_result.returncode != 0:
@@ -401,7 +401,7 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
             [gcloud_cmd, "config", "set", "project", project_id],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=60,
         )
 
         if set_result.returncode == 0:
@@ -537,7 +537,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=5,
+                    timeout=15,
                     check=True,
                 )
                 emit_success(
@@ -550,7 +550,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
 
     try:
         # Use longer timeout on Windows for potential first-time initialization
-        check_timeout = 120 if system == "Windows" else 10
+        check_timeout = 120 if system == "Windows" else 30
         result = subprocess.run(
             [gcloud_cmd, "--version"],
             capture_output=True,
@@ -598,7 +598,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=5,
+                    timeout=15,
                     check=True,
                 )
                 emit_success(
@@ -619,7 +619,7 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
 
         # Verify installation worked
         # Use longer timeout on Windows for first-time initialization
-        verification_timeout = 120 if system == "Windows" else 10
+        verification_timeout = 120 if system == "Windows" else 30
         emit_info(
             f"Verifying gcloud installation (timeout: {verification_timeout}s)..."
         )
