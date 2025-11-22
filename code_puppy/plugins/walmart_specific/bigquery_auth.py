@@ -10,6 +10,7 @@ Also handles automatic installation of gcloud CLI and Python dependencies.
 import os
 import platform
 import subprocess
+import threading
 import warnings
 from pathlib import Path
 
@@ -22,6 +23,36 @@ try:
     from google.cloud import bigquery
 except ImportError:
     bigquery = None  # type: ignore
+
+
+def _input_with_timeout(prompt: str, timeout: int = 60) -> str | None:
+    """Get user input with timeout.
+
+    Args:
+        prompt: The prompt to display
+        timeout: Timeout in seconds
+
+    Returns:
+        User input string, empty string if user pressed Enter, or None if timeout
+    """
+    result = [None]
+
+    def get_input():
+        try:
+            result[0] = input(prompt)
+        except (EOFError, KeyboardInterrupt):
+            result[0] = None
+
+    thread = threading.Thread(target=get_input, daemon=True)
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
+        # Timeout occurred
+        print()  # Add newline for clean output
+        return None
+
+    return result[0]
 
 
 def _is_walmart_network() -> bool:
@@ -348,14 +379,21 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
             text=True,
             timeout=30,
         )
+        current_default = None
         if result.returncode == 0 and result.stdout.strip():
             project = result.stdout.strip()
             if project and project != "(unset)":
+                current_default = project
                 emit_success(f"✅ Found default project from gcloud config: {project}")
-                return project
 
-        # If no default project, list all projects and let user choose
-        emit_info("📊 No default project set. Listing your available projects...")
+        # List all projects for user to review
+        if current_default:
+            emit_info(
+                f"📊 Listing your available projects (current default: {current_default})..."
+            )
+            emit_info("    You can select a different project or press Enter to keep the default.")
+        else:
+            emit_info("📊 No default project set. Listing your available projects...")
         emit_info("")
 
         # Show projects in table format
@@ -370,30 +408,54 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
             return None
 
         emit_info("")
-        emit_info("💡 Please enter the Project ID from the list above:")
 
-        # Get user input with retry
-        max_attempts = 3
-        project_id = None
+        # If default exists, use timeout and allow Enter to keep default
+        if current_default:
+            emit_info(f"💡 Press Enter to keep '{current_default}' or enter a different Project ID:")
+            emit_info("    (120 second timeout - will use default if no response)")
+            emit_info("")
 
-        for attempt in range(1, max_attempts + 1):
-            try:
-                project_id = input("Project ID: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                emit_warning("\n⚠️  Project selection cancelled")
-                return None
+            user_input = _input_with_timeout("Project ID: ", timeout=120)
 
-            if project_id:
-                break
-            else:
-                emit_error(
-                    f"❌ No project ID provided (attempt {attempt}/{max_attempts})"
-                )
-                if attempt < max_attempts:
-                    emit_info("Please try again:")
-                else:
-                    emit_error("❌ Failed to get project ID after 3 attempts")
+            # Timeout occurred
+            if user_input is None:
+                emit_info(f"⏱️  No response - using current default: {current_default}")
+                return current_default
+
+            # User pressed Enter (empty input)
+            project_id = user_input.strip()
+            if not project_id:
+                emit_success(f"✅ Keeping current default: {current_default}")
+                return current_default
+
+            # User entered a new project ID - proceed to set it
+        else:
+            # No default project exists - use original retry logic
+            emit_info("💡 Please enter the Project ID from the list above:")
+            emit_info("")
+
+            # Get user input with retry (no default case)
+            max_attempts = 3
+            project_id = None
+
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    project_id = input("Project ID: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    emit_warning("\n⚠️  Project selection cancelled")
                     return None
+
+                if project_id:
+                    break
+                else:
+                    emit_error(
+                        f"❌ No project ID provided (attempt {attempt}/{max_attempts})"
+                    )
+                    if attempt < max_attempts:
+                        emit_info("Please try again:")
+                    else:
+                        emit_error("❌ Failed to get project ID after 3 attempts")
+                        return None
 
         # Set it as the default
         emit_info(f"Setting {project_id} as default project...")
