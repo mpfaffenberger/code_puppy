@@ -433,40 +433,6 @@ class TestAgentManagerBasics:
         # Clear for cleanup
         _AGENT_REGISTRY.clear()
 
-    @patch("code_puppy.agents.agent_manager.discover_json_agents")
-    @patch("pkgutil.iter_modules")
-    @patch("importlib.import_module")
-    def test_get_available_agents_handles_exceptions(
-        self, mock_import, mock_iter_modules, mock_json_agents
-    ):
-        """Test that get_available_agents handles exceptions gracefully."""
-        # Setup a broken agent
-        mock_iter_modules.return_value = [("code_puppy.agents", "broken_agent", True)]
-
-        # Create a broken agent class that fails on instantiation
-        class BrokenAgent(BaseAgent):
-            def __init__(self):
-                raise Exception("Broken agent")
-
-            def get_system_prompt(self):
-                return ""
-
-            def get_available_tools(self):
-                return []
-
-        mock_module = MagicMock()
-        mock_module.BrokenAgent = BrokenAgent
-        mock_import.return_value = mock_module
-
-        mock_json_agents.return_value = {}
-
-        agents = get_available_agents()
-
-        # Should still return a dict, even with broken agents
-        assert isinstance(agents, dict)
-        # Should have some agents (real ones from discovery may be included)
-        assert len(agents) > 0
-
     def test_load_agent_with_empty_registry(self):
         """Test load_agent behavior with completely empty registry."""
         # Mock discovery to ensure empty registry

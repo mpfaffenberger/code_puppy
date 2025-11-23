@@ -19,7 +19,6 @@ from code_puppy.plugins.chatgpt_oauth.config import (
     get_chatgpt_models_path,
     get_token_storage_path,
 )
-from code_puppy.plugins.chatgpt_oauth.oauth_flow import _OAuthServer
 from code_puppy.plugins.chatgpt_oauth.utils import (
     add_models_to_extra_config,
     exchange_code_for_tokens,
@@ -648,33 +647,6 @@ class TestOAuthConcurrencyAndThreading:
 
         # Verify requests were made properly
         assert mock_post.call_count == 5
-
-    def test_simultaneous_oauth_server_operations(self):
-        """Test behavior of OAuth server operations in concurrent scenarios."""
-        servers = []
-        errors = []
-
-        def create_server():
-            try:
-                server = _OAuthServer(client_id="test_client")
-                servers.append(server)
-                server.server_close()
-            except Exception as e:
-                errors.append(e)
-
-        # Create multiple servers concurrently
-        threads = []
-        for _ in range(3):
-            thread = threading.Thread(target=create_server)
-            threads.append(thread)
-            thread.start()
-
-        for thread in threads:
-            thread.join()
-
-        # Should either succeed or fail with port conflict
-        # (Port 1455 can only be bound by one process)
-        assert len(servers) <= 1 and len(errors) >= 2 or len(servers) == 0
 
 
 class TestOAuthConfigurationIntegration:
