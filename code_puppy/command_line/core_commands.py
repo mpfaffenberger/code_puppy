@@ -24,13 +24,13 @@ from code_puppy.tools.tools_content import tools_content
 
 # Commands that require interactive TTY access (categorized for maintainability)
 INTERACTIVE_COMMANDS = {
-    'remote': {'ssh', 'telnet', 'ftp', 'sftp', 'mosh'},
-    'editors': {'vim', 'vi', 'nano', 'emacs', 'nvim'},
-    'monitors': {'top', 'htop', 'watch', 'iotop', 'nethogs'},
-    'pagers': {'less', 'more', 'man'},
-    'repls': {'python', 'python3', 'ipython', 'node', 'irb', 'ruby'},
-    'databases': {'psql', 'mysql', 'redis-cli', 'mongo', 'sqlite3'},
-    'multiplexers': {'tmux', 'screen'},
+    "remote": {"ssh", "telnet", "ftp", "sftp", "mosh"},
+    "editors": {"vim", "vi", "nano", "emacs", "nvim"},
+    "monitors": {"top", "htop", "watch", "iotop", "nethogs"},
+    "pagers": {"less", "more", "man"},
+    "repls": {"python", "python3", "ipython", "node", "irb", "ruby"},
+    "databases": {"psql", "mysql", "redis-cli", "mongo", "sqlite3"},
+    "multiplexers": {"tmux", "screen"},
 }
 
 
@@ -41,10 +41,10 @@ def _get_all_interactive_commands() -> set:
 
 def _should_use_tty(command: str) -> bool:
     """Determine if a command needs interactive TTY based on context.
-    
+
     Args:
         command: The shell command string to analyze
-        
+
     Returns:
         True if the command needs TTY access, False otherwise
     """
@@ -53,35 +53,37 @@ def _should_use_tty(command: str) -> bool:
         parts = shlex.split(command)
         if not parts:
             return False
-        
+
         # Extract base command name (strip path)
         base_cmd = os.path.basename(parts[0])
-        
+
         # Commands that ALWAYS need TTY
-        always_tty = {'ssh', 'telnet', 'tmux', 'screen', 'mosh'}
+        always_tty = {"ssh", "telnet", "tmux", "screen", "mosh"}
         if base_cmd in always_tty:
             return True
-        
+
         # Editors need TTY unless in batch/script mode
-        if base_cmd in {'vim', 'vi', 'nvim', 'nano', 'emacs'}:
+        if base_cmd in {"vim", "vi", "nvim", "nano", "emacs"}:
             # Check for non-interactive flags
-            batch_flags = {'-E', '-s', '--batch', '-e', '-c'}
+            batch_flags = {"-E", "-s", "--batch", "-e", "-c"}
             return not any(flag in parts for flag in batch_flags)
-        
+
         # REPLs only need TTY if no script/command is provided
-        if base_cmd in {'python', 'python3', 'ipython', 'node', 'irb', 'ruby'}:
+        if base_cmd in {"python", "python3", "ipython", "node", "irb", "ruby"}:
             # If only the command name, it's interactive
             # If there's a file or -c flag, it's not
-            return len(parts) == 1 and '-c' not in parts
-        
+            return len(parts) == 1 and "-c" not in parts
+
         # Database CLIs default to interactive unless command provided
-        if base_cmd in {'psql', 'mysql', 'redis-cli', 'mongo', 'sqlite3'}:
-            return '-c' not in parts and '--command' not in parts and '--eval' not in parts
-        
+        if base_cmd in {"psql", "mysql", "redis-cli", "mongo", "sqlite3"}:
+            return (
+                "-c" not in parts and "--command" not in parts and "--eval" not in parts
+            )
+
         # Other potentially interactive commands
         interactive_set = _get_all_interactive_commands()
         return base_cmd in interactive_set
-        
+
     except (ValueError, IndexError):
         # If parsing fails, assume non-interactive for safety
         return False
@@ -93,29 +95,29 @@ def _execute_shell_command(
     timeout: Optional[int] = 3600,
 ) -> int:
     """Execute a shell command with appropriate TTY handling.
-    
+
     SECURITY NOTE: This function uses shell=True for full shell feature support
     (pipes, wildcards, variable expansion, etc.). This introduces command injection
     risk if called with untrusted input. Use only in contexts where the user
     has already been authenticated and is authorized to execute arbitrary commands.
-    
+
     Args:
         shell_command: The command to execute
         cwd: Working directory (defaults to current)
         timeout: Maximum execution time in seconds (None = no timeout)
-        
+
     Returns:
         The process exit code
-        
+
     Raises:
         subprocess.TimeoutExpired: If command exceeds timeout
         KeyboardInterrupt: If user interrupts with Ctrl+C
     """
     from code_puppy.messaging import emit_error, emit_success, emit_warning
-    
+
     process = None
     needs_tty = _should_use_tty(shell_command)
-    
+
     try:
         if needs_tty:
             # TTY mode: Give command direct terminal access
@@ -124,7 +126,7 @@ def _execute_shell_command(
                 shell=True,
                 cwd=cwd,
             )
-            
+
             # Wait for completion with timeout
             try:
                 returncode = process.wait(timeout=timeout)
@@ -137,15 +139,15 @@ def _execute_shell_command(
                     process.kill()
                     process.wait()
                 raise
-            
+
             # Show exit status
             if returncode != 0:
                 emit_error(f"Command exited with code {returncode}")
             else:
-                emit_success(f"[dim]Command completed successfully[/dim]")
-                
+                emit_success("[dim]Command completed successfully[/dim]")
+
             return returncode
-            
+
         else:
             # Regular mode: Capture and stream output
             process = subprocess.Popen(
@@ -157,7 +159,7 @@ def _execute_shell_command(
                 bufsize=1,  # Line buffered
                 cwd=cwd,
             )
-            
+
             # Stream stdout in real-time
             stdout_lines = []
             if process.stdout:
@@ -166,24 +168,24 @@ def _execute_shell_command(
                     if line:
                         print(line)  # Direct terminal output
                         stdout_lines.append(line)
-            
+
             # Get stderr after completion
             _, stderr = process.communicate(timeout=timeout if timeout else None)
-            
+
             # Display stderr
             if stderr:
-                for line in stderr.strip().split('\n'):
+                for line in stderr.strip().split("\n"):
                     if line:
                         emit_warning(f"[dim]{line}[/dim]")
-            
+
             # Show exit status
             if process.returncode != 0:
                 emit_error(f"Command exited with code {process.returncode}")
             else:
-                emit_success(f"[dim]Command completed successfully[/dim]")
-                
+                emit_success("[dim]Command completed successfully[/dim]")
+
             return process.returncode
-            
+
     except subprocess.TimeoutExpired:
         # Already handled above
         raise
@@ -197,7 +199,7 @@ def _execute_shell_command(
                 process.kill()
                 process.wait()
         raise
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         emit_error(f"Command not found: {shell_command.split()[0]}")
         return 127  # Standard "command not found" exit code
     except Exception as e:
@@ -219,6 +221,7 @@ def _execute_shell_command(
 # =============================================================================
 # COMMAND HANDLERS
 # =============================================================================
+
 
 # Import get_commands_help from command_handler to avoid circular imports
 # This will be defined in command_handler.py
@@ -257,10 +260,10 @@ def handle_help_command(command: str) -> bool:
 )
 def handle_shell_command(command: str) -> bool:
     """Execute a shell command directly or enter interactive shell mode.
-    
+
     Automatically detects interactive commands (ssh, vim, etc.) and provides
     them with direct TTY access instead of piped output.
-    
+
     SECURITY WARNING: Commands are executed with shell=True, which allows
     full shell features (pipes, wildcards, etc.) but also enables command
     injection if used with untrusted input. This is acceptable for a CLI
@@ -271,15 +274,13 @@ def handle_shell_command(command: str) -> bool:
     from code_puppy.messaging import emit_error, emit_info, emit_warning
 
     tokens = command.split(maxsplit=1)
-    
+
     # If no arguments provided, enter interactive shell mode
     if len(tokens) < 2:
         try:
             # Run the async shell mode using asyncio utilities
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    lambda: asyncio.run(shell_interactive_mode())
-                )
+                future = executor.submit(lambda: asyncio.run(shell_interactive_mode()))
                 future.result(timeout=3600)  # 1 hour timeout
             return True
         except Exception as e:
@@ -288,55 +289,63 @@ def handle_shell_command(command: str) -> bool:
 
     # Single command execution
     shell_command = tokens[1]
-    
+
     try:
         # Show what we're running
         emit_info(f"[bold cyan]$[/bold cyan] {shell_command}")
-        
+
         # Execute using shared logic
         _execute_shell_command(shell_command, cwd=os.getcwd())
-            
+
     except KeyboardInterrupt:
         emit_warning("\nCommand interrupted by user")
     except Exception as e:
         emit_error(f"Error executing command: {e}")
-    
+
     return True
 
 
 async def shell_interactive_mode() -> None:
     """Run an interactive shell session until user exits.
-    
+
     This creates a mini shell environment where commands are executed directly.
     User can type 'exit', 'quit', or '/back' to return to code puppy mode.
-    
+
     Special handling for interactive commands (ssh, vim, etc.) that need TTY access.
-    
+
     SECURITY WARNING: Commands are executed with shell=True for full shell
     compatibility. This is appropriate for an interactive user session.
     """
     import os
     import subprocess
-    import sys
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_system_message, emit_warning
-    
+    from code_puppy.messaging import (
+        emit_error,
+        emit_info,
+        emit_success,
+        emit_system_message,
+        emit_warning,
+    )
+
     # Check if prompt_toolkit is available for better input
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.history import InMemoryHistory
+
         use_prompt_toolkit = True
     except ImportError:
         use_prompt_toolkit = False
-    
+
     # Show welcome message
     emit_system_message("\n[bold green]🐚 Entering Interactive Shell Mode[/bold green]")
-    emit_info("[dim]Type commands directly. Use 'exit', 'quit', or '/back' to return to Code Puppy.[/dim]")
+    emit_info(
+        "[dim]Type commands directly. Use 'exit', 'quit', or '/back' to return to Code Puppy.[/dim]"
+    )
     emit_info(f"[dim]Working directory: {os.getcwd()}[/dim]\n")
-    
+
     # Create session if using prompt_toolkit
     if use_prompt_toolkit:
         session = PromptSession(history=InMemoryHistory())
-    
+
     while True:
         try:
             # Get current working directory for prompt
@@ -344,10 +353,10 @@ async def shell_interactive_mode() -> None:
             # Abbreviate home directory
             if cwd.startswith(os.path.expanduser("~")):
                 cwd = cwd.replace(os.path.expanduser("~"), "~", 1)
-            
+
             # Create a colorful shell prompt
             prompt_text = f"\n[bold cyan]shell[/bold cyan] [yellow]{cwd}[/yellow] [bold green]$[/bold green] "
-            
+
             # Get input
             if use_prompt_toolkit:
                 # Use prompt_toolkit for better history and editing
@@ -355,6 +364,7 @@ async def shell_interactive_mode() -> None:
                 plain_prompt = f"shell {cwd} $ "
                 try:
                     import asyncio
+
                     shell_cmd = await asyncio.get_event_loop().run_in_executor(
                         None, lambda: session.prompt(plain_prompt)
                     )
@@ -366,21 +376,23 @@ async def shell_interactive_mode() -> None:
                 # Fallback to basic input
                 emit_info(prompt_text, end="")
                 shell_cmd = input()
-            
+
             # Strip whitespace
             shell_cmd = shell_cmd.strip()
-            
+
             # Check for exit commands
-            if shell_cmd.lower() in ['exit', 'quit', '/back', '/exit', '/quit']:
-                emit_success("\n[bold green]🐶 Returning to Code Puppy mode[/bold green]\n")
+            if shell_cmd.lower() in ["exit", "quit", "/back", "/exit", "/quit"]:
+                emit_success(
+                    "\n[bold green]🐶 Returning to Code Puppy mode[/bold green]\n"
+                )
                 break
-            
+
             # Skip empty commands
             if not shell_cmd:
                 continue
-            
+
             # Handle 'cd' command specially to change directory
-            if shell_cmd.startswith('cd '):
+            if shell_cmd.startswith("cd "):
                 try:
                     # Parse the directory (handle ~ and relative paths)
                     target_dir = shell_cmd[3:].strip()
@@ -391,7 +403,7 @@ async def shell_interactive_mode() -> None:
                         target_dir = os.path.expanduser(target_dir)
                         if not os.path.isabs(target_dir):
                             target_dir = os.path.join(os.getcwd(), target_dir)
-                    
+
                     # Change directory
                     os.chdir(target_dir)
                     emit_success(f"[dim]Changed to: {os.getcwd()}[/dim]")
@@ -402,16 +414,16 @@ async def shell_interactive_mode() -> None:
                 except Exception as e:
                     emit_error(f"cd: {e}")
                     continue
-            
+
             # Execute other commands using shared logic
             try:
                 _execute_shell_command(shell_cmd, cwd=os.getcwd())
             except subprocess.TimeoutExpired:
                 emit_warning("Command timed out")
-            except Exception as e:
+            except Exception:
                 # Error already handled by _execute_shell_command
                 pass
-                
+
         except KeyboardInterrupt:
             # Ctrl+C pressed - just show a new prompt
             emit_warning("\n^C")
