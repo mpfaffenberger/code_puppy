@@ -390,7 +390,7 @@ class DiffConfiguration:
 
 
 async def interactive_diff_picker() -> Optional[dict]:
-    """Show an interactive full-screen TUI to configure diff settings.
+    """Show an interactive full-screen terminal UI to configure diff settings.
 
     Returns:
         A dict with changes or None if cancelled

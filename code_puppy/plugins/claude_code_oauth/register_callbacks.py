@@ -88,7 +88,7 @@ def _start_callback_server(
     for port in range(port_range[0], port_range[1] + 1):
         try:
             server = HTTPServer(("localhost", port), _CallbackHandler)
-            assign_redirect_uri(port)
+            assign_redirect_uri(context, port)
             result = _OAuthResult()
             event = threading.Event()
             _CallbackHandler.result = result
