@@ -75,11 +75,10 @@ def clear_oauth_context() -> None:
     _oauth_context = None
 
 
-def assign_redirect_uri(port: int) -> str:
-    """Assign redirect URI for the active OAuth context."""
-    context = _oauth_context
+def assign_redirect_uri(context: OAuthContext, port: int) -> str:
+    """Assign redirect URI for the given OAuth context."""
     if context is None:
-        raise RuntimeError("OAuth context has not been prepared")
+        raise RuntimeError("OAuth context cannot be None")
 
     host = CLAUDE_CODE_OAUTH_CONFIG["redirect_host"].rstrip("/")
     path = CLAUDE_CODE_OAUTH_CONFIG["redirect_path"].lstrip("/")
@@ -343,7 +342,11 @@ def add_models_to_extra_config(models: List[str]) -> bool:
         claude_models = {}
         added = 0
         tokens = load_stored_tokens()
-        access_token = tokens["access_token"]
+
+        # Handle case where tokens are None or empty
+        access_token = ""
+        if tokens and "access_token" in tokens:
+            access_token = tokens["access_token"]
 
         for model_name in filtered_models:
             prefixed = f"{CLAUDE_CODE_OAUTH_CONFIG['prefix']}{model_name}"

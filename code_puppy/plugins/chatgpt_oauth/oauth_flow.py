@@ -271,11 +271,16 @@ def run_oauth_flow() -> None:
     try:
         import webbrowser
 
-        webbrowser_opened = webbrowser.open(auth_url)
+        from code_puppy.tools.common import should_suppress_browser
+
+        if should_suppress_browser():
+            emit_info(f"[HEADLESS MODE] Would normally open: {auth_url}")
+        else:
+            webbrowser_opened = webbrowser.open(auth_url)
     except Exception as exc:  # noqa: BLE001
         emit_warning(f"Could not open browser automatically: {exc}")
 
-    if not webbrowser_opened:
+    if not webbrowser_opened and not should_suppress_browser():
         emit_warning("Please open the URL manually if the browser did not open.")
 
     emit_info("Waiting for authentication callback…")

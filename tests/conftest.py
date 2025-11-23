@@ -98,14 +98,15 @@ def pytest_sessionfinish(session, exitstatus):
             print("\n[pytest-warn] Untracked .py files detected:")
             for line in untracked_py:
                 rel_path = line[3:].strip()
-                full_path = os.path.join(session.config.invocation_dir, rel_path)
+                os.path.join(session.config.invocation_dir, rel_path)
                 print(f"  - {rel_path}")
                 # Optional: attempt cleanup to keep repo tidy
-                try:
-                    os.remove(full_path)
-                    print(f"    (cleaned up: {rel_path})")
-                except Exception as e:
-                    print(f"    (cleanup failed: {e})")
+                # WARNING: File deletion disabled to preserve newly created test files
+                # try:
+                #     os.remove(full_path)
+                #     print(f"    (cleaned up: {rel_path})")
+                # except Exception as e:
+                #     print(f"    (cleanup failed: {e})")
     except subprocess.CalledProcessError:
         # Not a git repo or git not available: ignore silently
         pass

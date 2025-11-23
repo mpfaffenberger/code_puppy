@@ -387,12 +387,20 @@ def register_invoke_agent(agent):
                 )
 
             subagent_name = f"temp-invoke-agent-{_temp_agent_count}"
+            model_settings_dict = {}
+            from pydantic_ai.settings import ModelSettings
+
+            if model_name.lower().startswith("cerebras"):
+                model_settings_dict = {"seed": 42, "temperature": 0.7}
+            model_settings = ModelSettings(**model_settings_dict)
+
             temp_agent = Agent(
                 model=model,
                 instructions=instructions,
                 output_type=str,
                 retries=3,
                 history_processors=[agent_config.message_history_accumulator],
+                model_settings=model_settings,
             )
 
             # Register the tools that the agent needs
