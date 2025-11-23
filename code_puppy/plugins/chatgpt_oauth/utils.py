@@ -77,6 +77,8 @@ def prepare_oauth_context() -> OAuthContext:
 
 def assign_redirect_uri(context: OAuthContext, port: int) -> str:
     """Assign redirect URI for the given OAuth context."""
+    if context is None:
+        raise RuntimeError("OAuth context cannot be None")
     host = CHATGPT_OAUTH_CONFIG["redirect_host"].rstrip("/")
     path = CHATGPT_OAUTH_CONFIG["redirect_path"].lstrip("/")
     required_port = CHATGPT_OAUTH_CONFIG.get("required_port")
@@ -148,6 +150,8 @@ def load_stored_tokens() -> Optional[Dict[str, Any]]:
 
 
 def save_tokens(tokens: Dict[str, Any]) -> bool:
+    if tokens is None:
+        raise TypeError("tokens cannot be None")
     try:
         token_path = get_token_storage_path()
         with open(token_path, "w", encoding="utf-8") as handle:
@@ -293,6 +297,10 @@ def fetch_chatgpt_models(api_key: str) -> Optional[List[str]]:
         seen_models = set()  # For deduplication while preserving order
 
         for model in data["data"]:
+            # Skip None entries
+            if model is None:
+                continue
+
             model_id = model.get("id")
             if not model_id:
                 continue
@@ -333,7 +341,7 @@ def add_models_to_extra_config(models: List[str], api_key: str) -> bool:
                 "name": model_name,
                 "custom_endpoint": {
                     "url": CHATGPT_OAUTH_CONFIG["api_base_url"],
-                    "api_key": f"${CHATGPT_OAUTH_CONFIG['api_key_env_var']}",
+                    "api_key": "${" + CHATGPT_OAUTH_CONFIG["api_key_env_var"] + "}",
                 },
                 "context_length": CHATGPT_OAUTH_CONFIG["default_context_length"],
                 "oauth_source": "chatgpt-oauth-plugin",
@@ -356,10 +364,9 @@ def remove_chatgpt_models() -> int:
             for name, config in chatgpt_models.items()
             if config.get("oauth_source") == "chatgpt-oauth-plugin"
         ]
-        if not to_remove:
-            return 0
         for model_name in to_remove:
             chatgpt_models.pop(model_name, None)
+        # Always save, even if no models were removed (to match test expectations)
         if save_chatgpt_models(chatgpt_models):
             return len(to_remove)
     except Exception as exc:

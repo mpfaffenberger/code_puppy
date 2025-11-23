@@ -1,6 +1,5 @@
 """Tests for AgentCreatorAgent functionality."""
 
-
 from code_puppy.agents.agent_creator_agent import AgentCreatorAgent
 
 
@@ -29,54 +28,54 @@ class TestAgentCreatorAgent:
         mock_tools = ["tool1", "tool2", "tool3"]
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_available_tool_names",
-            lambda: mock_tools
+            lambda: mock_tools,
         )
-        
+
         # Mock other dependencies
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
-            lambda: "/mock/agents/dir"
+            lambda: "/mock/agents/dir",
         )
-        
+
         monkeypatch.setattr(
-            "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
-            lambda: {}
+            "code_puppy.agents.agent_creator_agent.ModelFactory.load_config", lambda: {}
         )
-        
+
         agent = AgentCreatorAgent()
         prompt = agent.get_system_prompt()
-        
+
         # Verify each tool is mentioned in the prompt
         for tool in mock_tools:
             assert f"**{tool}**" in prompt
-        
+
         # Verify the tools are in the ALL AVAILABLE TOOLS section
-        all_tools_section = "## ALL AVAILABLE TOOLS:\n" + ", ".join(f"- **{tool}**" for tool in mock_tools)
+        all_tools_section = "## ALL AVAILABLE TOOLS:\n" + ", ".join(
+            f"- **{tool}**" for tool in mock_tools
+        )
         assert all_tools_section in prompt
 
     def test_get_system_prompt_injects_agents_directory(self, monkeypatch):
         """Test that get_system_prompt() injects the agents directory path."""
         mock_dir = "/custom/user/agents"
-        
+
         # Mock all dependencies
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_available_tool_names",
-            lambda: ["tool1"]
+            lambda: ["tool1"],
         )
-        
+
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
-            lambda: mock_dir
+            lambda: mock_dir,
         )
-        
+
         monkeypatch.setattr(
-            "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
-            lambda: {}
+            "code_puppy.agents.agent_creator_agent.ModelFactory.load_config", lambda: {}
         )
-        
+
         agent = AgentCreatorAgent()
         prompt = agent.get_system_prompt()
-        
+
         # Verify the agents directory is mentioned in file creation section
         assert f"Save to the agents directory: `{mock_dir}`" in prompt
 
@@ -85,35 +84,37 @@ class TestAgentCreatorAgent:
         mock_models_config = {
             "gpt-5": {"type": "OpenAI", "context_length": "128k"},
             "claude-4": {"type": "Anthropic", "context_length": "200k"},
-            "gemini-pro": {"type": "Google", "context_length": "32k"}
+            "gemini-pro": {"type": "Google", "context_length": "32k"},
         }
-        
+
         # Mock all dependencies
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_available_tool_names",
-            lambda: ["tool1"]
+            lambda: ["tool1"],
         )
-        
+
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
-            lambda: "/mock/agents/dir"
+            lambda: "/mock/agents/dir",
         )
-        
+
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
-            lambda: mock_models_config
+            lambda: mock_models_config,
         )
-        
+
         agent = AgentCreatorAgent()
         prompt = agent.get_system_prompt()
-        
+
         # Verify each model is mentioned in the prompt
         for model_name, model_info in mock_models_config.items():
             model_type = model_info.get("type", "Unknown")
             context_length = model_info.get("context_length", "Unknown")
-            expected_model_line = f"- **{model_name}**: {model_type} model with {context_length} context"
+            expected_model_line = (
+                f"- **{model_name}**: {model_type} model with {context_length} context"
+            )
             assert expected_model_line in prompt
-        
+
         # Verify the models are in the ALL AVAILABLE MODELS section
         assert "## ALL AVAILABLE MODELS:" in prompt
 
@@ -123,42 +124,44 @@ class TestAgentCreatorAgent:
         mock_agents_dir = "/home/user/.code_puppy/agents"
         mock_models_config = {
             "gpt-5": {"type": "OpenAI", "context_length": "128k"},
-            "claude-4-sonnet": {"type": "Anthropic", "context_length": "200k"}
+            "claude-4-sonnet": {"type": "Anthropic", "context_length": "200k"},
         }
-        
+
         # Mock all dependencies
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_available_tool_names",
-            lambda: mock_tools
+            lambda: mock_tools,
         )
-        
+
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
-            lambda: mock_agents_dir
+            lambda: mock_agents_dir,
         )
-        
+
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
-            lambda: mock_models_config
+            lambda: mock_models_config,
         )
-        
+
         agent = AgentCreatorAgent()
         prompt = agent.get_system_prompt()
-        
+
         # Verify tools are injected
         for tool in mock_tools:
             assert f"**{tool}**" in prompt
-        
+
         # Verify agents directory is injected
         assert f"Save to the agents directory: `{mock_agents_dir}`" in prompt
-        
+
         # Verify models are injected
         for model_name, model_info in mock_models_config.items():
             model_type = model_info.get("type", "Unknown")
             context_length = model_info.get("context_length", "Unknown")
-            expected_model_line = f"- **{model_name}**: {model_type} model with {context_length} context"
+            expected_model_line = (
+                f"- **{model_name}**: {model_type} model with {context_length} context"
+            )
             assert expected_model_line in prompt
-        
+
         # Verify key sections are present
         assert "## ALL AVAILABLE TOOLS:" in prompt
         assert "## ALL AVAILABLE MODELS:" in prompt

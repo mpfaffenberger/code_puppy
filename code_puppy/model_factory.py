@@ -331,13 +331,15 @@ class ModelFactory:
                     f"ZAI_API_KEY is not set; skipping ZAI coding model '{model_config.get('name')}'."
                 )
                 return None
+            provider = OpenAIProvider(
+                api_key=api_key,
+                base_url="https://api.z.ai/api/coding/paas/v4",
+            )
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
-                provider=OpenAIProvider(
-                    api_key=api_key,
-                    base_url="https://api.z.ai/api/coding/paas/v4",
-                ),
+                provider=provider,
             )
+            setattr(zai_model, "provider", provider)
             return zai_model
         elif model_type == "zai_api":
             api_key = os.getenv("ZAI_API_KEY")
@@ -346,13 +348,15 @@ class ModelFactory:
                     f"ZAI_API_KEY is not set; skipping ZAI API model '{model_config.get('name')}'."
                 )
                 return None
+            provider = OpenAIProvider(
+                api_key=api_key,
+                base_url="https://api.z.ai/api/paas/v4/",
+            )
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
-                provider=OpenAIProvider(
-                    api_key=api_key,
-                    base_url="https://api.z.ai/api/paas/v4/",
-                ),
+                provider=provider,
             )
+            setattr(zai_model, "provider", provider)
             return zai_model
         elif model_type == "custom_gemini":
             url, headers, verify, api_key = get_custom_config(model_config)

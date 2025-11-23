@@ -1,6 +1,8 @@
 # file_operations.py
 
 import os
+import shutil
+import subprocess
 import tempfile
 from typing import List
 
@@ -108,8 +110,6 @@ def is_project_directory(directory):
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-    import shutil
-    import subprocess
     import sys
 
     results = []
@@ -472,8 +472,8 @@ def _read_file(
             if start_line is not None and num_lines is not None:
                 # Read only the specified lines
                 lines = f.readlines()
-                # Adjust for 1-based line numbering
-                start_idx = start_line - 1
+                # Adjust for 1-based line numbering and handle negative values
+                start_idx = start_line - 1 if start_line > 0 else 0
                 end_idx = start_idx + num_lines
                 # Ensure indices are within bounds
                 start_idx = max(0, start_idx)

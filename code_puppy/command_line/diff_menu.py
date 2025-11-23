@@ -487,14 +487,18 @@ async def _split_panel_selector(
             lines.append(("bold cyan", title))
             lines.append(("", "\n\n"))
 
-            for i, choice in enumerate(choices):
-                if i == selected_index[0]:
-                    lines.append(("fg:ansigreen", "▶ "))
-                    lines.append(("fg:ansigreen bold", choice))
-                else:
-                    lines.append(("", "  "))
-                    lines.append(("", choice))
+            if not choices:
+                lines.append(("fg:ansiyellow", "No choices available"))
                 lines.append(("", "\n"))
+            else:
+                for i, choice in enumerate(choices):
+                    if i == selected_index[0]:
+                        lines.append(("fg:ansigreen", "▶ "))
+                        lines.append(("fg:ansigreen bold", choice))
+                    else:
+                        lines.append(("", "  "))
+                        lines.append(("", choice))
+                    lines.append(("", "\n"))
 
             lines.append(("", "\n"))
 
@@ -525,14 +529,16 @@ async def _split_panel_selector(
 
     @kb.add("up")
     def move_up(event):
-        selected_index[0] = (selected_index[0] - 1) % len(choices)
-        on_change(choices[selected_index[0]])
+        if choices:
+            selected_index[0] = (selected_index[0] - 1) % len(choices)
+            on_change(choices[selected_index[0]])
         event.app.invalidate()
 
     @kb.add("down")
     def move_down(event):
-        selected_index[0] = (selected_index[0] + 1) % len(choices)
-        on_change(choices[selected_index[0]])
+        if choices:
+            selected_index[0] = (selected_index[0] + 1) % len(choices)
+            on_change(choices[selected_index[0]])
         event.app.invalidate()
 
     @kb.add("left")
@@ -549,7 +555,10 @@ async def _split_panel_selector(
 
     @kb.add("enter")
     def accept(event):
-        result[0] = choices[selected_index[0]]
+        if choices:
+            result[0] = choices[selected_index[0]]
+        else:
+            result[0] = None
         event.app.exit()
 
     @kb.add("c-c")
@@ -587,8 +596,9 @@ async def _split_panel_selector(
     sys.stdout.flush()
     sys.stdout.flush()
 
-    # Trigger initial update
-    on_change(choices[selected_index[0]])
+    # Trigger initial update only if choices is not empty
+    if choices:
+        on_change(choices[selected_index[0]])
 
     # Just clear the current buffer (don't switch buffers)
     sys.stdout.write("\033[2J\033[H")  # Clear screen within current buffer

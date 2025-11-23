@@ -134,7 +134,8 @@ class TestAutoSaveSessionFunctionality:
         mock_get_auto_save.assert_called_once()
 
     @patch("code_puppy.config.save_session")
-    @patch("code_puppy.config.datetime")
+    @patch("code_puppy.config.get_current_autosave_session_name")
+    @patch("code_puppy.config.datetime.datetime")
     @patch("code_puppy.config.get_auto_save_session")
     @patch("code_puppy.agents.agent_manager.get_current_agent")
     @patch("rich.console.Console")
@@ -144,11 +145,13 @@ class TestAutoSaveSessionFunctionality:
         mock_get_agent,
         mock_get_auto_save,
         mock_datetime,
+        mock_get_session_name,
         mock_save_session,
         mock_cleanup,
         mock_config_paths,
     ):
         mock_get_auto_save.return_value = True
+        mock_get_session_name.return_value = "auto_session_20240101_010101"
 
         history = ["hey", "listen"]
         mock_agent = MagicMock()
@@ -159,7 +162,7 @@ class TestAutoSaveSessionFunctionality:
         fake_now = MagicMock()
         fake_now.strftime.return_value = "20240101_010101"
         fake_now.isoformat.return_value = "2024-01-01T01:01:01"
-        mock_datetime.datetime.now.return_value = fake_now
+        mock_datetime.now.return_value = fake_now
 
         metadata = SessionMetadata(
             session_name="auto_session_20240101_010101",

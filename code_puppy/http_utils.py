@@ -397,6 +397,8 @@ def create_reopenable_async_client(
 
 def is_cert_bundle_available() -> bool:
     cert_path = get_cert_bundle_path()
+    if cert_path is None:
+        return False
     return os.path.exists(cert_path) and os.path.isfile(cert_path)
 
 

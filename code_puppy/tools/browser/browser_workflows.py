@@ -28,8 +28,26 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
     try:
         workflows_dir = get_workflows_directory()
 
-        # Clean up the filename - remove spaces, special chars, etc.
-        safe_name = "".join(c for c in name if c.isalnum() or c in ("-", "_")).lower()
+        # Clean up the filename - convert spaces to hyphens, handle special chars
+        import re
+
+        # Remove .md extension if present (we'll add it back at the end)
+        if name.lower().endswith(".md"):
+            name = name[:-3]
+
+        # Convert spaces to hyphens
+        safe_name = name.replace(" ", "-")
+
+        # Replace special characters with double hyphens
+        safe_name = re.sub(r"[^a-zA-Z0-9\-_]", "--", safe_name)
+
+        # Convert to lowercase
+        safe_name = safe_name.lower()
+
+        # Remove any leading/trailing hyphens and collapse multiple hyphens
+        safe_name = re.sub(r"^-+|-+$", "", safe_name)
+        safe_name = re.sub(r"-{3,}", "--", safe_name)
+
         if not safe_name:
             safe_name = "workflow"
 

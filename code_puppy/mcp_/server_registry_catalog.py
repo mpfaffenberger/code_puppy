@@ -121,13 +121,13 @@ class MCPServerTemplate:
         if "env" in config:
             for env_key, env_value in config["env"].items():
                 if isinstance(env_value, str) and "${" in env_value:
-                    # Replace placeholders in env values
+                    # Replace all placeholders in env values
+                    new_value = env_value
                     for key, value in cmd_args.items():
                         placeholder = f"${{{key}}}"
-                        if placeholder in env_value:
-                            config["env"][env_key] = env_value.replace(
-                                placeholder, str(value)
-                            )
+                        if placeholder in new_value:
+                            new_value = new_value.replace(placeholder, str(value))
+                    config["env"][env_key] = new_value
 
         return config
 
@@ -802,6 +802,25 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
             environment_vars=["CONTEXT7_API_KEY"],
         ),
         example_usage="Cloud-based service - no local setup required",
+    ),
+    MCPServerTemplate(
+        id="sse-example",
+        name="sse-example",
+        display_name="SSE Example Server",
+        description="Example Server-Sent Events MCP server for testing SSE connections",
+        category="Development",
+        tags=["sse", "example", "testing", "events"],
+        type="sse",
+        config={
+            "url": "http://localhost:8080/sse",
+            "headers": {"Authorization": "Bearer $SSE_API_KEY"},
+        },
+        verified=False,
+        popular=False,
+        requires=MCPServerRequirements(
+            environment_vars=["SSE_API_KEY"],
+        ),
+        example_usage="Example SSE server - for testing purposes",
     ),
     MCPServerTemplate(
         id="confluence",
