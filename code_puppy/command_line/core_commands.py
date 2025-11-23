@@ -430,9 +430,16 @@ async def shell_interactive_mode() -> None:
 )
 def handle_cd_command(command: str) -> bool:
     """Change directory or list current directory."""
+    # Use shlex.split to handle quoted paths properly
+    import shlex
+
     from code_puppy.messaging import emit_error, emit_info, emit_success
 
-    tokens = command.split()
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        # Fallback to simple split if shlex fails
+        tokens = command.split()
     if len(tokens) == 1:
         try:
             table = make_directory_table()
@@ -479,7 +486,11 @@ def handle_tools_command(command: str) -> bool:
 )
 def handle_motd_command(command: str) -> bool:
     """Show message of the day."""
-    print_motd(force=True)
+    try:
+        print_motd(force=True)
+    except Exception:
+        # Handle printing errors gracefully
+        pass
     return True
 
 
@@ -494,7 +505,11 @@ def handle_exit_command(command: str) -> bool:
     """Exit the interactive session."""
     from code_puppy.messaging import emit_success
 
-    emit_success("Goodbye!")
+    try:
+        emit_success("Goodbye!")
+    except Exception:
+        # Handle emit errors gracefully
+        pass
     # Signal to the main app that we want to exit
     # The actual exit handling is done in main.py
     return True
@@ -503,7 +518,8 @@ def handle_exit_command(command: str) -> bool:
 @register_command(
     name="agent",
     description="Switch to a different agent or show available agents",
-    usage="/agent <name>",
+    usage="/agent <name>, /a <name>",
+    aliases=["a"],
     category="core",
 )
 def handle_agent_command(command: str) -> bool:

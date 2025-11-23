@@ -6,7 +6,6 @@ import subprocess
 import sys
 import time
 import traceback
-import webbrowser
 from pathlib import Path
 
 from dbos import DBOS, DBOSConfig
@@ -56,12 +55,6 @@ async def main():
     )
     parser.add_argument("--tui", "-t", action="store_true", help="Run in TUI mode")
     parser.add_argument(
-        "--web",
-        "-w",
-        action="store_true",
-        help="Run in web mode (serves TUI in browser)",
-    )
-    parser.add_argument(
         "--prompt",
         "-p",
         type=str,
@@ -84,7 +77,7 @@ async def main():
     )
     args = parser.parse_args()
 
-    if args.tui or args.web:
+    if args.tui:
         set_tui_mode(True)
     elif args.interactive or args.command or args.prompt:
         set_tui_mode(False)
@@ -105,74 +98,15 @@ async def main():
         )
         message_renderer.start()
 
-    if (
-        not args.tui
-        and not args.interactive
-        and not args.web
-        and not args.command
-        and not args.prompt
-    ):
+    if not args.tui and not args.interactive and not args.command and not args.prompt:
         pass
 
     initialize_command_history_file()
-    if args.web:
-        from rich.console import Console
-
-        direct_console = Console()
-        try:
-            # Find an available port for the web server
-            available_port = find_available_port()
-            if available_port is None:
-                direct_console.print(
-                    "[bold red]Error:[/bold red] No available ports in range 8090-9010!"
-                )
-                sys.exit(1)
-            python_executable = sys.executable
-            serve_command = f"{python_executable} -m code_puppy --tui"
-            textual_serve_cmd = [
-                "textual",
-                "serve",
-                "-c",
-                serve_command,
-                "--port",
-                str(available_port),
-            ]
-            direct_console.print(
-                "[bold blue]🌐 Starting Code Puppy web interface...[/bold blue]"
-            )
-            direct_console.print(f"[dim]Running: {' '.join(textual_serve_cmd)}[/dim]")
-            web_url = f"http://localhost:{available_port}"
-            direct_console.print(
-                f"[green]Web interface will be available at: {web_url}[/green]"
-            )
-            direct_console.print("[yellow]Press Ctrl+C to stop the server.[/yellow]\n")
-            process = subprocess.Popen(textual_serve_cmd)
-            time.sleep(0.3)
-            try:
-                direct_console.print(
-                    "[cyan]🚀 Opening web interface in your default browser...[/cyan]"
-                )
-                webbrowser.open(web_url)
-                direct_console.print("[green]✅ Browser opened successfully![/green]\n")
-            except Exception as e:
-                direct_console.print(
-                    f"[yellow]⚠️  Could not automatically open browser: {e}[/yellow]"
-                )
-                direct_console.print(
-                    f"[yellow]Please manually open: {web_url}[/yellow]\n"
-                )
-            result = process.wait()
-            sys.exit(result)
-        except Exception as e:
-            direct_console.print(
-                f"[bold red]Error starting web interface:[/bold red] {str(e)}"
-            )
-            sys.exit(1)
     from code_puppy.messaging import emit_system_message
 
     # Show the awesome Code Puppy logo only in interactive mode (never in TUI mode)
     # Always check both command line args AND runtime TUI state for safety
-    if args.interactive and not args.tui and not args.web and not is_tui_mode():
+    if args.interactive:
         try:
             import pyfiglet
 

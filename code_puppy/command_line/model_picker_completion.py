@@ -76,12 +76,18 @@ class ModelNameCompleter(Completer):
         ].lstrip()
         start_position = -(len(text_after_trigger))
 
-        # Filter model names based on what's typed after /model
+        # Filter model names based on what's typed after /model (case-insensitive)
         for model_name in self.model_names:
-            if text_after_trigger and not model_name.startswith(text_after_trigger):
+            if text_after_trigger and not model_name.lower().startswith(
+                text_after_trigger.lower()
+            ):
                 continue  # Skip models that don't match the typed text
 
-            meta = "Model (selected)" if model_name == get_active_model() else "Model"
+            meta = (
+                "Model (selected)"
+                if model_name.lower() == get_active_model().lower()
+                else "Model"
+            )
             yield Completion(
                 model_name,
                 start_position=start_position,
@@ -93,34 +99,62 @@ class ModelNameCompleter(Completer):
 def update_model_in_input(text: str) -> Optional[str]:
     # If input starts with /model or /m and a model name, set model and strip it out
     content = text.strip()
+    model_names = load_model_names()
 
-    # Check for /model command (require space after /model)
-    if content.startswith("/model "):
-        rest = content[7:].strip()  # Remove '/model '
-        model_names = load_model_names()
+    # Check for /model command (require space after /model, case-insensitive)
+    if content.lower().startswith("/model "):
+        # Find the actual /model command (case-insensitive)
+        model_cmd = content.split(" ", 1)[0]  # Get the command part
+        rest = content[len(model_cmd) :].strip()  # Remove the actual command
+
+        # Look for a model name at the start of rest (case-insensitive)
         for model in model_names:
-            if rest == model:
+            if rest.lower().startswith(model.lower()):
+                # Found a matching model - now extract it properly
                 set_active_model(model)
-                # Remove /model from the input
-                idx = text.find("/model " + model)
+
+                # Find the actual model name in the original text (preserving case)
+                # We need to find where the model ends in the original rest string
+                model_end_idx = len(model)
+
+                # Build the full command+model part to remove
+                cmd_and_model_pattern = model_cmd + " " + rest[:model_end_idx]
+                idx = text.find(cmd_and_model_pattern)
                 if idx != -1:
                     new_text = (
-                        text[:idx] + text[idx + len("/model " + model) :]
+                        text[:idx] + text[idx + len(cmd_and_model_pattern) :]
                     ).strip()
                     return new_text
+                return None
 
-    # Check for /m command
-    elif content.startswith("/m "):
-        rest = content[3:].strip()  # Remove '/m '
-        model_names = load_model_names()
+    # Check for /m command (case-insensitive)
+    elif content.lower().startswith("/m ") and not content.lower().startswith(
+        "/model "
+    ):
+        # Find the actual /m command (case-insensitive)
+        m_cmd = content.split(" ", 1)[0]  # Get the command part
+        rest = content[len(m_cmd) :].strip()  # Remove the actual command
+
+        # Look for a model name at the start of rest (case-insensitive)
         for model in model_names:
-            if rest == model:
+            if rest.lower().startswith(model.lower()):
+                # Found a matching model - now extract it properly
                 set_active_model(model)
-                # Remove /m from the input
-                idx = text.find("/m " + model)
+
+                # Find the actual model name in the original text (preserving case)
+                # We need to find where the model ends in the original rest string
+                model_end_idx = len(model)
+
+                # Build the full command+model part to remove
+                # Handle space variations in the original text
+                cmd_and_model_pattern = m_cmd + " " + rest[:model_end_idx]
+                idx = text.find(cmd_and_model_pattern)
                 if idx != -1:
-                    new_text = (text[:idx] + text[idx + len("/m " + model) :]).strip()
+                    new_text = (
+                        text[:idx] + text[idx + len(cmd_and_model_pattern) :]
+                    ).strip()
                     return new_text
+                return None
 
     return None
 

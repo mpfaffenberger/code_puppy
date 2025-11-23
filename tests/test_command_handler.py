@@ -1107,7 +1107,432 @@ class TestCommandRegistry:
         assert cmd.category == "config"
 
 
+def test_m_command_case_sensitive_baseline():
+    """Test that /m works with exact case (baseline)."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/m gpt-5")
+        assert result == ""  # Command and model stripped
+        mock_set_model.assert_called_once_with("gpt-5")
+
+
+def test_m_command_case_insensitive_command():
+    """Test that /M works (case-insensitive command)."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/M gpt-5")
+        assert result == ""  # Command and model stripped
+        mock_set_model.assert_called_once_with("gpt-5")
+
+
+def test_m_command_case_insensitive_model_name():
+    """Test that /m works with uppercase model name."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/m GPT-5")
+        assert result == ""  # Command and model stripped
+        mock_set_model.assert_called_once_with("gpt-5")
+
+
+def test_model_command_case_insensitive_both():
+    """Test that /MODEL works with uppercase model name."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/MODEL CLAUDE-4-5-SONNET")
+        assert result == ""  # Command and model stripped
+        mock_set_model.assert_called_once_with("claude-4-5-sonnet")
+
+
+def test_model_command_mixed_case():
+    """Test that /Model works with mixed case model name."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/Model Gemini-2.5-Flash")
+        assert result == ""  # Command and model stripped
+        mock_set_model.assert_called_once_with("gemini-2.5-flash")
+
+
+def test_model_command_with_hyphenated_case_insensitive():
+    """Test case-insensitive matching with complex hyphenated model names."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/m glm-4.5-air-coding")
+        assert result == ""  # Command and model stripped
+        mock_set_model.assert_called_once_with("GLM-4.5-AIR-CODING")
+
+
+def test_model_command_with_preserved_text():
+    """Test that remaining text is preserved after model stripping."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/M GPT-5 tell me a joke")
+        assert result == "tell me a joke"  # Remaining text preserved
+        mock_set_model.assert_called_once_with("gpt-5")
+
+
+def test_nonexistent_model_returns_none():
+    """Test that nonexistent model returns None regardless of case."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/M NONEXISTENT-MODEL")
+        assert result is None
+        mock_set_model.assert_not_called()
+
+
+def test_edge_case_empty_after_command():
+    """Test edge case of just command with space."""
+    test_models = [
+        "gpt-5",
+        "claude-4-5-sonnet",
+        "gemini-2.5-flash",
+        "GLM-4.5-AIR-CODING",
+    ]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.set_active_model"
+        ) as mock_set_model,
+    ):
+        from code_puppy.command_line.model_picker_completion import (
+            update_model_in_input,
+        )
+
+        result = update_model_in_input("/M ")
+        assert result is None
+        mock_set_model.assert_not_called()
+
+
 # Note: Tests for newly migrated commands (set, agent, model, mcp, pin_model,
 # generate-pr-description, dump_context, load_context, diff) already exist above
 # and in TestCommandRegistry. All logic has been verified to be identical to original.
 # See LOGIC_VERIFICATION.md for detailed verification.
+
+
+def test_agent_command_alias_a_registered():
+    """Test that /a alias is registered for agent command."""
+    cmd = get_command("agent")
+    assert cmd is not None
+    assert "a" in cmd.aliases
+
+
+def test_pin_model_command_case_insensitive_agent():
+    """Test that /pin_model works with uppercase agent name."""
+    test_agents = {"python_expert": "Python Expert", "code_reviewer": "Code Reviewer"}
+    test_models = ["gpt-5", "claude-4-5-sonnet"]
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=test_models,
+        ),
+        patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+        patch(
+            "code_puppy.agents.agent_manager.get_agent_descriptions",
+            return_value=test_agents,
+        ),
+        patch("code_puppy.messaging.emit_success") as mock_emit_success,
+        patch("code_puppy.messaging.emit_error") as mock_emit_error,
+    ):
+        from code_puppy.command_line.config_commands import handle_pin_model_command
+
+        result = handle_pin_model_command("/pin_model PYTHON_EXPERT gpt-5")
+        assert result is True
+        # Should find agent despite uppercase
+        mock_emit_success.assert_called_once()
+        mock_emit_error.assert_not_called()
+
+
+def test_pin_model_unpin_case_insensitive():
+    """Test that (unpin) option works case-insensitively."""
+    test_agents = {"python_expert": "Python Expert", "code_reviewer": "Code Reviewer"}
+
+    with (
+        patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+        patch(
+            "code_puppy.agents.agent_manager.get_agent_descriptions",
+            return_value=test_agents,
+        ),
+        patch("code_puppy.messaging.emit_success") as mock_emit_success,
+        patch("code_puppy.messaging.emit_error") as mock_emit_error,
+        patch(
+            "code_puppy.command_line.config_commands.handle_unpin_command",
+            return_value=True,
+        ) as mock_unpin,
+    ):
+        from code_puppy.command_line.config_commands import handle_pin_model_command
+
+        result = handle_pin_model_command("/pin_model python_expert (UNPIN)")
+        assert result is True
+        # Should delegate to unpin command (case-insensitive (unpin))
+        mock_unpin.assert_called_once_with("/unpin python_expert")
+        mock_emit_success.assert_not_called()
+        mock_emit_error.assert_not_called()
+
+
+def test_unpin_command_case_insensitive_agent():
+    """Test that /unpin works with uppercase agent name."""
+    test_agents = {"python_expert": "Python Expert", "code_reviewer": "Code Reviewer"}
+
+    with (
+        patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+        patch(
+            "code_puppy.agents.agent_manager.get_agent_descriptions",
+            return_value=test_agents,
+        ),
+        patch("code_puppy.messaging.emit_success") as mock_emit_success,
+        patch("code_puppy.messaging.emit_error") as mock_emit_error,
+    ):
+        from code_puppy.command_line.config_commands import handle_unpin_command
+
+        result = handle_unpin_command("/unpin PYTHON_EXPERT")
+        assert result is True
+        # Should find agent despite uppercase
+        mock_emit_success.assert_called_once()
+        mock_emit_error.assert_not_called()
+
+
+def test_unpin_command_nonexistent_agent_case_insensitive():
+    """Test that /unpin works case-insensitively with existing agents."""
+    test_agents = {"python_expert": "Python Expert"}
+
+    with (
+        patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+        patch(
+            "code_puppy.agents.agent_manager.get_agent_descriptions",
+            return_value=test_agents,
+        ),
+        patch("code_puppy.messaging.emit_success") as mock_emit_success,
+        patch("code_puppy.messaging.emit_error") as mock_emit_error,
+    ):
+        from code_puppy.command_line.config_commands import handle_unpin_command
+
+        result = handle_unpin_command("/unpin PYTHON_EXPERT")
+        assert result is True
+        # Should work with uppercase agent that exists (case-insensitive match)
+        mock_emit_success.assert_called_once()
+        mock_emit_error.assert_not_called()
+
+
+def test_pin_model_completion_case_insensitive_agent():
+    """Test that pin model completion works case-insensitively for agents."""
+    from prompt_toolkit.document import Document
+
+    from code_puppy.command_line.pin_command_completion import PinModelCompleter
+
+    test_agents = ["python_expert", "Code_Reviewer", "JavaScript_Expert"]
+    test_models = ["gpt-5", "claude-4-5-sonnet"]
+
+    with (
+        patch(
+            "code_puppy.command_line.pin_command_completion.load_agent_names",
+            return_value=test_agents,
+        ),
+        patch(
+            "code_puppy.command_line.pin_command_completion.load_model_names",
+            return_value=test_models,
+        ),
+    ):
+        completer = PinModelCompleter(trigger="/pin_model")
+        document = Document("/pin_model PYTHON", cursor_position=15)
+        completions = list(completer.get_completions(document, None))
+
+        # Should find python_expert (case-insensitive match)
+        completion_texts = [c.text for c in completions]
+        assert "python_expert" in completion_texts
+
+
+def test_pin_model_completion_case_insensitive_model():
+    """Test that pin model completion works case-insensitively for models."""
+    from prompt_toolkit.document import Document
+
+    from code_puppy.command_line.pin_command_completion import PinModelCompleter
+
+    test_agents = ["python_expert", "code_reviewer"]
+    test_models = ["gpt-5", "claude-4-5-sonnet"]
+
+    with (
+        patch(
+            "code_puppy.command_line.pin_command_completion.load_agent_names",
+            return_value=test_agents,
+        ),
+        patch(
+            "code_puppy.command_line.pin_command_completion.load_model_names",
+            return_value=test_models,
+        ),
+    ):
+        completer = PinModelCompleter(trigger="/pin_model")
+        document = Document("/pin_model python_expert GPT", cursor_position=26)
+        completions = list(completer.get_completions(document, None))
+
+        # Should find GPT-5 (case-insensitive match)
+        completion_texts = [c.text for c in completions]
+        assert "gpt-5" in completion_texts
+
+
+def test_unpin_completion_case_insensitive_agent():
+    """Test that unpin completion works case-insensitively for agents."""
+    from prompt_toolkit.document import Document
+
+    from code_puppy.command_line.pin_command_completion import UnpinCompleter
+
+    test_agents = ["python_expert", "Code_Reviewer", "JavaScript_Expert"]
+
+    with patch(
+        "code_puppy.command_line.pin_command_completion.load_agent_names",
+        return_value=test_agents,
+    ):
+        completer = UnpinCompleter(trigger="/unpin")
+        document = Document("/unpin PYTHON", cursor_position=12)
+        completions = list(completer.get_completions(document, None))
+
+        # Should find python_expert (case-insensitive match)
+        completion_texts = [c.text for c in completions]
+        assert "python_expert" in completion_texts

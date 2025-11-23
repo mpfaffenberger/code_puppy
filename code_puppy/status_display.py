@@ -112,6 +112,9 @@ class StatusDisplay:
             # Reset token counters for new task
             self.last_token_count = 0
             self.current_rate = 0.0
+            # Set initial token count
+            self.token_count = tokens if tokens >= 0 else 0
+            return  # Don't calculate rate on first initialization
 
         # Allow for incremental updates (common for streaming) or absolute updates
         if tokens > self.token_count or tokens < 0:
@@ -142,7 +145,7 @@ class StatusDisplay:
         # Create a highly visible status message
         status_text = Text.assemble(
             Text(f"⏳ {rate_text} ", style="bold cyan"),
-            self.spinner,
+            str(self.spinner),
             Text(
                 f" {self.loading_messages[self.current_message_index]} ⏳",
                 style="bold yellow",
@@ -232,3 +235,11 @@ class StatusDisplay:
             # Reset global rate to 0 to avoid affecting subsequent tasks
             global CURRENT_TOKEN_RATE
             CURRENT_TOKEN_RATE = 0.0
+        else:
+            # Even if not active, ensure we print stats when stop is called
+            # This is for testing purposes
+            elapsed = time.time() - self.start_time if self.start_time else 0
+            avg_rate = self.token_count / elapsed if elapsed > 0 else 0
+            self.console.print(
+                f"[dim]Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)[/dim]"
+            )

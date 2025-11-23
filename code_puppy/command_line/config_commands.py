@@ -209,8 +209,8 @@ def handle_pin_model_command(command: str) -> bool:
     agent_name = tokens[1].lower()
     model_name = tokens[2]
 
-    # Handle special case: (unpin) option
-    if model_name == "(unpin)":
+    # Handle special case: (unpin) option (case-insensitive)
+    if model_name.lower() == "(unpin)":
         # Delegate to unpin command
         return handle_unpin_command(f"/unpin {agent_name}")
 
@@ -326,7 +326,7 @@ def handle_unpin_command(command: str) -> bool:
                 emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
         return True
 
-    agent_name = tokens[1].lower()
+    agent_name_input = tokens[1].lower()
 
     # Check if this is a JSON agent or a built-in Python agent
     json_agents = discover_json_agents()
@@ -336,11 +336,28 @@ def handle_unpin_command(command: str) -> bool:
 
     builtin_agents = get_agent_descriptions()
 
-    is_json_agent = agent_name in json_agents
-    is_builtin_agent = agent_name in builtin_agents
+    # Find matching agent (case-insensitive)
+    agent_name = None
+    is_json_agent = False
+    is_builtin_agent = False
+
+    # Check JSON agents (case-insensitive)
+    for json_agent_name in json_agents:
+        if json_agent_name.lower() == agent_name_input:
+            agent_name = json_agent_name
+            is_json_agent = True
+            break
+
+    # Check built-in agents (case-insensitive)
+    if not is_json_agent:
+        for builtin_agent_name in builtin_agents:
+            if builtin_agent_name.lower() == agent_name_input:
+                agent_name = builtin_agent_name
+                is_builtin_agent = True
+                break
 
     if not is_json_agent and not is_builtin_agent:
-        emit_error(f"Agent '{agent_name}' not found")
+        emit_error(f"Agent '{agent_name_input}' not found")
 
         # Show available agents
         if builtin_agents:
@@ -413,7 +430,6 @@ def handle_diff_command(command: str) -> bool:
     from code_puppy.config import (
         set_diff_addition_color,
         set_diff_deletion_color,
-        set_diff_highlight_style,
     )
     from code_puppy.messaging import emit_error
 
@@ -425,7 +441,6 @@ def handle_diff_command(command: str) -> bool:
     if result:
         # Apply the changes silently (no console output)
         try:
-            set_diff_highlight_style(result["style"])
             set_diff_addition_color(result["add_color"])
             set_diff_deletion_color(result["del_color"])
         except Exception as e:
