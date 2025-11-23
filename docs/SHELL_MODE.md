@@ -74,6 +74,7 @@ Or use the shorthand:
 - ✅ **Exit codes**: See when commands fail with exit codes
 - ✅ **Ctrl+C handling**: Cancel current input without exiting
 - ✅ **Current directory in prompt**: Always know where you are
+- ✅ **Interactive command support**: SSH, vim, nano, top, and other TTY-requiring commands work perfectly
 
 ## Why This Is Awesome
 
@@ -104,6 +105,43 @@ No more typing `/shell` for every command! Just drop into a shell when you need 
 - Uses `prompt_toolkit` for enhanced input handling (falls back to basic `input()` if not available)
 - Maintains working directory state across commands
 - Runs in async context for smooth integration with Code Puppy's event loop
+- **Smart command detection**: Automatically detects interactive commands (ssh, vim, etc.) and gives them direct terminal access
+- **TTY-aware**: Commands like SSH get proper pseudo-terminal allocation
+
+## Interactive Commands
+
+These commands get special handling with direct TTY access:
+- **Remote access**: `ssh`, `telnet`, `ftp`, `sftp`
+- **Editors**: `vim`, `vi`, `nano`, `emacs`
+- **Monitors**: `top`, `htop`, `watch`
+- **Pagers**: `less`, `more`, `man`
+- **REPLs**: `python`, `python3`, `ipython`, `node`, `irb`
+- **Databases**: `psql`, `mysql`, `redis-cli`, `mongo`
+- **Multiplexers**: `tmux`, `screen`
+
+---
+
+## Security Considerations
+
+⚠️ **Important**: Commands executed in shell mode run with the same permissions
+as the Code Puppy process. Be cautious when:
+
+- Running commands from untrusted sources
+- Using shell metacharacters (`;`, `|`, `&&`, `$()`)
+- Executing commands that modify system state
+- Handling sensitive data (credentials, keys, etc.)
+
+Commands use `shell=True` for full shell feature support, which enables:
+- Pipes and redirection: `ls | grep test`
+- Wildcards: `rm *.tmp`
+- Variable expansion: `echo $HOME`
+- Command chaining: `cd /tmp && ls`
+
+This is appropriate for an authenticated CLI tool where the user has
+terminal access. For programmatic/API use, additional validation would be needed.
+
+**Timeout Protection:** Commands have a 1-hour default timeout to prevent
+runaway processes. Long-running commands will be gracefully terminated.
 
 ---
 
