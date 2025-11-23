@@ -101,7 +101,7 @@ def test_oauth_helpers() -> bool:
         assert context.code_verifier, "Expected PKCE code verifier"
         assert context.code_challenge, "Expected PKCE code challenge"
 
-        assign_redirect_uri(8765)
+        assign_redirect_uri(context, 8765)
         auth_url = build_authorization_url(context)
         parsed = urlparse(auth_url)
         params = parse_qs(parsed.query)

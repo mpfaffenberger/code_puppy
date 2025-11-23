@@ -1,4 +1,4 @@
-"""Interactive TUI for loading autosave sessions.
+"""Interactive terminal UI for loading autosave sessions.
 
 Provides a beautiful split-panel interface for browsing and loading
 autosave sessions with live preview of message content.
@@ -238,7 +238,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
 
 
 async def interactive_autosave_picker() -> Optional[str]:
-    """Show interactive TUI to select an autosave session.
+    """Show interactive terminal UI to select an autosave session.
 
     Returns:
         Session name to load, or None if cancelled
