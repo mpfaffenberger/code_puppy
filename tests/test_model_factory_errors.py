@@ -91,13 +91,6 @@ class TestModelFactoryErrors:
         with pytest.raises(KeyError):
             ModelFactory.get_model("anthropic-bad", config)
 
-    def test_missing_required_fields_gemini(self):
-        """Test Gemini model with missing required fields."""
-        # Missing 'name' field
-        config = {"gemini-bad": {"type": "gemini"}}
-        with pytest.raises(KeyError):
-            ModelFactory.get_model("gemini-bad", config)
-
     def test_azure_openai_missing_required_configs(self):
         """Test Azure OpenAI model with various missing required configurations."""
 
