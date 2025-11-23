@@ -43,6 +43,38 @@ except ImportError:
     console = Console(no_color=NO_COLOR)
 
 
+def should_suppress_browser() -> bool:
+    """Check if browsers should be suppressed (headless mode).
+
+    Returns:
+        True if browsers should be suppressed, False if they can open normally
+
+    This respects multiple headless mode controls:
+    - HEADLESS=true environment variable (suppresses ALL browsers)
+    - BROWSER_HEADLESS=true environment variable (for browser automation)
+    - CI=true environment variable (continuous integration)
+    - PYTEST_CURRENT_TEST environment variable (running under pytest)
+    """
+    # Explicit headless mode
+    if os.getenv("HEADLESS", "").lower() == "true":
+        return True
+
+    # Browser-specific headless mode
+    if os.getenv("BROWSER_HEADLESS", "").lower() == "true":
+        return True
+
+    # Continuous integration environments
+    if os.getenv("CI", "").lower() == "true":
+        return True
+
+    # Running under pytest
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return True
+
+    # Default to allowing browsers
+    return False
+
+
 # -------------------
 # Shared ignore patterns/helpers
 # Split into directory vs file patterns so tools can choose appropriately
@@ -750,7 +782,7 @@ def format_diff_with_colors(diff_text: str) -> Text:
 
     # Always use beautiful syntax highlighting!
     if not PYGMENTS_AVAILABLE:
-        console.log(
+        console.print(
             "[yellow]Warning: Pygments not available, diffs will look plain[/yellow]"
         )
         # Return plain text as fallback
@@ -1340,9 +1372,10 @@ def _find_best_window(
             best_span = (i, i + win_size)
             best_window = window
 
-    console.log(f"Best span: {best_span}")
-    console.log(f"Best window: {best_window}")
-    console.log(f"Best score: {best_score}")
+    # Debug logging
+    console.log(best_span)
+    console.log(best_window)
+    console.log(best_score)
     return best_span, best_score
 
 

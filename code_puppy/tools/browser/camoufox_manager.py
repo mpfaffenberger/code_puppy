@@ -1,5 +1,6 @@
 """Camoufox browser manager - privacy-focused Firefox automation."""
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -27,7 +28,9 @@ class CamoufoxManager:
             return
         self._init_done = True
 
-        self.headless = False
+        # Default to headless=True (no browser spam during tests)
+        # Override with BROWSER_HEADLESS=false to see the browser
+        self.headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
         self.homepage = "https://www.google.com"
         # Camoufox-specific settings
         self.geoip = True  # Enable GeoIP spoofing

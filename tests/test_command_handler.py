@@ -1403,7 +1403,8 @@ def test_pin_model_unpin_case_insensitive():
         patch("code_puppy.messaging.emit_success") as mock_emit_success,
         patch("code_puppy.messaging.emit_error") as mock_emit_error,
         patch(
-            "code_puppy.command_line.config_commands.handle_unpin_command"
+            "code_puppy.command_line.config_commands.handle_unpin_command",
+            return_value=True,
         ) as mock_unpin,
     ):
         from code_puppy.command_line.config_commands import handle_pin_model_command
@@ -1439,7 +1440,7 @@ def test_unpin_command_case_insensitive_agent():
 
 
 def test_unpin_command_nonexistent_agent_case_insensitive():
-    """Test that /unpin returns error for nonexistent agent (case-insensitive check)."""
+    """Test that /unpin works case-insensitively with existing agents."""
     test_agents = {"python_expert": "Python Expert"}
 
     with (
@@ -1455,9 +1456,8 @@ def test_unpin_command_nonexistent_agent_case_insensitive():
 
         result = handle_unpin_command("/unpin PYTHON_EXPERT")
         assert result is True
-        mock_emit_success.assert_not_called()
-        mock_emit_error.assert_called_once()
-        # Should work with uppercase agent that exists
+        # Should work with uppercase agent that exists (case-insensitive match)
+        mock_emit_success.assert_called_once()
         mock_emit_error.assert_not_called()
 
 
@@ -1509,7 +1509,7 @@ def test_pin_model_completion_case_insensitive_model():
         ),
     ):
         completer = PinModelCompleter(trigger="/pin_model")
-        document = Document("/pin_model python_expert GPT", cursor_position=23)
+        document = Document("/pin_model python_expert GPT", cursor_position=26)
         completions = list(completer.get_completions(document, None))
 
         # Should find GPT-5 (case-insensitive match)

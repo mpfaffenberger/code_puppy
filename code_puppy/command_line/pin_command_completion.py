@@ -187,6 +187,10 @@ class PinCompleter(Completer):
             return
 
 
+# Alias for backwards compatibility
+PinModelCompleter = PinCompleter
+
+
 class UnpinCompleter(Completer):
     """
     A completer that triggers on '/unpin' to show available agents
