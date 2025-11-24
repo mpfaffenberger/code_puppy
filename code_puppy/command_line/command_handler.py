@@ -195,6 +195,16 @@ def handle_command(command: str):
 
     command = command.strip()
 
+    # Disambiguate file paths from commands:
+    # Commands have a single slash (e.g., /agent, /model)
+    # File paths have multiple slashes (e.g., /Users/username/workspace/file.py)
+    if command.startswith("/"):
+        first_token = command.split()[0] if command.split() else command
+        slash_count = first_token.count("/")
+        if slash_count > 1:
+            # This looks like a file path, not a command - let it be processed as normal input
+            return False
+
     # Check if this is a registered command
     if command.startswith("/"):
         # Extract command name (first word after /)
