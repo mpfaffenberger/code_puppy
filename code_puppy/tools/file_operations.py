@@ -109,40 +109,40 @@ def is_project_directory(directory):
 
 def would_match_directory(pattern: str, directory: str) -> bool:
     """Check if a glob pattern would match the given directory path.
-    
+
     This is used to avoid adding ignore patterns that would inadvertently
     exclude the directory we're actually trying to search in.
-    
+
     Args:
         pattern: A glob pattern like '**/tmp/**' or 'node_modules'
         directory: The directory path to check against
-        
+
     Returns:
         True if the pattern would match the directory, False otherwise
     """
     import fnmatch
-    
+
     # Normalize the directory path
     abs_dir = os.path.abspath(directory)
     dir_name = os.path.basename(abs_dir)
-    
+
     # Strip leading/trailing wildcards and slashes for simpler matching
-    clean_pattern = pattern.strip('*').strip('/')
-    
+    clean_pattern = pattern.strip("*").strip("/")
+
     # Check if the directory name matches the pattern
     if fnmatch.fnmatch(dir_name, clean_pattern):
         return True
-    
+
     # Check if the full path contains the pattern
     if fnmatch.fnmatch(abs_dir, pattern):
         return True
-    
+
     # Check if any part of the path matches
     path_parts = abs_dir.split(os.sep)
     for part in path_parts:
         if fnmatch.fnmatch(part, clean_pattern):
             return True
-    
+
     return False
 
 

@@ -131,7 +131,7 @@ class ModelFactory:
         for source_path, label in extra_sources:
             # source_path is already a Path object from the functions above
             # Use hasattr to check if it's Path-like (works with mocks too)
-            if hasattr(source_path, 'exists'):
+            if hasattr(source_path, "exists"):
                 path = source_path
             else:
                 path = pathlib.Path(source_path).expanduser()
