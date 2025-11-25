@@ -102,11 +102,13 @@ class TestSummarizationAgent:
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
             patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
+            patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = mock_models_config
             mock_get_model.return_value = mock_model
             mock_get_name.return_value = "test-model"
             mock_get_dbos.return_value = False
+            mock_agent_class.return_value = MagicMock()
 
             agent = reload_summarization_agent()
 
@@ -115,6 +117,12 @@ class TestSummarizationAgent:
             mock_get_model.assert_called_once_with("test-model", mock_models_config)
             mock_get_name.assert_called_once()
             mock_get_dbos.assert_called_once()
+            # Verify Agent() was instantiated with the mock_model
+            mock_agent_class.assert_called_once()
+            call_kwargs = mock_agent_class.call_args.kwargs
+            assert call_kwargs['model'] == mock_model
+            assert call_kwargs['output_type'] == str
+            assert call_kwargs['retries'] == 1
 
     @pytest.mark.skip(
         reason="DBOSAgent import issue - module doesn't have DBOSAgent attribute"
@@ -542,11 +550,13 @@ class TestSummarizationAgentEdgeCases:
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
             patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
+            patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = {"test-model": {"context": 128000}}
             mock_get_model.return_value = MagicMock()
             mock_get_name.return_value = "test-model"
             mock_get_dbos.return_value = False
+            mock_agent_class.return_value = MagicMock()
 
             results = []
             errors = []
