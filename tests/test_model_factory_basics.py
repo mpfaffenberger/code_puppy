@@ -37,8 +37,12 @@ class TestModelFactoryBasics:
     @patch("code_puppy.model_factory.pathlib.Path")
     @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
     def test_load_config_with_extra_models(
-        self, mock_callbacks, mock_path_class, mock_chatgpt_path_func, 
-        mock_claude_path_func, mock_load_claude
+        self,
+        mock_callbacks,
+        mock_path_class,
+        mock_chatgpt_path_func,
+        mock_claude_path_func,
+        mock_load_claude,
     ):
         """Test config loading with extra models file."""
         base_config = {
@@ -83,10 +87,13 @@ class TestModelFactoryBasics:
                 json.dumps(base_config),  # Target models.json after copy
             ]
             # Mock json.load for the extra models file
-            with patch("json.load", side_effect=[
-                base_config,  # Main models.json
-                extra_config,  # Extra models file
-            ]):
+            with patch(
+                "json.load",
+                side_effect=[
+                    base_config,  # Main models.json
+                    extra_config,  # Extra models file
+                ],
+            ):
                 config = ModelFactory.load_config()
 
         assert "claude-3-5-sonnet" in config
@@ -98,8 +105,12 @@ class TestModelFactoryBasics:
     @patch("code_puppy.model_factory.pathlib.Path")
     @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
     def test_load_config_invalid_json(
-        self, mock_callbacks, mock_path_class, mock_chatgpt_path_func,
-        mock_claude_path_func, mock_load_claude
+        self,
+        mock_callbacks,
+        mock_path_class,
+        mock_chatgpt_path_func,
+        mock_claude_path_func,
+        mock_load_claude,
     ):
         """Test handling of invalid JSON in extra models files."""
         base_config = {
@@ -143,10 +154,15 @@ class TestModelFactoryBasics:
                 json.dumps(base_config),  # Target models.json after copy (valid)
             ]
             # Mock json.load to raise JSONDecodeError for extra models
-            with patch("json.load", side_effect=[
-                base_config,  # Main models.json (valid)
-                json.JSONDecodeError("Invalid JSON", "doc", 0),  # Extra models file (invalid)
-            ]):
+            with patch(
+                "json.load",
+                side_effect=[
+                    base_config,  # Main models.json (valid)
+                    json.JSONDecodeError(
+                        "Invalid JSON", "doc", 0
+                    ),  # Extra models file (invalid)
+                ],
+            ):
                 # Should still load base config despite invalid extra config
                 config = ModelFactory.load_config()
                 assert "claude-3-5-sonnet" in config

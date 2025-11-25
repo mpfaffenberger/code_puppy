@@ -347,12 +347,15 @@ class TestAgentManagerBasics:
             # Test saving
             test_sessions = {"session_123": "agent1", "session_456": "agent2"}
 
-            with patch(
-                "code_puppy.agents.agent_manager._get_session_file_path",
-                return_value=session_file,
-            ), patch(
-                "code_puppy.agents.agent_manager._is_process_alive",
-                return_value=True,  # Mock that test session PIDs are alive
+            with (
+                patch(
+                    "code_puppy.agents.agent_manager._get_session_file_path",
+                    return_value=session_file,
+                ),
+                patch(
+                    "code_puppy.agents.agent_manager._is_process_alive",
+                    return_value=True,  # Mock that test session PIDs are alive
+                ),
             ):
                 _save_session_data(test_sessions)
 

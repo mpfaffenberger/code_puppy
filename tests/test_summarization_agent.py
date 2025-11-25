@@ -120,9 +120,9 @@ class TestSummarizationAgent:
             # Verify Agent() was instantiated with the mock_model
             mock_agent_class.assert_called_once()
             call_kwargs = mock_agent_class.call_args.kwargs
-            assert call_kwargs['model'] == mock_model
-            assert call_kwargs['output_type'] == str
-            assert call_kwargs['retries'] == 1
+            assert call_kwargs["model"] == mock_model
+            assert call_kwargs["output_type"] is str
+            assert call_kwargs["retries"] == 1
 
     @pytest.mark.skip(
         reason="DBOSAgent import issue - module doesn't have DBOSAgent attribute"
