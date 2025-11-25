@@ -350,6 +350,9 @@ class TestAgentManagerBasics:
             with patch(
                 "code_puppy.agents.agent_manager._get_session_file_path",
                 return_value=session_file,
+            ), patch(
+                "code_puppy.agents.agent_manager._is_process_alive",
+                return_value=True,  # Mock that test session PIDs are alive
             ):
                 _save_session_data(test_sessions)
 
@@ -358,9 +361,9 @@ class TestAgentManagerBasics:
 
                 # Test loading
                 loaded = _load_session_data()
-                # Note: _cleanup_dead_sessions might remove some entries during load
-                # So we check that at least some data is preserved
+                # With mocked _is_process_alive, sessions should be preserved
                 assert "session_123" in loaded
+                assert "session_456" in loaded
                 assert isinstance(loaded, dict)
 
     def test_session_data_handles_corrupted_file(self):

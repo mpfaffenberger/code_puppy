@@ -77,6 +77,7 @@ class TestModelFactoryErrors:
                 # (This test mainly documents the expected behavior)
                 assert True  # Test passes if we get here without hanging
 
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_missing_required_fields_openai(self):
         """Test OpenAI model with missing required fields."""
         # Missing 'name' field
@@ -84,6 +85,7 @@ class TestModelFactoryErrors:
         with pytest.raises(KeyError):
             ModelFactory.get_model("openai-bad", config)
 
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     def test_missing_required_fields_anthropic(self):
         """Test Anthropic model with missing required fields."""
         # Missing 'name' field

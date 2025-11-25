@@ -107,6 +107,45 @@ def is_project_directory(directory):
         return False
 
 
+def would_match_directory(pattern: str, directory: str) -> bool:
+    """Check if a glob pattern would match the given directory path.
+    
+    This is used to avoid adding ignore patterns that would inadvertently
+    exclude the directory we're actually trying to search in.
+    
+    Args:
+        pattern: A glob pattern like '**/tmp/**' or 'node_modules'
+        directory: The directory path to check against
+        
+    Returns:
+        True if the pattern would match the directory, False otherwise
+    """
+    import fnmatch
+    
+    # Normalize the directory path
+    abs_dir = os.path.abspath(directory)
+    dir_name = os.path.basename(abs_dir)
+    
+    # Strip leading/trailing wildcards and slashes for simpler matching
+    clean_pattern = pattern.strip('*').strip('/')
+    
+    # Check if the directory name matches the pattern
+    if fnmatch.fnmatch(dir_name, clean_pattern):
+        return True
+    
+    # Check if the full path contains the pattern
+    if fnmatch.fnmatch(abs_dir, pattern):
+        return True
+    
+    # Check if any part of the path matches
+    path_parts = abs_dir.split(os.sep)
+    for part in path_parts:
+        if fnmatch.fnmatch(part, clean_pattern):
+            return True
+    
+    return False
+
+
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
@@ -176,7 +215,8 @@ def _list_files(
                     rg_path = venv_rg_exe_path
                     break
 
-        if not rg_path:
+        if not rg_path and recursive:
+            # Only need ripgrep for recursive listings
             error_msg = "[red bold]Error:[/red bold] ripgrep (rg) not found. Please install ripgrep to use this tool."
             output_lines.append(error_msg)
             return ListFileOutput(content="\n".join(output_lines))
@@ -196,6 +236,10 @@ def _list_files(
             ) as f:
                 ignore_file = f.name
                 for pattern in DIR_IGNORE_PATTERNS:
+                    # Skip patterns that would match the search directory itself
+                    # For example, if searching in /tmp/test-dir, skip **/tmp/**
+                    if would_match_directory(pattern, directory):
+                        continue
                     f.write(f"{pattern}\n")
 
             cmd.extend(["--ignore-file", ignore_file])
@@ -288,8 +332,6 @@ def _list_files(
         # ripgrep's --files option only returns files; we add directories and files ourselves
         if not recursive:
             try:
-                from code_puppy.tools.common import should_ignore_dir_path
-
                 entries = os.listdir(directory)
                 for entry in sorted(entries):
                     full_entry_path = os.path.join(directory, entry)
@@ -297,8 +339,9 @@ def _list_files(
                         continue
 
                     if os.path.isdir(full_entry_path):
-                        # Skip ignored directories
-                        if should_ignore_dir_path(full_entry_path):
+                        # In non-recursive mode, only skip obviously system/hidden directories
+                        # Don't use the full should_ignore_dir_path which is too aggressive
+                        if entry.startswith("."):
                             continue
                         results.append(
                             ListedFile(
