@@ -219,18 +219,6 @@ class QueueConsole:
 
         set_awaiting_user_input(True)
 
-        # Signal TUI to pause spinner and prepare for user input (legacy method)
-        try:
-            # Try to get the current TUI app instance and pause spinner
-            from textual.app import App
-
-            current_app = App.get_running_app()
-            if hasattr(current_app, "pause_spinner_for_input"):
-                current_app.pause_spinner_for_input()
-        except Exception:
-            # If we can't pause the spinner (not in TUI mode), continue anyway
-            pass
-
         # Emit the prompt as a system message so it shows in the TUI chat
         if prompt:
             self.queue.emit_simple(MessageType.SYSTEM, prompt, requires_user_input=True)
@@ -265,17 +253,6 @@ class QueueConsole:
             from code_puppy.tools.command_runner import set_awaiting_user_input
 
             set_awaiting_user_input(False)
-
-            # Signal TUI to resume spinner if needed (legacy method)
-            try:
-                from textual.app import App
-
-                current_app = App.get_running_app()
-                if hasattr(current_app, "resume_spinner_after_input"):
-                    current_app.resume_spinner_after_input()
-            except Exception:
-                # If we can't resume the spinner, continue anyway
-                pass
 
     # File-like interface for compatibility
     @property

@@ -31,11 +31,14 @@ class TestModelFactoryBasics:
             assert "gpt-4" in config
             assert config["claude-3-5-sonnet"]["type"] == "anthropic"
 
-    @patch("builtins.open", new_callable=mock_open)
+    @patch("code_puppy.model_factory.load_claude_models_filtered", return_value={})
+    @patch("code_puppy.model_factory.get_claude_models_path")
+    @patch("code_puppy.model_factory.get_chatgpt_models_path")
     @patch("code_puppy.model_factory.pathlib.Path")
     @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
     def test_load_config_with_extra_models(
-        self, mock_callbacks, mock_path_class, mock_file
+        self, mock_callbacks, mock_path_class, mock_chatgpt_path_func, 
+        mock_claude_path_func, mock_load_claude
     ):
         """Test config loading with extra models file."""
         base_config = {
@@ -60,36 +63,44 @@ class TestModelFactoryBasics:
         mock_chatgpt_path.exists.return_value = False  # ChatGPT models doesn't exist
         mock_claude_path.exists.return_value = False  # Claude models doesn't exist
 
+        # Mock the plugin path functions
+        mock_chatgpt_path_func.return_value = mock_chatgpt_path
+        mock_claude_path_func.return_value = mock_claude_path
+
         # Configure Path() constructor to return appropriate mocks
         def path_side_effect(path_arg):
             if "extra" in str(path_arg):
                 return mock_extra_path
-            elif "chatgpt" in str(path_arg).lower():
-                return mock_chatgpt_path
-            elif "claude" in str(path_arg).lower():
-                return mock_claude_path
             else:
                 return mock_main_path
 
         mock_path_class.side_effect = path_side_effect
-        mock_path_class.return_value.expanduser.return_value = mock_main_path
 
         # Mock file reads - handle multiple file opens properly
-        mock_file.return_value.read.side_effect = [
-            json.dumps(base_config),  # Source models.json
-            json.dumps(base_config),  # Target models.json after copy
-            json.dumps(extra_config),  # Extra models file
-        ]
-
-        config = ModelFactory.load_config()
+        with patch("builtins.open", mock_open()) as mock_file:
+            mock_file.return_value.read.side_effect = [
+                json.dumps(base_config),  # Source models.json
+                json.dumps(base_config),  # Target models.json after copy
+            ]
+            # Mock json.load for the extra models file
+            with patch("json.load", side_effect=[
+                base_config,  # Main models.json
+                extra_config,  # Extra models file
+            ]):
+                config = ModelFactory.load_config()
 
         assert "claude-3-5-sonnet" in config
         assert "custom-model" in config
 
-    @patch("builtins.open", new_callable=mock_open)
+    @patch("code_puppy.model_factory.load_claude_models_filtered", return_value={})
+    @patch("code_puppy.model_factory.get_claude_models_path")
+    @patch("code_puppy.model_factory.get_chatgpt_models_path")
     @patch("code_puppy.model_factory.pathlib.Path")
     @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
-    def test_load_config_invalid_json(self, mock_callbacks, mock_path_class, mock_file):
+    def test_load_config_invalid_json(
+        self, mock_callbacks, mock_path_class, mock_chatgpt_path_func,
+        mock_claude_path_func, mock_load_claude
+    ):
         """Test handling of invalid JSON in extra models files."""
         base_config = {
             "claude-3-5-sonnet": {
@@ -112,29 +123,33 @@ class TestModelFactoryBasics:
         mock_chatgpt_path.exists.return_value = False  # ChatGPT models doesn't exist
         mock_claude_path.exists.return_value = False  # Claude models doesn't exist
 
+        # Mock the plugin path functions
+        mock_chatgpt_path_func.return_value = mock_chatgpt_path
+        mock_claude_path_func.return_value = mock_claude_path
+
         # Configure Path() constructor to return appropriate mocks
         def path_side_effect(path_arg):
             if "extra" in str(path_arg):
                 return mock_extra_path
-            elif "chatgpt" in str(path_arg).lower():
-                return mock_chatgpt_path
-            elif "claude" in str(path_arg).lower():
-                return mock_claude_path
             else:
                 return mock_main_path
 
         mock_path_class.side_effect = path_side_effect
-        mock_path_class.return_value.expanduser.return_value = mock_main_path
 
-        mock_file.return_value.read.side_effect = [
-            json.dumps(base_config),  # Source models.json (valid)
-            json.dumps(base_config),  # Target models.json after copy (valid)
-            "invalid json content",  # Extra models file (invalid)
-        ]
-
-        # Should still load base config despite invalid extra config
-        config = ModelFactory.load_config()
-        assert "claude-3-5-sonnet" in config
+        # Mock file operations
+        with patch("builtins.open", mock_open()) as mock_file:
+            mock_file.return_value.read.side_effect = [
+                json.dumps(base_config),  # Source models.json (valid)
+                json.dumps(base_config),  # Target models.json after copy (valid)
+            ]
+            # Mock json.load to raise JSONDecodeError for extra models
+            with patch("json.load", side_effect=[
+                base_config,  # Main models.json (valid)
+                json.JSONDecodeError("Invalid JSON", "doc", 0),  # Extra models file (invalid)
+            ]):
+                # Should still load base config despite invalid extra config
+                config = ModelFactory.load_config()
+                assert "claude-3-5-sonnet" in config
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_get_model_openai(self):
