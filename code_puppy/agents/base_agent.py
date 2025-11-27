@@ -41,11 +41,11 @@ from code_puppy.config import (
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
+    get_effective_temperature,
     get_global_model_name,
     get_message_limit,
     get_openai_reasoning_effort,
     get_protected_token_count,
-    get_temperature,
     get_use_dbos,
     get_value,
     load_mcp_server_configs,
@@ -965,7 +965,8 @@ class BaseAgent(ABC):
         model_settings_dict["max_tokens"] = output_tokens
 
         # Add temperature if configured AND model supports it
-        configured_temperature = get_temperature()
+        # Uses per-model settings if configured, falls back to global
+        configured_temperature = get_effective_temperature(resolved_model_name)
         if configured_temperature is not None and model_supports_setting(
             resolved_model_name, "temperature"
         ):
