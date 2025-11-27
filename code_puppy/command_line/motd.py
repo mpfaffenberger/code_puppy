@@ -8,12 +8,12 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-08-24"
+MOTD_VERSION = "2025-11-27"
 MOTD_MESSAGE = """🐕‍🦺
 🐾```
-# 🐶🎉🐕 WOOF WOOF! AUGUST 24th 🐕🎉🐶
-40k Downloads! Woot!
-Thanks for your support!
+# 🐶🦃🐕 November 27th, 2025 - Happy Thanksgiving! 🦃🐶
+122k Downloads! 🎉
+Thank you for all the support!
 -Mike
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")

@@ -186,6 +186,7 @@ def handle_truncate_command(command: str) -> bool:
     name="autosave_load",
     description="Load an autosave session interactively",
     usage="/autosave_load",
+    aliases=["resume"],
     category="session",
 )
 def handle_autosave_load_command(command: str) -> bool:
