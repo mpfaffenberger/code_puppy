@@ -121,11 +121,28 @@ class ShellSafetyAgent(BaseAgent):
                     "You are Claude Code, Anthropic's official CLI for Claude."
                 )
 
+            # Build model settings with temperature if configured AND model supports it
+            from pydantic_ai.settings import ModelSettings
+
+            from code_puppy.config import get_temperature, model_supports_setting
+
+            model_settings_dict = {}
+            configured_temperature = get_temperature()
+            if configured_temperature is not None and model_supports_setting(
+                model_name, "temperature"
+            ):
+                model_settings_dict["temperature"] = configured_temperature
+
+            model_settings = (
+                ModelSettings(**model_settings_dict) if model_settings_dict else None
+            )
+
             temp_agent = Agent(
                 model=model,
                 system_prompt=instructions,
                 retries=1,
                 output_type=ShellSafetyAssessment,
+                model_settings=model_settings,
             )
 
             # Generate unique agent name and workflow ID for DBOS (if enabled)

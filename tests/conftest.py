@@ -14,26 +14,33 @@ from unittest.mock import MagicMock
 import pytest
 
 from code_puppy import config as cp_config
-from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
 
-# Expose the CLI harness fixtures globally
-from tests.integration.cli_expect.harness import (
-    cli_harness as cli_harness,
-)
-from tests.integration.cli_expect.harness import (
-    integration_env as integration_env,
-)
-from tests.integration.cli_expect.harness import (
-    log_dump as log_dump,
-)
-from tests.integration.cli_expect.harness import (
-    retry_policy as retry_policy,
-)
+# Integration test fixtures - only import if pexpect.spawn is available (Unix)
+# On Windows, pexpect doesn't have spawn attribute, so skip these imports
+try:
+    from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
 
-# Re-export integration fixtures so pytest discovers them project-wide
-from tests.integration.cli_expect.harness import (
-    spawned_cli as spawned_cli,  # noqa: F401
-)
+    # Expose the CLI harness fixtures globally
+    from tests.integration.cli_expect.harness import (
+        cli_harness as cli_harness,
+    )
+    from tests.integration.cli_expect.harness import (
+        integration_env as integration_env,
+    )
+    from tests.integration.cli_expect.harness import (
+        log_dump as log_dump,
+    )
+    from tests.integration.cli_expect.harness import (
+        retry_policy as retry_policy,
+    )
+
+    # Re-export integration fixtures so pytest discovers them project-wide
+    from tests.integration.cli_expect.harness import (
+        spawned_cli as spawned_cli,  # noqa: F401
+    )
+except (ImportError, AttributeError):
+    # On Windows or when pexpect.spawn is unavailable, skip integration fixtures
+    pass
 
 
 @pytest.fixture(autouse=True)
