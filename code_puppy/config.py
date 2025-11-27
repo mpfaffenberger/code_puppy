@@ -158,6 +158,7 @@ def get_config_keys():
         "http2",
         "diff_context_lines",
         "default_agent",
+        "temperature",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -353,6 +354,36 @@ def clear_model_cache():
     _default_vqa_model_cache = None
 
 
+def model_supports_setting(model_name: str, setting: str) -> bool:
+    """Check if a model supports a particular setting (e.g., 'temperature', 'seed').
+
+    Args:
+        model_name: The name of the model to check.
+        setting: The setting name to check for (e.g., 'temperature', 'seed', 'top_p').
+
+    Returns:
+        True if the model supports the setting, False otherwise.
+        Defaults to True for backwards compatibility if model config doesn't specify.
+    """
+    try:
+        from code_puppy.model_factory import ModelFactory
+
+        models_config = ModelFactory.load_config()
+        model_config = models_config.get(model_name, {})
+
+        # Get supported_settings list, default to supporting common settings
+        supported_settings = model_config.get("supported_settings")
+
+        if supported_settings is None:
+            # Default: assume temperature and seed are supported for backwards compatibility
+            return setting in ["temperature", "seed", "top_p"]
+
+        return setting in supported_settings
+    except Exception:
+        # If we can't check, assume supported for safety
+        return True
+
+
 def get_global_model_name():
     """Return a valid model name for Code Puppy to use.
 
@@ -430,6 +461,39 @@ def set_openai_reasoning_effort(value: str) -> None:
             f"Invalid reasoning effort '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
         )
     set_config_value("openai_reasoning_effort", normalized)
+
+
+def get_temperature() -> Optional[float]:
+    """Return the configured model temperature (0.0 to 2.0).
+
+    Returns:
+        Float between 0.0 and 2.0 if set, None if not configured.
+        This allows each model to use its own default when not overridden.
+    """
+    val = get_value("temperature")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        temp = float(val)
+        # Clamp to valid range (most APIs accept 0-2)
+        return max(0.0, min(2.0, temp))
+    except (ValueError, TypeError):
+        return None
+
+
+def set_temperature(value: Optional[float]) -> None:
+    """Set the model temperature in config.
+
+    Args:
+        value: Temperature between 0.0 and 2.0, or None to clear.
+               Lower values = more deterministic, higher = more creative.
+    """
+    if value is None:
+        set_config_value("temperature", "")
+    else:
+        # Validate and clamp
+        temp = max(0.0, min(2.0, float(value)))
+        set_config_value("temperature", str(temp))
 
 
 def normalize_command_history():

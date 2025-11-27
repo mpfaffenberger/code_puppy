@@ -45,9 +45,11 @@ from code_puppy.config import (
     get_message_limit,
     get_openai_reasoning_effort,
     get_protected_token_count,
+    get_temperature,
     get_use_dbos,
     get_value,
     load_mcp_server_configs,
+    model_supports_setting,
 )
 from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
@@ -961,6 +963,13 @@ class BaseAgent(ABC):
             min(int(0.05 * self.get_model_context_length()) - 1024, 16384),
         )
         model_settings_dict["max_tokens"] = output_tokens
+
+        # Add temperature if configured AND model supports it
+        configured_temperature = get_temperature()
+        if configured_temperature is not None and model_supports_setting(
+            resolved_model_name, "temperature"
+        ):
+            model_settings_dict["temperature"] = configured_temperature
 
         model_settings: ModelSettings = ModelSettings(**model_settings_dict)
         if "gpt-5" in model_name:
