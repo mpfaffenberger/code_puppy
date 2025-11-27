@@ -74,9 +74,13 @@ build_data = true
 
 [tool.hatch.build.targets.wheel.shared-data]
 "code_puppy/models.json" = "code_puppy/models.json"
+"code_puppy/models_dev_api.json" = "code_puppy/models_dev_api.json"
 
 [[tool.hatch.build.targets.sdist.include]]
 path = "code_puppy/models.json"
+
+[[tool.hatch.build.targets.sdist.include]]
+path = "code_puppy/models_dev_api.json"
 [tool.pytest.ini_options]
 addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]

@@ -144,6 +144,11 @@
     "name": "claude-opus-4-1",
     "context_length": 200000
   },
+  "claude-4-5-opus": {
+    "type": "anthropic",
+    "name": "claude-opus-4-5",
+    "context_length": 200000
+  },
   "glm-4.5-air-coding": {
     "type": "zai_coding",
     "name": "glm-4.5-air"
