@@ -121,36 +121,51 @@ Please review this code for security issues." > .claude/commands/review.md
 /review with focus on authentication
 ```
 
-```bash
-export MODEL_NAME=gpt-5 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
-export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
-export CEREBRAS_API_KEY=<your_cerebras_api_key> # for Cerebras models
-export SYN_API_KEY=<your https://dev.synthetic.new api key> # for Synthetic provider
-# or ...
+### Adding Models from models.dev 🆕
 
-export AZURE_OPENAI_API_KEY=...
-export AZURE_OPENAI_ENDPOINT=...
-
-code-puppy --interactive
-```
-
-### Synthetic Provider
-
-Code Puppy supports the **Synthetic provider**, which gives you access to various open-source models through a custom OpenAI-compatible endpoint. Set `SYN_API_KEY` to use models like:
-
-- `synthetic-DeepSeek-V3.1-Terminus` (128K context)
-- `synthetic-Kimi-K2-Instruct-0905` (256K context)
-- `synthetic-Qwen3-Coder-480B-A35B-Instruct` (256K context)
-- `synthetic-GLM-4.6` (200K context)
-
-These models are available via `https://api.synthetic.new/openai/v1/` and provide high-quality coding assistance with generous context windows.
-
-Run specific tasks or engage in interactive mode:
+While there are several models configured right out of the box from providers like Synthetic, Cerebras, OpenAI, Google, and Anthropic, Code Puppy integrates with [models.dev](https://models.dev) to let you browse and add models from **65+ providers** with a single command:
 
 ```bash
-# Execute a task directly
-code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it and run it"
+/add_model
 ```
+
+This opens an interactive TUI where you can:
+- **Browse providers** - See all available AI providers (OpenAI, Anthropic, Groq, Mistral, xAI, Cohere, Perplexity, DeepInfra, and many more)
+- **Preview model details** - View capabilities, pricing, context length, and features
+- **One-click add** - Automatically configures the model with correct endpoints and API keys
+
+#### Live API with Offline Fallback
+
+The `/add_model` command fetches the latest model data from models.dev in real-time. If the API is unavailable, it falls back to a bundled database:
+
+```
+📡 Fetched latest models from models.dev     # Live API
+📦 Using bundled models database              # Offline fallback
+```
+
+#### Supported Providers
+
+Code Puppy integrates with https://models.dev giving you access to 65 providers and >1000 different model offerings.
+
+There are **39+ additional providers** that already have OpenAI-compatible APIs configured in models.dev!
+
+These providers are automatically configured with correct OpenAI-compatible endpoints, but have **not** been tested thoroughly:
+
+| Provider | Endpoint | API Key Env Var |
+|----------|----------|----------------|
+| **xAI** (Grok) | `https://api.x.ai/v1` | `XAI_API_KEY` |
+| **Groq** | `https://api.groq.com/openai/v1` | `GROQ_API_KEY` |
+| **Mistral** | `https://api.mistral.ai/v1` | `MISTRAL_API_KEY` |
+| **Together AI** | `https://api.together.xyz/v1` | `TOGETHER_API_KEY` |
+| **Perplexity** | `https://api.perplexity.ai` | `PERPLEXITY_API_KEY` |
+| **DeepInfra** | `https://api.deepinfra.com/v1/openai` | `DEEPINFRA_API_KEY` |
+| **Cohere** | `https://api.cohere.com/compatibility/v1` | `COHERE_API_KEY` |
+| **AIHubMix** | `https://aihubmix.com/v1` | `AIHUBMIX_API_KEY` |
+
+#### Smart Warnings
+
+- **⚠️ Unsupported Providers** - Providers like Amazon Bedrock and Google Vertex that require special authentication are clearly marked
+- **⚠️ No Tool Calling** - Models without tool calling support show a big warning since they can't use Code Puppy's file/shell tools
 
 ### Durable Execution
 
@@ -182,10 +197,6 @@ The following environment variables control DBOS behavior:
 - Cerebras API key (for Cerebras models)
 - Anthropic key (for Claude models)
 - Ollama endpoint available
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Agent Rules
 We support AGENT.md files for defining coding standards and styles that your code should comply with. These rules can cover various aspects such as formatting, naming conventions, and even design guidelines.
@@ -728,3 +739,7 @@ Unlike other Agentic Coding software, there is no corporate or investor backing 
 Code Puppy is designed with privacy-by-design principles. Every feature has been evaluated through a privacy lens, and every integration respects user data sovereignty. When you use Code Puppy, you're not the product – you're just a developer getting things done.
 
 **This commitment is enforceable because it's structurally impossible to violate it.** No external pressures, no investor demands, no quarterly earnings targets to hit. Just solid code that respects your privacy.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

@@ -11,6 +11,7 @@ from code_puppy.command_line.model_picker_completion import update_model_in_inpu
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
+from code_puppy.messaging import emit_error, emit_info
 from code_puppy.tools.tools_content import tools_content
 
 
@@ -568,6 +569,35 @@ def handle_model_command(command: str) -> bool:
     emit_warning("Usage: /model <model-name> or /m <model-name>")
     emit_warning(f"Available models: {', '.join(model_names)}")
     return True
+
+
+@register_command(
+    name="add_model",
+    description="Browse and add models from models.dev catalog",
+    usage="/add_model",
+    category="core"
+)
+def handle_add_model_command(command: str) -> bool:
+    """Launch interactive model browser TUI."""
+    from code_puppy.command_line.add_model_menu import interactive_model_picker
+    from code_puppy.tools.command_runner import set_awaiting_user_input
+    
+    set_awaiting_user_input(True)
+    try:
+        # interactive_model_picker is now synchronous - no async complications!
+        result = interactive_model_picker()
+        
+        if result:
+            emit_info("Successfully added model configuration")
+        return True
+    except KeyboardInterrupt:
+        # User cancelled - this is expected behavior
+        return True
+    except Exception as e:
+        emit_error(f"Failed to launch model browser: {e}")
+        return False
+    finally:
+        set_awaiting_user_input(False)
 
 
 @register_command(
