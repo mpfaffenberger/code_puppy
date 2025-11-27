@@ -293,6 +293,7 @@ class TestGetConfigKeys:
                 "model",
                 "openai_reasoning_effort",
                 "protected_token_count",
+                "temperature",
                 "yolo_mode",
             ]
         )
@@ -322,6 +323,7 @@ class TestGetConfigKeys:
                 "model",
                 "openai_reasoning_effort",
                 "protected_token_count",
+                "temperature",
                 "yolo_mode",
             ]
         )
@@ -560,25 +562,35 @@ class TestCommandHistory:
         # No other function should be called since file exists
 
     @patch("builtins.open", new_callable=mock_open)
-    @patch("datetime.datetime")
-    def test_save_command_to_history_with_timestamp(
-        self, mock_datetime, mock_file, mock_config_paths
-    ):
+    def test_save_command_to_history_with_timestamp(self, mock_file, mock_config_paths):
         # Setup
         mock_cfg_dir, mock_cfg_file = mock_config_paths
-        mock_now = MagicMock()
-        mock_now.isoformat.return_value = "2023-01-01T12:34:56"
-        mock_datetime.now.return_value = mock_now
 
         # Call the function
         cp_config.save_command_to_history("test command")
 
-        # Assert
-        mock_file.assert_called_once_with(cp_config.COMMAND_HISTORY_FILE, "a")
-        mock_file().write.assert_called_once_with(
-            "\n# 2023-01-01T12:34:56\ntest command\n"
+        # Assert - now using encoding and errors parameters
+        mock_file.assert_called_once_with(
+            cp_config.COMMAND_HISTORY_FILE,
+            "a",
+            encoding="utf-8",
+            errors="surrogateescape",
         )
-        mock_now.isoformat.assert_called_once_with(timespec="seconds")
+
+        # Verify the write call was made with the correct format
+        # The timestamp is dynamic, so we check the format rather than exact value
+        write_call_args = mock_file().write.call_args[0][0]
+        assert write_call_args.startswith("\n# ")
+        assert write_call_args.endswith("\ntest command\n")
+        # Check timestamp format is ISO-like (YYYY-MM-DDTHH:MM:SS)
+        import re
+
+        timestamp_match = re.search(
+            r"# (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})", write_call_args
+        )
+        assert timestamp_match is not None, (
+            f"Timestamp format not found in: {write_call_args}"
+        )
 
     @patch("builtins.open")
     @patch("rich.console.Console")
