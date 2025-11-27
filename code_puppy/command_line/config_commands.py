@@ -38,6 +38,7 @@ def handle_show_command(command: str) -> bool:
         get_owner_name,
         get_protected_token_count,
         get_puppy_name,
+        get_temperature,
         get_use_dbos,
         get_yolo_mode,
     )
@@ -51,6 +52,7 @@ def handle_show_command(command: str) -> bool:
     protected_tokens = get_protected_token_count()
     compaction_threshold = get_compaction_threshold()
     compaction_strategy = get_compaction_strategy()
+    temperature = get_temperature()
 
     # Get current agent info
     current_agent = get_current_agent()
@@ -70,6 +72,7 @@ def handle_show_command(command: str) -> bool:
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
 [bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
+[bold]temperature:[/bold]           [cyan]{temperature if temperature is not None else "(model default)"}[/cyan]
 
 """
     emit_info(status_msg)
