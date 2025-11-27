@@ -469,20 +469,20 @@ async def test_get_input_with_combined_completion_defaults(
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
-@patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
+@patch("code_puppy.command_line.prompt_toolkit_completion.SafeFileHistory")
 async def test_get_input_with_combined_completion_with_history(
-    mock_file_history, mock_prompt_session_cls
+    mock_safe_file_history, mock_prompt_session_cls
 ):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="input with history")
     mock_prompt_session_cls.return_value = mock_session_instance
     mock_history_instance = MagicMock()
-    mock_file_history.return_value = mock_history_instance
+    mock_safe_file_history.return_value = mock_history_instance
 
     history_path = "~/.my_test_history"
     result = await get_input_with_combined_completion(history_file=history_path)
 
-    mock_file_history.assert_called_once_with(history_path)
+    mock_safe_file_history.assert_called_once_with(history_path)
     assert mock_prompt_session_cls.call_args[1]["history"] == mock_history_instance
     # NOTE: update_model_in_input is no longer called from the prompt layer.
     assert result == "input with history"
