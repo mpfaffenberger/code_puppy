@@ -457,9 +457,19 @@ def normalize_command_history():
         return
 
     try:
-        # Read the entire file
-        with open(COMMAND_HISTORY_FILE, "r") as f:
+        # Read the entire file with encoding error handling for Windows
+        with open(
+            COMMAND_HISTORY_FILE, "r", encoding="utf-8", errors="surrogateescape"
+        ) as f:
             content = f.read()
+
+        # Sanitize any surrogate characters that might have slipped in
+        try:
+            content = content.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass  # Keep original if sanitization fails
 
         # Skip empty files
         if not content.strip():
@@ -481,7 +491,9 @@ def normalize_command_history():
 
         # Write the updated content back to the file only if changes were made
         if content != updated_content:
-            with open(COMMAND_HISTORY_FILE, "w") as f:
+            with open(
+                COMMAND_HISTORY_FILE, "w", encoding="utf-8", errors="surrogateescape"
+            ) as f:
                 f.write(updated_content)
     except Exception as e:
         from rich.console import Console
@@ -711,7 +723,23 @@ def save_command_to_history(command: str):
 
     try:
         timestamp = datetime.datetime.now().isoformat(timespec="seconds")
-        with open(COMMAND_HISTORY_FILE, "a") as f:
+
+        # Sanitize command to remove any invalid surrogate characters
+        # that could cause encoding errors on Windows
+        try:
+            command = command.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # If that fails, do a more aggressive cleanup
+            command = "".join(
+                char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+                for char in command
+            )
+
+        with open(
+            COMMAND_HISTORY_FILE, "a", encoding="utf-8", errors="surrogateescape"
+        ) as f:
             f.write(f"\n# {timestamp}\n{command}\n")
     except Exception as e:
         from rich.console import Console

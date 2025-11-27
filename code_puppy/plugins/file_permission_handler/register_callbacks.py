@@ -75,8 +75,16 @@ def _preview_delete_snippet(file_path: str, snippet: str) -> str | None:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             return None
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             original = f.read()
+
+        # Sanitize any surrogate characters
+        try:
+            original = original.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
 
         if snippet not in original:
             return None
@@ -126,8 +134,16 @@ def _preview_replace_in_file(
     try:
         file_path = os.path.abspath(file_path)
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             original = f.read()
+
+        # Sanitize any surrogate characters
+        try:
+            original = original.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
 
         modified = original
         for rep in replacements:
@@ -178,8 +194,16 @@ def _preview_delete_file(file_path: str) -> str | None:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             return None
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             original = f.read()
+
+        # Sanitize any surrogate characters
+        try:
+            original = original.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
 
         diff_text = "".join(
             difflib.unified_diff(

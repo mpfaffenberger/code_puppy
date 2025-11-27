@@ -8,6 +8,7 @@
 # BOLD = '\033[1m'
 import asyncio
 import os
+import sys
 from typing import Optional
 
 from prompt_toolkit import PromptSession
@@ -42,6 +43,65 @@ from code_puppy.config import (
     get_puppy_name,
     get_value,
 )
+
+
+def _sanitize_for_encoding(text: str) -> str:
+    """Remove or replace characters that can't be safely encoded.
+
+    This handles:
+    - Lone surrogate characters (U+D800-U+DFFF) which are invalid in UTF-8
+    - Other problematic Unicode sequences from Windows copy-paste
+
+    Args:
+        text: The string to sanitize
+
+    Returns:
+        A cleaned string safe for UTF-8 encoding
+    """
+    # First, try to encode as UTF-8 to catch any problematic characters
+    try:
+        text.encode("utf-8")
+        return text  # String is already valid UTF-8
+    except UnicodeEncodeError:
+        pass
+
+    # Replace surrogates and other problematic characters
+    # Use 'surrogatepass' to encode surrogates, then decode with 'replace' to clean them
+    try:
+        # Encode allowing surrogates, then decode replacing invalid sequences
+        cleaned = text.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+        return cleaned
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Last resort: filter out all non-BMP and surrogate characters
+        return "".join(
+            char
+            for char in text
+            if ord(char) < 0xD800 or (ord(char) > 0xDFFF and ord(char) < 0x10000)
+        )
+
+
+class SafeFileHistory(FileHistory):
+    """A FileHistory that handles encoding errors gracefully on Windows.
+
+    Windows terminals and copy-paste operations can introduce invalid
+    Unicode surrogate characters that cause UTF-8 encoding to fail.
+    This class sanitizes history entries before writing them to disk.
+    """
+
+    def store_string(self, string: str) -> None:
+        """Store a string in the history, sanitizing it first."""
+        sanitized = _sanitize_for_encoding(string)
+        try:
+            super().store_string(sanitized)
+        except (UnicodeEncodeError, UnicodeDecodeError, OSError) as e:
+            # If we still can't write, log the error but don't crash
+            # This can happen with particularly malformed input
+            print(
+                f"Warning: Could not save to command history: {e}",
+                file=sys.stderr,
+            )
 
 
 class SetCompleter(Completer):
@@ -447,7 +507,8 @@ def get_prompt_with_active_model(base: str = ">>> "):
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:
-    history = FileHistory(history_file) if history_file else None
+    # Use SafeFileHistory to handle encoding errors gracefully on Windows
+    history = SafeFileHistory(history_file) if history_file else None
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),

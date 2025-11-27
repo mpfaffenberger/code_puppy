@@ -1244,6 +1244,20 @@ class BaseAgent(ABC):
         Raises:
             asyncio.CancelledError: When execution is cancelled by user.
         """
+        # Sanitize prompt to remove invalid Unicode surrogates that can cause
+        # encoding errors (especially common on Windows with copy-paste)
+        if prompt:
+            try:
+                prompt = prompt.encode("utf-8", errors="surrogatepass").decode(
+                    "utf-8", errors="replace"
+                )
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # Fallback: filter out surrogate characters directly
+                prompt = "".join(
+                    char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+                    for char in prompt
+                )
+
         group_id = str(uuid.uuid4())
         # Avoid double-loading: reuse existing agent if already built
         pydantic_agent = (

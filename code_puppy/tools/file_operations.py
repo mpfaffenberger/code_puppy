@@ -511,7 +511,10 @@ def _read_file(
         error_msg = f"{file_path} is not a file"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        # Use errors="surrogateescape" to handle files with invalid UTF-8 sequences
+        # This is common on Windows when files contain emojis or were created by
+        # applications that don't properly encode Unicode
+        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             if start_line is not None and num_lines is not None:
                 # Read only the specified lines
                 lines = f.readlines()
@@ -525,6 +528,21 @@ def _read_file(
             else:
                 # Read the entire file
                 content = f.read()
+
+            # Sanitize the content to remove any surrogate characters that could
+            # cause issues when the content is later serialized or displayed
+            # This re-encodes with surrogatepass then decodes with replace to
+            # convert lone surrogates to replacement characters
+            try:
+                content = content.encode("utf-8", errors="surrogatepass").decode(
+                    "utf-8", errors="replace"
+                )
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # If that fails, do a more aggressive cleanup
+                content = "".join(
+                    char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+                    for char in content
+                )
 
             # Simple approximation: ~4 characters per token
             num_tokens = len(content) // 4
