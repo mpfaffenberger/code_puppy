@@ -3,12 +3,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 from pydantic_ai import Agent
-
 from pydantic_ai.settings import ModelSettings
 
 from code_puppy.config import (
+    get_effective_temperature,
     get_global_model_name,
-    get_temperature,
     get_use_dbos,
     model_supports_setting,
 )
@@ -81,8 +80,9 @@ When summarizing:
 6. Focus on token usage efficiency and system message preservation"""
 
     # Build model settings with temperature if configured AND model supports it
+    # Uses per-model settings if configured, falls back to global
     model_settings_dict = {}
-    configured_temperature = get_temperature()
+    configured_temperature = get_effective_temperature(model_name)
     if configured_temperature is not None and model_supports_setting(
         model_name, "temperature"
     ):

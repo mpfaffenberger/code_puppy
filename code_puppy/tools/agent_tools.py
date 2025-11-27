@@ -16,8 +16,8 @@ from pydantic_ai import Agent, RunContext, UsageLimits
 from pydantic_ai.messages import ModelMessage
 
 from code_puppy.config import (
+    get_effective_temperature,
     get_message_limit,
-    get_temperature,
     get_use_dbos,
     model_supports_setting,
 )
@@ -400,7 +400,8 @@ def register_invoke_agent(agent):
 
             # Add user-configured temperature if model supports it
             # (overrides cerebras default if set)
-            configured_temperature = get_temperature()
+            # Uses per-model settings if configured, falls back to global
+            configured_temperature = get_effective_temperature(model_name)
             if configured_temperature is not None and model_supports_setting(
                 model_name, "temperature"
             ):

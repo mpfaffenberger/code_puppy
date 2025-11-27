@@ -482,11 +482,13 @@ def get_temperature() -> Optional[float]:
 
 
 def set_temperature(value: Optional[float]) -> None:
-    """Set the model temperature in config.
+    """Set the global model temperature in config.
 
     Args:
         value: Temperature between 0.0 and 2.0, or None to clear.
                Lower values = more deterministic, higher = more creative.
+
+    Note: Consider using set_model_setting() for per-model temperature.
     """
     if value is None:
         set_config_value("temperature", "")
@@ -494,6 +496,140 @@ def set_temperature(value: Optional[float]) -> None:
         # Validate and clamp
         temp = max(0.0, min(2.0, float(value)))
         set_config_value("temperature", str(temp))
+
+
+# --- PER-MODEL SETTINGS ---
+
+
+def _sanitize_model_name_for_key(model_name: str) -> str:
+    """Sanitize model name for use in config keys.
+
+    Replaces characters that might cause issues in config keys.
+    """
+    # Replace problematic characters with underscores
+    sanitized = model_name.replace(".", "_").replace("-", "_").replace("/", "_")
+    return sanitized.lower()
+
+
+def get_model_setting(
+    model_name: str, setting: str, default: Optional[float] = None
+) -> Optional[float]:
+    """Get a specific setting for a model.
+
+    Args:
+        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
+        default: Default value if not set
+
+    Returns:
+        The setting value as a float, or default if not set.
+    """
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    key = f"model_settings_{sanitized_name}_{setting}"
+    val = get_value(key)
+
+    if val is None or val.strip() == "":
+        return default
+
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> None:
+    """Set a specific setting for a model.
+
+    Args:
+        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
+        value: The value to set, or None to clear
+    """
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    key = f"model_settings_{sanitized_name}_{setting}"
+
+    if value is None:
+        set_config_value(key, "")
+    else:
+        set_config_value(key, str(value))
+
+
+def get_all_model_settings(model_name: str) -> dict:
+    """Get all settings for a specific model.
+
+    Args:
+        model_name: The model name
+
+    Returns:
+        Dictionary of setting_name -> value for all configured settings.
+    """
+    import configparser
+
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    prefix = f"model_settings_{sanitized_name}_"
+
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+
+    settings = {}
+    if DEFAULT_SECTION in config:
+        for key, val in config[DEFAULT_SECTION].items():
+            if key.startswith(prefix) and val.strip():
+                setting_name = key[len(prefix) :]
+                try:
+                    settings[setting_name] = float(val)
+                except (ValueError, TypeError):
+                    pass
+
+    return settings
+
+
+def clear_model_settings(model_name: str) -> None:
+    """Clear all settings for a specific model.
+
+    Args:
+        model_name: The model name
+    """
+    import configparser
+
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    prefix = f"model_settings_{sanitized_name}_"
+
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+
+    if DEFAULT_SECTION in config:
+        keys_to_remove = [
+            key for key in config[DEFAULT_SECTION] if key.startswith(prefix)
+        ]
+        for key in keys_to_remove:
+            del config[DEFAULT_SECTION][key]
+
+        with open(CONFIG_FILE, "w") as f:
+            config.write(f)
+
+
+def get_effective_temperature(model_name: Optional[str] = None) -> Optional[float]:
+    """Get the effective temperature for a model.
+
+    Checks per-model settings first, then falls back to global temperature.
+
+    Args:
+        model_name: The model name. If None, uses the current global model.
+
+    Returns:
+        Temperature value, or None if not configured.
+    """
+    if model_name is None:
+        model_name = get_global_model_name()
+
+    # Check per-model setting first
+    per_model_temp = get_model_setting(model_name, "temperature")
+    if per_model_temp is not None:
+        return per_model_temp
+
+    # Fall back to global temperature
+    return get_temperature()
 
 
 def normalize_command_history():
