@@ -4,7 +4,14 @@ from typing import List
 
 from pydantic_ai import Agent
 
-from code_puppy.config import get_global_model_name, get_use_dbos
+from pydantic_ai.settings import ModelSettings
+
+from code_puppy.config import (
+    get_global_model_name,
+    get_temperature,
+    get_use_dbos,
+    model_supports_setting,
+)
 from code_puppy.model_factory import ModelFactory
 
 # Keep a module-level agent reference to avoid rebuilding per call
@@ -73,11 +80,24 @@ When summarizing:
 5. Make sure all tool calls and responses are summarized, as they are vital
 6. Focus on token usage efficiency and system message preservation"""
 
+    # Build model settings with temperature if configured AND model supports it
+    model_settings_dict = {}
+    configured_temperature = get_temperature()
+    if configured_temperature is not None and model_supports_setting(
+        model_name, "temperature"
+    ):
+        model_settings_dict["temperature"] = configured_temperature
+
+    model_settings = (
+        ModelSettings(**model_settings_dict) if model_settings_dict else None
+    )
+
     agent = Agent(
         model=model,
         instructions=instructions,
         output_type=str,
         retries=1,  # Fewer retries for summarization
+        model_settings=model_settings,
     )
     if get_use_dbos():
         from pydantic_ai.durable_exec.dbos import DBOSAgent
