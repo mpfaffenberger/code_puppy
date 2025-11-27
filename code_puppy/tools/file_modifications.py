@@ -145,8 +145,15 @@ def _delete_snippet_from_file(
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             original = f.read()
+        # Sanitize any surrogate characters from reading
+        try:
+            original = original.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
         if snippet not in original:
             return {
                 "error": f"Snippet not found in file '{file_path}'.",
@@ -186,8 +193,16 @@ def _replace_in_file(
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
         original = f.read()
+
+    # Sanitize any surrogate characters from reading
+    try:
+        original = original.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
 
     modified = original
     for rep in replacements:
@@ -502,8 +517,15 @@ def _delete_file(
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
         else:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
                 original = f.read()
+            # Sanitize any surrogate characters from reading
+            try:
+                original = original.encode("utf-8", errors="surrogatepass").decode(
+                    "utf-8", errors="replace"
+                )
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
             from code_puppy.config import get_diff_context_lines
 
             diff_text = "".join(
