@@ -209,6 +209,16 @@ def handle_set_command(command: str) -> bool:
 
         set_config_value(key, value)
         emit_success(f'Set {key} = "{value}" in puppy.cfg!')
+
+        # Reload the current agent to pick up the new config
+        from code_puppy.agents import get_current_agent
+
+        try:
+            current_agent = get_current_agent()
+            current_agent.reload_code_generation_agent()
+            emit_info("[dim]Agent reloaded with updated config[/dim]")
+        except Exception as reload_error:
+            emit_warning(f"Config saved but agent reload failed: {reload_error}")
     else:
         emit_error("You must supply a key.")
     return True
