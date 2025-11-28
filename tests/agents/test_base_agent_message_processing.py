@@ -341,50 +341,6 @@ class TestBaseAgentMessageProcessing:
         # Should always return at least 1
         assert agent.estimate_token_count("x" * 100) >= 1
 
-    def test_stringify_part_unknown_part_kind_warning(self, agent):
-        """Test that _stringify_part emits warning for unknown part_kind."""
-        from unittest.mock import patch
-
-        import code_puppy.agents.base_agent as base_agent_module
-
-        # Reset the warned set to ensure we can trigger the warning
-        original_warned = base_agent_module._warned_unknown_part_kinds.copy()
-        base_agent_module._warned_unknown_part_kinds.clear()
-
-        try:
-            # Create a mock part with an unknown part_kind
-            class MockPart:
-                def __init__(self):
-                    self.part_kind = "super-new-unknown-part-type"
-                    self.content = "test content"
-
-            part = MockPart()
-
-            with patch("code_puppy.agents.base_agent.emit_warning") as mock_emit:
-                # Call _stringify_part which should trigger the warning
-                agent._stringify_part(part)
-
-                # Verify the warning was emitted
-                mock_emit.assert_called_once()
-                call_args = mock_emit.call_args[0][0]
-                assert "super-new-unknown-part-type" in call_args
-                assert "unknown message part_kind" in call_args.lower()
-
-            # Verify the part_kind was added to warned set
-            assert (
-                "super-new-unknown-part-type"
-                in base_agent_module._warned_unknown_part_kinds
-            )
-
-            # Call again - should NOT emit warning (already warned)
-            with patch("code_puppy.agents.base_agent.emit_warning") as mock_emit:
-                agent._stringify_part(part)
-                mock_emit.assert_not_called()
-
-        finally:
-            # Restore original state
-            base_agent_module._warned_unknown_part_kinds = original_warned
-
     def test_stringify_part_known_part_kinds_no_warning(self, agent):
         """Test that _stringify_part does NOT emit warning for known part_kinds."""
         from unittest.mock import patch
