@@ -602,7 +602,7 @@ def handle_add_model_command(command: str) -> bool:
 
 @register_command(
     name="model_settings",
-    description="Configure per-model settings (temperature, top_p, seed)",
+    description="Configure per-model settings (temperature, seed, etc.)",
     usage="/model_settings [--show [model_name]]",
     aliases=["ms"],
     category="config",
@@ -611,7 +611,7 @@ def handle_model_settings_command(command: str) -> bool:
     """Launch interactive model settings TUI.
 
     Opens a TUI showing all available models. Select a model to configure
-    its settings (temperature, top_p, seed). ESC closes the TUI.
+    its settings (temperature, seed, etc.). ESC closes the TUI.
 
     Use --show [model_name] to display current settings without the TUI.
     """
@@ -619,7 +619,7 @@ def handle_model_settings_command(command: str) -> bool:
         interactive_model_settings,
         show_model_settings_summary,
     )
-    from code_puppy.messaging import emit_error, emit_success
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
     tokens = command.split()
@@ -640,6 +640,17 @@ def handle_model_settings_command(command: str) -> bool:
 
         if result:
             emit_success("Model settings updated successfully")
+
+        # Always reload the active agent so settings take effect
+        from code_puppy.agents import get_current_agent
+
+        try:
+            current_agent = get_current_agent()
+            current_agent.reload_code_generation_agent()
+            emit_info("Active agent reloaded")
+        except Exception as reload_error:
+            emit_warning(f"Agent reload failed: {reload_error}")
+
         return True
     except KeyboardInterrupt:
         return True

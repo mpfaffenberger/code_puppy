@@ -121,25 +121,9 @@ class ShellSafetyAgent(BaseAgent):
                     "You are Claude Code, Anthropic's official CLI for Claude."
                 )
 
-            # Build model settings with temperature if configured AND model supports it
-            # Uses per-model settings if configured, falls back to global
-            from pydantic_ai.settings import ModelSettings
+            from code_puppy.model_factory import make_model_settings
 
-            from code_puppy.config import (
-                get_effective_temperature,
-                model_supports_setting,
-            )
-
-            model_settings_dict = {}
-            configured_temperature = get_effective_temperature(model_name)
-            if configured_temperature is not None and model_supports_setting(
-                model_name, "temperature"
-            ):
-                model_settings_dict["temperature"] = configured_temperature
-
-            model_settings = (
-                ModelSettings(**model_settings_dict) if model_settings_dict else None
-            )
+            model_settings = make_model_settings(model_name)
 
             temp_agent = Agent(
                 model=model,

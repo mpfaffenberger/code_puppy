@@ -28,6 +28,8 @@ def set_active_model(model_name: str):
     """
     Sets the active model name by updating the config (for persistence).
     """
+    from code_puppy.messaging import emit_info, emit_warning
+
     set_model_name(model_name)
     # Reload the currently active agent so the new model takes effect immediately
     try:
@@ -42,9 +44,9 @@ def set_active_model(model_name: str):
                 # Non-fatal, continue to reload
                 ...
         current_agent.reload_code_generation_agent()
-    except Exception:
-        # Swallow errors to avoid breaking the prompt flow; model persists for next run
-        pass
+        emit_info("Active agent reloaded")
+    except Exception as e:
+        emit_warning(f"Model changed but agent reload failed: {e}")
 
 
 class ModelNameCompleter(Completer):

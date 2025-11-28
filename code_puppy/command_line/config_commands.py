@@ -36,6 +36,7 @@ def handle_show_command(command: str) -> bool:
         get_default_agent,
         get_effective_temperature,
         get_openai_reasoning_effort,
+        get_openai_verbosity,
         get_owner_name,
         get_protected_token_count,
         get_puppy_name,
@@ -74,6 +75,7 @@ def handle_show_command(command: str) -> bool:
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
 [bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
+[bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
 [bold]temperature:[/bold]           [cyan]{effective_temperature if effective_temperature is not None else "(model default)"}[/cyan]{" (per-model)" if effective_temperature != global_temperature and effective_temperature is not None else ""}
 
 """
@@ -116,6 +118,48 @@ def handle_reasoning_command(command: str) -> bool:
     emit_success(
         f"Reasoning effort set to '{normalized_effort}' and active agent reloaded"
     )
+    return True
+
+
+@register_command(
+    name="verbosity",
+    description="Set OpenAI verbosity for GPT-5 models (e.g., /verbosity high)",
+    usage="/verbosity <low|medium|high>",
+    category="config",
+)
+def handle_verbosity_command(command: str) -> bool:
+    """Set OpenAI verbosity level.
+
+    Controls how concise vs. verbose the model's responses are:
+    - low: more concise responses
+    - medium: balanced (default)
+    - high: more verbose responses
+    """
+    from code_puppy.messaging import emit_error, emit_success, emit_warning
+
+    tokens = command.split()
+    if len(tokens) != 2:
+        emit_warning("Usage: /verbosity <low|medium|high>")
+        return True
+
+    verbosity = tokens[1]
+    try:
+        from code_puppy.config import set_openai_verbosity
+
+        set_openai_verbosity(verbosity)
+    except ValueError as exc:
+        emit_error(str(exc))
+        return True
+
+    from code_puppy.config import get_openai_verbosity
+
+    normalized_verbosity = get_openai_verbosity()
+
+    from code_puppy.agents.agent_manager import get_current_agent
+
+    agent = get_current_agent()
+    agent.reload_code_generation_agent()
+    emit_success(f"Verbosity set to '{normalized_verbosity}' and active agent reloaded")
     return True
 
 

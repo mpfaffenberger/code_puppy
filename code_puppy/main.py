@@ -86,9 +86,6 @@ async def main():
     message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
     message_renderer.start()
 
-    if not args.interactive and not args.command and not args.prompt:
-        pass
-
     initialize_command_history_file()
     from code_puppy.messaging import emit_system_message
 
@@ -261,10 +258,9 @@ async def main():
 
         if prompt_only_mode:
             await execute_single_prompt(initial_command, message_renderer)
-        elif args.interactive or initial_command:
-            await interactive_mode(message_renderer, initial_command=initial_command)
         else:
-            await prompt_then_interactive_mode(message_renderer)
+            # Default to interactive mode (no args = same as -i)
+            await interactive_mode(message_renderer, initial_command=initial_command)
     finally:
         if message_renderer:
             message_renderer.stop()
@@ -712,65 +708,6 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         from code_puppy.messaging import emit_error
 
         emit_error(f"Error executing prompt: {str(e)}")
-
-
-async def prompt_then_interactive_mode(message_renderer) -> None:
-    """Prompt user for input, execute it, then continue in interactive mode."""
-    from code_puppy.messaging import emit_info, emit_system_message
-
-    emit_info("[bold green]🐶 Code Puppy[/bold green] - Enter your request")
-    emit_system_message(
-        "After processing your request, you'll continue in interactive mode."
-    )
-
-    try:
-        # Get user input
-        from code_puppy.command_line.prompt_toolkit_completion import (
-            get_input_with_combined_completion,
-            get_prompt_with_active_model,
-        )
-        from code_puppy.config import COMMAND_HISTORY_FILE
-
-        emit_info("[bold blue]What would you like me to help you with?[/bold blue]")
-
-        try:
-            # Use prompt_toolkit for enhanced input with path completion
-            user_prompt = await get_input_with_combined_completion(
-                get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
-            )
-        except ImportError:
-            # Fall back to basic input if prompt_toolkit is not available
-            user_prompt = input(">>> ")
-
-        if user_prompt.strip():
-            # Execute the prompt
-            await execute_single_prompt(user_prompt, message_renderer)
-
-            # Transition to interactive mode
-            emit_system_message("\n" + "=" * 50)
-            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
-            emit_system_message(
-                "Your request and response are preserved in the conversation history."
-            )
-            emit_system_message("=" * 50 + "\n")
-
-            # Continue in interactive mode with the initial command as history
-            await interactive_mode(message_renderer, initial_command=user_prompt)
-        else:
-            # No input provided, just go to interactive mode
-            await interactive_mode(message_renderer)
-
-    except (KeyboardInterrupt, EOFError):
-        from code_puppy.messaging import emit_warning
-
-        emit_warning("\nInput cancelled. Starting interactive mode...")
-        await interactive_mode(message_renderer)
-    except Exception as e:
-        from code_puppy.messaging import emit_error
-
-        emit_error(f"Error in prompt mode: {str(e)}")
-        emit_info("Falling back to interactive mode...")
-        await interactive_mode(message_renderer)
 
 
 def main_entry():
