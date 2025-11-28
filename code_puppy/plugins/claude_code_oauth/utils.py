@@ -360,6 +360,11 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                 },
                 "context_length": CLAUDE_CODE_OAUTH_CONFIG["default_context_length"],
                 "oauth_source": "claude-code-plugin",
+                "supported_settings": [
+                    "temperature",
+                    "extended_thinking",
+                    "budget_tokens",
+                ],
             }
             added += 1
         if save_claude_models(claude_models):

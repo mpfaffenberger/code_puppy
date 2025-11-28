@@ -7,15 +7,20 @@ from typing import Any, Dict
 import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
-from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.models.openai import (
+    OpenAIChatModel,
+    OpenAIChatModelSettings,
+    OpenAIResponsesModel,
+)
 from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.settings import ModelSettings
 
 from code_puppy.messaging import emit_warning
 from code_puppy.plugins.chatgpt_oauth.config import get_chatgpt_models_path
@@ -36,6 +41,59 @@ from .round_robin_model import RoundRobinModel
 # When using custom endpoints (type: "custom_openai" in models.json):
 # - Environment variables can be referenced in header values by prefixing with $ in models.json.
 #   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
+
+
+def make_model_settings(
+    model_name: str, max_tokens: int | None = None
+) -> ModelSettings:
+    """Create appropriate ModelSettings for a given model.
+
+    This handles model-specific settings:
+    - GPT-5 models: reasoning_effort and verbosity (non-codex only)
+    - Claude/Anthropic models: extended_thinking and budget_tokens
+
+    Args:
+        model_name: The name of the model to create settings for.
+        max_tokens: Optional max tokens limit to include in settings.
+
+    Returns:
+        Appropriate ModelSettings subclass instance for the model.
+    """
+    from code_puppy.config import (
+        get_effective_model_settings,
+        get_openai_reasoning_effort,
+        get_openai_verbosity,
+    )
+
+    model_settings_dict: dict = {}
+    if max_tokens is not None:
+        model_settings_dict["max_tokens"] = max_tokens
+    effective_settings = get_effective_model_settings(model_name)
+    model_settings_dict.update(effective_settings)
+
+    model_settings: ModelSettings = ModelSettings(**model_settings_dict)
+
+    if "gpt-5" in model_name:
+        model_settings_dict["openai_reasoning_effort"] = get_openai_reasoning_effort()
+        # Verbosity only applies to non-codex GPT-5 models (codex only supports "medium")
+        if "codex" not in model_name:
+            verbosity = get_openai_verbosity()
+            model_settings_dict["extra_body"] = {"verbosity": verbosity}
+        model_settings = OpenAIChatModelSettings(**model_settings_dict)
+    elif model_name.startswith("claude-") or model_name.startswith("anthropic-"):
+        # Handle Anthropic extended thinking settings
+        # Remove top_p as Anthropic doesn't support it with extended thinking
+        model_settings_dict.pop("top_p", None)
+        extended_thinking = effective_settings.get("extended_thinking", False)
+        budget_tokens = effective_settings.get("budget_tokens")
+        if extended_thinking and budget_tokens:
+            model_settings_dict["anthropic_thinking"] = {
+                "type": "enabled",
+                "budget_tokens": budget_tokens,
+            }
+        model_settings = AnthropicModelSettings(**model_settings_dict)
+
+    return model_settings
 
 
 class ZaiChatModel(OpenAIChatModel):

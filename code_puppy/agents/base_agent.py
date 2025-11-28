@@ -33,23 +33,18 @@ from pydantic_ai.messages import (
     ToolReturn,
     ToolReturnPart,
 )
-from pydantic_ai.models.openai import OpenAIChatModelSettings
-from pydantic_ai.settings import ModelSettings
 
 # Consolidated relative imports
 from code_puppy.config import (
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
-    get_effective_temperature,
     get_global_model_name,
     get_message_limit,
-    get_openai_reasoning_effort,
     get_protected_token_count,
     get_use_dbos,
     get_value,
     load_mcp_server_configs,
-    model_supports_setting,
 )
 from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
@@ -61,7 +56,7 @@ from code_puppy.messaging.spinner import (
     SpinnerBase,
     update_spinner_context,
 )
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
@@ -957,27 +952,13 @@ class BaseAgent(ABC):
 
         mcp_servers = self.load_mcp_servers()
 
-        model_settings_dict: Dict[str, Any] = {"seed": 42}
         output_tokens = max(
             2048,
             min(int(0.05 * self.get_model_context_length()) - 1024, 16384),
         )
-        model_settings_dict["max_tokens"] = output_tokens
-
-        # Add temperature if configured AND model supports it
-        # Uses per-model settings if configured, falls back to global
-        configured_temperature = get_effective_temperature(resolved_model_name)
-        if configured_temperature is not None and model_supports_setting(
-            resolved_model_name, "temperature"
-        ):
-            model_settings_dict["temperature"] = configured_temperature
-
-        model_settings: ModelSettings = ModelSettings(**model_settings_dict)
-        if "gpt-5" in model_name:
-            model_settings_dict["openai_reasoning_effort"] = (
-                get_openai_reasoning_effort()
-            )
-            model_settings = OpenAIChatModelSettings(**model_settings_dict)
+        model_settings = make_model_settings(
+            resolved_model_name, max_tokens=output_tokens
+        )
 
         if model_name.startswith("claude-code"):
             instructions = "You are Claude Code, Anthropic's official CLI for Claude."

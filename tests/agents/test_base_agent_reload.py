@@ -182,11 +182,12 @@ class TestBaseAgentReload:
             assert result is not None
 
     def test_reload_model_settings_configuration(self, agent):
-        """Test that model settings are configured with seed and max_tokens."""
+        """Test that model settings are configured with max_tokens."""
         with (
             patch("code_puppy.model_factory.ModelFactory.load_config"),
             patch("code_puppy.model_factory.ModelFactory.get_model"),
             patch("code_puppy.tools.register_tools_for_agent"),
+            patch.object(agent, "get_model_name", return_value="test-model"),
             patch.object(agent, "load_puppy_rules", return_value=""),
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=[]),
@@ -206,10 +207,6 @@ class TestBaseAgentReload:
             call_args = mock_agent_class.call_args
             model_settings = call_args.kwargs["model_settings"]
             assert model_settings is not None
-
-            # Check seed is set (should be 42) - model_settings is a dict
-            assert "seed" in model_settings
-            assert model_settings["seed"] == 42
 
             # Check max_tokens is calculated properly
             assert "max_tokens" in model_settings

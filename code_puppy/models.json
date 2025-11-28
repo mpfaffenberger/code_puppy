@@ -7,7 +7,7 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 200000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "synthetic-MiniMax-M2": {
     "type": "custom_openai",
@@ -17,7 +17,7 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 195000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "synthetic-Kimi-K2-Thinking": {
     "type": "custom_openai",
@@ -27,7 +27,7 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 262144,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "synthetic-DeepSeek-V3.1-Terminus": {
     "type": "custom_openai",
@@ -37,7 +37,7 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 131072,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "synthetic-Kimi-K2-Instruct-0905": {
     "type": "custom_openai",
@@ -47,7 +47,7 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 262144,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "synthetic-Qwen3-Coder-480B-A35B-Instruct": {
     "type": "custom_openai",
@@ -57,49 +57,49 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 262144,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "Gemini-3": {
     "type": "gemini",
     "name": "gemini-3-pro-preview",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature"]
   },
   "Gemini-3-Long-Context": {
     "type": "gemini",
     "name": "gemini-3-pro-preview",
     "context_length": 1000000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature"]
   },
   "gpt-5": {
     "type": "openai",
     "name": "gpt-5",
     "context_length": 272000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["reasoning_effort", "verbosity"]
   },
   "gpt-5-codex-api": {
     "type": "openai",
     "name": "gpt-5-codex",
     "context_length": 272000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["reasoning_effort"]
   },
   "gpt-5.1": {
     "type": "openai",
     "name": "gpt-5.1",
     "context_length": 272000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["reasoning_effort", "verbosity"]
   },
   "gpt-5.1-codex-api": {
     "type": "openai",
     "name": "gpt-5.1-codex",
     "context_length": 272000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["reasoning_effort"]
   },
   "gpt-5.1-codex-mini-api": {
     "type": "openai",
     "name": "gpt-5.1-codex-mini",
     "context_length": 272000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["reasoning_effort"]
   },
   "Cerebras-GLM-4.6": {
     "type": "cerebras",
@@ -109,7 +109,7 @@
       "api_key": "$CEREBRAS_API_KEY"
     },
     "context_length": 131072,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "Cerebras-Qwen3-235b-a22b-instruct-2507": {
     "type": "cerebras",
@@ -119,7 +119,7 @@
       "api_key": "$CEREBRAS_API_KEY"
     },
     "context_length": 64000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "Cerebras-gpt-oss-120b": {
     "type": "cerebras",
@@ -129,7 +129,7 @@
       "api_key": "$CEREBRAS_API_KEY"
     },
     "context_length": 131072,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "Cerebras-Qwen-3-32b": {
     "type": "cerebras",
@@ -139,58 +139,58 @@
       "api_key": "$CEREBRAS_API_KEY"
     },
     "context_length": 65536,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": ["temperature", "seed"]
   },
   "claude-4-5-haiku": {
     "type": "anthropic",
     "name": "claude-haiku-4-5",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
   },
   "claude-4-0-sonnet": {
     "type": "anthropic",
     "name": "claude-sonnet-4-0",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
   },
   "claude-4-5-sonnet": {
     "type": "anthropic",
     "name": "claude-sonnet-4-5",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
   },
   "claude-4-1-opus": {
     "type": "anthropic",
     "name": "claude-opus-4-1",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
   },
   "claude-4-5-opus": {
     "type": "anthropic",
     "name": "claude-opus-4-5",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
   },
   "glm-4.5-air-coding": {
     "type": "zai_coding",
     "name": "glm-4.5-air",
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature"]
   },
   "glm-4.6-coding": {
     "type": "zai_coding",
     "name": "glm-4.6",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature"]
   },
   "glm-4.5-air-api": {
     "type": "zai_api",
     "name": "glm-4.5-air",
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature"]
   },
   "glm-4.6-api": {
     "type": "zai_api",
     "name": "glm-4.6",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature"]
   }
 }
