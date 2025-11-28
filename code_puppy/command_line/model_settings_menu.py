@@ -1,7 +1,7 @@
 """Interactive TUI for configuring per-model settings.
 
 Provides a beautiful interface for viewing and modifying model-specific
-settings like temperature, top_p, and seed on a per-model basis.
+settings like temperature and seed on a per-model basis.
 """
 
 import sys
@@ -17,8 +17,12 @@ from prompt_toolkit.widgets import Frame
 from code_puppy.config import (
     get_all_model_settings,
     get_global_model_name,
+    get_openai_reasoning_effort,
+    get_openai_verbosity,
     model_supports_setting,
     set_model_setting,
+    set_openai_reasoning_effort,
+    set_openai_verbosity,
 )
 from code_puppy.messaging import emit_info
 from code_puppy.model_factory import ModelFactory
@@ -28,32 +32,56 @@ from code_puppy.tools.command_runner import set_awaiting_user_input
 MODELS_PER_PAGE = 15
 
 # Setting definitions with metadata
+# Numeric settings have min/max/step, choice settings have choices list
 SETTING_DEFINITIONS: Dict[str, Dict] = {
     "temperature": {
         "name": "Temperature",
         "description": "Controls randomness. Lower = more deterministic, higher = more creative.",
+        "type": "numeric",
         "min": 0.0,
         "max": 1.0,  # Clamped to 0-1 per user request
         "step": 0.1,
         "default": None,  # None means use model default
         "format": "{:.1f}",
     },
-    "top_p": {
-        "name": "Top P (Nucleus Sampling)",
-        "description": "Controls diversity via nucleus sampling. 0.1 = only top 10% tokens considered.",
-        "min": 0.0,
-        "max": 1.0,
-        "step": 0.05,
-        "default": None,
-        "format": "{:.2f}",
-    },
     "seed": {
         "name": "Seed",
         "description": "Random seed for reproducible outputs. Set to same value for consistent results.",
+        "type": "numeric",
         "min": 0,
         "max": 999999,
         "step": 1,
         "default": None,
+        "format": "{:.0f}",
+    },
+    "reasoning_effort": {
+        "name": "Reasoning Effort",
+        "description": "Controls how much effort GPT-5 models spend on reasoning. Higher = more thorough but slower.",
+        "type": "choice",
+        "choices": ["low", "medium", "high"],
+        "default": "medium",
+    },
+    "verbosity": {
+        "name": "Verbosity",
+        "description": "Controls response length. Low = concise, Medium = balanced, High = verbose.",
+        "type": "choice",
+        "choices": ["low", "medium", "high"],
+        "default": "medium",
+    },
+    "extended_thinking": {
+        "name": "Extended Thinking",
+        "description": "Enable Claude's extended thinking mode for complex reasoning tasks.",
+        "type": "boolean",
+        "default": False,
+    },
+    "budget_tokens": {
+        "name": "Thinking Budget (tokens)",
+        "description": "Max tokens for extended thinking. Only used when extended_thinking is enabled.",
+        "type": "numeric",
+        "min": 1024,
+        "max": 131072,
+        "step": 1024,
+        "default": 10000,
         "format": "{:.0f}",
     },
 }
@@ -144,17 +172,35 @@ class ModelSettingsMenu:
         self.selected_model = model_name
         self.supported_settings = self._get_supported_settings(model_name)
         self.current_settings = get_all_model_settings(model_name)
+
+        # Add global OpenAI settings if model supports them
+        if model_supports_setting(model_name, "reasoning_effort"):
+            self.current_settings["reasoning_effort"] = get_openai_reasoning_effort()
+        if model_supports_setting(model_name, "verbosity"):
+            self.current_settings["verbosity"] = get_openai_verbosity()
+
         self.setting_index = 0
 
-    def _get_current_value(self, setting: str) -> Optional[float]:
+    def _get_current_value(self, setting: str):
         """Get the current value for a setting."""
         return self.current_settings.get(setting)
 
-    def _format_value(self, setting: str, value: Optional[float]) -> str:
+    def _format_value(self, setting: str, value) -> str:
         """Format a setting value for display."""
+        setting_def = SETTING_DEFINITIONS[setting]
         if value is None:
+            default = setting_def.get("default")
+            if default is not None:
+                return f"(default: {default})"
             return "(model default)"
-        fmt = SETTING_DEFINITIONS[setting].get("format", "{:.2f}")
+
+        if setting_def.get("type") == "choice":
+            return str(value)
+
+        if setting_def.get("type") == "boolean":
+            return "Enabled" if value else "Disabled"
+
+        fmt = setting_def.get("format", "{:.2f}")
         return fmt.format(value)
 
     def _render_main_list(self) -> List:
@@ -361,21 +407,51 @@ class ModelSettingsMenu:
 
             # Setting name
             lines.append(("bold", f"  {setting_def['name']}"))
+            lines.append(("", "\n"))
+
+            # Show if this is a global setting
+            if setting_key in ("reasoning_effort", "verbosity"):
+                lines.append(
+                    (
+                        "fg:ansiyellow",
+                        "  ⚠ Global setting (applies to all GPT-5 models)",
+                    )
+                )
             lines.append(("", "\n\n"))
 
             # Description
             lines.append(("fg:ansibrightblack", f"  {setting_def['description']}"))
             lines.append(("", "\n\n"))
 
-            # Range info
-            lines.append(("bold", "  Range:"))
-            lines.append(("", "\n"))
-            lines.append(
-                (
-                    "fg:ansibrightblack",
-                    f"    Min: {setting_def['min']}  Max: {setting_def['max']}  Step: {setting_def['step']}",
+            # Range/choices info
+            if setting_def.get("type") == "choice":
+                lines.append(("bold", "  Options:"))
+                lines.append(("", "\n"))
+                choices = setting_def.get("choices", [])
+                lines.append(
+                    (
+                        "fg:ansibrightblack",
+                        f"    {' | '.join(choices)}",
+                    )
                 )
-            )
+            elif setting_def.get("type") == "boolean":
+                lines.append(("bold", "  Options:"))
+                lines.append(("", "\n"))
+                lines.append(
+                    (
+                        "fg:ansibrightblack",
+                        "    Enabled | Disabled",
+                    )
+                )
+            else:
+                lines.append(("bold", "  Range:"))
+                lines.append(("", "\n"))
+                lines.append(
+                    (
+                        "fg:ansibrightblack",
+                        f"    Min: {setting_def['min']}  Max: {setting_def['max']}  Step: {setting_def['step']}",
+                    )
+                )
             lines.append(("", "\n\n"))
 
             # Current value
@@ -431,20 +507,26 @@ class ModelSettingsMenu:
             return
 
         setting_key = self.supported_settings[self.setting_index]
+        setting_def = SETTING_DEFINITIONS[setting_key]
         current = self._get_current_value(setting_key)
 
-        # Start with current value, or middle of range if not set
+        # Start with current value, or default if not set
         if current is not None:
             self.edit_value = current
+        elif setting_def.get("type") == "choice":
+            # For choice settings, start with the default
+            self.edit_value = setting_def.get("default", setting_def["choices"][0])
+        elif setting_def.get("type") == "boolean":
+            # For boolean settings, start with the default
+            self.edit_value = setting_def.get("default", False)
         else:
-            setting_def = SETTING_DEFINITIONS[setting_key]
-            # Default to a sensible starting point
+            # Default to a sensible starting point for numeric
             if setting_key == "temperature":
                 self.edit_value = 0.7
-            elif setting_key == "top_p":
-                self.edit_value = 0.9
             elif setting_key == "seed":
                 self.edit_value = 42
+            elif setting_key == "budget_tokens":
+                self.edit_value = 10000
             else:
                 self.edit_value = (setting_def["min"] + setting_def["max"]) / 2
 
@@ -458,12 +540,24 @@ class ModelSettingsMenu:
         setting_key = self.supported_settings[self.setting_index]
         setting_def = SETTING_DEFINITIONS[setting_key]
 
-        step = setting_def["step"]
-        new_value = self.edit_value + (direction * step)
-
-        # Clamp to range
-        new_value = max(setting_def["min"], min(setting_def["max"], new_value))
-        self.edit_value = new_value
+        if setting_def.get("type") == "choice":
+            # Cycle through choices
+            choices = setting_def["choices"]
+            current_idx = (
+                choices.index(self.edit_value) if self.edit_value in choices else 0
+            )
+            new_idx = (current_idx + direction) % len(choices)
+            self.edit_value = choices[new_idx]
+        elif setting_def.get("type") == "boolean":
+            # Toggle boolean
+            self.edit_value = not self.edit_value
+        else:
+            # Numeric adjustment
+            step = setting_def["step"]
+            new_value = self.edit_value + (direction * step)
+            # Clamp to range
+            new_value = max(setting_def["min"], min(setting_def["max"], new_value))
+            self.edit_value = new_value
 
     def _save_edit(self):
         """Save the current edit value."""
@@ -471,7 +565,17 @@ class ModelSettingsMenu:
             return
 
         setting_key = self.supported_settings[self.setting_index]
-        set_model_setting(self.selected_model, setting_key, self.edit_value)
+
+        # Handle global OpenAI settings specially
+        if setting_key == "reasoning_effort":
+            if self.edit_value is not None:
+                set_openai_reasoning_effort(self.edit_value)
+        elif setting_key == "verbosity":
+            if self.edit_value is not None:
+                set_openai_verbosity(self.edit_value)
+        else:
+            # Standard per-model setting
+            set_model_setting(self.selected_model, setting_key, self.edit_value)
 
         # Update local cache
         if self.edit_value is not None:
@@ -494,13 +598,25 @@ class ModelSettingsMenu:
             return
 
         setting_key = self.supported_settings[self.setting_index]
+        setting_def = SETTING_DEFINITIONS.get(setting_key, {})
 
         if self.editing_mode:
-            self.edit_value = None
+            # Reset edit value to default
+            default = setting_def.get("default")
+            self.edit_value = default
         else:
-            set_model_setting(self.selected_model, setting_key, None)
-            if setting_key in self.current_settings:
-                del self.current_settings[setting_key]
+            # Handle global OpenAI settings - reset to their defaults
+            if setting_key == "reasoning_effort":
+                set_openai_reasoning_effort("medium")  # Default
+                self.current_settings[setting_key] = "medium"
+            elif setting_key == "verbosity":
+                set_openai_verbosity("medium")  # Default
+                self.current_settings[setting_key] = "medium"
+            else:
+                # Standard per-model setting
+                set_model_setting(self.selected_model, setting_key, None)
+                if setting_key in self.current_settings:
+                    del self.current_settings[setting_key]
             self.result_changed = True
 
     def _page_up(self):

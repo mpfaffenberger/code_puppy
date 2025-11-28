@@ -16,10 +16,8 @@ from pydantic_ai import Agent, RunContext, UsageLimits
 from pydantic_ai.messages import ModelMessage
 
 from code_puppy.config import (
-    get_effective_temperature,
     get_message_limit,
     get_use_dbos,
-    model_supports_setting,
 )
 from code_puppy.messaging import (
     emit_divider,
@@ -27,7 +25,7 @@ from code_puppy.messaging import (
     emit_info,
     emit_system_message,
 )
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.tools.common import generate_group_id
 
 _temp_agent_count = 0
@@ -392,22 +390,7 @@ def register_invoke_agent(agent):
                 )
 
             subagent_name = f"temp-invoke-agent-{_temp_agent_count}"
-            model_settings_dict = {}
-            from pydantic_ai.settings import ModelSettings
-
-            if model_name.lower().startswith("cerebras"):
-                model_settings_dict = {"seed": 42, "temperature": 0.7}
-
-            # Add user-configured temperature if model supports it
-            # (overrides cerebras default if set)
-            # Uses per-model settings if configured, falls back to global
-            configured_temperature = get_effective_temperature(model_name)
-            if configured_temperature is not None and model_supports_setting(
-                model_name, "temperature"
-            ):
-                model_settings_dict["temperature"] = configured_temperature
-
-            model_settings = ModelSettings(**model_settings_dict)
+            model_settings = make_model_settings(model_name)
 
             temp_agent = Agent(
                 model=model,

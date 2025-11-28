@@ -64,62 +64,66 @@ class TestPerModelSettings:
 class TestEffectiveTemperature:
     """Tests for the get_effective_temperature function."""
 
-    @patch.object(cp_config, "get_model_setting")
+    @patch.object(cp_config, "model_supports_setting", return_value=True)
+    @patch.object(cp_config, "get_all_model_settings")
     @patch.object(cp_config, "get_temperature")
     @patch.object(cp_config, "get_global_model_name")
     def test_returns_per_model_temp_when_set(
-        self, mock_get_model_name, mock_get_temp, mock_get_model_setting
+        self, mock_get_model_name, mock_get_temp, mock_get_all_settings, mock_supports
     ):
         """Should return per-model temperature when configured."""
         mock_get_model_name.return_value = "test-model"
-        mock_get_model_setting.return_value = 0.5
+        mock_get_all_settings.return_value = {"temperature": 0.5}
         mock_get_temp.return_value = 0.7  # Global temp
 
         result = cp_config.get_effective_temperature("test-model")
         assert result == 0.5
-        mock_get_model_setting.assert_called_once_with("test-model", "temperature")
+        mock_get_all_settings.assert_called_once_with("test-model")
 
-    @patch.object(cp_config, "get_model_setting")
+    @patch.object(cp_config, "model_supports_setting", return_value=True)
+    @patch.object(cp_config, "get_all_model_settings")
     @patch.object(cp_config, "get_temperature")
     @patch.object(cp_config, "get_global_model_name")
     def test_falls_back_to_global_when_per_model_not_set(
-        self, mock_get_model_name, mock_get_temp, mock_get_model_setting
+        self, mock_get_model_name, mock_get_temp, mock_get_all_settings, mock_supports
     ):
         """Should fall back to global temperature when per-model not set."""
         mock_get_model_name.return_value = "test-model"
-        mock_get_model_setting.return_value = None  # No per-model setting
+        mock_get_all_settings.return_value = {}  # No per-model setting
         mock_get_temp.return_value = 0.7  # Global temp
 
         result = cp_config.get_effective_temperature("test-model")
         assert result == 0.7
 
-    @patch.object(cp_config, "get_model_setting")
+    @patch.object(cp_config, "model_supports_setting", return_value=True)
+    @patch.object(cp_config, "get_all_model_settings")
     @patch.object(cp_config, "get_temperature")
     @patch.object(cp_config, "get_global_model_name")
     def test_returns_none_when_nothing_configured(
-        self, mock_get_model_name, mock_get_temp, mock_get_model_setting
+        self, mock_get_model_name, mock_get_temp, mock_get_all_settings, mock_supports
     ):
         """Should return None when neither per-model nor global is set."""
         mock_get_model_name.return_value = "test-model"
-        mock_get_model_setting.return_value = None
+        mock_get_all_settings.return_value = {}
         mock_get_temp.return_value = None
 
         result = cp_config.get_effective_temperature("test-model")
         assert result is None
 
-    @patch.object(cp_config, "get_model_setting")
+    @patch.object(cp_config, "model_supports_setting", return_value=True)
+    @patch.object(cp_config, "get_all_model_settings")
     @patch.object(cp_config, "get_temperature")
     @patch.object(cp_config, "get_global_model_name")
     def test_uses_global_model_name_when_none_provided(
-        self, mock_get_model_name, mock_get_temp, mock_get_model_setting
+        self, mock_get_model_name, mock_get_temp, mock_get_all_settings, mock_supports
     ):
         """Should use global model name when no model_name argument provided."""
         mock_get_model_name.return_value = "default-model"
-        mock_get_model_setting.return_value = 0.3
+        mock_get_all_settings.return_value = {"temperature": 0.3}
 
         result = cp_config.get_effective_temperature(None)
         mock_get_model_name.assert_called_once()
-        mock_get_model_setting.assert_called_once_with("default-model", "temperature")
+        mock_get_all_settings.assert_called_once_with("default-model")
         assert result == 0.3
 
 

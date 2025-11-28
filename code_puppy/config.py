@@ -153,6 +153,7 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "openai_verbosity",
         "auto_save_session",
         "max_saved_sessions",
         "http2",
@@ -375,8 +376,11 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         supported_settings = model_config.get("supported_settings")
 
         if supported_settings is None:
-            # Default: assume temperature and seed are supported for backwards compatibility
-            return setting in ["temperature", "seed", "top_p"]
+            # Default: assume common settings are supported for backwards compatibility
+            # For Anthropic/Claude models, include extended thinking settings
+            if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
+                return setting in ["temperature", "extended_thinking", "budget_tokens"]
+            return setting in ["temperature", "seed"]
 
         return setting in supported_settings
     except Exception:
@@ -463,6 +467,32 @@ def set_openai_reasoning_effort(value: str) -> None:
     set_config_value("openai_reasoning_effort", normalized)
 
 
+def get_openai_verbosity() -> str:
+    """Return the configured OpenAI verbosity (low, medium, high).
+
+    Controls how concise vs. verbose the model's responses are:
+    - low: more concise responses
+    - medium: balanced (default)
+    - high: more verbose responses
+    """
+    allowed_values = {"low", "medium", "high"}
+    configured = (get_value("openai_verbosity") or "medium").strip().lower()
+    if configured not in allowed_values:
+        return "medium"
+    return configured
+
+
+def set_openai_verbosity(value: str) -> None:
+    """Persist the OpenAI verbosity ensuring it remains within allowed values."""
+    allowed_values = {"low", "medium", "high"}
+    normalized = (value or "").strip().lower()
+    if normalized not in allowed_values:
+        raise ValueError(
+            f"Invalid verbosity '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
+        )
+    set_config_value("openai_verbosity", normalized)
+
+
 def get_temperature() -> Optional[float]:
     """Return the configured model temperature (0.0 to 2.0).
 
@@ -542,7 +572,7 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
 
     Args:
         model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
-        setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
+        setting: The setting name (e.g., 'temperature', 'seed')
         value: The value to set, or None to clear
     """
     sanitized_name = _sanitize_model_name_for_key(model_name)
@@ -550,6 +580,9 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
 
     if value is None:
         set_config_value(key, "")
+    elif isinstance(value, float):
+        # Round floats to nearest tenth to avoid floating point weirdness
+        set_config_value(key, str(round(value, 1)))
     else:
         set_config_value(key, str(value))
 
@@ -609,6 +642,48 @@ def clear_model_settings(model_name: str) -> None:
             config.write(f)
 
 
+def get_effective_model_settings(model_name: Optional[str] = None) -> dict:
+    """Get all effective settings for a model, filtered by what the model supports.
+
+    This is the generalized way to get model settings. It:
+    1. Gets all per-model settings from config
+    2. Falls back to global temperature if not set per-model
+    3. Filters to only include settings the model actually supports
+    4. Converts seed to int (other settings stay as float)
+
+    Args:
+        model_name: The model name. If None, uses the current global model.
+
+    Returns:
+        Dictionary of setting_name -> value for all applicable settings.
+        Ready to be unpacked into ModelSettings.
+    """
+    if model_name is None:
+        model_name = get_global_model_name()
+
+    # Start with all per-model settings
+    settings = get_all_model_settings(model_name)
+
+    # Fall back to global temperature if not set per-model
+    if "temperature" not in settings:
+        global_temp = get_temperature()
+        if global_temp is not None:
+            settings["temperature"] = global_temp
+
+    # Filter to only settings the model supports
+    effective_settings = {}
+    for setting_name, value in settings.items():
+        if model_supports_setting(model_name, setting_name):
+            # Convert seed to int, keep others as float
+            if setting_name == "seed" and value is not None:
+                effective_settings[setting_name] = int(value)
+            else:
+                effective_settings[setting_name] = value
+
+    return effective_settings
+
+
+# Legacy functions for backward compatibility
 def get_effective_temperature(model_name: Optional[str] = None) -> Optional[float]:
     """Get the effective temperature for a model.
 
@@ -620,16 +695,34 @@ def get_effective_temperature(model_name: Optional[str] = None) -> Optional[floa
     Returns:
         Temperature value, or None if not configured.
     """
-    if model_name is None:
-        model_name = get_global_model_name()
+    settings = get_effective_model_settings(model_name)
+    return settings.get("temperature")
 
-    # Check per-model setting first
-    per_model_temp = get_model_setting(model_name, "temperature")
-    if per_model_temp is not None:
-        return per_model_temp
 
-    # Fall back to global temperature
-    return get_temperature()
+def get_effective_top_p(model_name: Optional[str] = None) -> Optional[float]:
+    """Get the effective top_p for a model.
+
+    Args:
+        model_name: The model name. If None, uses the current global model.
+
+    Returns:
+        top_p value, or None if not configured.
+    """
+    settings = get_effective_model_settings(model_name)
+    return settings.get("top_p")
+
+
+def get_effective_seed(model_name: Optional[str] = None) -> Optional[int]:
+    """Get the effective seed for a model.
+
+    Args:
+        model_name: The model name. If None, uses the current global model.
+
+    Returns:
+        seed value as int, or None if not configured.
+    """
+    settings = get_effective_model_settings(model_name)
+    return settings.get("seed")
 
 
 def normalize_command_history():

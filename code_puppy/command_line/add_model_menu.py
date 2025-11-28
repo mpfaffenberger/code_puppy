@@ -535,6 +535,23 @@ class AddModelMenu:
         if model.context_length and model.context_length > 0:
             config["context_length"] = model.context_length
 
+        # Add supported settings based on model type
+        if model_type == "anthropic":
+            config["supported_settings"] = [
+                "temperature",
+                "extended_thinking",
+                "budget_tokens",
+            ]
+        elif model_type == "openai" and "gpt-5" in model.model_id:
+            # GPT-5 models have special settings
+            if "codex" in model.model_id:
+                config["supported_settings"] = ["reasoning_effort"]
+            else:
+                config["supported_settings"] = ["reasoning_effort", "verbosity"]
+        else:
+            # Default settings for most models (no top_p)
+            config["supported_settings"] = ["temperature", "seed"]
+
         return config
 
     def update_display(self):

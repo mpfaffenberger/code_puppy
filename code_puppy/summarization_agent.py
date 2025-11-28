@@ -3,15 +3,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 from pydantic_ai import Agent
-from pydantic_ai.settings import ModelSettings
 
 from code_puppy.config import (
-    get_effective_temperature,
     get_global_model_name,
     get_use_dbos,
-    model_supports_setting,
 )
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import ModelFactory, make_model_settings
 
 # Keep a module-level agent reference to avoid rebuilding per call
 _summarization_agent = None
@@ -79,18 +76,7 @@ When summarizing:
 5. Make sure all tool calls and responses are summarized, as they are vital
 6. Focus on token usage efficiency and system message preservation"""
 
-    # Build model settings with temperature if configured AND model supports it
-    # Uses per-model settings if configured, falls back to global
-    model_settings_dict = {}
-    configured_temperature = get_effective_temperature(model_name)
-    if configured_temperature is not None and model_supports_setting(
-        model_name, "temperature"
-    ):
-        model_settings_dict["temperature"] = configured_temperature
-
-    model_settings = (
-        ModelSettings(**model_settings_dict) if model_settings_dict else None
-    )
+    model_settings = make_model_settings(model_name)
 
     agent = Agent(
         model=model,
