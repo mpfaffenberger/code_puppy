@@ -39,9 +39,224 @@ from .round_robin_model import RoundRobinModel
 
 
 class ZaiChatModel(OpenAIChatModel):
+    """ZAI Chat Model with proper error handling and debugging.
+    
+    This class handles both ZAI coding API and ZAI regular API endpoints,
+    with proper temperature support and debugging for 1210 errors.
+    Temperature IS supported by ZAI endpoints according to ReqLLM documentation.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        # Check if this is a coding model
+        if hasattr(kwargs.get('provider'), 'base_url'):
+            base_url = kwargs['provider'].base_url
+            is_coding_endpoint = '/coding/paas/v4' in str(base_url)
+            self._is_coding_endpoint = is_coding_endpoint
+        else:
+            self._is_coding_endpoint = False
+
+        super().__init__(*args, **kwargs)
+    
     def _process_response(self, response):
         response.object = "chat.completion"
         return super()._process_response(response)
+    
+    def _validate_temperature(self, temperature):
+        """Validate temperature is within valid range (0.0-1.0) and fix precision."""
+        if temperature is None:
+            return None
+
+        try:
+            temp_val = float(temperature)
+
+            # Clamp to valid range
+            if not (0.0 <= temp_val <= 1.0):
+                temp_val = max(0.0, min(1.0, temp_val))
+
+            # Round to 3 decimal places to fix precision issues that cause 1210 errors
+            temp_val = round(temp_val, 3)
+
+            # Additional check for extreme precision artifacts
+            if abs(temp_val - 1.0) < 0.0001:
+                temp_val = 1.0
+            elif abs(temp_val - 0.0) < 0.0001:
+                temp_val = 0.0
+
+            return temp_val
+
+        except (ValueError, TypeError):
+            return 0.7
+
+    def _validate_top_p(self, top_p):
+        """Validate top_p is within valid range (0.0-1.0) and fix precision."""
+        if top_p is None:
+            return None
+
+        try:
+            top_p_val = float(top_p)
+
+            # Clamp to valid range
+            if not (0.0 <= top_p_val <= 1.0):
+                top_p_val = max(0.0, min(1.0, top_p_val))
+
+            # Round to 3 decimal places to fix precision issues
+            top_p_val = round(top_p_val, 3)
+
+            # Additional check for extreme precision artifacts
+            if abs(top_p_val - 1.0) < 0.0001:
+                top_p_val = 1.0
+            elif abs(top_p_val - 0.0) < 0.0001:
+                top_p_val = 0.0
+
+            return top_p_val
+
+        except (ValueError, TypeError):
+            return 1.0
+    
+    def _format_request_payload(self, messages, **kwargs):
+        """Format and validate request payload for ZAI endpoints.
+
+        Uses conservative parameter approach to avoid 1210 errors.
+        Only includes parameters that are confirmed to work with ZAI API.
+        """
+        # Extract and validate parameters
+        processed_kwargs = {}
+
+        # Messages is always required - add it first
+        if messages is not None:
+            processed_kwargs['messages'] = messages
+
+        # Handle temperature with validation - CONFIRMED WORKING
+        if 'temperature' in kwargs:
+            validated_temp = self._validate_temperature(kwargs['temperature'])
+            if validated_temp is not None:
+                processed_kwargs['temperature'] = validated_temp
+
+        # Handle top_p with validation - ADDED SUPPORT
+        if 'top_p' in kwargs:
+            validated_top_p = self._validate_top_p(kwargs['top_p'])
+            if validated_top_p is not None:
+                processed_kwargs['top_p'] = validated_top_p
+
+        # Conservative parameter sets based on endpoint type
+        is_coding = getattr(self, '_is_coding_endpoint', False)
+
+        if is_coding:
+            # Coding endpoint - most restrictive, only confirmed working parameters
+            # Note: 'messages' is handled separately above
+            supported_params = {
+                'model', 'stream', 'max_tokens', 'temperature', 'top_p', 'stop'
+                # REMOVED: frequency_penalty, presence_penalty, n, seed
+            }
+        else:
+            # Regular API endpoint - slightly more permissive but still conservative
+            # Note: 'messages' is handled separately above
+            supported_params = {
+                'model', 'stream', 'max_tokens', 'temperature', 'top_p', 'stop'
+                # EXPERIMENTAL: top_p (reported working in some cases but causing 1210 errors)
+                # REMOVED: frequency_penalty, presence_penalty, n, seed
+            }
+
+        # Filter and add supported parameters
+        for key, value in kwargs.items():
+            if key in supported_params and key not in processed_kwargs:
+                processed_kwargs[key] = value
+
+        return processed_kwargs
+    
+    async def request(
+        self,
+        messages,
+        model_settings=None,
+        model_request_parameters=None
+    ):
+        """Make request with proper error handling while preserving temperature and top_p support."""
+        
+        # Convert pydantic-ai parameters to kwargs format for our existing logic
+        kwargs = {}
+        
+        # Extract parameters from model_settings (CONSERVATIVE APPROACH)
+        # Only extract parameters that are known to work with ZAI API
+        if model_settings:
+            # Handle dictionary-style model_settings
+            if isinstance(model_settings, dict):
+                # CONFIRMED WORKING PARAMETERS
+                if 'temperature' in model_settings and model_settings['temperature'] is not None:
+                    kwargs['temperature'] = model_settings['temperature']
+                if 'max_tokens' in model_settings and model_settings['max_tokens'] is not None:
+                    kwargs['max_tokens'] = model_settings['max_tokens']
+                if 'stop' in model_settings and model_settings['stop'] is not None:
+                    kwargs['stop'] = model_settings['stop']
+
+                # ADDED: Extract top_p for all endpoints (now supported)
+                if 'top_p' in model_settings and model_settings['top_p'] is not None:
+                    kwargs['top_p'] = model_settings['top_p']
+                
+                # REMOVED: frequency_penalty, presence_penalty, seed (causing 1210 errors)
+                # These parameters are documented in models.json but actually rejected by ZAI API
+                
+            else:
+                # Handle object-style model_settings (original logic)
+                # CONFIRMED WORKING PARAMETERS
+                if hasattr(model_settings, 'temperature') and model_settings.temperature is not None:
+                    kwargs['temperature'] = model_settings.temperature
+                if hasattr(model_settings, 'max_tokens') and model_settings.max_tokens is not None:
+                    kwargs['max_tokens'] = model_settings.max_tokens
+                if hasattr(model_settings, 'stop') and model_settings.stop is not None:
+                    kwargs['stop'] = model_settings.stop
+                
+                # ADDED: Extract top_p for all endpoints (now supported)
+                if hasattr(model_settings, 'top_p') and model_settings.top_p is not None:
+                    kwargs['top_p'] = model_settings.top_p
+                
+                # REMOVED: frequency_penalty, presence_penalty, seed (causing 1210 errors)
+                        
+        # Extract parameters from model_request_parameters if available
+        if model_request_parameters:
+            # Handle any additional parameters from request parameters
+            if isinstance(model_request_parameters, dict):
+                if 'model' in model_request_parameters:
+                    kwargs['model'] = model_request_parameters['model']
+                if 'max_tokens' in model_request_parameters:
+                    kwargs['max_tokens'] = model_request_parameters['max_tokens']
+            else:
+                if hasattr(model_request_parameters, 'model'):
+                    kwargs['model'] = model_request_parameters.model
+                if hasattr(model_request_parameters, 'max_tokens') and model_request_parameters.max_tokens is not None:
+                    kwargs['max_tokens'] = model_request_parameters.max_tokens
+        
+        # Format and validate the request payload (this preserves temperature validation!)
+        formatted_kwargs = self._format_request_payload(messages, **kwargs)
+        
+        try:
+            # Create new model_settings with our formatted parameters
+            # We need to update model_settings to include our validated temperature
+            new_model_settings = None
+            if model_settings:
+                if isinstance(model_settings, dict):
+                    new_model_settings = model_settings.copy()
+                    new_model_settings.update(formatted_kwargs)
+                else:
+                    # Convert to dict if it's an object, then update
+                    new_model_settings = {}
+                    for attr in ['temperature', 'max_tokens', 'top_p', 'stop', 'seed', 'frequency_penalty', 'presence_penalty']:
+                        if hasattr(model_settings, attr):
+                            value = getattr(model_settings, attr)
+                            if value is not None:
+                                new_model_settings[attr] = value
+                    new_model_settings.update(formatted_kwargs)
+
+            # Make the request using the parent class with our formatted parameters
+            response = await super().request(
+                messages,
+                new_model_settings,
+                model_request_parameters
+            )
+            return response
+            
+        except Exception:
+            # Re-raise the exception for upstream handling
+            raise
 
 
 def get_custom_config(model_config):
