@@ -15,14 +15,17 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext, UsageLimits
 from pydantic_ai.messages import ModelMessage
 
-from code_puppy.config import get_message_limit, get_use_dbos
+from code_puppy.config import (
+    get_message_limit,
+    get_use_dbos,
+)
 from code_puppy.messaging import (
     emit_divider,
     emit_error,
     emit_info,
     emit_system_message,
 )
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.tools.common import generate_group_id
 
 _temp_agent_count = 0
@@ -387,12 +390,15 @@ def register_invoke_agent(agent):
                 )
 
             subagent_name = f"temp-invoke-agent-{_temp_agent_count}"
+            model_settings = make_model_settings(model_name)
+
             temp_agent = Agent(
                 model=model,
                 instructions=instructions,
                 output_type=str,
                 retries=3,
                 history_processors=[agent_config.message_history_accumulator],
+                model_settings=model_settings,
             )
 
             # Register the tools that the agent needs

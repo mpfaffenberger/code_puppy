@@ -1,4 +1,4 @@
-"""Interactive TUI for loading autosave sessions.
+"""Interactive terminal UI for loading autosave sessions.
 
 Provides a beautiful split-panel interface for browsing and loading
 autosave sessions with live preview of message content.
@@ -40,11 +40,18 @@ def _get_session_metadata(base_dir: Path, session_name: str) -> dict:
 
 def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
     """Get all sessions with their metadata, sorted by timestamp."""
-    sessions = list_sessions(base_dir)
+    try:
+        sessions = list_sessions(base_dir)
+    except (FileNotFoundError, PermissionError):
+        return []
+
     entries = []
 
     for name in sessions:
-        metadata = _get_session_metadata(base_dir, name)
+        try:
+            metadata = _get_session_metadata(base_dir, name)
+        except (FileNotFoundError, PermissionError):
+            metadata = {}
         entries.append((name, metadata))
 
     # Sort by timestamp (most recent first)
@@ -87,6 +94,16 @@ def _render_menu_panel(
     if not entries:
         lines.append(("fg:yellow", "  No autosave sessions found."))
         lines.append(("", "\n\n"))
+        # Navigation hints (always show)
+        lines.append(("", "\n"))
+        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+        lines.append(("", "Navigate\n"))
+        lines.append(("fg:ansibrightblack", "  ←/→ "))
+        lines.append(("", "Page\n"))
+        lines.append(("fg:green", "  Enter  "))
+        lines.append(("", "Load\n"))
+        lines.append(("fg:ansibrightred", "  Ctrl+C "))
+        lines.append(("", "Cancel"))
         return lines
 
     # Show sessions for current page
@@ -170,6 +187,10 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
         history = load_session(session_name, base_dir)
         last_message = _extract_last_user_message(history)
 
+        # Check if original message is long (before Rich processing)
+        original_lines = last_message.split("\n") if last_message else []
+        is_long = len(original_lines) > 30
+
         # Render markdown with rich but strip ANSI codes
         console = Console(
             file=StringIO(),
@@ -204,9 +225,9 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
 
             lines.append(("", "\n"))
 
-        if len(rendered.split("\n")) > 30:
+        if is_long:
             lines.append(("", "\n"))
-            lines.append(("fg:yellow", "  ... (truncated)"))
+            lines.append(("fg:yellow", "  ... truncated"))
             lines.append(("", "\n"))
 
     except Exception as e:
@@ -217,7 +238,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
 
 
 async def interactive_autosave_picker() -> Optional[str]:
-    """Show interactive TUI to select an autosave session.
+    """Show interactive terminal UI to select an autosave session.
 
     Returns:
         Session name to load, or None if cancelled
@@ -226,6 +247,12 @@ async def interactive_autosave_picker() -> Optional[str]:
     entries = _get_session_entries(base_dir)
 
     if not entries:
+        # Still need to set/cleanup the awaiting input flag even if no entries
+        set_awaiting_user_input(True)
+        try:
+            print("No autosave sessions found.")
+        finally:
+            set_awaiting_user_input(False)
         return None
 
     # State
@@ -342,9 +369,10 @@ async def interactive_autosave_picker() -> Optional[str]:
         await app.run_async()
 
     finally:
-        set_awaiting_user_input(False)
         # Exit alternate screen buffer once at end
         sys.stdout.write("\033[?1049l")  # Exit alternate buffer
         sys.stdout.flush()
+        # Reset awaiting input flag
+        set_awaiting_user_input(False)
 
     return result[0]

@@ -434,7 +434,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.272"
+version = "0.0.280"
 source = { editable = "." }
 dependencies = [
     { name = "atomacos", marker = "sys_platform == 'darwin'" },
@@ -470,8 +470,6 @@ dependencies = [
     { name = "ruff" },
     { name = "tenacity" },
     { name = "termcolor" },
-    { name = "textual" },
-    { name = "textual-dev" },
     { name = "uvicorn" },
     { name = "winrt-runtime", marker = "sys_platform == 'win32'" },
     { name = "winrt-windows-foundation", marker = "sys_platform == 'win32'" },
@@ -525,8 +523,6 @@ requires-dist = [
     { name = "ruff", specifier = ">=0.11.11" },
     { name = "tenacity", specifier = ">=8.2.0" },
     { name = "termcolor", specifier = ">=3.1.0" },
-    { name = "textual", specifier = ">=5.0.0" },
-    { name = "textual-dev", specifier = ">=1.7.0" },
     { name = "uvicorn", specifier = ">=0.29.0" },
     { name = "winrt-runtime", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
     { name = "winrt-windows-foundation", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },

@@ -153,11 +153,13 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "openai_verbosity",
         "auto_save_session",
         "max_saved_sessions",
         "http2",
         "diff_context_lines",
         "default_agent",
+        "temperature",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -396,6 +398,39 @@ def clear_model_cache():
     _default_vqa_model_cache = None
 
 
+def model_supports_setting(model_name: str, setting: str) -> bool:
+    """Check if a model supports a particular setting (e.g., 'temperature', 'seed').
+
+    Args:
+        model_name: The name of the model to check.
+        setting: The setting name to check for (e.g., 'temperature', 'seed', 'top_p').
+
+    Returns:
+        True if the model supports the setting, False otherwise.
+        Defaults to True for backwards compatibility if model config doesn't specify.
+    """
+    try:
+        from code_puppy.model_factory import ModelFactory
+
+        models_config = ModelFactory.load_config()
+        model_config = models_config.get(model_name, {})
+
+        # Get supported_settings list, default to supporting common settings
+        supported_settings = model_config.get("supported_settings")
+
+        if supported_settings is None:
+            # Default: assume common settings are supported for backwards compatibility
+            # For Anthropic/Claude models, include extended thinking settings
+            if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
+                return setting in ["temperature", "extended_thinking", "budget_tokens"]
+            return setting in ["temperature", "seed"]
+
+        return setting in supported_settings
+    except Exception:
+        # If we can't check, assume supported for safety
+        return True
+
+
 def get_global_model_name():
     """Return a valid model name for Code Puppy to use.
 
@@ -475,6 +510,264 @@ def set_openai_reasoning_effort(value: str) -> None:
     set_config_value("openai_reasoning_effort", normalized)
 
 
+def get_openai_verbosity() -> str:
+    """Return the configured OpenAI verbosity (low, medium, high).
+
+    Controls how concise vs. verbose the model's responses are:
+    - low: more concise responses
+    - medium: balanced (default)
+    - high: more verbose responses
+    """
+    allowed_values = {"low", "medium", "high"}
+    configured = (get_value("openai_verbosity") or "medium").strip().lower()
+    if configured not in allowed_values:
+        return "medium"
+    return configured
+
+
+def set_openai_verbosity(value: str) -> None:
+    """Persist the OpenAI verbosity ensuring it remains within allowed values."""
+    allowed_values = {"low", "medium", "high"}
+    normalized = (value or "").strip().lower()
+    if normalized not in allowed_values:
+        raise ValueError(
+            f"Invalid verbosity '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
+        )
+    set_config_value("openai_verbosity", normalized)
+
+
+def get_temperature() -> Optional[float]:
+    """Return the configured model temperature (0.0 to 2.0).
+
+    Returns:
+        Float between 0.0 and 2.0 if set, None if not configured.
+        This allows each model to use its own default when not overridden.
+    """
+    val = get_value("temperature")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        temp = float(val)
+        # Clamp to valid range (most APIs accept 0-2)
+        return max(0.0, min(2.0, temp))
+    except (ValueError, TypeError):
+        return None
+
+
+def set_temperature(value: Optional[float]) -> None:
+    """Set the global model temperature in config.
+
+    Args:
+        value: Temperature between 0.0 and 2.0, or None to clear.
+               Lower values = more deterministic, higher = more creative.
+
+    Note: Consider using set_model_setting() for per-model temperature.
+    """
+    if value is None:
+        set_config_value("temperature", "")
+    else:
+        # Validate and clamp
+        temp = max(0.0, min(2.0, float(value)))
+        set_config_value("temperature", str(temp))
+
+
+# --- PER-MODEL SETTINGS ---
+
+
+def _sanitize_model_name_for_key(model_name: str) -> str:
+    """Sanitize model name for use in config keys.
+
+    Replaces characters that might cause issues in config keys.
+    """
+    # Replace problematic characters with underscores
+    sanitized = model_name.replace(".", "_").replace("-", "_").replace("/", "_")
+    return sanitized.lower()
+
+
+def get_model_setting(
+    model_name: str, setting: str, default: Optional[float] = None
+) -> Optional[float]:
+    """Get a specific setting for a model.
+
+    Args:
+        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
+        default: Default value if not set
+
+    Returns:
+        The setting value as a float, or default if not set.
+    """
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    key = f"model_settings_{sanitized_name}_{setting}"
+    val = get_value(key)
+
+    if val is None or val.strip() == "":
+        return default
+
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> None:
+    """Set a specific setting for a model.
+
+    Args:
+        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        setting: The setting name (e.g., 'temperature', 'seed')
+        value: The value to set, or None to clear
+    """
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    key = f"model_settings_{sanitized_name}_{setting}"
+
+    if value is None:
+        set_config_value(key, "")
+    elif isinstance(value, float):
+        # Round floats to nearest tenth to avoid floating point weirdness
+        set_config_value(key, str(round(value, 1)))
+    else:
+        set_config_value(key, str(value))
+
+
+def get_all_model_settings(model_name: str) -> dict:
+    """Get all settings for a specific model.
+
+    Args:
+        model_name: The model name
+
+    Returns:
+        Dictionary of setting_name -> value for all configured settings.
+    """
+    import configparser
+
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    prefix = f"model_settings_{sanitized_name}_"
+
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+
+    settings = {}
+    if DEFAULT_SECTION in config:
+        for key, val in config[DEFAULT_SECTION].items():
+            if key.startswith(prefix) and val.strip():
+                setting_name = key[len(prefix) :]
+                try:
+                    settings[setting_name] = float(val)
+                except (ValueError, TypeError):
+                    pass
+
+    return settings
+
+
+def clear_model_settings(model_name: str) -> None:
+    """Clear all settings for a specific model.
+
+    Args:
+        model_name: The model name
+    """
+    import configparser
+
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    prefix = f"model_settings_{sanitized_name}_"
+
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+
+    if DEFAULT_SECTION in config:
+        keys_to_remove = [
+            key for key in config[DEFAULT_SECTION] if key.startswith(prefix)
+        ]
+        for key in keys_to_remove:
+            del config[DEFAULT_SECTION][key]
+
+        with open(CONFIG_FILE, "w") as f:
+            config.write(f)
+
+
+def get_effective_model_settings(model_name: Optional[str] = None) -> dict:
+    """Get all effective settings for a model, filtered by what the model supports.
+
+    This is the generalized way to get model settings. It:
+    1. Gets all per-model settings from config
+    2. Falls back to global temperature if not set per-model
+    3. Filters to only include settings the model actually supports
+    4. Converts seed to int (other settings stay as float)
+
+    Args:
+        model_name: The model name. If None, uses the current global model.
+
+    Returns:
+        Dictionary of setting_name -> value for all applicable settings.
+        Ready to be unpacked into ModelSettings.
+    """
+    if model_name is None:
+        model_name = get_global_model_name()
+
+    # Start with all per-model settings
+    settings = get_all_model_settings(model_name)
+
+    # Fall back to global temperature if not set per-model
+    if "temperature" not in settings:
+        global_temp = get_temperature()
+        if global_temp is not None:
+            settings["temperature"] = global_temp
+
+    # Filter to only settings the model supports
+    effective_settings = {}
+    for setting_name, value in settings.items():
+        if model_supports_setting(model_name, setting_name):
+            # Convert seed to int, keep others as float
+            if setting_name == "seed" and value is not None:
+                effective_settings[setting_name] = int(value)
+            else:
+                effective_settings[setting_name] = value
+
+    return effective_settings
+
+
+# Legacy functions for backward compatibility
+def get_effective_temperature(model_name: Optional[str] = None) -> Optional[float]:
+    """Get the effective temperature for a model.
+
+    Checks per-model settings first, then falls back to global temperature.
+
+    Args:
+        model_name: The model name. If None, uses the current global model.
+
+    Returns:
+        Temperature value, or None if not configured.
+    """
+    settings = get_effective_model_settings(model_name)
+    return settings.get("temperature")
+
+
+def get_effective_top_p(model_name: Optional[str] = None) -> Optional[float]:
+    """Get the effective top_p for a model.
+
+    Args:
+        model_name: The model name. If None, uses the current global model.
+
+    Returns:
+        top_p value, or None if not configured.
+    """
+    settings = get_effective_model_settings(model_name)
+    return settings.get("top_p")
+
+
+def get_effective_seed(model_name: Optional[str] = None) -> Optional[int]:
+    """Get the effective seed for a model.
+
+    Args:
+        model_name: The model name. If None, uses the current global model.
+
+    Returns:
+        seed value as int, or None if not configured.
+    """
+    settings = get_effective_model_settings(model_name)
+    return settings.get("seed")
+
+
 def normalize_command_history():
     """
     Normalize the command history file by converting old format timestamps to the new format.
@@ -500,9 +793,19 @@ def normalize_command_history():
         return
 
     try:
-        # Read the entire file
-        with open(COMMAND_HISTORY_FILE, "r") as f:
+        # Read the entire file with encoding error handling for Windows
+        with open(
+            COMMAND_HISTORY_FILE, "r", encoding="utf-8", errors="surrogateescape"
+        ) as f:
             content = f.read()
+
+        # Sanitize any surrogate characters that might have slipped in
+        try:
+            content = content.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass  # Keep original if sanitization fails
 
         # Skip empty files
         if not content.strip():
@@ -524,7 +827,9 @@ def normalize_command_history():
 
         # Write the updated content back to the file only if changes were made
         if content != updated_content:
-            with open(COMMAND_HISTORY_FILE, "w") as f:
+            with open(
+                COMMAND_HISTORY_FILE, "w", encoding="utf-8", errors="surrogateescape"
+            ) as f:
                 f.write(updated_content)
     except Exception as e:
         from rich.console import Console
@@ -773,7 +1078,23 @@ def save_command_to_history(command: str):
 
     try:
         timestamp = datetime.datetime.now().isoformat(timespec="seconds")
-        with open(COMMAND_HISTORY_FILE, "a") as f:
+
+        # Sanitize command to remove any invalid surrogate characters
+        # that could cause encoding errors on Windows
+        try:
+            command = command.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # If that fails, do a more aggressive cleanup
+            command = "".join(
+                char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+                for char in command
+            )
+
+        with open(
+            COMMAND_HISTORY_FILE, "a", encoding="utf-8", errors="surrogateescape"
+        ) as f:
             f.write(f"\n# {timestamp}\n{command}\n")
     except Exception as e:
         from rich.console import Console

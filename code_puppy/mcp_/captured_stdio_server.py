@@ -265,7 +265,7 @@ class StderrCollector:
         """Clear captured output."""
         if server_name:
             if server_name in self.servers:
-                self.servers[server_name].clear()
+                del self.servers[server_name]
                 # Also clear from all_lines
                 self.all_lines = [
                     entry for entry in self.all_lines if entry["server"] != server_name

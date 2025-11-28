@@ -35,29 +35,59 @@ class TestFilePermissions(unittest.TestCase):
             os.remove(self.test_file)
         os.rmdir(self.temp_dir)
 
-    @patch(
-        "code_puppy.plugins.file_permission_handler.register_callbacks.prompt_for_file_permission"
-    )
-    def test_prompt_for_file_permission_granted(self, mock_prompt):
+    def test_prompt_for_file_permission_granted(self):
         """Test that permission is granted when user enters 'y'."""
-        # Mock returns tuple (confirmed, user_feedback)
-        mock_prompt.return_value = (True, None)
+        from code_puppy.callbacks import _callbacks
 
-        result = on_file_permission(None, self.test_file, "edit")
-        # Should return [True] from the mocked plugin
-        self.assertEqual(result, [True])
+        # Create a mock callback that returns True
+        def mock_callback(
+            context,
+            file_path,
+            operation,
+            preview=None,
+            message_group=None,
+            operation_data=None,
+        ):
+            return True
 
-    @patch(
-        "code_puppy.plugins.file_permission_handler.register_callbacks.prompt_for_file_permission"
-    )
-    def test_prompt_for_file_permission_denied(self, mock_prompt):
+        # Register the mock callback
+        original_callbacks = _callbacks["file_permission"].copy()
+        _callbacks["file_permission"] = [mock_callback]
+
+        try:
+            result = on_file_permission(None, self.test_file, "edit")
+            # Should return [True] from the mocked callback
+            self.assertEqual(result, [True])
+        finally:
+            # Restore original callbacks
+            _callbacks["file_permission"] = original_callbacks
+
+    def test_prompt_for_file_permission_denied(self):
         """Test that permission is denied when user enters 'n'."""
-        # Mock returns tuple (confirmed, user_feedback)
-        mock_prompt.return_value = (False, None)
+        from code_puppy.callbacks import _callbacks
 
-        result = on_file_permission(None, self.test_file, "edit")
-        # Should return [False] from the mocked plugin
-        self.assertEqual(result, [False])
+        # Create a mock callback that returns False
+        def mock_callback(
+            context,
+            file_path,
+            operation,
+            preview=None,
+            message_group=None,
+            operation_data=None,
+        ):
+            return False
+
+        # Register the mock callback
+        original_callbacks = _callbacks["file_permission"].copy()
+        _callbacks["file_permission"] = [mock_callback]
+
+        try:
+            result = on_file_permission(None, self.test_file, "edit")
+            # Should return [False] from the mocked callback
+            self.assertEqual(result, [False])
+        finally:
+            # Restore original callbacks
+            _callbacks["file_permission"] = original_callbacks
 
     def test_prompt_for_file_permission_no_plugins(self):
         """Test that permission is automatically granted when no plugins registered."""

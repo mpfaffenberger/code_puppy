@@ -7,7 +7,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -88,7 +87,7 @@ def _start_callback_server(
     for port in range(port_range[0], port_range[1] + 1):
         try:
             server = HTTPServer(("localhost", port), _CallbackHandler)
-            assign_redirect_uri(port)
+            assign_redirect_uri(context, port)
             result = _OAuthResult()
             event = threading.Event()
             _CallbackHandler.result = result
@@ -123,13 +122,24 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
 
     auth_url = build_authorization_url(context)
 
-    emit_info("Opening browser for Claude Code OAuth…")
-    emit_info(f"If it doesn't open automatically, visit: {auth_url}")
     try:
-        webbrowser.open(auth_url)
+        import webbrowser
+
+        from code_puppy.tools.common import should_suppress_browser
+
+        if should_suppress_browser():
+            emit_info(
+                "[HEADLESS MODE] Would normally open browser for Claude Code OAuth…"
+            )
+            emit_info(f"In normal mode, would visit: {auth_url}")
+        else:
+            emit_info("Opening browser for Claude Code OAuth…")
+            webbrowser.open(auth_url)
+            emit_info(f"If it doesn't open automatically, visit: {auth_url}")
     except Exception as exc:  # pragma: no cover
-        emit_warning(f"Failed to open browser automatically: {exc}")
-        emit_info(f"Please open the URL manually: {auth_url}")
+        if not should_suppress_browser():
+            emit_warning(f"Failed to open browser automatically: {exc}")
+            emit_info(f"Please open the URL manually: {auth_url}")
 
     emit_info(f"Listening for callback on {redirect_uri}")
     emit_info(

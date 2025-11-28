@@ -1,12 +1,11 @@
 """
-Shared spinner implementation for both TUI and CLI modes.
+Shared spinner implementation for CLI mode.
 
 This module provides consistent spinner animations across different UI modes.
 """
 
 from .console_spinner import ConsoleSpinner
 from .spinner_base import SpinnerBase
-from .textual_spinner import TextualSpinner
 
 # Keep track of all active spinners to manage them globally
 _active_spinners = []
@@ -56,7 +55,6 @@ def clear_spinner_context() -> None:
 
 __all__ = [
     "SpinnerBase",
-    "TextualSpinner",
     "ConsoleSpinner",
     "register_spinner",
     "unregister_spinner",

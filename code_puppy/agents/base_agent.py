@@ -33,8 +33,6 @@ from pydantic_ai.messages import (
     ToolReturn,
     ToolReturnPart,
 )
-from pydantic_ai.models.openai import OpenAIChatModelSettings
-from pydantic_ai.settings import ModelSettings
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -43,7 +41,6 @@ from code_puppy.config import (
     get_compaction_threshold,
     get_global_model_name,
     get_message_limit,
-    get_openai_reasoning_effort,
     get_protected_token_count,
     get_use_dbos,
     get_value,
@@ -59,7 +56,7 @@ from code_puppy.messaging.spinner import (
     SpinnerBase,
     update_spinner_context,
 )
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
@@ -955,19 +952,13 @@ class BaseAgent(ABC):
 
         mcp_servers = self.load_mcp_servers()
 
-        model_settings_dict: Dict[str, Any] = {"seed": 42}
         output_tokens = max(
             2048,
             min(int(0.05 * self.get_model_context_length()) - 1024, 16384),
         )
-        model_settings_dict["max_tokens"] = output_tokens
-
-        model_settings: ModelSettings = ModelSettings(**model_settings_dict)
-        if "gpt-5" in model_name:
-            model_settings_dict["openai_reasoning_effort"] = (
-                get_openai_reasoning_effort()
-            )
-            model_settings = OpenAIChatModelSettings(**model_settings_dict)
+        model_settings = make_model_settings(
+            resolved_model_name, max_tokens=output_tokens
+        )
 
         if model_name.startswith("claude-code"):
             instructions = "You are Claude Code, Anthropic's official CLI for Claude."
@@ -1244,6 +1235,20 @@ class BaseAgent(ABC):
         Raises:
             asyncio.CancelledError: When execution is cancelled by user.
         """
+        # Sanitize prompt to remove invalid Unicode surrogates that can cause
+        # encoding errors (especially common on Windows with copy-paste)
+        if prompt:
+            try:
+                prompt = prompt.encode("utf-8", errors="surrogatepass").decode(
+                    "utf-8", errors="replace"
+                )
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # Fallback: filter out surrogate characters directly
+                prompt = "".join(
+                    char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+                    for char in prompt
+                )
+
         group_id = str(uuid.uuid4())
         # Avoid double-loading: reuse existing agent if already built
         pydantic_agent = (

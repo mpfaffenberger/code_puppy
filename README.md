@@ -145,25 +145,34 @@ Please review this code for security issues." > .claude/commands/review.md
 /review with focus on authentication
 ```
 
+### Adding Models from models.dev 🆕
+
+While there are several models configured right out of the box from providers like Synthetic, Cerebras, OpenAI, Google, and Anthropic, Code Puppy integrates with [models.dev](https://models.dev) to let you browse and add models from **65+ providers** with a single command:
+
 ```bash
-export MODEL_NAME=gpt-5 # or gemini-2.5-flash-preview-05-20 as an example for Google Gemini models
-export OPENAI_API_KEY=<your_openai_api_key> # or GEMINI_API_KEY for Google Gemini models
-export CEREBRAS_API_KEY=<your_cerebras_api_key> # for Cerebras models
-export SYN_API_KEY=<your https://dev.synthetic.new api key> # for Synthetic provider
-# or ...
+/add_model
+```
 
-export AZURE_OPENAI_API_KEY=...
-export AZURE_OPENAI_ENDPOINT=...
+This opens an interactive TUI where you can:
+- **Browse providers** - See all available AI providers (OpenAI, Anthropic, Groq, Mistral, xAI, Cohere, Perplexity, DeepInfra, and many more)
+- **Preview model details** - View capabilities, pricing, context length, and features
+- **One-click add** - Automatically configures the model with correct endpoints and API keys
 
-code-puppy --interactive
+#### Live API with Offline Fallback
+
+The `/add_model` command fetches the latest model data from models.dev in real-time. If the API is unavailable, it falls back to a bundled database:
+
+```
+📡 Fetched latest models from models.dev     # Live API
+📦 Using bundled models database              # Offline fallback
 ```
 
 Run specific tasks or engage in interactive mode:
 
-```bash
-# Execute a task directly
-code-puppy "write me a C++ hello world program in /tmp/main.cpp then compile it and run it"
-```
+#### Smart Warnings
+
+- **⚠️ Unsupported Providers** - Providers like Amazon Bedrock and Google Vertex that require special authentication are clearly marked
+- **⚠️ No Tool Calling** - Models without tool calling support show a big warning since they can't use Code Puppy's file/shell tools
 
 ### Durable Execution
 
@@ -237,8 +246,6 @@ Ensure that all components follow these color schemes to promote consistency in 
 ## Using MCP Servers for External Tools
 
 Use the `/mcp` command to manage MCP (list, start, stop, status, etc.)
-
-In the TUI you can click on MCP settings on the footer and interact with a mini-marketplace.
 
 Watch this video for examples! https://www.youtube.com/watch?v=1t1zEetOqlo
 
@@ -795,3 +802,7 @@ Now whenever you commit, the hooks will run.
 Code Puppy is designed with privacy-by-design principles. Every feature has been evaluated through a privacy lens, and every integration respects user data sovereignty. When you use Code Puppy, you're not the product – you're just a developer getting things done.
 
 **This commitment is enforceable because it's structurally impossible to violate it.** No external pressures, no investor demands, no quarterly earnings targets to hit. Just solid code that respects your privacy.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

@@ -8,12 +8,13 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-10-14-v206"
-MOTD_MESSAGE = """
-# 🚀 Code Puppy v0.0.206 - QA Kitten Persistent Sessions! 🐶
-
-QA Kitten will now have persistent sessions, so you will stay logged into your sites.
-
+MOTD_VERSION = "2025-11-27"
+MOTD_MESSAGE = """🐕‍🦺
+🐾```
+# 🐶🦃🐕 November 27th, 2025 - Happy Thanksgiving! 🦃🐶
+122k Downloads! 🎉
+Thank you for all the support!
+-Mike
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 

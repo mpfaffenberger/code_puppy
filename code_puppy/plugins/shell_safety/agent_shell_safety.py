@@ -121,11 +121,16 @@ class ShellSafetyAgent(BaseAgent):
                     "You are Claude Code, Anthropic's official CLI for Claude."
                 )
 
+            from code_puppy.model_factory import make_model_settings
+
+            model_settings = make_model_settings(model_name)
+
             temp_agent = Agent(
                 model=model,
                 system_prompt=instructions,
                 retries=1,
                 output_type=ShellSafetyAssessment,
+                model_settings=model_settings,
             )
 
             # Generate unique agent name and workflow ID for DBOS (if enabled)

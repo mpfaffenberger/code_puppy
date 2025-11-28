@@ -1,6 +1,8 @@
 # file_operations.py
 
 import os
+import shutil
+import subprocess
 import tempfile
 from typing import List
 
@@ -105,11 +107,48 @@ def is_project_directory(directory):
         return False
 
 
+def would_match_directory(pattern: str, directory: str) -> bool:
+    """Check if a glob pattern would match the given directory path.
+
+    This is used to avoid adding ignore patterns that would inadvertently
+    exclude the directory we're actually trying to search in.
+
+    Args:
+        pattern: A glob pattern like '**/tmp/**' or 'node_modules'
+        directory: The directory path to check against
+
+    Returns:
+        True if the pattern would match the directory, False otherwise
+    """
+    import fnmatch
+
+    # Normalize the directory path
+    abs_dir = os.path.abspath(directory)
+    dir_name = os.path.basename(abs_dir)
+
+    # Strip leading/trailing wildcards and slashes for simpler matching
+    clean_pattern = pattern.strip("*").strip("/")
+
+    # Check if the directory name matches the pattern
+    if fnmatch.fnmatch(dir_name, clean_pattern):
+        return True
+
+    # Check if the full path contains the pattern
+    if fnmatch.fnmatch(abs_dir, pattern):
+        return True
+
+    # Check if any part of the path matches
+    path_parts = abs_dir.split(os.sep)
+    for part in path_parts:
+        if fnmatch.fnmatch(part, clean_pattern):
+            return True
+
+    return False
+
+
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-    import shutil
-    import subprocess
     import sys
 
     results = []
@@ -176,7 +215,8 @@ def _list_files(
                     rg_path = venv_rg_exe_path
                     break
 
-        if not rg_path:
+        if not rg_path and recursive:
+            # Only need ripgrep for recursive listings
             error_msg = "[red bold]Error:[/red bold] ripgrep (rg) not found. Please install ripgrep to use this tool."
             output_lines.append(error_msg)
             return ListFileOutput(content="\n".join(output_lines))
@@ -196,6 +236,10 @@ def _list_files(
             ) as f:
                 ignore_file = f.name
                 for pattern in DIR_IGNORE_PATTERNS:
+                    # Skip patterns that would match the search directory itself
+                    # For example, if searching in /tmp/test-dir, skip **/tmp/**
+                    if would_match_directory(pattern, directory):
+                        continue
                     f.write(f"{pattern}\n")
 
             cmd.extend(["--ignore-file", ignore_file])
@@ -288,8 +332,6 @@ def _list_files(
         # ripgrep's --files option only returns files; we add directories and files ourselves
         if not recursive:
             try:
-                from code_puppy.tools.common import should_ignore_dir_path
-
                 entries = os.listdir(directory)
                 for entry in sorted(entries):
                     full_entry_path = os.path.join(directory, entry)
@@ -297,8 +339,9 @@ def _list_files(
                         continue
 
                     if os.path.isdir(full_entry_path):
-                        # Skip ignored directories
-                        if should_ignore_dir_path(full_entry_path):
+                        # In non-recursive mode, only skip obviously system/hidden directories
+                        # Don't use the full should_ignore_dir_path which is too aggressive
+                        if entry.startswith("."):
                             continue
                         results.append(
                             ListedFile(
@@ -468,12 +511,15 @@ def _read_file(
         error_msg = f"{file_path} is not a file"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        # Use errors="surrogateescape" to handle files with invalid UTF-8 sequences
+        # This is common on Windows when files contain emojis or were created by
+        # applications that don't properly encode Unicode
+        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             if start_line is not None and num_lines is not None:
                 # Read only the specified lines
                 lines = f.readlines()
-                # Adjust for 1-based line numbering
-                start_idx = start_line - 1
+                # Adjust for 1-based line numbering and handle negative values
+                start_idx = start_line - 1 if start_line > 0 else 0
                 end_idx = start_idx + num_lines
                 # Ensure indices are within bounds
                 start_idx = max(0, start_idx)
@@ -482,6 +528,21 @@ def _read_file(
             else:
                 # Read the entire file
                 content = f.read()
+
+            # Sanitize the content to remove any surrogate characters that could
+            # cause issues when the content is later serialized or displayed
+            # This re-encodes with surrogatepass then decodes with replace to
+            # convert lone surrogates to replacement characters
+            try:
+                content = content.encode("utf-8", errors="surrogatepass").decode(
+                    "utf-8", errors="replace"
+                )
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # If that fails, do a more aggressive cleanup
+                content = "".join(
+                    char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+                    for char in content
+                )
 
             # Simple approximation: ~4 characters per token
             num_tokens = len(content) // 4

@@ -34,10 +34,13 @@ def handle_show_command(command: str) -> bool:
         get_compaction_strategy,
         get_compaction_threshold,
         get_default_agent,
+        get_effective_temperature,
         get_openai_reasoning_effort,
+        get_openai_verbosity,
         get_owner_name,
         get_protected_token_count,
         get_puppy_name,
+        get_temperature,
         get_use_dbos,
         get_yolo_mode,
     )
@@ -51,6 +54,8 @@ def handle_show_command(command: str) -> bool:
     protected_tokens = get_protected_token_count()
     compaction_threshold = get_compaction_threshold()
     compaction_strategy = get_compaction_strategy()
+    global_temperature = get_temperature()
+    effective_temperature = get_effective_temperature(model)
 
     # Get current agent info
     current_agent = get_current_agent()
@@ -70,6 +75,8 @@ def handle_show_command(command: str) -> bool:
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
 [bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
+[bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
+[bold]temperature:[/bold]           [cyan]{effective_temperature if effective_temperature is not None else "(model default)"}[/cyan]{" (per-model)" if effective_temperature != global_temperature and effective_temperature is not None else ""}
 
 """
     emit_info(status_msg)
@@ -111,6 +118,48 @@ def handle_reasoning_command(command: str) -> bool:
     emit_success(
         f"Reasoning effort set to '{normalized_effort}' and active agent reloaded"
     )
+    return True
+
+
+@register_command(
+    name="verbosity",
+    description="Set OpenAI verbosity for GPT-5 models (e.g., /verbosity high)",
+    usage="/verbosity <low|medium|high>",
+    category="config",
+)
+def handle_verbosity_command(command: str) -> bool:
+    """Set OpenAI verbosity level.
+
+    Controls how concise vs. verbose the model's responses are:
+    - low: more concise responses
+    - medium: balanced (default)
+    - high: more verbose responses
+    """
+    from code_puppy.messaging import emit_error, emit_success, emit_warning
+
+    tokens = command.split()
+    if len(tokens) != 2:
+        emit_warning("Usage: /verbosity <low|medium|high>")
+        return True
+
+    verbosity = tokens[1]
+    try:
+        from code_puppy.config import set_openai_verbosity
+
+        set_openai_verbosity(verbosity)
+    except ValueError as exc:
+        emit_error(str(exc))
+        return True
+
+    from code_puppy.config import get_openai_verbosity
+
+    normalized_verbosity = get_openai_verbosity()
+
+    from code_puppy.agents.agent_manager import get_current_agent
+
+    agent = get_current_agent()
+    agent.reload_code_generation_agent()
+    emit_success(f"Verbosity set to '{normalized_verbosity}' and active agent reloaded")
     return True
 
 
@@ -160,6 +209,16 @@ def handle_set_command(command: str) -> bool:
 
         set_config_value(key, value)
         emit_success(f'Set {key} = "{value}" in puppy.cfg!')
+
+        # Reload the current agent to pick up the new config
+        from code_puppy.agents import get_current_agent
+
+        try:
+            current_agent = get_current_agent()
+            current_agent.reload_code_generation_agent()
+            emit_info("[dim]Agent reloaded with updated config[/dim]")
+        except Exception as reload_error:
+            emit_warning(f"Config saved but agent reload failed: {reload_error}")
     else:
         emit_error("You must supply a key.")
     return True
@@ -209,8 +268,8 @@ def handle_pin_model_command(command: str) -> bool:
     agent_name = tokens[1].lower()
     model_name = tokens[2]
 
-    # Handle special case: (unpin) option
-    if model_name == "(unpin)":
+    # Handle special case: (unpin) option (case-insensitive)
+    if model_name.lower() == "(unpin)":
         # Delegate to unpin command
         return handle_unpin_command(f"/unpin {agent_name}")
 
@@ -326,7 +385,7 @@ def handle_unpin_command(command: str) -> bool:
                 emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
         return True
 
-    agent_name = tokens[1].lower()
+    agent_name_input = tokens[1].lower()
 
     # Check if this is a JSON agent or a built-in Python agent
     json_agents = discover_json_agents()
@@ -336,11 +395,28 @@ def handle_unpin_command(command: str) -> bool:
 
     builtin_agents = get_agent_descriptions()
 
-    is_json_agent = agent_name in json_agents
-    is_builtin_agent = agent_name in builtin_agents
+    # Find matching agent (case-insensitive)
+    agent_name = None
+    is_json_agent = False
+    is_builtin_agent = False
+
+    # Check JSON agents (case-insensitive)
+    for json_agent_name in json_agents:
+        if json_agent_name.lower() == agent_name_input:
+            agent_name = json_agent_name
+            is_json_agent = True
+            break
+
+    # Check built-in agents (case-insensitive)
+    if not is_json_agent:
+        for builtin_agent_name in builtin_agents:
+            if builtin_agent_name.lower() == agent_name_input:
+                agent_name = builtin_agent_name
+                is_builtin_agent = True
+                break
 
     if not is_json_agent and not is_builtin_agent:
-        emit_error(f"Agent '{agent_name}' not found")
+        emit_error(f"Agent '{agent_name_input}' not found")
 
         # Show available agents
         if builtin_agents:

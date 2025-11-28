@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.272"
+version = "0.0.280"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -22,13 +22,11 @@ dependencies = [
     "prompt-toolkit>=3.0.52",
     "pathspec>=0.11.0",
     "rapidfuzz>=3.13.0",
-    "json-repair>=0.46.2",
     "fastapi>=0.110.0",
+    "json-repair>=0.46.2",
     "uvicorn>=0.29.0",
     "PyJWT>=2.8.0",
-    "textual>=5.0.0",
     "termcolor>=3.1.0",
-    "textual-dev>=1.7.0",
     "pyfiglet>=0.8.post1",
     "openai>=1.99.1",
     "ripgrep==14.1.0",

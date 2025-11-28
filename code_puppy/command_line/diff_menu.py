@@ -17,10 +17,6 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 from rich.console import Console
 
-# Import language mappings from common.py
-from code_puppy.tools.common import EXTENSION_TO_LEXER_NAME
-
-
 # Sample code snippets for each language
 LANGUAGE_SAMPLES = {
     "python": (
@@ -378,15 +374,15 @@ class DiffConfiguration:
 
     def next_language(self):
         """Cycle to the next language."""
-        self.current_language_index = (
-            self.current_language_index + 1
-        ) % len(SUPPORTED_LANGUAGES)
+        self.current_language_index = (self.current_language_index + 1) % len(
+            SUPPORTED_LANGUAGES
+        )
 
     def prev_language(self):
         """Cycle to the previous language."""
-        self.current_language_index = (
-            self.current_language_index - 1
-        ) % len(SUPPORTED_LANGUAGES)
+        self.current_language_index = (self.current_language_index - 1) % len(
+            SUPPORTED_LANGUAGES
+        )
 
     def get_current_language(self) -> str:
         """Get the currently selected language."""
@@ -394,7 +390,7 @@ class DiffConfiguration:
 
 
 async def interactive_diff_picker() -> Optional[dict]:
-    """Show an interactive full-screen TUI to configure diff settings.
+    """Show an interactive full-screen terminal UI to configure diff settings.
 
     Returns:
         A dict with changes or None if cancelled
@@ -478,7 +474,7 @@ async def _split_panel_selector(
     config: Optional[DiffConfiguration] = None,
 ) -> Optional[str]:
     """Split-panel selector with menu on left and live preview on right.
-    
+
     Supports left/right arrow navigation through languages if config is provided.
     """
     selected_index = [0]
@@ -491,24 +487,28 @@ async def _split_panel_selector(
             lines.append(("bold cyan", title))
             lines.append(("", "\n\n"))
 
-            for i, choice in enumerate(choices):
-                if i == selected_index[0]:
-                    lines.append(("fg:ansigreen", "▶ "))
-                    lines.append(("fg:ansigreen bold", choice))
-                else:
-                    lines.append(("", "  "))
-                    lines.append(("", choice))
+            if not choices:
+                lines.append(("fg:ansiyellow", "No choices available"))
                 lines.append(("", "\n"))
+            else:
+                for i, choice in enumerate(choices):
+                    if i == selected_index[0]:
+                        lines.append(("fg:ansigreen", "▶ "))
+                        lines.append(("fg:ansigreen bold", choice))
+                    else:
+                        lines.append(("", "  "))
+                        lines.append(("", choice))
+                    lines.append(("", "\n"))
 
             lines.append(("", "\n"))
-            
+
             # Add language navigation hint if config is available
             if config is not None:
                 current_lang = config.get_current_language()
                 lang_hint = f"Language: {current_lang.upper()}  (←→ to change)"
                 lines.append(("fg:ansiyellow", lang_hint))
                 lines.append(("", "\n"))
-            
+
             lines.append(
                 ("fg:ansicyan", "↑↓ Navigate  │  Enter Confirm  │  Ctrl-C Cancel")
             )
@@ -529,14 +529,16 @@ async def _split_panel_selector(
 
     @kb.add("up")
     def move_up(event):
-        selected_index[0] = (selected_index[0] - 1) % len(choices)
-        on_change(choices[selected_index[0]])
+        if choices:
+            selected_index[0] = (selected_index[0] - 1) % len(choices)
+            on_change(choices[selected_index[0]])
         event.app.invalidate()
 
     @kb.add("down")
     def move_down(event):
-        selected_index[0] = (selected_index[0] + 1) % len(choices)
-        on_change(choices[selected_index[0]])
+        if choices:
+            selected_index[0] = (selected_index[0] + 1) % len(choices)
+            on_change(choices[selected_index[0]])
         event.app.invalidate()
 
     @kb.add("left")
@@ -553,7 +555,10 @@ async def _split_panel_selector(
 
     @kb.add("enter")
     def accept(event):
-        result[0] = choices[selected_index[0]]
+        if choices:
+            result[0] = choices[selected_index[0]]
+        else:
+            result[0] = None
         event.app.exit()
 
     @kb.add("c-c")
@@ -591,8 +596,9 @@ async def _split_panel_selector(
     sys.stdout.flush()
     sys.stdout.flush()
 
-    # Trigger initial update
-    on_change(choices[selected_index[0]])
+    # Trigger initial update only if choices is not empty
+    if choices:
+        on_change(choices[selected_index[0]])
 
     # Just clear the current buffer (don't switch buffers)
     sys.stdout.write("\033[2J\033[H")  # Clear screen within current buffer
@@ -836,7 +842,11 @@ async def _handle_color_menu(config: DiffConfiguration, color_type: str) -> None
     try:
         # Use split panel selector with live preview (pass config for language switching)
         await _split_panel_selector(
-            title, choices, update_preview, get_preview=get_preview_header, config=config
+            title,
+            choices,
+            update_preview,
+            get_preview=get_preview_header,
+            config=config,
         )
     except KeyboardInterrupt:
         # Restore original color on cancel

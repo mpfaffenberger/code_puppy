@@ -11,6 +11,7 @@ from code_puppy.command_line.model_picker_completion import update_model_in_inpu
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
+from code_puppy.messaging import emit_error, emit_info
 from code_puppy.tools.tools_content import tools_content
 
 
@@ -50,9 +51,16 @@ def handle_help_command(command: str) -> bool:
 )
 def handle_cd_command(command: str) -> bool:
     """Change directory or list current directory."""
+    # Use shlex.split to handle quoted paths properly
+    import shlex
+
     from code_puppy.messaging import emit_error, emit_info, emit_success
 
-    tokens = command.split()
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        # Fallback to simple split if shlex fails
+        tokens = command.split()
     if len(tokens) == 1:
         try:
             table = make_directory_table()
@@ -99,7 +107,11 @@ def handle_tools_command(command: str) -> bool:
 )
 def handle_motd_command(command: str) -> bool:
     """Show message of the day."""
-    print_motd(force=True)
+    try:
+        print_motd(force=True)
+    except Exception:
+        # Handle printing errors gracefully
+        pass
     return True
 
 
@@ -114,7 +126,11 @@ def handle_exit_command(command: str) -> bool:
     """Exit the interactive session."""
     from code_puppy.messaging import emit_success
 
-    emit_success("Goodbye!")
+    try:
+        emit_success("Goodbye!")
+    except Exception:
+        # Handle emit errors gracefully
+        pass
     # Signal to the main app that we want to exit
     # The actual exit handling is done in main.py
     return True
@@ -123,7 +139,8 @@ def handle_exit_command(command: str) -> bool:
 @register_command(
     name="agent",
     description="Switch to a different agent or show available agents",
-    usage="/agent <name>",
+    usage="/agent <name>, /a <name>",
+    aliases=["a"],
     category="core",
 )
 def handle_agent_command(command: str) -> bool:
@@ -552,6 +569,96 @@ def handle_model_command(command: str) -> bool:
     emit_warning("Usage: /model <model-name> or /m <model-name>")
     emit_warning(f"Available models: {', '.join(model_names)}")
     return True
+
+
+@register_command(
+    name="add_model",
+    description="Browse and add models from models.dev catalog",
+    usage="/add_model",
+    category="core",
+)
+def handle_add_model_command(command: str) -> bool:
+    """Launch interactive model browser TUI."""
+    from code_puppy.command_line.add_model_menu import interactive_model_picker
+    from code_puppy.tools.command_runner import set_awaiting_user_input
+
+    set_awaiting_user_input(True)
+    try:
+        # interactive_model_picker is now synchronous - no async complications!
+        result = interactive_model_picker()
+
+        if result:
+            emit_info("Successfully added model configuration")
+        return True
+    except KeyboardInterrupt:
+        # User cancelled - this is expected behavior
+        return True
+    except Exception as e:
+        emit_error(f"Failed to launch model browser: {e}")
+        return False
+    finally:
+        set_awaiting_user_input(False)
+
+
+@register_command(
+    name="model_settings",
+    description="Configure per-model settings (temperature, seed, etc.)",
+    usage="/model_settings [--show [model_name]]",
+    aliases=["ms"],
+    category="config",
+)
+def handle_model_settings_command(command: str) -> bool:
+    """Launch interactive model settings TUI.
+
+    Opens a TUI showing all available models. Select a model to configure
+    its settings (temperature, seed, etc.). ESC closes the TUI.
+
+    Use --show [model_name] to display current settings without the TUI.
+    """
+    from code_puppy.command_line.model_settings_menu import (
+        interactive_model_settings,
+        show_model_settings_summary,
+    )
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.tools.command_runner import set_awaiting_user_input
+
+    tokens = command.split()
+
+    # Check for --show flag to just display current settings
+    if "--show" in tokens:
+        model_name = None
+        for t in tokens[1:]:
+            if not t.startswith("--"):
+                model_name = t
+                break
+        show_model_settings_summary(model_name)
+        return True
+
+    set_awaiting_user_input(True)
+    try:
+        result = interactive_model_settings()
+
+        if result:
+            emit_success("Model settings updated successfully")
+
+        # Always reload the active agent so settings take effect
+        from code_puppy.agents import get_current_agent
+
+        try:
+            current_agent = get_current_agent()
+            current_agent.reload_code_generation_agent()
+            emit_info("Active agent reloaded")
+        except Exception as reload_error:
+            emit_warning(f"Agent reload failed: {reload_error}")
+
+        return True
+    except KeyboardInterrupt:
+        return True
+    except Exception as e:
+        emit_error(f"Failed to launch model settings: {e}")
+        return False
+    finally:
+        set_awaiting_user_input(False)
 
 
 @register_command(

@@ -7,16 +7,22 @@ from typing import Any, Dict
 import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
+from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.models.openai import (
+    OpenAIChatModel,
+    OpenAIChatModelSettings,
+    OpenAIResponsesModel,
+)
 from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.settings import ModelSettings
 
 from code_puppy.messaging import emit_warning
 from code_puppy.plugins.chatgpt_oauth.config import get_chatgpt_models_path
@@ -37,6 +43,59 @@ from .round_robin_model import RoundRobinModel
 # When using custom endpoints (type: "custom_openai" in models.json):
 # - Environment variables can be referenced in header values by prefixing with $ in models.json.
 #   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
+
+
+def make_model_settings(
+    model_name: str, max_tokens: int | None = None
+) -> ModelSettings:
+    """Create appropriate ModelSettings for a given model.
+
+    This handles model-specific settings:
+    - GPT-5 models: reasoning_effort and verbosity (non-codex only)
+    - Claude/Anthropic models: extended_thinking and budget_tokens
+
+    Args:
+        model_name: The name of the model to create settings for.
+        max_tokens: Optional max tokens limit to include in settings.
+
+    Returns:
+        Appropriate ModelSettings subclass instance for the model.
+    """
+    from code_puppy.config import (
+        get_effective_model_settings,
+        get_openai_reasoning_effort,
+        get_openai_verbosity,
+    )
+
+    model_settings_dict: dict = {}
+    if max_tokens is not None:
+        model_settings_dict["max_tokens"] = max_tokens
+    effective_settings = get_effective_model_settings(model_name)
+    model_settings_dict.update(effective_settings)
+
+    model_settings: ModelSettings = ModelSettings(**model_settings_dict)
+
+    if "gpt-5" in model_name:
+        model_settings_dict["openai_reasoning_effort"] = get_openai_reasoning_effort()
+        # Verbosity only applies to non-codex GPT-5 models (codex only supports "medium")
+        if "codex" not in model_name:
+            verbosity = get_openai_verbosity()
+            model_settings_dict["extra_body"] = {"verbosity": verbosity}
+        model_settings = OpenAIChatModelSettings(**model_settings_dict)
+    elif model_name.startswith("claude-") or model_name.startswith("anthropic-"):
+        # Handle Anthropic extended thinking settings
+        # Remove top_p as Anthropic doesn't support it with extended thinking
+        model_settings_dict.pop("top_p", None)
+        extended_thinking = effective_settings.get("extended_thinking", False)
+        budget_tokens = effective_settings.get("budget_tokens")
+        if extended_thinking and budget_tokens:
+            model_settings_dict["anthropic_thinking"] = {
+                "type": "enabled",
+                "budget_tokens": budget_tokens,
+            }
+        model_settings = AnthropicModelSettings(**model_settings_dict)
+
+    return model_settings
 
 
 class ZaiChatModel(OpenAIChatModel):
@@ -130,7 +189,12 @@ class ModelFactory:
         ]
 
         for source_path, label in extra_sources:
-            path = pathlib.Path(source_path).expanduser()
+            # source_path is already a Path object from the functions above
+            # Use hasattr to check if it's Path-like (works with mocks too)
+            if hasattr(source_path, "exists"):
+                path = source_path
+            else:
+                path = pathlib.Path(source_path).expanduser()
             if not path.exists():
                 continue
             try:
@@ -201,7 +265,25 @@ class ModelFactory:
                     f"ANTHROPIC_API_KEY is not set; skipping Anthropic model '{model_config.get('name')}'."
                 )
                 return None
-            anthropic_client = AsyncAnthropic(api_key=api_key)
+
+            # Use the same caching client as claude_code models
+            verify = get_cert_bundle_path()
+            http2_enabled = get_http2()
+
+            client = ClaudeCacheAsyncClient(
+                verify=verify,
+                timeout=180,
+                http2=http2_enabled,
+            )
+
+            anthropic_client = AsyncAnthropic(
+                api_key=api_key,
+                http_client=client,
+            )
+
+            # Ensure cache_control is injected at the Anthropic SDK layer
+            patch_anthropic_client_messages(anthropic_client)
+
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
@@ -212,12 +294,29 @@ class ModelFactory:
                     f"API key is not set for custom Anthropic endpoint; skipping model '{model_config.get('name')}'."
                 )
                 return None
-            client = create_async_client(headers=headers, verify=verify)
+
+            # Use the same caching client as claude_code models
+            if verify is None:
+                verify = get_cert_bundle_path()
+
+            http2_enabled = get_http2()
+
+            client = ClaudeCacheAsyncClient(
+                headers=headers,
+                verify=verify,
+                timeout=180,
+                http2=http2_enabled,
+            )
+
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
                 api_key=api_key,
             )
+
+            # Ensure cache_control is injected at the Anthropic SDK layer
+            patch_anthropic_client_messages(anthropic_client)
+
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "claude_code":
@@ -332,13 +431,15 @@ class ModelFactory:
                     f"ZAI_API_KEY is not set; skipping ZAI coding model '{model_config.get('name')}'."
                 )
                 return None
+            provider = OpenAIProvider(
+                api_key=api_key,
+                base_url="https://api.z.ai/api/coding/paas/v4",
+            )
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
-                provider=OpenAIProvider(
-                    api_key=api_key,
-                    base_url="https://api.z.ai/api/coding/paas/v4",
-                ),
+                provider=provider,
             )
+            setattr(zai_model, "provider", provider)
             return zai_model
         elif model_type == "zai_api":
             api_key = os.getenv("ZAI_API_KEY")
@@ -347,13 +448,15 @@ class ModelFactory:
                     f"ZAI_API_KEY is not set; skipping ZAI API model '{model_config.get('name')}'."
                 )
                 return None
+            provider = OpenAIProvider(
+                api_key=api_key,
+                base_url="https://api.z.ai/api/paas/v4/",
+            )
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
-                provider=OpenAIProvider(
-                    api_key=api_key,
-                    base_url="https://api.z.ai/api/paas/v4/",
-                ),
+                provider=provider,
             )
+            setattr(zai_model, "provider", provider)
             return zai_model
         elif model_type == "custom_gemini":
             url, headers, verify, api_key = get_custom_config(model_config)

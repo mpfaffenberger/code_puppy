@@ -4,8 +4,11 @@ from typing import List
 
 from pydantic_ai import Agent
 
-from code_puppy.config import get_use_dbos, get_global_model_name
-from code_puppy.model_factory import ModelFactory
+from code_puppy.config import (
+    get_global_model_name,
+    get_use_dbos,
+)
+from code_puppy.model_factory import ModelFactory, make_model_settings
 
 # Keep a module-level agent reference to avoid rebuilding per call
 _summarization_agent = None
@@ -61,22 +64,26 @@ def reload_summarization_agent():
 
     # Specialized instructions for summarization
     instructions = """You are a message summarization expert. Your task is to summarize conversation messages
-while preserving important context and information. The summaries should be concise but capture the essential
-content and intent of the original messages. This is to help manage token usage in a conversation history
+while preserving important context and information. The summaries should be concise but capture the essential content
+and intent of the original messages. This is to help manage token usage in a conversation history
 while maintaining context for the AI to continue the conversation effectively.
 
 When summarizing:
-1. Keep summary brief but informative
-2. Preserve key information and decisions
+1. Keep summary concise but informative
+2. Preserve important context and key information and decisions
 3. Keep any important technical details
 4. Don't summarize the system message
-5. Make sure all tool calls and responses are summarized, as they are vital"""
+5. Make sure all tool calls and responses are summarized, as they are vital
+6. Focus on token usage efficiency and system message preservation"""
+
+    model_settings = make_model_settings(model_name)
 
     agent = Agent(
         model=model,
         instructions=instructions,
         output_type=str,
         retries=1,  # Fewer retries for summarization
+        model_settings=model_settings,
     )
     if get_use_dbos():
         from pydantic_ai.durable_exec.dbos import DBOSAgent
