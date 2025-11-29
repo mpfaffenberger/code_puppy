@@ -1,5 +1,6 @@
 # agent_tools.py
 import asyncio
+import itertools
 import json
 import pickle
 import re
@@ -31,6 +32,28 @@ from code_puppy.tools.common import generate_group_id
 _temp_agent_count = 0
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
+
+# Atomic counter for DBOS workflow IDs - ensures uniqueness even in rapid back-to-back calls
+# itertools.count() is thread-safe for next() calls
+_dbos_workflow_counter = itertools.count()
+
+
+def _generate_dbos_workflow_id(base_id: str) -> str:
+    """Generate a unique DBOS workflow ID by appending an atomic counter.
+
+    DBOS requires workflow IDs to be unique across all executions.
+    This function ensures uniqueness by combining the base_id with
+    an atomically incrementing counter.
+
+    Args:
+        base_id: The base identifier (e.g., group_id from generate_group_id)
+
+    Returns:
+        A unique workflow ID in format: {base_id}-wf-{counter}
+    """
+    counter = next(_dbos_workflow_counter)
+    return f"{base_id}-wf-{counter}"
+
 
 # Regex pattern for kebab-case session IDs
 SESSION_ID_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -415,8 +438,11 @@ def register_invoke_agent(agent):
 
             # Run the temporary agent with the provided prompt as an asyncio task
             # Pass the message_history from the session to continue the conversation
+            workflow_id = None  # Track for potential cancellation
             if get_use_dbos():
-                with SetWorkflowID(group_id):
+                # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
+                workflow_id = _generate_dbos_workflow_id(group_id)
+                with SetWorkflowID(workflow_id):
                     task = asyncio.create_task(
                         temp_agent.run(
                             prompt,
@@ -440,8 +466,8 @@ def register_invoke_agent(agent):
             finally:
                 _active_subagent_tasks.discard(task)
                 if task.cancelled():
-                    if get_use_dbos():
-                        DBOS.cancel_workflow(group_id)
+                    if get_use_dbos() and workflow_id:
+                        DBOS.cancel_workflow(workflow_id)
 
             # Extract the response from the result
             response = result.output
