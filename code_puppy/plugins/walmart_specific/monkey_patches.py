@@ -393,9 +393,6 @@ def patch_requests():
         # Disable SSL verification for problematic domains if not explicitly set
         if "verify" not in kwargs and should_skip_ssl_verification(url):
             kwargs["verify"] = False
-            emit_info(
-                f"[dim]🔓 Disabled SSL verification for requests.get: {url[:50]}...[/dim]"
-            )
 
         # Try multiple artifactory URLs if DNS resolution fails
         if "generic.ci.artifacts.walmart.com" in url:
@@ -448,9 +445,6 @@ def patch_requests():
         # Disable SSL verification for problematic domains if not explicitly set
         if "verify" not in kwargs and should_skip_ssl_verification(url):
             kwargs["verify"] = False
-            emit_info(
-                f"[dim]🔓 Disabled SSL verification for requests.post: {url[:50]}...[/dim]"
-            )
 
         # Try multiple artifactory URLs if DNS resolution fails
         if "generic.ci.artifacts.walmart.com" in url:
@@ -503,9 +497,6 @@ def patch_requests():
         # Disable SSL verification for problematic domains if not explicitly set
         if "verify" not in kwargs and should_skip_ssl_verification(url):
             kwargs["verify"] = False
-            emit_info(
-                f"[dim]🔓 Disabled SSL verification for requests.{method.lower()}: {url[:50]}...[/dim]"
-            )
 
         # Try multiple artifactory URLs if DNS resolution fails
         if "generic.ci.artifacts.walmart.com" in url:
@@ -586,9 +577,6 @@ def patch_httpx():
         # Disable SSL verification for problematic domains if not explicitly set
         if "verify" not in kwargs and should_skip_ssl_verification(url):
             kwargs["verify"] = False
-            emit_info(
-                f"[dim]🔓 Disabled SSL verification for httpx.get: {url[:50]}...[/dim]"
-            )
 
         # Try multiple artifactory URLs if DNS resolution fails
         if "generic.ci.artifacts.walmart.com" in url:
@@ -641,9 +629,6 @@ def patch_httpx():
         # Disable SSL verification for problematic domains if not explicitly set
         if "verify" not in kwargs and should_skip_ssl_verification(url):
             kwargs["verify"] = False
-            emit_info(
-                f"[dim]🔓 Disabled SSL verification for httpx.post: {url[:50]}...[/dim]"
-            )
 
         # Try multiple artifactory URLs if DNS resolution fails
         if "generic.ci.artifacts.walmart.com" in url:
@@ -696,9 +681,6 @@ def patch_httpx():
         # Disable SSL verification for problematic domains if not explicitly set
         if "verify" not in kwargs and should_skip_ssl_verification(url):
             kwargs["verify"] = False
-            emit_info(
-                f"[dim]🔓 Disabled SSL verification for httpx.{method.lower()}: {url[:50]}...[/dim]"
-            )
 
         # Try multiple artifactory URLs if DNS resolution fails
         if "generic.ci.artifacts.walmart.com" in url:
@@ -762,16 +744,12 @@ def patch_httpx():
             # Disable SSL verification for problematic domains if not explicitly set
             if "verify" not in kwargs:
                 kwargs["verify"] = False
-                emit_info("[dim]🔓 Disabled SSL verification for httpx.Client[/dim]")
             return original_client_init(self, *args, **kwargs)
 
         def patched_async_client_init(self, *args, **kwargs):
             # Disable SSL verification for problematic domains if not explicitly set
             if "verify" not in kwargs:
                 kwargs["verify"] = False
-                emit_info(
-                    "[dim]🔓 Disabled SSL verification for httpx.AsyncClient[/dim]"
-                )
             return original_async_client_init(self, *args, **kwargs)
 
         httpx.Client.__init__ = patched_client_init
@@ -865,9 +843,6 @@ def patch_aiohttp():
             # Create connector with disabled SSL verification
             connector = aiohttp.TCPConnector(ssl=ssl_context)
             kwargs["connector"] = connector
-            emit_info(
-                "[dim]🔓 Disabled SSL verification for aiohttp.ClientSession[/dim]"
-            )
 
         return original_client_session_init(self, *args, **kwargs)
 

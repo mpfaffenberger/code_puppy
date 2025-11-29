@@ -8,6 +8,9 @@ warnings.filterwarnings("ignore", category=SyntaxWarning, module="pywinauto.*")
 # Print immediate feedback using basic print before any heavy imports
 # This gives instant visual confirmation that the app is loading
 print("🐶 Code Puppy is Loading...", flush=True)
+import pydantic_ai
+from pydantic_ai import _agent_graph
+_agent_graph._clean_message_history = lambda messages: messages
 
 # ruff: noqa: E402
 import argparse

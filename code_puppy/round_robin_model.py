@@ -10,7 +10,7 @@ from pydantic_ai.models import (
     ModelSettings,
     StreamedResponse,
 )
-from pydantic_ai.models.fallback import merge_model_settings
+from pydantic_ai.settings import merge_model_settings
 from pydantic_ai.result import RunContext
 
 try:
