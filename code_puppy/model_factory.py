@@ -33,15 +33,6 @@ from .config import EXTRA_MODELS_FILE
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
 
-# Environment variables used in this module:
-# - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
-# - OPENAI_API_KEY: API key for OpenAI models. Required when using OpenAI models or custom_openai endpoints.
-# - TOGETHER_AI_KEY: API key for Together AI models. Required when using Together AI models.
-#
-# When using custom endpoints (type: "custom_openai" in models.json):
-# - Environment variables can be referenced in header values by prefixing with $ in models.json.
-#   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
-
 
 def make_model_settings(
     model_name: str, max_tokens: int | None = None
