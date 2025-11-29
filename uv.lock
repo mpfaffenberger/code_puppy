@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11, <3.14"
 
 [[package]]
@@ -450,7 +450,7 @@ dev = [
 requires-dist = [
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "camoufox", specifier = ">=0.4.11" },
-    { name = "dbos", specifier = ">=2.0.0" },
+    { name = "dbos", specifier = ">=2.5.0" },
     { name = "fastapi", specifier = ">=0.110.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx-limiter", specifier = ">=0.3.0" },
@@ -658,7 +658,7 @@ wheels = [
 
 [[package]]
 name = "dbos"
-version = "2.1.0"
+version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "psycopg", extra = ["binary"] },
@@ -668,9 +668,9 @@ dependencies = [
     { name = "typer-slim" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/37/77/fd9597da7978d4d403cbb4fbdaadb42d17c2f7becb81baed7b7c8ec5bf70/dbos-2.1.0.tar.gz", hash = "sha256:3ef3d5f1781c951637abd11a8d2145c8739beaca654f4ce7bc03ef436d6ce5c5", size = 209066, upload-time = "2025-10-06T17:08:22.523Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/86/e0c4d2ba5f063150edab296e7c566a693660ec53a2f030a5652b805fb490/dbos-2.5.0.tar.gz", hash = "sha256:6e13b1ddefbbc4143152f23d6c87ce36307e98d1fdabb83a027223161ece2b4d", size = 214272, upload-time = "2025-11-17T17:23:09.61Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/1a/a181322857e3c9dd063d0b589f2aa47c32011dc174074431eaad1dcee41a/dbos-2.1.0-py3-none-any.whl", hash = "sha256:8e9c1a951260908fa9958c26049f745578eee82e5e6d3cde1047083aa86719d2", size = 134555, upload-time = "2025-10-06T17:08:20.586Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/f9/c1e1a9745dcf1c15fbebc5437bec1bc4533426d1a729101a07fb54221d96/dbos-2.5.0-py3-none-any.whl", hash = "sha256:476936ee4ef9fbb7ce9cbf52e944ff6f69b49c11a43270774591c742622fac5c", size = 136847, upload-time = "2025-11-17T17:23:07.971Z" },
 ]
 
 [[package]]
