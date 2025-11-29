@@ -8,6 +8,10 @@ import time
 import traceback
 from pathlib import Path
 
+from pydantic_ai import _agent_graph
+
+_agent_graph._clean_message_history = lambda messages: messages
+
 from dbos import DBOS, DBOSConfig
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import CodeBlock, Markdown

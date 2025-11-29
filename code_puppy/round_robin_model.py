@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, List
 
+from pydantic_ai._run_context import RunContext
 from pydantic_ai.models import (
     Model,
     ModelMessage,
@@ -10,8 +11,6 @@ from pydantic_ai.models import (
     ModelSettings,
     StreamedResponse,
 )
-from pydantic_ai.models.fallback import merge_model_settings
-from pydantic_ai.result import RunContext
 
 try:
     from opentelemetry.context import get_current_span
@@ -100,15 +99,14 @@ class RoundRobinModel(Model):
     ) -> ModelResponse:
         """Make a request using the next model in the round-robin sequence."""
         current_model = self._get_next_model()
-        # Use the current model's settings as base, then merge with provided settings
-        merged_settings = merge_model_settings(current_model.settings, model_settings)
-        customized_model_request_parameters = (
-            current_model.customize_request_parameters(model_request_parameters)
+        # Use prepare_request to merge settings and customize parameters
+        merged_settings, prepared_params = current_model.prepare_request(
+            model_settings, model_request_parameters
         )
 
         try:
             response = await current_model.request(
-                messages, merged_settings, customized_model_request_parameters
+                messages, merged_settings, prepared_params
             )
             self._set_span_attributes(current_model)
             return response
@@ -127,14 +125,13 @@ class RoundRobinModel(Model):
     ) -> AsyncIterator[StreamedResponse]:
         """Make a streaming request using the next model in the round-robin sequence."""
         current_model = self._get_next_model()
-        # Use the current model's settings as base, then merge with provided settings
-        merged_settings = merge_model_settings(current_model.settings, model_settings)
-        customized_model_request_parameters = (
-            current_model.customize_request_parameters(model_request_parameters)
+        # Use prepare_request to merge settings and customize parameters
+        merged_settings, prepared_params = current_model.prepare_request(
+            model_settings, model_request_parameters
         )
 
         async with current_model.request_stream(
-            messages, merged_settings, customized_model_request_parameters, run_context
+            messages, merged_settings, prepared_params, run_context
         ) as response:
             self._set_span_attributes(current_model)
             yield response

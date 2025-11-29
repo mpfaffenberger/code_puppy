@@ -446,6 +446,48 @@ class SlashCompleter(Completer):
                         }
                     )
 
+        # Also include custom commands from plugins (like claude-code-auth)
+        try:
+            from code_puppy import callbacks, plugins
+
+            # Ensure plugins are loaded so custom commands are registered
+            plugins.load_plugin_callbacks()
+            custom_help_results = callbacks.on_custom_command_help()
+            for res in custom_help_results:
+                if not res:
+                    continue
+                # Format 1: List of tuples (command_name, description)
+                if isinstance(res, list):
+                    for item in res:
+                        if isinstance(item, tuple) and len(item) == 2:
+                            cmd_name = str(item[0])
+                            description = str(item[1])
+                            if cmd_name.lower().startswith(partial_lower):
+                                all_completions.append(
+                                    {
+                                        "text": cmd_name,
+                                        "display": f"/{cmd_name}",
+                                        "meta": description,
+                                        "sort_key": cmd_name.lower(),
+                                    }
+                                )
+                # Format 2: Single tuple (command_name, description)
+                elif isinstance(res, tuple) and len(res) == 2:
+                    cmd_name = str(res[0])
+                    description = str(res[1])
+                    if cmd_name.lower().startswith(partial_lower):
+                        all_completions.append(
+                            {
+                                "text": cmd_name,
+                                "display": f"/{cmd_name}",
+                                "meta": description,
+                                "sort_key": cmd_name.lower(),
+                            }
+                        )
+        except Exception:
+            # If custom command loading fails, continue with registered commands only
+            pass
+
         # Sort all completions alphabetically
         all_completions.sort(key=lambda x: x["sort_key"])
 
