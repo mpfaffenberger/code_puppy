@@ -24,6 +24,10 @@ class MockModel:
     def customize_request_parameters(self, model_request_parameters):
         return model_request_parameters
 
+    def prepare_request(self, model_settings, model_request_parameters):
+        """Mock prepare_request that returns settings and params as-is."""
+        return model_settings, model_request_parameters
+
 
 @pytest.mark.asyncio
 async def test_round_robin_rotate_every_default():
