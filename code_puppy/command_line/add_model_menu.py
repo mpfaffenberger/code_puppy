@@ -71,6 +71,10 @@ class AddModelMenu:
         self.pending_model: Optional[ModelInfo] = None
         self.pending_provider: Optional[ProviderInfo] = None
 
+        # Custom model support
+        self.is_custom_model_selected = False
+        self.custom_model_name: Optional[str] = None
+
         # Initialize registry
         self._initialize_registry()
 
@@ -98,11 +102,23 @@ class AddModelMenu:
         return None
 
     def _get_current_model(self) -> Optional[ModelInfo]:
-        """Get the currently selected model."""
+        """Get the currently selected model.
+
+        Returns None if "Custom model" option is selected (which is at index len(current_models)).
+        """
         if self.view_mode == "models" and self.current_provider:
+            # Check if custom model option is selected (it's the last item)
+            if self.selected_model_idx == len(self.current_models):
+                return None  # Custom model selected
             if 0 <= self.selected_model_idx < len(self.current_models):
                 return self.current_models[self.selected_model_idx]
         return None
+
+    def _is_custom_model_selected(self) -> bool:
+        """Check if the custom model option is currently selected."""
+        if self.view_mode == "models" and self.current_provider:
+            return self.selected_model_idx == len(self.current_models)
+        return False
 
     def _render_provider_list(self) -> List:
         """Render the provider list panel."""
@@ -164,18 +180,24 @@ class AddModelMenu:
         lines.append(("", f" {self.current_provider.name} Models"))
         lines.append(("", "\n\n"))
 
-        if not self.current_models:
-            lines.append(("fg:yellow", "  No models available."))
-            lines.append(("", "\n\n"))
-            self._render_navigation_hints(lines)
-            return lines
-
-        # Show models for current page
-        total_pages = (len(self.current_models) + PAGE_SIZE - 1) // PAGE_SIZE
+        # Total items = models + 1 for custom model option
+        total_items = len(self.current_models) + 1
+        total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
         start_idx = self.current_page * PAGE_SIZE
-        end_idx = min(start_idx + PAGE_SIZE, len(self.current_models))
+        end_idx = min(start_idx + PAGE_SIZE, total_items)
 
+        # Render models from the current page
         for i in range(start_idx, end_idx):
+            # Check if this is the custom model option (last item)
+            if i == len(self.current_models):
+                is_selected = i == self.selected_model_idx
+                if is_selected:
+                    lines.append(("fg:ansicyan bold", " > ✨ Custom model..."))
+                else:
+                    lines.append(("fg:ansicyan", "   ✨ Custom model..."))
+                lines.append(("", "\n"))
+                continue
+
             model = self.current_models[i]
             is_selected = i == self.selected_model_idx
 
@@ -210,7 +232,9 @@ class AddModelMenu:
         """Render navigation hints at the bottom of the list panel."""
         lines.append(("", "\n"))
         lines.append(("fg:ansibrightblack", "  ↑/↓ "))
-        lines.append(("", "Navigate\n"))
+        lines.append(("", "Navigate  "))
+        lines.append(("fg:ansibrightblack", "←/→ "))
+        lines.append(("", "Page\n"))
         if self.view_mode == "providers":
             lines.append(("fg:green", "  Enter  "))
             lines.append(("", "Select\n"))
@@ -278,7 +302,45 @@ class AddModelMenu:
             model = self._get_current_model()
             provider = self.current_provider
 
-            if not model or not provider:
+            if not provider:
+                lines.append(("fg:yellow", "  No model selected."))
+                return lines
+
+            # Handle custom model option
+            if self._is_custom_model_selected():
+                lines.append(("bold", "  ✨ Custom Model"))
+                lines.append(("", "\n\n"))
+                lines.append(("fg:ansicyan", "  Add a model not listed in models.dev"))
+                lines.append(("", "\n\n"))
+                lines.append(("bold", "  How it works:"))
+                lines.append(("", "\n"))
+                lines.append(("fg:ansibrightblack", "  1. Press Enter to select"))
+                lines.append(("", "\n"))
+                lines.append(("fg:ansibrightblack", "  2. Enter the model ID/name"))
+                lines.append(("", "\n"))
+                lines.append(
+                    ("fg:ansibrightblack", f"  3. Uses {provider.name}'s API endpoint")
+                )
+                lines.append(("", "\n\n"))
+                lines.append(("bold", "  Use cases:"))
+                lines.append(("", "\n"))
+                lines.append(("fg:ansibrightblack", "  • Newly released models"))
+                lines.append(("", "\n"))
+                lines.append(("fg:ansibrightblack", "  • Fine-tuned models"))
+                lines.append(("", "\n"))
+                lines.append(("fg:ansibrightblack", "  • Preview/beta models"))
+                lines.append(("", "\n"))
+                lines.append(("fg:ansibrightblack", "  • Custom deployments"))
+                lines.append(("", "\n\n"))
+                if provider.env:
+                    lines.append(("bold", "  Required credentials:"))
+                    lines.append(("", "\n"))
+                    for env_var in provider.env:
+                        lines.append(("fg:ansibrightblack", f"    • {env_var}"))
+                        lines.append(("", "\n"))
+                return lines
+
+            if not model:
                 lines.append(("fg:yellow", "  No model selected."))
                 return lines
 
@@ -587,15 +649,27 @@ class AddModelMenu:
 
     def _add_current_model(self):
         """Add the currently selected model to extra_models.json."""
-        model = self._get_current_model()
         provider = self.current_provider
 
-        if model and provider:
-            # Block unsupported providers
-            if provider.id in UNSUPPORTED_PROVIDERS:
-                self.result = "unsupported"
-                return
+        if not provider:
+            return
 
+        # Block unsupported providers
+        if provider.id in UNSUPPORTED_PROVIDERS:
+            self.result = "unsupported"
+            return
+
+        # Check if custom model option is selected
+        if self._is_custom_model_selected():
+            self.is_custom_model_selected = True
+            self.pending_provider = provider
+            self.result = (
+                "pending_custom_model"  # Signal to prompt for custom model name
+            )
+            return
+
+        model = self._get_current_model()
+        if model:
             # Store model/provider for credential prompting after TUI exits
             self.pending_model = model
             self.pending_provider = provider
@@ -653,6 +727,88 @@ class AddModelMenu:
                 return False
 
         return True
+
+    def _create_custom_model_info(
+        self, model_name: str, context_length: int = 128000
+    ) -> ModelInfo:
+        """Create a ModelInfo object for a custom model.
+
+        Since we don't know the model's capabilities, we assume reasonable defaults.
+        """
+        provider_id = self.pending_provider.id if self.pending_provider else "custom"
+        return ModelInfo(
+            provider_id=provider_id,
+            model_id=model_name,
+            name=model_name,
+            tool_call=True,  # Assume true for usability
+            temperature=True,
+            context_length=context_length,
+            max_output=min(
+                16384, context_length // 4
+            ),  # Reasonable default based on context
+            input_modalities=["text"],
+            output_modalities=["text"],
+        )
+
+    def _prompt_for_custom_model(self) -> Optional[tuple[str, int]]:
+        """Prompt user for custom model details.
+
+        Returns:
+            Tuple of (model_name, context_length) if provided, None if cancelled
+        """
+        provider = self.pending_provider
+        if not provider:
+            return None
+
+        print(f"\n✨ Adding custom model for {provider.name}\n")
+        print("  Enter the model ID exactly as the provider expects it.")
+        print(
+            "  Examples: gpt-4-turbo-preview, claude-3-opus-20240229, gemini-1.5-pro-latest\n"
+        )
+
+        try:
+            model_name = input("  Model ID: ").strip()
+
+            if not model_name:
+                emit_warning("No model name provided, cancelled.")
+                return None
+
+            # Ask for context size
+            print("\n  Enter the context window size (in tokens).")
+            print("  Common sizes: 8192, 32768, 128000, 200000, 1000000\n")
+
+            context_input = input("  Context size [128000]: ").strip()
+
+            if not context_input:
+                context_length = 128000  # Default
+            else:
+                # Handle k/K suffix (e.g., "128k" -> 128000)
+                context_input_lower = context_input.lower().replace(",", "")
+                if context_input_lower.endswith("k"):
+                    try:
+                        context_length = int(float(context_input_lower[:-1]) * 1000)
+                    except ValueError:
+                        emit_warning("Invalid context size, using default 128000")
+                        context_length = 128000
+                elif context_input_lower.endswith("m"):
+                    try:
+                        context_length = int(float(context_input_lower[:-1]) * 1000000)
+                    except ValueError:
+                        emit_warning("Invalid context size, using default 128000")
+                        context_length = 128000
+                else:
+                    try:
+                        context_length = int(context_input)
+                    except ValueError:
+                        emit_warning("Invalid context size, using default 128000")
+                        context_length = 128000
+
+            return (model_name, context_length)
+
+        except (KeyboardInterrupt, EOFError):
+            print("")  # Clean newline
+            emit_warning("Custom model input cancelled")
+            return None
 
     def _get_env_var_hint(self, env_var: str) -> str:
         """Get a helpful hint for common environment variables."""
@@ -730,11 +886,42 @@ class AddModelMenu:
                 if self.selected_provider_idx < len(self.providers) - 1:
                     self.selected_provider_idx += 1
                     self.current_page = self.selected_provider_idx // PAGE_SIZE
-            else:  # models view
-                if self.selected_model_idx < len(self.current_models) - 1:
+            else:  # models view - include custom model option at the end
+                # Max index is len(current_models) which is the "Custom model" option
+                if self.selected_model_idx < len(self.current_models):
                     self.selected_model_idx += 1
                     self.current_page = self.selected_model_idx // PAGE_SIZE
             self.update_display()
+
+        @kb.add("left")
+        def _(event):
+            """Previous page."""
+            if self.current_page > 0:
+                self.current_page -= 1
+                # Update selected index to first item on new page
+                if self.view_mode == "providers":
+                    self.selected_provider_idx = self.current_page * PAGE_SIZE
+                else:
+                    self.selected_model_idx = self.current_page * PAGE_SIZE
+                self.update_display()
+
+        @kb.add("right")
+        def _(event):
+            """Next page."""
+            if self.view_mode == "providers":
+                total_items = len(self.providers)
+            else:
+                total_items = len(self.current_models) + 1  # +1 for custom model option
+
+            total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
+            if self.current_page < total_pages - 1:
+                self.current_page += 1
+                # Update selected index to first item on new page
+                if self.view_mode == "providers":
+                    self.selected_provider_idx = self.current_page * PAGE_SIZE
+                else:
+                    self.selected_model_idx = self.current_page * PAGE_SIZE
+                self.update_display()
 
         @kb.add("enter")
         def _(event):
@@ -800,6 +987,30 @@ class AddModelMenu:
                 self.current_provider.id, "Not supported"
             )
             emit_error(f"Cannot add model from {self.current_provider.name}: {reason}")
+            return False
+
+        # Handle custom model flow after TUI exits
+        if self.result == "pending_custom_model" and self.pending_provider:
+            # Prompt for custom model details (name and context size)
+            custom_model_result = self._prompt_for_custom_model()
+            if not custom_model_result:
+                return False
+
+            model_name, context_length = custom_model_result
+
+            # Create a ModelInfo for the custom model
+            self.pending_model = self._create_custom_model_info(
+                model_name, context_length
+            )
+
+            # Prompt for any missing credentials
+            if self._prompt_for_credentials(self.pending_provider):
+                # Now add the model to config
+                if self._add_model_to_extra_config(
+                    self.pending_model, self.pending_provider
+                ):
+                    self.result = "added"
+                    return True
             return False
 
         # Handle pending credential flow after TUI exits

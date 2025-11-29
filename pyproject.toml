@@ -9,7 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "pydantic-ai==1.0.5",
+    "pydantic-ai==1.25.0",
     "httpx[http2]>=0.24.1",
     "rich>=13.4.2",
     "logfire>=0.7.1",
@@ -81,6 +81,9 @@ path = "code_puppy/models.json"
 
 [[tool.hatch.build.targets.sdist.include]]
 path = "code_puppy/models_dev_api.json"
+[tool.ruff.lint.per-file-ignores]
+"code_puppy/main.py" = ["E402"]
+
 [tool.pytest.ini_options]
 addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
