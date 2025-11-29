@@ -34,6 +34,10 @@ class MockModel:
     def model_attributes(self, model):
         return {"model_name": self._name}
 
+    def prepare_request(self, model_settings, model_request_parameters):
+        """Mock prepare_request that returns settings and params as-is."""
+        return model_settings, model_request_parameters
+
 
 class TestRoundRobinModel:
     def test_initialization(self):
