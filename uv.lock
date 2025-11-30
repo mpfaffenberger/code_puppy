@@ -407,7 +407,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.282"
+version = "0.0.283"
 source = { editable = "." }
 dependencies = [
     { name = "bs4" },
