@@ -562,12 +562,42 @@ def _read_file(
         return ReadFileOutput(content=message, num_tokens=0, error=message)
 
 
+def _sanitize_string(text: str) -> str:
+    """Sanitize a string to remove invalid Unicode surrogates.
+
+    This handles encoding issues common on Windows with copy-paste operations.
+    """
+    if not text:
+        return text
+    try:
+        # Try encoding - if it works, string is clean
+        text.encode("utf-8")
+        return text
+    except UnicodeEncodeError:
+        pass
+
+    try:
+        # Encode allowing surrogates, then decode replacing them
+        return text.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Last resort: filter out surrogate characters
+        return "".join(
+            char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+            for char in text
+        )
+
+
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
     import shutil
     import subprocess
     import sys
+
+    # Sanitize search string to handle any surrogates from copy-paste
+    search_string = _sanitize_string(search_string)
 
     directory = os.path.abspath(os.path.expanduser(directory))
     matches: List[MatchInfo] = []
@@ -636,7 +666,15 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
         cmd.extend(["--ignore-file", ignore_file])
         cmd.extend([search_string, directory])
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        # Use encoding with error handling to handle files with invalid UTF-8
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding="utf-8",
+            errors="replace",  # Replace invalid chars instead of crashing
+        )
 
         # Parse the JSON output from ripgrep
         for line in result.stdout.strip().split("\n"):
@@ -660,10 +698,11 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                     if len(line_content.strip()) > 512:
                         line_content = line_content.strip()[0:512]
                     if file_path and line_number:
+                        # Sanitize content to handle any remaining encoding issues
                         match_info = MatchInfo(
-                            file_path=file_path,
+                            file_path=_sanitize_string(file_path),
                             line_number=line_number,
-                            line_content=line_content.strip(),
+                            line_content=_sanitize_string(line_content.strip()),
                         )
                         matches.append(match_info)
                         # Limit to 50 matches total, same as original implementation
