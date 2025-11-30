@@ -37,6 +37,8 @@ dependencies = [
     "camoufox>=0.4.11",
     "dbos>=2.0.0",
     "markdownify>=0.11.0",
+    "sqlparse>=0.4.0",
+    "google-cloud-bigquery>=3.0.0",
     # GUI-Cub dependencies
     "atomacos>=3.2.0; sys_platform == 'darwin'",
     "pillow>=11.0.0", # Updated from 10.0.0 - latest with security fixes
@@ -81,6 +83,10 @@ classifiers = [
 # Configure uv to use Walmart's internal PyPI registry
 url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
 trusted-host = "pypi.ci.artifacts.walmart.com"
+
+[project.optional-dependencies]
+# BigQuery dependencies are now core dependencies
+# bigquery = []
 
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
