@@ -106,6 +106,10 @@ class HelpCommand(MCPCommandBase):
                 + Text(" [json]         Add new server (JSON or wizard)")
             )
             help_lines.append(
+                Text("/mcp edit", style="cyan")
+                + Text(" <name>        Edit existing server config")
+            )
+            help_lines.append(
                 Text("/mcp remove", style="cyan")
                 + Text(" <name>      Remove/disable a server")
             )
@@ -129,6 +133,7 @@ class HelpCommand(MCPCommandBase):
 /mcp start filesystem    # Start a specific server
 /mcp start-all           # Start all servers at once
 /mcp stop-all            # Stop all running servers
+/mcp edit filesystem     # Edit an existing server config
 /mcp add {"name": "test", "type": "stdio", "command": "echo"}"""
             help_lines.append(Text(examples_text, style="dim"))
 

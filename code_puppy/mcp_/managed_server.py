@@ -6,7 +6,6 @@ that adds management capabilities while maintaining 100% compatibility.
 """
 
 import json
-import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -26,9 +25,6 @@ from pydantic_ai.mcp import (
 from code_puppy.http_utils import create_async_client
 from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
 from code_puppy.messaging import emit_info
-
-# Configure logging
-logger = logging.getLogger(__name__)
 
 
 class ServerState(Enum):
@@ -114,7 +110,6 @@ class ManagedMCPServer:
             # Always start as STOPPED - servers must be explicitly started
             self._state = ServerState.STOPPED
         except Exception as e:
-            logger.error(f"Failed to create server {self.config.name}: {e}")
             self._state = ServerState.ERROR
             self._error_message = str(e)
 
@@ -237,12 +232,7 @@ class ManagedMCPServer:
             else:
                 raise ValueError(f"Unsupported server type: {server_type}")
 
-            logger.info(f"Created {server_type} server: {self.config.name}")
-
-        except Exception as e:
-            logger.error(
-                f"Failed to create {server_type} server {self.config.name}: {e}"
-            )
+        except Exception:
             raise
 
     def _get_http_client(self) -> httpx.AsyncClient:
@@ -263,7 +253,6 @@ class ManagedMCPServer:
         if self._state == ServerState.STOPPED and self._pydantic_server is not None:
             self._state = ServerState.RUNNING
             self._start_time = datetime.now()
-            logger.info(f"Enabled server: {self.config.name}")
 
     def disable(self) -> None:
         """Disable server availability."""
@@ -271,7 +260,6 @@ class ManagedMCPServer:
         if self._state == ServerState.RUNNING:
             self._state = ServerState.STOPPED
             self._stop_time = datetime.now()
-            logger.info(f"Disabled server: {self.config.name}")
 
     def is_enabled(self) -> bool:
         """
@@ -290,12 +278,7 @@ class ManagedMCPServer:
             duration: Quarantine duration in seconds
         """
         self._quarantine_until = datetime.now() + timedelta(seconds=duration)
-        previous_state = self._state
         self._state = ServerState.QUARANTINED
-        logger.warning(
-            f"Quarantined server {self.config.name} for {duration} seconds "
-            f"(was {previous_state.value})"
-        )
 
     def is_quarantined(self) -> bool:
         """
@@ -315,7 +298,6 @@ class ManagedMCPServer:
                 self._state = (
                     ServerState.RUNNING if self._enabled else ServerState.STOPPED
                 )
-                logger.info(f"Released quarantine for server: {self.config.name}")
             return False
 
         return True

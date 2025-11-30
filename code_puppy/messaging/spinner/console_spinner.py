@@ -48,7 +48,7 @@ class ConsoleSpinner(SpinnerBase):
             self._generate_spinner_panel(),
             console=self.console,
             refresh_per_second=20,
-            transient=False,
+            transient=True,  # Clear the spinner line when stopped (no puppy litter!)
             auto_refresh=False,  # Don't auto-refresh to avoid wiping out user input
         )
         self._live.start()
@@ -172,7 +172,7 @@ class ConsoleSpinner(SpinnerBase):
                         self._generate_spinner_panel(),
                         console=self.console,
                         refresh_per_second=20,
-                        transient=False,
+                        transient=True,  # Clear the spinner line when stopped (no puppy litter!)
                         auto_refresh=False,
                     )
                     self._live.start()

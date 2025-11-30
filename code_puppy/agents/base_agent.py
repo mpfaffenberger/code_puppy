@@ -82,6 +82,9 @@ class BaseAgent(ABC):
         # Puppy rules loaded lazily
         self._puppy_rules: Optional[str] = None
         self.cur_model: pydantic_ai.models.Model
+        # Cache for MCP tool definitions (for token estimation)
+        # This is populated after the first successful run when MCP tools are retrieved
+        self._mcp_tool_definitions_cache: List[Dict[str, Any]] = []
 
     @property
     @abstractmethod
@@ -337,6 +340,159 @@ class BaseAgent(ABC):
                 total_tokens += self.estimate_token_count(part_str)
 
         return max(1, total_tokens)
+
+    def estimate_context_overhead_tokens(self) -> int:
+        """
+        Estimate the token overhead from system prompt and tool definitions.
+
+        This accounts for tokens that are always present in the context:
+        - System prompt (for non-Claude-Code models)
+        - Tool definitions (name, description, parameter schema)
+        - MCP tool definitions
+
+        Note: For Claude Code models, the system prompt is prepended to the first
+        user message, so it's already counted in the message history tokens.
+        We only count the short fixed instructions for Claude Code models.
+        """
+        total_tokens = 0
+
+        # 1. Estimate tokens for system prompt / instructions
+        # For Claude Code models, the full system prompt is prepended to the first
+        # user message (already in message history), so we only count the short
+        # fixed instructions. For other models, count the full system prompt.
+        try:
+            from code_puppy.model_utils import (
+                is_claude_code_model,
+                get_claude_code_instructions,
+            )
+
+            model_name = (
+                self.get_model_name() if hasattr(self, "get_model_name") else ""
+            )
+            if is_claude_code_model(model_name):
+                # For Claude Code models, only count the short fixed instructions
+                # The full system prompt is already in the message history
+                instructions = get_claude_code_instructions()
+                total_tokens += self.estimate_token_count(instructions)
+            else:
+                # For other models, count the full system prompt
+                system_prompt = self.get_system_prompt()
+                if system_prompt:
+                    total_tokens += self.estimate_token_count(system_prompt)
+        except Exception:
+            pass  # If we can't get system prompt, skip it
+
+        # 2. Estimate tokens for pydantic_agent tool definitions
+        pydantic_agent = getattr(self, "pydantic_agent", None)
+        if pydantic_agent:
+            tools = getattr(pydantic_agent, "_tools", None)
+            if tools and isinstance(tools, dict):
+                for tool_name, tool_func in tools.items():
+                    try:
+                        # Estimate tokens from tool name
+                        total_tokens += self.estimate_token_count(tool_name)
+
+                        # Estimate tokens from tool description
+                        description = getattr(tool_func, "__doc__", None) or ""
+                        if description:
+                            total_tokens += self.estimate_token_count(description)
+
+                        # Estimate tokens from parameter schema
+                        # Tools may have a schema attribute or we can try to get it from annotations
+                        schema = getattr(tool_func, "schema", None)
+                        if schema:
+                            schema_str = (
+                                json.dumps(schema)
+                                if isinstance(schema, dict)
+                                else str(schema)
+                            )
+                            total_tokens += self.estimate_token_count(schema_str)
+                        else:
+                            # Try to get schema from function annotations
+                            annotations = getattr(tool_func, "__annotations__", None)
+                            if annotations:
+                                total_tokens += self.estimate_token_count(
+                                    str(annotations)
+                                )
+                    except Exception:
+                        continue  # Skip tools we can't process
+
+        # 3. Estimate tokens for MCP tool definitions from cache
+        # MCP tools are fetched asynchronously, so we use a cache that's populated
+        # after the first successful run. See _update_mcp_tool_cache() method.
+        mcp_tool_cache = getattr(self, "_mcp_tool_definitions_cache", [])
+        if mcp_tool_cache:
+            for tool_def in mcp_tool_cache:
+                try:
+                    # Estimate tokens from tool name
+                    tool_name = tool_def.get("name", "")
+                    if tool_name:
+                        total_tokens += self.estimate_token_count(tool_name)
+
+                    # Estimate tokens from tool description
+                    description = tool_def.get("description", "")
+                    if description:
+                        total_tokens += self.estimate_token_count(description)
+
+                    # Estimate tokens from parameter schema (inputSchema)
+                    input_schema = tool_def.get("inputSchema")
+                    if input_schema:
+                        schema_str = (
+                            json.dumps(input_schema)
+                            if isinstance(input_schema, dict)
+                            else str(input_schema)
+                        )
+                        total_tokens += self.estimate_token_count(schema_str)
+                except Exception:
+                    continue  # Skip tools we can't process
+
+        return total_tokens
+
+    async def _update_mcp_tool_cache(self) -> None:
+        """
+        Update the MCP tool definitions cache by fetching tools from running MCP servers.
+
+        This should be called after a successful run to populate the cache for
+        accurate token estimation in subsequent runs.
+        """
+        mcp_servers = getattr(self, "_mcp_servers", None)
+        if not mcp_servers:
+            return
+
+        tool_definitions = []
+        for mcp_server in mcp_servers:
+            try:
+                # Check if the server has list_tools method (pydantic-ai MCP servers)
+                if hasattr(mcp_server, "list_tools"):
+                    # list_tools() returns list[mcp_types.Tool]
+                    tools = await mcp_server.list_tools()
+                    for tool in tools:
+                        tool_def = {
+                            "name": getattr(tool, "name", ""),
+                            "description": getattr(tool, "description", ""),
+                            "inputSchema": getattr(tool, "inputSchema", {}),
+                        }
+                        tool_definitions.append(tool_def)
+            except Exception:
+                # Server might not be running or accessible, skip it
+                continue
+
+        self._mcp_tool_definitions_cache = tool_definitions
+
+    def update_mcp_tool_cache_sync(self) -> None:
+        """
+        Synchronously clear the MCP tool cache.
+
+        This clears the cache so that token counts will be recalculated on the next
+        agent run. Call this after starting/stopping MCP servers.
+
+        Note: We don't try to fetch tools synchronously because MCP servers require
+        async context management that doesn't work well from sync code. The cache
+        will be repopulated on the next successful agent run.
+        """
+        # Simply clear the cache - it will be repopulated on the next agent run
+        # This is safer than trying to call async methods from sync context
+        self._mcp_tool_definitions_cache = []
 
     def _is_tool_call_part(self, part: Any) -> bool:
         if isinstance(part, (ToolCallPart, ToolCallPartDelta)):
@@ -666,9 +822,9 @@ class BaseAgent(ABC):
         # First, prune any interrupted/mismatched tool-call conversations
         model_max = self.get_model_context_length()
 
-        total_current_tokens = sum(
-            self.estimate_tokens_for_message(msg) for msg in messages
-        )
+        message_tokens = sum(self.estimate_tokens_for_message(msg) for msg in messages)
+        context_overhead = self.estimate_context_overhead_tokens()
+        total_current_tokens = message_tokens + context_overhead
         proportion_used = total_current_tokens / model_max
 
         # Check if we're in TUI mode and can update the status bar
@@ -868,6 +1024,8 @@ class BaseAgent(ABC):
 
     def reload_mcp_servers(self):
         """Reload MCP servers and return updated servers."""
+        # Clear the MCP tool cache when servers are reloaded
+        self._mcp_tool_definitions_cache = []
         self.load_mcp_servers()
         manager = get_mcp_manager()
         return manager.get_servers_for_agent()
@@ -960,8 +1118,13 @@ class BaseAgent(ABC):
             resolved_model_name, max_tokens=output_tokens
         )
 
-        if model_name.startswith("claude-code"):
-            instructions = "You are Claude Code, Anthropic's official CLI for Claude."
+        # Handle claude-code models: swap instructions (prompt prepending happens in run_with_mcp)
+        from code_puppy.model_utils import prepare_prompt_for_model
+
+        prepared = prepare_prompt_for_model(
+            model_name, instructions, "", prepend_system_to_user=False
+        )
+        instructions = prepared.instructions
 
         self.cur_model = model
         p_agent = PydanticAgent(
@@ -1254,7 +1417,10 @@ class BaseAgent(ABC):
         pydantic_agent = (
             self._code_generation_agent or self.reload_code_generation_agent()
         )
-        if self.get_model_name().startswith("claude-code"):
+        # Handle claude-code models: prepend system prompt to first user message
+        from code_puppy.model_utils import is_claude_code_model
+
+        if is_claude_code_model(self.get_model_name()):
             if len(self.get_message_history()) == 0:
                 prompt = self.get_system_prompt() + "\n\n" + prompt
 
@@ -1436,6 +1602,14 @@ class BaseAgent(ABC):
 
             # Wait for the task to complete or be cancelled
             result = await agent_task
+
+            # Update MCP tool cache after successful run for accurate token estimation
+            if hasattr(self, "_mcp_servers") and self._mcp_servers:
+                try:
+                    await self._update_mcp_tool_cache()
+                except Exception:
+                    pass  # Don't fail the run if cache update fails
+
             return result
         except asyncio.CancelledError:
             agent_task.cancel()
