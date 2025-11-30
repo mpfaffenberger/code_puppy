@@ -85,9 +85,6 @@ def _load_markdown_commands() -> None:
         except Exception as e:
             emit_error(f"Failed to load command from {md_file}: {e}")
 
-    if _custom_commands:
-        emit_info(f"Loaded {len(_custom_commands)} custom commands from markdown files")
-
 
 def _generate_unique_command_name(base_name: str) -> str:
     """Generate a unique command name, handling duplicates.
