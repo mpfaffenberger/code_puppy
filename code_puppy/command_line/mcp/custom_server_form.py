@@ -21,7 +21,9 @@ from prompt_toolkit.layout import (
     Window,
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.widgets import Frame, TextArea
+from pygments.lexers.data import JsonLexer
 
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
@@ -64,20 +66,41 @@ SERVER_TYPE_DESCRIPTIONS = {
 
 
 class CustomServerForm:
-    """Interactive TUI form for adding custom MCP servers."""
+    """Interactive TUI form for adding/editing custom MCP servers."""
 
-    def __init__(self, manager):
+    def __init__(
+        self,
+        manager,
+        edit_mode: bool = False,
+        existing_name: str = "",
+        existing_type: str = "stdio",
+        existing_config: Optional[dict] = None,
+    ):
         """Initialize the custom server form.
 
         Args:
             manager: MCP manager instance for server installation
+            edit_mode: If True, we're editing an existing server
+            existing_name: Name of existing server (for edit mode)
+            existing_type: Type of existing server (for edit mode)
+            existing_config: Existing config dict (for edit mode)
         """
         self.manager = manager
+        self.edit_mode = edit_mode
+        self.original_name = existing_name  # Track original name for updates
 
         # Form state
-        self.server_name = ""
-        self.selected_type_idx = 0  # 0=stdio, 1=http, 2=sse
-        self.json_config = CUSTOM_SERVER_EXAMPLES["stdio"]
+        self.server_name = existing_name
+        self.selected_type_idx = (
+            SERVER_TYPES.index(existing_type) if existing_type in SERVER_TYPES else 0
+        )
+
+        # For edit mode, use existing config; otherwise use example
+        if existing_config:
+            self.json_config = json.dumps(existing_config, indent=2)
+        else:
+            self.json_config = CUSTOM_SERVER_EXAMPLES["stdio"]
+
         self.validation_error: Optional[str] = None
 
         # Focus state: 0=name, 1=type, 2=json
@@ -100,7 +123,8 @@ class CustomServerForm:
         """Render the form panel."""
         lines = []
 
-        lines.append(("bold cyan", " ➕ ADD CUSTOM MCP SERVER"))
+        title = " ✏️ EDIT MCP SERVER" if self.edit_mode else " ➕ ADD CUSTOM MCP SERVER"
+        lines.append(("bold cyan", title))
         lines.append(("", "\n\n"))
 
         # Server Name field - now in separate frame below
@@ -240,7 +264,7 @@ class CustomServerForm:
         lines.append(("", "\n"))
         lines.append(("fg:ansibrightblack", "  • Use $ENV_VAR for secrets"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  • Ctrl+E loads example"))
+        lines.append(("fg:ansibrightblack", "  • Ctrl+N loads example"))
         lines.append(("", "\n"))
 
         return lines
@@ -316,7 +340,16 @@ class CustomServerForm:
                 servers = {}
                 data = {"mcp_servers": servers}
 
-            # Add new server with type
+            # If editing and name changed, remove the old entry
+            if (
+                self.edit_mode
+                and self.original_name
+                and self.original_name != server_name
+            ):
+                if self.original_name in servers:
+                    del servers[self.original_name]
+
+            # Add/update server with type
             save_config = config_dict.copy()
             save_config["type"] = server_type
             servers[server_name] = save_config
@@ -344,14 +377,14 @@ class CustomServerForm:
 
         # Create name input text area (single line)
         self.name_area = TextArea(
-            text="",
+            text=self.server_name,  # Pre-populate with existing name in edit mode
             multiline=False,
             wrap_lines=False,
             focusable=True,
             height=1,
         )
 
-        # Create JSON text area
+        # Create JSON text area with syntax highlighting
         self.json_area = TextArea(
             text=self.json_config,
             multiline=True,
@@ -359,6 +392,7 @@ class CustomServerForm:
             scrollbar=True,
             focusable=True,
             height=Dimension(min=8, max=15),
+            lexer=PygmentsLexer(JsonLexer),
         )
 
         # Layout with form on left, preview on right
@@ -389,7 +423,7 @@ class CustomServerForm:
                         ),
                         Frame(
                             self.json_area,
-                            title="JSON Config (Ctrl+E for example)",
+                            title="JSON Config (Ctrl+N for example)",
                             height=Dimension(min=10, weight=55),
                         ),
                     ],
@@ -451,13 +485,13 @@ class CustomServerForm:
                 self.json_area.text = CUSTOM_SERVER_EXAMPLES[self._get_current_type()]
             update_display()
 
-        @kb.add("c-e")
+        @kb.add("c-n", eager=True)
         def _(event):
-            """Load example for current type."""
+            """Load example for current type (reset to example)."""
             self.json_area.text = CUSTOM_SERVER_EXAMPLES[self._get_current_type()]
             update_display()
 
-        @kb.add("c-s")
+        @kb.add("c-s", eager=True)
         def _(event):
             """Save and install."""
             # Sync values before install
@@ -469,12 +503,12 @@ class CustomServerForm:
             else:
                 update_display()
 
-        @kb.add("escape")
+        @kb.add("escape", eager=True)
         def _(event):
             self.result = "cancelled"
             event.app.exit()
 
-        @kb.add("c-c")
+        @kb.add("c-c", eager=True)
         def _(event):
             self.result = "cancelled"
             event.app.exit()
@@ -515,21 +549,40 @@ class CustomServerForm:
 
         # Handle result
         if self.result == "installed":
-            print(f"\n  ✅ Successfully added custom server '{self.server_name}'!")
+            if self.edit_mode:
+                print(f"\n  ✅ Successfully updated server '{self.server_name}'!")
+            else:
+                print(f"\n  ✅ Successfully added custom server '{self.server_name}'!")
             print(f"  Use '/mcp start {self.server_name}' to start the server.\n")
             return True
 
         return False
 
 
-def run_custom_server_form(manager) -> bool:
+def run_custom_server_form(
+    manager,
+    edit_mode: bool = False,
+    existing_name: str = "",
+    existing_type: str = "stdio",
+    existing_config: Optional[dict] = None,
+) -> bool:
     """Run the custom server form.
 
     Args:
         manager: MCP manager instance
+        edit_mode: If True, we're editing an existing server
+        existing_name: Name of existing server (for edit mode)
+        existing_type: Type of existing server (for edit mode)
+        existing_config: Existing config dict (for edit mode)
 
     Returns:
-        True if a server was installed, False otherwise
+        True if a server was installed/updated, False otherwise
     """
-    form = CustomServerForm(manager)
+    form = CustomServerForm(
+        manager,
+        edit_mode=edit_mode,
+        existing_name=existing_name,
+        existing_type=existing_type,
+        existing_config=existing_config,
+    )
     return form.run()

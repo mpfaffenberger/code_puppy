@@ -402,15 +402,21 @@ def register_invoke_agent(agent):
 
             # Apply prompt additions (like file permission handling) to temporary agents
             from code_puppy import callbacks
+            from code_puppy.model_utils import prepare_prompt_for_model
 
             prompt_additions = callbacks.on_load_prompt()
             if len(prompt_additions):
                 instructions += "\n" + "\n".join(prompt_additions)
-            if model_name.startswith("claude-code"):
-                prompt = instructions + "\n\n" + prompt
-                instructions = (
-                    "You are Claude Code, Anthropic's official CLI for Claude."
-                )
+
+            # Handle claude-code models: swap instructions, and prepend system prompt only on first message
+            prepared = prepare_prompt_for_model(
+                model_name,
+                instructions,
+                prompt,
+                prepend_system_to_user=is_new_session,  # Only prepend on first message
+            )
+            instructions = prepared.instructions
+            prompt = prepared.user_prompt
 
             subagent_name = f"temp-invoke-agent-{_temp_agent_count}"
             model_settings = make_model_settings(model_name)

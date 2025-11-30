@@ -38,6 +38,7 @@ class MCPCompleter(Completer):
             "restart": "Restart a specific MCP server",
             "status": "Show status of a specific MCP server",
             "logs": "Show logs for a specific MCP server",
+            "edit": "Edit an existing MCP server config",
             "remove": "Remove an MCP server",
         }
 

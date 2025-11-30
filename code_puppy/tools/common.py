@@ -1138,13 +1138,6 @@ def get_user_approval(
 
     finally:
         set_awaiting_user_input(False)
-        # Explicitly resume spinners
-        try:
-            from code_puppy.messaging.spinner import resume_all_spinners
-
-            resume_all_spinners()
-        except (ImportError, Exception):
-            pass
 
         # Force Rich console to reset display state to prevent artifacts
         try:
@@ -1158,10 +1151,8 @@ def get_user_approval(
         # Ensure streams are flushed
         sys.stdout.flush()
         sys.stderr.flush()
-        # Add small delay to let spinner stabilize
-        time.sleep(0.1)
 
-    # Show result with explicit cursor reset
+    # Show result BEFORE resuming spinners (no puppy litter!)
     console.print()
     if not confirmed:
         if user_feedback:
@@ -1173,6 +1164,14 @@ def get_user_approval(
             console.print("[bold red]✗ Rejected.[/bold red]")
     else:
         console.print("[bold green]✓ Approved![/bold green]")
+
+    # NOW resume spinners after showing the result
+    try:
+        from code_puppy.messaging.spinner import resume_all_spinners
+
+        resume_all_spinners()
+    except (ImportError, Exception):
+        pass
 
     return confirmed, user_feedback
 
@@ -1309,13 +1308,6 @@ async def get_user_approval_async(
 
     finally:
         set_awaiting_user_input(False)
-        # Explicitly resume spinners
-        try:
-            from code_puppy.messaging.spinner import resume_all_spinners
-
-            resume_all_spinners()
-        except (ImportError, Exception):
-            pass
 
         # Force Rich console to reset display state to prevent artifacts
         try:
@@ -1329,10 +1321,8 @@ async def get_user_approval_async(
         # Ensure streams are flushed
         sys.stdout.flush()
         sys.stderr.flush()
-        # Add small delay to let spinner stabilize
-        await asyncio.sleep(0.1)
 
-    # Show result with explicit cursor reset
+    # Show result BEFORE resuming spinners (no puppy litter!)
     console.print()
     if not confirmed:
         if user_feedback:
@@ -1344,6 +1334,14 @@ async def get_user_approval_async(
             console.print("[bold red]✗ Rejected.[/bold red]")
     else:
         console.print("[bold green]✓ Approved![/bold green]")
+
+    # NOW resume spinners after showing the result
+    try:
+        from code_puppy.messaging.spinner import resume_all_spinners
+
+        resume_all_spinners()
+    except (ImportError, Exception):
+        pass
 
     return confirmed, user_feedback
 

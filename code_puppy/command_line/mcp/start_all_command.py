@@ -109,6 +109,8 @@ class StartAllCommand(MCPCommandBase):
                 try:
                     agent = get_current_agent()
                     agent.reload_code_generation_agent()
+                    # Update MCP tool cache immediately so token counts reflect the change
+                    agent.update_mcp_tool_cache_sync()
                     emit_info(
                         "[dim]Agent reloaded with updated servers[/dim]",
                         message_group=group_id,
