@@ -9,7 +9,7 @@ from code_puppy.messaging import emit_info
 from code_puppy.tui_state import is_tui_mode
 
 from .base import MCPCommandBase
-from .wizard_utils import run_interactive_install_wizard
+from .install_menu import run_mcp_install_menu
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ class InstallCommand(MCPCommandBase):
     """
     Command handler for installing MCP servers from registry.
 
-    Installs pre-configured MCP servers with optional interactive wizard.
+    Installs pre-configured MCP servers with interactive menu-based browser.
     """
 
     def execute(self, args: List[str], group_id: Optional[str] = None) -> None:
@@ -42,17 +42,10 @@ class InstallCommand(MCPCommandBase):
                 )
                 return
 
-            # In interactive mode, use the comprehensive installer
+            # In interactive mode, use the menu-based browser
             if not args:
-                # No args - launch interactive wizard
-                success = run_interactive_install_wizard(self.manager, group_id)
-                if success:
-                    try:
-                        from code_puppy.agent import reload_mcp_servers
-
-                        reload_mcp_servers()
-                    except ImportError:
-                        pass
+                # No args - launch interactive menu
+                run_mcp_install_menu(self.manager)
                 return
 
             # Has args - install directly from catalog
