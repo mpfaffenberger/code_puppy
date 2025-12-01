@@ -4,6 +4,59 @@ All notable changes to Code Puppy will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [0.0.271 -> 0.0.286] - 2025-11-30
+
+### 🎉 New Stuff
+  - Gemini 3 Pro Preview is now supported in Code Puppy!
+    - You may swap to it using the `/model` command.
+    - There are two variants:
+      - `gemini-3-pro-preview`
+      - `gemini-3-pro-preview-long`
+      - The default variant has a 200,000 token context window which falls into Gemini's low pricing tier
+      - The "long" variant has a 1,000,000 token context window - the cost per token of this model _doubles_ when your context exceeds 200,000.
+        - Please only use the "long" variant if your use case warrants it. If you don't know if your use case warrants it, use the default variant.
+    - My experience with this model is that it is phenomenal and is a fantastic choice in terms of both pricing and performance.
+    - I have experienced (rarely) some instability on this model, if you see any stranger behavior, please report it.
+    - Gemini 3 Pro has a personality that is extremely receptive to positive reinforcement, if you find that it is struggling with a task, being encouraging can really help.
+    - Gemini 3 Pro excels at creating writing. It is also an incredible choice for reviewing prompts of agents, therefore I recommend using Gemini 3 Pro as the model of choice for the `agent-creator`!
+  - Claude Opus 4.5 is now available
+    - You may swap to it using the `/model` command.
+    - This is the most bonkers model I have ever used. It is extremely capable and fast. In my experience it feels better than Gemini, although my benchmarks show them to be a pretty even match.
+    - While the price per token is high, a 40% increase over Sonnet, the model is so capable that you will may in fact spend less money than Sonnet on complex tasks.
+      - Sourcegraph wrote a very cool blog post about this here: https://ampcode.com/news/opus-4.5
+  - Good guidelines on model choice
+    - For general use, and if you have no preferences at all, using Sonnet 4.5 (the default) is great!
+    - Use Claude Haiku for basic web development!
+    - Use Sonnet and Gemini 3 Pro when Haiku fails
+    - Use Opus or Gemini 3 Pro for the most difficult tasks 
+    - Use Opus or Gemini 3 Pro for planning and multi-agent orchestration
+    - If you're using multi-agent workflows, pin cheaper models to subagents using the `/pin_model` command!
+      - Example: use `/pin_model confluence-search claude-4-5-haiku` to always use Claude Haiku for Confluence searches!
+      - In the future we might have default pinned models for certain agents.
+    - Edits (Diffs) are now much more beautiful
+    - You can use `/diff` to select beautiful colors for additions and subtractions
+  - New `/mcp install` - pick Custom JSON and it pulls up an interactive TUI for configuring MCP servers!
+  - GUI Cub is now available as an agent to explore Agentic RPA (LLM fueled Robotic Process Automation)
+    - Contributed by Dakota Brown who will be sending a larger email detailing its capabilities soon to this distribution list
+      
+### 🐛 Flea Fixes
+  - Pasting emojis into Code Puppy's prompt should no longer cause any issues in Windows Powershell
+  - Fixed a bug where having custom slash commands would cause command auto-complete to misbehave
+  - Code Puppy should no longer attempt to install its open source version if a user asks it to update itself
+    - Note that this is a prompt change, so it's not 100% guaranteed to work in all cases
+  - Code Puppy has been instructed to never modify its own virtual environment 
+    - This should protect users against accidentally breaking their installations
+  - Code Puppy is now aware of the current datetime (at the time of running)
+  - Code Puppy will now recommend to users that they create a workspace directory if it detects that the current working directory is the root of their home directory, or something weird like SYSTEM32
+  - Fixed a bug where DBOS Durable Execution (currently in testing by a small percentage of users) would throw an error when invoking the same sub-agent session more than once
+    - This is a rarer edge case that may have never popped up among users, but is fixed regardless
+  - Fixed a bug where reading an immensely large Confluence page would blow out the context limits of the underlying LLM triggering an immediate compaction out of desperation resulting in a doom loop of tool-calls -> compactions
+    - Enormous Confluence pages can be read through in chunks carefully by the agent now
+  - Fixed a bug where `/confluence_auth` wouldn't autocomplete
+  - Gemini 2.5 Pro should work again, although, with Gemini 3 Pro available, I recommend using that instead
+
+---
+
 ## [0.0.234 -> 0.0.249] - 2025-01-28
 
 ### 🎉 Major Features

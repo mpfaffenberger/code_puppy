@@ -865,43 +865,12 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
     return "Authentication failed after all retry attempts."
 
 
-def get_bigquery_auth_help() -> list[str]:
+def get_bigquery_auth_help() -> list[tuple[str, str]]:
     """Get help information for BigQuery authentication.
 
     Returns:
-        List[str]: List of help strings describing the command
+        List[Tuple[str, str]]: List of (command_name, description) tuples for autocomplete
     """
     return [
-        "/bigquery_auth - Authenticate with Google BigQuery using gcloud",
-        "",
-        "This command will:",
-        "  1. Check and install BigQuery Python dependencies if needed",
-        "  2. Check and install gcloud CLI if needed (auto-install)",
-        "  3. Run 'gcloud auth application-default login'",
-        "  4. Open a browser window for Google authentication",
-        "  5. Automatically retry with manual flow if browser auth fails",
-        "  6. Verify credentials after authentication",
-        "  7. Save Application Default Credentials locally",
-        "",
-        "The saved credentials can be used for BigQuery API access.",
-        "",
-        "Auto-installation support:",
-        "  - macOS/Linux: Detects package manager (brew, apt, yum)",
-        "  - Windows: Direct installer download (silent installation)",
-        "  - Installs gcloud CLI automatically",
-        "  - Installs Python dependencies via pip/uv",
-        "  - Works with Walmart corporate proxy",
-        "",
-        "Automatic retry on failure:",
-        "  - Detects browser authentication failures",
-        "  - Automatically retries with --no-browser flag",
-        "  - Provides manual authorization code flow",
-        "  - Handles scope consent errors gracefully",
-        "",
-        "Manual installation (if auto-install fails):",
-        "  gcloud: https://cloud.google.com/sdk/docs/install",
-        "  Python: pip install google-cloud-bigquery",
-        "",
-        "Example:",
-        "  /bigquery_auth",
+        ("bigquery_auth", "Authenticate with Google BigQuery using gcloud"),
     ]

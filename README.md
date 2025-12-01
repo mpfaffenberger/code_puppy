@@ -39,12 +39,6 @@
 
 *This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.*
 
-### 📜 Licensing Information
-- **Legacy Code (Pre-July 7, 2025):** Open Source (MIT License)
-- **Walmart Enhancements (Post-July 7, 2025):** Proprietary Walmart Inc.
-- **Original Contributors:** Michael Pfaffenberger, John Choi, Jacob Simpson
-- **See [LICENSE](code_puppy/plugins/walmart_specific/LICENSE) for complete dual licensing details**
-
 *Would you rather plow a field with one ox or 1024 puppies?*
     - If you pick the ox, better slam that back button in your browser.
 

@@ -9,7 +9,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 
 try:
@@ -274,28 +274,12 @@ def handle_confluence_auth_command(command: str, name: str) -> Optional[str]:
         return f"Authentication failed: {str(e)}"
 
 
-def get_confluence_auth_help() -> List[str]:
+def get_confluence_auth_help() -> List[Tuple[str, str]]:
     """Get help information for Confluence authentication.
 
     Returns:
-        List[str]: List of help strings describing the command
+        List[Tuple[str, str]]: List of (command_name, description) tuples for autocomplete
     """
     return [
-        "/confluence_auth - Authenticate with Confluence using browser",
-        "",
-        "This command will:",
-        "  1. Launch a Chrome browser window",
-        "  2. Navigate to Confluence (https://confluence.walmart.com/)",
-        "  3. Wait for you to complete authentication",
-        "  4. Extract and save session cookies to ~/.code_puppy/confluence.json",
-        "  5. Close the browser",
-        "",
-        "The saved cookies can be used for API access to Confluence.",
-        "",
-        "Requirements:",
-        "  - Playwright must be installed (playwright install chromium)",
-        "  - Chrome browser should be available on your system",
-        "",
-        "Example:",
-        "  /confluence_auth",
+        ("confluence_auth", "Authenticate with Confluence using browser"),
     ]

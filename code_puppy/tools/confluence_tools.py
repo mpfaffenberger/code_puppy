@@ -194,22 +194,43 @@ def register_confluence_search(agent: Any) -> Tool:
 # ============================================================================
 
 
-def confluence_read_page(ctx: RunContext, page_id: str) -> dict:
-    """Read the full content of a Confluence page.
+# Maximum character limit to prevent context blowout
+MAX_CHARACTER_LIMIT = 30000
+
+
+def confluence_read_page(
+    ctx: RunContext,
+    page_id: str,
+    character_limit: int = 0,
+    character_offset: int = 0,
+) -> dict:
+    """Read the content of a Confluence page with optional character limits.
+
+    Use character_limit and character_offset to paginate through large pages
+    and avoid blowing out the LLM context window.
 
     Args:
         ctx: PydanticAI run context
         page_id: The Confluence page ID to read
+        character_limit: Maximum characters to return (0 = use default max of 30000).
+            Values above 30000 are clamped to 30000.
+        character_offset: Starting character position for reading (default: 0).
+            Use this to paginate through large content.
 
     Returns:
         Dict containing:
             - success (bool): Whether the read succeeded
             - page_id (str): The page ID
             - title (str): Page title
-            - content (str): Page content in markdown format
+            - content (str): Page content in markdown format (possibly truncated)
             - space (str): Space key
             - url (str): Web URL to the page
             - version (int): Current page version
+            - total_content_length (int): Total length of the full content
+            - content_truncated (bool): Whether the content was truncated
+            - remaining_content_length (int): Characters remaining after this chunk
+            - character_offset (int): The offset used for this read
+            - character_limit (int): The limit used for this read
             - error (str, optional): Error message if read failed
     """
     emit_info(
@@ -223,7 +244,28 @@ def confluence_read_page(ctx: RunContext, page_id: str) -> dict:
 
         # Extract content and convert to markdown
         storage_html = page_data.get("body", {}).get("storage", {}).get("value", "")
-        markdown_content = _convert_storage_to_markdown(storage_html)
+        full_markdown_content = _convert_storage_to_markdown(storage_html)
+
+        # Calculate content length and apply limits
+        total_content_length = len(full_markdown_content)
+
+        # Determine effective limit: 0 means use max, otherwise clamp to max
+        effective_limit = (
+            MAX_CHARACTER_LIMIT
+            if character_limit <= 0
+            else min(character_limit, MAX_CHARACTER_LIMIT)
+        )
+
+        # Ensure offset is non-negative
+        effective_offset = max(0, character_offset)
+
+        # Slice the content
+        content_end = effective_offset + effective_limit
+        sliced_content = full_markdown_content[effective_offset:content_end]
+
+        # Calculate truncation metadata
+        content_truncated = content_end < total_content_length
+        remaining_content_length = max(0, total_content_length - content_end)
 
         # Extract metadata
         title = page_data.get("title", "Untitled")
@@ -231,16 +273,28 @@ def confluence_read_page(ctx: RunContext, page_id: str) -> dict:
         version = page_data.get("version", {}).get("number", 1)
         url = page_data.get("_links", {}).get("webui", "")
 
-        emit_success(f"Successfully read page: '{title}'")
+        if content_truncated:
+            emit_success(
+                f"Successfully read page: '{title}' "
+                f"(showing chars {effective_offset}-{content_end} of {total_content_length}, "
+                f"{remaining_content_length} remaining)"
+            )
+        else:
+            emit_success(f"Successfully read page: '{title}'")
 
         return {
             "success": True,
             "page_id": page_id,
             "title": title,
-            "content": markdown_content,
+            "content": sliced_content,
             "space": space_key,
             "url": url,
             "version": version,
+            "total_content_length": total_content_length,
+            "content_truncated": content_truncated,
+            "remaining_content_length": remaining_content_length,
+            "character_offset": effective_offset,
+            "character_limit": effective_limit,
         }
 
     except Exception as e:
