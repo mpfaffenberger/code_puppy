@@ -16,8 +16,6 @@ set -e
 #   ./code-puppy-dev [arguments]
 #
 # EXAMPLES:
-#   ./code-puppy-dev --tui           # Run with TUI interface
-#   ./code-puppy-dev --web           # Run with web interface
 #   ./code-puppy-dev --interactive   # Run with interactive console interface
 #
 # HOW IT WORKS:

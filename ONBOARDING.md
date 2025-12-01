@@ -13,15 +13,13 @@ Code Puppy is an AI coding assistant that helps Walmart developers write, edit, 
 2. **It uses AI models** (GPT, Claude, Gemini) to understand your request and generate code
 3. **It can actually modify your files** - doesn't just show code, but writes, edits, and organizes actual project files
 
-### Three Usage Modes
+### Usage Mode
 1. **CLI Interactive** (`--interactive`) - Like chatting with AI in terminal
-2. **TUI** (`--tui`) - Fancy terminal interface with chat history, sidebar, and better visuals
-3. **Web Interface** (`--web`) - Opens the terminal UI in web browser
 
 ## Architecture & Key Components
 
 ### 1. **Core Architecture Patterns**
-- **Modular Design**: Well-organized into distinct modules (agent, TUI, messaging, tools, config)
+- **Modular Design**: Well-organized into distinct modules (agent, messaging, tools, config)
 - **Multi-Interface Support**: Three interaction modes with shared backend
 - **Plugin Architecture**: Extensible tool system and MCP (Model Context Protocol) server support
 - **Enterprise Security**: JWT-based authentication with Walmart's internal infrastructure
@@ -36,13 +34,6 @@ Code Puppy is an AI coding assistant that helps Walmart developers write, edit, 
 
 ### 3. **User Interfaces**
 
-#### TUI (Terminal User Interface) - `/code_puppy/tui/`
-- **Textual-based**: Modern terminal UI using Python Textual framework
-- **Components**: Chat view, input area, sidebar, status bar, settings screens
-- **Rich Rendering**: Code syntax highlighting, markdown support
-- **History Management**: Command history with navigation and search
-- **Web Mode**: Can be served in browser via textual serve
-
 #### Interactive CLI Mode
 - **Prompt Toolkit**: Enhanced input with tab completion and history
 - **File Path Completion**: Smart autocomplete for file operations
@@ -50,7 +41,7 @@ Code Puppy is an AI coding assistant that helps Walmart developers write, edit, 
 
 ### 4. **Messaging System** (`/code_puppy/messaging/`)
 - **Queue-based Architecture**: Asynchronous message queue for UI updates
-- **Multiple Renderers**: Different renderers for TUI vs CLI modes
+- **Multiple Renderers**: specialized renderers for CLI modes
 - **Message Types**: System, info, warning, error, agent response, tool output
 - **Buffering**: Startup message buffering for smooth UI initialization
 
@@ -72,7 +63,7 @@ Code Puppy is an AI coding assistant that helps Walmart developers write, edit, 
 ### Core Framework
 - **Python 3.10+**: Modern Python with type hints
 - **Pydantic AI**: Primary AI agent framework
-- **Textual**: Modern terminal UI framework
+
 - **FastAPI**: HTTP server for token handling
 - **Rich**: Advanced terminal formatting and rendering
 
@@ -116,12 +107,12 @@ Code Puppy is an AI coding assistant that helps Walmart developers write, edit, 
 ### Key Differences
 1. **Enterprise vs. General Use**: Code Puppy built for Walmart internal teams vs. Claude Code for any developer
 2. **AI Model Flexibility**: Code Puppy supports multiple providers vs. Claude Code using Anthropic models specifically
-3. **Interface Options**: Code Puppy has 3 interfaces (CLI, TUI, web) vs. Claude Code primarily CLI
+3. **Interface Options**: Code Puppy has a robust CLI interface vs. Claude Code primarily CLI
 4. **Deployment**: Code Puppy is self-hosted Python app vs. Claude Code as official Anthropic CLI
 5. **Customization**: Code Puppy highly customizable with "puppy rules", MCP servers, custom endpoints
 6. **Enterprise Features**: Built-in authentication, compliance warnings, internal tool integration
 
-## Interface Differences: CLI vs TUI
+## Interface Overview
 
 ### CLI Mode (`--interactive`)
 - **Linear conversation** - like chatting in messaging app
@@ -129,15 +120,6 @@ Code Puppy is an AI coding assistant that helps Walmart developers write, edit, 
 - **Prompt-based** - type, it responds, repeat
 - **Scrolling history** - older messages scroll up and disappear
 - **Basic formatting** with Rich library
-
-### TUI Mode (`--tui`)
-- **Visual interface** with panels, menus, navigation
-- **Persistent chat history** in dedicated panel
-- **Sidebar navigation** - browse previous conversations
-- **Rich formatting** - syntax highlighting, better code display
-- **Mouse support** (in some terminals)
-- **Status bar** showing current model, connection status
-- **Multiple screens** - settings, help, tools view
 
 ## Development Setup & Workflow
 
@@ -176,11 +158,7 @@ export NO_VERSION_UPDATE=1
 - **Location**: `code_puppy/tools/` directory
 - **Examples**: file operations, web search, command runner
 
-#### C) New TUI Component (for terminal interface)
-- **Location**: `code_puppy/tui/components/`
-- **Examples**: chat view, sidebar, status bar
-
-#### D) New Configuration Option
+#### C) New Configuration Option
 - **Location**: `code_puppy/config.py`
 - **Examples**: model settings, user preferences
 
@@ -188,13 +166,12 @@ export NO_VERSION_UPDATE=1
 
 ### Comprehensive Test Suite
 - **95% Code Coverage**: Extensive unit and integration tests
-- **Multiple Test Types**: Unit tests, integration tests, TUI component tests
+- **Multiple Test Types**: Unit tests, integration tests
 - **Async Testing**: Proper async/await test patterns
 - **Mocking**: Extensive use of mocks for external dependencies
 
 ### Test Organization
 - `/tests/` - Main test suite for core functionality
-- `/code_puppy/tui/tests/` - TUI-specific component tests
 - Test files follow `test_*.py` naming convention
 
 ## Configuration Mechanisms
@@ -216,14 +193,14 @@ export NO_VERSION_UPDATE=1
 1. **Tool System**: Easy to add new AI tools via the tools registry
 2. **MCP Servers**: External tool integration via standardized protocol
 3. **Model Providers**: Support for new AI providers and custom endpoints
-4. **UI Components**: Modular TUI components for feature extensions
+4. **UI Components**: Modular components for feature extensions
 5. **Authentication**: Pluggable auth system for different environments
 
 ## Key Developer Insights
 
 ### Architecture Strengths
 1. **Modular Design**: Easy to extend with new tools and features
-2. **Multi-Modal Interface**: Supports different user preferences (CLI, TUI, web)
+2. **Multi-Modal Interface**: Supports different user preferences
 3. **Enterprise Ready**: Built-in security and compliance features
 4. **Dynamic Configuration**: Runtime model switching and configuration updates
 5. **Robust Error Handling**: Graceful degradation and fallback mechanisms

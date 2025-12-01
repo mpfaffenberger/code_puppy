@@ -2,8 +2,6 @@
 # PowerShell script for testing code-puppy changes during development on Windows
 #
 # USAGE:
-#   .\code-puppy-dev.ps1 --tui
-#   .\code-puppy-dev.ps1 --web
 #   .\code-puppy-dev.ps1 --interactive
 #   .\code-puppy-dev.ps1 -p "your prompt here"
 #

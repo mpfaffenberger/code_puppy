@@ -21,8 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Set default model at startup via configuration
   - Reduces repetitive configuration on each startup
 
-- **Comprehensive TUI Enhancements** ([@janfeddersen-wq](https://github.com/janfeddersen-wq) in #82, #83)
-  - Implemented Nord theme as default with configurable theme options
+- **Comprehensive Enhancements** ([@janfeddersen-wq](https://github.com/janfeddersen-wq) in #82, #83)
+  - Replaced hardcoded colors with CSS variables for better theming
   - Added right sidebar with live updating Rich Text display
   - Enhanced settings modal with API key management for multiple providers
   - Added quit confirmation dialog with improved focus handling
@@ -30,7 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Added periodic context updates during agent execution
   - Support for .env file configuration with priority over puppy.cfg
   - API key validation integrated into settings screen
-  - Replaced hardcoded colors with Textual CSS variables for better theming
+  - Replaced hardcoded colors with CSS variables for better theming
 
 
 ### 🐛 Bug Fixes
@@ -59,10 +59,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Improved command line status display showing default agent information
   - Enhanced spacing in interactive mode prompts
   - Better visual feedback for running operations
-
-- **TUI Theming**
-  - Nord theme with calming blue/gray palette
-  - Consistent styling across chat view, input area, sidebar, and status bar
 ---
 
 ## [0.0.210 -> 0.0.233] - 2025-10-27
@@ -105,11 +101,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     - `/diff deletions <color>` <--- `type this with no color to show options`
     - `/diff show` 
 
-- **Interactive Model Picker TUI** ([@jackdevs000](https://github.com/jackdevs000) in #52)
+- **Interactive Model Picker** ([@jackdevs000](https://github.com/jackdevs000) in #52)
   - Full-featured interactive model selection interface
   - Border fix for improved UI consistency
-  - Real-time model switching from the command line
-  - Only relevant to `code-puppy -t` users 
+  - Real-time model switching from the command line 
 
 - **Manual Autosave Session Loading**
   - Load any previously saved session on demand
@@ -277,7 +272,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Configurable context lines for diffs
 
 - **Model Selection**
-  - Interactive TUI with improved borders
+  - Interactive interface with improved borders
   - Real-time feedback and selection
   - Streamlined model switching workflow
 
@@ -379,10 +374,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 - **Auto-save context functionality** ([@cgycorey](https://github.com/cgycorey) in #46)
   - Automatic session saving and rotation on agent switch
-  - Autosave session management with TUI picker
+  - Autosave session management with interactive picker
   - Stable session IDs replacing rolling deletion
 - Session persistence extracted into dedicated storage module
-- Multiline input improvements in TUI
+- Multiline input improvements
 
 ### Changed
 - Updated Pydantic AI to version 1.0.6

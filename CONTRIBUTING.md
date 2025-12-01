@@ -119,8 +119,6 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
    ```sh
    NO_VERSION_UPDATE=1 uv run code-puppy
    NO_VERSION_UPDATE=1 uv run code-puppy --interactive
-   NO_VERSION_UPDATE=1 uv run code-puppy --tui
-   NO_VERSION_UPDATE=1 uv run code-puppy --web
    ```
    Note: also, see `code-puppy-dev` below.
 
@@ -160,12 +158,6 @@ This script reinstalls code-puppy in development mode and runs it with the provi
 
 **How to use:**
 ```sh
-# Run with TUI interface
-./code-puppy-dev --tui
-
-# Run with web interface
-./code-puppy-dev --web
-
 # Run with interactive console interface
 ./code-puppy-dev --interactive
 
@@ -195,12 +187,6 @@ This is the Windows PowerShell equivalent of `code-puppy-dev`, providing the sam
 
 **How to use:**
 ```powershell
-# Run with TUI interface
-.\code-puppy-dev.ps1 --tui
-
-# Run with web interface
-.\code-puppy-dev.ps1 --web
-
 # Run with interactive console interface
 .\code-puppy-dev.ps1 --interactive
 

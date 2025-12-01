@@ -153,7 +153,7 @@ While there are several models configured right out of the box from providers li
 /add_model
 ```
 
-This opens an interactive TUI where you can:
+This opens an interactive menu where you can:
 - **Browse providers** - See all available AI providers (OpenAI, Anthropic, Groq, Mistral, xAI, Cohere, Perplexity, DeepInfra, and many more)
 - **Preview model details** - View capabilities, pricing, context length, and features
 - **One-click add** - Automatically configures the model with correct endpoints and API keys
