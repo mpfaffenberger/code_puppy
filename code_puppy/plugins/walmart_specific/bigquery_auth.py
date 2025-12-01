@@ -391,7 +391,9 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
             emit_info(
                 f"📊 Listing your available projects (current default: {current_default})..."
             )
-            emit_info("    You can select a different project or press Enter to keep the default.")
+            emit_info(
+                "    You can select a different project or press Enter to keep the default."
+            )
         else:
             emit_info("📊 No default project set. Listing your available projects...")
         emit_info("")
@@ -411,7 +413,9 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
 
         # If default exists, use timeout and allow Enter to keep default
         if current_default:
-            emit_info(f"💡 Press Enter to keep '{current_default}' or enter a different Project ID:")
+            emit_info(
+                f"💡 Press Enter to keep '{current_default}' or enter a different Project ID:"
+            )
             emit_info("    (120 second timeout - will use default if no response)")
             emit_info("")
 

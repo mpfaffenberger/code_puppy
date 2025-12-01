@@ -8,8 +8,8 @@ warnings.filterwarnings("ignore", category=SyntaxWarning, module="pywinauto.*")
 # Print immediate feedback using basic print before any heavy imports
 # This gives instant visual confirmation that the app is loading
 print("🐶 Code Puppy is Loading...", flush=True)
-import pydantic_ai
 from pydantic_ai import _agent_graph
+
 _agent_graph._clean_message_history = lambda messages: messages
 
 # ruff: noqa: E402
@@ -60,23 +60,25 @@ def is_user_in_dbos_sample() -> bool:
     """
     Check if the current user (based on puppy token username) is in the 2% DBOS sample.
     Uses SHA1 hash of username to deterministically sample 2% of users.
-    
+
     Returns:
         bool: True if user should have DBOS enabled by default, False otherwise
     """
     try:
         from code_puppy.config import get_puppy_token
-        from code_puppy.plugins.walmart_specific.auth import decode_jwt_without_validation
-        
+        from code_puppy.plugins.walmart_specific.auth import (
+            decode_jwt_without_validation,
+        )
+
         token = get_puppy_token()
         if not token:
             return False
-        
+
         # Decode the JWT to get username
         decoded = decode_jwt_without_validation(token)
         if not decoded:
             return False
-        
+
         # Extract username from common JWT claims (same order as confluence_client.py)
         username = (
             decoded.get("sub")
@@ -84,20 +86,20 @@ def is_user_in_dbos_sample() -> bool:
             or decoded.get("userId")
             or decoded.get("uid")
         )
-        
+
         if not username:
             return False
-        
+
         # Hash username with SHA1
-        username_hash = hashlib.sha1(str(username).encode('utf-8')).hexdigest()
-        
+        username_hash = hashlib.sha1(str(username).encode("utf-8")).hexdigest()
+
         # Convert first 8 hex chars to int and mod 100 to get 0-99 range
         # Users with hash % 100 < 2 are in the 2% sample
         hash_value = int(username_hash[:8], 16)
         is_sampled = (hash_value % 100) < 2
-        
+
         return is_sampled
-        
+
     except Exception:
         # If anything fails, don't enable DBOS by default
         return False
@@ -205,7 +207,6 @@ async def main():
             gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
             emit_system_message("\n\n")
 
-            lines = []
             # Apply gradient line by line
             logo = []
             for line_num, line in enumerate(intro_lines):
@@ -324,11 +325,13 @@ async def main():
     if is_user_in_dbos_sample():
         from code_puppy.config import set_config_value
         from code_puppy.messaging import emit_system_message
-        
+
         # Only set if not already explicitly configured
         if not get_use_dbos():
             set_config_value("enable_dbos", "true")
-            emit_system_message("[dim]🎲 You've been selected for DBOS beta testing (2% sample)[/dim]")
+            emit_system_message(
+                "[dim]🎲 You've been selected for DBOS beta testing (2% sample)[/dim]"
+            )
 
     # Initialize DBOS if not disabled
     if get_use_dbos():
@@ -800,7 +803,7 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     from code_puppy.messaging import emit_info, emit_system_message
 
     emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
-    
+
     try:
         # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
@@ -816,9 +819,10 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         emit_system_message(
             f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
         )
-        
+
         # Give the message renderer time to flush all queued messages before exiting
         import asyncio
+
         await asyncio.sleep(0.2)
 
     except asyncio.CancelledError:

@@ -1112,8 +1112,8 @@ class BaseAgent(ABC):
         mcp_servers = self.load_mcp_servers()
 
         output_tokens = max(
-            2048,
-            min(int(0.05 * self.get_model_context_length()) - 1024, 16384),
+            2**11,
+            min(int(0.12 * self.get_model_context_length()), 2**15),
         )
         model_settings = make_model_settings(
             resolved_model_name, max_tokens=output_tokens
@@ -1477,7 +1477,9 @@ class BaseAgent(ABC):
                         ):
                             # Temporarily add MCP servers to the DBOS agent using internal _toolsets
                             original_toolsets = pydantic_agent._toolsets
-                            pydantic_agent._toolsets = original_toolsets + self._mcp_servers
+                            pydantic_agent._toolsets = (
+                                original_toolsets + self._mcp_servers
+                            )
 
                             try:
                                 # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
@@ -1517,15 +1519,18 @@ class BaseAgent(ABC):
                         error_str = str(e)
                         if "Expected at least one candidate" in error_str:
                             emit_warning("(Model returned an empty response.)")
-                            
+
                             # detailed debugging logging
                             try:
                                 import logging
+
                                 logger = logging.getLogger("code_puppy.gemini_debug")
-                                logger.warning(f"Gemini UnexpectedModelBehavior Details: {repr(e)}")
-                                if hasattr(e, 'cause'):
+                                logger.warning(
+                                    f"Gemini UnexpectedModelBehavior Details: {repr(e)}"
+                                )
+                                if hasattr(e, "cause"):
                                     logger.warning(f"Caused by: {repr(e.cause)}")
-                                if hasattr(e, 'response'):
+                                if hasattr(e, "response"):
                                     logger.warning(f"Raw Response: {e.response}")
                             except Exception:
                                 pass

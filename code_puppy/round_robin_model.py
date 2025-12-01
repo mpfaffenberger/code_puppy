@@ -11,8 +11,7 @@ from pydantic_ai.models import (
     ModelSettings,
     StreamedResponse,
 )
-from pydantic_ai.settings import merge_model_settings
-from pydantic_ai.result import RunContext
+
 
 try:
     from opentelemetry.context import get_current_span

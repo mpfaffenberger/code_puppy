@@ -4,7 +4,6 @@ import os
 import pathlib
 from typing import Any, Dict
 
-import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -168,9 +167,7 @@ class ModelFactory:
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
 
-        extra_sources = [
-            (pathlib.Path(EXTRA_MODELS_FILE), "extra models")
-        ]
+        extra_sources = [(pathlib.Path(EXTRA_MODELS_FILE), "extra models")]
 
         for source_path, label in extra_sources:
             # source_path is already a Path object from the functions above
@@ -449,7 +446,9 @@ class ModelFactory:
             os.environ["GEMINI_API_KEY"] = api_key
             client = create_async_client(verify=verify, headers=headers)
 
-            provider = GoogleProvider(base_url=url, api_key=api_key, http_client=client, vertexai=True)
+            provider = GoogleProvider(
+                base_url=url, api_key=api_key, http_client=client, vertexai=True
+            )
             model = GoogleModel(model_name=model_config["name"], provider=provider)
             return model
         elif model_type == "cerebras":

@@ -38,7 +38,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - New `/mcp install` - pick Custom JSON and it pulls up an interactive TUI for configuring MCP servers!
   - GUI Cub is now available as an agent to explore Agentic RPA (LLM fueled Robotic Process Automation)
     - Contributed by Dakota Brown who will be sending a larger email detailing its capabilities soon to this distribution list
-      
+
+### Other changes
+  - Code Puppy no longer has a --tui / -t mode. It was infeasible for me to maintain two user experiences
+  - Code Puppy defaults to --interactive / -i mode now 
+
 ### 🐛 Flea Fixes
   - Pasting emojis into Code Puppy's prompt should no longer cause any issues in Windows Powershell
   - Fixed a bug where having custom slash commands would cause command auto-complete to misbehave
@@ -54,6 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     - Enormous Confluence pages can be read through in chunks carefully by the agent now
   - Fixed a bug where `/confluence_auth` wouldn't autocomplete
   - Gemini 2.5 Pro should work again, although, with Gemini 3 Pro available, I recommend using that instead
+  - Running `code-puppy` without -i now launches -i mode by default
 
 ---
 

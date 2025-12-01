@@ -39,7 +39,9 @@ def display_disclaimer():
 
 def get_disclaimer_help() -> list:
     """Return help information for the disclaimer command."""
-    return [("disclaimer", "Display Walmart data usage disclaimer and policy information")]
+    return [
+        ("disclaimer", "Display Walmart data usage disclaimer and policy information")
+    ]
 
 
 def handle_disclaimer_command(command: str, name: str) -> Optional[bool]:
@@ -54,7 +56,7 @@ def handle_disclaimer_command(command: str, name: str) -> Optional[bool]:
     """
     if name != "disclaimer":
         return None
-    
+
     display_disclaimer()
     return True
 

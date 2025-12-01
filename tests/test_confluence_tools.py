@@ -26,11 +26,7 @@ def mock_page_data():
         "space": {"key": "TEST"},
         "version": {"number": 1},
         "_links": {"webui": "/pages/123"},
-        "body": {
-            "storage": {
-                "value": f"<p>{content_chars}</p>"
-            }
-        }
+        "body": {"storage": {"value": f"<p>{content_chars}</p>"}},
     }
 
 
@@ -42,11 +38,7 @@ def mock_small_page_data():
         "space": {"key": "TEST"},
         "version": {"number": 1},
         "_links": {"webui": "/pages/456"},
-        "body": {
-            "storage": {
-                "value": "<p>Hello World</p>"
-            }
-        }
+        "body": {"storage": {"value": "<p>Hello World</p>"}},
     }
 
 
@@ -55,9 +47,7 @@ class TestConfluenceReadPagePagination:
 
     def test_default_limit_applied(self, mock_context, mock_page_data):
         """Test that default character limit is applied for large pages."""
-        with patch(
-            "code_puppy.tools.confluence_tools.ConfluenceClient"
-        ) as MockClient:
+        with patch("code_puppy.tools.confluence_tools.ConfluenceClient") as MockClient:
             mock_client = Mock()
             mock_client.get_page_content.return_value = mock_page_data
             MockClient.return_value = mock_client
@@ -74,16 +64,12 @@ class TestConfluenceReadPagePagination:
 
     def test_custom_limit_applied(self, mock_context, mock_page_data):
         """Test that custom character limit is applied."""
-        with patch(
-            "code_puppy.tools.confluence_tools.ConfluenceClient"
-        ) as MockClient:
+        with patch("code_puppy.tools.confluence_tools.ConfluenceClient") as MockClient:
             mock_client = Mock()
             mock_client.get_page_content.return_value = mock_page_data
             MockClient.return_value = mock_client
 
-            result = confluence_read_page(
-                mock_context, "123", character_limit=10000
-            )
+            result = confluence_read_page(mock_context, "123", character_limit=10000)
 
             assert result["success"] is True
             assert result["content_truncated"] is True
@@ -92,34 +78,26 @@ class TestConfluenceReadPagePagination:
 
     def test_limit_clamped_to_max(self, mock_context, mock_page_data):
         """Test that character limit is clamped to MAX_CHARACTER_LIMIT."""
-        with patch(
-            "code_puppy.tools.confluence_tools.ConfluenceClient"
-        ) as MockClient:
+        with patch("code_puppy.tools.confluence_tools.ConfluenceClient") as MockClient:
             mock_client = Mock()
             mock_client.get_page_content.return_value = mock_page_data
             MockClient.return_value = mock_client
 
             # Try to set limit higher than max
-            result = confluence_read_page(
-                mock_context, "123", character_limit=100000
-            )
+            result = confluence_read_page(mock_context, "123", character_limit=100000)
 
             assert result["success"] is True
             assert result["character_limit"] == MAX_CHARACTER_LIMIT
 
     def test_offset_pagination(self, mock_context, mock_page_data):
         """Test reading with character offset for pagination."""
-        with patch(
-            "code_puppy.tools.confluence_tools.ConfluenceClient"
-        ) as MockClient:
+        with patch("code_puppy.tools.confluence_tools.ConfluenceClient") as MockClient:
             mock_client = Mock()
             mock_client.get_page_content.return_value = mock_page_data
             MockClient.return_value = mock_client
 
             # Read first chunk
-            result1 = confluence_read_page(
-                mock_context, "123", character_limit=20000
-            )
+            result1 = confluence_read_page(mock_context, "123", character_limit=20000)
 
             assert result1["success"] is True
             assert result1["character_offset"] == 0
@@ -137,9 +115,7 @@ class TestConfluenceReadPagePagination:
 
     def test_small_page_not_truncated(self, mock_context, mock_small_page_data):
         """Test that small pages are not marked as truncated."""
-        with patch(
-            "code_puppy.tools.confluence_tools.ConfluenceClient"
-        ) as MockClient:
+        with patch("code_puppy.tools.confluence_tools.ConfluenceClient") as MockClient:
             mock_client = Mock()
             mock_client.get_page_content.return_value = mock_small_page_data
             MockClient.return_value = mock_client
@@ -153,32 +129,26 @@ class TestConfluenceReadPagePagination:
 
     def test_negative_offset_normalized(self, mock_context, mock_small_page_data):
         """Test that negative offset is normalized to 0."""
-        with patch(
-            "code_puppy.tools.confluence_tools.ConfluenceClient"
-        ) as MockClient:
+        with patch("code_puppy.tools.confluence_tools.ConfluenceClient") as MockClient:
             mock_client = Mock()
             mock_client.get_page_content.return_value = mock_small_page_data
             MockClient.return_value = mock_client
 
-            result = confluence_read_page(
-                mock_context, "456", character_offset=-100
-            )
+            result = confluence_read_page(mock_context, "456", character_offset=-100)
 
             assert result["success"] is True
             assert result["character_offset"] == 0
 
-    def test_offset_beyond_content_returns_empty(self, mock_context, mock_small_page_data):
+    def test_offset_beyond_content_returns_empty(
+        self, mock_context, mock_small_page_data
+    ):
         """Test that offset beyond content length returns empty content."""
-        with patch(
-            "code_puppy.tools.confluence_tools.ConfluenceClient"
-        ) as MockClient:
+        with patch("code_puppy.tools.confluence_tools.ConfluenceClient") as MockClient:
             mock_client = Mock()
             mock_client.get_page_content.return_value = mock_small_page_data
             MockClient.return_value = mock_client
 
-            result = confluence_read_page(
-                mock_context, "456", character_offset=100000
-            )
+            result = confluence_read_page(mock_context, "456", character_offset=100000)
 
             assert result["success"] is True
             assert result["content"] == ""
@@ -187,16 +157,12 @@ class TestConfluenceReadPagePagination:
 
     def test_zero_limit_uses_default(self, mock_context, mock_page_data):
         """Test that character_limit=0 uses the default max."""
-        with patch(
-            "code_puppy.tools.confluence_tools.ConfluenceClient"
-        ) as MockClient:
+        with patch("code_puppy.tools.confluence_tools.ConfluenceClient") as MockClient:
             mock_client = Mock()
             mock_client.get_page_content.return_value = mock_page_data
             MockClient.return_value = mock_client
 
-            result = confluence_read_page(
-                mock_context, "123", character_limit=0
-            )
+            result = confluence_read_page(mock_context, "123", character_limit=0)
 
             assert result["success"] is True
             assert result["character_limit"] == MAX_CHARACTER_LIMIT

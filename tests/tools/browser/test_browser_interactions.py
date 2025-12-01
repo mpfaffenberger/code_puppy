@@ -43,6 +43,7 @@ class BrowserInteractionsBaseTest:
         """Mock the camoufox manager and page."""
         manager = MagicMock()
         page = MagicMock()
+        page.wait_for_timeout = AsyncMock()  # For scroll settle time
         manager.get_current_page = AsyncMock(return_value=page)
         return manager, page
 
@@ -61,6 +62,15 @@ class BrowserInteractionsBaseTest:
         locator.select_option = AsyncMock()
         locator.check = AsyncMock()
         locator.uncheck = AsyncMock()
+        # New methods for improved click/hover/dblclick with smart scrolling
+        locator.count = AsyncMock(return_value=1)
+        locator.evaluate = AsyncMock()
+        locator.first = locator  # .first returns same locator (for single element case)
+        locator.is_visible = AsyncMock(return_value=True)
+        locator.is_enabled = AsyncMock(return_value=True)
+        locator.bounding_box = AsyncMock(
+            return_value={"x": 100, "y": 100, "width": 50, "height": 30}
+        )
         return locator
 
     @pytest.fixture
@@ -89,9 +99,13 @@ class TestClickElement(BrowserInteractionsBaseTest):
             assert result["success"] is True
             assert result["selector"] == "#submit-button"
             assert result["action"] == "left_click"
+            assert result["attempts"] == 1  # Should succeed on first attempt
 
             page.locator.assert_called_once_with("#submit-button")
-            locator.wait_for.assert_called_once_with(state="visible", timeout=10000)
+            # New implementation calls count() for pre-flight check
+            locator.count.assert_called()
+            # Smart scroll is called by default
+            locator.evaluate.assert_called()
             locator.click.assert_called_once_with(
                 force=False, button="left", timeout=10000
             )
@@ -119,7 +133,8 @@ class TestClickElement(BrowserInteractionsBaseTest):
             assert result["success"] is True
             assert result["action"] == "right_click"
 
-            locator.wait_for.assert_called_once_with(state="visible", timeout=5000)
+            # When force=True, no scroll is attempted
+            locator.evaluate.assert_not_called()
             locator.click.assert_called_once_with(
                 force=True, button="right", timeout=5000, modifiers=["Control", "Shift"]
             )
@@ -168,6 +183,90 @@ class TestClickElement(BrowserInteractionsBaseTest):
         tool_name = agent.tool.call_args[0][0]
         assert tool_name.__name__ == "browser_click"
 
+    @pytest.mark.asyncio
+    async def test_click_element_not_found(self, mock_browser_manager, mock_locator):
+        """Test click when element is not found (count=0)."""
+        manager, page = mock_browser_manager
+        locator = mock_locator
+        locator.count = AsyncMock(return_value=0)  # No elements found
+
+        with patch(
+            "tools.browser.browser_interactions.get_camoufox_manager",
+            return_value=manager,
+        ):
+            page.locator.return_value = locator
+
+            result = await click_element("#nonexistent")
+
+            assert result["success"] is False
+            assert result["error_type"] == "not_found"
+            assert "No elements found" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_click_element_retry_on_intercept(
+        self, mock_browser_manager, mock_locator
+    ):
+        """Test that click retries on intercepted error."""
+        manager, page = mock_browser_manager
+        locator = mock_locator
+
+        # First call fails with intercept, second succeeds
+        locator.click = AsyncMock(
+            side_effect=[Exception("Element is intercepted by another element"), None]
+        )
+
+        with patch(
+            "tools.browser.browser_interactions.get_camoufox_manager",
+            return_value=manager,
+        ):
+            page.locator.return_value = locator
+
+            result = await click_element("#button", max_retries=2)
+
+            assert result["success"] is True
+            assert result["attempts"] == 2  # Succeeded on second attempt
+            assert locator.click.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_click_element_error_classification(
+        self, mock_browser_manager, mock_locator
+    ):
+        """Test that errors are properly classified."""
+        manager, page = mock_browser_manager
+        locator = mock_locator
+        locator.click = AsyncMock(side_effect=Exception("Element is not visible"))
+
+        with patch(
+            "tools.browser.browser_interactions.get_camoufox_manager",
+            return_value=manager,
+        ):
+            page.locator.return_value = locator
+
+            result = await click_element("#hidden", max_retries=0)
+
+            assert result["success"] is False
+            assert result["error_type"] == "not_visible"
+
+    @pytest.mark.asyncio
+    async def test_click_element_scroll_behavior_none(
+        self, mock_browser_manager, mock_locator
+    ):
+        """Test click with scroll_behavior='none' skips scrolling."""
+        manager, page = mock_browser_manager
+        locator = mock_locator
+
+        with patch(
+            "tools.browser.browser_interactions.get_camoufox_manager",
+            return_value=manager,
+        ):
+            page.locator.return_value = locator
+
+            result = await click_element("#button", scroll_behavior="none")
+
+            assert result["success"] is True
+            # Should not call evaluate (no scrolling)
+            locator.evaluate.assert_not_called()
+
 
 class TestDoubleClickElement(BrowserInteractionsBaseTest):
     """Test double_click_element function and its registration."""
@@ -211,7 +310,8 @@ class TestDoubleClickElement(BrowserInteractionsBaseTest):
             result = await double_click_element("#selector", timeout=3000, force=True)
 
             assert result["success"] is True
-            locator.wait_for.assert_called_once_with(state="visible", timeout=3000)
+            # When force=True, scroll is skipped
+            locator.evaluate.assert_not_called()
             locator.dblclick.assert_called_once_with(force=True, timeout=3000)
 
     def test_register_double_click_element(self):
@@ -807,6 +907,15 @@ class TestIntegrationScenarios(BrowserInteractionsBaseTest):
         hover_locator = AsyncMock()
         hover_locator.wait_for = AsyncMock()
         hover_locator.hover = AsyncMock()
+        # New methods needed for improved hover with smart scrolling
+        hover_locator.count = AsyncMock(return_value=1)
+        hover_locator.evaluate = AsyncMock()
+        hover_locator.first = hover_locator
+        hover_locator.is_visible = AsyncMock(return_value=True)
+        hover_locator.is_enabled = AsyncMock(return_value=True)
+        hover_locator.bounding_box = AsyncMock(
+            return_value={"x": 100, "y": 100, "width": 50, "height": 30}
+        )
 
         # Configure page.locator to return different locators for different calls
         page.locator.side_effect = [
@@ -843,9 +952,9 @@ class TestIntegrationScenarios(BrowserInteractionsBaseTest):
                 label="Another option", timeout=10000
             )
 
-            hover_locator.wait_for.assert_called_once_with(
-                state="visible", timeout=10000
-            )
+            # hover uses new smart scroll pattern instead of wait_for
+            hover_locator.count.assert_called()
+            hover_locator.evaluate.assert_called()  # scroll into view
             hover_locator.hover.assert_called_once_with(force=False, timeout=10000)
 
 

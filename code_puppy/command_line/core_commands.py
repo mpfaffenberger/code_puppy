@@ -35,7 +35,6 @@ def handle_help_command(command: str) -> bool:
     """Show commands help."""
     import uuid
 
-    from code_puppy.messaging import emit_info
 
     group_id = str(uuid.uuid4())
     help_text = get_commands_help()
@@ -54,7 +53,7 @@ def handle_cd_command(command: str) -> bool:
     # Use shlex.split to handle quoted paths properly
     import shlex
 
-    from code_puppy.messaging import emit_error, emit_info, emit_success
+    from code_puppy.messaging import emit_success
 
     try:
         tokens = shlex.split(command)
@@ -92,7 +91,6 @@ def handle_tools_command(command: str) -> bool:
     """Display available tools."""
     from rich.markdown import Markdown
 
-    from code_puppy.messaging import emit_info
 
     markdown_content = Markdown(tools_content)
     emit_info(markdown_content)
@@ -151,7 +149,7 @@ def handle_agent_command(command: str) -> bool:
         get_current_agent,
         set_current_agent,
     )
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.messaging import emit_success, emit_warning
 
     tokens = command.split()
 
@@ -590,7 +588,7 @@ def handle_model_settings_command(command: str) -> bool:
         interactive_model_settings,
         show_model_settings_summary,
     )
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.messaging import emit_success, emit_warning
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
     tokens = command.split()
