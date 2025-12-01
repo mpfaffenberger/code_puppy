@@ -769,28 +769,6 @@ class BaseAgent(ABC):
         pending_calls = tool_call_ids - tool_return_ids
         return len(pending_calls)
 
-    def ensure_history_ends_with_request(
-        self, messages: List[ModelMessage]
-    ) -> List[ModelMessage]:
-        """
-        Ensure message history ends with a ModelRequest.
-        
-        This is required by pydantic-ai's validation. When switching models mid-session,
-        the history might end with a model response, which causes validation errors.
-        We trim trailing non-request messages to ensure the history ends with a user message.
-        """
-        if not messages:
-            return messages
-        
-        # Work backwards from the end to find the last ModelRequest
-        for i in range(len(messages) - 1, -1, -1):
-            if isinstance(messages[i], ModelRequest):
-                # Found the last user request - return everything up to and including it
-                return messages[:i + 1]
-        
-        # If no ModelRequest found, return empty list (should never happen in practice)
-        return []
-    
     def prune_interrupted_tool_calls(
         self, messages: List[ModelMessage]
     ) -> List[ModelMessage]:
@@ -1464,10 +1442,9 @@ class BaseAgent(ABC):
 
         async def run_agent_task():
             try:
-                # Ensure message history is valid for the model
-                pruned_history = self.prune_interrupted_tool_calls(self.get_message_history())
-                valid_history = self.ensure_history_ends_with_request(pruned_history)
-                self.set_message_history(valid_history)
+                self.set_message_history(
+                    self.prune_interrupted_tool_calls(self.get_message_history())
+                )
 
                 # DELAYED COMPACTION: Check if we should attempt delayed compaction
                 if self.should_attempt_delayed_compaction():
@@ -1617,10 +1594,9 @@ class BaseAgent(ABC):
 
                 collect_cancelled_exceptions(other_error)
             finally:
-                # Ensure message history is valid for the model
-                pruned_history = self.prune_interrupted_tool_calls(self.get_message_history())
-                valid_history = self.ensure_history_ends_with_request(pruned_history)
-                self.set_message_history(valid_history)
+                self.set_message_history(
+                    self.prune_interrupted_tool_calls(self.get_message_history())
+                )
 
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())
