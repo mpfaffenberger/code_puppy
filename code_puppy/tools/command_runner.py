@@ -214,14 +214,14 @@ class ShellSafetyAssessment(BaseModel):
     It provides a risk level classification and reasoning for that assessment.
 
     Attributes:
-        risk: Risk level classification. Can be None (unknown/error), or one of:
+        risk: Risk level classification. Can be one of:
               'none' (completely safe), 'low' (minimal risk), 'medium' (moderate risk),
               'high' (significant risk), 'critical' (severe/destructive risk).
         reasoning: Brief explanation (max 1-2 sentences) of why this risk level
                    was assigned. Should be concise and actionable.
     """
 
-    risk: Literal["none", "low", "medium", "high", "critical"] | None
+    risk: Literal["none", "low", "medium", "high", "critical"]
     reasoning: str
 
 
