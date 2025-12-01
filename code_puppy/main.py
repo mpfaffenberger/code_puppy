@@ -337,6 +337,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             if response is not None:
                 agent_response = response.output
 
+                # Update the agent's message history with the complete conversation
+                # including the final assistant response
+                if hasattr(response, "all_messages"):
+                    agent.set_message_history(list(response.all_messages()))
+
                 emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
@@ -573,6 +578,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 emit_system_message(
                     f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
                 )
+
+                # Update the agent's message history with the complete conversation
+                # including the final assistant response. The history_processors callback
+                # may not capture the final message, so we use result.all_messages()
+                # to ensure the autosave includes the complete conversation.
+                if hasattr(result, "all_messages"):
+                    current_agent.set_message_history(list(result.all_messages()))
 
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
