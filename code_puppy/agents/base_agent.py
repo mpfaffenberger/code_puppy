@@ -984,7 +984,7 @@ class BaseAgent(ABC):
         for path_str in possible_paths:
             puppy_rules_path = Path(path_str)
             if puppy_rules_path.exists():
-                with open(puppy_rules_path, "r") as f:
+                with open(puppy_rules_path, "r", encoding="utf-8") as f:
                     self._puppy_rules = f.read()
                     break
         return self._puppy_rules
