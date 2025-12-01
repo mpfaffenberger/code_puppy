@@ -64,43 +64,61 @@ class TestBaseAgentAccumulator:
     def test_message_history_accumulator_new_message_added(
         self, agent, mock_run_context
     ):
-        """Test that new unique messages are added to history."""
-        # Setup - add initial message
+        """Test that new unique messages are added to history.
+
+        Note: pydantic_ai requires processed history to end with ModelRequest.
+        The accumulator now enforces this by trimming trailing ModelResponse.
+        This test validates that messages are accumulated AND the history
+        ends correctly with a ModelRequest.
+        """
+        # Setup - add initial messages (must end with ModelRequest for valid state)
         msg1 = ModelRequest(parts=[TextPart(content="First message")])
+        msg2 = ModelResponse(parts=[TextPart(content="Second message")])
+        msg3 = ModelRequest(parts=[TextPart(content="Third message")])
         agent.set_message_history([msg1])
 
-        # Add a new different message
-        msg2 = ModelResponse(parts=[TextPart(content="Second message")])
-        result = agent.message_history_accumulator(mock_run_context, [msg2])
+        # Add new messages including a ModelRequest at the end
+        result = agent.message_history_accumulator(mock_run_context, [msg2, msg3])
 
-        # Should have both messages
-        assert len(result) == 2
+        # Should have all three messages (history must end with ModelRequest)
+        assert len(result) == 3
 
-        # Check content of both messages
+        # Check content of messages
         contents = [
             p.content for m in result for p in m.parts if isinstance(p, TextPart)
         ]
         assert "First message" in contents
         assert "Second message" in contents
+        assert "Third message" in contents
+
+        # Verify history ends with ModelRequest (pydantic_ai requirement)
+        assert isinstance(result[-1], ModelRequest)
 
     def test_message_history_accumulator_filters_empty_thinking(
         self, agent, mock_run_context
     ):
-        """Test that empty ThinkingPart messages are filtered out."""
-        # Setup - mix of messages including empty thinking
+        """Test that empty ThinkingPart messages are filtered out.
+
+        Note: History must end with ModelRequest per pydantic_ai requirements.
+        """
+        # Setup - mix of messages including empty thinking, ending with ModelRequest
         text_msg = ModelRequest(parts=[TextPart(content="Real message")])
         empty_thinking_msg = ModelResponse(parts=[ThinkingPart(content="")])
         valid_thinking_msg = ModelResponse(
             parts=[ThinkingPart(content="Valid thinking")]
         )
+        final_request = ModelRequest(parts=[TextPart(content="Final request")])
 
-        agent.set_message_history([text_msg, empty_thinking_msg, valid_thinking_msg])
+        agent.set_message_history(
+            [text_msg, empty_thinking_msg, valid_thinking_msg, final_request]
+        )
 
         # Run accumulator (should filter empty thinking)
         result = agent.message_history_accumulator(mock_run_context, [])
 
-        # Should only have 2 messages (text + valid thinking)
-        assert len(result) == 2
+        # Should only have 3 messages (text + valid thinking + final request)
+        # Empty thinking is filtered out
+        assert len(result) == 3
 
         # Check that empty thinking was filtered
         has_empty_thinking = any(
@@ -127,6 +145,9 @@ class TestBaseAgentAccumulator:
             for m in result
         )
         assert has_text
+
+        # Verify history ends with ModelRequest
+        assert isinstance(result[-1], ModelRequest)
 
     def test_message_history_accumulator_respects_compacted_hashes(
         self, agent, mock_run_context
@@ -167,20 +188,24 @@ class TestBaseAgentAccumulator:
     def test_message_history_accumulator_mixed_message_types(
         self, agent, mock_run_context
     ):
-        """Test accumulator with various message types and ensure proper deduplication."""
+        """Test accumulator with various message types and ensure proper deduplication.
+
+        Note: History must end with ModelRequest per pydantic_ai requirements.
+        """
         request_msg = ModelRequest(parts=[TextPart(content="User input")])
         response_msg = ModelResponse(parts=[TextPart(content="AI response")])
         thinking_msg = ModelResponse(parts=[ThinkingPart(content="Thinking process")])
+        final_request = ModelRequest(parts=[TextPart(content="Final user input")])
 
         # Set initial history
         agent.set_message_history([request_msg])
 
-        # Add mixed new messages
-        new_messages = [response_msg, thinking_msg, request_msg]  # Include duplicate
+        # Add mixed new messages ending with a request (dedup will skip the duplicate request_msg)
+        new_messages = [response_msg, thinking_msg, final_request]
         result = agent.message_history_accumulator(mock_run_context, new_messages)
 
-        # Should have 3 unique messages (request, response, thinking)
-        assert len(result) == 3
+        # Should have 4 unique messages (original request, response, thinking, final request)
+        assert len(result) == 4
 
         # Verify all expected message types are present
         has_request = any(isinstance(m, ModelRequest) for m in result)
@@ -192,6 +217,9 @@ class TestBaseAgentAccumulator:
         assert has_request
         assert has_response
         assert has_thinking
+
+        # Verify history ends with ModelRequest
+        assert isinstance(result[-1], ModelRequest)
 
     @patch.object(CodePuppyAgent, "message_history_processor")
     def test_message_history_accumulator_calls_processor(
@@ -269,7 +297,10 @@ class TestBaseAgentAccumulator:
     def test_message_history_accumulator_only_empty_thinking_filtered(
         self, agent, mock_run_context
     ):
-        """Test that only completely empty ThinkingPart messages are filtered."""
+        """Test that only completely empty ThinkingPart messages are filtered.
+
+        Note: History must end with ModelRequest per pydantic_ai requirements.
+        """
         # Message with empty text content (should be kept)
         text_empty = ModelRequest(parts=[TextPart(content="")])
 
@@ -287,15 +318,24 @@ class TestBaseAgentAccumulator:
             ]
         )
 
+        # Final request to ensure history ends correctly
+        final_request = ModelRequest(parts=[TextPart(content="Final")])
+
         agent.set_message_history(
-            [text_empty, thinking_empty, thinking_content, multi_with_thinking]
+            [
+                text_empty,
+                thinking_empty,
+                thinking_content,
+                multi_with_thinking,
+                final_request,
+            ]
         )
 
         # Run accumulator
         result = agent.message_history_accumulator(mock_run_context, [])
 
-        # Should have 3 messages (empty thinking filtered, others kept)
-        assert len(result) == 3
+        # Should have 4 messages (empty thinking filtered, others kept)
+        assert len(result) == 4
 
         # Verify specific messages are kept/filtered
         has_empty_text = any(
@@ -323,3 +363,57 @@ class TestBaseAgentAccumulator:
 
         has_multi_part = any(len(m.parts) == 2 for m in result)
         assert has_multi_part  # Multi-part should be kept
+
+        # Verify history ends with ModelRequest
+        assert isinstance(result[-1], ModelRequest)
+
+    def test_ensure_history_ends_with_request_trims_trailing_responses(
+        self, agent, mock_run_context
+    ):
+        """Test that ensure_history_ends_with_request trims trailing ModelResponses.
+
+        This is crucial for model swapping scenarios where history might end
+        with a ModelResponse from the previous model.
+        """
+        # Create history ending with ModelResponse (invalid for pydantic_ai)
+        msg1 = ModelRequest(parts=[TextPart(content="User message")])
+        msg2 = ModelResponse(parts=[TextPart(content="AI response")])
+
+        # Directly test the guard method
+        result = agent.ensure_history_ends_with_request([msg1, msg2])
+
+        # Should trim the trailing ModelResponse
+        assert len(result) == 1
+        assert isinstance(result[-1], ModelRequest)
+        assert result[0].parts[0].content == "User message"
+
+    def test_ensure_history_ends_with_request_preserves_valid_history(
+        self, agent, mock_run_context
+    ):
+        """Test that valid history (ending with ModelRequest) is preserved."""
+        msg1 = ModelRequest(parts=[TextPart(content="First")])
+        msg2 = ModelResponse(parts=[TextPart(content="Response")])
+        msg3 = ModelRequest(parts=[TextPart(content="Second")])
+
+        result = agent.ensure_history_ends_with_request([msg1, msg2, msg3])
+
+        # Should preserve all messages
+        assert len(result) == 3
+        assert isinstance(result[-1], ModelRequest)
+
+    def test_ensure_history_ends_with_request_empty_input(self, agent, mock_run_context):
+        """Test that empty input returns empty output."""
+        result = agent.ensure_history_ends_with_request([])
+        assert result == []
+
+    def test_ensure_history_ends_with_request_all_responses(
+        self, agent, mock_run_context
+    ):
+        """Test that all-response history returns empty list."""
+        msg1 = ModelResponse(parts=[TextPart(content="Response 1")])
+        msg2 = ModelResponse(parts=[TextPart(content="Response 2")])
+
+        result = agent.ensure_history_ends_with_request([msg1, msg2])
+
+        # Should return empty list since no valid history can be constructed
+        assert result == []

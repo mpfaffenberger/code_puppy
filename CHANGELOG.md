@@ -38,6 +38,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - New `/mcp install` - pick Custom JSON and it pulls up an interactive TUI for configuring MCP servers!
   - GUI Cub is now available as an agent to explore Agentic RPA (LLM fueled Robotic Process Automation)
     - Contributed by Dakota Brown who will be sending a larger email detailing its capabilities soon to this distribution list
+  - Bigquery Agent - you can now use BQ as a first class citizen
+    - Ahmed Noufal contributed this agent!
 
 ### Other changes
   - Code Puppy no longer has a --tui / -t mode. It was infeasible for me to maintain two user experiences
