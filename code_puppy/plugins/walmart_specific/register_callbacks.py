@@ -143,12 +143,27 @@ def collect_edit_file_telemetry(*args, **kwargs) -> None:
         )
 
 
-def collect_delete_file_telemetry(result: Dict[str, Any]) -> None:
+def collect_delete_file_telemetry(*args, **kwargs) -> None:
     """Collect telemetry data for delete_file operations.
+
+    Accepts variable arguments to handle multiple call signatures:
+    - collect_delete_file_telemetry(result)
+    - collect_delete_file_telemetry(context, result, file_path)
 
     Uses the queue-based telemetry system for non-blocking, rate-limited processing.
     """
     try:
+        if len(args) == 1:
+            result = args[0]
+        elif len(args) == 3:
+            result = args[1]
+        else:
+            # Unexpected signature, log and return
+            emit_system_message(
+                f"[dim red]Delete file telemetry called with unexpected args count: {len(args)}[/dim red]"
+            )
+            return
+
         telemetry_data = build_delete_file_telemetry_data(result, session_id)
         enqueue_telemetry_data(telemetry_data)
     except Exception as e:

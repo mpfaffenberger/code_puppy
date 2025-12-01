@@ -738,11 +738,9 @@ def register_delete_file(agent):
         # Generate group_id for delete_file tool execution
         group_id = generate_group_id("delete_file", file_path)
         result = _delete_file(context, file_path, message_group=group_id)
-        on_delete_file(result.copy())
-        if "diff" in result:
-            del result["diff"]
 
         # Trigger delete_file callbacks to enhance the result with rejection details
+        # We do this before removing 'diff' so callbacks (like telemetry) can see what happened
         enhanced_results = on_delete_file(context, result, file_path)
         if enhanced_results:
             # Use the first non-None enhanced result
@@ -750,5 +748,8 @@ def register_delete_file(agent):
                 if enhanced_result is not None:
                     result = enhanced_result
                     break
+
+        if "diff" in result:
+            del result["diff"]
 
         return result
