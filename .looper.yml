@@ -52,8 +52,6 @@ flows:
             - shell: uv --native-tls venv
             - shell: uv --native-tls version --bump patch
             - shell: uv pip install --native-tls -e .
-            # - call: pre_commit
-            # - shell: uv --native-tls run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - call: python_releaseSteps()
             - call: commitVersion()
             - call: slackBuildMessagePython()
@@ -65,7 +63,6 @@ flows:
             - shell: uv --native-tls venv
             - shell: uv --native-tls version --bump patch
             - shell: uv pip install --native-tls -e .
-            - call: pre_commit
 
   pr:
     - node(docker-daemon):
@@ -75,13 +72,6 @@ flows:
             - shell: uv pip install --native-tls -e .
             # - shell: uv --native-tls run pytest --cov-report=term-missing --cov-report=xml:coverage-reports/coverage.xml --cov=code_puppy --junitxml=pytest-reports/pytest-summary.xml
             - shell: uv --native-tls build
-
-  ### Functions ###
-  pre_commit:
-    - shell: uv tool install pre-commit --with pre-commit-uv
-    - shell: git config --unset-all core.hooksPath
-    - shell: uv --native-tls run pre-commit install
-    - shell: uv --native-tls --allow-insecure-host pypi.ci.artifacts.walmart.com run pre-commit run --all-files
 
   python_releaseSteps:
     - shell: uv --native-tls build
