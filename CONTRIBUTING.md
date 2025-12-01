@@ -178,6 +178,42 @@ This script reinstalls code-puppy in development mode and runs it with the provi
 2. Runs code-puppy with your changes using `NO_VERSION_UPDATE=1 uv run code-puppy`
 3. Passes through any command-line arguments you provided
 
+#### code-puppy-dev.ps1 (Windows PowerShell)
+
+This is the Windows PowerShell equivalent of `code-puppy-dev`, providing the same functionality for Windows developers.
+
+**Purpose:**
+- Reinstalls the code-puppy package in development mode (`-e` flag)
+- Runs code-puppy with the current code changes
+- Passes through any arguments you provide
+- Automatically sets Walmart's internal PyPI URL
+
+**When to use:**
+- During active development when you're frequently making changes on Windows
+- When you want to test your changes immediately without manual reinstallation
+- For quick iterations during feature development or bug fixing
+
+**How to use:**
+```powershell
+# Run with TUI interface
+.\code-puppy-dev.ps1 --tui
+
+# Run with web interface
+.\code-puppy-dev.ps1 --web
+
+# Run with interactive console interface
+.\code-puppy-dev.ps1 --interactive
+
+# Run with a prompt
+.\code-puppy-dev.ps1 -p "your prompt here"
+```
+
+**How it works:**
+1. Sets Walmart's internal PyPI URL environment variable
+2. Builds and reinstalls code-puppy in development mode using `uv pip install --no-deps --force-reinstall -e .`
+3. Runs code-puppy with your changes using `NO_VERSION_UPDATE=1 uv run code-puppy`
+4. Passes through any command-line arguments you provided
+
 
 #### build_install_local_whl.sh
 
