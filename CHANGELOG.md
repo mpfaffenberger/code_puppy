@@ -42,6 +42,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Other changes
   - Code Puppy no longer has a --tui / -t mode. It was infeasible for me to maintain two user experiences
   - Code Puppy defaults to --interactive / -i mode now 
+  - `/m` is a short alias for `/model`
+  - `/a` is a short alias for `/agent`
+  - `/resume` is an alias for `/autosave_load`
 
 ### 🐛 Flea Fixes
   - Pasting emojis into Code Puppy's prompt should no longer cause any issues in Windows Powershell

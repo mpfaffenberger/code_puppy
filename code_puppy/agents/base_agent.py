@@ -5,8 +5,11 @@ import json
 import math
 import signal
 import threading
+import time
+import traceback
 import uuid
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import mcp
@@ -68,6 +71,49 @@ from code_puppy.tools.command_runner import (
 _delayed_compaction_requested = False
 
 _reload_count = 0
+
+
+def _log_error_to_file(exc: Exception) -> Optional[str]:
+    """Log detailed error information to ~/.code_puppy/error_logs/log_{timestamp}.txt.
+
+    Args:
+        exc: The exception to log.
+
+    Returns:
+        The path to the log file if successful, None otherwise.
+    """
+    try:
+        error_logs_dir = Path.home() / ".code_puppy" / "error_logs"
+        error_logs_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_file = error_logs_dir / f"log_{timestamp}.txt"
+
+        with open(log_file, "w", encoding="utf-8") as f:
+            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Exception Type: {type(exc).__name__}\n")
+            f.write(f"Exception Message: {str(exc)}\n")
+            f.write(f"Exception Args: {exc.args}\n")
+            f.write("\n--- Full Traceback ---\n")
+            f.write(traceback.format_exc())
+            f.write("\n--- Exception Chain ---\n")
+            # Walk the exception chain for chained exceptions
+            current = exc
+            chain_depth = 0
+            while current is not None and chain_depth < 10:
+                f.write(
+                    f"\n[Cause {chain_depth}] {type(current).__name__}: {current}\n"
+                )
+                f.write("".join(traceback.format_tb(current.__traceback__)))
+                current = (
+                    current.__cause__ if current.__cause__ else current.__context__
+                )
+                chain_depth += 1
+
+        return str(log_file)
+    except Exception:
+        # Don't let logging errors break the main flow
+        return None
 
 
 class BaseAgent(ABC):
@@ -1577,8 +1623,14 @@ class BaseAgent(ABC):
                         exc, (asyncio.CancelledError, UsageLimitExceeded)
                     ):
                         remaining_exceptions.append(exc)
+                        log_path = _log_error_to_file(exc)
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
                         emit_info(f"{str(exc.args)}", group_id=group_id)
+                        if log_path:
+                            emit_info(
+                                f"Error details logged to: {log_path}",
+                                group_id=group_id,
+                            )
 
                 collect_non_cancelled_exceptions(other_error)
 
