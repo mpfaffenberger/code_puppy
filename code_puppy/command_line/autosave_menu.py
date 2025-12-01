@@ -71,11 +71,21 @@ def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
 
 def _extract_last_user_message(history: list) -> str:
     """Extract the most recent user message from history."""
-    # Walk backwards through history to find last user message
+    # First pass: Look for the most recent string/text content (skipping dicts/objects)
     for msg in reversed(history):
-        for part in msg.parts:
-            if hasattr(part, "content"):
-                return part.content
+        if hasattr(msg, "parts"):
+            # Check parts in reverse order to find the absolute last text chunk
+            for part in reversed(msg.parts):
+                if hasattr(part, "content") and isinstance(part.content, str):
+                    return part.content
+
+    # Second pass: Fallback to stringifying the last content found
+    for msg in reversed(history):
+        if hasattr(msg, "parts"):
+            for part in reversed(msg.parts):
+                if hasattr(part, "content"):
+                    return str(part.content)
+
     return "[No messages found]"
 
 
@@ -179,7 +189,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     )
     lines.append(("", "\n\n"))
 
-    lines.append(("bold", "  Last Message:"))
+    lines.append(("bold", "  Last Message (non tool-call):"))
     lines.append(("", "\n"))
 
     # Try to load and preview the last message

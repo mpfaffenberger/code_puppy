@@ -12,6 +12,7 @@ from code_puppy.messaging import emit_info
 
 from .add_command import AddCommand
 from .base import MCPCommandBase
+from .edit_command import EditCommand
 from .help_command import HelpCommand
 from .install_command import InstallCommand
 
@@ -61,6 +62,7 @@ class MCPCommandHandler(MCPCommandBase):
             "status": StatusCommand(),
             "test": TestCommand(),
             "add": AddCommand(),
+            "edit": EditCommand(),
             "remove": RemoveCommand(),
             "logs": LogsCommand(),
             "search": SearchCommand(),

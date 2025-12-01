@@ -572,35 +572,6 @@ def handle_model_command(command: str) -> bool:
 
 
 @register_command(
-    name="add_model",
-    description="Browse and add models from models.dev catalog",
-    usage="/add_model",
-    category="core",
-)
-def handle_add_model_command(command: str) -> bool:
-    """Launch interactive model browser TUI."""
-    from code_puppy.command_line.add_model_menu import interactive_model_picker
-    from code_puppy.tools.command_runner import set_awaiting_user_input
-
-    set_awaiting_user_input(True)
-    try:
-        # interactive_model_picker is now synchronous - no async complications!
-        result = interactive_model_picker()
-
-        if result:
-            emit_info("Successfully added model configuration")
-        return True
-    except KeyboardInterrupt:
-        # User cancelled - this is expected behavior
-        return True
-    except Exception as e:
-        emit_error(f"Failed to launch model browser: {e}")
-        return False
-    finally:
-        set_awaiting_user_input(False)
-
-
-@register_command(
     name="model_settings",
     description="Configure per-model settings (temperature, seed, etc.)",
     usage="/model_settings [--show [model_name]]",

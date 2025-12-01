@@ -112,14 +112,13 @@ class ShellSafetyAgent(BaseAgent):
 
             model = ModelFactory.get_model(model_name, models_config)
 
-            # Handle claude-code models specially (like in agent_tools.py)
+            # Handle claude-code models: swap instructions and prepend system prompt
+            from code_puppy.model_utils import prepare_prompt_for_model
+
             instructions = self.get_system_prompt()
-            if model_name.startswith("claude-code"):
-                # For claude-code models, prepend system prompt to user prompt
-                prompt = instructions + "\n\n" + prompt
-                instructions = (
-                    "You are Claude Code, Anthropic's official CLI for Claude."
-                )
+            prepared = prepare_prompt_for_model(model_name, instructions, prompt)
+            instructions = prepared.instructions
+            prompt = prepared.user_prompt
 
             from code_puppy.model_factory import make_model_settings
 

@@ -23,24 +23,12 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
 from code_puppy.messaging import emit_warning
-from code_puppy.plugins.chatgpt_oauth.config import get_chatgpt_models_path
-from code_puppy.plugins.claude_code_oauth.config import get_claude_models_path
-from code_puppy.plugins.claude_code_oauth.utils import load_claude_models_filtered
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
 from .config import EXTRA_MODELS_FILE
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
-
-# Environment variables used in this module:
-# - GEMINI_API_KEY: API key for Google's Gemini models. Required when using Gemini models.
-# - OPENAI_API_KEY: API key for OpenAI models. Required when using OpenAI models or custom_openai endpoints.
-# - TOGETHER_AI_KEY: API key for Together AI models. Required when using Together AI models.
-#
-# When using custom endpoints (type: "custom_openai" in models.json):
-# - Environment variables can be referenced in header values by prefixing with $ in models.json.
-#   Example: "X-Api-Key": "$OPENAI_API_KEY" will use the value from os.environ.get("OPENAI_API_KEY")
 
 
 def make_model_settings(
@@ -181,9 +169,7 @@ class ModelFactory:
                 config = json.load(f)
 
         extra_sources = [
-            (pathlib.Path(EXTRA_MODELS_FILE), "extra models"),
-            (get_chatgpt_models_path(), "ChatGPT OAuth models"),
-            (get_claude_models_path(), "Claude Code OAuth models"),
+            (pathlib.Path(EXTRA_MODELS_FILE), "extra models")
         ]
 
         for source_path, label in extra_sources:
@@ -197,11 +183,8 @@ class ModelFactory:
                 continue
             try:
                 # Use filtered loading for Claude Code OAuth models to show only latest versions
-                if "Claude Code OAuth" in label:
-                    extra_config = load_claude_models_filtered()
-                else:
-                    with open(path, "r") as f:
-                        extra_config = json.load(f)
+                with open(path, "r") as f:
+                    extra_config = json.load(f)
                 config.update(extra_config)
             except json.JSONDecodeError as exc:
                 logging.getLogger(__name__).warning(

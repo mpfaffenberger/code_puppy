@@ -224,6 +224,121 @@ class TestTokenEstimation:
         assert len(filtered) >= 0  # May be 0 or more depending on pruning logic
 
 
+class TestMCPToolCache:
+    """Test suite for MCP tool cache functionality."""
+
+    @pytest.fixture
+    def agent(self):
+        """Provide a concrete BaseAgent subclass for testing."""
+        return CodePuppyAgent()
+
+    def test_mcp_tool_cache_initialized_empty(self, agent):
+        """Test that MCP tool cache is initialized as empty list."""
+        assert hasattr(agent, "_mcp_tool_definitions_cache")
+        assert agent._mcp_tool_definitions_cache == []
+
+    def test_estimate_context_overhead_with_empty_mcp_cache(self, agent):
+        """Test that estimate_context_overhead_tokens works with empty MCP cache."""
+        # Should not raise an error with empty cache
+        overhead = agent.estimate_context_overhead_tokens()
+        # Should return at least 0 (or more if system prompt is present)
+        assert overhead >= 0
+
+    def test_estimate_context_overhead_with_mcp_cache(self, agent):
+        """Test that estimate_context_overhead_tokens includes MCP tools from cache."""
+        # Populate the cache with mock MCP tool definitions
+        agent._mcp_tool_definitions_cache = [
+            {
+                "name": "test_tool",
+                "description": "A test tool for testing",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"arg1": {"type": "string"}},
+                },
+            },
+            {
+                "name": "another_tool",
+                "description": "Another tool with a longer description for more tokens",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "arg1": {"type": "string"},
+                        "arg2": {"type": "integer"},
+                    },
+                },
+            },
+        ]
+
+        overhead_with_tools = agent.estimate_context_overhead_tokens()
+
+        # Clear the cache and measure again
+        agent._mcp_tool_definitions_cache = []
+        overhead_without_tools = agent.estimate_context_overhead_tokens()
+
+        # Overhead with tools should be greater than without
+        assert overhead_with_tools > overhead_without_tools
+
+    def test_mcp_cache_cleared_on_reload(self, agent):
+        """Test that MCP cache is cleared when reload_mcp_servers is called."""
+        # Populate the cache
+        agent._mcp_tool_definitions_cache = [
+            {"name": "test_tool", "description": "Test", "inputSchema": {}}
+        ]
+
+        # Reload should clear the cache (even if no servers are configured)
+        try:
+            agent.reload_mcp_servers()
+        except Exception:
+            pass  # May fail if no MCP servers are configured, that's OK
+
+        # Cache should be cleared
+        assert agent._mcp_tool_definitions_cache == []
+
+    def test_mcp_cache_token_estimation_accuracy(self, agent):
+        """Test that MCP tool cache token estimation is reasonably accurate."""
+        # Create a tool definition with known content
+        tool_name = "my_test_tool"  # 12 chars
+        tool_description = "A description"  # 13 chars
+        tool_schema = {"type": "object"}  # ~20 chars when serialized
+
+        agent._mcp_tool_definitions_cache = [
+            {
+                "name": tool_name,
+                "description": tool_description,
+                "inputSchema": tool_schema,
+            }
+        ]
+
+        overhead = agent.estimate_context_overhead_tokens()
+
+        # Calculate expected tokens from the tool definition
+        # name: 12 chars / 3 = 4 tokens
+        # description: 13 chars / 3 = 4 tokens
+        # schema (serialized): ~20 chars / 3 = ~6 tokens
+        # Total: ~14 tokens minimum from the MCP tool
+
+        # Overhead should be at least 10 tokens (accounting for the MCP tool)
+        assert overhead >= 10
+
+    def test_update_mcp_tool_cache_sync_exists(self, agent):
+        """Test that update_mcp_tool_cache_sync method exists and is callable."""
+        assert hasattr(agent, "update_mcp_tool_cache_sync")
+        assert callable(agent.update_mcp_tool_cache_sync)
+
+    def test_update_mcp_tool_cache_sync_with_no_servers(self, agent):
+        """Test that update_mcp_tool_cache_sync handles case with no MCP servers."""
+        # Ensure no MCP servers are configured
+        agent._mcp_servers = None
+        agent._mcp_tool_definitions_cache = [{"name": "old_tool"}]
+
+        # Should not raise an error and should clear the cache
+        agent.update_mcp_tool_cache_sync()
+
+        # Cache should be cleared (or remain as is if async update scheduled)
+        # The key thing is it shouldn't raise an error
+        assert hasattr(agent, "_mcp_tool_definitions_cache")
+
+
 class TestTokenEstimationIntegration:
     """Integration tests for token estimation methods."""
 

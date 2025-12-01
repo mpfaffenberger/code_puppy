@@ -36,6 +36,16 @@ async def _run_agent_async(agent: Agent, prompt: str, message_history: List):
 
 def run_summarization_sync(prompt: str, message_history: List) -> List:
     agent = get_summarization_agent()
+
+    # Handle claude-code models: prepend system prompt to user prompt
+    from code_puppy.model_utils import prepare_prompt_for_model
+
+    model_name = get_global_model_name()
+    prepared = prepare_prompt_for_model(
+        model_name, _get_summarization_instructions(), prompt
+    )
+    prompt = prepared.user_prompt
+
     try:
         # Try to detect if we're already in an event loop
         asyncio.get_running_loop()
@@ -56,14 +66,9 @@ def run_summarization_sync(prompt: str, message_history: List) -> List:
     return result.new_messages()
 
 
-def reload_summarization_agent():
-    """Create a specialized agent for summarizing messages when context limit is reached."""
-    models_config = ModelFactory.load_config()
-    model_name = get_global_model_name()
-    model = ModelFactory.get_model(model_name, models_config)
-
-    # Specialized instructions for summarization
-    instructions = """You are a message summarization expert. Your task is to summarize conversation messages
+def _get_summarization_instructions() -> str:
+    """Get the system instructions for the summarization agent."""
+    return """You are a message summarization expert. Your task is to summarize conversation messages
 while preserving important context and information. The summaries should be concise but capture the essential content
 and intent of the original messages. This is to help manage token usage in a conversation history
 while maintaining context for the AI to continue the conversation effectively.
@@ -75,6 +80,22 @@ When summarizing:
 4. Don't summarize the system message
 5. Make sure all tool calls and responses are summarized, as they are vital
 6. Focus on token usage efficiency and system message preservation"""
+
+
+def reload_summarization_agent():
+    """Create a specialized agent for summarizing messages when context limit is reached."""
+    from code_puppy.model_utils import prepare_prompt_for_model
+
+    models_config = ModelFactory.load_config()
+    model_name = get_global_model_name()
+    model = ModelFactory.get_model(model_name, models_config)
+
+    # Handle claude-code models: swap instructions (prompt prepending happens in run_summarization_sync)
+    instructions = _get_summarization_instructions()
+    prepared = prepare_prompt_for_model(
+        model_name, instructions, "", prepend_system_to_user=False
+    )
+    instructions = prepared.instructions
 
     model_settings = make_model_settings(model_name)
 
