@@ -1508,6 +1508,7 @@ class BaseAgent(ABC):
                                 usage_limits=usage_limits,
                                 **kwargs,
                             )
+                        self.set_message_history(result_.all_messages())
                         return result_
 
                     except UnexpectedModelBehavior as e:
