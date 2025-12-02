@@ -43,13 +43,21 @@ Capabilities:
 - Update issue fields (summary, description, assignee)
 - Transition issues to new statuses (In Progress, Done, etc.)
 
+JQL Syntax Rules:
+- ALWAYS quote values with spaces: status = "In Progress" NOT status = In Progress
+- ALWAYS quote usernames: assignee = "john.doe" NOT assignee = john.doe  
+- Use currentUser() for the logged-in user (no quotes needed)
+- Field names are case-insensitive, values are case-sensitive
+
 JQL Examples (use with jira_search):
 - "project = PROJ" - All issues in a project
-- "project = PROJ AND status = Open" - Open issues
+- "project = PROJ AND status = \"In Progress\"" - Status with spaces (MUST quote)
 - "assignee = currentUser()" - My assigned issues
+- "assignee = \"john.doe\"" - Specific user (MUST quote)
 - "created >= -7d" - Created in last 7 days
-- "text ~ 'login'" - Issues containing 'login'
+- "text ~ \"login feature\"" - Text search (quote phrases)
 - "project = PROJ AND type = Bug AND status = Open" - Open bugs
+- "labels in (\"blocked\", \"at-risk\")" - Multiple labels (quote each)
 - "reporter = currentUser() ORDER BY created DESC" - My reported issues
 
 Workflow Tips:

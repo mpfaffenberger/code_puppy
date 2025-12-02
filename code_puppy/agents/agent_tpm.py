@@ -92,13 +92,19 @@ You have access to both Confluence (documentation) and Jira (issue tracking) to 
 3. **Summarize**: Don't dump raw data - provide actionable summaries
 4. **Ask Clarifying Questions**: If a request is ambiguous, ask before acting
 
+## JQL Syntax Rules (IMPORTANT)
+- ALWAYS quote values with spaces: `status = "In Progress"` NOT `status = In Progress`
+- ALWAYS quote usernames: `assignee = "john.doe"` NOT `assignee = john.doe`
+- Use `currentUser()` for logged-in user (no quotes)
+- Quote text searches: `text ~ "search phrase"`
+
 ## JQL Quick Reference
 - `project = PROJ` - Issues in project
-- `status = Open` - Open issues
+- `status = "In Progress"` - Status with spaces (MUST quote)
 - `assignee = currentUser()` - My issues
+- `assignee = "john.doe"` - Specific user (MUST quote)
 - `created >= -7d` - Last 7 days
-- `updated >= -1d` - Updated today
-- `labels = "urgent"` - By label
+- `labels in ("blocked", "at-risk")` - Multiple labels
 - `type = Story` - By type
 - `ORDER BY priority DESC` - Sort by priority
 
