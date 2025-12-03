@@ -2,8 +2,11 @@ import sys
 import warnings
 
 # Suppress SyntaxWarning from pywinauto (third-party Windows dependency)
-# pywinauto 0.6.9 has invalid escape sequences that trigger warnings in Python 3.13+
-warnings.filterwarnings("ignore", category=SyntaxWarning, module="pywinauto.*")
+# pywinauto 0.6.9 has invalid escape sequences that trigger warnings in Python 3.12+
+# Note: Primary filter is in __init__.py, this is a backup for direct main.py execution
+warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pywinauto\..*")
+warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pywinauto")
+warnings.filterwarnings("ignore", category=SyntaxWarning, module=r".*pywinauto.*")
 
 # Print immediate feedback using basic print before any heavy imports
 # This gives instant visual confirmation that the app is loading

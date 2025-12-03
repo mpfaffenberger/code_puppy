@@ -1,3 +1,14 @@
+# Suppress SyntaxWarning from pywinauto BEFORE any imports
+# pywinauto 0.6.9 has invalid escape sequences that trigger warnings in Python 3.12+
+# This MUST be at the very top to catch warnings during module compilation
+import warnings
+
+# Filter by module name (for runtime warnings)
+warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pywinauto\..*")
+warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pywinauto")
+# Also filter with a broader module pattern to catch submodules
+warnings.filterwarnings("ignore", category=SyntaxWarning, module=r".*pywinauto.*")
+
 # Apply Walmart-specific patches BEFORE any other imports
 # This ensures GitHub URL redirects are in place before http_utils or any other module
 # imports requests, httpx, urllib3, etc.
@@ -8,7 +19,7 @@ try:
 except Exception:
     pass  # Silently fail if walmart_specific plugin not available
 
-import importlib.metadata
+import importlib.metadata  # noqa: E402
 
 # Biscuit was here! 🐶
 try:
