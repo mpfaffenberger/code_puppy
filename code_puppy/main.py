@@ -32,6 +32,11 @@ from code_puppy.config import (
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
+from code_puppy.keymap import (
+    KeymapError,
+    get_cancel_agent_display_name,
+    validate_cancel_agent_key,
+)
 from code_puppy.messaging import emit_info
 from code_puppy.tools.common import console
 
@@ -137,6 +142,15 @@ async def main():
         set_model_name(early_model)
 
     ensure_config_exists()
+
+    # Validate cancel_agent_key configuration early
+    try:
+        validate_cancel_agent_key()
+    except KeymapError as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(str(e))
+        sys.exit(1)
 
     # Load API keys from puppy.cfg into environment variables
     from code_puppy.config import load_api_keys_to_environment
@@ -290,8 +304,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/model[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
     )
+    cancel_key = get_cancel_agent_display_name()
     emit_system_message(
-        "[dim]Press [bold red]Ctrl+C[/bold red] during processing to cancel the current task or inference. Use [bold red]Ctrl+X[/bold red] to interrupt running shell commands.[/dim]"
+        f"[dim]Press [bold red]{cancel_key}[/bold red] during processing to cancel the current task or inference. Use [bold red]Ctrl+X[/bold red] to interrupt running shell commands.[/dim]"
     )
     emit_system_message(
         "[dim]Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session.[/dim]"
