@@ -7,9 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from code_puppy.tools.jira_tools import (
+    MAX_CHARACTER_LIMIT,
     _format_issue,
     _format_issue_summary,
     _handle_jira_error,
+    _truncate_content,
     jira_add_comment,
     jira_create_issue,
     jira_get_comments,
@@ -112,6 +114,67 @@ class TestFormatIssueSummary:
         # Should not include extra fields
         assert "description" not in result
         assert "labels" not in result
+
+
+class TestTruncateContent:
+    """Test suite for _truncate_content helper."""
+
+    def test_truncate_empty_content(self):
+        """Test truncating empty content."""
+        result = _truncate_content("")
+        assert result["content"] == ""
+        assert result["total_content_length"] == 0
+        assert result["content_truncated"] is False
+        assert result["remaining_content_length"] == 0
+        assert result["character_limit"] == MAX_CHARACTER_LIMIT
+
+    def test_truncate_small_content_no_limit(self):
+        """Test small content with no limit (uses MAX_CHARACTER_LIMIT)."""
+        content = "Hello, World!"
+        result = _truncate_content(content)
+        assert result["content"] == content
+        assert result["total_content_length"] == 13
+        assert result["content_truncated"] is False
+        assert result["remaining_content_length"] == 0
+
+    def test_truncate_with_custom_limit(self):
+        """Test truncation with custom character limit."""
+        content = "Hello, World!"
+        result = _truncate_content(content, character_limit=5)
+        assert result["content"] == "Hello"
+        assert result["total_content_length"] == 13
+        assert result["content_truncated"] is True
+        assert result["remaining_content_length"] == 8
+        assert result["character_limit"] == 5
+
+    def test_truncate_with_offset(self):
+        """Test truncation with character offset."""
+        content = "Hello, World!"
+        result = _truncate_content(content, character_limit=5, character_offset=7)
+        assert result["content"] == "World"
+        assert result["total_content_length"] == 13
+        assert result["content_truncated"] is True
+        assert result["remaining_content_length"] == 1  # "!" remains
+        assert result["character_offset"] == 7
+
+    def test_truncate_clamps_to_max(self):
+        """Test that character_limit is clamped to MAX_CHARACTER_LIMIT."""
+        content = "A" * 100
+        result = _truncate_content(content, character_limit=MAX_CHARACTER_LIMIT + 1000)
+        assert result["character_limit"] == MAX_CHARACTER_LIMIT
+
+    def test_truncate_negative_offset_becomes_zero(self):
+        """Test that negative offset is treated as 0."""
+        content = "Hello, World!"
+        result = _truncate_content(content, character_offset=-5)
+        assert result["character_offset"] == 0
+        assert result["content"].startswith("Hello")
+
+    def test_truncate_zero_limit_uses_max(self):
+        """Test that limit=0 uses MAX_CHARACTER_LIMIT."""
+        content = "Hello"
+        result = _truncate_content(content, character_limit=0)
+        assert result["character_limit"] == MAX_CHARACTER_LIMIT
 
 
 class TestHandleJiraError:
@@ -227,6 +290,10 @@ class TestJiraGetIssue:
         assert result["success"] is True
         assert result["issue"]["key"] == "PROJ-123"
         assert result["issue"]["summary"] == "Test issue"
+        # Verify truncation metadata is returned
+        assert "description_total_length" in result
+        assert "description_truncated" in result
+        assert "character_limit" in result
 
     def test_get_issue_not_found(self, mock_context):
         """Test get issue not found."""
@@ -238,6 +305,58 @@ class TestJiraGetIssue:
 
         assert result["success"] is False
         assert result["error_type"] == "not_found"
+
+    def test_get_issue_truncates_large_description(self, mock_context):
+        """Test that large descriptions are truncated."""
+        large_description = "A" * 50000  # Larger than MAX_CHARACTER_LIMIT
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "summary": "Test",
+                "description": large_description,
+                "status": {"name": "Open"},
+                "issuetype": {"name": "Story"},
+            },
+        }
+        mock_client = MagicMock()
+        mock_client.get_issue.return_value = issue
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch("code_puppy.tools.jira_tools.JiraClient", return_value=mock_client):
+            result = jira_get_issue(mock_context, "PROJ-123")
+
+        assert result["success"] is True
+        assert result["description_truncated"] is True
+        assert result["description_total_length"] == 50000
+        assert len(result["issue"]["description"]) == MAX_CHARACTER_LIMIT
+        assert result["description_remaining_length"] == 50000 - MAX_CHARACTER_LIMIT
+
+    def test_get_issue_with_character_offset(self, mock_context):
+        """Test paginating through large description with offset."""
+        large_description = "A" * 35000 + "B" * 10000  # 45000 chars total
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "summary": "Test",
+                "description": large_description,
+                "status": {"name": "Open"},
+                "issuetype": {"name": "Story"},
+            },
+        }
+        mock_client = MagicMock()
+        mock_client.get_issue.return_value = issue
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch("code_puppy.tools.jira_tools.JiraClient", return_value=mock_client):
+            result = jira_get_issue(mock_context, "PROJ-123", character_offset=30000)
+
+        assert result["success"] is True
+        assert result["character_offset"] == 30000
+        # Should get the remaining 15000 chars (capped to MAX_CHARACTER_LIMIT but only 15000 remain)
+        assert len(result["issue"]["description"]) == 15000
+        assert result["description_truncated"] is False  # No more content after this
 
 
 # =============================================================================
@@ -495,3 +614,58 @@ class TestJiraGetComments:
         assert len(result["comments"]) == 2
         assert result["comments"][0]["author"] == "John Doe"
         assert result["comments"][1]["body"] == "Second comment"
+        # Verify truncation metadata
+        assert "comments_total_length" in result
+        assert result["comments_truncated"] is False
+
+    def test_get_comments_truncates_large_comments(self, mock_context):
+        """Test that large combined comment content is truncated."""
+        large_body = "X" * 35000  # Each comment body is 35k chars
+        mock_client = MagicMock()
+        mock_client.get_comments.return_value = {
+            "comments": [
+                {
+                    "id": "1",
+                    "author": {"displayName": "John Doe"},
+                    "body": large_body,
+                    "created": "2025-01-01T12:00:00.000+0000",
+                },
+            ],
+            "total": 1,
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch("code_puppy.tools.jira_tools.JiraClient", return_value=mock_client):
+            result = jira_get_comments(mock_context, "PROJ-123")
+
+        assert result["success"] is True
+        assert result["comments_truncated"] is True
+        assert "comments_content" in result  # Returns combined content when truncated
+        assert len(result["comments_content"]) == MAX_CHARACTER_LIMIT
+        assert result["comments_remaining_length"] > 0
+
+    def test_get_comments_with_offset(self, mock_context):
+        """Test paginating through comments with offset."""
+        mock_client = MagicMock()
+        mock_client.get_comments.return_value = {
+            "comments": [
+                {
+                    "id": "1",
+                    "author": {"displayName": "John Doe"},
+                    "body": "Short comment",
+                    "created": "2025-01-01T12:00:00.000+0000",
+                },
+            ],
+            "total": 1,
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch("code_puppy.tools.jira_tools.JiraClient", return_value=mock_client):
+            result = jira_get_comments(mock_context, "PROJ-123", character_offset=10)
+
+        assert result["success"] is True
+        # When offset > 0, returns combined content format
+        assert "comments_content" in result
+        assert result["character_offset"] == 10

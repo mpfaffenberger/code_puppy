@@ -28,17 +28,41 @@ from code_puppy.plugins.walmart_specific.jira_client import (
 
 
 # =============================================================================
+# CONSTANTS
+# =============================================================================
+
+# Maximum character limit to prevent context blowout
+MAX_CHARACTER_LIMIT = 30000
+
+
+# =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
 
 
 def get_jira_client() -> JiraClient:
-    """Get a Jira client instance."""
+    """Get a Jira client instance.
+
+    Returns:
+        JiraClient: A configured Jira client ready for API calls.
+    """
     return JiraClient()
 
 
 def _handle_jira_error(e: Exception) -> dict[str, Any]:
-    """Convert Jira exceptions to structured error responses."""
+    """Convert Jira exceptions to structured error responses.
+
+    Args:
+        e: The exception raised during Jira API operations.
+
+    Returns:
+        Dict containing:
+            - success (bool): Always False for error responses.
+            - error (str): Human-readable error message.
+            - error_type (str): Category of error (authentication, not_found,
+                api_error, jira, unknown).
+            - suggestion (str, optional): Suggested action for auth errors.
+    """
     if isinstance(e, JiraAuthError):
         error_msg = f"Authentication failed: {e}"
         emit_error(error_msg)
@@ -83,7 +107,26 @@ def _handle_jira_error(e: Exception) -> dict[str, Any]:
 
 
 def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
-    """Format a Jira issue for readable output."""
+    """Format a Jira issue for readable output.
+
+    Args:
+        issue: Raw Jira issue data from the API.
+
+    Returns:
+        Dict containing formatted issue fields:
+            - key (str): Issue key (e.g., "PROJ-123").
+            - summary (str): Issue title.
+            - status (str): Current status name.
+            - type (str): Issue type name.
+            - priority (str): Priority level.
+            - assignee (str | None): Assignee display name.
+            - reporter (str | None): Reporter display name.
+            - created (str): Creation timestamp.
+            - updated (str): Last update timestamp.
+            - description (str): Issue description.
+            - labels (list[str]): List of labels.
+            - project (str): Project key.
+    """
     fields = issue.get("fields", {})
     return {
         "key": issue.get("key"),
@@ -106,7 +149,19 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
 
 
 def _format_issue_summary(issue: dict[str, Any]) -> dict[str, Any]:
-    """Format a Jira issue for search results (minimal fields)."""
+    """Format a Jira issue for search results (minimal fields).
+
+    Args:
+        issue: Raw Jira issue data from the API.
+
+    Returns:
+        Dict containing minimal issue fields for search results:
+            - key (str): Issue key (e.g., "PROJ-123").
+            - summary (str): Issue title.
+            - status (str): Current status name.
+            - type (str): Issue type name.
+            - assignee (str | None): Assignee display name.
+    """
     fields = issue.get("fields", {})
     return {
         "key": issue.get("key"),
@@ -116,6 +171,86 @@ def _format_issue_summary(issue: dict[str, Any]) -> dict[str, Any]:
         "assignee": fields.get("assignee", {}).get("displayName")
         if fields.get("assignee")
         else None,
+    }
+
+
+def _truncate_content(
+    content: str,
+    character_limit: int = 0,
+    character_offset: int = 0,
+) -> dict[str, Any]:
+    """Truncate content with pagination support to prevent context blowout.
+
+    This helper function implements the token guardrail pattern to prevent
+    large content from overwhelming the LLM context window. It supports
+    pagination through large content via offset and limit parameters.
+
+    Args:
+        content: The full content string to potentially truncate.
+        character_limit: Maximum characters to return. Use 0 (default) to
+            apply MAX_CHARACTER_LIMIT (30000). Values above MAX_CHARACTER_LIMIT
+            are clamped to MAX_CHARACTER_LIMIT.
+        character_offset: Starting character position for reading. Use this
+            to paginate through large content. Negative values are treated as 0.
+            Defaults to 0.
+
+    Returns:
+        dict[str, Any]: Truncation result containing:
+            - content (str): The (possibly truncated) content slice.
+            - total_content_length (int): Total length of the full content.
+            - content_truncated (bool): True if more content exists beyond
+                the returned slice.
+            - remaining_content_length (int): Characters remaining after
+                this chunk (0 if not truncated).
+            - character_offset (int): The effective offset used for this read.
+            - character_limit (int): The effective limit used for this read.
+
+    Example:
+        >>> result = _truncate_content("Hello, World!", character_limit=5)
+        >>> result["content"]
+        'Hello'
+        >>> result["content_truncated"]
+        True
+        >>> result["remaining_content_length"]
+        8
+    """
+    if not content:
+        return {
+            "content": "",
+            "total_content_length": 0,
+            "content_truncated": False,
+            "remaining_content_length": 0,
+            "character_offset": 0,
+            "character_limit": MAX_CHARACTER_LIMIT,
+        }
+
+    total_content_length = len(content)
+
+    # Determine effective limit: 0 means use max, otherwise clamp to max
+    effective_limit = (
+        MAX_CHARACTER_LIMIT
+        if character_limit <= 0
+        else min(character_limit, MAX_CHARACTER_LIMIT)
+    )
+
+    # Ensure offset is non-negative
+    effective_offset = max(0, character_offset)
+
+    # Slice the content
+    content_end = effective_offset + effective_limit
+    sliced_content = content[effective_offset:content_end]
+
+    # Calculate truncation metadata
+    content_truncated = content_end < total_content_length
+    remaining_content_length = max(0, total_content_length - content_end)
+
+    return {
+        "content": sliced_content,
+        "total_content_length": total_content_length,
+        "content_truncated": content_truncated,
+        "remaining_content_length": remaining_content_length,
+        "character_offset": effective_offset,
+        "character_limit": effective_limit,
     }
 
 
@@ -139,16 +274,25 @@ def jira_search(
             - "assignee = currentUser()" (my issues)
             - "created >= -7d" (created in last 7 days)
             - "text ~ 'login'" (contains 'login')
-        max_results: Maximum number of results (default: 20, max: 50).
+        max_results: Maximum number of results to return. Defaults to 20.
+            Values above 50 are capped to 50.
 
     Returns:
-        Dict with success status and list of formatted issues.
+        dict[str, Any]: Search results containing:
+            - success (bool): Whether the search succeeded.
+            - issues (list[dict]): List of formatted issue summaries.
+            - total (int): Total number of matching issues.
+            - returned (int): Number of issues returned in this response.
+            - jql (str): The JQL query used.
+            - error (str, optional): Error message if search failed.
+            - error_type (str, optional): Error category if search failed.
 
-    Example JQL patterns:
-        - Open bugs: "project = PROJ AND type = Bug AND status = Open"
-        - My tasks: "assignee = currentUser() AND status != Done"
-        - Recent: "project = PROJ AND created >= -7d ORDER BY created DESC"
-        - By label: "project = PROJ AND labels = 'urgent'"
+    Example:
+        JQL patterns for common searches:
+            - Open bugs: ``"project = PROJ AND type = Bug AND status = Open"``
+            - My tasks: ``"assignee = currentUser() AND status != Done"``
+            - Recent: ``"project = PROJ AND created >= -7d ORDER BY created DESC"``
+            - By label: ``"project = PROJ AND labels = 'urgent'"``
     """
     emit_info(
         f"\n[bold white on blue] JIRA SEARCH [/bold white on blue] "
@@ -186,7 +330,14 @@ def jira_search(
 
 
 def register_jira_search(agent: Any) -> Tool:
-    """Register the jira_search tool with a PydanticAI agent."""
+    """Register the jira_search tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
     return agent.tool(jira_search)
 
 
@@ -198,15 +349,34 @@ def register_jira_search(agent: Any) -> Tool:
 def jira_get_issue(
     ctx: RunContext,
     issue_key: str,
+    character_limit: int = 0,
+    character_offset: int = 0,
 ) -> dict[str, Any]:
     """Get detailed information about a specific Jira issue.
+
+    Use character_limit and character_offset to paginate through large descriptions
+    and avoid blowing out the LLM context window.
 
     Args:
         ctx: PydanticAI run context.
         issue_key: The issue key (e.g., "PROJ-123").
+        character_limit: Maximum characters to return for the description field.
+            Use 0 (default) to apply MAX_CHARACTER_LIMIT (30000). Values above
+            30000 are clamped to 30000.
+        character_offset: Starting character position for reading the description.
+            Use this to paginate through large descriptions. Defaults to 0.
 
     Returns:
-        Dict with success status and full issue details.
+        dict[str, Any]: Issue details containing:
+            - success (bool): Whether the retrieval succeeded.
+            - issue (dict): Formatted issue data with (possibly truncated) description.
+            - description_total_length (int): Total length of the full description.
+            - description_truncated (bool): True if description was truncated.
+            - description_remaining_length (int): Characters remaining after this chunk.
+            - character_offset (int): The offset used for this read.
+            - character_limit (int): The limit used for this read.
+            - error (str, optional): Error message if retrieval failed.
+            - error_type (str, optional): Error category if retrieval failed.
     """
     emit_info(
         f"\n[bold white on blue] JIRA GET ISSUE [/bold white on blue] "
@@ -218,11 +388,38 @@ def jira_get_issue(
             issue = client.get_issue(issue_key)
             formatted = _format_issue(issue)
 
-            emit_success(f"Retrieved issue: {issue_key}")
+            # Apply truncation guardrails to description
+            description = formatted.get("description") or ""
+            truncation_info = _truncate_content(
+                description,
+                character_limit=character_limit,
+                character_offset=character_offset,
+            )
+
+            # Update formatted issue with truncated description
+            formatted["description"] = truncation_info["content"]
+
+            if truncation_info["content_truncated"]:
+                emit_success(
+                    f"Retrieved issue: {issue_key} "
+                    f"(description: chars {truncation_info['character_offset']}-"
+                    f"{truncation_info['character_offset'] + len(truncation_info['content'])} "
+                    f"of {truncation_info['total_content_length']}, "
+                    f"{truncation_info['remaining_content_length']} remaining)"
+                )
+            else:
+                emit_success(f"Retrieved issue: {issue_key}")
 
             return {
                 "success": True,
                 "issue": formatted,
+                "description_total_length": truncation_info["total_content_length"],
+                "description_truncated": truncation_info["content_truncated"],
+                "description_remaining_length": truncation_info[
+                    "remaining_content_length"
+                ],
+                "character_offset": truncation_info["character_offset"],
+                "character_limit": truncation_info["character_limit"],
             }
 
     except Exception as e:
@@ -230,7 +427,14 @@ def jira_get_issue(
 
 
 def register_jira_get_issue(agent: Any) -> Tool:
-    """Register the jira_get_issue tool with a PydanticAI agent."""
+    """Register the jira_get_issue tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
     return agent.tool(jira_get_issue)
 
 
@@ -251,12 +455,18 @@ def jira_create_issue(
     Args:
         ctx: PydanticAI run context.
         project_key: Project key (e.g., "PROJ").
-        issue_type: Issue type (e.g., "Story", "Bug", "Task", "Epic").
+        issue_type: Issue type name (e.g., "Story", "Bug", "Task", "Epic").
         summary: Issue title/summary.
-        description: Detailed description (optional).
+        description: Detailed description. Defaults to None.
 
     Returns:
-        Dict with success status and created issue key.
+        dict[str, Any]: Creation result containing:
+            - success (bool): Whether the creation succeeded.
+            - issue_key (str): The created issue key (e.g., "PROJ-456").
+            - issue_id (str): The created issue ID.
+            - summary (str): The issue summary that was set.
+            - error (str, optional): Error message if creation failed.
+            - error_type (str, optional): Error category if creation failed.
     """
     emit_info(
         f"\n[bold white on blue] JIRA CREATE ISSUE [/bold white on blue] "
@@ -287,7 +497,14 @@ def jira_create_issue(
 
 
 def register_jira_create_issue(agent: Any) -> Tool:
-    """Register the jira_create_issue tool with a PydanticAI agent."""
+    """Register the jira_create_issue tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
     return agent.tool(jira_create_issue)
 
 
@@ -309,7 +526,12 @@ def jira_add_comment(
         comment: Comment text to add.
 
     Returns:
-        Dict with success status.
+        dict[str, Any]: Comment result containing:
+            - success (bool): Whether the comment was added.
+            - issue_key (str): The issue key that was commented on.
+            - comment_id (str): The ID of the created comment.
+            - error (str, optional): Error message if comment failed.
+            - error_type (str, optional): Error category if comment failed.
     """
     emit_info(
         f"\n[bold white on blue] JIRA ADD COMMENT [/bold white on blue] "
@@ -334,7 +556,14 @@ def jira_add_comment(
 
 
 def register_jira_add_comment(agent: Any) -> Tool:
-    """Register the jira_add_comment tool with a PydanticAI agent."""
+    """Register the jira_add_comment tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
     return agent.tool(jira_add_comment)
 
 
@@ -352,15 +581,22 @@ def jira_update_issue(
 ) -> dict[str, Any]:
     """Update fields on a Jira issue.
 
+    At least one field (summary, description, or assignee) must be provided.
+
     Args:
         ctx: PydanticAI run context.
         issue_key: The issue key (e.g., "PROJ-123").
-        summary: New summary/title (optional).
-        description: New description (optional).
-        assignee: New assignee username (optional).
+        summary: New summary/title. Defaults to None (no change).
+        description: New description. Defaults to None (no change).
+        assignee: New assignee username. Defaults to None (no change).
 
     Returns:
-        Dict with success status.
+        dict[str, Any]: Update result containing:
+            - success (bool): Whether the update succeeded.
+            - issue_key (str): The issue key that was updated.
+            - updated_fields (list[str]): List of field names that were updated.
+            - error (str, optional): Error message if update failed.
+            - error_type (str, optional): Error category if update failed.
     """
     emit_info(
         f"\n[bold white on blue] JIRA UPDATE ISSUE [/bold white on blue] "
@@ -399,7 +635,14 @@ def jira_update_issue(
 
 
 def register_jira_update_issue(agent: Any) -> Tool:
-    """Register the jira_update_issue tool with a PydanticAI agent."""
+    """Register the jira_update_issue tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
     return agent.tool(jira_update_issue)
 
 
@@ -416,14 +659,24 @@ def jira_transition_issue(
 ) -> dict[str, Any]:
     """Transition a Jira issue to a new status.
 
+    The status_name is matched case-insensitively against available transitions.
+
     Args:
         ctx: PydanticAI run context.
         issue_key: The issue key (e.g., "PROJ-123").
         status_name: Target status name (e.g., "In Progress", "Done").
-        comment: Optional comment to add with the transition.
+            Matched case-insensitively.
+        comment: Optional comment to add with the transition. Defaults to None.
 
     Returns:
-        Dict with success status and available transitions if failed.
+        dict[str, Any]: Transition result containing:
+            - success (bool): Whether the transition succeeded.
+            - issue_key (str): The issue key that was transitioned.
+            - new_status (str): The new status name (if successful).
+            - available_transitions (list[str]): Available transition names
+                (only present if transition failed due to invalid status).
+            - error (str, optional): Error message if transition failed.
+            - error_type (str, optional): Error category if transition failed.
     """
     emit_info(
         f"\n[bold white on blue] JIRA TRANSITION [/bold white on blue] "
@@ -476,7 +729,14 @@ def jira_transition_issue(
 
 
 def register_jira_transition_issue(agent: Any) -> Tool:
-    """Register the jira_transition_issue tool with a PydanticAI agent."""
+    """Register the jira_transition_issue tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
     return agent.tool(jira_transition_issue)
 
 
@@ -489,16 +749,41 @@ def jira_get_comments(
     ctx: RunContext,
     issue_key: str,
     max_results: int = 20,
+    character_limit: int = 0,
+    character_offset: int = 0,
 ) -> dict[str, Any]:
     """Get comments on a Jira issue.
+
+    Use character_limit and character_offset to paginate through large comment bodies
+    and avoid blowing out the LLM context window. The limit applies to the combined
+    length of all comment bodies returned.
 
     Args:
         ctx: PydanticAI run context.
         issue_key: The issue key (e.g., "PROJ-123").
-        max_results: Maximum number of comments to return.
+        max_results: Maximum number of comments to fetch from Jira. Defaults to 20.
+        character_limit: Maximum total characters for all comment bodies combined.
+            Use 0 (default) to apply MAX_CHARACTER_LIMIT (30000). Values above
+            30000 are clamped to 30000.
+        character_offset: Starting character position for reading combined comments.
+            Use this to paginate through large comment threads. Defaults to 0.
 
     Returns:
-        Dict with success status and list of comments.
+        dict[str, Any]: Comments result containing:
+            - success (bool): Whether the retrieval succeeded.
+            - issue_key (str): The issue key that was queried.
+            - comments (list[dict]): List of formatted comments (when not truncated).
+                Each comment has: id, author, body, created.
+            - comments_content (str): Combined comment content (when truncated or
+                using offset). Format: "[Author] (date):\nBody\n\n---\n\n..."
+            - total (int): Total number of comments on the issue.
+            - comments_total_length (int): Total length of all comment bodies combined.
+            - comments_truncated (bool): True if combined content was truncated.
+            - comments_remaining_length (int): Characters remaining after this chunk.
+            - character_offset (int): The offset used for this read.
+            - character_limit (int): The limit used for this read.
+            - error (str, optional): Error message if retrieval failed.
+            - error_type (str, optional): Error category if retrieval failed.
     """
     emit_info(
         f"\n[bold white on blue] JIRA GET COMMENTS [/bold white on blue] "
@@ -510,29 +795,86 @@ def jira_get_comments(
             result = client.get_comments(issue_key, max_results=max_results)
             comments = result.get("comments", [])
 
-            formatted_comments = [
-                {
-                    "id": c.get("id"),
-                    "author": c.get("author", {}).get("displayName"),
-                    "body": c.get("body"),
-                    "created": c.get("created"),
+            # Build combined comment content for truncation
+            # Format: "[Author] (date):\nBody\n\n---\n\n"
+            combined_content_parts = []
+            for c in comments:
+                author = c.get("author", {}).get("displayName", "Unknown")
+                created = c.get("created", "")
+                body = c.get("body", "")
+                combined_content_parts.append(f"[{author}] ({created}):\n{body}")
+
+            combined_content = "\n\n---\n\n".join(combined_content_parts)
+
+            # Apply truncation guardrails
+            truncation_info = _truncate_content(
+                combined_content,
+                character_limit=character_limit,
+                character_offset=character_offset,
+            )
+
+            # If truncated, we return the truncated combined content
+            # Otherwise, return individual formatted comments
+            if truncation_info["content_truncated"] or character_offset > 0:
+                # Return as combined truncated content
+                emit_success(
+                    f"Retrieved comments for {issue_key} "
+                    f"(chars {truncation_info['character_offset']}-"
+                    f"{truncation_info['character_offset'] + len(truncation_info['content'])} "
+                    f"of {truncation_info['total_content_length']}, "
+                    f"{truncation_info['remaining_content_length']} remaining)"
+                )
+
+                return {
+                    "success": True,
+                    "issue_key": issue_key,
+                    "comments_content": truncation_info["content"],
+                    "total": result.get("total", len(comments)),
+                    "comments_total_length": truncation_info["total_content_length"],
+                    "comments_truncated": truncation_info["content_truncated"],
+                    "comments_remaining_length": truncation_info[
+                        "remaining_content_length"
+                    ],
+                    "character_offset": truncation_info["character_offset"],
+                    "character_limit": truncation_info["character_limit"],
                 }
-                for c in comments
-            ]
+            else:
+                # Return individual formatted comments (no truncation needed)
+                formatted_comments = [
+                    {
+                        "id": c.get("id"),
+                        "author": c.get("author", {}).get("displayName"),
+                        "body": c.get("body"),
+                        "created": c.get("created"),
+                    }
+                    for c in comments
+                ]
 
-            emit_success(f"Retrieved {len(formatted_comments)} comment(s)")
+                emit_success(f"Retrieved {len(formatted_comments)} comment(s)")
 
-            return {
-                "success": True,
-                "issue_key": issue_key,
-                "comments": formatted_comments,
-                "total": result.get("total", len(formatted_comments)),
-            }
+                return {
+                    "success": True,
+                    "issue_key": issue_key,
+                    "comments": formatted_comments,
+                    "total": result.get("total", len(formatted_comments)),
+                    "comments_total_length": truncation_info["total_content_length"],
+                    "comments_truncated": False,
+                    "comments_remaining_length": 0,
+                    "character_offset": 0,
+                    "character_limit": truncation_info["character_limit"],
+                }
 
     except Exception as e:
         return _handle_jira_error(e)
 
 
 def register_jira_get_comments(agent: Any) -> Tool:
-    """Register the jira_get_comments tool with a PydanticAI agent."""
+    """Register the jira_get_comments tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
     return agent.tool(jira_get_comments)
