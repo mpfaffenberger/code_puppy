@@ -495,7 +495,9 @@ def bigquery_execute_query(
                 output_file = _resolve_output_path(
                     output_path, result["job_id"], file_name_hint, saved_format
                 )
-                _write_results_to_file(rows, result["schema"], output_file, saved_format)
+                _write_results_to_file(
+                    rows, result["schema"], output_file, saved_format
+                )
                 saved_file_path = str(output_file)
                 rows_saved = len(rows)
                 auto_saved = (
@@ -618,3 +620,136 @@ def register_bigquery_get_table_schema(agent: Any) -> Tool:
         The registered Tool instance
     """
     return agent.tool(bigquery_get_table_schema)
+
+
+# ============================================================================
+# BigQuery Search Tables Tool
+# ============================================================================
+
+
+def bigquery_search_tables(
+    ctx: RunContext,
+    search_pattern: str,
+    project_id: str | None = None,
+    dataset_filter: str | None = None,
+    max_results: int = 100,
+) -> dict:
+    """Search for tables by name pattern across datasets in a project.
+
+    Uses INFORMATION_SCHEMA to find tables matching a pattern. Supports SQL
+    LIKE wildcards: % (any characters) and _ (single character).
+
+    Args:
+        ctx: PydanticAI run context
+        search_pattern: Pattern to search for (e.g., "user%", "%orders%", "sales_2024%")
+        project_id: Optional GCP project ID. If None, uses default project.
+        dataset_filter: Optional dataset ID to limit search to a specific dataset.
+        max_results: Maximum number of results to return (default: 100)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the search succeeded
+            - tables (list): List of matching tables with full_id, dataset, table_name, type
+            - count (int): Number of tables found
+            - project_id (str): The project ID searched
+            - search_pattern (str): The pattern used
+            - error (str, optional): Error message if search failed
+    """
+    project_display = project_id or "default"
+    emit_info(
+        f"\n[bold white on blue] BIGQUERY SEARCH TABLES [/bold white on blue] 🔍 "
+        f"[bold cyan]'{search_pattern}'[/bold cyan] in [bold cyan]{project_display}[/bold cyan]"
+    )
+
+    try:
+        client = BigQueryClient(project_id=project_id)
+        actual_project = client.project_id
+
+        # Build query using INFORMATION_SCHEMA
+        # Query across all datasets using region-scoped INFORMATION_SCHEMA
+        if dataset_filter:
+            # Search within a specific dataset
+            query = f"""
+                SELECT
+                    table_catalog AS project_id,
+                    table_schema AS dataset_id,
+                    table_name,
+                    table_type,
+                    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_id
+                FROM `{actual_project}.{dataset_filter}.INFORMATION_SCHEMA.TABLES`
+                WHERE LOWER(table_name) LIKE LOWER(@pattern)
+                ORDER BY table_schema, table_name
+                LIMIT {max_results}
+            """
+        else:
+            # Search across all datasets using region-US INFORMATION_SCHEMA
+            # Note: This works for US region. For multi-region, users can specify dataset.
+            query = f"""
+                SELECT
+                    table_catalog AS project_id,
+                    table_schema AS dataset_id,
+                    table_name,
+                    table_type,
+                    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_id
+                FROM `{actual_project}.region-us.INFORMATION_SCHEMA.TABLES`
+                WHERE LOWER(table_name) LIKE LOWER(@pattern)
+                ORDER BY table_schema, table_name
+                LIMIT {max_results}
+            """
+
+        # Execute with parameterized query for safety
+        from google.cloud import bigquery as bq
+
+        job_config = bq.QueryJobConfig(
+            query_parameters=[
+                bq.ScalarQueryParameter("pattern", "STRING", search_pattern)
+            ]
+        )
+
+        query_job = client._client.query(query, job_config=job_config)
+        results = query_job.result()
+
+        tables = [
+            {
+                "full_id": row.full_id,
+                "project_id": row.project_id,
+                "dataset_id": row.dataset_id,
+                "table_name": row.table_name,
+                "table_type": row.table_type,
+            }
+            for row in results
+        ]
+
+        if tables:
+            emit_success(f"Found {len(tables)} table(s) matching '{search_pattern}'")
+        else:
+            emit_warning(f"No tables found matching '{search_pattern}'")
+            if not dataset_filter:
+                emit_info(
+                    "💡 Tip: If your data is in a different region (not US), "
+                    "specify dataset_filter to search within a specific dataset."
+                )
+
+        return {
+            "success": True,
+            "tables": tables,
+            "count": len(tables),
+            "project_id": actual_project,
+            "search_pattern": search_pattern,
+            "dataset_filter": dataset_filter,
+        }
+
+    except Exception as e:
+        return _handle_bigquery_error(e)
+
+
+def register_bigquery_search_tables(agent: Any) -> Tool:
+    """Register the bigquery_search_tables tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance
+
+    Returns:
+        The registered Tool instance
+    """
+    return agent.tool(bigquery_search_tables)

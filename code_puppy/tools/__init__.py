@@ -66,6 +66,7 @@ from code_puppy.tools.bigquery_tools import (
     register_bigquery_list_datasets,
     register_bigquery_get_default_project,
     register_bigquery_list_tables,
+    register_bigquery_search_tables,
 )
 from code_puppy.tools.confluence_tools import (
     register_confluence_search,
@@ -154,6 +155,7 @@ TOOL_REGISTRY = {
     "bigquery_list_tables": register_bigquery_list_tables,
     "bigquery_execute_query": register_bigquery_execute_query,
     "bigquery_get_table_schema": register_bigquery_get_table_schema,
+    "bigquery_search_tables": register_bigquery_search_tables,
 }
 
 # Merge in GUI-Cub tools from separate registry

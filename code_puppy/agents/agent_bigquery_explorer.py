@@ -25,6 +25,7 @@ class BigQueryExplorerAgent(BaseAgent):
             "bigquery_list_all_projects",
             "bigquery_list_datasets",
             "bigquery_list_tables",
+            "bigquery_search_tables",
             "bigquery_execute_query",
             "bigquery_get_table_schema",
             "list_files",
@@ -45,6 +46,7 @@ Capabilities:
 - List ALL accessible GCP projects (via gcloud CLI)
 - List datasets within projects
 - List tables within datasets
+- Search for tables by name pattern across datasets
 - Get table schemas with field definitions
 - Execute SQL queries with result limits
 - Inspect the local filesystem (list/search/read files)
@@ -54,6 +56,8 @@ Capabilities:
 Usage:
 - Use bigquery_get_default_project to show the user's default project (instant)
 - Use bigquery_list_all_projects to list ALL accessible projects (via gcloud CLI)
+- Use bigquery_search_tables to find tables by name pattern (supports SQL LIKE wildcards: % for any chars, _ for single char)
+  Examples: "user%" finds user_data, users, user_logs; "%orders%" finds all tables with "orders" in the name
 - Help users understand the structure: project > dataset > table
 - Show table schemas before querying to help users write correct queries
 - Execute queries with appropriate limits (default 100 rows)
