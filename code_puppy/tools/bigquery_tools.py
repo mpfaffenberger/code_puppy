@@ -662,8 +662,10 @@ def bigquery_search_tables(
     )
 
     try:
-        client = BigQueryClient(project_id=project_id)
-        actual_project = client.project_id
+        # Use default project for job execution (where user has bigquery.jobs.create)
+        client = BigQueryClient()
+        # Target project for INFORMATION_SCHEMA query (can differ from job project)
+        target_project = project_id or client.project_id
 
         # Build query using INFORMATION_SCHEMA
         # Query across all datasets using region-scoped INFORMATION_SCHEMA
@@ -676,7 +678,7 @@ def bigquery_search_tables(
                     table_name,
                     table_type,
                     CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_id
-                FROM `{actual_project}.{dataset_filter}.INFORMATION_SCHEMA.TABLES`
+                FROM `{target_project}.{dataset_filter}.INFORMATION_SCHEMA.TABLES`
                 WHERE LOWER(table_name) LIKE LOWER(@pattern)
                 ORDER BY table_schema, table_name
                 LIMIT {max_results}
@@ -691,7 +693,7 @@ def bigquery_search_tables(
                     table_name,
                     table_type,
                     CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_id
-                FROM `{actual_project}.region-us.INFORMATION_SCHEMA.TABLES`
+                FROM `{target_project}.region-us.INFORMATION_SCHEMA.TABLES`
                 WHERE LOWER(table_name) LIKE LOWER(@pattern)
                 ORDER BY table_schema, table_name
                 LIMIT {max_results}
@@ -734,7 +736,7 @@ def bigquery_search_tables(
             "success": True,
             "tables": tables,
             "count": len(tables),
-            "project_id": actual_project,
+            "project_id": target_project,
             "search_pattern": search_pattern,
             "dataset_filter": dataset_filter,
         }
