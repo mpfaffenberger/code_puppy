@@ -19,9 +19,10 @@ def _get_xdg_dir(env_var: str, fallback: str) -> str:
     Returns:
         Path to the directory for code_puppy files
     """
-    # Check if legacy ~/.code_puppy exists (backwards compatibility)
+    # Check if legacy ~/.code_puppy exists with actual config (backwards compatibility)
     legacy_dir = os.path.join(os.path.expanduser("~"), ".code_puppy")
-    if os.path.exists(legacy_dir):
+    legacy_config = os.path.join(legacy_dir, "puppy.cfg")
+    if os.path.exists(legacy_config):
         return legacy_dir
 
     # Use XDG directory if environment variable is set
