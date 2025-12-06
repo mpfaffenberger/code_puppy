@@ -634,15 +634,18 @@ def bigquery_search_tables(
     dataset_filter: str | None = None,
     max_results: int = 100,
 ) -> dict:
-    """Search for tables by name pattern across datasets in a project.
+    """Search for tables by name pattern across projects.
 
     Uses INFORMATION_SCHEMA to find tables matching a pattern. Supports SQL
     LIKE wildcards: % (any characters) and _ (single character).
 
+    When project_id is None, searches ALL accessible projects individually,
+    skipping projects with permission errors.
+
     Args:
         ctx: PydanticAI run context
         search_pattern: Pattern to search for (e.g., "user%", "%orders%", "sales_2024%")
-        project_id: Optional GCP project ID. If None, uses default project.
+        project_id: Optional GCP project ID. If None, searches ALL accessible projects.
         dataset_filter: Optional dataset ID to limit search to a specific dataset.
         max_results: Maximum number of results to return (default: 100)
 
@@ -651,55 +654,33 @@ def bigquery_search_tables(
             - success (bool): Whether the search succeeded
             - tables (list): List of matching tables with full_id, dataset, table_name, type
             - count (int): Number of tables found
-            - project_id (str): The project ID searched
+            - projects_searched (int): Number of projects successfully searched
+            - projects_skipped (int): Number of projects skipped due to errors
             - search_pattern (str): The pattern used
             - error (str, optional): Error message if search failed
     """
-    project_display = project_id or "default"
-    emit_info(
-        f"\n[bold white on blue] BIGQUERY SEARCH TABLES [/bold white on blue] 🔍 "
-        f"[bold cyan]'{search_pattern}'[/bold cyan] in [bold cyan]{project_display}[/bold cyan]"
-    )
-
     try:
         # Use default project for job execution (where user has bigquery.jobs.create)
         client = BigQueryClient()
-        # Target project for INFORMATION_SCHEMA query (can differ from job project)
-        target_project = project_id or client.project_id
 
-        # Build query using INFORMATION_SCHEMA
-        # Query across all datasets using region-scoped INFORMATION_SCHEMA
-        if dataset_filter:
-            # Search within a specific dataset
-            query = f"""
-                SELECT
-                    table_catalog AS project_id,
-                    table_schema AS dataset_id,
-                    table_name,
-                    table_type,
-                    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_id
-                FROM `{target_project}.{dataset_filter}.INFORMATION_SCHEMA.TABLES`
-                WHERE LOWER(table_name) LIKE LOWER(@pattern)
-                ORDER BY table_schema, table_name
-                LIMIT {max_results}
-            """
+        # Determine which projects to search
+        if project_id:
+            projects_to_search = [project_id]
+            emit_info(
+                f"\n[bold white on blue] BIGQUERY SEARCH TABLES [/bold white on blue] 🔍 "
+                f"[bold cyan]'{search_pattern}'[/bold cyan] in [bold cyan]{project_id}[/bold cyan]"
+            )
         else:
-            # Search across all datasets using region-US INFORMATION_SCHEMA
-            # Note: This works for US region. For multi-region, users can specify dataset.
-            query = f"""
-                SELECT
-                    table_catalog AS project_id,
-                    table_schema AS dataset_id,
-                    table_name,
-                    table_type,
-                    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_id
-                FROM `{target_project}.region-us.INFORMATION_SCHEMA.TABLES`
-                WHERE LOWER(table_name) LIKE LOWER(@pattern)
-                ORDER BY table_schema, table_name
-                LIMIT {max_results}
-            """
+            # Global search: get all accessible projects
+            emit_info(
+                f"\n[bold white on blue] BIGQUERY SEARCH TABLES [/bold white on blue] 🔍 "
+                f"[bold cyan]'{search_pattern}'[/bold cyan] in [bold cyan]all projects[/bold cyan]"
+            )
+            emit_info("🌐 Fetching accessible projects...")
+            all_projects = client.list_all_projects()
+            projects_to_search = [p["project_id"] for p in all_projects]
+            emit_info(f"📋 Searching {len(projects_to_search)} project(s)...")
 
-        # Execute with parameterized query for safety
         from google.cloud import bigquery as bq
 
         job_config = bq.QueryJobConfig(
@@ -708,24 +689,66 @@ def bigquery_search_tables(
             ]
         )
 
-        query_job = client._client.query(query, job_config=job_config)
-        results = query_job.result()
+        all_tables: list[dict] = []
+        projects_searched = 0
+        projects_skipped = 0
 
-        tables = [
-            {
-                "full_id": row.full_id,
-                "project_id": row.project_id,
-                "dataset_id": row.dataset_id,
-                "table_name": row.table_name,
-                "table_type": row.table_type,
-            }
-            for row in results
-        ]
+        # Query each project individually to handle permission errors gracefully
+        for target_project in projects_to_search:
+            if len(all_tables) >= max_results:
+                break
 
-        if tables:
-            emit_success(f"Found {len(tables)} table(s) matching '{search_pattern}'")
+            schema = dataset_filter if dataset_filter else "region-us"
+            query = f"""
+                SELECT
+                    table_catalog AS project_id,
+                    table_schema AS dataset_id,
+                    table_name,
+                    table_type,
+                    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_id
+                FROM `{target_project}.{schema}.INFORMATION_SCHEMA.TABLES`
+                WHERE LOWER(table_name) LIKE LOWER(@pattern)
+                ORDER BY table_schema, table_name
+                LIMIT {max_results}
+            """
+
+            try:
+                query_job = client._client.query(query, job_config=job_config)
+                results = query_job.result()
+
+                tables = [
+                    {
+                        "full_id": row.full_id,
+                        "project_id": row.project_id,
+                        "dataset_id": row.dataset_id,
+                        "table_name": row.table_name,
+                        "table_type": row.table_type,
+                    }
+                    for row in results
+                ]
+
+                projects_searched += 1
+                if tables:
+                    all_tables.extend(tables)
+                    for table in tables:
+                        emit_info(f"  ✓ {table['full_id']}")
+
+            except Exception:
+                # Skip projects with permission errors silently
+                projects_skipped += 1
+
+        # Limit total results
+        all_tables = all_tables[:max_results]
+
+        if all_tables:
+            emit_success(
+                f"Found {len(all_tables)} table(s) matching '{search_pattern}' "
+                f"({projects_searched} projects searched, {projects_skipped} skipped due to access restrictions)"
+            )
         else:
             emit_warning(f"No tables found matching '{search_pattern}'")
+            if projects_skipped > 0:
+                emit_info(f"💡 {projects_skipped} project(s) were skipped due to access restrictions")
             if not dataset_filter:
                 emit_info(
                     "💡 Tip: If your data is in a different region (not US), "
@@ -734,9 +757,10 @@ def bigquery_search_tables(
 
         return {
             "success": True,
-            "tables": tables,
-            "count": len(tables),
-            "project_id": target_project,
+            "tables": all_tables,
+            "count": len(all_tables),
+            "projects_searched": projects_searched,
+            "projects_skipped": projects_skipped,
             "search_pattern": search_pattern,
             "dataset_filter": dataset_filter,
         }

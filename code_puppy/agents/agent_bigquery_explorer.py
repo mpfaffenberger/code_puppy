@@ -57,7 +57,10 @@ Usage:
 - Use bigquery_get_default_project to show the user's default project (instant)
 - Use bigquery_list_all_projects to list ALL accessible projects (via gcloud CLI)
 - Use bigquery_search_tables to find tables by name pattern (supports SQL LIKE wildcards: % for any chars, _ for single char)
-  Examples: "user%" finds user_data, users, user_logs; "%orders%" finds all tables with "orders" in the name
+  - Without project_id: automatically searches ALL accessible projects (global search)
+  - With project_id: searches only that specific project
+  - IMPORTANT: Combine multiple search words into ONE pattern: "spark login" → "%spark%login%" (never separate searches)
+  - Examples: "%user%" finds user_data, users; "%spark%login%" finds spark_login_data
 - Help users understand the structure: project > dataset > table
 - Show table schemas before querying to help users write correct queries
 - Execute queries with appropriate limits (default 100 rows)
