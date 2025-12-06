@@ -976,17 +976,42 @@ class BaseAgent(ABC):
 
     # ===== Agent wiring formerly in code_puppy/agent.py =====
     def load_puppy_rules(self) -> Optional[str]:
-        """Load AGENT(S).md if present and cache the contents."""
+        """Load AGENT(S).md from both global config and project directory.
+        
+        Checks for AGENTS.md/AGENT.md/agents.md/agent.md in this order:
+        1. Global config directory (~/.code_puppy/ or XDG config)
+        2. Current working directory (project-specific)
+        
+        If both exist, they are combined with global rules first, then project rules.
+        This allows project-specific rules to override or extend global rules.
+        """
         if self._puppy_rules is not None:
             return self._puppy_rules
         from pathlib import Path
 
         possible_paths = ["AGENTS.md", "AGENT.md", "agents.md", "agent.md"]
+        
+        # Load global rules from CONFIG_DIR
+        global_rules = None
+        from code_puppy.config import CONFIG_DIR
         for path_str in possible_paths:
-            puppy_rules_path = Path(path_str)
-            if puppy_rules_path.exists():
-                self._puppy_rules = puppy_rules_path.read_text(encoding="utf-8-sig")
+            global_path = Path(CONFIG_DIR) / path_str
+            if global_path.exists():
+                global_rules = global_path.read_text(encoding="utf-8-sig")
                 break
+        
+        # Load project-local rules from current working directory
+        project_rules = None
+        for path_str in possible_paths:
+            project_path = Path(path_str)
+            if project_path.exists():
+                project_rules = project_path.read_text(encoding="utf-8-sig")
+                break
+        
+        # Combine global and project rules
+        # Global rules come first, project rules second (allowing project to override)
+        rules = [r for r in [global_rules, project_rules] if r]
+        self._puppy_rules = "\n\n".join(rules) if rules else None
         return self._puppy_rules
 
     def load_mcp_servers(self, extra_headers: Optional[Dict[str, str]] = None):
@@ -1460,7 +1485,11 @@ class BaseAgent(ABC):
 
         if is_claude_code_model(self.get_model_name()):
             if len(self.get_message_history()) == 0:
-                prompt = self.get_system_prompt() + "\n\n" + prompt
+                system_prompt = self.get_system_prompt()
+                puppy_rules = self.load_puppy_rules()
+                if puppy_rules:
+                    system_prompt += f"\n{puppy_rules}"
+                prompt = system_prompt + "\n\n" + prompt
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []
