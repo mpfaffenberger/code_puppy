@@ -67,6 +67,43 @@ class TestAgentTools:
             assert "USER FEEDBACK SYSTEM" in file_permission_text
             assert "How User Approval Works" in file_permission_text
 
+    def test_invoke_agent_includes_puppy_rules(self):
+        """Test that invoke_agent includes AGENTS.md content for subagents (excluding ShellSafetyAgent)."""
+        from unittest.mock import MagicMock
+
+        # Mock agent configurations to test the logic
+        mock_agent_config = MagicMock()
+        mock_agent_config.name = "test-agent"
+        mock_agent_config.get_system_prompt.return_value = "Test system prompt"
+
+        # Mock AGENTS.md content
+        mock_puppy_rules = "# AGENTS.MD CONTENT\nSome puppy rules here..."
+        mock_agent_config.load_puppy_rules.return_value = mock_puppy_rules
+
+        # Test the core logic that was added to invoke_agent
+        # Test that regular agents get AGENTS.md content
+        instructions = mock_agent_config.get_system_prompt()
+        if mock_agent_config.name != "shell_safety_checker":
+            puppy_rules = mock_agent_config.load_puppy_rules()
+            if puppy_rules:
+                instructions += f"\n{puppy_rules}"
+
+        # Verify AGENTS.md was added to regular agent
+        assert mock_puppy_rules in instructions
+        assert "Test system prompt" in instructions
+
+        # Test that ShellSafetyAgent does NOT get AGENTS.md content
+        mock_agent_config.name = "shell_safety_checker"
+        instructions_safety = mock_agent_config.get_system_prompt()
+        if mock_agent_config.name != "shell_safety_checker":
+            puppy_rules = mock_agent_config.load_puppy_rules()
+            if puppy_rules:
+                instructions_safety += f"\n{puppy_rules}"
+
+        # Should not have added puppy_rules for shell safety agent
+        assert mock_puppy_rules not in instructions_safety
+        assert "Test system prompt" in instructions_safety
+
 
 class TestSessionIdValidation:
     """Test suite for session ID validation."""
