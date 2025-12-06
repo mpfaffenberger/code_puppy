@@ -7,17 +7,54 @@ from typing import Optional
 
 from code_puppy.session_storage import save_session
 
-CONFIG_DIR = os.path.join(os.getenv("HOME", os.path.expanduser("~")), ".code_puppy")
+
+def _get_xdg_dir(env_var: str, fallback: str) -> str:
+    """
+    Get XDG directory with fallback to legacy ~/.code_puppy if it exists.
+
+    Args:
+        env_var: XDG environment variable name (e.g., "XDG_CONFIG_HOME")
+        fallback: Fallback path relative to home (e.g., ".config")
+
+    Returns:
+        Path to the directory for code_puppy files
+    """
+    # Check if legacy ~/.code_puppy exists (backwards compatibility)
+    legacy_dir = os.path.join(os.path.expanduser("~"), ".code_puppy")
+    if os.path.exists(legacy_dir):
+        return legacy_dir
+
+    # Use XDG directory if environment variable is set
+    xdg_base = os.getenv(env_var)
+    if xdg_base:
+        return os.path.join(xdg_base, "code_puppy")
+
+    # Fallback to default XDG location
+    return os.path.join(os.path.expanduser("~"), fallback, "code_puppy")
+
+
+# XDG Base Directory paths
+CONFIG_DIR = _get_xdg_dir("XDG_CONFIG_HOME", ".config")
+DATA_DIR = _get_xdg_dir("XDG_DATA_HOME", ".local/share")
+CACHE_DIR = _get_xdg_dir("XDG_CACHE_HOME", ".cache")
+STATE_DIR = _get_xdg_dir("XDG_STATE_HOME", ".local/state")
+
+# Configuration files (XDG_CONFIG_HOME)
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
-COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
-MODELS_FILE = os.path.join(CONFIG_DIR, "models.json")
-EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
-AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
-CONTEXTS_DIR = os.path.join(CONFIG_DIR, "contexts")
-AUTOSAVE_DIR = os.path.join(CONFIG_DIR, "autosaves")
-# Default saving to a SQLite DB in the config dir
-_DEFAULT_SQLITE_FILE = os.path.join(CONFIG_DIR, "dbos_store.sqlite")
+
+# Data files (XDG_DATA_HOME)
+MODELS_FILE = os.path.join(DATA_DIR, "models.json")
+EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
+AGENTS_DIR = os.path.join(DATA_DIR, "agents")
+CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
+_DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
+
+# Cache files (XDG_CACHE_HOME)
+AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
+
+# State files (XDG_STATE_HOME)
+COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
 DBOS_DATABASE_URL = os.environ.get(
     "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
 )
@@ -48,11 +85,13 @@ _default_vqa_model_cache = None
 
 def ensure_config_exists():
     """
-    Ensure that the .code_puppy dir and puppy.cfg exist, prompting if needed.
+    Ensure that XDG directories and puppy.cfg exist, prompting if needed.
     Returns configparser.ConfigParser for reading.
     """
-    if not os.path.exists(CONFIG_DIR):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+    # Create all XDG directories
+    for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR]:
+        if not os.path.exists(directory):
+            os.makedirs(directory, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
     config = configparser.ConfigParser()
     if exists:
@@ -817,9 +856,9 @@ def initialize_command_history_file():
     import os
     from pathlib import Path
 
-    # Ensure the config directory exists before trying to create the history file
-    if not os.path.exists(CONFIG_DIR):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+    # Ensure the state directory exists before trying to create the history file
+    if not os.path.exists(STATE_DIR):
+        os.makedirs(STATE_DIR, exist_ok=True)
 
     command_history_exists = os.path.isfile(COMMAND_HISTORY_FILE)
     if not command_history_exists:
