@@ -400,6 +400,11 @@ def register_invoke_agent(agent):
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_system_prompt()
 
+            # Add AGENTS.md content to subagents
+            puppy_rules = agent_config.load_puppy_rules()
+            if puppy_rules:
+                instructions += f"\n\n{puppy_rules}"
+
             # Apply prompt additions (like file permission handling) to temporary agents
             from code_puppy import callbacks
             from code_puppy.model_utils import prepare_prompt_for_model
