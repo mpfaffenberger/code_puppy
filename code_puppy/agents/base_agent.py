@@ -46,6 +46,7 @@ from code_puppy.config import (
     get_value,
     load_mcp_server_configs,
 )
+from code_puppy.keymap import cancel_agent_uses_signal, get_cancel_agent_char_code
 from code_puppy.error_logging import log_error
 from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
@@ -984,9 +985,8 @@ class BaseAgent(ABC):
         for path_str in possible_paths:
             puppy_rules_path = Path(path_str)
             if puppy_rules_path.exists():
-                with open(puppy_rules_path, "r") as f:
-                    self._puppy_rules = f.read()
-                    break
+                self._puppy_rules = puppy_rules_path.read_text(encoding="utf-8-sig")
+                break
         return self._puppy_rules
 
     def load_mcp_servers(self, extra_headers: Optional[Dict[str, str]] = None):
@@ -1276,8 +1276,19 @@ class BaseAgent(ABC):
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
+        on_cancel_agent: Optional[Callable[[], None]] = None,
     ) -> Optional[threading.Thread]:
-        """Start a Ctrl+X key listener thread for CLI sessions."""
+        """Start a keyboard listener thread for CLI sessions.
+
+        Listens for Ctrl+X (shell command cancel) and optionally the configured
+        cancel_agent_key (when not using SIGINT/Ctrl+C).
+
+        Args:
+            stop_event: Event to signal the listener to stop.
+            on_escape: Callback for Ctrl+X (shell command cancel).
+            on_cancel_agent: Optional callback for cancel_agent_key (only used
+                when cancel_agent_uses_signal() returns False).
+        """
         try:
             import sys
         except ImportError:
@@ -1295,16 +1306,16 @@ class BaseAgent(ABC):
         def listener() -> None:
             try:
                 if sys.platform.startswith("win"):
-                    self._listen_for_ctrl_x_windows(stop_event, on_escape)
+                    self._listen_for_ctrl_x_windows(stop_event, on_escape, on_cancel_agent)
                 else:
-                    self._listen_for_ctrl_x_posix(stop_event, on_escape)
+                    self._listen_for_ctrl_x_posix(stop_event, on_escape, on_cancel_agent)
             except Exception:
                 emit_warning(
-                    "Ctrl+X key listener stopped unexpectedly; press Ctrl+C to cancel."
+                    "Key listener stopped unexpectedly; press Ctrl+C to cancel."
                 )
 
         thread = threading.Thread(
-            target=listener, name="code-puppy-esc-listener", daemon=True
+            target=listener, name="code-puppy-key-listener", daemon=True
         )
         thread.start()
         return thread
@@ -1313,9 +1324,15 @@ class BaseAgent(ABC):
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
+        on_cancel_agent: Optional[Callable[[], None]] = None,
     ) -> None:
         import msvcrt
         import time
+
+        # Get the cancel agent char code if we're using keyboard-based cancel
+        cancel_agent_char: Optional[str] = None
+        if on_cancel_agent is not None and not cancel_agent_uses_signal():
+            cancel_agent_char = get_cancel_agent_char_code()
 
         while not stop_event.is_set():
             try:
@@ -1328,9 +1345,16 @@ class BaseAgent(ABC):
                             emit_warning(
                                 "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                             )
+                    elif cancel_agent_char and on_cancel_agent and key == cancel_agent_char:
+                        try:
+                            on_cancel_agent()
+                        except Exception:
+                            emit_warning(
+                                "Cancel agent handler raised unexpectedly."
+                            )
             except Exception:
                 emit_warning(
-                    "Windows Ctrl+X listener error; Ctrl+C is still available for cancel."
+                    "Windows key listener error; Ctrl+C is still available for cancel."
                 )
                 return
             time.sleep(0.05)
@@ -1339,11 +1363,17 @@ class BaseAgent(ABC):
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
+        on_cancel_agent: Optional[Callable[[], None]] = None,
     ) -> None:
         import select
         import sys
         import termios
         import tty
+
+        # Get the cancel agent char code if we're using keyboard-based cancel
+        cancel_agent_char: Optional[str] = None
+        if on_cancel_agent is not None and not cancel_agent_uses_signal():
+            cancel_agent_char = get_cancel_agent_char_code()
 
         stdin = sys.stdin
         try:
@@ -1373,6 +1403,13 @@ class BaseAgent(ABC):
                     except Exception:
                         emit_warning(
                             "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
+                        )
+                elif cancel_agent_char and on_cancel_agent and data == cancel_agent_char:
+                    try:
+                        on_cancel_agent()
+                    except Exception:
+                        emit_warning(
+                            "Cancel agent handler raised unexpectedly."
                         )
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
@@ -1602,10 +1639,37 @@ class BaseAgent(ABC):
 
             schedule_agent_cancel()
 
+        def graceful_sigint_handler(_sig, _frame):
+            # When using keyboard-based cancel, SIGINT should be a no-op
+            # (just show a hint to user about the configured cancel key)
+            from code_puppy.keymap import get_cancel_agent_display_name
+
+            cancel_key = get_cancel_agent_display_name()
+            emit_info(f"Use {cancel_key} to cancel the agent task.")
+
         original_handler = None
+        key_listener_stop_event = None
+        key_listener_thread = None
+
         try:
-            # Save original handler and set our custom one AFTER task is created
-            original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+            if cancel_agent_uses_signal():
+                # Use SIGINT-based cancellation (default Ctrl+C behavior)
+                original_handler = signal.signal(
+                    signal.SIGINT, keyboard_interrupt_handler
+                )
+            else:
+                # Use keyboard listener for agent cancellation
+                # Set a graceful SIGINT handler that shows a hint
+                original_handler = signal.signal(
+                    signal.SIGINT, graceful_sigint_handler
+                )
+                # Spawn keyboard listener with the cancel agent callback
+                key_listener_stop_event = threading.Event()
+                key_listener_thread = self._spawn_ctrl_x_key_listener(
+                    key_listener_stop_event,
+                    on_escape=lambda: None,  # Ctrl+X handled by command_runner
+                    on_cancel_agent=schedule_agent_cancel,
+                )
 
             # Wait for the task to complete or be cancelled
             result = await agent_task
@@ -1625,6 +1689,9 @@ class BaseAgent(ABC):
             if not agent_task.done():
                 agent_task.cancel()
         finally:
+            # Stop keyboard listener if it was started
+            if key_listener_stop_event is not None:
+                key_listener_stop_event.set()
             # Restore original signal handler
-            if original_handler:
+            if original_handler is not None:  # Explicit None check - SIG_DFL can be 0/falsy!
                 signal.signal(signal.SIGINT, original_handler)
