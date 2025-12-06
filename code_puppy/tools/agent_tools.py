@@ -1,5 +1,6 @@
 # agent_tools.py
 import asyncio
+import hashlib
 import itertools
 import json
 import pickle
@@ -29,7 +30,6 @@ from code_puppy.messaging import (
 from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.tools.common import generate_group_id
 
-_temp_agent_count = 0
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
 
@@ -53,6 +53,16 @@ def _generate_dbos_workflow_id(base_id: str) -> str:
     """
     counter = next(_dbos_workflow_counter)
     return f"{base_id}-wf-{counter}"
+
+
+def _generate_session_hash_suffix() -> str:
+    """Generate a short SHA1 hash suffix based on current timestamp for uniqueness.
+
+    Returns:
+        A 6-character hex string, e.g., "a3f2b1"
+    """
+    timestamp = str(datetime.now().timestamp())
+    return hashlib.sha1(timestamp.encode()).hexdigest()[:6]
 
 
 # Regex pattern for kebab-case session IDs
@@ -208,6 +218,7 @@ class AgentInvokeOutput(BaseModel):
 
     response: str | None
     agent_name: str
+    session_id: str | None = None
     error: str | None = None
 
 
@@ -285,21 +296,25 @@ def register_invoke_agent(agent):
 
                        **Session ID Format:**
                        - Must be kebab-case (lowercase letters, numbers, hyphens only)
-                       - Should be human-readable with random suffix: e.g., "implement-oauth-abc123", "review-auth-x7k9"
-                       - Add 3-6 random characters/numbers at the end to prevent namespace collisions
+                       - Should be human-readable: e.g., "implement-oauth", "review-auth"
+                       - For NEW sessions, a SHA1 hash suffix is automatically appended for uniqueness
+                       - To CONTINUE a session, use the full session_id (with hash) from the previous invocation
                        - If None (default), auto-generates like "agent-name-session-1"
 
                        **When to use session_id:**
-                       - **REUSE** the same session_id ONLY when you need the sub-agent to remember
-                         previous conversation context (e.g., multi-turn discussions, iterative reviews)
-                       - **DO NOT REUSE** for independent, one-off tasks - let it auto-generate or use
-                         unique IDs for each invocation
+                       - **NEW SESSION**: Provide a base name like "review-auth" - we'll append a unique hash
+                       - **CONTINUE SESSION**: Use the full session_id from output (e.g., "review-auth-a3f2b1")
+                       - **ONE-OFF TASKS**: Leave as None (auto-generate)
 
                        **Most common pattern:** Leave session_id as None (auto-generate) unless you
                        specifically need conversational memory.
 
         Returns:
-            AgentInvokeOutput: The agent's response to the prompt
+            AgentInvokeOutput: Contains:
+                - response (str | None): The agent's response to the prompt
+                - agent_name (str): Name of the invoked agent
+                - session_id (str | None): The full session ID (with hash suffix) - USE THIS to continue the conversation!
+                - error (str | None): Error message if invocation failed
 
         Examples:
             # COMMON CASE: One-off invocation, no memory needed (auto-generate session)
@@ -307,46 +322,43 @@ def register_invoke_agent(agent):
                 "qa-expert",
                 "Review this function: def add(a, b): return a + b"
             )
+            # result.session_id will be something like "qa-expert-session-a3f2b1"
 
-            # MULTI-TURN: Start a conversation with explicit session ID (note random suffix)
+            # MULTI-TURN: Start a NEW conversation with a base session ID
+            # A hash suffix is auto-appended: "review-add-function" -> "review-add-function-a3f2b1"
             result1 = invoke_agent(
                 "qa-expert",
                 "Review this function: def add(a, b): return a + b",
-                session_id="review-add-function-x7k9"  # Random suffix prevents collisions
+                session_id="review-add-function"
             )
+            # result1.session_id contains the full ID like "review-add-function-a3f2b1"
 
-            # Continue the SAME conversation (reuse session_id to maintain memory)
+            # Continue the SAME conversation using session_id from the previous result
             result2 = invoke_agent(
                 "qa-expert",
                 "Can you suggest edge cases for that function?",
-                session_id="review-add-function-x7k9"  # SAME session_id = conversation memory
+                session_id=result1.session_id  # Use the session_id from previous output!
             )
 
-            # Multiple INDEPENDENT reviews (unique session IDs with random suffixes)
+            # Multiple INDEPENDENT reviews (each gets unique hash suffix)
             auth_review = invoke_agent(
                 "code-reviewer",
                 "Review my authentication code",
-                session_id="auth-review-abc123"  # Random suffix for uniqueness
+                session_id="auth-review"  # -> "auth-review-<hash1>"
             )
+            # auth_review.session_id contains the full ID to continue this review
 
             payment_review = invoke_agent(
                 "code-reviewer",
                 "Review my payment processing code",
-                session_id="payment-review-def456"  # Different session = no shared context
+                session_id="payment-review"  # -> "payment-review-<hash2>"
             )
+            # payment_review.session_id contains a different full ID
         """
-        global _temp_agent_count
-
         from code_puppy.agents.agent_manager import load_agent
 
-        # Generate or use provided session_id (kebab-case format)
-        if session_id is None:
-            # Create a new session ID in kebab-case format
-            # Example: "qa-expert-session-1", "code-reviewer-session-2"
-            _temp_agent_count += 1
-            session_id = f"{agent_name}-session-{_temp_agent_count}"
-        else:
-            # Validate user-provided session_id
+        # Validate user-provided session_id if given
+        if session_id is not None:
             try:
                 _validate_session_id(session_id)
             except ValueError as e:
@@ -360,16 +372,35 @@ def register_invoke_agent(agent):
         # Generate a group ID for this tool execution
         group_id = generate_group_id("invoke_agent", agent_name)
 
+        # Check if this is an existing session or a new one
+        # For user-provided session_id, check if it exists
+        # For None, we'll generate a new one below
+        if session_id is not None:
+            message_history = _load_session_history(session_id)
+            is_new_session = len(message_history) == 0
+        else:
+            message_history = []
+            is_new_session = True
+
+        # Generate or finalize session_id
+        if session_id is None:
+            # Auto-generate a session ID with hash suffix for uniqueness
+            # Example: "qa-expert-session-a3f2b1"
+            hash_suffix = _generate_session_hash_suffix()
+            session_id = f"{agent_name}-session-{hash_suffix}"
+        elif is_new_session:
+            # User provided a base name for a NEW session - append hash suffix
+            # Example: "review-auth" -> "review-auth-a3f2b1"
+            hash_suffix = _generate_session_hash_suffix()
+            session_id = f"{session_id}-{hash_suffix}"
+        # else: continuing existing session, use session_id as-is
+
         emit_info(
             f"\n[bold white on blue] INVOKE AGENT [/bold white on blue] {agent_name} (session: {session_id})",
             message_group=group_id,
         )
         emit_divider(message_group=group_id)
         emit_system_message(f"Prompt: {prompt}", message_group=group_id)
-
-        # Retrieve existing message history from filesystem for this session, if any
-        message_history = _load_session_history(session_id)
-        is_new_session = len(message_history) == 0
 
         if message_history:
             emit_system_message(
@@ -378,7 +409,11 @@ def register_invoke_agent(agent):
             )
         else:
             emit_system_message(
-                f"Starting new session {session_id}",
+                f"Starting new session: [bold]{session_id}[/bold]",
+                message_group=group_id,
+            )
+            emit_system_message(
+                f'To continue this conversation, use session_id="{session_id}"',
                 message_group=group_id,
             )
         emit_divider(message_group=group_id)
@@ -423,7 +458,7 @@ def register_invoke_agent(agent):
             instructions = prepared.instructions
             prompt = prepared.user_prompt
 
-            subagent_name = f"temp-invoke-agent-{_temp_agent_count}"
+            subagent_name = f"temp-invoke-agent-{session_id}"
             model_settings = make_model_settings(model_name)
 
             temp_agent = Agent(
@@ -502,14 +537,19 @@ def register_invoke_agent(agent):
             )
             emit_divider(message_group=group_id)
 
-            return AgentInvokeOutput(response=response, agent_name=agent_name)
+            return AgentInvokeOutput(
+                response=response, agent_name=agent_name, session_id=session_id
+            )
 
         except Exception:
             error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
             emit_divider(message_group=group_id)
             return AgentInvokeOutput(
-                response=None, agent_name=agent_name, error=error_msg
+                response=None,
+                agent_name=agent_name,
+                session_id=session_id,
+                error=error_msg,
             )
 
     return invoke_agent
