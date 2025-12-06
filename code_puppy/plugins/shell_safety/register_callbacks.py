@@ -111,8 +111,9 @@ async def shell_safety_callback(
         # Run async assessment (we're in an async callback now!)
         assessment = await agent.assess_command(command, cwd)
 
-        # Cache the result for future use
-        cache_assessment(command, cwd, assessment.risk, assessment.reasoning)
+        # Cache the result for future use, but only if it's not a fallback assessment
+        if not getattr(assessment, "is_fallback", False):
+            cache_assessment(command, cwd, assessment.risk, assessment.reasoning)
 
         # Check if risk exceeds threshold (commands at threshold are allowed)
         if compare_risk_levels(assessment.risk, threshold):
