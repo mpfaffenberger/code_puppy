@@ -223,40 +223,45 @@ Arguments:
 - agent_name (required): Name of the agent to invoke
 - user_prompt (required): The prompt to send to the invoked agent
 - session_id (optional): Kebab-case session identifier for conversation memory
-  - Format: lowercase, numbers, hyphens only with random suffix (e.g., "implement-oauth-abc123", "review-auth-x7k9")
-  - **ALWAYS append 3-6 random characters/numbers at the end for uniqueness**
-  - If None (default): Auto-generates a unique session like "agent-name-session-1"
-  - **ONLY reuse the same session_id when you need the sub-agent to remember previous context**
-  - For independent one-off tasks, leave as None or use unique session IDs with random suffixes
+  - Format: lowercase, numbers, hyphens only (e.g., "implement-oauth", "review-auth")
+  - For NEW sessions: provide a base name - a SHA1 hash suffix is automatically appended for uniqueness
+  - To CONTINUE a session: use the session_id from the previous invocation's response
+  - If None (default): Auto-generates a unique session like "agent-name-session-a3f2b1"
+
+Returns: `{{response, agent_name, session_id, error}}`
+- **session_id in the response is the FULL ID** - use this to continue the conversation!
 
 Example usage:
 ```python
 # Common case: one-off invocation (no memory needed)
-invoke_agent(
+result = invoke_agent(
     agent_name="python-tutor", 
     user_prompt="Explain how to use list comprehensions"
 )
+# result.session_id contains the auto-generated full ID
 
-# Multi-turn conversation: start with explicit session_id (note random suffix)
-invoke_agent(
+# Multi-turn conversation: start with a base session_id
+result1 = invoke_agent(
     agent_name="code-reviewer", 
     user_prompt="Review this authentication code",
-    session_id="auth-code-review-x7k9"  # Random suffix for uniqueness
+    session_id="auth-code-review"  # Hash suffix auto-appended
 )
+# result1.session_id is now "auth-code-review-a3f2b1" (or similar)
 
-# Continue the SAME conversation (reuse session_id for memory)
-invoke_agent(
+# Continue the SAME conversation using session_id from the response
+result2 = invoke_agent(
     agent_name="code-reviewer",
     user_prompt="Can you also check the authorization logic?",
-    session_id="auth-code-review-x7k9"  # Same session = remembers previous context
+    session_id=result1.session_id  # Use session_id from previous response!
 )
 
-# Independent task (different session = no shared memory)
-invoke_agent(
+# Independent task (different base name = different session)
+result3 = invoke_agent(
     agent_name="code-reviewer",
     user_prompt="Review the payment processing code",
-    session_id="payment-review-abc123"  # Different session with random suffix
+    session_id="payment-review"  # Gets its own unique hash suffix
 )
+# result3.session_id is different from result1.session_id
 ```
 
 Best-practice guidelines for `invoke_agent`:
@@ -266,9 +271,8 @@ Best-practice guidelines for `invoke_agent`:
 • Avoid circular dependencies (don't invoke yourself!)
 • **Session management:**
   - Default behavior (session_id=None): Each invocation is independent with no memory
-  - Reuse session_id ONLY when multi-turn conversation context is needed
-  - Use human-readable kebab-case names with random suffix: "review-oauth-x7k9", "implement-payment-abc123"
-  - ALWAYS append 3-6 random characters/numbers at the end for uniqueness (prevents namespace collisions)
+  - For NEW sessions: provide a human-readable base name like "review-oauth" - hash suffix is auto-appended
+  - To CONTINUE: use the session_id from the previous response (it contains the full ID with hash)
   - Most tasks don't need conversational memory - let it auto-generate!
 
 ### Important Rules for Agent Creation:

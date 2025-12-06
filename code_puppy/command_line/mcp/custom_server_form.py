@@ -106,6 +106,10 @@ class CustomServerForm:
         # Focus state: 0=name, 1=type, 2=json
         self.focused_field = 0
 
+        # Status message for user feedback (e.g., "Save failed: ...")
+        self.status_message: Optional[str] = None
+        self.status_is_error: bool = False
+
         # Result
         self.result = None  # "installed", "cancelled", None
 
@@ -136,6 +140,12 @@ class CustomServerForm:
         else:
             name_display = self.server_name if self.server_name else "(not set)"
             lines.append(("fg:ansibrightblack", f"     {name_display}"))
+
+        # Show name validation hint inline
+        name_error = self._validate_server_name(self.server_name)
+        if name_error and self.server_name:  # Only show if there's input
+            lines.append(("", "\n"))
+            lines.append(("fg:ansiyellow", f"     ⚠ {name_error}"))
         lines.append(("", "\n\n"))
 
         # Server Type field
@@ -200,6 +210,16 @@ class CustomServerForm:
         lines.append(("", "Save & Install\n"))
         lines.append(("fg:ansired", "  Ctrl+C/Esc "))
         lines.append(("", "Cancel"))
+
+        # Status message bar - shows feedback for user actions
+        if self.status_message:
+            lines.append(("", "\n\n"))
+            lines.append(("bold", "  ─" * 20))
+            lines.append(("", "\n"))
+            if self.status_is_error:
+                lines.append(("fg:ansired bold", f"  ⚠️  {self.status_message}"))
+            else:
+                lines.append(("fg:ansigreen bold", f"  ✓ {self.status_message}"))
 
         return lines
 
@@ -269,6 +289,30 @@ class CustomServerForm:
 
         return lines
 
+    def _validate_server_name(self, name: str) -> Optional[str]:
+        """Validate server name format.
+
+        Args:
+            name: Server name to validate
+
+        Returns:
+            Error message if invalid, None if valid
+        """
+        if not name or not name.strip():
+            return "Server name is required"
+
+        name = name.strip()
+
+        # Check for valid characters (alphanumeric, hyphens, underscores)
+        if not name.replace("-", "").replace("_", "").isalnum():
+            return "Name must be alphanumeric (hyphens/underscores OK)"
+
+        # Check for reasonable length
+        if len(name) > 64:
+            return "Name too long (max 64 characters)"
+
+        return None
+
     def _validate_json(self) -> bool:
         """Validate the current JSON configuration.
 
@@ -304,11 +348,17 @@ class CustomServerForm:
         from code_puppy.config import MCP_SERVERS_FILE
         from code_puppy.mcp_.managed_server import ServerConfig
 
-        if not self.server_name.strip():
-            self.validation_error = "Server name is required"
+        # Validate server name first
+        name_error = self._validate_server_name(self.server_name)
+        if name_error:
+            self.validation_error = name_error
+            self.status_message = f"Save failed: {name_error}"
+            self.status_is_error = True
             return False
 
         if not self._validate_json():
+            self.status_message = f"Save failed: {self.validation_error}"
+            self.status_is_error = True
             return False
 
         server_name = self.server_name.strip()
@@ -329,6 +379,10 @@ class CustomServerForm:
 
             if not server_id:
                 self.validation_error = "Failed to register server"
+                self.status_message = (
+                    "Save failed: Could not register server (name may already exist)"
+                )
+                self.status_is_error = True
                 return False
 
             # Save to mcp_servers.json for persistence
@@ -363,6 +417,8 @@ class CustomServerForm:
 
         except Exception as e:
             self.validation_error = f"Error: {e}"
+            self.status_message = f"Save failed: {e}"
+            self.status_is_error = True
             return False
 
     def run(self) -> bool:
