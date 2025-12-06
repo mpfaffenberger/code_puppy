@@ -10,7 +10,58 @@ from pathlib import Path
 
 from pydantic_ai import _agent_graph
 
+# Monkey-patch: disable overly strict message history cleaning
 _agent_graph._clean_message_history = lambda messages: messages
+
+# Monkey-patch: store original _process_message_history and create a less strict version
+# Pydantic AI added a validation that history must end with ModelRequest, but this
+# breaks valid use cases. We patch it to skip that validation.
+_original_process_message_history = _agent_graph._process_message_history
+
+
+async def _patched_process_message_history(messages, processors, run_context):
+    """Patched version that doesn't enforce ModelRequest at end."""
+    from pydantic_ai._agent_graph import (
+        _HistoryProcessorAsync,
+        _HistoryProcessorSync,
+        _HistoryProcessorSyncWithCtx,
+        cast,
+        exceptions,
+        is_async_callable,
+        is_takes_ctx,
+        run_in_executor,
+    )
+
+    for processor in processors:
+        takes_ctx = is_takes_ctx(processor)
+
+        if is_async_callable(processor):
+            if takes_ctx:
+                messages = await processor(run_context, messages)
+            else:
+                async_processor = cast(_HistoryProcessorAsync, processor)
+                messages = await async_processor(messages)
+        else:
+            if takes_ctx:
+                sync_processor_with_ctx = cast(_HistoryProcessorSyncWithCtx, processor)
+                messages = await run_in_executor(
+                    sync_processor_with_ctx, run_context, messages
+                )
+            else:
+                sync_processor = cast(_HistoryProcessorSync, processor)
+                messages = await run_in_executor(sync_processor, messages)
+
+    if len(messages) == 0:
+        raise exceptions.UserError("Processed history cannot be empty.")
+
+    # NOTE: We intentionally skip the "must end with ModelRequest" validation
+    # that was added in newer Pydantic AI versions. It's overly strict and
+    # breaks valid conversation flows.
+
+    return messages
+
+
+_agent_graph._process_message_history = _patched_process_message_history
 
 from dbos import DBOS, DBOSConfig
 from rich.console import Console, ConsoleOptions, RenderResult
