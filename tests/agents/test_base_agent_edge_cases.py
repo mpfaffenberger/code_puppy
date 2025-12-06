@@ -12,7 +12,7 @@ This module tests error handling and edge cases in BaseAgent methods:
 Focuses on ensuring error handling doesn't crash and provides graceful degradation.
 """
 
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
@@ -277,10 +277,10 @@ class TestBaseAgentEdgeCases:
             # Should return the negative value converted to int (strange but shouldn't crash)
             assert isinstance(result, int)
 
-    @patch("builtins.open", side_effect=PermissionError("Permission denied"))
+    @patch("pathlib.Path.read_text", side_effect=PermissionError("Permission denied"))
     @patch("pathlib.Path.exists")
     def test_load_puppy_rules_file_permission_error(
-        self, mock_exists, mock_open_file, agent
+        self, mock_exists, mock_read_text, agent
     ):
         """Test load_puppy_rules when file exists but can't be read due to permissions."""
         mock_exists.return_value = True
@@ -289,9 +289,9 @@ class TestBaseAgentEdgeCases:
         with pytest.raises(PermissionError):
             agent.load_puppy_rules()
 
-    @patch("builtins.open", side_effect=IOError("Disk error"))
+    @patch("pathlib.Path.read_text", side_effect=IOError("Disk error"))
     @patch("pathlib.Path.exists")
-    def test_load_puppy_rules_file_io_error(self, mock_exists, mock_open_file, agent):
+    def test_load_puppy_rules_file_io_error(self, mock_exists, mock_read_text, agent):
         """Test load_puppy_rules when file has IO error."""
         mock_exists.return_value = True
 
@@ -299,9 +299,9 @@ class TestBaseAgentEdgeCases:
         with pytest.raises(IOError):
             agent.load_puppy_rules()
 
-    @patch("builtins.open", new_callable=mock_open, read_data="")
+    @patch("pathlib.Path.read_text", return_value="")
     @patch("pathlib.Path.exists")
-    def test_load_puppy_rules_empty_file(self, mock_exists, mock_open_file, agent):
+    def test_load_puppy_rules_empty_file(self, mock_exists, mock_read_text, agent):
         """Test load_puppy_rules with empty file."""
         mock_exists.return_value = True
 

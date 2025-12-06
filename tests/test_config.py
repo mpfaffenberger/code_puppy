@@ -280,6 +280,7 @@ class TestGetConfigKeys:
             [
                 "allow_recursion",
                 "auto_save_session",
+                "cancel_agent_key",
                 "compaction_strategy",
                 "compaction_threshold",
                 "default_agent",
@@ -313,6 +314,7 @@ class TestGetConfigKeys:
             [
                 "allow_recursion",
                 "auto_save_session",
+                "cancel_agent_key",
                 "compaction_strategy",
                 "compaction_threshold",
                 "default_agent",
