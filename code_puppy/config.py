@@ -163,6 +163,8 @@ def get_config_keys():
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
+    # Add cancel agent key configuration
+    default_keys.append("cancel_agent_key")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
