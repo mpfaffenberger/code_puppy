@@ -202,7 +202,7 @@ class ManagedMCPServer:
                 self._pydantic_server = BlockingMCPServerStdio(
                     **stdio_kwargs,
                     process_tool_call=process_tool_call,
-                    tool_prefix=config["name"],
+                    tool_prefix=self.config.name,
                     emit_stderr=True,  # Always emit stderr for now
                     message_group=message_group,
                 )
