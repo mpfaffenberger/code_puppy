@@ -47,6 +47,7 @@ from code_puppy.config import (
     load_mcp_server_configs,
 )
 from code_puppy.keymap import cancel_agent_uses_signal, get_cancel_agent_char_code
+from code_puppy.error_logging import log_error
 from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
@@ -363,8 +364,8 @@ class BaseAgent(ABC):
         # fixed instructions. For other models, count the full system prompt.
         try:
             from code_puppy.model_utils import (
-                is_claude_code_model,
                 get_claude_code_instructions,
+                is_claude_code_model,
             )
 
             model_name = (
@@ -1574,6 +1575,12 @@ class BaseAgent(ABC):
                         remaining_exceptions.append(exc)
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
                         emit_info(f"{str(exc.args)}", group_id=group_id)
+                        # Log to file for debugging
+                        log_error(
+                            exc,
+                            context=f"Agent run (group_id={group_id})",
+                            include_traceback=True,
+                        )
 
                 collect_non_cancelled_exceptions(other_error)
 
