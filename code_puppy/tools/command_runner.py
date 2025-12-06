@@ -219,10 +219,13 @@ class ShellSafetyAssessment(BaseModel):
               'high' (significant risk), 'critical' (severe/destructive risk).
         reasoning: Brief explanation (max 1-2 sentences) of why this risk level
                    was assigned. Should be concise and actionable.
+        is_fallback: Whether this assessment is a fallback due to parsing failure.
+                     Fallback assessments are not cached to allow retry with fresh LLM responses.
     """
 
     risk: Literal["none", "low", "medium", "high", "critical"]
     reasoning: str
+    is_fallback: bool = False
 
 
 def _listen_for_ctrl_x_windows(
