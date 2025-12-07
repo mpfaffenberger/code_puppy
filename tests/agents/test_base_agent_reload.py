@@ -22,7 +22,6 @@ class TestBaseAgentReload:
             patch.object(agent, "load_puppy_rules", return_value="Be a good puppy!"),
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=["test_tool"]),
-            patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
             patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
@@ -129,7 +128,6 @@ class TestBaseAgentReload:
             patch.object(agent, "load_puppy_rules", return_value=puppy_rules),
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=[]),
-            patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
             patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
@@ -160,7 +158,6 @@ class TestBaseAgentReload:
             patch.object(agent, "load_puppy_rules", return_value=""),
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=test_tools),
-            patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
             patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
@@ -183,15 +180,19 @@ class TestBaseAgentReload:
 
     def test_reload_model_settings_configuration(self, agent):
         """Test that model settings are configured with max_tokens."""
+        # Mock config with context_length for max_tokens calculation in make_model_settings
+        mock_config = {"test-model": {"context_length": 128000}}
         with (
-            patch("code_puppy.model_factory.ModelFactory.load_config"),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=mock_config,
+            ),
             patch("code_puppy.model_factory.ModelFactory.get_model"),
             patch("code_puppy.tools.register_tools_for_agent"),
             patch.object(agent, "get_model_name", return_value="test-model"),
             patch.object(agent, "load_puppy_rules", return_value=""),
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=[]),
-            patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
             patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
@@ -210,8 +211,8 @@ class TestBaseAgentReload:
 
             # Check max_tokens is calculated properly
             assert "max_tokens" in model_settings
-            # Expected: max(2048, min(int(0.05 * 128000) - 1024, 16384)) = 5376
-            expected_max_tokens = max(2048, min(int(0.05 * 128000) - 1024, 16384))
+            # Expected: max(2048, min(int(0.15 * 128000), 65536)) = 19200
+            expected_max_tokens = max(2048, min(int(0.15 * 128000), 65536))
             assert model_settings["max_tokens"] == expected_max_tokens
 
             assert result == mock_agent_instance
@@ -225,7 +226,6 @@ class TestBaseAgentReload:
             patch.object(agent, "load_puppy_rules", return_value=""),
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=[]),
-            patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
             patch("code_puppy.agents.base_agent.get_use_dbos", return_value=True),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
@@ -260,7 +260,6 @@ class TestBaseAgentReload:
             patch.object(agent, "load_puppy_rules", return_value=""),
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=[]),
-            patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
             patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
@@ -295,7 +294,6 @@ class TestBaseAgentReload:
             patch.object(agent, "load_puppy_rules", return_value=""),
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=[]),
-            patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
             patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
@@ -316,7 +314,6 @@ class TestBaseAgentReload:
             agent.load_puppy_rules.assert_called_once()
             agent.load_mcp_servers.assert_called_once()
             agent.get_available_tools.assert_called()  # Called at least once (may be called twice)
-            agent.get_model_context_length.assert_called()
             mock_register.assert_called()
 
             assert result is not None

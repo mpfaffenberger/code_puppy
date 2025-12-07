@@ -748,7 +748,8 @@ class TestOAuthConfigurationIntegration:
 
         # Paths should be in the same directory
         assert chatgpt_token_path.parent == chatgpt_models_path.parent
-        assert chatgpt_token_path.parent.name == ".code_puppy"
+        # Parent dir should be code_puppy (either legacy .code_puppy or XDG code_puppy)
+        assert "code_puppy" in chatgpt_token_path.parent.name
 
 
 class TestOAuthDataIntegrity:

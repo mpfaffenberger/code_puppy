@@ -1137,13 +1137,7 @@ class BaseAgent(ABC):
 
         mcp_servers = self.load_mcp_servers()
 
-        output_tokens = max(
-            2048,
-            min(int(0.05 * self.get_model_context_length()) - 1024, 16384),
-        )
-        model_settings = make_model_settings(
-            resolved_model_name, max_tokens=output_tokens
-        )
+        model_settings = make_model_settings(resolved_model_name)
 
         # Handle claude-code models: swap instructions (prompt prepending happens in run_with_mcp)
         from code_puppy.model_utils import prepare_prompt_for_model
