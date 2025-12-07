@@ -60,11 +60,9 @@ class TestMessagingPackageExports:
     def test_renderer_exports(self):
         """Test that all renderer classes are exported."""
         assert "InteractiveRenderer" in messaging_package.__all__
-        assert "TUIRenderer" in messaging_package.__all__
         assert "SynchronousInteractiveRenderer" in messaging_package.__all__
 
         assert hasattr(messaging_package, "InteractiveRenderer")
-        assert hasattr(messaging_package, "TUIRenderer")
         assert hasattr(messaging_package, "SynchronousInteractiveRenderer")
 
     def test_console_exports(self):
@@ -106,7 +104,6 @@ class TestMessagingPackageExports:
             "provide_prompt_response",
             "get_buffered_startup_messages",
             "InteractiveRenderer",
-            "TUIRenderer",
             "SynchronousInteractiveRenderer",
             "QueueConsole",
             "get_queue_console",
