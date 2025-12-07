@@ -337,17 +337,16 @@ class RichConsoleRenderer:
 
     def _render_file_content(self, msg: FileContentMessage) -> None:
         """Render file content with syntax highlighting matching old format."""
-        # Header matching old format
-        self._console.print(
-            f"\n[bold white on blue] READ FILE [/bold white on blue] "
-            f"📂 [bold cyan]{msg.path}[/bold cyan]",
-            end="",
-        )
+        # Header on single line
         if msg.start_line and msg.num_lines:
             end_line = msg.start_line + msg.num_lines - 1
-            self._console.print(f" [dim](lines {msg.start_line}-{end_line})[/dim]")
+            line_info = f" [dim](lines {msg.start_line}-{end_line})[/dim]"
         else:
-            self._console.print("")
+            line_info = ""
+        self._console.print(
+            f"\n[bold white on blue] READ FILE [/bold white on blue] "
+            f"📂 [bold cyan]{msg.path}[/bold cyan]{line_info}"
+        )
 
         # Determine language from file extension
         ext = msg.path.rsplit(".", 1)[-1] if "." in msg.path else ""
@@ -453,16 +452,15 @@ class RichConsoleRenderer:
 
     def _render_diff(self, msg: DiffMessage) -> None:
         """Render a diff with color coding matching old format."""
-        # Header matching old format
-        self._console.print("\n[bold white on blue] EDIT FILE [/bold white on blue]")
-
         # Operation-specific styling
         op_icons = {"create": "✨", "modify": "✏️", "delete": "🗑️"}
         op_colors = {"create": "green", "modify": "yellow", "delete": "red"}
         icon = op_icons.get(msg.operation, "📄")
         op_color = op_colors.get(msg.operation, "white")
 
+        # Header on single line
         self._console.print(
+            f"\n[bold white on blue] EDIT FILE [/bold white on blue] "
             f"{icon} [{op_color}]{msg.operation.upper()}[/{op_color}] "
             f"[bold cyan]{msg.path}[/bold cyan]"
         )
