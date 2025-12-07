@@ -1,6 +1,6 @@
 """Error logging utility for code_puppy.
 
-Logs unexpected errors to ~/.code_puppy/logs/ for debugging purposes.
+Logs unexpected errors to XDG_CONFIG_HOME/code_puppy/logs/ for debugging purposes.
 Because even good puppies make mistakes sometimes! 🐶
 """
 

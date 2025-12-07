@@ -24,7 +24,7 @@ class ServerRegistry:
     Registry for managing MCP server configurations.
 
     Provides CRUD operations for server configurations with thread-safe access,
-    validation, and persistent storage to ~/.code_puppy/mcp_registry.json.
+    validation, and persistent storage to XDG_DATA_HOME/code_puppy/mcp_registry.json.
 
     All operations are thread-safe and use JSON serialization for ServerConfig objects.
     Handles file not existing gracefully and validates configurations according to

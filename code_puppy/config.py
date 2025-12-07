@@ -229,7 +229,7 @@ def set_config_value(key: str, value: str):
 # --- MODEL STICKY EXTENSION STARTS HERE ---
 def load_mcp_server_configs():
     """
-    Loads the MCP server configurations from ~/.code_puppy/mcp_servers.json.
+    Loads the MCP server configurations from XDG_CONFIG_HOME/code_puppy/mcp_servers.json.
     Returns a dict mapping names to their URL or config dict.
     If file does not exist, returns an empty dict.
     """
