@@ -6,6 +6,7 @@ from typing import Optional
 
 from playwright.async_api import Browser, BrowserContext, Page
 
+from code_puppy import config
 from code_puppy.messaging import emit_info
 
 
@@ -48,12 +49,13 @@ class CamoufoxManager:
         return cls._instance
 
     def _get_profile_directory(self) -> Path:
-        """Get or create the persistent profile directory.
+        """Get or create the persistent profile directory (uses XDG_CACHE_HOME).
 
-        Returns a Path object pointing to ~/.code_puppy/camoufox_profile
+        Returns a Path object pointing to XDG_CACHE_HOME/code_puppy/camoufox_profile
         where browser data (cookies, history, bookmarks, etc.) will be stored.
         """
-        profile_path = Path.home() / ".code_puppy" / "camoufox_profile"
+        cache_dir = Path(config.CACHE_DIR)
+        profile_path = cache_dir / "camoufox_profile"
         profile_path.mkdir(parents=True, exist_ok=True)
         return profile_path
 

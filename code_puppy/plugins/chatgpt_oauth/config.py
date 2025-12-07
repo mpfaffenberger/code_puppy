@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any, Dict
 
+from code_puppy import config
+
 # ChatGPT OAuth configuration based on OpenAI's Codex CLI flow
 CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     # OAuth endpoints from OpenAI auth service
@@ -16,8 +18,8 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     "redirect_path": "auth/callback",
     "required_port": 1455,
     "callback_timeout": 120,
-    # Local configuration
-    "token_storage": "~/.code_puppy/chatgpt_oauth.json",
+    # Local configuration (uses XDG_DATA_HOME)
+    "token_storage": None,  # Set dynamically in get_token_storage_path()
     # Model configuration
     "prefix": "chatgpt-",
     "default_context_length": 272000,
@@ -26,19 +28,21 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
 
 
 def get_token_storage_path() -> Path:
-    """Get the path for storing OAuth tokens."""
-    storage_path = Path(CHATGPT_OAUTH_CONFIG["token_storage"]).expanduser()
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    return storage_path
+    """Get the path for storing OAuth tokens (uses XDG_DATA_HOME)."""
+    data_dir = Path(config.DATA_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "chatgpt_oauth.json"
 
 
 def get_config_dir() -> Path:
-    """Get the Code Puppy configuration directory."""
-    config_dir = Path("~/.code_puppy").expanduser()
+    """Get the Code Puppy configuration directory (uses XDG_CONFIG_HOME)."""
+    config_dir = Path(config.CONFIG_DIR)
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
 
 
 def get_chatgpt_models_path() -> Path:
-    """Get the path to the dedicated chatgpt_models.json file."""
-    return get_config_dir() / "chatgpt_models.json"
+    """Get the path to the dedicated chatgpt_models.json file (uses XDG_DATA_HOME)."""
+    data_dir = Path(config.DATA_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "chatgpt_models.json"

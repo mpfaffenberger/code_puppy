@@ -5,14 +5,15 @@ from typing import Any, Dict
 
 from pydantic_ai import RunContext
 
+from code_puppy import config
 from code_puppy.messaging import emit_info
 from code_puppy.tools.common import generate_group_id
 
 
 def get_workflows_directory() -> Path:
-    """Get the browser workflows directory, creating it if it doesn't exist."""
-    home_dir = Path.home()
-    workflows_dir = home_dir / ".code_puppy" / "browser_workflows"
+    """Get the browser workflows directory, creating it if it doesn't exist (uses XDG_DATA_HOME)."""
+    data_dir = Path(config.DATA_DIR)
+    workflows_dir = data_dir / "browser_workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
     return workflows_dir
 
