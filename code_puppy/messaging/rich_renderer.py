@@ -292,12 +292,10 @@ class RichConsoleRenderer:
 
     def _render_file_listing(self, msg: FileListingMessage) -> None:
         """Render a directory listing matching the old Rich-formatted output."""
-        # Header
-        self._console.print(
-            "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]"
-        )
+        # Header on single line
         rec_flag = f"(recursive={msg.recursive})"
         self._console.print(
+            f"\n[bold white on blue] DIRECTORY LISTING [/bold white on blue] "
             f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
         self._console.print("[dim]" + "─" * 100 + "[/dim]")
