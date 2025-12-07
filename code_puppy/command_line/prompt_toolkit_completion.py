@@ -563,6 +563,8 @@ async def get_input_with_combined_completion(
             UnpinCompleter(trigger="/unpin"),
             AgentCompleter(trigger="/agent"),
             AgentCompleter(trigger="/a"),
+            AgentCompleter(trigger="/switch"),
+            AgentCompleter(trigger="/sw"),
             MCPCompleter(trigger="/mcp"),
             SlashCompleter(),
         ]

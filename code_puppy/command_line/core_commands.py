@@ -301,6 +301,120 @@ def handle_agent_command(command: str) -> bool:
         return True
 
 
+@register_command(
+    name="switch",
+    description="Switch to a different agent while preserving conversation context",
+    usage="/switch <agent-name>, /sw <agent-name>",
+    aliases=["sw"],
+    category="core",
+)
+def handle_switch_command(command: str) -> bool:
+    """Switch to another agent while preserving conversation history.
+
+    Unlike /agent which starts a fresh session, /switch transfers the full
+    conversation history to the new agent, allowing it to see and build upon
+    the previous agent's work.
+    """
+    import uuid
+
+    from code_puppy.agents import (
+        get_agent_descriptions,
+        get_available_agents,
+        get_current_agent,
+        set_current_agent,
+    )
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
+    tokens = command.split()
+    group_id = str(uuid.uuid4())
+
+    if len(tokens) == 1:
+        # No agent specified - show available agents
+        current_agent = get_current_agent()
+        available_agents = get_available_agents()
+        descriptions = get_agent_descriptions()
+
+        emit_info(
+            f"[bold green]Current Agent:[/bold green] {current_agent.display_name}",
+            message_group=group_id,
+        )
+        emit_info(
+            f"[dim]{current_agent.description}[/dim]\n", message_group=group_id
+        )
+
+        emit_info(
+            "[bold magenta]Available Agents:[/bold magenta]", message_group=group_id
+        )
+        for name, display_name in available_agents.items():
+            description = descriptions.get(name, "No description")
+            current_marker = (
+                " [green]← current[/green]" if name == current_agent.name else ""
+            )
+            emit_info(
+                f"  [cyan]{name:<20}[/cyan] {display_name}{current_marker}",
+                message_group=group_id,
+            )
+            emit_info(f"    [dim]{description}[/dim]", message_group=group_id)
+
+        emit_info(
+            "\n[yellow]Usage:[/yellow] /switch <agent-name>",
+            message_group=group_id,
+        )
+        return True
+
+    elif len(tokens) == 2:
+        agent_name = tokens[1].lower()
+        available_agents = get_available_agents()
+
+        if agent_name not in available_agents:
+            emit_error(f"Agent '{agent_name}' not found", message_group=group_id)
+            emit_warning(
+                f"Available agents: {', '.join(available_agents.keys())}",
+                message_group=group_id,
+            )
+            return True
+
+        current_agent = get_current_agent()
+        if current_agent.name == agent_name:
+            emit_info(
+                f"Already using agent: {current_agent.display_name}",
+                message_group=group_id,
+            )
+            return True
+
+        # Capture message history BEFORE switching agents
+        message_history = list(current_agent.get_message_history())
+        old_agent_name = current_agent.display_name
+
+        # Switch to new agent
+        if not set_current_agent(agent_name):
+            emit_warning(
+                "Agent handoff failed. Staying with current agent.",
+                message_group=group_id,
+            )
+            return True
+
+        # Transfer message history to new agent
+        new_agent = get_current_agent()
+        new_agent.set_message_history(message_history)
+        new_agent.reload_code_generation_agent()
+
+        emit_success(
+            f"🤝 Handed off from {old_agent_name} to {new_agent.display_name}",
+            message_group=group_id,
+        )
+        emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
+        emit_info(
+            f"[dim]Context preserved - {len(message_history)} messages transferred[/dim]",
+            message_group=group_id,
+        )
+        return True
+
+    else:
+        emit_warning("Usage: /switch <agent-name>")
+        return True
+
+
 async def interactive_agent_picker() -> str | None:
     """Show an interactive arrow-key selector to pick an agent (async version).
 
