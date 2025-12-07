@@ -178,16 +178,10 @@ class RichConsoleRenderer:
     def _render_sync(self, message: AnyMessage) -> None:
         """Render a message synchronously with error handling."""
         try:
-            # DEBUG: Log message reception (remove after verification)
-            import sys
-
-            sys.stderr.write(f"[DEBUG] Rendering: {type(message).__name__}\n")
-            sys.stderr.flush()
-            # Call the sync version of render
             self._do_render(message)
         except Exception as e:
             # Don't let rendering errors crash the loop
-            self._console.print(f"[dim red]Render error: {e}[/dim red])")
+            self._console.print(f"[dim red]Render error: {e}[/dim red]")
 
     # =========================================================================
     # Async Lifecycle (for future async-first usage)
