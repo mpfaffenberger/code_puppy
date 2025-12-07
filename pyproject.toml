@@ -28,6 +28,8 @@ dependencies = [
     "camoufox>=0.4.11",
     "dbos>=2.5.0",
     "agent-client-protocol>=0.1.0",
+    "uvicorn>=0.30.0",
+    "fastapi>=0.111.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
