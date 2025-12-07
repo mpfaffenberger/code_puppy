@@ -13,7 +13,8 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.rule import Rule
-from rich.syntax import Syntax
+
+# Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
 from .bus import MessageBus
@@ -336,31 +337,21 @@ class RichConsoleRenderer:
         self._console.print("[dim]" + "─" * 100 + "[/dim]\n")
 
     def _render_file_content(self, msg: FileContentMessage) -> None:
-        """Render file content with syntax highlighting matching old format."""
-        # Header on single line
-        if msg.start_line and msg.num_lines:
+        """Render a file read - just show the header, not the content.
+
+        The file content is for the LLM only, not for display in the UI.
+        """
+        # Build line info
+        line_info = ""
+        if msg.start_line is not None and msg.num_lines is not None:
             end_line = msg.start_line + msg.num_lines - 1
             line_info = f" [dim](lines {msg.start_line}-{end_line})[/dim]"
-        else:
-            line_info = ""
+
+        # Just print the header - content is for LLM only
         self._console.print(
             f"\n[bold white on blue] READ FILE [/bold white on blue] "
             f"📂 [bold cyan]{msg.path}[/bold cyan]{line_info}"
         )
-
-        # Determine language from file extension
-        ext = msg.path.rsplit(".", 1)[-1] if "." in msg.path else ""
-        lexer = self._get_lexer_for_extension(ext)
-
-        # Render with syntax highlighting
-        syntax = Syntax(
-            msg.content,
-            lexer,
-            line_numbers=True,
-            start_line=msg.start_line or 1,
-            theme="monokai",
-        )
-        self._console.print(syntax)
 
     def _render_grep_result(self, msg: GrepResultMessage) -> None:
         """Render grep results grouped by file matching old format."""
@@ -791,40 +782,6 @@ class RichConsoleRenderer:
             ".dylib": "⚡",
         }
         return icons.get(ext, "📄")
-
-    def _get_lexer_for_extension(self, ext: str) -> str:
-        """Map file extension to Pygments lexer name."""
-        mapping = {
-            "py": "python",
-            "js": "javascript",
-            "ts": "typescript",
-            "tsx": "typescript",
-            "jsx": "javascript",
-            "json": "json",
-            "yaml": "yaml",
-            "yml": "yaml",
-            "md": "markdown",
-            "html": "html",
-            "css": "css",
-            "sh": "bash",
-            "bash": "bash",
-            "sql": "sql",
-            "rs": "rust",
-            "go": "go",
-            "rb": "ruby",
-            "c": "c",
-            "cpp": "cpp",
-            "h": "c",
-            "hpp": "cpp",
-            "java": "java",
-            "kt": "kotlin",
-            "swift": "swift",
-            "toml": "toml",
-            "ini": "ini",
-            "xml": "xml",
-            "dockerfile": "dockerfile",
-        }
-        return mapping.get(ext.lower(), "text")
 
 
 # =============================================================================
