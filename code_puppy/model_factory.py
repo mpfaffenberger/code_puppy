@@ -42,10 +42,12 @@ def make_model_settings(
     This handles model-specific settings:
     - GPT-5 models: reasoning_effort and verbosity (non-codex only)
     - Claude/Anthropic models: extended_thinking and budget_tokens
+    - Automatic max_tokens calculation based on model context length
 
     Args:
         model_name: The name of the model to create settings for.
-        max_tokens: Optional max tokens limit to include in settings.
+        max_tokens: Optional max tokens limit. If None, automatically calculated
+            as: max(2048, min(15% of context_length, 65536))
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -57,8 +59,21 @@ def make_model_settings(
     )
 
     model_settings_dict: dict = {}
-    if max_tokens is not None:
-        model_settings_dict["max_tokens"] = max_tokens
+
+    # Calculate max_tokens if not explicitly provided
+    if max_tokens is None:
+        # Load model config to get context length
+        try:
+            models_config = ModelFactory.load_config()
+            model_config = models_config.get(model_name, {})
+            context_length = model_config.get("context_length", 128000)
+        except Exception:
+            # Fallback if config loading fails (e.g., in CI environments)
+            context_length = 128000
+        # min 2048, 15% of context, max 65536
+        max_tokens = max(2048, min(int(0.15 * context_length), 65536))
+
+    model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
