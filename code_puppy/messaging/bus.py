@@ -33,8 +33,9 @@ It also handles request/response correlation for user interactions:
 """
 
 import asyncio
+import queue
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from .commands import (
@@ -57,7 +58,8 @@ from .messages import (
 class MessageBus:
     """Central coordinator for bidirectional Agent <-> UI communication.
 
-    Thread-safe message bus that bridges sync and async contexts.
+    Thread-safe message bus that works in both sync and async contexts.
+    Uses stdlib queue.Queue for thread-safe sync operation.
     Manages outgoing messages, incoming commands, and request/response correlation.
     """
 
@@ -70,31 +72,19 @@ class MessageBus:
         self._maxsize = maxsize
         self._lock = threading.Lock()
 
-        # Queues (lazily initialized when event loop is available)
-        self._outgoing: Optional[asyncio.Queue[AnyMessage]] = None
-        self._incoming: Optional[asyncio.Queue[AnyCommand]] = None
+        # Use sync queues by default (works in any context)
+        self._outgoing: queue.Queue[AnyMessage] = queue.Queue(maxsize=maxsize)
+        self._incoming: queue.Queue[AnyCommand] = queue.Queue(maxsize=maxsize)
 
-        # Event loop reference for sync→async bridging
+        # Event loop reference for async request/response (optional)
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Startup buffering
         self._startup_buffer: List[AnyMessage] = []
         self._has_active_renderer = False
 
-        # Request/Response correlation: prompt_id → Future
-        self._pending_requests: Dict[str, asyncio.Future] = {}
-
-    def _ensure_queues(self) -> None:
-        """Lazily initialize async queues when event loop is available."""
-        if self._outgoing is None:
-            try:
-                loop = asyncio.get_running_loop()
-                self._event_loop = loop
-                self._outgoing = asyncio.Queue(maxsize=self._maxsize)
-                self._incoming = asyncio.Queue(maxsize=self._maxsize)
-            except RuntimeError:
-                # No running event loop - queues will be created later
-                pass
+        # Request/Response correlation: prompt_id → Future (for async usage)
+        self._pending_requests: Dict[str, asyncio.Future[Any]] = {}
 
     # =========================================================================
     # Outgoing Messages (Agent → UI)
@@ -114,35 +104,15 @@ class MessageBus:
                 self._startup_buffer.append(message)
                 return
 
-        self._ensure_queues()
-
-        if self._outgoing is None:
-            # Still no event loop - buffer the message
-            with self._lock:
-                self._startup_buffer.append(message)
-            return
-
-        # Thread-safe put into async queue
-        if self._event_loop is not None:
-            try:
-                self._event_loop.call_soon_threadsafe(
-                    self._put_nowait_safe, self._outgoing, message
-                )
-            except RuntimeError:
-                # Event loop closed - buffer instead
-                with self._lock:
-                    self._startup_buffer.append(message)
-
-    def _put_nowait_safe(self, queue: asyncio.Queue, item: AnyMessage) -> None:
-        """Put an item in queue, dropping oldest if full."""
+        # Direct put into thread-safe queue
         try:
-            queue.put_nowait(item)
-        except asyncio.QueueFull:
+            self._outgoing.put_nowait(message)
+        except queue.Full:
             # Drop oldest and retry
             try:
-                queue.get_nowait()
-                queue.put_nowait(item)
-            except asyncio.QueueEmpty:
+                self._outgoing.get_nowait()
+                self._outgoing.put_nowait(message)
+            except queue.Empty:
                 pass
 
     def emit_text(
@@ -341,14 +311,15 @@ class MessageBus:
         else:
             # For non-response commands (CancelAgentCommand, etc.),
             # put them in the incoming queue for the agent to process
-            self._ensure_queues()
-            if self._incoming is not None and self._event_loop is not None:
+            try:
+                self._incoming.put_nowait(command)
+            except queue.Full:
+                # Drop oldest and retry
                 try:
-                    self._event_loop.call_soon_threadsafe(
-                        self._put_nowait_safe, self._incoming, command
-                    )
-                except RuntimeError:
-                    pass  # Event loop closed
+                    self._incoming.get_nowait()
+                    self._incoming.put_nowait(command)
+                except queue.Empty:
+                    pass
 
     def _complete_request(self, prompt_id: str, result: object) -> None:
         """Complete a pending request with the given result."""
@@ -356,16 +327,20 @@ class MessageBus:
             future = self._pending_requests.get(prompt_id)
 
         if future is not None and not future.done():
-            # Must set result from the event loop thread
+            # Must set result from the event loop thread if we have one
             if self._event_loop is not None:
                 try:
                     self._event_loop.call_soon_threadsafe(
                         self._set_future_result, future, result
                     )
                 except RuntimeError:
-                    pass  # Event loop closed
+                    # Event loop closed - try direct set
+                    self._set_future_result(future, result)
+            else:
+                # No event loop - try direct set
+                self._set_future_result(future, result)
 
-    def _set_future_result(self, future: asyncio.Future, result: object) -> None:
+    def _set_future_result(self, future: asyncio.Future[Any], result: object) -> None:
         """Set a future's result if not already done."""
         if not future.done():
             future.set_result(result)
@@ -383,10 +358,12 @@ class MessageBus:
         Returns:
             The next message to display.
         """
-        self._ensure_queues()
-        if self._outgoing is None:
-            raise RuntimeError("MessageBus not initialized - no event loop")
-        return await self._outgoing.get()
+        # For async usage, wrap sync queue in asyncio-friendly way
+        while True:
+            try:
+                return self._outgoing.get_nowait()
+            except queue.Empty:
+                await asyncio.sleep(0.01)
 
     def get_message_nowait(self) -> Optional[AnyMessage]:
         """Get the next outgoing message without blocking.
@@ -394,12 +371,9 @@ class MessageBus:
         Returns:
             The next message, or None if queue is empty.
         """
-        self._ensure_queues()
-        if self._outgoing is None:
-            return None
         try:
             return self._outgoing.get_nowait()
-        except asyncio.QueueEmpty:
+        except queue.Empty:
             return None
 
     async def get_command(self) -> AnyCommand:
@@ -411,10 +385,12 @@ class MessageBus:
         Returns:
             The next command to process.
         """
-        self._ensure_queues()
-        if self._incoming is None:
-            raise RuntimeError("MessageBus not initialized - no event loop")
-        return await self._incoming.get()
+        # For async usage, wrap sync queue in asyncio-friendly way
+        while True:
+            try:
+                return self._incoming.get_nowait()
+            except queue.Empty:
+                await asyncio.sleep(0.01)
 
     # =========================================================================
     # Startup Buffering
@@ -444,7 +420,6 @@ class MessageBus:
         """
         with self._lock:
             self._has_active_renderer = True
-        self._ensure_queues()
 
     def mark_renderer_inactive(self) -> None:
         """Mark that no renderer is currently active.
@@ -467,16 +442,11 @@ class MessageBus:
     @property
     def outgoing_qsize(self) -> int:
         """Number of messages waiting in the outgoing queue."""
-        if self._outgoing is None:
-            with self._lock:
-                return len(self._startup_buffer)
         return self._outgoing.qsize()
 
     @property
     def incoming_qsize(self) -> int:
         """Number of commands waiting in the incoming queue."""
-        if self._incoming is None:
-            return 0
         return self._incoming.qsize()
 
     @property
