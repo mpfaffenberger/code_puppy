@@ -276,7 +276,7 @@ class CliHarness:
             write_config = True
 
         if write_config:
-            # Write config to both legacy (~/.code_puppy) and XDG (~/.config/code_puppy)
+            # Write config to both XDG config dir and ~/.code_puppy for compatibility
             (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
             (config_dir / "motd.txt").write_text(MOTD_TEMPLATE, encoding="utf-8")
             (code_puppy_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
