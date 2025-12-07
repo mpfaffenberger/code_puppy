@@ -95,19 +95,31 @@ class TestCamoufoxManagerInitialization(TestCamoufoxManagerBase):
         assert manager.block_webrtc is True
         assert manager.humanize is True
 
-    @patch("pathlib.Path.home")
-    def test_profile_directory_creation(self, mock_home):
+    def test_profile_directory_creation(self):
         """Test that profile directory is created correctly."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            mock_home.return_value = Path(temp_dir)
+            # Import the config module that camoufox_manager uses
+            from code_puppy.tools.browser import camoufox_manager
 
-            manager = CamoufoxManager()
-            profile_dir = manager._get_profile_directory()
+            # Patch the CACHE_DIR on the already-imported config object
+            original_cache_dir = camoufox_manager.config.CACHE_DIR
+            try:
+                camoufox_manager.config.CACHE_DIR = temp_dir
 
-            expected_path = Path(temp_dir) / ".code_puppy" / "camoufox_profile"
-            assert profile_dir == expected_path
-            assert profile_dir.exists()
-            assert profile_dir.is_dir()
+                # Reset singleton to ensure fresh initialization
+                CamoufoxManager._instance = None
+
+                manager = CamoufoxManager()
+                # Call _get_profile_directory directly with the mock in place
+                profile_dir = manager._get_profile_directory()
+
+                expected_path = Path(temp_dir) / "camoufox_profile"
+                assert profile_dir == expected_path
+                assert profile_dir.exists()
+                assert profile_dir.is_dir()
+            finally:
+                # Restore original value
+                camoufox_manager.config.CACHE_DIR = original_cache_dir
 
     def test_init_only_once(self):
         """Test that initialization happens only once."""
@@ -120,21 +132,27 @@ class TestCamoufoxManagerInitialization(TestCamoufoxManagerBase):
         # Should only have done initialization once
         assert hasattr(manager, "_init_done")
 
-    @patch("pathlib.Path.home")
-    def test_profile_dir_attribute_set(self, mock_home):
+    def test_profile_dir_attribute_set(self):
         """Test that profile_dir attribute is set during initialization."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            mock_home.return_value = Path(temp_dir)
+            # Import the config module that camoufox_manager uses
+            from code_puppy.tools.browser import camoufox_manager
 
-            # Reset singleton to ensure fresh initialization
-            CamoufoxManager._instance = None
-            manager = CamoufoxManager()
+            # Patch the CACHE_DIR on the already-imported config object
+            original_cache_dir = camoufox_manager.config.CACHE_DIR
+            try:
+                camoufox_manager.config.CACHE_DIR = temp_dir
 
-            assert hasattr(manager, "profile_dir")
-            assert (
-                manager.profile_dir
-                == Path(temp_dir) / ".code_puppy" / "camoufox_profile"
-            )
+                # Reset singleton to ensure fresh initialization
+                CamoufoxManager._instance = None
+
+                manager = CamoufoxManager()
+
+                assert hasattr(manager, "profile_dir")
+                assert manager.profile_dir == Path(temp_dir) / "camoufox_profile"
+            finally:
+                # Restore original value
+                camoufox_manager.config.CACHE_DIR = original_cache_dir
 
 
 class TestCamoufoxManagerAsyncInit(TestCamoufoxManagerBase):

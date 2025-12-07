@@ -977,11 +977,11 @@ class BaseAgent(ABC):
     # ===== Agent wiring formerly in code_puppy/agent.py =====
     def load_puppy_rules(self) -> Optional[str]:
         """Load AGENT(S).md from both global config and project directory.
-        
+
         Checks for AGENTS.md/AGENT.md/agents.md/agent.md in this order:
         1. Global config directory (~/.code_puppy/ or XDG config)
         2. Current working directory (project-specific)
-        
+
         If both exist, they are combined with global rules first, then project rules.
         This allows project-specific rules to override or extend global rules.
         """
@@ -990,16 +990,17 @@ class BaseAgent(ABC):
         from pathlib import Path
 
         possible_paths = ["AGENTS.md", "AGENT.md", "agents.md", "agent.md"]
-        
+
         # Load global rules from CONFIG_DIR
         global_rules = None
         from code_puppy.config import CONFIG_DIR
+
         for path_str in possible_paths:
             global_path = Path(CONFIG_DIR) / path_str
             if global_path.exists():
                 global_rules = global_path.read_text(encoding="utf-8-sig")
                 break
-        
+
         # Load project-local rules from current working directory
         project_rules = None
         for path_str in possible_paths:
@@ -1007,7 +1008,7 @@ class BaseAgent(ABC):
             if project_path.exists():
                 project_rules = project_path.read_text(encoding="utf-8-sig")
                 break
-        
+
         # Combine global and project rules
         # Global rules come first, project rules second (allowing project to override)
         rules = [r for r in [global_rules, project_rules] if r]

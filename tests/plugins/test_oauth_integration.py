@@ -656,7 +656,7 @@ class TestOAuthConfigurationIntegration:
         """Test that ChatGPT OAuth configuration is complete and valid."""
         config = CHATGPT_OAUTH_CONFIG
 
-        # Required fields should be present
+        # Required fields should be present (token_storage is set dynamically, so it's None)
         required_fields = [
             "issuer",
             "auth_url",
@@ -668,7 +668,6 @@ class TestOAuthConfigurationIntegration:
             "redirect_path",
             "required_port",
             "callback_timeout",
-            "token_storage",
             "prefix",
             "default_context_length",
             "api_key_env_var",
@@ -677,6 +676,9 @@ class TestOAuthConfigurationIntegration:
         for field in required_fields:
             assert field in config, f"Missing required field: {field}"
             assert config[field] is not None, f"Field {field} is None"
+
+        # token_storage is set dynamically via get_token_storage_path(), so it's None in the dict
+        assert "token_storage" in config
 
         # URLs should be properly formatted
         assert config["auth_url"].startswith("https://")
@@ -694,7 +696,7 @@ class TestOAuthConfigurationIntegration:
         """Test that Claude OAuth configuration is complete and valid."""
         config = CLAUDE_CODE_OAUTH_CONFIG
 
-        # Required fields should be present
+        # Required fields should be present (token_storage is set dynamically, so it's None)
         required_fields = [
             "auth_url",
             "token_url",
@@ -705,7 +707,6 @@ class TestOAuthConfigurationIntegration:
             "redirect_path",
             "callback_port_range",
             "callback_timeout",
-            "token_storage",
             "prefix",
             "default_context_length",
             "api_key_env_var",
@@ -715,6 +716,9 @@ class TestOAuthConfigurationIntegration:
         for field in required_fields:
             assert field in config, f"Missing required field: {field}"
             assert config[field] is not None, f"Field {field} is None"
+
+        # token_storage is set dynamically via get_token_storage_path(), so it's None in the dict
+        assert "token_storage" in config
 
         # Port range should be valid
         port_range = config["callback_port_range"]

@@ -306,7 +306,11 @@ class TestBaseAgentEdgeCases:
         mock_exists.return_value = True
 
         result = agent.load_puppy_rules()
-        assert result == ""  # Should return empty string for empty file
+        # Empty string is falsy, so it gets filtered out by the list comprehension
+        # [r for r in [global_rules, project_rules] if r] - empty string is falsy
+        assert (
+            result is None
+        )  # Should return None for empty file (empty string is falsy)
 
     @patch("pathlib.Path.exists")
     def test_load_puppy_rules_no_files_exist(self, mock_exists, agent):
