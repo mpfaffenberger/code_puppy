@@ -409,13 +409,20 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if hasattr(response, "all_messages"):
                     agent.set_message_history(list(response.all_messages()))
 
-                emit_system_message(f"\nAGENT RESPONSE:\n{agent_response}")
-                emit_system_message("\n" + "=" * 50)
+                # Emit structured message for proper markdown rendering
+                from code_puppy.messaging import get_message_bus
+                from code_puppy.messaging.messages import AgentResponseMessage
+
+                response_msg = AgentResponseMessage(
+                    content=agent_response,
+                    is_markdown=True,
+                )
+                get_message_bus().emit(response_msg)
+
                 emit_success("🐶 Continuing in Interactive Mode")
                 emit_system_message(
                     "Your command and response are preserved in the conversation history."
                 )
-                emit_system_message("=" * 50 + "\n")
 
         except Exception as e:
             from code_puppy.messaging import emit_error
@@ -636,9 +643,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     continue
                 # Get the structured response
                 agent_response = result.output
-                from code_puppy.messaging import emit_info
 
-                emit_system_message(f"\nAGENT RESPONSE:\n{agent_response}")
+                # Emit structured message for proper markdown rendering
+                from code_puppy.messaging import get_message_bus
+                from code_puppy.messaging.messages import AgentResponseMessage
+
+                response_msg = AgentResponseMessage(
+                    content=agent_response,
+                    is_markdown=True,
+                )
+                get_message_bus().emit(response_msg)
 
                 # Update the agent's message history with the complete conversation
                 # including the final assistant response. The history_processors callback
@@ -755,7 +769,7 @@ async def run_prompt_with_attachments(
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
-    from code_puppy.messaging import emit_info, emit_system_message
+    from code_puppy.messaging import emit_info
 
     emit_info(f"Executing prompt: {prompt}")
 
@@ -771,7 +785,16 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
             return
 
         agent_response = response.output
-        emit_system_message(f"\nAGENT RESPONSE:\n{agent_response}")
+
+        # Emit structured message for proper markdown rendering
+        from code_puppy.messaging import get_message_bus
+        from code_puppy.messaging.messages import AgentResponseMessage
+
+        response_msg = AgentResponseMessage(
+            content=agent_response,
+            is_markdown=True,
+        )
+        get_message_bus().emit(response_msg)
 
     except asyncio.CancelledError:
         from code_puppy.messaging import emit_warning

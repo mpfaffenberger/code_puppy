@@ -540,12 +540,24 @@ class RichConsoleRenderer:
         self._console.print("[dim]" + "─" * 60 + "[/dim]\n")
 
     def _render_agent_response(self, msg: AgentResponseMessage) -> None:
-        """Render agent response, optionally as markdown."""
+        """Render agent response with header and markdown formatting."""
+        # Divider before
+        self._console.print("[dim]" + "─" * 100 + "[/dim]")
+
+        # Header
+        self._console.print(
+            "\n[bold white on purple] AGENT RESPONSE [/bold white on purple]\n"
+        )
+
+        # Content (markdown or plain)
         if msg.is_markdown:
             md = Markdown(msg.content)
             self._console.print(md)
         else:
             self._console.print(msg.content)
+
+        # Divider after
+        self._console.print("\n[dim]" + "─" * 100 + "[/dim]")
 
     # =========================================================================
     # User Interaction
