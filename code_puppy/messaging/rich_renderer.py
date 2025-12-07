@@ -15,8 +15,6 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
-from rich.text import Text
-from rich.tree import Tree
 
 from .bus import MessageBus
 from .commands import (
@@ -43,6 +41,9 @@ from .messages import (
     UserInputRequest,
     VersionCheckMessage,
 )
+
+# Note: Text and Tree were removed - no longer used in this implementation
+
 
 # =============================================================================
 # Renderer Protocol
@@ -291,46 +292,69 @@ class RichConsoleRenderer:
     # =========================================================================
 
     def _render_file_listing(self, msg: FileListingMessage) -> None:
-        """Render a directory listing as a tree."""
-        tree = Tree(f"📁 [bold cyan]{msg.directory}[/bold cyan]")
+        """Render a directory listing matching the old Rich-formatted output."""
+        # Header
+        self._console.print(
+            "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]"
+        )
+        rec_flag = f"(recursive={msg.recursive})"
+        self._console.print(
+            f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
+        )
+        self._console.print("[dim]" + "─" * 100 + "[/dim]")
+
+        # Directory header
+        dir_name = msg.directory.rstrip("/").split("/")[-1] or msg.directory
+        self._console.print(f"📁 [bold blue]{dir_name}[/bold blue]")
 
         # Build tree structure from flat list
         for entry in msg.files:
-            indent = "  " * entry.depth
-            if entry.type == "dir":
-                icon = "📁"
-                style = "bold blue"
-            else:
-                icon = "📄"
-                style = "green"
-            size_str = (
-                f" [dim]({self._format_size(entry.size)})[/dim]"
-                if entry.size > 0
-                else ""
-            )
-            tree.add(f"{indent}{icon} [{style}]{entry.path}[/{style}]{size_str}")
+            # Calculate indentation based on depth
+            prefix = ""
+            for d in range(entry.depth + 1):
+                if d == entry.depth:
+                    prefix += "└── "
+                else:
+                    prefix += "    "
 
-        self._console.print(tree)
+            if entry.type == "dir":
+                self._console.print(f"{prefix}📁 [bold blue]{entry.path}/[/bold blue]")
+            else:
+                icon = self._get_file_icon(entry.path)
+                if entry.size > 0:
+                    size_str = f" [dim]({self._format_size(entry.size)})[/dim]"
+                else:
+                    size_str = ""
+                self._console.print(
+                    f"{prefix}{icon} [green]{entry.path}[/green]{size_str}"
+                )
+
+        # Summary
+        self._console.print("\n[bold cyan]Summary:[/bold cyan]")
         self._console.print(
-            f"[dim]{msg.dir_count} directories, {msg.file_count} files "
-            f"({self._format_size(msg.total_size)} total)[/dim]"
+            f"📁 [blue]{msg.dir_count} directories[/blue], "
+            f"📄 [green]{msg.file_count} files[/green] "
+            f"[dim]({self._format_size(msg.total_size)} total)[/dim]"
         )
+        self._console.print("[dim]" + "─" * 100 + "[/dim]\n")
 
     def _render_file_content(self, msg: FileContentMessage) -> None:
-        """Render file content with syntax highlighting."""
+        """Render file content with syntax highlighting matching old format."""
+        # Header matching old format
+        self._console.print(
+            f"\n[bold white on blue] READ FILE [/bold white on blue] "
+            f"📂 [bold cyan]{msg.path}[/bold cyan]",
+            end="",
+        )
+        if msg.start_line and msg.num_lines:
+            end_line = msg.start_line + msg.num_lines - 1
+            self._console.print(f" [dim](lines {msg.start_line}-{end_line})[/dim]")
+        else:
+            self._console.print("")
+
         # Determine language from file extension
         ext = msg.path.rsplit(".", 1)[-1] if "." in msg.path else ""
         lexer = self._get_lexer_for_extension(ext)
-
-        # Create header
-        header = f"📄 {msg.path}"
-        if msg.start_line:
-            header += (
-                f" (lines {msg.start_line}-{msg.start_line + (msg.num_lines or 0) - 1})"
-            )
-        header += f" [{msg.total_lines} lines, ~{msg.num_tokens} tokens]"
-
-        self._console.print(f"[bold cyan]{header}[/bold cyan]")
 
         # Render with syntax highlighting
         syntax = Syntax(
@@ -343,13 +367,21 @@ class RichConsoleRenderer:
         self._console.print(syntax)
 
     def _render_grep_result(self, msg: GrepResultMessage) -> None:
-        """Render grep results grouped by file."""
+        """Render grep results grouped by file matching old format."""
+        import re
+
+        # Header matching old format
         self._console.print(
-            f"[bold]Found {msg.total_matches} matches for [cyan]'{msg.search_term}'[/cyan] "
-            f"in {msg.files_searched} files[/bold]"
+            f"\n[bold white on blue] GREP [/bold white on blue] "
+            f"📂 [bold cyan]{msg.directory}[/bold cyan] "
+            f"[dim]for '{msg.search_term}'[/dim]"
         )
 
         if not msg.matches:
+            self._console.print(
+                f"[yellow]⚠ No matches found for '{msg.search_term}' "
+                f"in {msg.directory}[/yellow]"
+            )
             return
 
         # Group by file
@@ -357,48 +389,109 @@ class RichConsoleRenderer:
         for match in msg.matches:
             by_file.setdefault(match.file_path, []).append(match)
 
-        for file_path, matches in by_file.items():
-            self._console.print(f"\n[bold cyan]{file_path}[/bold cyan]")
-            for match in matches:
-                # Highlight the search term in the line
-                line_text = Text(f"  {match.line_number}: ")
-                line_text.append(match.line_content.strip())
-                self._console.print(line_text)
+        # Divider line
+        divider = "[bold cyan]" + "─" * 53 + "[/bold cyan]"
+
+        # Show verbose or concise based on message flag
+        if msg.verbose:
+            # Verbose mode: Show full output with line numbers and content
+            self._console.print(f"\n{divider}")
+
+            for file_path in sorted(by_file.keys()):
+                file_matches = by_file[file_path]
+                match_word = "match" if len(file_matches) == 1 else "matches"
+                self._console.print(
+                    f"\n[bold white]📄 {file_path}[/bold white] "
+                    f"[dim]({len(file_matches)} {match_word})[/dim]"
+                )
+
+                # Show each match with line number and content
+                for match in file_matches:
+                    line = match.line_content
+                    # Extract the actual search term (not ripgrep flags)
+                    search_term = msg.search_term.split()[-1]
+                    if search_term.startswith("-"):
+                        parts = msg.search_term.split()
+                        search_term = parts[0] if parts else msg.search_term
+
+                    # Case-insensitive highlighting
+                    if search_term and not search_term.startswith("-"):
+                        highlighted_line = re.sub(
+                            f"({re.escape(search_term)})",
+                            r"[bold yellow on black]\1[/bold yellow on black]",
+                            line,
+                            flags=re.IGNORECASE,
+                        )
+                    else:
+                        highlighted_line = line
+
+                    ln = match.line_number
+                    self._console.print(
+                        f"  [bold cyan]{ln:4d}[/bold cyan] │ {highlighted_line}"
+                    )
+
+            self._console.print(f"\n{divider}")
+        else:
+            # Concise mode (default): Show only file summaries
+            self._console.print("")
+            for file_path in sorted(by_file.keys()):
+                file_matches = by_file[file_path]
+                match_word = "match" if len(file_matches) == 1 else "matches"
+                self._console.print(
+                    f"[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                )
+
+        # Summary
+        match_word = "match" if msg.total_matches == 1 else "matches"
+        file_word = "file" if len(by_file) == 1 else "files"
+        num_files = len(by_file)
+        self._console.print(
+            f"[green]✓ Found [bold]{msg.total_matches}[/bold] {match_word} "
+            f"across [bold]{num_files}[/bold] {file_word}[/green]"
+        )
 
     # =========================================================================
     # Diff
     # =========================================================================
 
     def _render_diff(self, msg: DiffMessage) -> None:
-        """Render a diff with color coding."""
-        # Header
+        """Render a diff with color coding matching old format."""
+        # Header matching old format
+        self._console.print("\n[bold white on blue] EDIT FILE [/bold white on blue]")
+
+        # Operation-specific styling
+        op_icons = {"create": "✨", "modify": "✏️", "delete": "🗑️"}
         op_colors = {"create": "green", "modify": "yellow", "delete": "red"}
+        icon = op_icons.get(msg.operation, "📄")
         op_color = op_colors.get(msg.operation, "white")
+
         self._console.print(
-            f"[{op_color}]{msg.operation.upper()}[/{op_color}] [bold]{msg.path}[/bold]"
+            f"{icon} [{op_color}]{msg.operation.upper()}[/{op_color}] "
+            f"[bold cyan]{msg.path}[/bold cyan]"
         )
 
         if not msg.diff_lines:
             return
 
-        # Render diff lines
+        # Render diff lines with appropriate colors
         for line in msg.diff_lines:
-            style = DIFF_STYLES.get(line.type, "white")
-            prefix = {"add": "+", "remove": "-", "context": " "}.get(line.type, " ")
-            self._console.print(f"[{style}]{prefix} {line.content}[/{style}]")
+            if line.type == "add":
+                self._console.print(f"[green]+{line.content}[/green]")
+            elif line.type == "remove":
+                self._console.print(f"[red]-{line.content}[/red]")
+            else:  # context
+                self._console.print(f"[dim] {line.content}[/dim]")
 
     # =========================================================================
     # Shell Output
     # =========================================================================
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
-        """Render shell command output."""
-        # Command header
-        exit_style = "green" if msg.exit_code == 0 else "red"
+        """Render shell command output matching old format."""
+        # Header matching old format
         self._console.print(
-            f"[bold]❯[/bold] [cyan]{msg.command}[/cyan] "
-            f"[{exit_style}](exit {msg.exit_code})[/{exit_style}] "
-            f"[dim]{msg.duration_seconds:.2f}s[/dim]"
+            f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] "
+            f"📂 [bold green]$ {msg.command}[/bold green]"
         )
 
         # stdout
@@ -409,28 +502,43 @@ class RichConsoleRenderer:
         if msg.stderr:
             self._console.print(f"[red]{msg.stderr}[/red]")
 
+        # Footer with timing and exit code
+        if msg.exit_code == 0:
+            self._console.print(f"[dim]Completed in {msg.duration_seconds:.2f}s[/dim]")
+        else:
+            dur = msg.duration_seconds
+            self._console.print(
+                f"[red]Exit code: {msg.exit_code}[/red] [dim]({dur:.2f}s)[/dim]"
+            )
+
     # =========================================================================
     # Agent Messages
     # =========================================================================
 
     def _render_agent_reasoning(self, msg: AgentReasoningMessage) -> None:
-        """Render agent reasoning in a panel."""
-        content = Text()
-        content.append("🧠 ", style="bold")
-        content.append(msg.reasoning)
+        """Render agent reasoning matching old format."""
+        # Divider
+        self._console.print("[dim]" + "─" * 100 + "[/dim]")
 
-        if msg.next_steps:
-            content.append("\n\n")
-            content.append("📋 Next Steps:\n", style="bold cyan")
-            content.append(msg.next_steps)
-
-        panel = Panel(
-            content,
-            title="[bold]Agent Reasoning[/bold]",
-            border_style="blue",
-            padding=(0, 1),
+        # Header matching old format
+        self._console.print(
+            "\n[bold white on purple] AGENT REASONING [/bold white on purple]"
         )
-        self._console.print(panel)
+
+        # Current reasoning
+        self._console.print("[bold cyan]Current reasoning:[/bold cyan]")
+        # Render reasoning as markdown
+        md = Markdown(msg.reasoning)
+        self._console.print(md)
+
+        # Next steps (if any)
+        if msg.next_steps and msg.next_steps.strip():
+            self._console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
+            md_steps = Markdown(msg.next_steps)
+            self._console.print(md_steps)
+
+        # Footer divider
+        self._console.print("[dim]" + "─" * 60 + "[/dim]\n")
 
     def _render_agent_response(self, msg: AgentResponseMessage) -> None:
         """Render agent response, optionally as markdown."""
@@ -581,8 +689,10 @@ class RichConsoleRenderer:
     def _render_version_check(self, msg: VersionCheckMessage) -> None:
         """Render version check information."""
         if msg.update_available:
+            cur = msg.current_version
+            latest = msg.latest_version
             self._console.print(
-                f"[yellow]⬆ Update available: {msg.current_version} → {msg.latest_version}[/yellow]"
+                f"[yellow]⬆ Update available: {cur} → {latest}[/yellow]"
             )
         else:
             self._console.print(
@@ -593,13 +703,87 @@ class RichConsoleRenderer:
     # Helpers
     # =========================================================================
 
-    def _format_size(self, size: int) -> str:
-        """Format byte size to human readable."""
-        for unit in ["", "K", "M", "G", "T"]:
-            if abs(size) < 1024:
-                return f"{size:.1f}{unit}B" if unit else f"{size}B"
-            size //= 1024
-        return f"{size}PB"
+    def _format_size(self, size_bytes: int) -> str:
+        """Format byte size to human readable matching old format."""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    def _get_file_icon(self, file_path: str) -> str:
+        """Get an emoji icon for a file based on its extension."""
+        import os
+
+        ext = os.path.splitext(file_path)[1].lower()
+        icons = {
+            # Python
+            ".py": "🐍",
+            ".pyw": "🐍",
+            # JavaScript/TypeScript
+            ".js": "📜",
+            ".jsx": "📜",
+            ".ts": "📜",
+            ".tsx": "📜",
+            # Web
+            ".html": "🌐",
+            ".htm": "🌐",
+            ".xml": "🌐",
+            ".css": "🎨",
+            ".scss": "🎨",
+            ".sass": "🎨",
+            # Documentation
+            ".md": "📝",
+            ".markdown": "📝",
+            ".rst": "📝",
+            ".txt": "📝",
+            # Config
+            ".json": "⚙️",
+            ".yaml": "⚙️",
+            ".yml": "⚙️",
+            ".toml": "⚙️",
+            ".ini": "⚙️",
+            # Images
+            ".jpg": "🖼️",
+            ".jpeg": "🖼️",
+            ".png": "🖼️",
+            ".gif": "🖼️",
+            ".svg": "🖼️",
+            ".webp": "🖼️",
+            # Audio
+            ".mp3": "🎵",
+            ".wav": "🎵",
+            ".ogg": "🎵",
+            ".flac": "🎵",
+            # Video
+            ".mp4": "🎬",
+            ".avi": "🎬",
+            ".mov": "🎬",
+            ".webm": "🎬",
+            # Documents
+            ".pdf": "📄",
+            ".doc": "📄",
+            ".docx": "📄",
+            ".xls": "📄",
+            ".xlsx": "📄",
+            ".ppt": "📄",
+            ".pptx": "📄",
+            # Archives
+            ".zip": "📦",
+            ".tar": "📦",
+            ".gz": "📦",
+            ".rar": "📦",
+            ".7z": "📦",
+            # Executables
+            ".exe": "⚡",
+            ".dll": "⚡",
+            ".so": "⚡",
+            ".dylib": "⚡",
+        }
+        return icons.get(ext, "📄")
 
     def _get_lexer_for_extension(self, ext: str) -> str:
         """Map file extension to Pygments lexer name."""

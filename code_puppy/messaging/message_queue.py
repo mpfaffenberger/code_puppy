@@ -227,7 +227,7 @@ class MessageQueue:
 
             if timeout and (time.time() - start_time) > timeout:
                 raise TimeoutError(
-                    f"No response received for prompt {prompt_id} within {timeout} seconds"
+                    f"No response for prompt {prompt_id} within {timeout}s"
                 )
 
             time.sleep(sleep_interval)

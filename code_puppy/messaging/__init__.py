@@ -81,7 +81,7 @@ from .message_queue import (
 )
 
 # Message types and enums
-from .messages import (  # Enums; Base; Text; File operations; Diff/Modification; Shell; Agent; User interaction; Control; Status; Union type
+from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
     AgentReasoningMessage,
     AgentResponseMessage,
     AnyMessage,
@@ -119,9 +119,6 @@ from .rich_renderer import (
 # =============================================================================
 # New Structured Messaging API
 # =============================================================================
-
-
-
 
 
 # =============================================================================

@@ -66,7 +66,7 @@ class BaseMessage(BaseModel):
 
 
 class TextMessage(BaseMessage):
-    """Simple text message with a severity level. Text must be plain - no Rich markup!"""
+    """Simple text message with a severity level. Text must be plain, no markup!"""
 
     category: MessageCategory = MessageCategory.SYSTEM
     level: MessageLevel = Field(description="Severity level of this message")
@@ -148,6 +148,10 @@ class GrepResultMessage(BaseMessage):
     )
     total_matches: int = Field(ge=0, description="Total number of matches")
     files_searched: int = Field(ge=0, description="Number of files searched")
+    verbose: bool = Field(
+        default=False,
+        description="Whether to show verbose output with line content",
+    )
 
 
 # =============================================================================

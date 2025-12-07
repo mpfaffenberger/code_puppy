@@ -127,7 +127,7 @@ class ConsoleSpinner(SpinnerBase):
                 # Short sleep to control animation speed
                 time.sleep(0.05)
         except Exception as e:
-            # Note: Using sys.stderr for spinner error - can't use messaging during spinner
+            # Note: Using sys.stderr - can't use messaging during spinner
             import sys
 
             sys.stderr.write(f"\nSpinner error: {e}\n")
@@ -175,7 +175,7 @@ class ConsoleSpinner(SpinnerBase):
                         self._generate_spinner_panel(),
                         console=self.console,
                         refresh_per_second=20,
-                        transient=True,  # Clear the spinner line when stopped (no puppy litter!)
+                        transient=True,  # Clear spinner line when stopped
                         auto_refresh=False,
                     )
                     self._live.start()

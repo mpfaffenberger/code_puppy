@@ -63,7 +63,7 @@ class MessageRenderer(ABC):
                 break
             except Exception as e:
                 # Log error but continue processing
-                # Note: Using sys.stderr for renderer errors - can't use messaging in renderer
+                # Note: Using sys.stderr - can't use messaging in renderer
                 import sys
 
                 sys.stderr.write(f"Error rendering message: {e}\n")

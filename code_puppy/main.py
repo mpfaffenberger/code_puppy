@@ -137,17 +137,24 @@ async def main():
     from rich.console import Console
 
     from code_puppy.messaging import (
+        RichConsoleRenderer,
         SynchronousInteractiveRenderer,
         get_global_queue,
+        get_message_bus,
     )
 
-    # Use the legacy renderer for backward compatibility
-    # The new MessageBus + RichConsoleRenderer will be enabled once all
-    # emit functions are migrated to the new structured messaging system
+    # Create a shared console for both renderers
+    display_console = Console()
+
+    # Legacy renderer for backward compatibility (emits via get_global_queue)
     message_queue = get_global_queue()
-    display_console = Console()  # Separate console for rendering messages
     message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
     message_renderer.start()
+
+    # New MessageBus renderer for structured messages (tools emit here)
+    message_bus = get_message_bus()
+    bus_renderer = RichConsoleRenderer(message_bus, display_console)
+    bus_renderer.start()
 
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
@@ -329,6 +336,8 @@ async def main():
     finally:
         if message_renderer:
             message_renderer.stop()
+        if bus_renderer:
+            bus_renderer.stop()
         await callbacks.on_shutdown()
         if get_use_dbos():
             DBOS.destroy()
