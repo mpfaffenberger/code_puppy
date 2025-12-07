@@ -17,6 +17,8 @@ from rich.rule import Rule
 # Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
+from code_puppy.tools.common import format_diff_with_colors
+
 from .bus import MessageBus
 from .commands import (
     ConfirmationResponse,
@@ -38,6 +40,8 @@ from .messages import (
     ShellOutputMessage,
     SpinnerControl,
     StatusPanelMessage,
+    SubAgentInvocationMessage,
+    SubAgentResponseMessage,
     TextMessage,
     UserInputRequest,
     VersionCheckMessage,
@@ -232,6 +236,10 @@ class RichConsoleRenderer:
             self._render_agent_reasoning(message)
         elif isinstance(message, AgentResponseMessage):
             self._render_agent_response(message)
+        elif isinstance(message, SubAgentInvocationMessage):
+            self._render_subagent_invocation(message)
+        elif isinstance(message, SubAgentResponseMessage):
+            self._render_subagent_response(message)
         elif isinstance(message, UserInputRequest):
             # Can't handle async user input in sync context - skip
             self._console.print("[dim]User input requested (requires async)[/dim]")
@@ -442,7 +450,7 @@ class RichConsoleRenderer:
     # =========================================================================
 
     def _render_diff(self, msg: DiffMessage) -> None:
-        """Render a diff with color coding matching old format."""
+        """Render a diff with beautiful syntax highlighting."""
         # Operation-specific styling
         op_icons = {"create": "✨", "modify": "✏️", "delete": "🗑️"}
         op_colors = {"create": "green", "modify": "yellow", "delete": "red"}
@@ -459,14 +467,21 @@ class RichConsoleRenderer:
         if not msg.diff_lines:
             return
 
-        # Render diff lines with appropriate colors
+        # Reconstruct unified diff text from diff_lines for format_diff_with_colors
+        diff_text_lines = []
         for line in msg.diff_lines:
             if line.type == "add":
-                self._console.print(f"[green]+{line.content}[/green]")
+                diff_text_lines.append(f"+{line.content}")
             elif line.type == "remove":
-                self._console.print(f"[red]-{line.content}[/red]")
+                diff_text_lines.append(f"-{line.content}")
             else:  # context
-                self._console.print(f"[dim] {line.content}[/dim]")
+                diff_text_lines.append(f" {line.content}")
+
+        diff_text = "\n".join(diff_text_lines)
+
+        # Use the beautiful syntax-highlighted diff formatter
+        formatted_diff = format_diff_with_colors(diff_text)
+        self._console.print(formatted_diff)
 
     # =========================================================================
     # Shell Output
@@ -545,6 +560,58 @@ class RichConsoleRenderer:
 
         # Divider after
         self._console.print("\n[dim]" + "─" * 100 + "[/dim]")
+
+    def _render_subagent_invocation(self, msg: SubAgentInvocationMessage) -> None:
+        """Render sub-agent invocation header with nice formatting."""
+        # Divider before
+        self._console.print("[dim]" + "─" * 100 + "[/dim]")
+
+        # Header with agent name and session
+        session_type = (
+            "New session"
+            if msg.is_new_session
+            else f"Continuing ({msg.message_count} messages)"
+        )
+        self._console.print(
+            f"\n[bold white on purple] 🤖 INVOKE AGENT [/bold white on purple] "
+            f"[bold cyan]{msg.agent_name}[/bold cyan] "
+            f"[dim]({session_type})[/dim]"
+        )
+
+        # Session ID
+        self._console.print(f"[dim]Session:[/dim] [bold]{msg.session_id}[/bold]")
+
+        # Prompt (truncated if too long, rendered as markdown)
+        prompt_display = (
+            msg.prompt[:200] + "..." if len(msg.prompt) > 200 else msg.prompt
+        )
+        self._console.print("[dim]Prompt:[/dim]")
+        md_prompt = Markdown(prompt_display)
+        self._console.print(md_prompt)
+
+        # Divider after header
+        self._console.print("[dim]" + "─" * 60 + "[/dim]\n")
+
+    def _render_subagent_response(self, msg: SubAgentResponseMessage) -> None:
+        """Render sub-agent response with markdown formatting."""
+        # Response header
+        self._console.print(
+            f"\n[bold white on green] ✓ AGENT RESPONSE [/bold white on green] "
+            f"[bold cyan]{msg.agent_name}[/bold cyan]"
+        )
+
+        # Render response as markdown
+        md = Markdown(msg.response)
+        self._console.print(md)
+
+        # Footer with session info
+        self._console.print(
+            f"\n[dim]Session [bold]{msg.session_id}[/bold] saved "
+            f"({msg.message_count} messages)[/dim]"
+        )
+
+        # Divider after
+        self._console.print("[dim]" + "─" * 100 + "[/dim]")
 
     # =========================================================================
     # User Interaction

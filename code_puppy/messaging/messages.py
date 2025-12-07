@@ -237,6 +237,33 @@ class AgentResponseMessage(BaseMessage):
     )
 
 
+class SubAgentInvocationMessage(BaseMessage):
+    """Message for sub-agent invocation header/status. Used by invoke_agent tool."""
+
+    category: MessageCategory = MessageCategory.AGENT
+    agent_name: str = Field(description="Name of the agent being invoked")
+    session_id: str = Field(description="Session ID for the invocation")
+    prompt: str = Field(description="The prompt being sent to the agent")
+    is_new_session: bool = Field(
+        description="Whether this is a new session or continuation"
+    )
+    message_count: int = Field(
+        default=0, description="Number of messages in history (for continuation)"
+    )
+
+
+class SubAgentResponseMessage(BaseMessage):
+    """Response from a sub-agent invocation. Rendered as markdown."""
+
+    category: MessageCategory = MessageCategory.AGENT
+    agent_name: str = Field(description="Name of the agent that responded")
+    session_id: str = Field(description="Session ID for the invocation")
+    response: str = Field(description="The agent's response content")
+    message_count: int = Field(
+        default=0, description="Number of messages now in session history"
+    )
+
+
 # =============================================================================
 # User Interaction Messages (Agent → User)
 # =============================================================================
@@ -358,6 +385,8 @@ AnyMessage = Union[
     ShellOutputMessage,
     AgentReasoningMessage,
     AgentResponseMessage,
+    SubAgentInvocationMessage,
+    SubAgentResponseMessage,
     UserInputRequest,
     ConfirmationRequest,
     SelectionRequest,
@@ -395,6 +424,8 @@ __all__ = [
     # Agent
     "AgentReasoningMessage",
     "AgentResponseMessage",
+    "SubAgentInvocationMessage",
+    "SubAgentResponseMessage",
     # User interaction
     "UserInputRequest",
     "ConfirmationRequest",
