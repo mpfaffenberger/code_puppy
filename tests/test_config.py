@@ -18,9 +18,16 @@ def mock_config_paths(monkeypatch):
     mock_home = "/mock_home"
     mock_config_dir = os.path.join(mock_home, CONFIG_DIR_NAME)
     mock_config_file = os.path.join(mock_config_dir, CONFIG_FILE_NAME)
+    # XDG directories for the new directory structure
+    mock_data_dir = os.path.join(mock_home, ".local", "share", "code_puppy")
+    mock_cache_dir = os.path.join(mock_home, ".cache", "code_puppy")
+    mock_state_dir = os.path.join(mock_home, ".local", "state", "code_puppy")
 
     monkeypatch.setattr(cp_config, "CONFIG_DIR", mock_config_dir)
     monkeypatch.setattr(cp_config, "CONFIG_FILE", mock_config_file)
+    monkeypatch.setattr(cp_config, "DATA_DIR", mock_data_dir)
+    monkeypatch.setattr(cp_config, "CACHE_DIR", mock_cache_dir)
+    monkeypatch.setattr(cp_config, "STATE_DIR", mock_state_dir)
     monkeypatch.setattr(
         os.path,
         "expanduser",
@@ -35,12 +42,8 @@ class TestEnsureConfigExists:
     ):
         mock_cfg_dir, mock_cfg_file = mock_config_paths
 
-        mock_os_path_exists = MagicMock()
-        # First call for CONFIG_DIR, second for CONFIG_FILE (though isfile is used for file)
-        mock_os_path_exists.side_effect = [
-            False,
-            False,
-        ]  # CONFIG_DIR not exists, CONFIG_FILE not exists
+        # All 4 XDG directories don't exist
+        mock_os_path_exists = MagicMock(return_value=False)
         monkeypatch.setattr(os.path, "exists", mock_os_path_exists)
 
         mock_os_path_isfile = MagicMock(return_value=False)  # CONFIG_FILE not exists
@@ -60,7 +63,8 @@ class TestEnsureConfigExists:
         with patch("builtins.open", m_open):
             config_parser = cp_config.ensure_config_exists()
 
-        mock_makedirs.assert_called_once_with(mock_cfg_dir, exist_ok=True)
+        # Now 4 directories are created (CONFIG, DATA, CACHE, STATE)
+        assert mock_makedirs.call_count == 4
         m_open.assert_called_once_with(mock_cfg_file, "w")
 
         # Check what was written to file
@@ -76,7 +80,8 @@ class TestEnsureConfigExists:
     ):
         mock_cfg_dir, mock_cfg_file = mock_config_paths
 
-        mock_os_path_exists = MagicMock(return_value=True)  # CONFIG_DIR exists
+        # All XDG directories already exist
+        mock_os_path_exists = MagicMock(return_value=True)
         monkeypatch.setattr(os.path, "exists", mock_os_path_exists)
 
         mock_os_path_isfile = MagicMock(return_value=False)  # CONFIG_FILE not exists
@@ -96,7 +101,7 @@ class TestEnsureConfigExists:
         with patch("builtins.open", m_open):
             config_parser = cp_config.ensure_config_exists()
 
-        mock_makedirs.assert_not_called()  # Dir already exists
+        mock_makedirs.assert_not_called()  # All dirs already exist
         m_open.assert_called_once_with(mock_cfg_file, "w")
 
         assert config_parser.sections() == [DEFAULT_SECTION_NAME]
