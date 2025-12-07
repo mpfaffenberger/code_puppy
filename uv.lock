@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11, <3.14"
 
 [[package]]
@@ -12,18 +12,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7b/d7/a8f8789b3b8b5f7263a902361468e8dfefd85ec63d1d5398579b9175d76d/ag_ui_protocol-0.1.9.tar.gz", hash = "sha256:94d75e3919ff75e0b608a7eed445062ea0e6f11cd33b3386a7649047e0c7abd3", size = 4988, upload-time = "2025-09-19T13:36:26.903Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/50/2bb71a2a9135f4d88706293773320d185789b592987c09f79e9bf2f4875f/ag_ui_protocol-0.1.9-py3-none-any.whl", hash = "sha256:44c1238b0576a3915b3a16e1b3855724e08e92ebc96b1ff29379fbd3bfbd400b", size = 7070, upload-time = "2025-09-19T13:36:25.791Z" },
-]
-
-[[package]]
-name = "agent-client-protocol"
-version = "0.7.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/4d/e33e4e997de8fdc6c7154e59490a20c455cd46543b62dab768ae99317046/agent_client_protocol-0.7.0.tar.gz", hash = "sha256:c66811bb804868c4e7728b18b67379bcb0335afba3b1c2ff0fcdfd0c48d93029", size = 64809, upload-time = "2025-12-04T16:17:34.568Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4a/02/257ea400cfee72a48dabe04ef0a984c496c9687830cf7977b327979e8cd7/agent_client_protocol-0.7.0-py3-none-any.whl", hash = "sha256:71fce4088fe7faa85b30278aecd1d8d6012f03505ae2ee6e312f9e2ba4ea1f4e", size = 52922, upload-time = "2025-12-04T16:17:33.562Z" },
 ]
 
 [[package]]
@@ -406,7 +394,6 @@ name = "code-puppy"
 version = "0.0.296"
 source = { editable = "." }
 dependencies = [
-    { name = "agent-client-protocol" },
     { name = "camoufox" },
     { name = "dbos" },
     { name = "fastapi" },
@@ -440,7 +427,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-client-protocol", specifier = ">=0.1.0" },
     { name = "camoufox", specifier = ">=0.4.11" },
     { name = "dbos", specifier = ">=2.5.0" },
     { name = "fastapi", specifier = ">=0.111.0" },

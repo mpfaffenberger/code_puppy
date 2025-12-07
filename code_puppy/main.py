@@ -133,20 +133,7 @@ async def main():
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
-    parser.add_argument(
-        "--acp",
-        action="store_true",
-        help="Run as ACP (Agent Client Protocol) agent for editor integration",
-    )
     args = parser.parse_args()
-
-    # ACP mode: run as JSON-RPC agent over stdio (for Zed, etc.)
-    # This must be checked BEFORE any interactive setup or stdout output
-    if args.acp:
-        from code_puppy.acp import run_acp_agent
-
-        await run_acp_agent()
-        return
     from rich.console import Console
 
     from code_puppy.messaging import (

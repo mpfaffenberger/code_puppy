@@ -27,7 +27,6 @@ dependencies = [
     "playwright>=1.40.0",
     "camoufox>=0.4.11",
     "dbos>=2.5.0",
-    "agent-client-protocol>=0.1.0",
     "uvicorn>=0.30.0",
     "fastapi>=0.111.0",
 ]
