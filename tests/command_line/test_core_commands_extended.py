@@ -18,6 +18,7 @@ from code_puppy.command_line.core_commands import (
     handle_mcp_command,
     handle_model_command,
     handle_motd_command,
+    handle_switch_command,
     handle_tools_command,
     interactive_agent_picker,
     interactive_model_picker,
@@ -1246,3 +1247,493 @@ class TestIntegrationScenarios:
 
                         # Should reset awaiting state in finally block
                         mock_awaiting.assert_any_call(False)
+
+
+class TestHandleSwitchCommand:
+    """Tests for /switch command - agent handoff with context preservation."""
+
+    def test_switch_shows_current_agent(self):
+        """Test that /switch without args displays the current agent."""
+        mock_current = MagicMock()
+        mock_current.name = "test_agent"
+        mock_current.display_name = "Test Agent"
+        mock_current.description = "A test agent for testing"
+
+        mock_agents = {"test_agent": "Test Agent"}
+        mock_descriptions = {"test_agent": "A test agent for testing"}
+
+        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+            with patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents
+            ):
+                with patch(
+                    "code_puppy.agents.get_agent_descriptions",
+                    return_value=mock_descriptions,
+                ):
+                    with patch("code_puppy.messaging.emit_info") as mock_info:
+                        result = handle_switch_command("/switch")
+
+                        assert result is True
+                        calls = [str(c) for c in mock_info.call_args_list]
+                        assert any("Current Agent" in c for c in calls)
+                        assert any("Test Agent" in c for c in calls)
+
+    def test_switch_shows_available_agents_with_descriptions(self):
+        """Test that /switch lists all available agents with descriptions."""
+        mock_current = MagicMock()
+        mock_current.name = "agent_one"
+        mock_current.display_name = "Agent One"
+        mock_current.description = "First agent"
+
+        mock_agents = {
+            "agent_one": "Agent One",
+            "agent_two": "Agent Two",
+            "agent_three": "Agent Three",
+        }
+        mock_descriptions = {
+            "agent_one": "First agent",
+            "agent_two": "Second agent",
+            "agent_three": "Third agent",
+        }
+
+        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+            with patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents
+            ):
+                with patch(
+                    "code_puppy.agents.get_agent_descriptions",
+                    return_value=mock_descriptions,
+                ):
+                    with patch("code_puppy.messaging.emit_info") as mock_info:
+                        result = handle_switch_command("/switch")
+
+                        assert result is True
+                        calls_str = " ".join(str(c) for c in mock_info.call_args_list)
+                        assert "agent_one" in calls_str
+                        assert "agent_two" in calls_str
+                        assert "agent_three" in calls_str
+
+    def test_switch_shows_current_marker(self):
+        """Test that current agent is marked in the list."""
+        mock_current = MagicMock()
+        mock_current.name = "current_agent"
+        mock_current.display_name = "Current Agent"
+        mock_current.description = "The current agent"
+
+        mock_agents = {
+            "current_agent": "Current Agent",
+            "other_agent": "Other Agent",
+        }
+        mock_descriptions = {
+            "current_agent": "The current agent",
+            "other_agent": "Another agent",
+        }
+
+        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+            with patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents
+            ):
+                with patch(
+                    "code_puppy.agents.get_agent_descriptions",
+                    return_value=mock_descriptions,
+                ):
+                    with patch("code_puppy.messaging.emit_info") as mock_info:
+                        result = handle_switch_command("/switch")
+
+                        assert result is True
+                        calls_str = " ".join(str(c) for c in mock_info.call_args_list)
+                        assert "← current" in calls_str
+
+    def test_switch_shows_usage_hint(self):
+        """Test that /switch shows usage instructions."""
+        mock_current = MagicMock()
+        mock_current.name = "test_agent"
+        mock_current.display_name = "Test Agent"
+        mock_current.description = "Test"
+
+        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+            with patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"test_agent": "Test"},
+            ):
+                with patch(
+                    "code_puppy.agents.get_agent_descriptions", return_value={}
+                ):
+                    with patch("code_puppy.messaging.emit_info") as mock_info:
+                        handle_switch_command("/switch")
+
+                        calls_str = " ".join(str(c) for c in mock_info.call_args_list)
+                        assert "/switch <agent-name>" in calls_str
+
+    def test_switch_handles_missing_description(self):
+        """Test that /switch handles agents without descriptions gracefully."""
+        mock_current = MagicMock()
+        mock_current.name = "test_agent"
+        mock_current.display_name = "Test Agent"
+        mock_current.description = "Test"
+
+        mock_agents = {"test_agent": "Test Agent", "no_desc_agent": "No Desc Agent"}
+        mock_descriptions = {"test_agent": "Has description"}
+
+        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+            with patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents
+            ):
+                with patch(
+                    "code_puppy.agents.get_agent_descriptions",
+                    return_value=mock_descriptions,
+                ):
+                    with patch("code_puppy.messaging.emit_info") as mock_info:
+                        result = handle_switch_command("/switch")
+
+                        assert result is True
+                        calls_str = " ".join(str(c) for c in mock_info.call_args_list)
+                        assert "No description" in calls_str
+
+    def test_switch_to_valid_agent_preserves_history(self):
+        """Test successful switch transfers message history to new agent."""
+        mock_message_history = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+            {"role": "user", "content": "Help me code"},
+        ]
+
+        mock_old_agent = MagicMock()
+        mock_old_agent.name = "old_agent"
+        mock_old_agent.display_name = "Old Agent"
+        mock_old_agent.get_message_history.return_value = mock_message_history
+
+        mock_new_agent = MagicMock()
+        mock_new_agent.name = "new_agent"
+        mock_new_agent.display_name = "New Agent"
+        mock_new_agent.description = "A new agent"
+
+        mock_agents = {"old_agent": "Old Agent", "new_agent": "New Agent"}
+
+        with patch(
+            "code_puppy.agents.get_current_agent",
+            side_effect=[mock_old_agent, mock_new_agent],
+        ):
+            with patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents
+            ):
+                with patch("code_puppy.agents.set_current_agent", return_value=True):
+                    with patch("code_puppy.messaging.emit_success"):
+                        with patch("code_puppy.messaging.emit_info"):
+                            result = handle_switch_command("/switch new_agent")
+
+                            assert result is True
+                            mock_old_agent.get_message_history.assert_called_once()
+                            mock_new_agent.set_message_history.assert_called_once_with(
+                                mock_message_history
+                            )
+                            mock_new_agent.reload_code_generation_agent.assert_called_once()
+
+    def test_switch_shows_success_message_with_handoff_emoji(self):
+        """Test successful switch shows handoff emoji and agent names."""
+        mock_old_agent = MagicMock()
+        mock_old_agent.name = "old_agent"
+        mock_old_agent.display_name = "Old Agent"
+        mock_old_agent.get_message_history.return_value = []
+
+        mock_new_agent = MagicMock()
+        mock_new_agent.name = "new_agent"
+        mock_new_agent.display_name = "New Agent"
+        mock_new_agent.description = "New agent description"
+
+        with patch(
+            "code_puppy.agents.get_current_agent",
+            side_effect=[mock_old_agent, mock_new_agent],
+        ):
+            with patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"new_agent": "New Agent"},
+            ):
+                with patch("code_puppy.agents.set_current_agent", return_value=True):
+                    with patch(
+                        "code_puppy.messaging.emit_success"
+                    ) as mock_success:
+                        with patch("code_puppy.messaging.emit_info"):
+                            handle_switch_command("/switch new_agent")
+
+                            mock_success.assert_called_once()
+                            args, kwargs = mock_success.call_args
+                            assert "🤝" in args[0]
+                            assert "Old Agent" in args[0]
+                            assert "New Agent" in args[0]
+
+    def test_switch_shows_message_count_transferred(self):
+        """Test switch displays how many messages were transferred."""
+        mock_history = [{"role": "user", "content": f"msg{i}"} for i in range(5)]
+
+        mock_old_agent = MagicMock()
+        mock_old_agent.name = "old_agent"
+        mock_old_agent.display_name = "Old Agent"
+        mock_old_agent.get_message_history.return_value = mock_history
+
+        mock_new_agent = MagicMock()
+        mock_new_agent.name = "new_agent"
+        mock_new_agent.display_name = "New Agent"
+        mock_new_agent.description = "Desc"
+
+        with patch(
+            "code_puppy.agents.get_current_agent",
+            side_effect=[mock_old_agent, mock_new_agent],
+        ):
+            with patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"new_agent": "New"},
+            ):
+                with patch("code_puppy.agents.set_current_agent", return_value=True):
+                    with patch("code_puppy.messaging.emit_success"):
+                        with patch("code_puppy.messaging.emit_info") as mock_info:
+                            handle_switch_command("/switch new_agent")
+
+                            calls_str = " ".join(
+                                str(c) for c in mock_info.call_args_list
+                            )
+                            assert "5 messages transferred" in calls_str
+
+    def test_switch_invalid_agent_shows_error(self):
+        """Test switch to non-existent agent shows error."""
+        mock_agents = {"valid_agent": "Valid Agent"}
+
+        with patch(
+            "code_puppy.agents.get_available_agents", return_value=mock_agents
+        ):
+            with patch("code_puppy.messaging.emit_error") as mock_error:
+                with patch("code_puppy.messaging.emit_warning"):
+                    result = handle_switch_command("/switch nonexistent")
+
+                    assert result is True
+                    mock_error.assert_called_once()
+                    args, _ = mock_error.call_args
+                    assert "nonexistent" in args[0]
+                    assert "not found" in args[0]
+
+    def test_switch_invalid_agent_shows_available_agents(self):
+        """Test switch to invalid agent lists available options."""
+        mock_agents = {"agent_a": "Agent A", "agent_b": "Agent B"}
+
+        with patch(
+            "code_puppy.agents.get_available_agents", return_value=mock_agents
+        ):
+            with patch("code_puppy.messaging.emit_error"):
+                with patch("code_puppy.messaging.emit_warning") as mock_warning:
+                    handle_switch_command("/switch invalid")
+
+                    mock_warning.assert_called_once()
+                    args, _ = mock_warning.call_args
+                    assert "agent_a" in args[0]
+                    assert "agent_b" in args[0]
+
+    def test_switch_to_current_agent_shows_info(self):
+        """Test switching to already-active agent shows info message."""
+        mock_current = MagicMock()
+        mock_current.name = "current_agent"
+        mock_current.display_name = "Current Agent"
+
+        mock_agents = {"current_agent": "Current Agent"}
+
+        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+            with patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents
+            ):
+                with patch("code_puppy.messaging.emit_info") as mock_info:
+                    result = handle_switch_command("/switch current_agent")
+
+                    assert result is True
+                    mock_info.assert_called_once()
+                    args, _ = mock_info.call_args
+                    assert "Already using agent" in args[0]
+
+    def test_switch_agent_name_case_insensitive(self):
+        """Test that agent name matching is case-insensitive."""
+        mock_old_agent = MagicMock()
+        mock_old_agent.name = "old_agent"
+        mock_old_agent.display_name = "Old Agent"
+        mock_old_agent.get_message_history.return_value = []
+
+        mock_new_agent = MagicMock()
+        mock_new_agent.name = "new_agent"
+        mock_new_agent.display_name = "New Agent"
+        mock_new_agent.description = "Desc"
+
+        mock_agents = {"new_agent": "New Agent"}
+
+        with patch(
+            "code_puppy.agents.get_current_agent",
+            side_effect=[mock_old_agent, mock_new_agent],
+        ):
+            with patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents
+            ):
+                with patch(
+                    "code_puppy.agents.set_current_agent", return_value=True
+                ) as mock_set:
+                    with patch("code_puppy.messaging.emit_success"):
+                        with patch("code_puppy.messaging.emit_info"):
+                            result = handle_switch_command("/switch NEW_AGENT")
+
+                            assert result is True
+                            mock_set.assert_called_once_with("new_agent")
+
+    def test_switch_failure_stays_with_current_agent(self):
+        """Test that failed switch keeps user on current agent."""
+        mock_current = MagicMock()
+        mock_current.name = "current_agent"
+        mock_current.display_name = "Current Agent"
+        mock_current.get_message_history.return_value = []
+
+        mock_agents = {"target_agent": "Target Agent"}
+
+        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+            with patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents
+            ):
+                with patch(
+                    "code_puppy.agents.set_current_agent", return_value=False
+                ):
+                    with patch(
+                        "code_puppy.messaging.emit_warning"
+                    ) as mock_warning:
+                        result = handle_switch_command("/switch target_agent")
+
+                        assert result is True
+                        mock_warning.assert_called_once()
+                        args, _ = mock_warning.call_args
+                        assert "handoff failed" in args[0].lower()
+
+    def test_switch_too_many_args_shows_usage(self):
+        """Test that too many arguments shows usage warning."""
+        with patch("code_puppy.messaging.emit_warning") as mock_warning:
+            result = handle_switch_command("/switch agent extra args")
+
+            assert result is True
+            mock_warning.assert_called_once()
+            args = mock_warning.call_args[0][0]
+            assert "Usage:" in args
+
+    def test_switch_with_sw_alias(self):
+        """Test that /sw alias works identically to /switch."""
+        mock_current = MagicMock()
+        mock_current.name = "test_agent"
+        mock_current.display_name = "Test Agent"
+        mock_current.description = "Test"
+
+        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+            with patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"test_agent": "Test"},
+            ):
+                with patch(
+                    "code_puppy.agents.get_agent_descriptions", return_value={}
+                ):
+                    with patch("code_puppy.messaging.emit_info") as mock_info:
+                        result = handle_switch_command("/sw")
+
+                        assert result is True
+                        assert mock_info.call_count >= 1
+
+    def test_switch_transfers_empty_history(self):
+        """Test switch works correctly with empty message history."""
+        mock_old_agent = MagicMock()
+        mock_old_agent.name = "old_agent"
+        mock_old_agent.display_name = "Old Agent"
+        mock_old_agent.get_message_history.return_value = []
+
+        mock_new_agent = MagicMock()
+        mock_new_agent.name = "new_agent"
+        mock_new_agent.display_name = "New Agent"
+        mock_new_agent.description = "Desc"
+
+        with patch(
+            "code_puppy.agents.get_current_agent",
+            side_effect=[mock_old_agent, mock_new_agent],
+        ):
+            with patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"new_agent": "New"},
+            ):
+                with patch("code_puppy.agents.set_current_agent", return_value=True):
+                    with patch("code_puppy.messaging.emit_success"):
+                        with patch("code_puppy.messaging.emit_info") as mock_info:
+                            handle_switch_command("/switch new_agent")
+
+                            mock_new_agent.set_message_history.assert_called_once_with(
+                                []
+                            )
+                            calls_str = " ".join(
+                                str(c) for c in mock_info.call_args_list
+                            )
+                            assert "0 messages transferred" in calls_str
+
+    def test_switch_transfers_large_history(self):
+        """Test switch handles large message histories."""
+        large_history = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"Message {i}"}
+            for i in range(100)
+        ]
+
+        mock_old_agent = MagicMock()
+        mock_old_agent.name = "old_agent"
+        mock_old_agent.display_name = "Old Agent"
+        mock_old_agent.get_message_history.return_value = large_history
+
+        mock_new_agent = MagicMock()
+        mock_new_agent.name = "new_agent"
+        mock_new_agent.display_name = "New Agent"
+        mock_new_agent.description = "Desc"
+
+        with patch(
+            "code_puppy.agents.get_current_agent",
+            side_effect=[mock_old_agent, mock_new_agent],
+        ):
+            with patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"new_agent": "New"},
+            ):
+                with patch("code_puppy.agents.set_current_agent", return_value=True):
+                    with patch("code_puppy.messaging.emit_success"):
+                        with patch("code_puppy.messaging.emit_info") as mock_info:
+                            handle_switch_command("/switch new_agent")
+
+                            mock_new_agent.set_message_history.assert_called_once_with(
+                                large_history
+                            )
+                            calls_str = " ".join(
+                                str(c) for c in mock_info.call_args_list
+                            )
+                            assert "100 messages transferred" in calls_str
+
+    def test_switch_creates_copy_of_history(self):
+        """Test that switch creates a copy, not a reference to original history."""
+        original_history = [{"role": "user", "content": "test"}]
+
+        mock_old_agent = MagicMock()
+        mock_old_agent.name = "old_agent"
+        mock_old_agent.display_name = "Old Agent"
+        mock_old_agent.get_message_history.return_value = original_history
+
+        mock_new_agent = MagicMock()
+        mock_new_agent.name = "new_agent"
+        mock_new_agent.display_name = "New Agent"
+        mock_new_agent.description = "Desc"
+
+        with patch(
+            "code_puppy.agents.get_current_agent",
+            side_effect=[mock_old_agent, mock_new_agent],
+        ):
+            with patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={"new_agent": "New"},
+            ):
+                with patch("code_puppy.agents.set_current_agent", return_value=True):
+                    with patch("code_puppy.messaging.emit_success"):
+                        with patch("code_puppy.messaging.emit_info"):
+                            handle_switch_command("/switch new_agent")
+
+                            transferred = mock_new_agent.set_message_history.call_args[
+                                0
+                            ][0]
+                            assert transferred == original_history
