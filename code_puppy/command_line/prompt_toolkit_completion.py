@@ -98,10 +98,9 @@ class SafeFileHistory(FileHistory):
         except (UnicodeEncodeError, UnicodeDecodeError, OSError) as e:
             # If we still can't write, log the error but don't crash
             # This can happen with particularly malformed input
-            print(
-                f"Warning: Could not save to command history: {e}",
-                file=sys.stderr,
-            )
+            # Note: Using sys.stderr here intentionally - this is a low-level
+            # warning that shouldn't use the messaging system
+            sys.stderr.write(f"Warning: Could not save to command history: {e}\n")
 
 
 class SetCompleter(Completer):
@@ -596,14 +595,17 @@ async def get_input_with_combined_completion(
         multiline["enabled"] = not multiline["enabled"]
         status = "ON" if multiline["enabled"] else "OFF"
         # Print status for user feedback (version-agnostic)
-        print(f"[multiline] {status}", flush=True)
+        # Note: Using sys.stdout here for immediate feedback during input
+        sys.stdout.write(f"[multiline] {status}\n")
+        sys.stdout.flush()
 
     # Also toggle multiline with F2 (more reliable across platforms)
     @bindings.add("f2")
     def _(event):
         multiline["enabled"] = not multiline["enabled"]
         status = "ON" if multiline["enabled"] else "OFF"
-        print(f"[multiline] {status}", flush=True)
+        sys.stdout.write(f"[multiline] {status}\n")
+        sys.stdout.flush()
 
     # Newline insert bindings — robust and explicit
     # Ctrl+J (line feed) works in virtually all terminals; mark eager so it wins

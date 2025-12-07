@@ -127,7 +127,10 @@ class ConsoleSpinner(SpinnerBase):
                 # Short sleep to control animation speed
                 time.sleep(0.05)
         except Exception as e:
-            print(f"\nSpinner error: {e}")
+            # Note: Using sys.stderr for spinner error - can't use messaging during spinner
+            import sys
+
+            sys.stderr.write(f"\nSpinner error: {e}\n")
             self._is_spinning = False
 
     def pause(self):

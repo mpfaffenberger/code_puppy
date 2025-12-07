@@ -6,7 +6,7 @@ import logging
 import time
 from typing import List, Optional
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_success
 
 from ...agents import get_current_agent
 from .base import MCPCommandBase
@@ -47,8 +47,8 @@ class StartCommand(MCPCommandBase):
             # Find server by name
             server_id = find_server_id_by_name(self.manager, server_name)
             if not server_id:
-                emit_info(
-                    f"[red]Server '{server_name}' not found[/red]",
+                emit_error(
+                    f"Server '{server_name}' not found",
                     message_group=group_id,
                 )
                 suggest_similar_servers(self.manager, server_name, group_id=group_id)
@@ -59,8 +59,8 @@ class StartCommand(MCPCommandBase):
 
             if success:
                 # This and subsequent messages will auto-group with the first message
-                emit_info(
-                    f"[green]✓ Started server: {server_name}[/green]",
+                emit_success(
+                    f"Started server: {server_name}",
                     message_group=group_id,
                 )
 
@@ -81,17 +81,17 @@ class StartCommand(MCPCommandBase):
                     # Update MCP tool cache immediately so token counts reflect the change
                     agent.update_mcp_tool_cache_sync()
                     emit_info(
-                        "[dim]Agent reloaded with updated servers[/dim]",
+                        "Agent reloaded with updated servers",
                         message_group=group_id,
                     )
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
             else:
-                emit_info(
-                    f"[red]✗ Failed to start server: {server_name}[/red]",
+                emit_error(
+                    f"Failed to start server: {server_name}",
                     message_group=group_id,
                 )
 
         except Exception as e:
             logger.error(f"Error starting server '{server_name}': {e}")
-            emit_info(f"[red]Failed to start server: {e}[/red]", message_group=group_id)
+            emit_error(f"Failed to start server: {e}", message_group=group_id)

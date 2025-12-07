@@ -7,7 +7,7 @@ import logging
 import os
 from typing import List, Optional
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
 from .wizard_utils import run_interactive_install_wizard
@@ -102,7 +102,7 @@ class AddCommand(MCPCommandBase):
             emit_info("Required module not available", message_group=group_id)
         except Exception as e:
             logger.error(f"Error in add command: {e}")
-            emit_info(f"[red]Error adding server: {e}[/red]", message_group=group_id)
+            emit_error(f"Error adding server: {e}", message_group=group_id)
 
     def _add_server_from_json(self, config_dict: dict, group_id: str) -> bool:
         """
@@ -166,5 +166,5 @@ class AddCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error adding server from JSON: {e}")
-            emit_info(f"[red]Failed to add server: {e}[/red]", message_group=group_id)
+            emit_error(f"Failed to add server: {e}", message_group=group_id)
             return False
