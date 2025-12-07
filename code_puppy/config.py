@@ -1079,6 +1079,38 @@ def clear_agent_pinned_model(agent_name: str):
     set_config_value(f"agent_model_{agent_name}", "")
 
 
+def get_all_agent_pinned_models() -> dict:
+    """Get all agent-to-model pinnings from config.
+
+    Returns:
+        Dict mapping agent names to their pinned model names.
+        Only includes agents that have a pinned model (non-empty value).
+    """
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+
+    pinnings = {}
+    if DEFAULT_SECTION in config:
+        for key, value in config[DEFAULT_SECTION].items():
+            if key.startswith("agent_model_") and value:
+                agent_name = key[len("agent_model_"):]
+                pinnings[agent_name] = value
+    return pinnings
+
+
+def get_agents_pinned_to_model(model_name: str) -> list:
+    """Get all agents that are pinned to a specific model.
+
+    Args:
+        model_name: The model name to look up.
+
+    Returns:
+        List of agent names pinned to this model.
+    """
+    all_pinnings = get_all_agent_pinned_models()
+    return [agent for agent, model in all_pinnings.items() if model == model_name]
+
+
 def get_auto_save_session() -> bool:
     """
     Checks puppy.cfg for 'auto_save_session' (case-insensitive in value only).

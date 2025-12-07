@@ -224,6 +224,23 @@ def handle_set_command(command: str) -> bool:
     return True
 
 
+def _get_json_agents_pinned_to_model(model_name: str) -> list:
+    """Get JSON agents that have this model pinned in their JSON file."""
+    from code_puppy.agents.json_agent import discover_json_agents
+
+    pinned = []
+    json_agents = discover_json_agents()
+    for agent_name, agent_path in json_agents.items():
+        try:
+            with open(agent_path, "r") as f:
+                agent_data = json.load(f)
+                if agent_data.get("model") == model_name:
+                    pinned.append(agent_name)
+        except Exception:
+            continue
+    return pinned
+
+
 @register_command(
     name="pin_model",
     description="Pin a specific model to an agent",
@@ -234,6 +251,7 @@ def handle_pin_model_command(command: str) -> bool:
     """Pin a specific model to an agent."""
     from code_puppy.agents.json_agent import discover_json_agents
     from code_puppy.command_line.model_picker_completion import load_model_names
+    from code_puppy.config import get_agents_pinned_to_model
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     tokens = command.split()
@@ -359,6 +377,7 @@ def handle_pin_model_command(command: str) -> bool:
 def handle_unpin_command(command: str) -> bool:
     """Unpin a model from an agent (resets to default)."""
     from code_puppy.agents.json_agent import discover_json_agents
+    from code_puppy.config import get_agent_pinned_model
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     tokens = command.split()
@@ -377,12 +396,32 @@ def handle_unpin_command(command: str) -> bool:
         if builtin_agents:
             emit_info("Available built-in agents:")
             for agent_name, description in builtin_agents.items():
-                emit_info(f"  [cyan]{agent_name}[/cyan] - {description}")
+                pinned_model = get_agent_pinned_model(agent_name)
+                if pinned_model:
+                    emit_info(
+                        f"  [cyan]{agent_name}[/cyan] - {description} "
+                        f"[dim][→ {pinned_model}][/dim]"
+                    )
+                else:
+                    emit_info(f"  [cyan]{agent_name}[/cyan] - {description}")
 
         if json_agents:
             emit_info("\nAvailable JSON agents:")
             for agent_name, agent_path in json_agents.items():
-                emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
+                # Read the JSON file to check for pinned model
+                try:
+                    with open(agent_path, "r") as f:
+                        agent_config = json.load(f)
+                    pinned_model = agent_config.get("model")
+                    if pinned_model:
+                        emit_info(
+                            f"  [cyan]{agent_name}[/cyan] ({agent_path}) "
+                            f"[dim][→ {pinned_model}][/dim]"
+                        )
+                    else:
+                        emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
+                except Exception:
+                    emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
         return True
 
     agent_name_input = tokens[1].lower()

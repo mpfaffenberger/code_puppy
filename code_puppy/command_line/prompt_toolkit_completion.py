@@ -375,13 +375,20 @@ class AgentCompleter(Completer):
             return
 
         # Filter and yield agent completions
+        try:
+            from code_puppy.command_line.pin_command_completion import (
+                _get_agent_display_meta,
+            )
+        except ImportError:
+            _get_agent_display_meta = lambda x: "default"  # noqa: E731
+
         for agent_name in agent_names:
             if agent_name.lower().startswith(text_after_trigger.lower()):
                 yield Completion(
                     agent_name,
                     start_position=start_position,
                     display=agent_name,
-                    display_meta="Agent",
+                    display_meta=_get_agent_display_meta(agent_name),
                 )
 
 
