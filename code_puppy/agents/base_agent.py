@@ -1649,7 +1649,7 @@ class BaseAgent(ABC):
 
         original_handler = None
         key_listener_stop_event = None
-        key_listener_thread = None
+        _key_listener_thread = None
 
         try:
             if cancel_agent_uses_signal():
@@ -1665,7 +1665,7 @@ class BaseAgent(ABC):
                 )
                 # Spawn keyboard listener with the cancel agent callback
                 key_listener_stop_event = threading.Event()
-                key_listener_thread = self._spawn_ctrl_x_key_listener(
+                _key_listener_thread = self._spawn_ctrl_x_key_listener(
                     key_listener_stop_event,
                     on_escape=lambda: None,  # Ctrl+X handled by command_runner
                     on_cancel_agent=schedule_agent_cancel,

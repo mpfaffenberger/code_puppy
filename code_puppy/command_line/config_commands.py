@@ -251,7 +251,6 @@ def handle_pin_model_command(command: str) -> bool:
     """Pin a specific model to an agent."""
     from code_puppy.agents.json_agent import discover_json_agents
     from code_puppy.command_line.model_picker_completion import load_model_names
-    from code_puppy.config import get_agents_pinned_to_model
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     tokens = command.split()
