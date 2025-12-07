@@ -24,7 +24,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=["test_tool"]),
             patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=False),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
         ):
             # Setup mocks
@@ -65,7 +65,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=[]),
             patch.object(agent, "get_model_context_length", return_value=200000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=False),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
         ):
             mock_model = MagicMock()
@@ -96,7 +96,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=[]),
             patch.object(agent, "get_model_context_length", return_value=200000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=False),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch(
                 "code_puppy.config.get_openai_reasoning_effort", return_value="medium"
             ),
@@ -131,7 +131,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=[]),
             patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=False),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
         ):
             mock_model = MagicMock()
@@ -162,7 +162,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=test_tools),
             patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=False),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
         ):
             mock_model = MagicMock()
@@ -193,7 +193,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=[]),
             patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=False),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
         ):
             mock_model = MagicMock()
@@ -227,7 +227,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=[]),
             patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=True),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=True),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
             patch("code_puppy.agents.base_agent.DBOSAgent") as mock_dbos_agent_class,
         ):
@@ -262,7 +262,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=[]),
             patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=False),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
         ):
             mock_model = MagicMock()
@@ -297,7 +297,7 @@ class TestBaseAgentReload:
             patch.object(agent, "get_available_tools", return_value=[]),
             patch.object(agent, "get_model_context_length", return_value=128000),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.config.get_use_dbos", return_value=False),
+            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
         ):
             mock_load_config.return_value = {"test-model": {"context_length": 128000}}
