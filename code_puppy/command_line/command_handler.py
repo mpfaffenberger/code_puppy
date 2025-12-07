@@ -14,6 +14,7 @@ def get_commands_help():
     Only shows two sections: Built-in Commands and Custom Commands.
     """
     from rich.text import Text
+
     from code_puppy.command_line.command_registry import get_unique_commands
 
     # Ensure plugins are loaded so custom help can register
@@ -188,8 +189,8 @@ def handle_command(command: str):
     Returns:
         True if the command was handled, False if not, or a string to be processed as user input
     """
-    from code_puppy.messaging import emit_info, emit_warning
     from code_puppy.command_line.command_registry import get_command
+    from code_puppy.messaging import emit_info, emit_warning
 
     _ensure_plugins_loaded()
 

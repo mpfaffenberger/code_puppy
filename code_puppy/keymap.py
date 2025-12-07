@@ -5,7 +5,6 @@ cancel_agent_key feature that allows users to override Ctrl+C with a
 different key for cancelling agent tasks.
 """
 
-
 # Character codes for Ctrl+letter combinations (Ctrl+A = 0x01, Ctrl+Z = 0x1A)
 KEY_CODES: dict[str, str] = {
     "ctrl+a": "\x01",

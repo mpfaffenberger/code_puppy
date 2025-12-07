@@ -146,6 +146,7 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
 
     # Import locally to avoid pulling the messaging layer into storage modules
     from datetime import datetime
+
     from prompt_toolkit.formatted_text import FormattedText
 
     from code_puppy.agents.agent_manager import get_current_agent

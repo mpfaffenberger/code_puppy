@@ -1,7 +1,82 @@
+import json
 from typing import Iterable
 
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+
+
+def _get_json_agents_for_model(model_name: str) -> list:
+    """Get JSON agents that have this model pinned in their JSON file."""
+    try:
+        from code_puppy.agents.json_agent import discover_json_agents
+
+        pinned = []
+        json_agents = discover_json_agents()
+        for agent_name, agent_path in json_agents.items():
+            try:
+                with open(agent_path, "r") as f:
+                    agent_data = json.load(f)
+                    if agent_data.get("model") == model_name:
+                        pinned.append(agent_name)
+            except Exception:
+                continue
+        return pinned
+    except Exception:
+        return []
+
+
+def _get_pinned_model_for_agent(agent_name: str) -> str | None:
+    """Get the pinned model for an agent (config or JSON)."""
+    # Check config first (for built-in agents)
+    try:
+        from code_puppy.config import get_agent_pinned_model
+
+        pinned = get_agent_pinned_model(agent_name)
+        if pinned:
+            return pinned
+    except Exception:
+        pass
+
+    # Check if it's a JSON agent with a model key
+    try:
+        from code_puppy.agents.json_agent import discover_json_agents
+
+        json_agents = discover_json_agents()
+        if agent_name in json_agents:
+            with open(json_agents[agent_name], "r") as f:
+                agent_data = json.load(f)
+                return agent_data.get("model")
+    except Exception:
+        pass
+
+    return None
+
+
+def _get_model_display_meta(model_name: str) -> str:
+    """Get display meta for a model showing pinned agents."""
+    try:
+        from code_puppy.config import get_agents_pinned_to_model
+
+        pinned_agents = get_agents_pinned_to_model(model_name)
+        pinned_agents.extend(_get_json_agents_for_model(model_name))
+        pinned_agents = list(set(pinned_agents))  # Deduplicate
+
+        if pinned_agents:
+            agents_str = ", ".join(pinned_agents[:2])
+            if len(pinned_agents) > 2:
+                agents_str += "..."
+            return f"Pinned: [{agents_str}]"
+    except Exception:
+        pass
+    return "Model"
+
+
+def _get_agent_display_meta(agent_name: str) -> str:
+    """Get display meta for an agent showing pinned model."""
+    pinned_model = _get_pinned_model_for_agent(agent_name)
+    if pinned_model:
+        return f"→ {pinned_model}"
+    return "default"
 
 
 def load_agent_names():
@@ -86,7 +161,7 @@ class PinCompleter(Completer):
                     agent_name,
                     start_position=-len(command_part),
                     display=agent_name,
-                    display_meta="Agent",
+                    display_meta=_get_agent_display_meta(agent_name),
                 )
 
         # Case 2: Completing first argument (agent name)
@@ -115,7 +190,7 @@ class PinCompleter(Completer):
                         model_name,
                         start_position=0,  # Insert at cursor position
                         display=model_name,
-                        display_meta="Model",
+                        display_meta=_get_model_display_meta(model_name),
                     )
             else:
                 # Still typing agent name, show agent completions
@@ -128,7 +203,7 @@ class PinCompleter(Completer):
                             agent_name,
                             start_position=start_pos,
                             display=agent_name,
-                            display_meta="Agent",
+                            display_meta=_get_agent_display_meta(agent_name),
                         )
 
         # Case 3: Completing second argument (model name)
@@ -152,7 +227,7 @@ class PinCompleter(Completer):
                         model_name,
                         start_position=0,
                         display=model_name,
-                        display_meta="Model",
+                        display_meta=_get_model_display_meta(model_name),
                     )
             else:
                 # Filter based on what the user has typed
@@ -174,7 +249,7 @@ class PinCompleter(Completer):
                             model_name,
                             start_position=start_pos,
                             display=model_name,
-                            display_meta="Model",
+                            display_meta=_get_model_display_meta(model_name),
                         )
 
         # Case 4: Handle special case when user selected (unpin)
@@ -233,7 +308,7 @@ class UnpinCompleter(Completer):
                     agent_name,
                     start_position=-len(command_part),
                     display=agent_name,
-                    display_meta="Agent",
+                    display_meta=_get_agent_display_meta(agent_name),
                 )
         elif len(tokens) == 1:
             # Filter agent names based on partial input
@@ -247,7 +322,7 @@ class UnpinCompleter(Completer):
                         agent_name,
                         start_position=start_pos,
                         display=agent_name,
-                        display_meta="Agent",
+                        display_meta=_get_agent_display_meta(agent_name),
                     )
         else:
             # No completion for additional arguments

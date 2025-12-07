@@ -22,8 +22,9 @@ from pydantic_ai import RunContext
 
 from code_puppy.callbacks import on_delete_file, on_edit_file
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.tools.common import _find_best_window, generate_group_id
+from code_puppy.tools.common import _find_best_window
 from code_puppy.tools.common import format_diff_with_colors as _colorize_diff
+from code_puppy.tools.common import generate_group_id
 
 
 def _create_rejection_response(file_path: str) -> Dict[str, Any]:

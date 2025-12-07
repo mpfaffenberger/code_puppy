@@ -9,6 +9,8 @@ from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 from code_puppy.config import (
     clear_agent_pinned_model,
     get_agent_pinned_model,
+    get_agents_pinned_to_model,
+    get_all_agent_pinned_models,
     get_global_model_name,
     set_agent_pinned_model,
 )
@@ -99,3 +101,54 @@ class TestAgentPinnedModels:
         # Clean up
         clear_agent_pinned_model(agent1_name)
         clear_agent_pinned_model(agent2_name)
+
+    def test_get_all_agent_pinned_models(self):
+        """Test getting all agent-model pinnings."""
+        # Set up multiple pinned models
+        set_agent_pinned_model("agent1", "model-a")
+        set_agent_pinned_model("agent2", "model-b")
+        set_agent_pinned_model("agent3", "model-a")
+
+        try:
+            result = get_all_agent_pinned_models()
+
+            assert "agent1" in result
+            assert "agent2" in result
+            assert "agent3" in result
+            assert result["agent1"] == "model-a"
+            assert result["agent2"] == "model-b"
+            assert result["agent3"] == "model-a"
+        finally:
+            # Cleanup
+            clear_agent_pinned_model("agent1")
+            clear_agent_pinned_model("agent2")
+            clear_agent_pinned_model("agent3")
+
+    def test_get_all_agent_pinned_models_empty(self):
+        """Test getting all pinnings when none exist."""
+        result = get_all_agent_pinned_models()
+        # Result should be a dict (possibly empty if no other tests left pinnings)
+        assert isinstance(result, dict)
+
+    def test_get_agents_pinned_to_model(self):
+        """Test getting agents pinned to a specific model."""
+        set_agent_pinned_model("agent1", "shared-model")
+        set_agent_pinned_model("agent2", "shared-model")
+        set_agent_pinned_model("agent3", "different-model")
+
+        try:
+            result = get_agents_pinned_to_model("shared-model")
+
+            assert "agent1" in result
+            assert "agent2" in result
+            assert "agent3" not in result
+            assert len(result) == 2
+        finally:
+            clear_agent_pinned_model("agent1")
+            clear_agent_pinned_model("agent2")
+            clear_agent_pinned_model("agent3")
+
+    def test_get_agents_pinned_to_model_none(self):
+        """Test getting agents for a model with no pinnings."""
+        result = get_agents_pinned_to_model("nonexistent-model")
+        assert result == []
