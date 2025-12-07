@@ -15,18 +15,11 @@ dependencies = [
     "logfire>=0.7.1",
     "pydantic>=2.4.0",
     "python-dotenv>=1.0.0",
-    "bs4>=0.0.2",
     "pytest-cov>=6.1.1",
     "ruff>=0.11.11",
-    "httpx-limiter>=0.3.0",
     "prompt-toolkit>=3.0.52",
-    "pathspec>=0.11.0",
     "rapidfuzz>=3.13.0",
-    "fastapi>=0.110.0",
     "json-repair>=0.46.2",
-    "uvicorn>=0.29.0",
-    "PyJWT>=2.8.0",
-    "termcolor>=3.1.0",
     "pyfiglet>=0.8.post1",
     "openai>=1.99.1",
     "ripgrep==14.1.0",
@@ -35,6 +28,8 @@ dependencies = [
     "camoufox>=0.4.11",
     "dbos>=2.5.0",
     "agent-client-protocol>=0.1.0",
+    "uvicorn>=0.30.0",
+    "fastapi>=0.111.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
@@ -91,7 +86,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-omit = ["code_puppy/main.py", "code_puppy/tui/*"]
+omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"

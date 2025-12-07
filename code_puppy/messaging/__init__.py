@@ -20,7 +20,7 @@ from .message_queue import (
     provide_prompt_response,
 )
 from .queue_console import QueueConsole, get_queue_console
-from .renderers import InteractiveRenderer, SynchronousInteractiveRenderer, TUIRenderer
+from .renderers import InteractiveRenderer, SynchronousInteractiveRenderer
 
 __all__ = [
     "MessageQueue",
@@ -43,7 +43,6 @@ __all__ = [
     "provide_prompt_response",
     "get_buffered_startup_messages",
     "InteractiveRenderer",
-    "TUIRenderer",
     "SynchronousInteractiveRenderer",
     "QueueConsole",
     "get_queue_console",

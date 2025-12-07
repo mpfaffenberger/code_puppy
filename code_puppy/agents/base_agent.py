@@ -829,30 +829,11 @@ class BaseAgent(ABC):
         total_current_tokens = message_tokens + context_overhead
         proportion_used = total_current_tokens / model_max
 
-        # Check if we're in TUI mode and can update the status bar
-        from code_puppy.tui_state import get_tui_app_instance, is_tui_mode
-
         context_summary = SpinnerBase.format_context_info(
             total_current_tokens, model_max, proportion_used
         )
         update_spinner_context(context_summary)
 
-        if is_tui_mode():
-            tui_app = get_tui_app_instance()
-            if tui_app:
-                try:
-                    # Update the status bar instead of emitting a chat message
-                    status_bar = tui_app.query_one("StatusBar")
-                    status_bar.update_token_info(
-                        total_current_tokens, model_max, proportion_used
-                    )
-                except Exception as e:
-                    emit_error(e)
-            else:
-                emit_info(
-                    f"Final token count after processing: {total_current_tokens}",
-                    message_group="token_context_status",
-                )
         # Get the configured compaction threshold
         compaction_threshold = get_compaction_threshold()
 
@@ -891,30 +872,12 @@ class BaseAgent(ABC):
             final_token_count = sum(
                 self.estimate_tokens_for_message(msg) for msg in result_messages
             )
-            # Update status bar with final token count if in TUI mode
+            # Update spinner with final token count
             final_summary = SpinnerBase.format_context_info(
                 final_token_count, model_max, final_token_count / model_max
             )
             update_spinner_context(final_summary)
 
-            if is_tui_mode():
-                tui_app = get_tui_app_instance()
-                if tui_app:
-                    try:
-                        status_bar = tui_app.query_one("StatusBar")
-                        status_bar.update_token_info(
-                            final_token_count, model_max, final_token_count / model_max
-                        )
-                    except Exception:
-                        emit_info(
-                            f"Final token count after processing: {final_token_count}",
-                            message_group="token_context_status",
-                        )
-                else:
-                    emit_info(
-                        f"Final token count after processing: {final_token_count}",
-                        message_group="token_context_status",
-                    )
             self.set_message_history(result_messages)
             for m in summarized_messages:
                 self.add_compacted_message_hash(self.hash_message(m))

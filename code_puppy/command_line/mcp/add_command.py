@@ -8,7 +8,6 @@ import os
 from typing import List, Optional
 
 from code_puppy.messaging import emit_info
-from code_puppy.tui_state import is_tui_mode
 
 from .base import MCPCommandBase
 from .wizard_utils import run_interactive_install_wizard
@@ -41,18 +40,6 @@ class AddCommand(MCPCommandBase):
         """
         if group_id is None:
             group_id = self.generate_group_id()
-
-        # Check if in TUI mode and guide user to use Ctrl+T instead
-        if is_tui_mode() and not args:
-            emit_info(
-                "💡 In TUI mode, press Ctrl+T to open the MCP Install Wizard",
-                message_group=group_id,
-            )
-            emit_info(
-                "   The wizard provides a better interface for browsing and installing MCP servers.",
-                message_group=group_id,
-            )
-            return
 
         try:
             if args:
