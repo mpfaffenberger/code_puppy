@@ -28,9 +28,9 @@ _SESSION_FILE_LOADED: bool = False
 # Session persistence file path
 def _get_session_file_path() -> Path:
     """Get the path to the terminal sessions file."""
-    from ..config import CONFIG_DIR
+    from ..config import STATE_DIR
 
-    return Path(CONFIG_DIR) / "terminal_sessions.json"
+    return Path(STATE_DIR) / "terminal_sessions.json"
 
 
 def get_terminal_session_id() -> str:

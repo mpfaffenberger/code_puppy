@@ -18,6 +18,7 @@ from pydantic_ai import Agent, RunContext, UsageLimits
 from pydantic_ai.messages import ModelMessage
 
 from code_puppy.config import (
+    DATA_DIR,
     get_message_limit,
     get_use_dbos,
 )
@@ -110,10 +111,10 @@ def _get_subagent_sessions_dir() -> Path:
     """Get the directory for storing subagent session data.
 
     Returns:
-        Path to ~/.code_puppy/subagent_sessions/
+        Path to XDG data directory/subagent_sessions/
     """
-    sessions_dir = Path.home() / ".code_puppy" / "subagent_sessions"
-    sessions_dir.mkdir(parents=True, exist_ok=True)
+    sessions_dir = Path(DATA_DIR) / "subagent_sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return sessions_dir
 
 
