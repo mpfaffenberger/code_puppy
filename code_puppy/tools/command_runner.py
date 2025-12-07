@@ -21,7 +21,6 @@ from code_puppy.messaging import (
     emit_warning,
 )
 from code_puppy.tools.common import generate_group_id, get_user_approval_async
-from code_puppy.tui_state import is_tui_mode
 
 # Maximum line length for shell command output to prevent massive token usage
 # This helps avoid exceeding model context limits when commands produce very long lines
@@ -356,11 +355,6 @@ def _shell_command_keyboard_context():
     3. Restores the original Ctrl-C handler when done
     """
     global _SHELL_CTRL_X_STOP_EVENT, _SHELL_CTRL_X_THREAD, _ORIGINAL_SIGINT_HANDLER
-
-    # Skip all this in TUI mode
-    if is_tui_mode():
-        yield
-        return
 
     # Handler for Ctrl-X: kill all running shell processes
     def handle_ctrl_x_press() -> None:
@@ -800,12 +794,11 @@ def share_your_reasoning(
         "agent_reasoning", reasoning[:50]
     )  # Use first 50 chars for context
 
-    if not is_tui_mode():
-        emit_divider(message_group=group_id)
-        emit_info(
-            "\n[bold white on purple] AGENT REASONING [/bold white on purple]",
-            message_group=group_id,
-        )
+    emit_divider(message_group=group_id)
+    emit_info(
+        "\n[bold white on purple] AGENT REASONING [/bold white on purple]",
+        message_group=group_id,
+    )
     emit_info("[bold cyan]Current reasoning:[/bold cyan]", message_group=group_id)
     emit_system_message(Markdown(reasoning), message_group=group_id)
     if next_steps is not None and next_steps.strip():

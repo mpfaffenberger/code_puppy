@@ -225,14 +225,6 @@ def mock_emit_prompt():
 
 
 @pytest.fixture
-def mock_tui_mode():
-    """Mock TUI mode state."""
-    with patch("code_puppy.tui_state.is_tui_mode") as mock:
-        mock.return_value = False
-        yield mock
-
-
-@pytest.fixture
 def mock_get_current_agent():
     """Mock get_current_agent function."""
     mock_agent = Mock()

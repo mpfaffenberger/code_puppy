@@ -10,7 +10,6 @@ from typing import List, Optional
 
 from code_puppy.config import MCP_SERVERS_FILE
 from code_puppy.messaging import emit_info
-from code_puppy.tui_state import is_tui_mode
 
 from .base import MCPCommandBase
 from .custom_server_form import run_custom_server_form
@@ -37,14 +36,6 @@ class EditCommand(MCPCommandBase):
             group_id = self.generate_group_id()
 
         try:
-            # If in TUI mode, show message
-            if is_tui_mode():
-                emit_info(
-                    "In TUI mode, use Ctrl+T to manage MCP servers",
-                    message_group=group_id,
-                )
-                return
-
             # Need a server name
             if not args:
                 emit_info(
