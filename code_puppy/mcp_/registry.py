@@ -41,7 +41,7 @@ class ServerRegistry:
         """
         if storage_path is None:
             data_dir = Path(config.DATA_DIR)
-            data_dir.mkdir(parents=True, exist_ok=True)
+            data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             self._storage_path = data_dir / "mcp_registry.json"
         else:
             self._storage_path = Path(storage_path)

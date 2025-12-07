@@ -114,7 +114,7 @@ def _get_subagent_sessions_dir() -> Path:
         Path to XDG data directory/subagent_sessions/
     """
     sessions_dir = Path(DATA_DIR) / "subagent_sessions"
-    sessions_dir.mkdir(parents=True, exist_ok=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return sessions_dir
 
 

@@ -56,7 +56,7 @@ class CamoufoxManager:
         """
         cache_dir = Path(config.CACHE_DIR)
         profile_path = cache_dir / "camoufox_profile"
-        profile_path.mkdir(parents=True, exist_ok=True)
+        profile_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return profile_path
 
     async def async_initialize(self) -> None:

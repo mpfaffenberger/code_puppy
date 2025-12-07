@@ -1,6 +1,7 @@
 """Error logging utility for code_puppy.
 
-Logs unexpected errors to XDG_CONFIG_HOME/code_puppy/logs/ for debugging purposes.
+Logs unexpected errors to XDG_STATE_HOME/code_puppy/logs/ for debugging purposes.
+Per XDG spec, logs are "state data" (actions history), not configuration.
 Because even good puppies make mistakes sometimes! 🐶
 """
 
@@ -10,16 +11,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from code_puppy.config import CONFIG_DIR
+from code_puppy.config import STATE_DIR
 
-# Logs directory within the config directory
-LOGS_DIR = os.path.join(CONFIG_DIR, "logs")
+# Logs directory within the state directory (per XDG spec, logs are state data)
+LOGS_DIR = os.path.join(STATE_DIR, "logs")
 ERROR_LOG_FILE = os.path.join(LOGS_DIR, "errors.log")
 
 
 def _ensure_logs_dir() -> None:
-    """Create the logs directory if it doesn't exist."""
-    Path(LOGS_DIR).mkdir(parents=True, exist_ok=True)
+    """Create the logs directory if it doesn't exist (with 0700 perms per XDG spec)."""
+    Path(LOGS_DIR).mkdir(parents=True, exist_ok=True, mode=0o700)
 
 
 def log_error(

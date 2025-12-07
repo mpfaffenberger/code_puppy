@@ -14,7 +14,7 @@ def get_workflows_directory() -> Path:
     """Get the browser workflows directory, creating it if it doesn't exist (uses XDG_DATA_HOME)."""
     data_dir = Path(config.DATA_DIR)
     workflows_dir = data_dir / "browser_workflows"
-    workflows_dir.mkdir(parents=True, exist_ok=True)
+    workflows_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return workflows_dir
 
 
