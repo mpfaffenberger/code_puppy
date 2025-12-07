@@ -1093,7 +1093,7 @@ def get_all_agent_pinned_models() -> dict:
     if DEFAULT_SECTION in config:
         for key, value in config[DEFAULT_SECTION].items():
             if key.startswith("agent_model_") and value:
-                agent_name = key[len("agent_model_"):]
+                agent_name = key[len("agent_model_") :]
                 pinnings[agent_name] = value
     return pinnings
 
