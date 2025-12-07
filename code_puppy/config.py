@@ -10,28 +10,26 @@ from code_puppy.session_storage import save_session
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
     """
-    Get XDG directory with fallback to legacy ~/.code_puppy if it exists.
+    Get directory for code_puppy files, defaulting to ~/.code_puppy.
+
+    XDG paths are only used when the corresponding environment variable
+    is explicitly set by the user. Otherwise, we use the legacy ~/.code_puppy
+    directory for all file types (config, data, cache, state).
 
     Args:
         env_var: XDG environment variable name (e.g., "XDG_CONFIG_HOME")
-        fallback: Fallback path relative to home (e.g., ".config")
+        fallback: Fallback path relative to home (e.g., ".config") - unused unless XDG var is set
 
     Returns:
         Path to the directory for code_puppy files
     """
-    # Check if legacy ~/.code_puppy exists with actual config (backwards compatibility)
-    legacy_dir = os.path.join(os.path.expanduser("~"), ".code_puppy")
-    legacy_config = os.path.join(legacy_dir, "puppy.cfg")
-    if os.path.exists(legacy_config):
-        return legacy_dir
-
-    # Use XDG directory if environment variable is set
+    # Use XDG directory ONLY if environment variable is explicitly set
     xdg_base = os.getenv(env_var)
     if xdg_base:
         return os.path.join(xdg_base, "code_puppy")
 
-    # Fallback to default XDG location
-    return os.path.join(os.path.expanduser("~"), fallback, "code_puppy")
+    # Default to legacy ~/.code_puppy for all file types
+    return os.path.join(os.path.expanduser("~"), ".code_puppy")
 
 
 # XDG Base Directory paths

@@ -18,8 +18,8 @@ def test_config_paths():
     assert "code_puppy" in str(token_path)
 
     config_dir = config.get_config_dir()
-    # XDG CONFIG_DIR is now ~/.config/code_puppy (not ~/.code_puppy)
-    assert config_dir.name == "code_puppy"
+    # Default is ~/.code_puppy; XDG paths only used when XDG env vars are set
+    assert config_dir.name in ("code_puppy", ".code_puppy")
 
     chatgpt_models = config.get_chatgpt_models_path()
     assert chatgpt_models.name == "chatgpt_models.json"
