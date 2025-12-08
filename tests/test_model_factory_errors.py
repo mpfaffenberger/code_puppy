@@ -1,6 +1,6 @@
 import json
 import os
-from unittest.mock import mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
@@ -345,18 +345,45 @@ class TestModelFactoryErrors:
                     "/fake/path/extra_models.json",
                 ):
                     with patch(
-                        "code_puppy.model_factory.get_chatgpt_models_path",
-                        return_value="/fake/path/chatgpt.json",
+                        "code_puppy.config.CHATGPT_MODELS_FILE",
+                        "/fake/path/chatgpt.json",
                     ):
                         with patch(
-                            "code_puppy.model_factory.get_claude_models_path",
-                            return_value="/fake/path/claude.json",
+                            "code_puppy.config.CLAUDE_MODELS_FILE",
+                            "/fake/path/claude.json",
                         ):
                             with patch(
-                                "code_puppy.model_factory.load_claude_models_filtered",
+                                "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
                                 return_value={},
                             ):
-                                with patch("pathlib.Path.exists", return_value=True):
+                                # Mock Path to control existence
+                                mock_path_class = MagicMock()
+                                mock_main_path = MagicMock()
+                                mock_extra_path = MagicMock()
+                                mock_other_path = MagicMock()
+
+                                mock_main_path.exists.return_value = True
+                                mock_extra_path.exists.return_value = True
+                                mock_other_path.exists.return_value = False
+
+                                def path_side_effect(path_arg):
+                                    path_str = str(path_arg)
+                                    if "extra_models.json" in path_str:
+                                        return mock_extra_path
+                                    elif (
+                                        "models.json" in path_str
+                                        and "extra" not in path_str
+                                    ):
+                                        return mock_main_path
+                                    else:
+                                        return mock_other_path
+
+                                mock_path_class.side_effect = path_side_effect
+
+                                with patch(
+                                    "code_puppy.model_factory.pathlib.Path",
+                                    mock_path_class,
+                                ):
                                     with patch("json.load") as mock_json_load:
                                         # First call succeeds (main models.json), second fails with general exception
                                         mock_json_load.side_effect = [

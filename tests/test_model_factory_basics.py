@@ -31,17 +31,16 @@ class TestModelFactoryBasics:
             assert "gpt-4" in config
             assert config["claude-3-5-sonnet"]["type"] == "anthropic"
 
-    @patch("code_puppy.model_factory.load_claude_models_filtered", return_value={})
-    @patch("code_puppy.model_factory.get_claude_models_path")
-    @patch("code_puppy.model_factory.get_chatgpt_models_path")
+    @patch(
+        "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
+        return_value={},
+    )
     @patch("code_puppy.model_factory.pathlib.Path")
     @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
     def test_load_config_with_extra_models(
         self,
         mock_callbacks,
         mock_path_class,
-        mock_chatgpt_path_func,
-        mock_claude_path_func,
         mock_load_claude,
     ):
         """Test config loading with extra models file."""
@@ -58,23 +57,28 @@ class TestModelFactoryBasics:
         # Create mock path instances
         mock_main_path = MagicMock()
         mock_extra_path = MagicMock()
-        mock_chatgpt_path = MagicMock()
-        mock_claude_path = MagicMock()
+        mock_other_path = MagicMock()
 
         # Configure exists() for each path
         mock_main_path.exists.return_value = True  # models.json exists
         mock_extra_path.exists.return_value = True  # extra models exists
-        mock_chatgpt_path.exists.return_value = False  # ChatGPT models doesn't exist
-        mock_claude_path.exists.return_value = False  # Claude models doesn't exist
-
-        # Mock the plugin path functions
-        mock_chatgpt_path_func.return_value = mock_chatgpt_path
-        mock_claude_path_func.return_value = mock_claude_path
+        mock_other_path.exists.return_value = False  # Other models don't exist
 
         # Configure Path() constructor to return appropriate mocks
         def path_side_effect(path_arg):
-            if "extra" in str(path_arg):
+            path_str = str(path_arg)
+            if "extra_models.json" in path_str:
                 return mock_extra_path
+            elif (
+                "models.json" in path_str
+                and "extra" not in path_str
+                and "chatgpt" not in path_str
+                and "claude" not in path_str
+                and "gemini" not in path_str
+            ):
+                return mock_main_path
+            elif any(x in path_str for x in ["chatgpt", "claude", "gemini"]):
+                return mock_other_path
             else:
                 return mock_main_path
 
@@ -99,17 +103,16 @@ class TestModelFactoryBasics:
         assert "claude-3-5-sonnet" in config
         assert "custom-model" in config
 
-    @patch("code_puppy.model_factory.load_claude_models_filtered", return_value={})
-    @patch("code_puppy.model_factory.get_claude_models_path")
-    @patch("code_puppy.model_factory.get_chatgpt_models_path")
+    @patch(
+        "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
+        return_value={},
+    )
     @patch("code_puppy.model_factory.pathlib.Path")
     @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
     def test_load_config_invalid_json(
         self,
         mock_callbacks,
         mock_path_class,
-        mock_chatgpt_path_func,
-        mock_claude_path_func,
         mock_load_claude,
     ):
         """Test handling of invalid JSON in extra models files."""
@@ -123,25 +126,30 @@ class TestModelFactoryBasics:
         # Create mock path instances
         mock_main_path = MagicMock()
         mock_extra_path = MagicMock()
-        mock_chatgpt_path = MagicMock()
-        mock_claude_path = MagicMock()
+        mock_other_path = MagicMock()
 
         # Configure exists() for each path
         mock_main_path.exists.return_value = True  # models.json exists
         mock_extra_path.exists.return_value = (
             True  # extra models exists (but has invalid JSON)
         )
-        mock_chatgpt_path.exists.return_value = False  # ChatGPT models doesn't exist
-        mock_claude_path.exists.return_value = False  # Claude models doesn't exist
-
-        # Mock the plugin path functions
-        mock_chatgpt_path_func.return_value = mock_chatgpt_path
-        mock_claude_path_func.return_value = mock_claude_path
+        mock_other_path.exists.return_value = False
 
         # Configure Path() constructor to return appropriate mocks
         def path_side_effect(path_arg):
-            if "extra" in str(path_arg):
+            path_str = str(path_arg)
+            if "extra_models.json" in path_str:
                 return mock_extra_path
+            elif (
+                "models.json" in path_str
+                and "extra" not in path_str
+                and "chatgpt" not in path_str
+                and "claude" not in path_str
+                and "gemini" not in path_str
+            ):
+                return mock_main_path
+            elif any(x in path_str for x in ["chatgpt", "claude", "gemini"]):
+                return mock_other_path
             else:
                 return mock_main_path
 

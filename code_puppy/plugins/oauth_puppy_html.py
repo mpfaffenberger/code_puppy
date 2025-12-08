@@ -8,6 +8,7 @@ CLAUDE_LOGO_URL = "https://voideditor.com/claude-icon.png"
 CHATGPT_LOGO_URL = (
     "https://freelogopng.com/images/all_img/1681038325chatgpt-logo-transparent.png"
 )
+GEMINI_LOGO_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Google_Gemini_logo.svg/512px-Google_Gemini_logo.svg.png"
 
 
 def oauth_success_html(service_name: str, extra_message: Optional[str] = None) -> str:
@@ -222,4 +223,6 @@ def _service_targets(service_name: str) -> Tuple[str, str, str, str]:
         return "🐕‍🦺🧨", CLAUDE_LOGO_URL, "Claude logo", ""
     if "chat" in normalized or "gpt" in normalized:
         return "🐶🚀", CHATGPT_LOGO_URL, "ChatGPT logo", "invert"
+    if "gemini" in normalized or "google" in normalized:
+        return "🐶✨", GEMINI_LOGO_URL, "Gemini logo", ""
     return "🐾💥", CHATGPT_LOGO_URL, "mystery logo", "invert"
