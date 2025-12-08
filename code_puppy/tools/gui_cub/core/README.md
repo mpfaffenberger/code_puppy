@@ -104,21 +104,37 @@ This directory contains pure utility functions and library adapters extracted fr
 
 ---
 
-### 5. **`click_strategy/`** ✅
-**Purpose:** Multi-tier click strategy selection
+### 5. **`element_categorization/`** ✅
+**Purpose:** Classify UI elements by text content
 
 **Key Functions:**
-- `is_strategy_enabled(strategy, platform)` - Platform capability check
-- `select_next_strategy(failed, platform)` - Fallback selection
-- `get_strategy_priority(platform)` - Priority order (UIA → OCR → VQA)
+- `classify_element_by_text(text)` - Categorize as button/field/link/menu/generic
+- `categorize_text_list(texts)` - Batch categorization
+- `generate_summary_from_categories(...)` - Human-readable summary
+- `generate_natural_summary(texts)` - One-step categorize + summarize
 
-**Used By:** `multi_strategy_click.py`
+**Used By:** `ocr/extraction.py`
 
-**Why Extracted:** Strategy selection logic has complex platform-specific rules. Testing ensures correct fallback behavior.
+**Why Extracted:** Element categorization is pure text processing with keyword matching. Separating from OCR I/O enables easy testing of classification rules.
 
 ---
 
-### 6. **`config_validation/`** ✅
+### 6. **`vqa_math/`** ✅
+**Purpose:** VQA coordinate transformations and scaling
+
+**Key Functions:**
+- `calculate_physical_crop_box(region, scale)` - Logical → Physical pixel conversion
+- `calculate_downscale_ratio(w, h, max_dim)` - Determine downscale factor
+- `calculate_downscaled_dimensions(w, h, ratio)` - Apply downscale
+- `calculate_downscale_dimensions_auto(w, h, max_dim)` - Combined helper
+
+**Used By:** `vqa_vision_click/utils.py`
+
+**Why Extracted:** VQA coordinate math is critical for HiDPI displays and vision model input sizing. Pure math enables thorough testing without image I/O.
+
+---
+
+### 7. **`config_validation/`** ✅
 **Purpose:** Configuration validation rules
 
 **Key Functions:**
@@ -132,7 +148,7 @@ This directory contains pure utility functions and library adapters extracted fr
 
 ---
 
-### 7. **`browser_offsets/`** ✅
+### 8. **`browser_offsets/`** ✅
 **Purpose:** Browser chrome offset calculation
 
 **Key Functions:**
@@ -261,7 +277,7 @@ def test_click_point_narrow_element():
 
 **Extraction Coverage:** ~75-80% of core business logic
 
-**Modules:** 7 active directories
+**Modules:** 8 active directories
 
 **Functions:** ~50+ pure functions
 
