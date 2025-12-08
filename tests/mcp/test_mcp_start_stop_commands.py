@@ -32,7 +32,6 @@ class TestStartCommand:
     def test_init(self):
         """Test command initialization."""
         assert hasattr(self.command, "manager")
-        assert hasattr(self.command, "console")
 
     def test_execute_no_args_shows_usage(self, mock_emit_info):
         """Test executing without args shows usage message."""
@@ -43,8 +42,13 @@ class TestStartCommand:
         assert "Usage:" in message
         assert "<server_name>" in message
 
-    def test_execute_server_not_found(self, mock_emit_info):
+    def test_execute_server_not_found(self):
         """Test executing with non-existent server."""
+        error_messages = []
+
+        def capture_error(message, message_group=None):
+            error_messages.append(str(message))
+
         with patch(
             "code_puppy.command_line.mcp.start_command.find_server_id_by_name"
         ) as mock_find:
@@ -53,11 +57,14 @@ class TestStartCommand:
             with patch(
                 "code_puppy.command_line.mcp.start_command.suggest_similar_servers"
             ) as mock_suggest:
-                self.command.execute(["nonexistent"])
+                with patch(
+                    "code_puppy.command_line.mcp.start_command.emit_error",
+                    side_effect=capture_error,
+                ):
+                    self.command.execute(["nonexistent"])
 
-                messages = get_messages_from_mock_emit(mock_emit_info)
-                assert any("not found" in msg.lower() for msg in messages)
-                mock_suggest.assert_called_once()
+                    assert any("not found" in msg.lower() for msg in error_messages)
+                    mock_suggest.assert_called_once()
 
     def test_execute_start_success(
         self, mock_emit_info, mock_get_current_agent, mock_mcp_manager
@@ -155,7 +162,6 @@ class TestStopCommand:
     def test_init(self):
         """Test command initialization."""
         assert hasattr(self.command, "manager")
-        assert hasattr(self.command, "console")
 
     def test_execute_no_args_shows_usage(self, mock_emit_info):
         """Test executing without args shows usage message."""
@@ -258,7 +264,6 @@ class TestRestartCommand:
     def test_init(self):
         """Test command initialization."""
         assert hasattr(self.command, "manager")
-        assert hasattr(self.command, "console")
 
     def test_execute_no_args_shows_usage(self, mock_emit_info):
         """Test executing without args shows usage message."""

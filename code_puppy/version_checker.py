@@ -28,6 +28,11 @@ def fetch_latest_version(package_name):
 
 
 def default_version_mismatch_behavior(current_version):
+    # Defensive: ensure current_version is never None
+    if current_version is None:
+        current_version = "0.0.0-unknown"
+        emit_warning("Could not detect current version, using fallback")
+
     latest_version = fetch_latest_version("code-puppy")
 
     update_available = bool(latest_version and latest_version != current_version)
