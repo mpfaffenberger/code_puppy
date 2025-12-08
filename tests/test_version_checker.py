@@ -59,7 +59,9 @@ class TestFetchLatestVersion:
         version = fetch_latest_version("test-package")
 
         assert version == "1.2.3"
-        mock_get.assert_called_once_with("https://pypi.org/pypi/test-package/json")
+        mock_get.assert_called_once_with(
+            "https://pypi.org/pypi/test-package/json", timeout=5.0
+        )
 
     @patch("code_puppy.version_checker.httpx.get")
     def test_fetch_latest_version_http_error(self, mock_get):
@@ -111,56 +113,100 @@ class TestFetchLatestVersion:
 class TestDefaultVersionMismatchBehavior:
     """Test default_version_mismatch_behavior function."""
 
-    @patch("code_puppy.version_checker.console")
+    @patch("code_puppy.version_checker.get_message_bus")
+    @patch("code_puppy.version_checker.emit_success")
+    @patch("code_puppy.version_checker.emit_warning")
+    @patch("code_puppy.version_checker.emit_info")
     @patch("code_puppy.version_checker.fetch_latest_version")
-    def test_version_mismatch_shows_update_message(self, mock_fetch, mock_console):
+    def test_version_mismatch_shows_update_message(
+        self, mock_fetch, mock_emit_info, mock_emit_warning, mock_emit_success, mock_bus
+    ):
         """Test that update message is shown when versions differ."""
         mock_fetch.return_value = "2.0.0"
 
         default_version_mismatch_behavior("1.0.0")
 
-        # Should print current version
-        mock_console.print.assert_any_call("Current version: 1.0.0")
-        # Should print latest version
-        mock_console.print.assert_any_call("Latest version: 2.0.0")
-        # Should show update available message
-        assert mock_console.print.call_count >= 4
+        # Should emit current version info
+        mock_emit_info.assert_any_call("Current version: 1.0.0")
+        # Should emit latest version info
+        mock_emit_info.assert_any_call("Latest version: 2.0.0")
+        # Should emit warning about new version
+        mock_emit_warning.assert_called()
+        # Should emit success message about updating
+        mock_emit_success.assert_called()
 
-    @patch("code_puppy.version_checker.console")
+    @patch("code_puppy.version_checker.get_message_bus")
+    @patch("code_puppy.version_checker.emit_success")
+    @patch("code_puppy.version_checker.emit_warning")
+    @patch("code_puppy.version_checker.emit_info")
     @patch("code_puppy.version_checker.fetch_latest_version")
-    def test_version_match_still_shows_current_version(self, mock_fetch, mock_console):
+    def test_version_match_still_shows_current_version(
+        self, mock_fetch, mock_emit_info, mock_emit_warning, mock_emit_success, mock_bus
+    ):
         """Test that current version is still shown when versions match."""
         mock_fetch.return_value = "1.0.0"
 
         default_version_mismatch_behavior("1.0.0")
 
-        # Should print current version even when versions match
-        mock_console.print.assert_called_once_with("Current version: 1.0.0")
+        # Should emit current version info
+        mock_emit_info.assert_called_once_with("Current version: 1.0.0")
+        # Should NOT emit warning or success when versions match
+        mock_emit_warning.assert_not_called()
+        mock_emit_success.assert_not_called()
 
-    @patch("code_puppy.version_checker.console")
+    @patch("code_puppy.version_checker.get_message_bus")
+    @patch("code_puppy.version_checker.emit_success")
+    @patch("code_puppy.version_checker.emit_warning")
+    @patch("code_puppy.version_checker.emit_info")
     @patch("code_puppy.version_checker.fetch_latest_version")
-    def test_version_fetch_failure_still_shows_current(self, mock_fetch, mock_console):
+    def test_version_fetch_failure_still_shows_current(
+        self, mock_fetch, mock_emit_info, mock_emit_warning, mock_emit_success, mock_bus
+    ):
         """Test behavior when fetch_latest_version returns None."""
         mock_fetch.return_value = None
 
         default_version_mismatch_behavior("1.0.0")
 
-        # Should still print current version even when version fetch fails
-        mock_console.print.assert_called_once_with("Current version: 1.0.0")
+        # Should still emit current version info even when fetch fails
+        mock_emit_info.assert_called_once_with("Current version: 1.0.0")
+        # Should NOT emit warning or success when fetch fails
+        mock_emit_warning.assert_not_called()
+        mock_emit_success.assert_not_called()
 
-    @patch("code_puppy.version_checker.console")
+    @patch("code_puppy.version_checker.get_message_bus")
+    @patch("code_puppy.version_checker.emit_success")
+    @patch("code_puppy.version_checker.emit_warning")
+    @patch("code_puppy.version_checker.emit_info")
     @patch("code_puppy.version_checker.fetch_latest_version")
-    def test_update_message_content(self, mock_fetch, mock_console):
+    def test_update_message_content(
+        self, mock_fetch, mock_emit_info, mock_emit_warning, mock_emit_success, mock_bus
+    ):
         """Test the exact content of update messages."""
         mock_fetch.return_value = "2.5.0"
 
         default_version_mismatch_behavior("2.0.0")
 
-        # Check for specific messages
-        calls = [str(call) for call in mock_console.print.call_args_list]
-        assert any("new version" in str(call).lower() for call in calls)
-        assert any("2.5.0" in str(call) for call in calls)
-        assert any(
-            "updating" in str(call).lower() or "update" in str(call).lower()
-            for call in calls
+        # Check warning contains new version info
+        warning_calls = [str(call) for call in mock_emit_warning.call_args_list]
+        assert any("2.5.0" in str(call) for call in warning_calls)
+
+    @patch("code_puppy.version_checker.get_message_bus")
+    @patch("code_puppy.version_checker.emit_success")
+    @patch("code_puppy.version_checker.emit_warning")
+    @patch("code_puppy.version_checker.emit_info")
+    @patch("code_puppy.version_checker.fetch_latest_version")
+    def test_none_current_version_handled_gracefully(
+        self, mock_fetch, mock_emit_info, mock_emit_warning, mock_emit_success, mock_bus
+    ):
+        """Test that None current_version is handled gracefully."""
+        mock_fetch.return_value = "1.0.0"
+
+        # This should not raise an exception
+        default_version_mismatch_behavior(None)
+
+        # Should emit warning about unknown version
+        mock_emit_warning.assert_any_call(
+            "Could not detect current version, using fallback"
         )
+        # Should use fallback version in info message
+        mock_emit_info.assert_any_call("Current version: 0.0.0-unknown")

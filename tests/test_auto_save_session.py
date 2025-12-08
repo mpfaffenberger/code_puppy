@@ -133,20 +133,20 @@ class TestAutoSaveSessionFunctionality:
         assert result is False
         mock_get_auto_save.assert_called_once()
 
+    @patch("code_puppy.messaging.emit_info")
     @patch("code_puppy.config.save_session")
     @patch("code_puppy.config.get_current_autosave_session_name")
     @patch("code_puppy.config.datetime.datetime")
     @patch("code_puppy.config.get_auto_save_session")
     @patch("code_puppy.agents.agent_manager.get_current_agent")
-    @patch("rich.console.Console")
     def test_auto_save_session_if_enabled_success(
         self,
-        mock_console_class,
         mock_get_agent,
         mock_get_auto_save,
         mock_datetime,
         mock_get_session_name,
         mock_save_session,
+        mock_emit_info,
         mock_cleanup,
         mock_config_paths,
     ):
@@ -176,9 +176,6 @@ class TestAutoSaveSessionFunctionality:
         )
         mock_save_session.return_value = metadata
 
-        mock_console = MagicMock()
-        mock_console_class.return_value = mock_console
-
         result = cp_config.auto_save_session_if_enabled()
 
         assert result is True
@@ -187,25 +184,22 @@ class TestAutoSaveSessionFunctionality:
         assert kwargs["base_dir"] == Path(mock_config_paths.autosave_dir)
         assert kwargs["session_name"] == "auto_session_20240101_010101"
         mock_cleanup.assert_called_once()
-        mock_console.print.assert_called_once()
+        mock_emit_info.assert_called_once()
 
+    @patch("code_puppy.messaging.emit_error")
     @patch("code_puppy.config.get_auto_save_session")
     @patch("code_puppy.agents.agent_manager.get_current_agent")
-    @patch("rich.console.Console")
     def test_auto_save_session_if_enabled_exception(
-        self, mock_console_class, mock_get_agent, mock_get_auto_save, mock_config_paths
+        self, mock_get_agent, mock_get_auto_save, mock_emit_error, mock_config_paths
     ):
         mock_get_auto_save.return_value = True
         mock_agent = MagicMock()
         mock_agent.get_message_history.side_effect = Exception("Agent error")
         mock_get_agent.return_value = mock_agent
 
-        mock_console_instance = MagicMock()
-        mock_console_class.return_value = mock_console_instance
-
         result = cp_config.auto_save_session_if_enabled()
         assert result is False
-        mock_console_instance.print.assert_called_once()
+        mock_emit_error.assert_called_once()
 
 
 class TestFinalizeAutoSaveSession:

@@ -23,7 +23,6 @@ class TestStatusCommand:
         """Test command initialization."""
         command = StatusCommand()
         assert hasattr(command, "manager")
-        assert hasattr(command, "console")
         assert callable(command.generate_group_id)
 
     def test_execute_no_args_shows_list(self, mock_emit_info, mock_mcp_manager):
@@ -345,9 +344,7 @@ class TestStatusCommand:
 
         assert len(mock_emit_info.messages) > 0  # Still shows basic status
 
-    def test_show_detailed_server_status_exception_handling(
-        self, mock_emit_info, mock_mcp_manager
-    ):
+    def test_show_detailed_server_status_exception_handling(self, mock_mcp_manager):
         """Test detailed status handles exceptions gracefully."""
         command = StatusCommand()
         # Since get_server_status is now a Mock, we can set side_effect
@@ -355,10 +352,20 @@ class TestStatusCommand:
             "Status fetch failed"
         )
 
-        command._show_detailed_server_status("test-1", "test-server", "group-123")
+        error_messages = []
+
+        def capture_error(message, message_group=None):
+            error_messages.append(str(message))
+
+        with patch(
+            "code_puppy.command_line.mcp.status_command.emit_error",
+            side_effect=capture_error,
+        ):
+            command._show_detailed_server_status("test-1", "test-server", "group-123")
 
         # Should emit error message
-        assert len(mock_emit_info.messages) > 0
+        assert len(error_messages) > 0
+        assert any("error" in msg.lower() for msg in error_messages)
 
     def test_show_detailed_server_status_without_group_id(
         self, mock_emit_info, mock_mcp_manager
