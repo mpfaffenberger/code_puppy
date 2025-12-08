@@ -38,6 +38,7 @@ from .messages import (
     MessageLevel,
     SelectionRequest,
     ShellOutputMessage,
+    ShellStartMessage,
     SpinnerControl,
     StatusPanelMessage,
     SubAgentInvocationMessage,
@@ -230,6 +231,8 @@ class RichConsoleRenderer:
             self._render_grep_result(message)
         elif isinstance(message, DiffMessage):
             self._render_diff(message)
+        elif isinstance(message, ShellStartMessage):
+            self._render_shell_start(message)
         elif isinstance(message, ShellOutputMessage):
             self._render_shell_output(message)
         elif isinstance(message, AgentReasoningMessage):
@@ -486,6 +489,22 @@ class RichConsoleRenderer:
     # =========================================================================
     # Shell Output
     # =========================================================================
+
+    def _render_shell_start(self, msg: ShellStartMessage) -> None:
+        """Render shell command start notification."""
+        # Header showing command is starting
+        self._console.print(
+            f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] "
+            f"🚀 [bold green]$ {msg.command}[/bold green]"
+        )
+
+        # Show working directory if specified
+        if msg.cwd:
+            self._console.print(f"[dim]📂 Working directory: {msg.cwd}[/dim]")
+
+        # Show timeout
+        self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
+        self._console.print("[dim]" + "─" * 60 + "[/dim]")
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
         """Render shell command output matching old format."""

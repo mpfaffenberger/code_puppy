@@ -196,6 +196,17 @@ class DiffMessage(BaseMessage):
 # =============================================================================
 
 
+class ShellStartMessage(BaseMessage):
+    """Notification that a shell command has started execution."""
+
+    category: MessageCategory = MessageCategory.TOOL_OUTPUT
+    command: str = Field(description="The shell command being executed")
+    cwd: Optional[str] = Field(
+        default=None, description="Working directory for the command"
+    )
+    timeout: int = Field(default=60, description="Timeout in seconds")
+
+
 class ShellOutputMessage(BaseMessage):
     """Output from a shell command execution with stdout, stderr, and timing."""
 
@@ -382,6 +393,7 @@ AnyMessage = Union[
     FileContentMessage,
     GrepResultMessage,
     DiffMessage,
+    ShellStartMessage,
     ShellOutputMessage,
     AgentReasoningMessage,
     AgentResponseMessage,
@@ -420,6 +432,7 @@ __all__ = [
     "DiffLine",
     "DiffMessage",
     # Shell
+    "ShellStartMessage",
     "ShellOutputMessage",
     # Agent
     "AgentReasoningMessage",

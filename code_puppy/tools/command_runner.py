@@ -15,6 +15,7 @@ from rich.text import Text
 from code_puppy.messaging import (  # Structured messaging types
     AgentReasoningMessage,
     ShellOutputMessage,
+    ShellStartMessage,
     emit_error,
     emit_system_message,
     emit_warning,
@@ -715,6 +716,16 @@ async def run_shell_command(
 
     # Now that approval is done, activate the Ctrl-X listener and disable agent Ctrl-C
     with _shell_command_keyboard_context():
+        # Emit structured ShellStartMessage for the UI
+        bus = get_message_bus()
+        bus.emit(
+            ShellStartMessage(
+                command=command,
+                cwd=cwd,
+                timeout=timeout,
+            )
+        )
+
         try:
             creationflags = 0
             preexec_fn = None
