@@ -39,22 +39,22 @@ dependencies = [
     "google-cloud-bigquery>=3.0.0",
     # GUI-Cub dependencies
     "atomacos>=3.2.0; sys_platform == 'darwin'",
-    "pillow>=11.0.0", # Updated from 10.0.0 - latest with security fixes
-    "pyautogui>=0.9.40,<0.9.42", # Locked for atomacos compatibility (macOS)
+    "pillow>=12.0.0",  # Updated from 11.0.0 - latest with security fixes
+    "pyautogui>=0.9.40,<0.9.42",  # Locked by atomacos 3.3.0 requirement (last update: Jan 2019)
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
-    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
-    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
-    "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
+    "pyobjc-framework-Quartz>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
+    "pyobjc-framework-Vision>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
     # WinRT OCR dependencies (Windows 10+ native OCR) - modular PyWinRT packages
     # See: https://pywinrt.readthedocs.io
-    "pywin32>=306; sys_platform == 'win32'",
-    "pywinauto>=0.6.8; sys_platform == 'win32'",
-    "winrt-runtime>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-foundation-collections>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-foundation>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-graphics-imaging>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-media-ocr>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-storage-streams>=2.0.0; sys_platform == 'win32'",
+    "pywin32>=311; sys_platform == 'win32'",  # Updated from 306 - Windows 11 fixes
+    "pywinauto>=0.6.9; sys_platform == 'win32'",  # Updated from 0.6.8
+    "winrt-runtime>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0 - Windows 11 support
+    "winrt-windows-foundation-collections>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "winrt-windows-foundation>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "winrt-windows-graphics-imaging>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "winrt-windows-media-ocr>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "winrt-windows-storage-streams>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
