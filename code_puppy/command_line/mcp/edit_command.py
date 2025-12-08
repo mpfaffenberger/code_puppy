@@ -9,7 +9,7 @@ import os
 from typing import List, Optional
 
 from code_puppy.config import MCP_SERVERS_FILE
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_warning
 
 from .base import MCPCommandBase
 from .custom_server_form import run_custom_server_form
@@ -77,7 +77,7 @@ class EditCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error editing server: {e}")
-            emit_info(f"[red]Error: {e}[/red]", message_group=group_id)
+            emit_error(f"Error: {e}", message_group=group_id)
 
     def _load_server_config(
         self, server_name: str, group_id: str
@@ -92,8 +92,8 @@ class EditCommand(MCPCommandBase):
             Tuple of (server_type, config_dict) or None if not found
         """
         if not os.path.exists(MCP_SERVERS_FILE):
-            emit_info(
-                "[red]No MCP servers configured yet.[/red]",
+            emit_error(
+                "No MCP servers configured yet.",
                 message_group=group_id,
             )
             emit_info(
@@ -109,14 +109,14 @@ class EditCommand(MCPCommandBase):
             servers = data.get("mcp_servers", {})
 
             if server_name not in servers:
-                emit_info(
-                    f"[red]Server '{server_name}' not found.[/red]",
+                emit_error(
+                    f"Server '{server_name}' not found.",
                     message_group=group_id,
                 )
                 # Show available servers
                 if servers:
-                    emit_info(
-                        "\n[yellow]Available servers:[/yellow]",
+                    emit_warning(
+                        "\nAvailable servers:",
                         message_group=group_id,
                     )
                     for name in sorted(servers.keys()):
@@ -133,14 +133,14 @@ class EditCommand(MCPCommandBase):
             return (server_type, config)
 
         except json.JSONDecodeError as e:
-            emit_info(
-                f"[red]Error reading config file: {e}[/red]",
+            emit_error(
+                f"Error reading config file: {e}",
                 message_group=group_id,
             )
             return None
         except Exception as e:
-            emit_info(
-                f"[red]Error loading server config: {e}[/red]",
+            emit_error(
+                f"Error loading server config: {e}",
                 message_group=group_id,
             )
             return None

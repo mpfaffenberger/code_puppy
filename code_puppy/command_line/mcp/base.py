@@ -6,8 +6,6 @@ Provides base classes and common utilities used across all MCP command modules.
 
 import logging
 
-from rich.console import Console
-
 from code_puppy.mcp_.manager import get_mcp_manager
 
 # Configure logging
@@ -24,7 +22,6 @@ class MCPCommandBase:
 
     def __init__(self):
         """Initialize the base command handler."""
-        self.console = Console()
         self.manager = get_mcp_manager()
         logger.debug(f"Initialized {self.__class__.__name__}")
 

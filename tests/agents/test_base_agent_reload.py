@@ -129,6 +129,7 @@ class TestBaseAgentReload:
             patch.object(agent, "load_mcp_servers", return_value=[]),
             patch.object(agent, "get_available_tools", return_value=[]),
             patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
+            patch.object(agent, "get_model_name", return_value="test-model"),
             patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
             patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
         ):

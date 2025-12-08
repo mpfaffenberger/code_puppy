@@ -16,7 +16,7 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.messaging import emit_error
+from code_puppy.messaging import emit_error, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 from .catalog_server_installer import (
@@ -501,11 +501,7 @@ class MCPInstallMenu:
             True if a server was installed, False otherwise
         """
         if not self.categories:
-            set_awaiting_user_input(True)
-            try:
-                print("No MCP server catalog available.")
-            finally:
-                set_awaiting_user_input(False)
+            emit_warning("No MCP server catalog available.")
             return False
 
         # Build UI

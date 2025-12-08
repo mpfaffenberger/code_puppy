@@ -63,7 +63,10 @@ class MessageRenderer(ABC):
                 break
             except Exception as e:
                 # Log error but continue processing
-                print(f"Error rendering message: {e}")
+                # Note: Using sys.stderr - can't use messaging in renderer
+                import sys
+
+                sys.stderr.write(f"Error rendering message: {e}\n")
 
 
 class InteractiveRenderer(MessageRenderer):

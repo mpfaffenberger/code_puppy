@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.common import generate_group_id
 
 from .camoufox_manager import get_camoufox_manager
@@ -18,7 +18,7 @@ async def initialize_browser(
     """Initialize the browser with specified settings."""
     group_id = generate_group_id("browser_initialize", f"{browser_type}_{homepage}")
     emit_info(
-        f"[bold white on blue] BROWSER INITIALIZE [/bold white on blue] 🌐 {browser_type} → {homepage}",
+        f"BROWSER INITIALIZE 🌐 {browser_type} → {homepage}",
         message_group=group_id,
     )
     try:
@@ -55,8 +55,8 @@ async def initialize_browser(
         }
 
     except Exception as e:
-        emit_info(
-            f"[red]Browser initialization failed: {str(e)}[/red]",
+        emit_error(
+            f"Browser initialization failed: {str(e)}",
             message_group=group_id,
         )
         return {
@@ -71,16 +71,14 @@ async def close_browser() -> Dict[str, Any]:
     """Close the browser and clean up resources."""
     group_id = generate_group_id("browser_close")
     emit_info(
-        "[bold white on blue] BROWSER CLOSE [/bold white on blue] 🔒",
+        "BROWSER CLOSE 🔒",
         message_group=group_id,
     )
     try:
         browser_manager = get_camoufox_manager()
         await browser_manager.close()
 
-        emit_info(
-            "[yellow]Browser closed successfully[/yellow]", message_group=group_id
-        )
+        emit_warning("Browser closed successfully", message_group=group_id)
 
         return {"success": True, "message": "Browser closed"}
 
@@ -92,7 +90,7 @@ async def get_browser_status() -> Dict[str, Any]:
     """Get current browser status and information."""
     group_id = generate_group_id("browser_status")
     emit_info(
-        "[bold white on blue] BROWSER STATUS [/bold white on blue] 📊",
+        "BROWSER STATUS 📊",
         message_group=group_id,
     )
     try:
@@ -137,7 +135,7 @@ async def create_new_page(url: Optional[str] = None) -> Dict[str, Any]:
     """Create a new browser page/tab."""
     group_id = generate_group_id("browser_new_page", url or "blank")
     emit_info(
-        f"[bold white on blue] BROWSER NEW PAGE [/bold white on blue] 📄 {url or 'blank page'}",
+        f"BROWSER NEW PAGE 📄 {url or 'blank page'}",
         message_group=group_id,
     )
     try:
@@ -154,9 +152,7 @@ async def create_new_page(url: Optional[str] = None) -> Dict[str, Any]:
         final_url = page.url
         title = await page.title()
 
-        emit_info(
-            f"[green]Created new page: {final_url}[/green]", message_group=group_id
-        )
+        emit_success(f"Created new page: {final_url}", message_group=group_id)
 
         return {"success": True, "url": final_url, "title": title, "requested_url": url}
 
@@ -168,7 +164,7 @@ async def list_pages() -> Dict[str, Any]:
     """List all open browser pages/tabs."""
     group_id = generate_group_id("browser_list_pages")
     emit_info(
-        "[bold white on blue] BROWSER LIST PAGES [/bold white on blue] 📋",
+        "BROWSER LIST PAGES 📋",
         message_group=group_id,
     )
     try:

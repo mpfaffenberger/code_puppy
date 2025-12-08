@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from rich.table import Table
 
-from code_puppy.messaging import emit_info, emit_system_message
+from code_puppy.messaging import emit_info, emit_system_message, emit_warning
 
 from .base import MCPCommandBase
 
@@ -39,21 +39,21 @@ class SearchCommand(MCPCommandBase):
             if not args:
                 # Show popular servers if no query
                 emit_info(
-                    "[bold cyan]Popular MCP Servers:[/bold cyan]\n",
+                    "Popular MCP Servers:\n",
                     message_group=group_id,
                 )
                 servers = catalog.get_popular(15)
             else:
                 query = " ".join(args)
                 emit_info(
-                    f"[bold cyan]Searching for: {query}[/bold cyan]\n",
+                    f"Searching for: {query}\n",
                     message_group=group_id,
                 )
                 servers = catalog.search(query)
 
             if not servers:
-                emit_info(
-                    "[yellow]No servers found matching your search[/yellow]",
+                emit_warning(
+                    "No servers found matching your search",
                     message_group=group_id,
                 )
                 emit_info(
@@ -97,7 +97,7 @@ class SearchCommand(MCPCommandBase):
 
             # The first message established the group, subsequent messages will auto-group
             emit_system_message(table, message_group=group_id)
-            emit_info("\n[dim]✓ = Verified  ⭐ = Popular[/dim]", message_group=group_id)
+            emit_info("\n✓ = Verified  ⭐ = Popular", message_group=group_id)
             emit_info(
                 "[yellow]To install:[/yellow] /mcp install <id>", message_group=group_id
             )

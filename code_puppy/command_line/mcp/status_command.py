@@ -9,7 +9,7 @@ from typing import List, Optional
 from rich.panel import Panel
 
 from code_puppy.mcp_.managed_server import ServerState
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
 from .list_command import ListCommand
@@ -180,6 +180,4 @@ class StatusCommand(MCPCommandBase):
             logger.error(
                 f"Error getting detailed status for server '{server_name}': {e}"
             )
-            emit_info(
-                f"[red]Error getting server status: {e}[/red]", message_group=group_id
-            )
+            emit_error(f"Error getting server status: {e}", message_group=group_id)
