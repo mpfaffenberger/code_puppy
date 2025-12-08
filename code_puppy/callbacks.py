@@ -50,6 +50,14 @@ def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
     if not callable(func):
         raise TypeError(f"Callback must be callable, got {type(func)}")
 
+    # Prevent duplicate registration of the same callback function
+    # This can happen if plugins are accidentally loaded multiple times
+    if func in _callbacks[phase]:
+        logger.debug(
+            f"Callback {func.__name__} already registered for phase '{phase}', skipping"
+        )
+        return
+
     _callbacks[phase].append(func)
     logger.debug(f"Registered async callback {func.__name__} for phase '{phase}'")
 
