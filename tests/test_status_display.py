@@ -274,23 +274,24 @@ class TestStatusDisplay:
             mock_task = MagicMock()
             mock_create_task.return_value = mock_task
 
-            status_display.start()
-            status_display.stop()
+            with patch("code_puppy.status_display.emit_info") as mock_emit_info:
+                status_display.start()
+                status_display.stop()
 
-            assert not status_display.is_active
-            assert status_display.task is None
-            # Should print final stats
-            status_display.console.print.assert_called()
+                assert not status_display.is_active
+                assert status_display.task is None
+                # Should emit final stats
+                mock_emit_info.assert_called()
 
-            # Check that final stats message contains expected info
-            call_args = status_display.console.print.call_args[0][0]
-            assert "Completed:" in str(call_args)
-            assert "tokens" in str(call_args)
+                # Check that final stats message contains expected info
+                call_args = mock_emit_info.call_args[0][0]
+                assert "Completed:" in str(call_args)
+                assert "tokens" in str(call_args)
 
-            # State should be reset
-            assert status_display.start_time is None
-            assert status_display.token_count == 0
-            assert code_puppy.status_display.CURRENT_TOKEN_RATE == 0.0
+                # State should be reset
+                assert status_display.start_time is None
+                assert status_display.token_count == 0
+                assert code_puppy.status_display.CURRENT_TOKEN_RATE == 0.0
 
     def test_stop_without_start(self, status_display):
         """Test stopping when not active."""
@@ -322,10 +323,11 @@ class TestStatusDisplay:
         status_display.token_count = 50
         status_display.start_time = 1.0
 
-        status_display.stop()
+        with patch("code_puppy.status_display.emit_info") as mock_emit_info:
+            status_display.stop()
 
-        # Should have called console.print
-        status_display.console.print.assert_called()
+            # Should have called emit_info
+            mock_emit_info.assert_called()
 
     @pytest.mark.asyncio
     async def test_update_display_integration(self, status_display):
@@ -333,6 +335,7 @@ class TestStatusDisplay:
         with (
             patch("code_puppy.status_display.asyncio.create_task"),
             patch("code_puppy.status_display.Live") as mock_live,
+            patch("code_puppy.status_display.emit_info") as mock_emit_info,
         ):
             mock_live_instance = MagicMock()
             mock_live.return_value.__enter__.return_value = mock_live_instance
@@ -340,8 +343,8 @@ class TestStatusDisplay:
             status_display.start()
             status_display.stop()
 
-            # Console should have been used
-            assert status_display.console.print.called
+            # emit_info should have been used
+            assert mock_emit_info.called
 
     def test_spinner_in_status_panel(self, status_display):
         """Test that spinner is included and updated in status panel."""

@@ -24,7 +24,6 @@ class TestListCommand:
     def test_init(self):
         """Test command initialization."""
         assert hasattr(self.command, "manager")
-        assert hasattr(self.command, "console")
         assert callable(self.command.generate_group_id)
 
     def test_execute_no_servers(self, mock_emit_info, mock_mcp_manager):
@@ -147,18 +146,27 @@ class TestListCommand:
         message, _ = mock_emit_info.messages[0]
         assert "No MCP servers registered" in message
 
-    def test_execute_manager_exception(self, mock_emit_info):
+    def test_execute_manager_exception(self):
         """Test handling when manager.list_servers raises exception."""
         self.command.manager.list_servers.side_effect = Exception("Manager error")
 
-        self.command.execute([])
+        error_messages = []
+
+        def capture_error(message, message_group=None):
+            error_messages.append((message, message_group))
+
+        with patch(
+            "code_puppy.command_line.mcp.list_command.emit_error",
+            side_effect=capture_error,
+        ):
+            self.command.execute([])
 
         # Check that an error message was captured
-        assert len(mock_emit_info.messages) >= 1
+        assert len(error_messages) >= 1
 
         # Extract the error message from the captured messages
         error_found = False
-        for message, _ in mock_emit_info.messages:
+        for message, _ in error_messages:
             message_str = str(message)
             if (
                 "Error listing servers" in message_str
@@ -168,7 +176,7 @@ class TestListCommand:
                 break
 
         assert error_found, (
-            f"Expected error message not found in: {[str(msg) for msg, _ in mock_emit_info.messages]}"
+            f"Expected error message not found in: {[str(msg) for msg, _ in error_messages]}"
         )
 
     def test_server_state_formatting(self, mock_emit_info, mock_mcp_manager):
@@ -222,7 +230,6 @@ class TestSearchCommand:
     def test_init(self):
         """Test command initialization."""
         assert hasattr(self.command, "manager")
-        assert hasattr(self.command, "console")
         assert callable(self.command.generate_group_id)
 
     def test_execute_no_args_shows_popular(self, mock_emit_info, mock_server_catalog):
