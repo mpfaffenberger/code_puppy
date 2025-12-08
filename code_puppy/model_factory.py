@@ -23,9 +23,6 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
 from code_puppy.messaging import emit_warning
-from code_puppy.plugins.chatgpt_oauth.config import get_chatgpt_models_path
-from code_puppy.plugins.claude_code_oauth.config import get_claude_models_path
-from code_puppy.plugins.claude_code_oauth.utils import load_claude_models_filtered
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
@@ -186,36 +183,51 @@ class ModelFactory:
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
 
-        extra_sources = [
-            (pathlib.Path(EXTRA_MODELS_FILE), "extra models"),
-            (get_chatgpt_models_path(), "ChatGPT OAuth models"),
-            (get_claude_models_path(), "Claude Code OAuth models"),
+        # Import OAuth model file paths from main config
+        from code_puppy.config import (
+            CHATGPT_MODELS_FILE,
+            CLAUDE_MODELS_FILE,
+            GEMINI_MODELS_FILE,
+        )
+
+        # Build list of extra model sources
+        extra_sources: list[tuple[pathlib.Path, str, bool]] = [
+            (pathlib.Path(EXTRA_MODELS_FILE), "extra models", False),
+            (pathlib.Path(CHATGPT_MODELS_FILE), "ChatGPT OAuth models", False),
+            (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
+            (pathlib.Path(GEMINI_MODELS_FILE), "Gemini OAuth models", False),
         ]
 
-        for source_path, label in extra_sources:
-            # source_path is already a Path object from the functions above
-            # Use hasattr to check if it's Path-like (works with mocks too)
-            if hasattr(source_path, "exists"):
-                path = source_path
-            else:
-                path = pathlib.Path(source_path).expanduser()
-            if not path.exists():
+        for source_path, label, use_filtered in extra_sources:
+            if not source_path.exists():
                 continue
             try:
                 # Use filtered loading for Claude Code OAuth models to show only latest versions
-                if "Claude Code OAuth" in label:
-                    extra_config = load_claude_models_filtered()
+                if use_filtered:
+                    try:
+                        from code_puppy.plugins.claude_code_oauth.utils import (
+                            load_claude_models_filtered,
+                        )
+
+                        extra_config = load_claude_models_filtered()
+                    except ImportError:
+                        # Plugin not available, fall back to standard JSON loading
+                        logging.getLogger(__name__).debug(
+                            f"claude_code_oauth plugin not available, loading {label} as plain JSON"
+                        )
+                        with open(source_path, "r") as f:
+                            extra_config = json.load(f)
                 else:
-                    with open(path, "r") as f:
+                    with open(source_path, "r") as f:
                         extra_config = json.load(f)
                 config.update(extra_config)
             except json.JSONDecodeError as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load {label} config from {path}: Invalid JSON - {exc}"
+                    f"Failed to load {label} config from {source_path}: Invalid JSON - {exc}"
                 )
             except Exception as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load {label} config from {path}: {exc}"
+                    f"Failed to load {label} config from {source_path}: {exc}"
                 )
         return config
 
@@ -546,6 +558,71 @@ class ModelFactory:
             provider = OpenRouterProvider(api_key=api_key)
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            setattr(model, "provider", provider)
+            return model
+
+        elif model_type == "gemini_oauth":
+            # Gemini OAuth models use Google OAuth credentials
+            # We use the Generative Language API with OAuth credentials
+            try:
+                from google.oauth2.credentials import Credentials as GoogleCredentials
+
+                # Try user plugin first, then built-in plugin
+                try:
+                    from gemini_oauth.config import GEMINI_OAUTH_CONFIG
+                    from gemini_oauth.utils import (
+                        get_valid_access_token,
+                        load_stored_tokens,
+                    )
+                except ImportError:
+                    from code_puppy.plugins.gemini_oauth.config import (
+                        GEMINI_OAUTH_CONFIG,
+                    )
+                    from code_puppy.plugins.gemini_oauth.utils import (
+                        get_valid_access_token,
+                        load_stored_tokens,
+                    )
+            except ImportError as exc:
+                emit_warning(
+                    f"Gemini OAuth plugin not available; skipping model '{model_config.get('name')}'. "
+                    f"Error: {exc}"
+                )
+                return None
+
+            tokens = load_stored_tokens()
+            if not tokens or not tokens.get("access_token"):
+                emit_warning(
+                    f"Gemini OAuth token not available; skipping model '{model_config.get('name')}'. "
+                    "Run /gemini-auth to authenticate."
+                )
+                return None
+
+            # Get a valid access token (refreshing if needed)
+            access_token = get_valid_access_token()
+            if not access_token:
+                emit_warning(
+                    f"Failed to get valid Gemini OAuth token; skipping model '{model_config.get('name')}'. "
+                    "Run /gemini-auth to re-authenticate."
+                )
+                return None
+
+            # Reload tokens after potential refresh
+            tokens = load_stored_tokens()
+
+            # Create Google OAuth credentials
+            credentials = GoogleCredentials(
+                token=tokens.get("access_token"),
+                refresh_token=tokens.get("refresh_token"),
+                token_uri=GEMINI_OAUTH_CONFIG["token_url"],
+                client_id=GEMINI_OAUTH_CONFIG["client_id"],
+                client_secret=GEMINI_OAUTH_CONFIG["client_secret"],
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+
+            # Use GoogleProvider with OAuth credentials
+            # vertexai=False uses the Generative Language API
+            provider = GoogleProvider(credentials=credentials, vertexai=False)
+            model = GoogleModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
             return model
 

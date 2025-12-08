@@ -155,27 +155,6 @@ def _ensure_plugins_loaded() -> None:
 # MAIN COMMAND DISPATCHER
 # ============================================================================
 
-
-def _ensure_plugins_loaded() -> None:
-    global _PLUGINS_LOADED
-    if _PLUGINS_LOADED:
-        return
-    try:
-        from code_puppy import plugins
-
-        plugins.load_plugin_callbacks()
-        _PLUGINS_LOADED = True
-    except Exception as e:
-        # If plugins fail to load, continue gracefully but note it
-        try:
-            from code_puppy.messaging import emit_warning
-
-            emit_warning(f"Plugin load error: {e}")
-        except Exception:
-            pass
-        _PLUGINS_LOADED = True
-
-
 # _show_color_options has been moved to builtin_commands.py
 
 
