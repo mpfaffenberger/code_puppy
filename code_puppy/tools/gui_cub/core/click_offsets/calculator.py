@@ -55,6 +55,27 @@ class ClickOffset:
 # Constants
 TYPICAL_LINE_HEIGHT = 20  # pixels
 
+# Offset factors for different element types
+# These compensate for OCR bounding box inaccuracies (±5-10px)
+BUTTON_VERTICAL_OFFSET_FACTOR = 0.15  # Click 15% above center (avoid bottom padding)
+BUTTON_VERTICAL_OFFSET_CONSERVATIVE = 0.15  # Conservative offset for buttons
+BUTTON_VERTICAL_OFFSET_AGGRESSIVE = 0.2  # Aggressive offset for buttons
+
+LINK_HORIZONTAL_OFFSET_FACTOR = 0.3  # Click 30% from center (avoid right-side overflow)
+
+CHECKBOX_HORIZONTAL_OFFSET_CONSERVATIVE = (
+    0.6  # Click 60% left of center (where checkbox is)
+)
+CHECKBOX_HORIZONTAL_OFFSET_AGGRESSIVE = 0.8  # Aggressive offset for checkboxes
+
+TEXT_FIELD_HORIZONTAL_OFFSET_FACTOR = 0.2  # Click slightly left for cursor positioning
+
+DROPDOWN_HORIZONTAL_OFFSET_FACTOR = 0.3  # Click right side where arrow is
+
+MENU_ITEM_HORIZONTAL_OFFSET_FACTOR = 0.2  # Click 20% left of center
+
+TAB_VERTICAL_OFFSET_FACTOR = 0.1  # Small vertical offset above center
+
 
 # ============================================================================
 # Element-Specific Offset Calculators
@@ -82,7 +103,11 @@ def calculate_button_offset(
         >>> offset.offset_y
         -4
     """
-    offset_factor = 0.15 if conservative else 0.2
+    offset_factor = (
+        BUTTON_VERTICAL_OFFSET_CONSERVATIVE
+        if conservative
+        else BUTTON_VERTICAL_OFFSET_AGGRESSIVE
+    )
     offset_x = 0
     offset_y = -int(bbox.height * offset_factor)
 
@@ -150,7 +175,11 @@ def calculate_checkbox_offset(
         >>> offset.offset_x
         -60
     """
-    offset_factor = 0.6 if conservative else 0.8
+    offset_factor = (
+        CHECKBOX_HORIZONTAL_OFFSET_CONSERVATIVE
+        if conservative
+        else CHECKBOX_HORIZONTAL_OFFSET_AGGRESSIVE
+    )
     offset_x = -int(bbox.width * offset_factor)
     offset_y = 0
 
@@ -183,7 +212,7 @@ def calculate_text_field_offset(bbox: BoundingBox) -> ClickOffset:
         >>> offset.offset_x
         -40
     """
-    offset_x = -int(bbox.width * 0.2)
+    offset_x = -int(bbox.width * TEXT_FIELD_HORIZONTAL_OFFSET_FACTOR)
     offset_y = 0
 
     return ClickOffset(
@@ -215,7 +244,7 @@ def calculate_dropdown_offset(bbox: BoundingBox) -> ClickOffset:
         >>> offset.offset_x
         45
     """
-    offset_x = int(bbox.width * 0.3)
+    offset_x = int(bbox.width * DROPDOWN_HORIZONTAL_OFFSET_FACTOR)
     offset_y = 0
 
     return ClickOffset(
@@ -273,7 +302,7 @@ def calculate_menu_item_offset(bbox: BoundingBox) -> ClickOffset:
         >>> offset.offset_x
         -36
     """
-    offset_x = -int(bbox.width * 0.2)
+    offset_x = -int(bbox.width * MENU_ITEM_HORIZONTAL_OFFSET_FACTOR)
     offset_y = 0
 
     return ClickOffset(
@@ -306,7 +335,7 @@ def calculate_tab_offset(bbox: BoundingBox) -> ClickOffset:
         -4
     """
     offset_x = 0
-    offset_y = -int(bbox.height * 0.1)
+    offset_y = -int(bbox.height * TAB_VERTICAL_OFFSET_FACTOR)
 
     return ClickOffset(
         offset_x=offset_x,
@@ -406,6 +435,8 @@ def apply_bounds_check(
     """
     Ensure click coordinates stay within bounding box.
 
+    Handles degenerate bboxes (zero-width or zero-height) by returning center.
+
     Args:
         target_x: Calculated X coordinate
         target_y: Calculated Y coordinate
@@ -420,7 +451,16 @@ def apply_bounds_check(
         (180, 80)
         >>> apply_bounds_check(120, 60, bbox)  # Inside bounds
         (120, 60)
+        >>> # Degenerate bbox (zero size)
+        >>> bbox_zero = BoundingBox(x=100, y=50, width=0, height=0, center_x=100, center_y=50)
+        >>> apply_bounds_check(200, 100, bbox_zero)  # Returns center
+        (100, 50)
     """
+    # Handle degenerate bboxes (zero-width or zero-height)
+    # Return center as fallback for safety
+    if bbox.width <= 0 or bbox.height <= 0:
+        return bbox.center_x, bbox.center_y
+
     constrained_x = max(bbox.x, min(target_x, bbox.x + bbox.width))
     constrained_y = max(bbox.y, min(target_y, bbox.y + bbox.height))
     return constrained_x, constrained_y
