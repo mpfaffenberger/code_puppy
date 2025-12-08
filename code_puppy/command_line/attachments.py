@@ -261,17 +261,22 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
                 candidate_path_token = stripped_joined
                 candidate_placeholder = joined
                 consumed_until = end_index
+                if len(candidate_path_token) > MAX_PATH_LENGTH:
+                    continue
                 try:
                     last_path = _normalise_path(candidate_path_token)
                 except AttachmentParsingError:
                     # Suppress warnings for non-file spans; just skip quietly
                     found_span = False
                     break
-                if last_path.exists() and last_path.is_file():
-                    path = last_path
-                    found_span = True
-                    # We'll rebuild escaped placeholder after this block
-                    break
+                try:
+                    if last_path.exists() and last_path.is_file():
+                        path = last_path
+                        found_span = True
+                        # We'll rebuild escaped placeholder after this block
+                        break
+                except OSError:
+                    continue
             if not found_span:
                 # Quietly skip tokens that are not files
                 index += 1
