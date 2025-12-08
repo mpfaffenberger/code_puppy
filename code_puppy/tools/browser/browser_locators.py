@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 from .camoufox_manager import get_camoufox_manager
@@ -19,7 +19,7 @@ async def find_by_role(
     """Find elements by ARIA role."""
     group_id = generate_group_id("browser_find_by_role", f"{role}_{name or 'any'}")
     emit_info(
-        f"[bold white on blue] BROWSER FIND BY ROLE [/bold white on blue] 🎨 role={role} name={name}",
+        f"BROWSER FIND BY ROLE 🎨 role={role} name={name}",
         message_group=group_id,
     )
     try:
@@ -46,8 +46,8 @@ async def find_by_role(
                 text = await element.text_content()
                 elements.append({"index": i, "text": text, "visible": True})
 
-        emit_info(
-            f"[green]Found {count} elements with role '{role}'[/green]",
+        emit_success(
+            f"Found {count} elements with role '{role}'",
             message_group=group_id,
         )
 
@@ -71,7 +71,7 @@ async def find_by_text(
     """Find elements containing specific text."""
     group_id = generate_group_id("browser_find_by_text", text[:50])
     emit_info(
-        f"[bold white on blue] BROWSER FIND BY TEXT [/bold white on blue] 🔍 text='{text}' exact={exact}",
+        f"BROWSER FIND BY TEXT 🔍 text='{text}' exact={exact}",
         message_group=group_id,
     )
     try:
@@ -98,8 +98,8 @@ async def find_by_text(
                     {"index": i, "tag": tag_name, "text": full_text, "visible": True}
                 )
 
-        emit_info(
-            f"[green]Found {count} elements containing text '{text}'[/green]",
+        emit_success(
+            f"Found {count} elements containing text '{text}'",
             message_group=group_id,
         )
 
@@ -123,7 +123,7 @@ async def find_by_label(
     """Find form elements by their associated label text."""
     group_id = generate_group_id("browser_find_by_label", text[:50])
     emit_info(
-        f"[bold white on blue] BROWSER FIND BY LABEL [/bold white on blue] 🏷️ label='{text}' exact={exact}",
+        f"BROWSER FIND BY LABEL 🏷️ label='{text}' exact={exact}",
         message_group=group_id,
     )
     try:
@@ -161,8 +161,8 @@ async def find_by_label(
                     }
                 )
 
-        emit_info(
-            f"[green]Found {count} elements with label '{text}'[/green]",
+        emit_success(
+            f"Found {count} elements with label '{text}'",
             message_group=group_id,
         )
 
@@ -186,7 +186,7 @@ async def find_by_placeholder(
     """Find elements by placeholder text."""
     group_id = generate_group_id("browser_find_by_placeholder", text[:50])
     emit_info(
-        f"[bold white on blue] BROWSER FIND BY PLACEHOLDER [/bold white on blue] 📝 placeholder='{text}' exact={exact}",
+        f"BROWSER FIND BY PLACEHOLDER 📝 placeholder='{text}' exact={exact}",
         message_group=group_id,
     )
     try:
@@ -220,8 +220,8 @@ async def find_by_placeholder(
                     }
                 )
 
-        emit_info(
-            f"[green]Found {count} elements with placeholder '{text}'[/green]",
+        emit_success(
+            f"Found {count} elements with placeholder '{text}'",
             message_group=group_id,
         )
 
@@ -244,7 +244,7 @@ async def find_by_test_id(
     """Find elements by test ID attribute."""
     group_id = generate_group_id("browser_find_by_test_id", test_id)
     emit_info(
-        f"[bold white on blue] BROWSER FIND BY TEST ID [/bold white on blue] 🧪 test_id='{test_id}'",
+        f"BROWSER FIND BY TEST ID 🧪 test_id='{test_id}'",
         message_group=group_id,
     )
     try:
@@ -277,8 +277,8 @@ async def find_by_test_id(
                     }
                 )
 
-        emit_info(
-            f"[green]Found {count} elements with test-id '{test_id}'[/green]",
+        emit_success(
+            f"Found {count} elements with test-id '{test_id}'",
             message_group=group_id,
         )
 
@@ -300,7 +300,7 @@ async def run_xpath_query(
     """Find elements using XPath selector."""
     group_id = generate_group_id("browser_xpath_query", xpath[:100])
     emit_info(
-        f"[bold white on blue] BROWSER XPATH QUERY [/bold white on blue] 🔍 xpath='{xpath}'",
+        f"BROWSER XPATH QUERY 🔍 xpath='{xpath}'",
         message_group=group_id,
     )
     try:
@@ -338,8 +338,8 @@ async def run_xpath_query(
                     }
                 )
 
-        emit_info(
-            f"[green]Found {count} elements with XPath '{xpath}'[/green]",
+        emit_success(
+            f"Found {count} elements with XPath '{xpath}'",
             message_group=group_id,
         )
 
@@ -355,7 +355,7 @@ async def find_buttons(
     """Find all button elements on the page."""
     group_id = generate_group_id("browser_find_buttons", text_filter or "all")
     emit_info(
-        f"[bold white on blue] BROWSER FIND BUTTONS [/bold white on blue] 🔘 filter='{text_filter or 'none'}'",
+        f"BROWSER FIND BUTTONS 🔘 filter='{text_filter or 'none'}'",
         message_group=group_id,
     )
     try:
@@ -382,10 +382,9 @@ async def find_buttons(
 
         filtered_count = len(buttons)
 
-        emit_info(
-            f"[green]Found {filtered_count} buttons"
-            + (f" containing '{text_filter}'" if text_filter else "")
-            + "[/green]",
+        emit_success(
+            f"Found {filtered_count} buttons"
+            + (f" containing '{text_filter}'" if text_filter else ""),
             message_group=group_id,
         )
 
@@ -407,7 +406,7 @@ async def find_links(
     """Find all link elements on the page."""
     group_id = generate_group_id("browser_find_links", text_filter or "all")
     emit_info(
-        f"[bold white on blue] BROWSER FIND LINKS [/bold white on blue] 🔗 filter='{text_filter or 'none'}'",
+        f"BROWSER FIND LINKS 🔗 filter='{text_filter or 'none'}'",
         message_group=group_id,
     )
     try:
@@ -436,10 +435,9 @@ async def find_links(
 
         filtered_count = len(links)
 
-        emit_info(
-            f"[green]Found {filtered_count} links"
-            + (f" containing '{text_filter}'" if text_filter else "")
-            + "[/green]",
+        emit_success(
+            f"Found {filtered_count} links"
+            + (f" containing '{text_filter}'" if text_filter else ""),
             message_group=group_id,
         )
 

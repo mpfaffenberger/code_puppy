@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 from .camoufox_manager import get_camoufox_manager
@@ -20,7 +20,7 @@ async def click_element(
     """Click on an element."""
     group_id = generate_group_id("browser_click", selector[:100])
     emit_info(
-        f"[bold white on blue] BROWSER CLICK [/bold white on blue] 🖱️ selector='{selector}' button={button}",
+        f"BROWSER CLICK 🖱️ selector='{selector}' button={button}",
         message_group=group_id,
     )
     try:
@@ -48,12 +48,12 @@ async def click_element(
 
         await element.click(**click_options)
 
-        emit_info(f"[green]Clicked element: {selector}[/green]", message_group=group_id)
+        emit_success(f"Clicked element: {selector}", message_group=group_id)
 
         return {"success": True, "selector": selector, "action": f"{button}_click"}
 
     except Exception as e:
-        emit_info(f"[red]Click failed: {str(e)}[/red]", message_group=group_id)
+        emit_error(f"Click failed: {str(e)}", message_group=group_id)
         return {"success": False, "error": str(e), "selector": selector}
 
 
@@ -65,7 +65,7 @@ async def double_click_element(
     """Double-click on an element."""
     group_id = generate_group_id("browser_double_click", selector[:100])
     emit_info(
-        f"[bold white on blue] BROWSER DOUBLE CLICK [/bold white on blue] 🖱️🖱️ selector='{selector}'",
+        f"BROWSER DOUBLE CLICK 🖱️🖱️ selector='{selector}'",
         message_group=group_id,
     )
     try:
@@ -79,9 +79,7 @@ async def double_click_element(
         await element.wait_for(state="visible", timeout=timeout)
         await element.dblclick(force=force, timeout=timeout)
 
-        emit_info(
-            f"[green]Double-clicked element: {selector}[/green]", message_group=group_id
-        )
+        emit_success(f"Double-clicked element: {selector}", message_group=group_id)
 
         return {"success": True, "selector": selector, "action": "double_click"}
 
@@ -97,7 +95,7 @@ async def hover_element(
     """Hover over an element."""
     group_id = generate_group_id("browser_hover", selector[:100])
     emit_info(
-        f"[bold white on blue] BROWSER HOVER [/bold white on blue] 👆 selector='{selector}'",
+        f"BROWSER HOVER 👆 selector='{selector}'",
         message_group=group_id,
     )
     try:
@@ -111,9 +109,7 @@ async def hover_element(
         await element.wait_for(state="visible", timeout=timeout)
         await element.hover(force=force, timeout=timeout)
 
-        emit_info(
-            f"[green]Hovered over element: {selector}[/green]", message_group=group_id
-        )
+        emit_success(f"Hovered over element: {selector}", message_group=group_id)
 
         return {"success": True, "selector": selector, "action": "hover"}
 
@@ -130,7 +126,7 @@ async def set_element_text(
     """Set text in an input element."""
     group_id = generate_group_id("browser_set_text", f"{selector[:50]}_{text[:30]}")
     emit_info(
-        f"[bold white on blue] BROWSER SET TEXT [/bold white on blue] ✏️ selector='{selector}' text='{text[:50]}{'...' if len(text) > 50 else ''}'",
+        f"BROWSER SET TEXT ✏️ selector='{selector}' text='{text[:50]}{'...' if len(text) > 50 else ''}'",
         message_group=group_id,
     )
     try:
@@ -148,9 +144,7 @@ async def set_element_text(
 
         await element.fill(text, timeout=timeout)
 
-        emit_info(
-            f"[green]Set text in element: {selector}[/green]", message_group=group_id
-        )
+        emit_success(f"Set text in element: {selector}", message_group=group_id)
 
         return {
             "success": True,
@@ -160,7 +154,7 @@ async def set_element_text(
         }
 
     except Exception as e:
-        emit_info(f"[red]Set text failed: {str(e)}[/red]", message_group=group_id)
+        emit_error(f"Set text failed: {str(e)}", message_group=group_id)
         return {"success": False, "error": str(e), "selector": selector, "text": text}
 
 
@@ -171,7 +165,7 @@ async def get_element_text(
     """Get text content from an element."""
     group_id = generate_group_id("browser_get_text", selector[:100])
     emit_info(
-        f"[bold white on blue] BROWSER GET TEXT [/bold white on blue] 📝 selector='{selector}'",
+        f"BROWSER GET TEXT 📝 selector='{selector}'",
         message_group=group_id,
     )
     try:
@@ -199,7 +193,7 @@ async def get_element_value(
     """Get value from an input element."""
     group_id = generate_group_id("browser_get_value", selector[:100])
     emit_info(
-        f"[bold white on blue] BROWSER GET VALUE [/bold white on blue] 📎 selector='{selector}'",
+        f"BROWSER GET VALUE 📎 selector='{selector}'",
         message_group=group_id,
     )
     try:
@@ -233,7 +227,7 @@ async def select_option(
         "browser_select_option", f"{selector[:50]}_{option_desc}"
     )
     emit_info(
-        f"[bold white on blue] BROWSER SELECT OPTION [/bold white on blue] 📄 selector='{selector}' option='{option_desc}'",
+        f"BROWSER SELECT OPTION 📄 selector='{selector}' option='{option_desc}'",
         message_group=group_id,
     )
     try:
@@ -262,8 +256,8 @@ async def select_option(
                 "selector": selector,
             }
 
-        emit_info(
-            f"[green]Selected option in {selector}: {selection}[/green]",
+        emit_success(
+            f"Selected option in {selector}: {selection}",
             message_group=group_id,
         )
 
@@ -280,7 +274,7 @@ async def check_element(
     """Check a checkbox or radio button."""
     group_id = generate_group_id("browser_check", selector[:100])
     emit_info(
-        f"[bold white on blue] BROWSER CHECK [/bold white on blue] ☑️ selector='{selector}'",
+        f"BROWSER CHECK ☑️ selector='{selector}'",
         message_group=group_id,
     )
     try:
@@ -294,7 +288,7 @@ async def check_element(
         await element.wait_for(state="visible", timeout=timeout)
         await element.check(timeout=timeout)
 
-        emit_info(f"[green]Checked element: {selector}[/green]", message_group=group_id)
+        emit_success(f"Checked element: {selector}", message_group=group_id)
 
         return {"success": True, "selector": selector, "action": "check"}
 
@@ -309,7 +303,7 @@ async def uncheck_element(
     """Uncheck a checkbox."""
     group_id = generate_group_id("browser_uncheck", selector[:100])
     emit_info(
-        f"[bold white on blue] BROWSER UNCHECK [/bold white on blue] ☐️ selector='{selector}'",
+        f"BROWSER UNCHECK ☐️ selector='{selector}'",
         message_group=group_id,
     )
     try:
@@ -323,9 +317,7 @@ async def uncheck_element(
         await element.wait_for(state="visible", timeout=timeout)
         await element.uncheck(timeout=timeout)
 
-        emit_info(
-            f"[green]Unchecked element: {selector}[/green]", message_group=group_id
-        )
+        emit_success(f"Unchecked element: {selector}", message_group=group_id)
 
         return {"success": True, "selector": selector, "action": "uncheck"}
 

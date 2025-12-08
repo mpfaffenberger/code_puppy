@@ -249,7 +249,7 @@ class StderrCollector:
             if emit_to_user:
                 from code_puppy.messaging import emit_info
 
-                emit_info(f"[MCP {server_name}] {line}", style="dim cyan")
+                emit_info(f"MCP {server_name}: {line}")
 
         return handler
 

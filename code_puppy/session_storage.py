@@ -187,7 +187,7 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         start = page * PAGE_SIZE
         end = min(start + PAGE_SIZE, total)
         page_entries = entries[start:end]
-        emit_system_message("[bold magenta]Autosave Sessions Available:[/bold magenta]")
+        emit_system_message("Autosave Sessions Available:")
         for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
             timestamp_display = timestamp or "unknown time"
             message_display = (

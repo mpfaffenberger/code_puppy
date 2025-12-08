@@ -227,7 +227,7 @@ class MessageQueue:
 
             if timeout and (time.time() - start_time) > timeout:
                 raise TimeoutError(
-                    f"No response received for prompt {prompt_id} within {timeout} seconds"
+                    f"No response for prompt {prompt_id} within {timeout}s"
                 )
 
             time.sleep(sleep_interval)
@@ -322,7 +322,7 @@ def emit_system_message(content: Any, **metadata):
     emit_message(MessageType.SYSTEM, content, **metadata)
 
 
-def emit_divider(content: str = "[dim]" + "─" * 100 + "\n" + "[/dim]", **metadata):
+def emit_divider(content: str = "─" * 100 + "\n", **metadata):
     """Emit a divider line"""
     # TUI mode has been removed, always emit dividers
     emit_message(MessageType.DIVIDER, content, **metadata)
@@ -335,7 +335,7 @@ def emit_prompt(prompt_text: str, timeout: float = None) -> str:
         # Emit the prompt as a message for display
         from code_puppy.messaging import emit_info
 
-        emit_info(f"[yellow]{prompt_text}[/yellow]")
+        emit_info(prompt_text)
 
         # Get input directly
         try:
