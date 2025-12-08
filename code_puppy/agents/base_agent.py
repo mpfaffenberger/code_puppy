@@ -1039,8 +1039,8 @@ class BaseAgent(ABC):
             )
             emit_warning(
                 (
-                    f"[yellow]Model '{requested_model_name}' not found. "
-                    f"Available models: {available_str}[/yellow]"
+                    f"Model '{requested_model_name}' not found. "
+                    f"Available models: {available_str}"
                 ),
                 message_group=message_group,
             )
@@ -1060,7 +1060,7 @@ class BaseAgent(ABC):
                 try:
                     model = ModelFactory.get_model(candidate, models_config)
                     emit_info(
-                        f"[bold cyan]Using fallback model: {candidate}[/bold cyan]",
+                        f"Using fallback model: {candidate}",
                         message_group=message_group,
                     )
                     return model, candidate
@@ -1072,7 +1072,7 @@ class BaseAgent(ABC):
                 "a valid model with `config set`."
             )
             emit_error(
-                f"[bold red]{friendly_message}[/bold red]",
+                friendly_message,
                 message_group=message_group,
             )
             raise ValueError(friendly_message) from exc

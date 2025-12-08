@@ -7,7 +7,7 @@ MCP servers from the catalog.
 import os
 from typing import Dict, Optional
 
-from code_puppy.messaging import emit_warning
+from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 # Helpful hints for common environment variables
 ENV_VAR_HINTS = {
@@ -46,8 +46,8 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
 
     from .utils import find_server_id_by_name
 
-    print(f"\n📦 Installing: {server.display_name}\n")
-    print(f"   {server.description}\n")
+    emit_info(f"\n📦 Installing: {server.display_name}\n")
+    emit_info(f"   {server.description}\n")
 
     # Get custom name
     default_name = server.name
@@ -55,7 +55,7 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
         name_input = input(f"  Server name [{default_name}]: ").strip()
         server_name = name_input if name_input else default_name
     except (KeyboardInterrupt, EOFError):
-        print("")
+        emit_info("")
         emit_warning("Installation cancelled")
         return None
 
@@ -70,7 +70,7 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
                 emit_warning("Installation cancelled")
                 return None
         except (KeyboardInterrupt, EOFError):
-            print("")
+            emit_info("")
             emit_warning("Installation cancelled")
             return None
 
@@ -80,17 +80,17 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
     # Collect environment variables
     required_env_vars = server.get_environment_vars()
     if required_env_vars:
-        print("\n  🔑 Environment Variables:")
+        emit_info("\n  🔑 Environment Variables:")
         for var in required_env_vars:
             current_value = os.environ.get(var, "")
             if current_value:
-                print(f"     ✓ {var}: Already set")
+                emit_info(f"     ✓ {var}: Already set")
                 env_vars[var] = current_value
             else:
                 try:
                     hint = get_env_var_hint(var)
                     if hint:
-                        print(f"     {hint}")
+                        emit_info(f"     {hint}")
                     value = input(f"     Enter {var}: ").strip()
                     if value:
                         env_vars[var] = value
@@ -98,14 +98,14 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
                         set_config_value(var, value)
                         os.environ[var] = value
                 except (KeyboardInterrupt, EOFError):
-                    print("")
+                    emit_info("")
                     emit_warning("Installation cancelled")
                     return None
 
     # Collect command line arguments
     required_cmd_args = server.get_command_line_args()
     if required_cmd_args:
-        print("\n  ⚙️ Configuration:")
+        emit_info("\n  ⚙️ Configuration:")
         for arg_config in required_cmd_args:
             name = arg_config.get("name", "")
             prompt_text = arg_config.get("prompt", name)
@@ -128,7 +128,7 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
                     emit_warning(f"Required value '{name}' not provided")
                     return None
             except (KeyboardInterrupt, EOFError):
-                print("")
+                emit_info("")
                 emit_warning("Installation cancelled")
                 return None
 
@@ -161,16 +161,16 @@ def install_catalog_server(manager, server, config: Dict) -> bool:
     # Generate a group ID for messages
     group_id = f"mcp-install-{uuid.uuid4().hex[:8]}"
 
-    print(f"\n  📦 Installing {server.display_name} as '{server_name}'...")
+    emit_info(f"\n  📦 Installing {server.display_name} as '{server_name}'...")
 
     success = install_server_from_catalog(
         manager, server, server_name, env_vars, cmd_args, group_id
     )
 
     if success:
-        print(f"\n  ✅ Successfully installed '{server_name}'!")
-        print(f"  Use '/mcp start {server_name}' to start the server.\n")
+        emit_success(f"\n  ✅ Successfully installed '{server_name}'!")
+        emit_info(f"  Use '/mcp start {server_name}' to start the server.\n")
     else:
-        print("\n  ❌ Installation failed.\n")
+        emit_warning("\n  ❌ Installation failed.\n")
 
     return success

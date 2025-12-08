@@ -107,7 +107,11 @@ def ensure_config_exists():
         if not config[DEFAULT_SECTION].get(key):
             missing.append(key)
     if missing:
-        print("🐾 Let's get your Puppy ready!")
+        # Note: Using sys.stdout here for initial setup before messaging system is available
+        import sys
+
+        sys.stdout.write("🐾 Let's get your Puppy ready!\n")
+        sys.stdout.flush()
         for key in missing:
             if key == "puppy_name":
                 val = input("What should we name the puppy? ").strip()
@@ -834,11 +838,11 @@ def normalize_command_history():
             ) as f:
                 f.write(updated_content)
     except Exception as e:
-        from rich.console import Console
+        from code_puppy.messaging import emit_error
 
-        direct_console = Console()
-        error_msg = f"❌ An unexpected error occurred while normalizing command history: {str(e)}"
-        direct_console.print(f"[bold red]{error_msg}[/bold red]")
+        emit_error(
+            f"An unexpected error occurred while normalizing command history: {str(e)}"
+        )
 
 
 def get_user_agents_directory() -> str:
@@ -883,11 +887,11 @@ def initialize_command_history_file():
                 # Normalize the command history format if needed
                 normalize_command_history()
         except Exception as e:
-            from rich.console import Console
+            from code_puppy.messaging import emit_error
 
-            direct_console = Console()
-            error_msg = f"❌ An unexpected error occurred while trying to initialize history file: {str(e)}"
-            direct_console.print(f"[bold red]{error_msg}[/bold red]")
+            emit_error(
+                f"An unexpected error occurred while trying to initialize history file: {str(e)}"
+            )
 
 
 def get_yolo_mode():
@@ -1080,13 +1084,11 @@ def save_command_to_history(command: str):
         ) as f:
             f.write(f"\n# {timestamp}\n{command}\n")
     except Exception as e:
-        from rich.console import Console
+        from code_puppy.messaging import emit_error
 
-        direct_console = Console()
-        error_msg = (
-            f"❌ An unexpected error occurred while saving command history: {str(e)}"
+        emit_error(
+            f"An unexpected error occurred while saving command history: {str(e)}"
         )
-        direct_console.print(f"[bold red]{error_msg}[/bold red]")
 
 
 def get_agent_pinned_model(agent_name: str) -> str:
@@ -1299,11 +1301,8 @@ def auto_save_session_if_enabled() -> bool:
     try:
         import pathlib
 
-        from rich.console import Console
-
         from code_puppy.agents.agent_manager import get_current_agent
-
-        console = Console()
+        from code_puppy.messaging import emit_info
 
         current_agent = get_current_agent()
         history = current_agent.get_message_history()
@@ -1323,16 +1322,16 @@ def auto_save_session_if_enabled() -> bool:
             auto_saved=True,
         )
 
-        console.print(
-            f"🐾 [dim]Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)[/dim]"
+        emit_info(
+            f"🐾 Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)"
         )
 
         return True
 
     except Exception as exc:  # pragma: no cover - defensive logging
-        from rich.console import Console
+        from code_puppy.messaging import emit_error
 
-        Console().print(f"[dim]❌ Failed to auto-save session: {exc}[/dim]")
+        emit_error(f"Failed to auto-save session: {exc}")
         return False
 
 

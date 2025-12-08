@@ -23,10 +23,13 @@ from code_puppy.config import (
     get_use_dbos,
 )
 from code_puppy.messaging import (
+    SubAgentInvocationMessage,
+    SubAgentResponseMessage,
     emit_divider,
     emit_error,
     emit_info,
     emit_system_message,
+    get_message_bus,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.tools.common import generate_group_id
@@ -396,28 +399,17 @@ def register_invoke_agent(agent):
             session_id = f"{session_id}-{hash_suffix}"
         # else: continuing existing session, use session_id as-is
 
-        emit_info(
-            f"\n[bold white on blue] INVOKE AGENT [/bold white on blue] {agent_name} (session: {session_id})",
-            message_group=group_id,
+        # Emit structured invocation message via MessageBus
+        bus = get_message_bus()
+        bus.emit(
+            SubAgentInvocationMessage(
+                agent_name=agent_name,
+                session_id=session_id,
+                prompt=prompt,
+                is_new_session=is_new_session,
+                message_count=len(message_history),
+            )
         )
-        emit_divider(message_group=group_id)
-        emit_system_message(f"Prompt: {prompt}", message_group=group_id)
-
-        if message_history:
-            emit_system_message(
-                f"Continuing conversation from session {session_id} ({len(message_history)} messages)",
-                message_group=group_id,
-            )
-        else:
-            emit_system_message(
-                f"Starting new session: [bold]{session_id}[/bold]",
-                message_group=group_id,
-            )
-            emit_system_message(
-                f'To continue this conversation, use session_id="{session_id}"',
-                message_group=group_id,
-            )
-        emit_divider(message_group=group_id)
 
         try:
             # Load the specified agent config
@@ -531,12 +523,15 @@ def register_invoke_agent(agent):
                 initial_prompt=prompt if is_new_session else None,
             )
 
-            emit_system_message(f"Response: {response}", message_group=group_id)
-            emit_system_message(
-                f"Session {session_id} saved to disk ({len(updated_history)} messages)",
-                message_group=group_id,
+            # Emit structured response message via MessageBus
+            bus.emit(
+                SubAgentResponseMessage(
+                    agent_name=agent_name,
+                    session_id=session_id,
+                    response=response,
+                    message_count=len(updated_history),
+                )
             )
-            emit_divider(message_group=group_id)
 
             return AgentInvokeOutput(
                 response=response, agent_name=agent_name, session_id=session_id

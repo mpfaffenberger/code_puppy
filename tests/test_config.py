@@ -602,20 +602,19 @@ class TestCommandHistory:
         )
 
     @patch("builtins.open")
-    @patch("rich.console.Console")
+    @patch("code_puppy.messaging.emit_error")
     def test_save_command_to_history_handles_error(
-        self, mock_console_class, mock_file, mock_config_paths
+        self, mock_emit_error, mock_file, mock_config_paths
     ):
         # Setup
         mock_file.side_effect = Exception("Test error")
-        mock_console_instance = MagicMock()
-        mock_console_class.return_value = mock_console_instance
 
         # Call the function
         cp_config.save_command_to_history("test command")
 
-        # Assert
-        mock_console_instance.print.assert_called_once()
+        # Assert - emit_error is called with a message containing the error
+        mock_emit_error.assert_called_once()
+        assert "Test error" in mock_emit_error.call_args[0][0]
 
 
 class TestDefaultModelSelection:

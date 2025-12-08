@@ -288,6 +288,11 @@ class CliHarness:
         spawn_env.update(env or {})
         spawn_env["HOME"] = str(temp_home)
         spawn_env.pop("PYTHONPATH", None)  # avoid accidental venv confusion
+        # Clear XDG vars so the spawned CLI uses ~/.code_puppy (temp home)
+        spawn_env.pop("XDG_CONFIG_HOME", None)
+        spawn_env.pop("XDG_DATA_HOME", None)
+        spawn_env.pop("XDG_CACHE_HOME", None)
+        spawn_env.pop("XDG_STATE_HOME", None)
         # Ensure DBOS uses a temp sqlite under this HOME
         dbos_sqlite = code_puppy_dir / "dbos_store.sqlite"
         spawn_env["DBOS_SYSTEM_DATABASE_URL"] = f"sqlite:///{dbos_sqlite}"

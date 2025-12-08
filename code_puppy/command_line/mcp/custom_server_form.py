@@ -25,6 +25,7 @@ from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.widgets import Frame, TextArea
 from pygments.lexers.data import JsonLexer
 
+from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 # Example configurations for each server type
@@ -606,10 +607,14 @@ class CustomServerForm:
         # Handle result
         if self.result == "installed":
             if self.edit_mode:
-                print(f"\n  ✅ Successfully updated server '{self.server_name}'!")
+                emit_success(
+                    f"\n  ✅ Successfully updated server '{self.server_name}'!"
+                )
             else:
-                print(f"\n  ✅ Successfully added custom server '{self.server_name}'!")
-            print(f"  Use '/mcp start {self.server_name}' to start the server.\n")
+                emit_success(
+                    f"\n  ✅ Successfully added custom server '{self.server_name}'!"
+                )
+            emit_info(f"  Use '/mcp start {self.server_name}' to start the server.\n")
             return True
 
         return False

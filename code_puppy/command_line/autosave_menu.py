@@ -247,12 +247,9 @@ async def interactive_autosave_picker() -> Optional[str]:
     entries = _get_session_entries(base_dir)
 
     if not entries:
-        # Still need to set/cleanup the awaiting input flag even if no entries
-        set_awaiting_user_input(True)
-        try:
-            print("No autosave sessions found.")
-        finally:
-            set_awaiting_user_input(False)
+        from code_puppy.messaging import emit_info
+
+        emit_info("No autosave sessions found.")
         return None
 
     # State

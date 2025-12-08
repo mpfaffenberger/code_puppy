@@ -16,11 +16,16 @@ from .status_tracker import ServerState
 
 
 class MCPDashboard:
-    """Visual dashboard for MCP server status monitoring"""
+    """Visual dashboard for MCP server status monitoring.
+
+    Note: This class uses Rich Console directly for rendering Rich tables.
+    This is intentional - Rich tables require Console for proper formatting.
+    """
 
     def __init__(self):
-        """Initialize the MCP Dashboard"""
-        self.console = Console()
+        """Initialize the MCP Dashboard."""
+        # Note: Console is used here specifically for Rich table rendering
+        self._console = Console()
 
     def render_dashboard(self) -> Table:
         """
@@ -278,10 +283,14 @@ class MCPDashboard:
             return "error"
 
     def print_dashboard(self) -> None:
-        """Print the dashboard to console"""
+        """Print the dashboard to console.
+
+        Note: Uses Rich Console directly for table rendering - Rich tables
+        require Console for proper formatting with colors and borders.
+        """
         table = self.render_dashboard()
-        self.console.print(table)
-        self.console.print()  # Add spacing
+        self._console.print(table)
+        self._console.print()  # Add spacing
 
     def get_dashboard_string(self) -> str:
         """

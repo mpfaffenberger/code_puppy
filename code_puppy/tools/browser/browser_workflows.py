@@ -6,7 +6,7 @@ from typing import Any, Dict
 from pydantic_ai import RunContext
 
 from code_puppy import config
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.common import generate_group_id
 
 
@@ -22,7 +22,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
     """Save a browser workflow as a markdown file."""
     group_id = generate_group_id("save_workflow", name)
     emit_info(
-        f"[bold white on blue] SAVE WORKFLOW [/bold white on blue] 💾 name='{name}'",
+        f"SAVE WORKFLOW 💾 name='{name}'",
         message_group=group_id,
     )
 
@@ -62,8 +62,8 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         with open(workflow_path, "w", encoding="utf-8") as f:
             f.write(content)
 
-        emit_info(
-            f"[green]✅ Workflow saved successfully: {workflow_path}[/green]",
+        emit_success(
+            f"Workflow saved successfully: {workflow_path}",
             message_group=group_id,
         )
 
@@ -75,8 +75,8 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        emit_info(
-            f"[red]❌ Failed to save workflow: {e}[/red]",
+        emit_error(
+            f"Failed to save workflow: {e}",
             message_group=group_id,
         )
         return {"success": False, "error": str(e), "name": name}
@@ -86,7 +86,7 @@ async def list_workflows() -> Dict[str, Any]:
     """List all available browser workflows."""
     group_id = generate_group_id("list_workflows")
     emit_info(
-        "[bold white on blue] LIST WORKFLOWS [/bold white on blue] 📋",
+        "LIST WORKFLOWS 📋",
         message_group=group_id,
     )
 
@@ -109,15 +109,13 @@ async def list_workflows() -> Dict[str, Any]:
                     }
                 )
             except Exception as e:
-                emit_info(
-                    f"[yellow]Warning: Could not read {workflow_file}: {e}[/yellow]"
-                )
+                emit_warning(f"Could not read {workflow_file}: {e}")
 
         # Sort by modification time (newest first)
         workflows.sort(key=lambda x: x["modified"], reverse=True)
 
-        emit_info(
-            f"[green]✅ Found {len(workflows)} workflow(s)[/green]",
+        emit_success(
+            f"Found {len(workflows)} workflow(s)",
             message_group=group_id,
         )
 
@@ -129,8 +127,8 @@ async def list_workflows() -> Dict[str, Any]:
         }
 
     except Exception as e:
-        emit_info(
-            f"[red]❌ Failed to list workflows: {e}[/red]",
+        emit_error(
+            f"Failed to list workflows: {e}",
             message_group=group_id,
         )
         return {"success": False, "error": str(e)}
@@ -140,7 +138,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
     """Read a saved browser workflow."""
     group_id = generate_group_id("read_workflow", name)
     emit_info(
-        f"[bold white on blue] READ WORKFLOW [/bold white on blue] 📖 name='{name}'",
+        f"READ WORKFLOW 📖 name='{name}'",
         message_group=group_id,
     )
 
@@ -154,8 +152,8 @@ async def read_workflow(name: str) -> Dict[str, Any]:
         workflow_path = workflows_dir / name
 
         if not workflow_path.exists():
-            emit_info(
-                f"[red]❌ Workflow not found: {name}[/red]",
+            emit_error(
+                f"Workflow not found: {name}",
                 message_group=group_id,
             )
             return {
@@ -168,8 +166,8 @@ async def read_workflow(name: str) -> Dict[str, Any]:
         with open(workflow_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        emit_info(
-            f"[green]✅ Workflow read successfully: {len(content)} characters[/green]",
+        emit_success(
+            f"Workflow read successfully: {len(content)} characters",
             message_group=group_id,
         )
 
@@ -182,8 +180,8 @@ async def read_workflow(name: str) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        emit_info(
-            f"[red]❌ Failed to read workflow: {e}[/red]",
+        emit_error(
+            f"Failed to read workflow: {e}",
             message_group=group_id,
         )
         return {"success": False, "error": str(e), "name": name}

@@ -58,7 +58,7 @@ async def process_tool_call(
     """A tool call processor that passes along the deps."""
     group_id = uuid.uuid4()
     emit_info(
-        f"\n[bold white on purple] MCP Tool Call - {name}[/bold white on purple]",
+        f"\nMCP Tool Call - {name}",
         message_group=group_id,
     )
     emit_info("\nArgs:", message_group=group_id)

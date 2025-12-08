@@ -697,13 +697,13 @@ class AddModelMenu:
             )
             return True
 
-        print(f"\n🔑 {provider.name} requires the following credentials:\n")
+        emit_info(f"\n🔑 {provider.name} requires the following credentials:\n")
 
         for env_var in missing_vars:
             # Show helpful hints based on common env var patterns
             hint = self._get_env_var_hint(env_var)
             if hint:
-                print(f"  {hint}")
+                emit_info(f"  {hint}")
 
             try:
                 # Use regular input - simpler and works in threaded context
@@ -722,7 +722,7 @@ class AddModelMenu:
                 emit_info(f"✅ Saved {env_var} to config")
 
             except (KeyboardInterrupt, EOFError):
-                print("")  # Clean newline
+                emit_info("")  # Clean newline
                 emit_warning("Credential input cancelled")
                 return False
 
@@ -760,9 +760,9 @@ class AddModelMenu:
         if not provider:
             return None
 
-        print(f"\n✨ Adding custom model for {provider.name}\n")
-        print("  Enter the model ID exactly as the provider expects it.")
-        print(
+        emit_info(f"\n✨ Adding custom model for {provider.name}\n")
+        emit_info("  Enter the model ID exactly as the provider expects it.")
+        emit_info(
             "  Examples: gpt-4-turbo-preview, claude-3-opus-20240229, gemini-1.5-pro-latest\n"
         )
 
@@ -774,8 +774,8 @@ class AddModelMenu:
                 return None
 
             # Ask for context size
-            print("\n  Enter the context window size (in tokens).")
-            print("  Common sizes: 8192, 32768, 128000, 200000, 1000000\n")
+            emit_info("\n  Enter the context window size (in tokens).")
+            emit_info("  Common sizes: 8192, 32768, 128000, 200000, 1000000\n")
 
             context_input = input("  Context size [128000]: ").strip()
 
@@ -806,7 +806,7 @@ class AddModelMenu:
             return (model_name, context_length)
 
         except (KeyboardInterrupt, EOFError):
-            print("")  # Clean newline
+            emit_info("")  # Clean newline
             emit_warning("Custom model input cancelled")
             return None
 
@@ -840,11 +840,7 @@ class AddModelMenu:
             True if a model was added, False otherwise
         """
         if not self.registry or not self.providers:
-            set_awaiting_user_input(True)
-            try:
-                print("No models data available.")
-            finally:
-                set_awaiting_user_input(False)
+            emit_warning("No models data available.")
             return False
 
         # Build UI
@@ -1036,7 +1032,7 @@ class AddModelMenu:
                         emit_info("Model addition cancelled.")
                         return False
                 except (KeyboardInterrupt, EOFError):
-                    print("")
+                    emit_info("")
                     return False
 
             # Prompt for any missing credentials

@@ -10,15 +10,16 @@ from typing import Callable, Literal, Optional, Set
 
 from pydantic import BaseModel
 from pydantic_ai import RunContext
-from rich.markdown import Markdown
 from rich.text import Text
 
-from code_puppy.messaging import (
-    emit_divider,
+from code_puppy.messaging import (  # Structured messaging types
+    AgentReasoningMessage,
+    ShellOutputMessage,
+    ShellStartMessage,
     emit_error,
-    emit_info,
     emit_system_message,
     emit_warning,
+    get_message_bus,
 )
 from code_puppy.tools.common import generate_group_id, get_user_approval_async
 
@@ -517,19 +518,17 @@ def run_shell_command_streaming(
             current_time = time.time()
 
             if current_time - start_time > ABSOLUTE_TIMEOUT_SECONDS:
-                error_msg = Text()
-                error_msg.append(
-                    "Process killed: inactivity timeout reached", style="bold red"
+                emit_error(
+                    "Process killed: absolute timeout reached",
+                    message_group=group_id,
                 )
-                emit_error(error_msg, message_group=group_id)
                 return cleanup_process_and_threads("absolute")
 
             if current_time - last_output_time[0] > timeout:
-                error_msg = Text()
-                error_msg.append(
-                    "Process killed: inactivity timeout reached", style="bold red"
+                emit_error(
+                    "Process killed: inactivity timeout reached",
+                    message_group=group_id,
                 )
-                emit_error(error_msg, message_group=group_id)
                 return cleanup_process_and_threads("inactivity")
 
             time.sleep(0.1)
@@ -554,16 +553,22 @@ def run_shell_command_streaming(
 
         _unregister_process(process)
 
-        if exit_code != 0:
-            emit_error(
-                f"Command failed with exit code {exit_code}", message_group=group_id
-            )
-            emit_info(f"Took {execution_time:.2f}s", message_group=group_id)
-            time.sleep(1)
-            # Apply line length limits to stdout/stderr before returning
-            truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
-            truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
+        # Apply line length limits to stdout/stderr before returning
+        truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
+        truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
 
+        # Emit structured ShellOutputMessage for the UI
+        shell_output_msg = ShellOutputMessage(
+            command=command,
+            stdout="\n".join(truncated_stdout),
+            stderr="\n".join(truncated_stderr),
+            exit_code=exit_code,
+            duration_seconds=execution_time,
+        )
+        get_message_bus().emit(shell_output_msg)
+
+        if exit_code != 0:
+            time.sleep(1)
             return ShellCommandOutput(
                 success=False,
                 command=command,
@@ -576,12 +581,9 @@ def run_shell_command_streaming(
                 timeout=False,
                 user_interrupted=process.pid in _USER_KILLED_PROCESSES,
             )
-        # Apply line length limits to stdout/stderr before returning
-        truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
-        truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
 
         return ShellCommandOutput(
-            success=exit_code == 0,
+            success=True,
             command=command,
             stdout="\n".join(truncated_stdout),
             stderr="\n".join(truncated_stderr),
@@ -606,14 +608,10 @@ async def run_shell_command(
     context: RunContext, command: str, cwd: str = None, timeout: int = 60
 ) -> ShellCommandOutput:
     command_displayed = False
+    start_time = time.time()
 
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
-
-    emit_info(
-        f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] 📂 [bold green]$ {command}[/bold green]",
-        message_group=group_id,
-    )
 
     # Invoke safety check callbacks (only active in yolo_mode)
     # This allows plugins to intercept and assess commands before execution
@@ -718,6 +716,16 @@ async def run_shell_command(
 
     # Now that approval is done, activate the Ctrl-X listener and disable agent Ctrl-C
     with _shell_command_keyboard_context():
+        # Emit structured ShellStartMessage for the UI
+        bus = get_message_bus()
+        bus.emit(
+            ShellStartMessage(
+                command=command,
+                cwd=cwd,
+                timeout=timeout,
+            )
+        )
+
         try:
             creationflags = 0
             preexec_fn = None
@@ -789,25 +797,14 @@ class ReasoningOutput(BaseModel):
 def share_your_reasoning(
     context: RunContext, reasoning: str, next_steps: str | None = None
 ) -> ReasoningOutput:
-    # Generate unique group_id for this reasoning session
-    group_id = generate_group_id(
-        "agent_reasoning", reasoning[:50]
-    )  # Use first 50 chars for context
-
-    emit_divider(message_group=group_id)
-    emit_info(
-        "\n[bold white on purple] AGENT REASONING [/bold white on purple]",
-        message_group=group_id,
+    # Emit structured AgentReasoningMessage for the UI
+    reasoning_msg = AgentReasoningMessage(
+        reasoning=reasoning,
+        next_steps=next_steps if next_steps and next_steps.strip() else None,
     )
-    emit_info("[bold cyan]Current reasoning:[/bold cyan]", message_group=group_id)
-    emit_system_message(Markdown(reasoning), message_group=group_id)
-    if next_steps is not None and next_steps.strip():
-        emit_info(
-            "\n[bold cyan]Planned next steps:[/bold cyan]", message_group=group_id
-        )
-        emit_system_message(Markdown(next_steps), message_group=group_id)
-    emit_info("[dim]" + "-" * 60 + "[/dim]\n", message_group=group_id)
-    return ReasoningOutput(**{"success": True})
+    get_message_bus().emit(reasoning_msg)
+
+    return ReasoningOutput(success=True)
 
 
 def register_agent_run_shell_command(agent):

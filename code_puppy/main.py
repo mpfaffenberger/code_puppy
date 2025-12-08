@@ -137,17 +137,27 @@ async def main():
     from rich.console import Console
 
     from code_puppy.messaging import (
+        RichConsoleRenderer,
         SynchronousInteractiveRenderer,
         get_global_queue,
+        get_message_bus,
     )
 
+    # Create a shared console for both renderers
+    display_console = Console()
+
+    # Legacy renderer for backward compatibility (emits via get_global_queue)
     message_queue = get_global_queue()
-    display_console = Console()  # Separate console for rendering messages
     message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
     message_renderer.start()
 
+    # New MessageBus renderer for structured messages (tools emit here)
+    message_bus = get_message_bus()
+    bus_renderer = RichConsoleRenderer(message_bus, display_console)
+    bus_renderer.start()
+
     initialize_command_history_file()
-    from code_puppy.messaging import emit_system_message
+    from code_puppy.messaging import emit_error, emit_system_message
 
     # Show the awesome Code Puppy logo only in interactive mode (never in TUI mode)
     # Always check both command line args AND runtime TUI state for safety
@@ -179,8 +189,7 @@ async def main():
 
     available_port = find_available_port()
     if available_port is None:
-        error_msg = "Error: No available ports in range 8090-9010!"
-        emit_system_message(f"[bold red]{error_msg}[/bold red]")
+        emit_error("No available ports in range 8090-9010!")
         return
 
     # Early model setting if specified via command line
@@ -221,18 +230,14 @@ async def main():
                 models_config = ModelFactory.load_config()
                 available_models = list(models_config.keys()) if models_config else []
 
-                emit_system_message(
-                    f"[bold red]Error:[/bold red] Model '{model_name}' not found"
-                )
+                emit_error(f"Model '{model_name}' not found")
                 emit_system_message(f"Available models: {', '.join(available_models)}")
                 sys.exit(1)
 
             # Model is valid, show confirmation (already set earlier)
             emit_system_message(f"🎯 Using model: {model_name}")
         except Exception as e:
-            emit_system_message(
-                f"[bold red]Error validating model:[/bold red] {str(e)}"
-            )
+            emit_error(f"Error validating model: {str(e)}")
             sys.exit(1)
 
     # Handle agent selection from command line
@@ -247,9 +252,7 @@ async def main():
             # First check if the agent exists by getting available agents
             available_agents = get_available_agents()
             if agent_name not in available_agents:
-                emit_system_message(
-                    f"[bold red]Error:[/bold red] Agent '{agent_name}' not found"
-                )
+                emit_error(f"Agent '{agent_name}' not found")
                 emit_system_message(
                     f"Available agents: {', '.join(available_agents.keys())}"
                 )
@@ -259,7 +262,7 @@ async def main():
             set_current_agent(agent_name)
             emit_system_message(f"🤖 Using agent: {agent_name}")
         except Exception as e:
-            emit_system_message(f"[bold red]Error setting agent:[/bold red] {str(e)}")
+            emit_error(f"Error setting agent: {str(e)}")
             sys.exit(1)
 
     current_version = __version__
@@ -276,7 +279,7 @@ async def main():
             "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true"
         )
         emit_system_message(version_msg)
-        emit_system_message(f"[dim]{update_disabled_msg}[/dim]")
+        emit_system_message(update_disabled_msg)
     else:
         if len(callbacks.get_callbacks("version_check")):
             await callbacks.on_version_check(current_version)
@@ -307,7 +310,7 @@ async def main():
             DBOS(config=dbos_config)
             DBOS.launch()
         except Exception as e:
-            emit_system_message(f"[bold red]Error initializing DBOS:[/bold red] {e}")
+            emit_error(f"Error initializing DBOS: {e}")
             sys.exit(1)
     else:
         pass
@@ -333,6 +336,8 @@ async def main():
     finally:
         if message_renderer:
             message_renderer.stop()
+        if bus_renderer:
+            bus_renderer.stop()
         await callbacks.on_shutdown()
         if get_use_dbos():
             DBOS.destroy()
@@ -347,23 +352,21 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
+    emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
+    emit_system_message("Type 'clear' to reset the conversation history.")
+    emit_system_message("Type /help to view all commands")
     emit_system_message(
-        "[dim]Type '/exit' or '/quit' to exit the interactive mode.[/dim]"
-    )
-    emit_system_message("[dim]Type 'clear' to reset the conversation history.[/dim]")
-    emit_system_message("[dim]Type /help to view all commands[/dim]")
-    emit_system_message(
-        "[dim]Type [bold blue]@[/bold blue] for path completion, or [bold blue]/model[/bold blue] to pick a model. Toggle multiline with [bold blue]Alt+M[/bold blue] or [bold blue]F2[/bold blue]; newline: [bold blue]Ctrl+J[/bold blue].[/dim]"
+        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Ctrl+J."
     )
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
-        f"[dim]Press [bold red]{cancel_key}[/bold red] during processing to cancel the current task or inference. Use [bold red]Ctrl+X[/bold red] to interrupt running shell commands.[/dim]"
+        f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands."
     )
     emit_system_message(
-        "[dim]Use [bold blue]/autosave_load[/bold blue] to manually load a previous autosave session.[/dim]"
+        "Use /autosave_load to manually load a previous autosave session."
     )
     emit_system_message(
-        "[dim]Use [bold blue]/diff[/bold blue] to configure diff highlighting colors for file changes.[/dim]"
+        "Use /diff to configure diff highlighting colors for file changes."
     )
     try:
         from code_puppy.command_line.motd import print_motd
@@ -377,12 +380,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # Initialize the runtime agent manager
     if initial_command:
         from code_puppy.agents import get_current_agent
-        from code_puppy.messaging import emit_info, emit_system_message
+        from code_puppy.messaging import emit_info, emit_success, emit_system_message
 
         agent = get_current_agent()
-        emit_info(
-            f"[bold blue]Processing initial command:[/bold blue] {initial_command}"
-        )
+        emit_info(f"Processing initial command: {initial_command}")
 
         try:
             # Check if any tool is waiting for user input before showing spinner
@@ -408,15 +409,20 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if hasattr(response, "all_messages"):
                     agent.set_message_history(list(response.all_messages()))
 
-                emit_system_message(
-                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
+                # Emit structured message for proper markdown rendering
+                from code_puppy.messaging import get_message_bus
+                from code_puppy.messaging.messages import AgentResponseMessage
+
+                response_msg = AgentResponseMessage(
+                    content=agent_response,
+                    is_markdown=True,
                 )
-                emit_system_message("\n" + "=" * 50)
-                emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+                get_message_bus().emit(response_msg)
+
+                emit_success("🐶 Continuing in Interactive Mode")
                 emit_system_message(
                     "Your command and response are preserved in the conversation history."
                 )
-                emit_system_message("=" * 50 + "\n")
 
         except Exception as e:
             from code_puppy.messaging import emit_error
@@ -465,7 +471,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
 
-        emit_info(f"[dim][bold blue]{user_prompt}\n[/bold blue][/dim]")
+        emit_info(f"{user_prompt}\n")
 
         try:
             # Use prompt_toolkit for enhanced input with path completion
@@ -520,10 +526,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             new_session_id = finalize_autosave_session()
             agent.clear_message_history()
             emit_warning("Conversation history cleared!")
-            emit_system_message(
-                "[dim]The agent will not remember previous interactions.[/dim]"
-            )
-            emit_info(f"[dim]Auto-save session rotated to: {new_session_id}[/dim]")
+            emit_system_message("The agent will not remember previous interactions.")
+            emit_info(f"Auto-save session rotated to: {new_session_id}")
             continue
 
         # Parse attachments first so leading paths aren't misread as commands
@@ -639,11 +643,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     continue
                 # Get the structured response
                 agent_response = result.output
-                from code_puppy.messaging import emit_info
 
-                emit_system_message(
-                    f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
+                # Emit structured message for proper markdown rendering
+                from code_puppy.messaging import get_message_bus
+                from code_puppy.messaging.messages import AgentResponseMessage
+
+                response_msg = AgentResponseMessage(
+                    content=agent_response,
+                    is_markdown=True,
                 )
+                get_message_bus().emit(response_msg)
 
                 # Update the agent's message history with the complete conversation
                 # including the final assistant response. The history_processors callback
@@ -719,9 +728,7 @@ async def run_prompt_with_attachments(
     if processed_prompt.link_attachments:
         summary_parts.append(f"urls: {len(processed_prompt.link_attachments)}")
     if summary_parts:
-        emit_system_message(
-            "[dim]Attachments detected -> " + ", ".join(summary_parts) + "[/dim]"
-        )
+        emit_system_message("Attachments detected -> " + ", ".join(summary_parts))
 
     if not processed_prompt.prompt:
         emit_warning(
@@ -762,9 +769,9 @@ async def run_prompt_with_attachments(
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
-    from code_puppy.messaging import emit_info, emit_system_message
+    from code_puppy.messaging import emit_info
 
-    emit_info(f"[bold blue]Executing prompt:[/bold blue] {prompt}")
+    emit_info(f"Executing prompt: {prompt}")
 
     try:
         # Get agent through runtime manager and use helper for attachments
@@ -778,9 +785,16 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
             return
 
         agent_response = response.output
-        emit_system_message(
-            f"\n[bold purple]AGENT RESPONSE: [/bold purple]\n{agent_response}"
+
+        # Emit structured message for proper markdown rendering
+        from code_puppy.messaging import get_message_bus
+        from code_puppy.messaging.messages import AgentResponseMessage
+
+        response_msg = AgentResponseMessage(
+            content=agent_response,
+            is_markdown=True,
         )
+        get_message_bus().emit(response_msg)
 
     except asyncio.CancelledError:
         from code_puppy.messaging import emit_warning
@@ -797,7 +811,8 @@ def main_entry():
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print(traceback.format_exc())
+        # Note: Using sys.stderr for crash output - messaging system may not be available
+        sys.stderr.write(traceback.format_exc())
         if get_use_dbos():
             DBOS.destroy()
         return 0

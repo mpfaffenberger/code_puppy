@@ -7,7 +7,7 @@ from typing import Optional
 from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy import config
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 
 class CamoufoxManager:
@@ -65,7 +65,7 @@ class CamoufoxManager:
             return
 
         try:
-            emit_info("[yellow]Initializing Camoufox (privacy Firefox)...[/yellow]")
+            emit_info("Initializing Camoufox (privacy Firefox)...")
 
             # Ensure Camoufox binary and dependencies are fetched before launching
             await self._prefetch_camoufox()
@@ -82,7 +82,7 @@ class CamoufoxManager:
 
     async def _initialize_camoufox(self) -> None:
         """Try to start Camoufox with the configured privacy settings."""
-        emit_info(f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]")
+        emit_info(f"Using persistent profile: {self.profile_dir}")
         # Lazy import camoufox to avoid triggering heavy optional deps at import time
         try:
             import camoufox
@@ -105,8 +105,8 @@ class CamoufoxManager:
         except Exception:
             from playwright.async_api import async_playwright
 
-            emit_info(
-                "[yellow]Camoufox no disponible. Usando Playwright (Chromium) como alternativa.[/yellow]"
+            emit_warning(
+                "Camoufox no disponible. Usando Playwright (Chromium) como alternativa."
             )
             pw = await async_playwright().start()
             # Use persistent context directory for Chromium to emulate previous behavior
@@ -144,9 +144,7 @@ class CamoufoxManager:
 
     async def _prefetch_camoufox(self) -> None:
         """Prefetch Camoufox binary and dependencies."""
-        emit_info(
-            "[cyan]🔍 Ensuring Camoufox binary and dependencies are up-to-date...[/cyan]"
-        )
+        emit_info("Ensuring Camoufox binary and dependencies are up-to-date...")
 
         # Lazy import camoufox utilities to avoid side effects during module import
         try:
@@ -154,20 +152,20 @@ class CamoufoxManager:
             from camoufox.locale import ALLOW_GEOIP, download_mmdb
             from camoufox.pkgman import CamoufoxFetcher, camoufox_path
         except Exception:
-            emit_info(
-                "[yellow]Camoufox no disponible. Omitiendo prefetch y preparándose para usar Playwright.[/yellow]"
+            emit_warning(
+                "Camoufox no disponible. Omitiendo prefetch y preparándose para usar Playwright."
             )
             return
 
         needs_install = False
         try:
             camoufox_path(download_if_missing=False)
-            emit_info("[cyan]🗃️ Using cached Camoufox installation[/cyan]")
+            emit_info("Using cached Camoufox installation")
         except (CamoufoxNotInstalled, FileNotFoundError):
-            emit_info("[cyan]📥 Camoufox not found, installing fresh copy[/cyan]")
+            emit_info("Camoufox not found, installing fresh copy")
             needs_install = True
         except UnsupportedVersion:
-            emit_info("[cyan]♻️ Camoufox update required, reinstalling[/cyan]")
+            emit_info("Camoufox update required, reinstalling")
             needs_install = True
 
         if needs_install:
@@ -177,7 +175,7 @@ class CamoufoxManager:
         if ALLOW_GEOIP:
             download_mmdb()
 
-        emit_info("[cyan]📦 Camoufox dependencies ready[/cyan]")
+        emit_info("Camoufox dependencies ready")
 
     async def close_page(self, page: Page) -> None:
         """Close a specific page."""
@@ -197,13 +195,9 @@ class CamoufoxManager:
                 try:
                     storage_state_path = self.profile_dir / "storage_state.json"
                     await self._context.storage_state(path=str(storage_state_path))
-                    emit_info(
-                        f"[green]💾 Browser state saved to {storage_state_path}[/green]"
-                    )
+                    emit_success(f"Browser state saved to {storage_state_path}")
                 except Exception as e:
-                    emit_info(
-                        f"[yellow]Warning: Could not save storage state: {e}[/yellow]"
-                    )
+                    emit_warning(f"Could not save storage state: {e}")
 
                 await self._context.close()
                 self._context = None
@@ -212,12 +206,12 @@ class CamoufoxManager:
                 self._browser = None
             self._initialized = False
         except Exception as e:
-            emit_info(f"[yellow]Warning during cleanup: {e}[/yellow]")
+            emit_warning(f"Warning during cleanup: {e}")
 
     async def close(self) -> None:
         """Close the browser and clean up resources."""
         await self._cleanup()
-        emit_info("[yellow]Camoufox browser closed[/yellow]")
+        emit_info("Camoufox browser closed")
 
     def __del__(self):
         """Ensure cleanup on object destruction."""

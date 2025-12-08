@@ -7,7 +7,7 @@ custom MCP servers with JSON configuration.
 import json
 import os
 
-from code_puppy.messaging import emit_error, emit_warning
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
 # Example configurations for each server type
 CUSTOM_SERVER_EXAMPLES = {
@@ -53,8 +53,8 @@ def prompt_and_install_custom_server(manager) -> bool:
 
     from .utils import find_server_id_by_name
 
-    print("\n➕ Add Custom MCP Server\n")
-    print("  Configure your own MCP server using JSON.\n")
+    emit_info("\n➕ Add Custom MCP Server\n")
+    emit_info("  Configure your own MCP server using JSON.\n")
 
     # Get server name
     try:
@@ -63,7 +63,7 @@ def prompt_and_install_custom_server(manager) -> bool:
             emit_warning("Server name is required")
             return False
     except (KeyboardInterrupt, EOFError):
-        print("")
+        emit_info("")
         emit_warning("Cancelled")
         return False
 
@@ -78,20 +78,20 @@ def prompt_and_install_custom_server(manager) -> bool:
                 emit_warning("Cancelled")
                 return False
         except (KeyboardInterrupt, EOFError):
-            print("")
+            emit_info("")
             emit_warning("Cancelled")
             return False
 
     # Select server type
-    print("\n  Select server type:\n")
-    print("    1. 📟 stdio  - Local command (npx, python, uvx, etc.)")
-    print("    2. 🌐 http   - HTTP endpoint")
-    print("    3. 📡 sse    - Server-Sent Events\n")
+    emit_info("\n  Select server type:\n")
+    emit_info("    1. 📟 stdio  - Local command (npx, python, uvx, etc.)")
+    emit_info("    2. 🌐 http   - HTTP endpoint")
+    emit_info("    3. 📡 sse    - Server-Sent Events\n")
 
     try:
         type_choice = input("  Enter choice [1-3]: ").strip()
     except (KeyboardInterrupt, EOFError):
-        print("")
+        emit_info("")
         emit_warning("Cancelled")
         return False
 
@@ -103,13 +103,13 @@ def prompt_and_install_custom_server(manager) -> bool:
 
     # Show example for selected type
     example = CUSTOM_SERVER_EXAMPLES.get(server_type, "{}")
-    print(f"\n  Example {server_type} configuration:\n")
+    emit_info(f"\n  Example {server_type} configuration:\n")
     for line in example.split("\n"):
-        print(f"    {line}")
-    print("")
+        emit_info(f"    {line}")
+    emit_info("")
 
     # Get JSON configuration
-    print("  Enter your JSON configuration (paste and press Enter twice):\n")
+    emit_info("  Enter your JSON configuration (paste and press Enter twice):\n")
 
     json_lines = []
     empty_count = 0
@@ -125,7 +125,7 @@ def prompt_and_install_custom_server(manager) -> bool:
                 empty_count = 0
                 json_lines.append(line)
     except (KeyboardInterrupt, EOFError):
-        print("")
+        emit_info("")
         emit_warning("Cancelled")
         return False
 
@@ -187,8 +187,8 @@ def prompt_and_install_custom_server(manager) -> bool:
         with open(MCP_SERVERS_FILE, "w") as f:
             json.dump(data, f, indent=2)
 
-        print(f"\n  ✅ Successfully added custom server '{server_name}'!")
-        print(f"  Use '/mcp start {server_name}' to start the server.\n")
+        emit_success(f"\n  ✅ Successfully added custom server '{server_name}'!")
+        emit_info(f"  Use '/mcp start {server_name}' to start the server.\n")
         return True
 
     except Exception as e:

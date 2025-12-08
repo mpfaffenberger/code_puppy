@@ -21,10 +21,14 @@ from pydantic import BaseModel
 from pydantic_ai import RunContext
 
 from code_puppy.callbacks import on_delete_file, on_edit_file
-from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.tools.common import _find_best_window
-from code_puppy.tools.common import format_diff_with_colors as _colorize_diff
-from code_puppy.tools.common import generate_group_id
+from code_puppy.messaging import (  # Structured messaging types
+    DiffLine,
+    DiffMessage,
+    emit_error,
+    emit_warning,
+    get_message_bus,
+)
+from code_puppy.tools.common import _find_best_window, generate_group_id
 
 
 def _create_rejection_response(file_path: str) -> Dict[str, Any]:
@@ -92,10 +96,78 @@ class ContentPayload(BaseModel):
 EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
 
 
-def _print_diff(diff_text: str, message_group: str | None = None) -> None:
-    """Pretty-print *diff_text* with colour-coding.
+def _parse_diff_lines(diff_text: str) -> List[DiffLine]:
+    """Parse unified diff text into structured DiffLine objects.
 
-    Skips printing if the diff was already shown during permission approval.
+    Args:
+        diff_text: Raw unified diff text
+
+    Returns:
+        List of DiffLine objects with line numbers and types
+    """
+    if not diff_text or not diff_text.strip():
+        return []
+
+    diff_lines = []
+    line_number = 0
+
+    for line in diff_text.splitlines():
+        # Determine line type based on diff markers
+        if line.startswith("+") and not line.startswith("+++"):
+            line_type = "add"
+            line_number += 1
+            content = line[1:]  # Remove the + prefix
+        elif line.startswith("-") and not line.startswith("---"):
+            line_type = "remove"
+            line_number += 1
+            content = line[1:]  # Remove the - prefix
+        elif line.startswith("@@"):
+            # Parse hunk header to get line number
+            # Format: @@ -start,count +start,count @@
+            import re
+
+            match = re.search(r"@@ -\d+(?:,\d+)? \+(\d+)", line)
+            if match:
+                line_number = (
+                    int(match.group(1)) - 1
+                )  # Will be incremented on next line
+            line_type = "context"
+            content = line
+        elif line.startswith("---") or line.startswith("+++"):
+            # File headers - treat as context
+            line_type = "context"
+            content = line
+        else:
+            line_type = "context"
+            line_number += 1
+            content = line
+
+        diff_lines.append(
+            DiffLine(
+                line_number=max(1, line_number),
+                type=line_type,
+                content=content,
+            )
+        )
+
+    return diff_lines
+
+
+def _emit_diff_message(
+    file_path: str,
+    operation: str,
+    diff_text: str,
+    old_content: str | None = None,
+    new_content: str | None = None,
+) -> None:
+    """Emit a structured DiffMessage for UI display.
+
+    Args:
+        file_path: Path to the file being modified
+        operation: One of 'create', 'modify', 'delete'
+        diff_text: Raw unified diff text
+        old_content: Original file content (optional)
+        new_content: New file content (optional)
     """
     # Check if diff was already shown during permission prompt
     try:
@@ -109,22 +181,21 @@ def _print_diff(diff_text: str, message_group: str | None = None) -> None:
             clear_diff_shown_flag()
             return
     except ImportError:
-        pass  # Permission handler not available, show diff anyway
+        pass  # Permission handler not available, emit anyway
 
-    emit_info(
-        "[bold cyan]\n── DIFF ────────────────────────────────────────────────[/bold cyan]",
-        message_group=message_group,
+    if not diff_text or not diff_text.strip():
+        return
+
+    diff_lines = _parse_diff_lines(diff_text)
+
+    diff_msg = DiffMessage(
+        path=file_path,
+        operation=operation,
+        old_content=old_content,
+        new_content=new_content,
+        diff_lines=diff_lines,
     )
-
-    # Apply color formatting to diff lines
-    formatted_diff = _colorize_diff(diff_text)
-
-    emit_info(formatted_diff, highlight=False, message_group=message_group)
-
-    emit_info(
-        "[bold cyan]───────────────────────────────────────────────────────[/bold cyan]",
-        message_group=message_group,
-    )
+    get_message_bus().emit(diff_msg)
 
 
 def _log_error(
@@ -340,7 +411,7 @@ def delete_snippet_from_file(
     )
     diff = res.get("diff", "")
     if diff:
-        _print_diff(diff, message_group=message_group)
+        _emit_diff_message(file_path, "modify", diff)
     return res
 
 
@@ -370,7 +441,9 @@ def write_to_file(
     )
     diff = res.get("diff", "")
     if diff:
-        _print_diff(diff, message_group=message_group)
+        # Determine operation type based on whether file existed
+        operation = "modify" if overwrite else "create"
+        _emit_diff_message(path, operation, diff, new_content=content)
     return res
 
 
@@ -397,7 +470,7 @@ def replace_in_file(
     res = _replace_in_file(context, path, replacements, message_group=message_group)
     diff = res.get("diff", "")
     if diff:
-        _print_diff(diff, message_group=message_group)
+        _emit_diff_message(path, "modify", diff)
     return res
 
 
@@ -441,9 +514,6 @@ def _edit_file(
     if group_id is None:
         group_id = generate_group_id("edit_file", file_path)
 
-    emit_info(
-        "\n[bold white on blue] EDIT FILE [/bold white on blue]", message_group=group_id
-    )
     try:
         if isinstance(payload, DeleteSnippetPayload):
             return delete_snippet_from_file(
@@ -549,7 +619,10 @@ def _delete_file(
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
         res = {"error": str(exc), "diff": ""}
-    _print_diff(res.get("diff", ""), message_group=message_group)
+
+    diff = res.get("diff", "")
+    if diff:
+        _emit_diff_message(file_path, "delete", diff)
     return res
 
 
