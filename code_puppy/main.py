@@ -443,7 +443,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             import subprocess
 
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "prompt_toolkit"]
+                [sys.executable, "-m", "pip", "install", "--quiet", "prompt_toolkit"]
             )
             from code_puppy.messaging import emit_success
 
