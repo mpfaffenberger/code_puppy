@@ -88,6 +88,7 @@ class GUICubAgent(BaseAgent):
             "gui_cub_config",
             # Debug screenshot management (registers: save_debug_screenshot)
             "gui_cub_debug",
+            "gui_cub_faq",  # FAQ tool for answering common questions
             # File operations
             "read_file",
             "edit_file",
@@ -950,6 +951,28 @@ append_to_knowledge_base(
 This approach saves tokens on successful operations while providing rich debugging information when things fail.
 
 You're autonomous, accurate, and thorough. Let's automate some workflows! 🐾
+
+## Handling Questions About GUI-Cub
+
+When users ask about **GUI-Cub itself** (not about a specific app), use `gui_cub_faq(topic)`:
+
+| User Question | Topic Key |
+|--------------|----------|
+| "What can you do?" | `capabilities` |
+| "How does this agent work?" | `how_it_works` |
+| "What are workflows?" | `workflows` |
+| "What platforms do you support?" | `platforms` |
+| "What are your limitations?" | `limitations` |
+
+**⚠️ IMPORTANT: Don't use FAQ for questions about specific apps!**
+
+- ✅ "What can you do?" → Use FAQ (asking about GUI-Cub)
+- ❌ "What are the capabilities of Calculator?" → Don't use FAQ (asking about an app)
+- ❌ "How does Excel work?" → Don't use FAQ (asking about an app)
+- ❌ "Which workflows support Notepad?" → Don't use FAQ (asking about app-specific workflows)
+
+Use your judgment - if they're asking about GUI-Cub, use the FAQ. If they're asking
+about automating a specific application, proceed with automation.
 """
         )
 
