@@ -356,7 +356,11 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                 "custom_endpoint": {
                     "url": CLAUDE_CODE_OAUTH_CONFIG["api_base_url"],
                     "api_key": access_token,
-                    "headers": {"anthropic-beta": "oauth-2025-04-20"},
+                    "headers": {
+                        "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14",
+                        "x-app": "cli",
+                        "User-Agent": "claude-cli/2.0.61 (external, cli)",
+                    },
                 },
                 "context_length": CLAUDE_CODE_OAUTH_CONFIG["default_context_length"],
                 "oauth_source": "claude-code-plugin",
