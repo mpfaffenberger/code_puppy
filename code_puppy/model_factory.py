@@ -562,38 +562,28 @@ class ModelFactory:
             return model
 
         elif model_type == "gemini_oauth":
-            # Gemini OAuth models use Google OAuth credentials
-            # We use the Generative Language API with OAuth credentials
+            # Gemini OAuth models use the Code Assist API (cloudcode-pa.googleapis.com)
+            # This is a different API than the standard Generative Language API
             try:
-                from google.oauth2.credentials import Credentials as GoogleCredentials
-
                 # Try user plugin first, then built-in plugin
                 try:
                     from gemini_oauth.config import GEMINI_OAUTH_CONFIG
                     from gemini_oauth.utils import (
+                        get_project_id,
                         get_valid_access_token,
-                        load_stored_tokens,
                     )
                 except ImportError:
                     from code_puppy.plugins.gemini_oauth.config import (
                         GEMINI_OAUTH_CONFIG,
                     )
                     from code_puppy.plugins.gemini_oauth.utils import (
+                        get_project_id,
                         get_valid_access_token,
-                        load_stored_tokens,
                     )
             except ImportError as exc:
                 emit_warning(
                     f"Gemini OAuth plugin not available; skipping model '{model_config.get('name')}'. "
                     f"Error: {exc}"
-                )
-                return None
-
-            tokens = load_stored_tokens()
-            if not tokens or not tokens.get("access_token"):
-                emit_warning(
-                    f"Gemini OAuth token not available; skipping model '{model_config.get('name')}'. "
-                    "Run /gemini-auth to authenticate."
                 )
                 return None
 
@@ -606,24 +596,26 @@ class ModelFactory:
                 )
                 return None
 
-            # Reload tokens after potential refresh
-            tokens = load_stored_tokens()
+            # Get project ID from stored tokens
+            project_id = get_project_id()
+            if not project_id:
+                emit_warning(
+                    f"No Code Assist project ID found; skipping model '{model_config.get('name')}'. "
+                    "Run /gemini-auth to re-authenticate."
+                )
+                return None
 
-            # Create Google OAuth credentials
-            credentials = GoogleCredentials(
-                token=tokens.get("access_token"),
-                refresh_token=tokens.get("refresh_token"),
-                token_uri=GEMINI_OAUTH_CONFIG["token_url"],
-                client_id=GEMINI_OAUTH_CONFIG["client_id"],
-                client_secret=GEMINI_OAUTH_CONFIG["client_secret"],
-                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            # Import the Code Assist model wrapper
+            from code_puppy.gemini_code_assist import GeminiCodeAssistModel
+
+            # Create the Code Assist model
+            model = GeminiCodeAssistModel(
+                model_name=model_config["name"],
+                access_token=access_token,
+                project_id=project_id,
+                api_base_url=GEMINI_OAUTH_CONFIG["api_base_url"],
+                api_version=GEMINI_OAUTH_CONFIG["api_version"],
             )
-
-            # Use GoogleProvider with OAuth credentials
-            # vertexai=False uses the Generative Language API
-            provider = GoogleProvider(credentials=credentials, vertexai=False)
-            model = GoogleModel(model_name=model_config["name"], provider=provider)
-            setattr(model, "provider", provider)
             return model
 
         elif model_type == "round_robin":
