@@ -284,6 +284,11 @@ class RichConsoleRenderer:
     def _render_text(self, msg: TextMessage) -> None:
         """Render a text message with appropriate styling."""
         style = self._styles.get(msg.level, "white")
+
+        # Make version messages dim
+        if "Current version:" in msg.text or "Latest version:" in msg.text:
+            style = "dim"
+
         prefix = self._get_level_prefix(msg.level)
         self._console.print(f"{prefix}{msg.text}", style=style)
 
@@ -310,7 +315,6 @@ class RichConsoleRenderer:
             f"\n[bold white on blue] DIRECTORY LISTING [/bold white on blue] "
             f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
-        self._console.print("[dim]" + "─" * 100 + "[/dim]")
 
         # Directory header
         dir_name = msg.directory.rstrip("/").split("/")[-1] or msg.directory
@@ -345,7 +349,6 @@ class RichConsoleRenderer:
             f"📄 [green]{msg.file_count} files[/green] "
             f"[dim]({self._format_size(msg.total_size)} total)[/dim]"
         )
-        self._console.print("[dim]" + "─" * 100 + "[/dim]\n")
 
     def _render_file_content(self, msg: FileContentMessage) -> None:
         """Render a file read - just show the header, not the content.
@@ -387,14 +390,9 @@ class RichConsoleRenderer:
         for match in msg.matches:
             by_file.setdefault(match.file_path, []).append(match)
 
-        # Divider line
-        divider = "[bold cyan]" + "─" * 53 + "[/bold cyan]"
-
         # Show verbose or concise based on message flag
         if msg.verbose:
             # Verbose mode: Show full output with line numbers and content
-            self._console.print(f"\n{divider}")
-
             for file_path in sorted(by_file.keys()):
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
@@ -427,8 +425,6 @@ class RichConsoleRenderer:
                     self._console.print(
                         f"  [bold cyan]{ln:4d}[/bold cyan] │ {highlighted_line}"
                     )
-
-            self._console.print(f"\n{divider}")
         else:
             # Concise mode (default): Show only file summaries
             self._console.print("")
@@ -504,7 +500,6 @@ class RichConsoleRenderer:
 
         # Show timeout
         self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
-        self._console.print("[dim]" + "─" * 60 + "[/dim]")
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
         """Render shell command output matching old format."""
@@ -537,9 +532,6 @@ class RichConsoleRenderer:
 
     def _render_agent_reasoning(self, msg: AgentReasoningMessage) -> None:
         """Render agent reasoning matching old format."""
-        # Divider
-        self._console.print("[dim]" + "─" * 100 + "[/dim]")
-
         # Header matching old format
         self._console.print(
             "\n[bold white on purple] AGENT REASONING [/bold white on purple]"
@@ -557,14 +549,8 @@ class RichConsoleRenderer:
             md_steps = Markdown(msg.next_steps)
             self._console.print(md_steps)
 
-        # Footer divider
-        self._console.print("[dim]" + "─" * 60 + "[/dim]\n")
-
     def _render_agent_response(self, msg: AgentResponseMessage) -> None:
         """Render agent response with header and markdown formatting."""
-        # Divider before
-        self._console.print("[dim]" + "─" * 100 + "[/dim]")
-
         # Header
         self._console.print(
             "\n[bold white on purple] AGENT RESPONSE [/bold white on purple]\n"
@@ -577,14 +563,8 @@ class RichConsoleRenderer:
         else:
             self._console.print(msg.content)
 
-        # Divider after
-        self._console.print("\n[dim]" + "─" * 100 + "[/dim]")
-
     def _render_subagent_invocation(self, msg: SubAgentInvocationMessage) -> None:
         """Render sub-agent invocation header with nice formatting."""
-        # Divider before
-        self._console.print("[dim]" + "─" * 100 + "[/dim]")
-
         # Header with agent name and session
         session_type = (
             "New session"
@@ -608,9 +588,6 @@ class RichConsoleRenderer:
         md_prompt = Markdown(prompt_display)
         self._console.print(md_prompt)
 
-        # Divider after header
-        self._console.print("[dim]" + "─" * 60 + "[/dim]\n")
-
     def _render_subagent_response(self, msg: SubAgentResponseMessage) -> None:
         """Render sub-agent response with markdown formatting."""
         # Response header
@@ -628,9 +605,6 @@ class RichConsoleRenderer:
             f"\n[dim]Session [bold]{msg.session_id}[/bold] saved "
             f"({msg.message_count} messages)[/dim]"
         )
-
-        # Divider after
-        self._console.print("[dim]" + "─" * 100 + "[/dim]")
 
     # =========================================================================
     # User Interaction
@@ -775,12 +749,10 @@ class RichConsoleRenderer:
         if msg.update_available:
             cur = msg.current_version
             latest = msg.latest_version
-            self._console.print(
-                f"[yellow]⬆ Update available: {cur} → {latest}[/yellow]"
-            )
+            self._console.print(f"[dim]⬆ Update available: {cur} → {latest}[/dim]")
         else:
             self._console.print(
-                f"[green]✓ You're on the latest version ({msg.current_version})[/green]"
+                f"[dim]✓ You're on the latest version ({msg.current_version})[/dim]"
             )
 
     # =========================================================================

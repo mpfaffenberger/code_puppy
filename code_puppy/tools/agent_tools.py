@@ -25,7 +25,6 @@ from code_puppy.config import (
 from code_puppy.messaging import (
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
-    emit_divider,
     emit_error,
     emit_info,
     emit_system_message,
@@ -247,7 +246,6 @@ def register_list_agents(agent):
             "\n[bold white on blue] LIST AGENTS [/bold white on blue]",
             message_group=group_id,
         )
-        emit_divider(message_group=group_id)
 
         try:
             from code_puppy.agents import get_available_agents
@@ -268,13 +266,11 @@ def register_list_agents(agent):
                     message_group=group_id,
                 )
 
-            emit_divider(message_group=group_id)
             return ListAgentsOutput(agents=agents)
 
         except Exception as e:
             error_msg = f"Error listing agents: {str(e)}"
             emit_error(error_msg, message_group=group_id)
-            emit_divider(message_group=group_id)
             return ListAgentsOutput(agents=[], error=error_msg)
 
     return list_agents
@@ -540,7 +536,6 @@ def register_invoke_agent(agent):
         except Exception:
             error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
-            emit_divider(message_group=group_id)
             return AgentInvokeOutput(
                 response=None,
                 agent_name=agent_name,

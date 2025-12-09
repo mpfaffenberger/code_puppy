@@ -881,7 +881,9 @@ class TestAddModelsToConfig:
         )
         assert haiku_config["custom_endpoint"]["api_key"] == "test_access_token"
         assert haiku_config["custom_endpoint"]["headers"] == {
-            "anthropic-beta": "oauth-2025-04-20"
+            "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14",
+            "x-app": "cli",
+            "User-Agent": "claude-cli/2.0.61 (external, cli)",
         }
         assert (
             haiku_config["context_length"]

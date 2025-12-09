@@ -105,9 +105,17 @@ class InteractiveRenderer(MessageRenderer):
             # Special handling for agent responses - they'll be rendered as markdown
             style = None
         elif message.type == MessageType.SYSTEM:
-            style = None
+            style = "dim"
         else:
             style = None
+
+        # Make version messages dim regardless of message type
+        if isinstance(message.content, str):
+            if (
+                "Current version:" in message.content
+                or "Latest version:" in message.content
+            ):
+                style = "dim"
 
         # Render the content
         if isinstance(message.content, str):
@@ -224,9 +232,17 @@ class SynchronousInteractiveRenderer:
             # Special handling for agent responses - they'll be rendered as markdown
             style = None
         elif message.type == MessageType.SYSTEM:
-            style = None
+            style = "dim"
         else:
             style = None
+
+        # Make version messages dim regardless of message type
+        if isinstance(message.content, str):
+            if (
+                "Current version:" in message.content
+                or "Latest version:" in message.content
+            ):
+                style = "dim"
 
         # Render the content
         if isinstance(message.content, str):
