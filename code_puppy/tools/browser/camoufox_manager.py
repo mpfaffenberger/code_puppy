@@ -6,7 +6,8 @@ from typing import Optional
 
 from playwright.async_api import Browser, BrowserContext, Page
 
-from code_puppy.messaging import emit_info
+from code_puppy import config
+from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 
 class CamoufoxManager:

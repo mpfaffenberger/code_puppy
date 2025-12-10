@@ -1444,6 +1444,16 @@ class BaseAgent(ABC):
         pydantic_agent = (
             self._code_generation_agent or self.reload_code_generation_agent()
         )
+        # Handle claude-code models: prepend system prompt to first user message
+        from code_puppy.model_utils import is_claude_code_model
+
+        if is_claude_code_model(self.get_model_name()):
+            if len(self.get_message_history()) == 0:
+                system_prompt = self.get_system_prompt()
+                puppy_rules = self.load_puppy_rules()
+                if puppy_rules:
+                    system_prompt += f"\n{puppy_rules}"
+                prompt = system_prompt + "\n\n" + prompt
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []

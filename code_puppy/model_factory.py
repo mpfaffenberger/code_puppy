@@ -474,10 +474,7 @@ class ModelFactory:
             )
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
-                provider=OpenAIProvider(
-                    api_key=os.getenv("ZAI_API_KEY"),
-                    base_url="https://api.z.ai/api/coding/paas/v4",
-                ),
+                provider=provider,
             )
             setattr(zai_model, "provider", provider)
             return zai_model
@@ -494,10 +491,7 @@ class ModelFactory:
             )
             zai_model = ZaiChatModel(
                 model_name=model_config["name"],
-                provider=OpenAIProvider(
-                    api_key=os.getenv("ZAI_API_KEY"),
-                    base_url="https://api.z.ai/api/paas/v4/",
-                ),
+                provider=provider,
             )
             setattr(zai_model, "provider", provider)
             return zai_model
