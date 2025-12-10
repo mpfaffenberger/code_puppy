@@ -7,11 +7,15 @@ that can be used by the BigQuery Python client.
 Also handles automatic installation of gcloud CLI and Python dependencies.
 """
 
+import json
 import os
 import platform
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
@@ -362,8 +366,301 @@ def _ensure_gcloud_account_authenticated(gcloud_cmd: str = "gcloud") -> bool:
         return False
 
 
+def _get_walmart_org_ids(gcloud_cmd: str = "gcloud") -> list[tuple[str, str]]:
+    """Detect Walmart organization IDs from gcloud organizations list.
+
+    Looks for organizations with "walmart.com" in the display name.
+    This includes: walmart.com, lwms.walmart.com, wms.walmart.com
+
+    Args:
+        gcloud_cmd: Path to gcloud command
+
+    Returns:
+        List of tuples (org_id, display_name) for Walmart organizations
+    """
+    try:
+        emit_info("🔍 Checking for Walmart organization access...")
+        result = subprocess.run(
+            [
+                gcloud_cmd,
+                "organizations",
+                "list",
+                "--format=csv[no-heading](displayName,name)",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if result.returncode != 0:
+            emit_warning(f"⚠️  Failed to list organizations: {result.stderr}")
+            return []
+
+        walmart_orgs = []
+        # Parse output - format is "displayName,organizations/ID"
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split(",")
+            if len(parts) >= 2:
+                display_name = parts[0].strip()
+                org_resource = parts[1].strip()  # e.g., "organizations/263399396574"
+                # Check for walmart.com, lwms.walmart.com, wms.walmart.com
+                if "walmart.com" in display_name.lower():
+                    # Extract ID from "organizations/ID"
+                    org_id = org_resource.replace("organizations/", "")
+                    walmart_orgs.append((org_id, display_name))
+                    emit_info(
+                        f"   ✅ Found Walmart organization: {display_name} ({org_id})"
+                    )
+
+        if not walmart_orgs:
+            emit_info(
+                "   ℹ️  No Walmart organizations found in accessible organizations"
+            )
+
+        return walmart_orgs
+
+    except subprocess.TimeoutExpired:
+        emit_warning("⚠️  Timeout while listing organizations")
+        return []
+    except Exception as e:
+        emit_warning(f"⚠️  Error listing organizations: {str(e)}")
+        return []
+
+
+def _get_access_token(gcloud_cmd: str = "gcloud") -> str | None:
+    """Get access token from gcloud for API calls.
+
+    Args:
+        gcloud_cmd: Path to gcloud command
+
+    Returns:
+        Access token string or None if failed
+    """
+    try:
+        result = subprocess.run(
+            [gcloud_cmd, "auth", "print-access-token"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    except Exception:
+        return None
+
+
+def _verify_project_in_orgs(
+    project_id: str, org_ids: list[str], gcloud_cmd: str
+) -> bool:
+    """Verify if a project belongs to any of the specified organizations via ancestry.
+
+    Args:
+        project_id: Project ID to check
+        org_ids: List of Organization IDs to look for in ancestry
+        gcloud_cmd: Path to gcloud command
+
+    Returns:
+        True if project belongs to any of the organizations
+    """
+    try:
+        result = subprocess.run(
+            [gcloud_cmd, "projects", "get-ancestors", project_id, "--format=json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return False
+
+        ancestors = json.loads(result.stdout)
+        org_id_set = set(org_ids)
+        return any(
+            a.get("type") == "organization" and a.get("id") in org_id_set
+            for a in ancestors
+        )
+    except Exception:
+        return False
+
+
+def _get_org_projects(
+    org_ids: list[str], all_projects: list[str], gcloud_cmd: str = "gcloud"
+) -> list[str]:
+    """Get list of project IDs belonging to any of the specified organizations.
+
+    This function verifies each project's ancestry to confirm it belongs
+    to one of the specified organizations. Uses parallel processing for performance.
+
+    Args:
+        org_ids: List of Organization IDs to filter by
+        all_projects: List of all project IDs to check
+        gcloud_cmd: Path to gcloud command
+
+    Returns:
+        List of project IDs in any of the organizations
+    """
+    if not org_ids or not all_projects:
+        return []
+
+    try:
+        emit_info(
+            f"🔍 Filtering {len(all_projects)} projects by Walmart organizations..."
+        )
+
+        # Verify each project's ancestry in parallel
+        org_projects = []
+
+        def check_project(project_id: str) -> str | None:
+            if _verify_project_in_orgs(project_id, org_ids, gcloud_cmd):
+                return project_id
+            return None
+
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = [executor.submit(check_project, p) for p in all_projects]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    org_projects.append(result)
+
+        org_projects.sort()
+        emit_info(f"   ✅ Found {len(org_projects)} projects in Walmart organizations")
+        return org_projects
+
+    except Exception as e:
+        emit_warning(f"⚠️  Error filtering organization projects: {str(e)}")
+        return []
+
+
+def _get_all_projects(gcloud_cmd: str = "gcloud") -> list[str]:
+    """Get list of all project IDs the user has access to.
+
+    Args:
+        gcloud_cmd: Path to gcloud command
+
+    Returns:
+        List of all accessible project IDs
+    """
+    try:
+        emit_info("🔍 Fetching all accessible projects...")
+        result = subprocess.run(
+            [
+                gcloud_cmd,
+                "projects",
+                "list",
+                "--format=value(projectId)",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+
+        if result.returncode != 0:
+            emit_warning(f"⚠️  Failed to list projects: {result.stderr}")
+            return []
+
+        projects = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+        emit_info(f"   Found {len(projects)} accessible projects")
+        return projects
+
+    except subprocess.TimeoutExpired:
+        emit_warning("⚠️  Timeout while listing projects")
+        return []
+    except Exception as e:
+        emit_warning(f"⚠️  Error listing projects: {str(e)}")
+        return []
+
+
+def _check_bigquery_permission_api(
+    project_id: str, token: str, permission: str = "bigquery.jobs.create"
+) -> bool:
+    """Check if user has a specific permission on a project using the API.
+
+    Args:
+        project_id: Project ID to check
+        token: Access token for API authentication
+        permission: Permission to check for
+
+    Returns:
+        True if user has the permission
+    """
+    try:
+        url = (
+            f"https://cloudresourcemanager.googleapis.com/v1/projects/"
+            f"{project_id}:testIamPermissions"
+        )
+        data = json.dumps({"permissions": [permission]}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            resp_data = json.loads(response.read().decode())
+            return permission in resp_data.get("permissions", [])
+    except Exception:
+        return False
+
+
+def _filter_projects_with_bigquery_permission(
+    projects: list[str], gcloud_cmd: str = "gcloud"
+) -> list[str]:
+    """Filter projects to only those where user has bigquery.jobs.create permission.
+
+    Uses the Cloud Resource Manager API with parallel processing for performance.
+
+    Args:
+        projects: List of project IDs to check
+        gcloud_cmd: Path to gcloud command
+
+    Returns:
+        List of project IDs where user has BigQuery job creation permission
+    """
+    if not projects:
+        return []
+
+    # Get access token for API calls
+    token = _get_access_token(gcloud_cmd)
+    if not token:
+        emit_warning("⚠️  Could not get access token for permission check")
+        return []
+
+    emit_info(
+        f"🔍 Checking BigQuery permissions on {len(projects)} projects "
+        "(this may take a moment)..."
+    )
+
+    permitted_projects = []
+    permission = "bigquery.jobs.create"
+
+    def check_project(project_id: str) -> str | None:
+        if _check_bigquery_permission_api(project_id, token, permission):
+            return project_id
+        return None
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(check_project, p) for p in projects]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                permitted_projects.append(result)
+
+    permitted_projects.sort()
+    emit_info(
+        f"   ✅ Found {len(permitted_projects)} projects with BigQuery job permissions"
+    )
+    return permitted_projects
+
+
 def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
     """Get default project from gcloud config or prompt user to select one.
+
+    If Walmart organization is accessible, projects are filtered to:
+    1. Only those belonging to Walmart organization
+    2. Only those where user has bigquery.jobs.create permission
+
+    If Walmart organization is not accessible, falls back to showing all
+    accessible projects with BigQuery permissions.
 
     Args:
         gcloud_cmd: Path to gcloud command
@@ -386,40 +683,96 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
                 current_default = project
                 emit_success(f"✅ Found default project from gcloud config: {project}")
 
-        # List all projects for user to review
-        if current_default:
-            emit_info(
-                f"📊 Listing your available projects (current default: {current_default})..."
-            )
-            emit_info(
-                "    You can select a different project or press Enter to keep the default."
-            )
-        else:
-            emit_info("📊 No default project set. Listing your available projects...")
+        # Get projects filtered by organization (if accessible) and BigQuery permission
         emit_info("")
+        emit_info("📊 Finding projects with BigQuery access...")
 
-        # Show projects in table format
-        list_result = subprocess.run(
-            [gcloud_cmd, "projects", "list", "--format=table(projectId, name)"],
-            capture_output=False,  # Show output directly to user
-            timeout=240,  # 4 minutes - can be slow on corporate networks with many projects
-        )
+        # Step 1: Get ALL accessible projects first
+        all_projects = _get_all_projects(gcloud_cmd)
 
-        if list_result.returncode != 0:
-            emit_error("❌ Failed to list projects")
+        if not all_projects:
+            emit_error(
+                "❌ No projects found.\n   Make sure you have access to GCP projects."
+            )
             return None
 
+        # Display all projects initially
+        emit_info("")
+        emit_info("📋 All accessible projects:")
+        emit_info("   " + "-" * 50)
+        for i, proj in enumerate(all_projects, 1):
+            marker = " (current default)" if proj == current_default else ""
+            emit_info(f"   {i:3}. {proj}{marker}")
+        emit_info("   " + "-" * 50)
         emit_info("")
 
-        # If default exists, use timeout and allow Enter to keep default
+        # Step 2: Try to detect Walmart organizations
+        walmart_orgs = _get_walmart_org_ids(gcloud_cmd)
+        walmart_org_ids = [org_id for org_id, _ in walmart_orgs]
+
+        # Step 3: Filter to Walmart org projects (if orgs found)
+        if walmart_org_ids:
+            candidate_projects = _get_org_projects(
+                walmart_org_ids, all_projects, gcloud_cmd
+            )
+            if not candidate_projects:
+                emit_warning(
+                    "⚠️  No projects found in Walmart organizations.\n"
+                    "   Falling back to all accessible projects..."
+                )
+                candidate_projects = all_projects
+        else:
+            emit_info(
+                "   ℹ️  Walmart organizations not accessible, using all projects..."
+            )
+            candidate_projects = all_projects
+
+        # Step 4: Filter to projects with BigQuery permission
+        permitted_projects = _filter_projects_with_bigquery_permission(
+            candidate_projects, gcloud_cmd
+        )
+
+        if not permitted_projects:
+            emit_error(
+                "❌ No projects found with BigQuery job creation permission.\n"
+                "   You need 'bigquery.jobs.create' permission to run queries.\n"
+                "   Contact your GCP admin to request BigQuery access."
+            )
+            return None
+
+        # Check if current default is in permitted list
+        if current_default and current_default not in permitted_projects:
+            if walmart_org_ids:
+                emit_warning(
+                    f"⚠️  Current default project '{current_default}' is not in the permitted list.\n"
+                    "   It may not be in Walmart organizations or you may lack BigQuery permissions."
+                )
+            else:
+                emit_warning(
+                    f"⚠️  Current default project '{current_default}' is not in the permitted list.\n"
+                    "   You may lack BigQuery permissions on this project."
+                )
+            current_default = None  # Force user to select from permitted list
+
+        # Display permitted projects (final selection list)
+        emit_info("")
+        emit_info("📋 Projects with BigQuery access (select from these):")
+        emit_info("   " + "-" * 50)
+        for i, proj in enumerate(permitted_projects, 1):
+            marker = " (current default)" if proj == current_default else ""
+            emit_info(f"   {i:3}. {proj}{marker}")
+        emit_info("   " + "-" * 50)
+        emit_info("")
+
+        # If default exists and is valid, use timeout and allow Enter to keep default
         if current_default:
             emit_info(
-                f"💡 Press Enter to keep '{current_default}' or enter a different Project ID:"
+                f"💡 Press Enter to keep '{current_default}' or enter a Project ID or number:"
             )
             emit_info("    (120 second timeout - will use default if no response)")
             emit_info("")
 
-            user_input = _input_with_timeout("Project ID: ", timeout=120)
+            user_input = _input_with_timeout("Project ID or number: ", timeout=120)
 
             # Timeout occurred
             if user_input is None:
@@ -427,39 +780,53 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
                 return current_default
 
             # User pressed Enter (empty input)
-            project_id = user_input.strip()
-            if not project_id:
+            user_input = user_input.strip()
+            if not user_input:
                 emit_success(f"✅ Keeping current default: {current_default}")
                 return current_default
 
-            # User entered a new project ID - proceed to set it
+            # User entered something - parse it
+            project_id = _parse_project_selection(user_input, permitted_projects)
+            if not project_id:
+                emit_error("❌ Invalid selection. Using current default.")
+                return current_default
+
         else:
-            # No default project exists - use original retry logic
-            emit_info("💡 Please enter the Project ID from the list above:")
+            # No valid default project - user must select
+            emit_info("💡 Enter a Project ID or number from the list above:")
             emit_info("")
 
-            # Get user input with retry (no default case)
+            # Get user input with retry
             max_attempts = 3
             project_id = None
 
             for attempt in range(1, max_attempts + 1):
                 try:
-                    project_id = input("Project ID: ").strip()
+                    user_input = input("Project ID or number: ").strip()
                 except (EOFError, KeyboardInterrupt):
                     emit_warning("\n⚠️  Project selection cancelled")
                     return None
 
-                if project_id:
-                    break
+                if user_input:
+                    project_id = _parse_project_selection(
+                        user_input, permitted_projects
+                    )
+                    if project_id:
+                        break
+                    else:
+                        emit_error(
+                            f"❌ Invalid selection (attempt {attempt}/{max_attempts})"
+                        )
                 else:
                     emit_error(
                         f"❌ No project ID provided (attempt {attempt}/{max_attempts})"
                     )
-                    if attempt < max_attempts:
-                        emit_info("Please try again:")
-                    else:
-                        emit_error("❌ Failed to get project ID after 3 attempts")
-                        return None
+
+                if attempt < max_attempts:
+                    emit_info("Please try again:")
+                else:
+                    emit_error("❌ Failed to get valid project ID after 3 attempts")
+                    return None
 
         # Set it as the default
         emit_info(f"Setting {project_id} as default project...")
@@ -485,6 +852,33 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
     except Exception as e:
         emit_warning(f"⚠️  Could not determine default project: {str(e)}")
         return None
+
+
+def _parse_project_selection(
+    user_input: str, permitted_projects: list[str]
+) -> str | None:
+    """Parse user input as either a project ID or a number selection.
+
+    Args:
+        user_input: User's input (either project ID or number)
+        permitted_projects: List of valid project IDs
+
+    Returns:
+        Selected project ID or None if invalid
+    """
+    # Try as a number first
+    try:
+        num = int(user_input)
+        if 1 <= num <= len(permitted_projects):
+            return permitted_projects[num - 1]
+    except ValueError:
+        pass
+
+    # Try as a project ID
+    if user_input in permitted_projects:
+        return user_input
+
+    return None
 
 
 def _verify_credentials(project_id: str | None = None) -> bool:
