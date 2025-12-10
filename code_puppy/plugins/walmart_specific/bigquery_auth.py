@@ -466,11 +466,19 @@ def _verify_project_in_orgs(
         True if project belongs to any of the organizations
     """
     try:
+        # Windows-specific: suppress console window and use longer timeout
+        kwargs: dict = {
+            "capture_output": True,
+            "text": True,
+            "timeout": 15,  # Reduced from 30s for faster failure
+        }
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            kwargs["timeout"] = 30  # Windows needs more time
+
         result = subprocess.run(
             [gcloud_cmd, "projects", "get-ancestors", project_id, "--format=json"],
-            capture_output=True,
-            text=True,
-            timeout=30,
+            **kwargs,
         )
         if result.returncode != 0:
             return False
@@ -505,24 +513,29 @@ def _get_org_projects(
         return []
 
     try:
-        emit_info(
-            f"🔍 Filtering {len(all_projects)} projects by Walmart organizations..."
-        )
+        total = len(all_projects)
+        emit_info(f"🔍 Filtering {total} projects by Walmart organizations...")
 
         # Verify each project's ancestry in parallel
         org_projects = []
+        checked_count = 0
 
         def check_project(project_id: str) -> str | None:
             if _verify_project_in_orgs(project_id, org_ids, gcloud_cmd):
                 return project_id
             return None
 
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            futures = [executor.submit(check_project, p) for p in all_projects]
+        # Increased workers from 20 to 40 for better parallelism
+        with ThreadPoolExecutor(max_workers=40) as executor:
+            futures = {executor.submit(check_project, p): p for p in all_projects}
             for future in as_completed(futures):
+                checked_count += 1
                 result = future.result()
                 if result:
                     org_projects.append(result)
+                # Progress indicator every 10 projects or at the end
+                if checked_count % 10 == 0 or checked_count == total:
+                    emit_info(f"   Checked {checked_count}/{total} projects...")
 
         org_projects.sort()
         emit_info(f"   ✅ Found {len(org_projects)} projects in Walmart organizations")
@@ -625,12 +638,11 @@ def _filter_projects_with_bigquery_permission(
         emit_warning("⚠️  Could not get access token for permission check")
         return []
 
-    emit_info(
-        f"🔍 Checking BigQuery permissions on {len(projects)} projects "
-        "(this may take a moment)..."
-    )
+    total = len(projects)
+    emit_info(f"🔍 Checking BigQuery permissions on {total} projects...")
 
     permitted_projects = []
+    checked_count = 0
     permission = "bigquery.jobs.create"
 
     def check_project(project_id: str) -> str | None:
@@ -638,12 +650,17 @@ def _filter_projects_with_bigquery_permission(
             return project_id
         return None
 
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        futures = [executor.submit(check_project, p) for p in projects]
+    # Increased workers from 20 to 40 for better parallelism
+    with ThreadPoolExecutor(max_workers=40) as executor:
+        futures = {executor.submit(check_project, p): p for p in projects}
         for future in as_completed(futures):
+            checked_count += 1
             result = future.result()
             if result:
                 permitted_projects.append(result)
+            # Progress indicator every 10 projects or at the end
+            if checked_count % 10 == 0 or checked_count == total:
+                emit_info(f"   Checked {checked_count}/{total} projects...")
 
     permitted_projects.sort()
     emit_info(
