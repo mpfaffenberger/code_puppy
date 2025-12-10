@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..fuzzy_matching import similarity_score
 from ..ocr_providers import get_ocr_provider
 from .result_types import OCRFindResult, TextBoundingBox
 
@@ -16,10 +17,15 @@ def find_text_in_elements(
     """
     Search for text within OCR text elements.
 
+    Uses existing fuzzy_matching module for consistent matching behavior
+    with optimized rapidfuzz performance.
+
     Args:
         search_text: Text to search for
         text_elements: List of text elements from OCR extraction
         case_sensitive: Whether to match case exactly
+        fuzzy: Whether to use fuzzy matching (default: False for exact/substring only)
+        fuzzy_threshold: Minimum similarity score for fuzzy matches (0.0-1.0, default: 0.75)
 
     Returns:
         OCRFindResult with matching elements
@@ -37,21 +43,20 @@ def find_text_in_elements(
     matches = []
     search_lower = search_text.lower() if not case_sensitive else search_text
 
-    import difflib
-
     for elem in text_elements:
         elem_text_raw = elem.text
         elem_text = elem_text_raw if case_sensitive else elem_text_raw.lower()
 
-        # Exact or substring match first
+        # Exact or substring match first (fast path)
         if search_lower in elem_text:
             matches.append(elem)
             continue
 
-        # Optional fuzzy matching as fallback
+        # Optional fuzzy matching as fallback (uses optimized rapidfuzz)
         if fuzzy:
-            ratio = difflib.SequenceMatcher(None, search_lower, elem_text).ratio()
-            if ratio >= fuzzy_threshold:
+            # Use existing fuzzy_matching module for consistency
+            score = similarity_score(search_text, elem_text_raw)
+            if score >= fuzzy_threshold:
                 matches.append(elem)
 
     # Sort by confidence (highest first)
@@ -112,6 +117,4 @@ def _check_ocr_capability() -> tuple[bool, str]:
         )
 
     # Native provider available
-    return True, ""
-
     return True, ""

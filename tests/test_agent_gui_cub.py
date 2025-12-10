@@ -273,7 +273,8 @@ class TestGUICubAgentBasics:
 
         # Safety features
         assert "verify" in prompt.lower() or "Verify" in prompt
-        assert "highlight" in prompt.lower() or "validation" in prompt.lower()
+        # Should mention screenshot verification or action verification
+        assert "screenshot" in prompt.lower() or "verification" in prompt.lower()
 
         # Should mention rules
         assert "Critical Rules" in prompt or "NEVER" in prompt or "Rules" in prompt

@@ -10,6 +10,8 @@ def validate_resolution_match(
     """
     Validate resolution hasn't changed.
 
+    Includes type checking to prevent crashes from malformed config data.
+
     Args:
         cached: Cached resolution [width, height]
         current: Current resolution [width, height]
@@ -22,10 +24,21 @@ def validate_resolution_match(
         (True, 'Resolution matches')
         >>> validate_resolution_match([1920, 1080], [2560, 1440])
         (False, 'Resolution changed: [1920, 1080] → [2560, 1440]')
+        >>> validate_resolution_match("invalid", [1920, 1080])
+        (False, "Invalid cached resolution format: invalid")
     """
     if cached is None:
         return (False, "No cached resolution")
 
+    # Validate cached resolution format
+    if not isinstance(cached, list) or len(cached) != 2:
+        return (False, f"Invalid cached resolution format: {cached}")
+
+    # Validate current resolution format
+    if not isinstance(current, list) or len(current) != 2:
+        return (False, f"Invalid current resolution format: {current}")
+
+    # Check if resolutions match
     if cached == current:
         return (True, "Resolution matches")
 

@@ -80,10 +80,14 @@ def register_window_control_tools(agent):
             - desktop_alert(text="Task completed!") - Show simple alert
             - desktop_alert(text="Please review", title="Manual Check Required") - Custom title
         """
-        import pyautogui
+        # Use thread-safe native dialogs instead of pyautogui (which uses tkinter)
+        from ..native_dialogs import native_alert
 
-        response = pyautogui.alert(text=text, title=title, timeout=timeout)
-        return AlertResult(success=True, response=response)
+        try:
+            response = native_alert(text=text, title=title, timeout=timeout)
+            return AlertResult(success=True, response=response)
+        except Exception as e:
+            return AlertResult(success=False, error=str(e))
 
     @agent.tool
     @desktop_tool("CONFIRM", requires="pyautogui")
@@ -108,14 +112,15 @@ def register_window_control_tools(agent):
             - desktop_confirm(text="Continue with this action?") - OK/Cancel
             - desktop_confirm(text="Choose option:", buttons=["Yes", "No", "Cancel"]) - Custom buttons
         """
-        import pyautogui
+        # Use thread-safe native dialogs instead of pyautogui (which uses tkinter)
+        from ..native_dialogs import native_confirm
 
-        if buttons:
-            response = pyautogui.confirm(text=text, title=title, buttons=buttons)
-        else:
-            response = pyautogui.confirm(text=text, title=title)
-
-        return AlertResult(success=True, response=response)
+        try:
+            response = native_confirm(text=text, title=title, buttons=buttons)
+            cancelled = response is None
+            return AlertResult(success=True, response=response, cancelled=cancelled)
+        except Exception as e:
+            return AlertResult(success=False, error=str(e))
 
     @agent.tool
     @desktop_tool("PROMPT", requires="pyautogui")
@@ -140,11 +145,15 @@ def register_window_control_tools(agent):
             - desktop_prompt(text="Enter your name:") - Simple text input
             - desktop_prompt(text="Enter amount:", default="100") - Input with default value
         """
-        import pyautogui
+        # Use thread-safe native dialogs instead of pyautogui (which uses tkinter)
+        from ..native_dialogs import native_prompt
 
-        response = pyautogui.prompt(text=text, title=title, default=default)
-        cancelled = response is None
-        return AlertResult(success=True, response=response, cancelled=cancelled)
+        try:
+            response = native_prompt(text=text, title=title, default=default)
+            cancelled = response is None
+            return AlertResult(success=True, response=response, cancelled=cancelled)
+        except Exception as e:
+            return AlertResult(success=False, error=str(e))
 
     @agent.tool
     def desktop_focus_window(
@@ -225,50 +234,184 @@ def register_window_control_tools(agent):
         """
         Get information about all connected monitors/displays.
 
+        Uses native APIs for accurate multi-monitor detection:
+        - macOS: Quartz/CoreGraphics for all displays
+        - Windows: win32api for all monitors
+        - Fallback: pyautogui (may only detect primary)
+
         Returns:
             MonitorsResult with list of monitors and their properties
+            Coordinates are absolute virtual desktop (negative X = left of primary)
 
         Example:
             - desktop_get_monitors() -> Information about all displays
 
         Note: Useful for multi-monitor setups to target specific screens.
         """
+        import sys
+
         try:
-            import pyautogui
+            monitors: list[MonitorInfo] = []
+            primary_index: int | None = None
 
-            # Get all monitors (pyautogui 0.9.54+)
-            try:
-                monitors_data = pyautogui.getAllMonitors()
-                monitors = [
-                    MonitorInfo(
-                        index=i,
-                        x=m.x,
-                        y=m.y,
-                        width=m.width,
-                        height=m.height,
-                        is_primary=(i == 0),  # First monitor is typically primary
-                    )
-                    for i, m in enumerate(monitors_data)
-                ]
+            if sys.platform == "darwin":
+                # macOS: Use NSScreen for accurate multi-monitor detection
+                try:
+                    from AppKit import NSScreen
 
-                return MonitorsResult(
-                    success=True,
-                    count=len(monitors),
-                    monitors=monitors,
-                    primary_index=0 if monitors else None,
-                )
-            except AttributeError:
-                # Fallback for older pyautogui versions
-                # Just return single screen info
-                width, height = pyautogui.size()
-                monitors = [
-                    MonitorInfo(
-                        index=0, x=0, y=0, width=width, height=height, is_primary=True
+                    screens = NSScreen.screens()
+                    main_screen = NSScreen.mainScreen()
+
+                    for i, screen in enumerate(screens):
+                        frame = screen.frame()
+                        is_main = screen == main_screen
+                        scale = screen.backingScaleFactor()  # HiDPI scale factor
+
+                        monitor = MonitorInfo(
+                            index=i,
+                            x=int(frame.origin.x),
+                            y=int(frame.origin.y),
+                            width=int(frame.size.width),
+                            height=int(frame.size.height),
+                            is_primary=is_main,
+                            scale_factor=float(scale),
+                            scale_factor_detected=True,
+                        )
+                        monitors.append(monitor)
+
+                        if is_main:
+                            primary_index = i
+                except ImportError:
+                    pass  # Fall through to pyautogui fallback
+
+            elif sys.platform == "win32":
+                # Windows: Use ctypes for accurate multi-monitor detection
+                try:
+                    import ctypes
+                    from ctypes import wintypes
+
+                    user32 = ctypes.windll.user32
+
+                    # MONITORINFOEXW structure (defined once, outside loop)
+                    class MONITORINFOEXW(ctypes.Structure):
+                        _fields_ = [
+                            ("cbSize", wintypes.DWORD),
+                            ("rcMonitor", wintypes.RECT),
+                            ("rcWork", wintypes.RECT),
+                            ("dwFlags", wintypes.DWORD),
+                            ("szDevice", wintypes.WCHAR * 32),
+                        ]
+
+                    # Callback type for EnumDisplayMonitors
+                    # Signature: BOOL CALLBACK MonitorEnumProc(HMONITOR, HDC, LPRECT, LPARAM)
+                    MONITORENUMPROC = ctypes.WINFUNCTYPE(
+                        wintypes.BOOL,
+                        wintypes.HMONITOR,
+                        wintypes.HDC,
+                        ctypes.POINTER(wintypes.RECT),
+                        wintypes.LPARAM,
                     )
-                ]
-                return MonitorsResult(
-                    success=True, count=1, monitors=monitors, primary_index=0
-                )
+
+                    # Collect monitor handles via callback
+                    monitor_handles: list = []
+
+                    def monitor_enum_callback(
+                        hMonitor, hdcMonitor, lprcMonitor, dwData
+                    ):
+                        monitor_handles.append(hMonitor)
+                        return True
+
+                    # Enumerate all monitors
+                    user32.EnumDisplayMonitors(
+                        None, None, MONITORENUMPROC(monitor_enum_callback), 0
+                    )
+
+                    # Get detailed info for each monitor
+                    for idx, hMonitor in enumerate(monitor_handles):
+                        try:
+                            mi = MONITORINFOEXW()
+                            mi.cbSize = ctypes.sizeof(MONITORINFOEXW)
+                            user32.GetMonitorInfoW(hMonitor, ctypes.byref(mi))
+
+                            rect = mi.rcMonitor
+                            is_primary = bool(mi.dwFlags & 0x1)  # MONITORINFOF_PRIMARY
+
+                            # Get per-monitor DPI (Windows 8.1+)
+                            scale = 1.0
+                            try:
+                                shcore = ctypes.windll.shcore
+                                dpi_x = ctypes.c_uint()
+                                dpi_y = ctypes.c_uint()
+                                # GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI=0, &dpiX, &dpiY)
+                                if (
+                                    shcore.GetDpiForMonitor(
+                                        hMonitor,
+                                        0,
+                                        ctypes.byref(dpi_x),
+                                        ctypes.byref(dpi_y),
+                                    )
+                                    == 0
+                                ):  # S_OK
+                                    scale = dpi_x.value / 96.0  # 96 DPI = 100% = 1.0x
+                            except Exception:
+                                pass  # Older Windows or DPI-unaware, assume 1.0
+
+                            monitor = MonitorInfo(
+                                index=idx,
+                                x=rect.left,
+                                y=rect.top,
+                                width=rect.right - rect.left,
+                                height=rect.bottom - rect.top,
+                                is_primary=is_primary,
+                                scale_factor=scale,
+                                scale_factor_detected=True,
+                            )
+                            monitors.append(monitor)
+
+                            if is_primary:
+                                primary_index = idx
+                        except Exception:
+                            continue
+                except Exception:
+                    pass  # Fall through to pyautogui fallback
+
+            # Fallback to pyautogui if native APIs didn't work
+            if not monitors:
+                try:
+                    monitors_data = pyautogui.getAllMonitors()
+                    monitors = [
+                        MonitorInfo(
+                            index=i,
+                            x=m.x,
+                            y=m.y,
+                            width=m.width,
+                            height=m.height,
+                            is_primary=(i == 0),
+                        )
+                        for i, m in enumerate(monitors_data)
+                    ]
+                    primary_index = 0 if monitors else None
+                except AttributeError:
+                    # Oldest fallback - just primary screen
+                    width, height = pyautogui.size()
+                    monitors = [
+                        MonitorInfo(
+                            index=0,
+                            x=0,
+                            y=0,
+                            width=width,
+                            height=height,
+                            is_primary=True,
+                        )
+                    ]
+                    primary_index = 0
+
+            return MonitorsResult(
+                success=True,
+                count=len(monitors),
+                monitors=monitors,
+                primary_index=primary_index,
+            )
 
         except Exception as e:
             return MonitorsResult(success=False, error=str(e))
