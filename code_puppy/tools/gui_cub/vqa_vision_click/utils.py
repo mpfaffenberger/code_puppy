@@ -22,6 +22,12 @@ from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 
+from ..core.vqa_math import (
+    CropRegion,
+    calculate_physical_crop_box,
+    calculate_downscale_dimensions_auto,
+)
+
 
 class VQABoundingBox(BaseModel):
     """Bounding box for detected element."""
@@ -72,6 +78,8 @@ def crop_to_region(
 ) -> tuple[Image.Image, tuple[int, int]]:
     """Crop screenshot to a specific region with Retina scaling.
 
+    Uses pure coordinate math from core.vqa_math for logical→physical conversion.
+
     Args:
         screenshot: PIL Image (in physical pixels if Retina)
         region: (x, y, width, height) in LOGICAL points
@@ -83,14 +91,12 @@ def crop_to_region(
     """
     x, y, width, height = region
 
-    # Convert logical region to physical pixels for cropping
-    x_phys = int(x * scale_factor)
-    y_phys = int(y * scale_factor)
-    w_phys = int(width * scale_factor)
-    h_phys = int(height * scale_factor)
+    # Use pure logic for coordinate conversion
+    crop_region = CropRegion(x=x, y=y, width=width, height=height)
+    crop_box = calculate_physical_crop_box(crop_region, scale_factor)
 
-    # Crop (PIL crop expects: left, upper, right, lower)
-    cropped = screenshot.crop((x_phys, y_phys, x_phys + w_phys, y_phys + h_phys))
+    # I/O: PIL crop operation
+    cropped = screenshot.crop(crop_box)
 
     return cropped, (x, y)
 
@@ -102,6 +108,8 @@ def downscale_for_vision(image: Image.Image, max_dimension: int = 1024) -> Image
     Per brainstorm: "Downscale Retina 2×→ 1× before sending; it improves
     localization reliability for 10-12 px targets."
 
+    Uses pure math from core.vqa_math for dimension calculations.
+
     Args:
         image: PIL Image (potentially high-res Retina)
         max_dimension: Maximum width or height (default: 1024)
@@ -111,17 +119,15 @@ def downscale_for_vision(image: Image.Image, max_dimension: int = 1024) -> Image
     """
     width, height = image.size
 
-    # If image is already small, don't downscale
-    if width <= max_dimension and height <= max_dimension:
+    # Use pure logic for downscale calculations
+    dims = calculate_downscale_dimensions_auto(width, height, max_dimension)
+
+    # If no downscaling needed (ratio == 1.0), return original
+    if dims.ratio == 1.0:
         return image
 
-    # Calculate scale factor to fit within max_dimension
-    scale = min(max_dimension / width, max_dimension / height)
-
-    new_width = int(width * scale)
-    new_height = int(height * scale)
-
-    return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    # I/O: PIL resize operation
+    return image.resize((dims.width, dims.height), Image.Resampling.LANCZOS)
 
 
 def image_to_base64(image: Image.Image, format: str = "PNG") -> str:

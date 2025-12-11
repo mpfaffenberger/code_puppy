@@ -119,10 +119,16 @@ def calculate_reverse_substring_score(search_norm: str, target_norm: str) -> flo
     return 0.0
 
 
+# Maximum string length for Levenshtein calculation to prevent memory issues
+MAX_LEVENSHTEIN_LENGTH = 1000
+
+
 def simple_levenshtein_ratio(s1: str, s2: str) -> float:
     """Calculate simple Levenshtein distance ratio.
 
-    Simple implementation for testing. Production code should use rapidfuzz.
+    Simple O(n*m) implementation for testing. Production code should use rapidfuzz.
+
+    NOTE: Strings longer than 1000 chars are truncated to prevent memory issues.
 
     Args:
         s1: First string
@@ -133,6 +139,26 @@ def simple_levenshtein_ratio(s1: str, s2: str) -> float:
     """
     if not s1 or not s2:
         return 0.0
+
+    # Truncate very long strings to prevent memory issues
+    # (O(n*m) space complexity can cause OOM on pathological inputs)
+    truncated = False
+    if len(s1) > MAX_LEVENSHTEIN_LENGTH:
+        s1 = s1[:MAX_LEVENSHTEIN_LENGTH]
+        truncated = True
+    if len(s2) > MAX_LEVENSHTEIN_LENGTH:
+        s2 = s2[:MAX_LEVENSHTEIN_LENGTH]
+        truncated = True
+
+    if truncated:
+        import warnings
+
+        warnings.warn(
+            f"Truncating strings for Levenshtein calculation (>{MAX_LEVENSHTEIN_LENGTH} chars). "
+            "Results may be inaccurate. Consider using fuzzy_matching.similarity_score() instead.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     # Calculate Levenshtein distance
     len1, len2 = len(s1), len(s2)
@@ -173,6 +199,13 @@ def calculate_similarity_score_pure(
     2. Substring match: 0.8-0.95
     3. Reverse substring: 0.75-0.9
     4. Fuzzy match: 0.0-1.0 (if enabled)
+
+    PERFORMANCE WARNING:
+        This pure implementation uses simple_levenshtein_ratio() which has
+        O(n*m) time and space complexity. For production use, prefer
+        fuzzy_matching.similarity_score() which uses optimized rapidfuzz.
+
+        This pure version is primarily for testing and offline scenarios.
 
     Args:
         search_text: Text being searched for

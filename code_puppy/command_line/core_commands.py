@@ -35,7 +35,6 @@ def handle_help_command(command: str) -> bool:
     """Show commands help."""
     import uuid
 
-
     group_id = str(uuid.uuid4())
     help_text = get_commands_help()
     emit_info(help_text, message_group_id=group_id)
@@ -90,7 +89,6 @@ def handle_cd_command(command: str) -> bool:
 def handle_tools_command(command: str) -> bool:
     """Display available tools."""
     from rich.markdown import Markdown
-
 
     markdown_content = Markdown(tools_content)
     emit_info(markdown_content)

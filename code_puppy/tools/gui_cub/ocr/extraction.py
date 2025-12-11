@@ -14,6 +14,11 @@ else:
     ImageFilter = None
     ImageOps = None
 
+from ..core.element_categorization import (
+    categorize_text_list,
+    generate_summary_from_categories,
+    ElementCategory,
+)
 from ..ocr_providers import get_ocr_provider
 from .result_types import OCRExtractResult, OCRFindResult, TextBoundingBox
 from ..result_types import CompactSummary
@@ -39,7 +44,7 @@ def _generate_ocr_summary(text_elements: list[TextBoundingBox]) -> str:
     """
     Generate a brief natural language summary of OCR findings.
 
-    Categorizes elements into buttons, fields, and general text.
+    Uses pure categorization logic from core.element_categorization.
 
     Examples:
         - "Login form with username, password fields and Submit, Cancel buttons"
@@ -49,44 +54,32 @@ def _generate_ocr_summary(text_elements: list[TextBoundingBox]) -> str:
     if not text_elements:
         return "No text found"
 
-    # Categorize elements by keywords
-    buttons = []
-    fields = []
+    # Extract text from elements
+    texts = [elem.text for elem in text_elements]
 
-    for elem in text_elements:
-        text_lower = elem.text.lower()
+    # Use pure logic for categorization
+    categorized = categorize_text_list(texts)
 
-        # Check for button-like elements
-        if any(
-            kw in text_lower
-            for kw in ["submit", "ok", "cancel", "button", "save", "close", "confirm"]
-        ):
-            buttons.append(elem.text)
+    # Generate summary using pure logic
+    summary = generate_summary_from_categories(
+        buttons=categorized[ElementCategory.BUTTON],
+        fields=categorized[ElementCategory.FIELD],
+        links=categorized[ElementCategory.LINK],
+        menus=categorized[ElementCategory.MENU],
+        max_items=3,
+    )
 
-        # Check for field-like elements
-        elif any(
-            kw in text_lower
-            for kw in ["username", "password", "email", "name", "field", "input"]
-        ):
-            fields.append(elem.text)
-
-    # Build summary
-    parts = []
-    if fields:
-        parts.append(f"{', '.join(fields[:3])} fields")
-    if buttons:
-        parts.append(f"{', '.join(buttons[:3])} buttons")
-    if not parts:
-        # Generic summary
+    # If summary is "No categorized elements", provide generic fallback
+    if summary == "No categorized elements":
         sample_text = [
             elem.text for elem in text_elements[:5] if len(elem.text.strip()) > 2
         ]
         if sample_text:
-            parts.append(f"Text including: {', '.join(sample_text)}")
+            return f"Text including: {', '.join(sample_text)}"
         else:
-            parts.append(f"{len(text_elements)} text elements")
+            return f"{len(text_elements)} text elements"
 
-    return " with ".join(parts)
+    return summary
 
 
 def _compact_ocr_extract_result(full_result: OCRExtractResult) -> OCRExtractResult:

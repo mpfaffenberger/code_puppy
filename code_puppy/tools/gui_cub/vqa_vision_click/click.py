@@ -444,8 +444,10 @@ def desktop_click_element_vqa(
 
         # Capture full screenshot
         screenshot = _safe_screenshot()
-        if save_debug:
-            save_temp_debug_screenshot(screenshot, "0_full_screenshot", group_id)
+
+        # ALWAYS save main screenshot to temp so save_debug_screenshot() works on failure
+        # This is separate from save_debug which controls extra debug images (crops, viz)
+        save_temp_debug_screenshot(screenshot, "0_full_screenshot", group_id)
 
         # ============================================================
         # STAGE 1: Coarse VQA on full window

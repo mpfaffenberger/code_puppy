@@ -401,7 +401,9 @@ class TestBaseAgentAccumulator:
         assert len(result) == 3
         assert isinstance(result[-1], ModelRequest)
 
-    def test_ensure_history_ends_with_request_empty_input(self, agent, mock_run_context):
+    def test_ensure_history_ends_with_request_empty_input(
+        self, agent, mock_run_context
+    ):
         """Test that empty input returns empty output."""
         result = agent.ensure_history_ends_with_request([])
         assert result == []
