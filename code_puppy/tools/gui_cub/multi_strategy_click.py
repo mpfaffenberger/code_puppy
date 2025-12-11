@@ -225,16 +225,15 @@ def register_multi_strategy_click_tools(agent):
                     # Uses Name/AutomationId/Value matching
                     # Platform default (0.7) is higher than macOS (0.6) due to
                     # different text normalization - see platform_defaults.py
-                    from .windows_automation import windows_click_element
+                    from .windows_automation import click_element as _win_click
 
-                    windows_result = windows_click_element(
-                        context=context,
+                    windows_result = _win_click(
                         title=search_text,
                         fuzzy=True,
                         fuzzy_threshold=fuzzy_threshold,  # Uses platform default (0.7) or user override
                     )
 
-                    if windows_result.success and windows_result.element_found:
+                    if windows_result.success and windows_result.clicked:
                         emit_info(
                             "[bold green]✅ SUCCESS via Windows UI Automation![/bold green]",
                             message_group=group_id,

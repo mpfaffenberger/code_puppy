@@ -330,6 +330,14 @@ def find_element(
             success=False, found=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
         )
 
+    # GUARD: Require at least one search criterion to avoid clicking random elements
+    if not any([title, class_name, control_type, auto_id]):
+        return ElementSearchResult(
+            success=False,
+            found=False,
+            error="At least one search criterion (title, class_name, control_type, or auto_id) must be provided",
+        )
+
     try:
         # Connect to active window
         app = Application(backend="uia").connect(active_only=True)
@@ -424,6 +432,8 @@ def click_element(
     auto_id: str | None = None,
     fuzzy: bool = False,
     fuzzy_threshold: float = 0.7,
+    x: int | None = None,
+    y: int | None = None,
 ) -> ElementClickResult:
     """
     Find and click element on Windows.
@@ -433,12 +443,38 @@ def click_element(
         class_name: Windows class name
         control_type: Control type
         auto_id: Automation ID
+        fuzzy: Enable fuzzy matching for title
+        fuzzy_threshold: Minimum similarity score for fuzzy matching
+        x: X coordinate for direct click (use with y, skips element search)
+        y: Y coordinate for direct click (use with x, skips element search)
 
     Returns:
         ElementClickResult with success status
+
+    Note:
+        If x and y are provided, clicks directly at those coordinates.
+        Otherwise, at least one of title/class_name/control_type/auto_id is required.
     """
     if not WINDOWS_AUTOMATION_AVAILABLE:
         return ElementClickResult(success=False, error=ERROR_WINDOWS_AUTOMATION_MISSING)
+
+    # DIRECT COORDINATE CLICK: If x,y coordinates are provided, skip element search
+    if x is not None and y is not None:
+        try:
+            import pyautogui
+
+            pyautogui.click(x, y)
+            return ElementClickResult(
+                success=True,
+                clicked=True,
+                method="coordinate_click",
+                x=x,
+                y=y,
+            )
+        except Exception as e:
+            return ElementClickResult(
+                success=False, error=f"Coordinate click failed: {e}"
+            )
 
     # Find element (support fuzzy for title)
     result = find_element(
@@ -451,7 +487,9 @@ def click_element(
     )
 
     if not result.found:
-        return ElementClickResult(success=False, error=ERROR_ELEMENT_NOT_FOUND)
+        return ElementClickResult(
+            success=False, error=result.error or ERROR_ELEMENT_NOT_FOUND
+        )
 
     # Try to click using pywinauto directly
     try:
