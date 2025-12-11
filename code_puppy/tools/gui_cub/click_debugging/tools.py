@@ -918,8 +918,19 @@ def register_click_debugging_tools(agent):
 
             pixel_color = screenshot.getpixel((sx, sy))
 
-            # Perform click
-            pyautogui.click(x=x, y=y, button=button)
+            # Perform click using native API (multi-monitor safe)
+            from ..platform import click_mouse_native
+
+            click_success, click_error = click_mouse_native(
+                x=x, y=y, button=button, clicks=1
+            )
+            if not click_success:
+                return ClickDebugResult(
+                    success=False,
+                    x=x,
+                    y=y,
+                    error=f"Native click failed: {click_error}",
+                )
 
             emit_info(
                 f"[green]✅ Clicked at ({x}, {y})[/green]",
@@ -1084,8 +1095,13 @@ def register_click_debugging_tools(agent):
                     message_group=group_id,
                 )
 
-                # Perform click
-                pyautogui.click(x=click_x, y=click_y)
+                # Perform click using native API (multi-monitor safe)
+                from ..platform import click_mouse_native
+
+                click_success, _ = click_mouse_native(
+                    x=click_x, y=click_y, button="left", clicks=1
+                )
+                # Continue even if click fails - we're in diagnostic mode
 
                 # Wait briefly for UI to update
                 import time

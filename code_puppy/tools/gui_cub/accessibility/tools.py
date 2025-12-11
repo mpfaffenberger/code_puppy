@@ -126,16 +126,23 @@ def desktop_click_accessible_element(
     except Exception:
         pass  # Fall through to mouse click
 
-    # Fallback: Click at element center using mouse
+    # Fallback: Click at element center using mouse (native API for multi-monitor)
     if best_match.center_x is None or best_match.center_y is None:
         return ElementClickResult(
             success=False, error="Could not determine element position"
         )
 
     try:
-        import pyautogui
+        from ..platform import click_mouse_native
 
-        pyautogui.click(x=best_match.center_x, y=best_match.center_y)
+        success, error = click_mouse_native(
+            x=best_match.center_x, y=best_match.center_y, button="left", clicks=1
+        )
+
+        if not success:
+            return ElementClickResult(
+                success=False, error=f"Native click failed: {error}"
+            )
 
         emit_info(
             f"[green]Clicked '{best_match.title}' at ({best_match.center_x}, {best_match.center_y})[/green]",
@@ -146,7 +153,7 @@ def desktop_click_accessible_element(
             success=True,
             clicked=True,
             element_found=True,
-            method="mouse_click",
+            method="native_mouse_click",
             element=best_match.title,
             role=best_match.role,
             click_x=best_match.center_x,
@@ -700,16 +707,23 @@ def register_accessibility_tools(agent):
         except Exception:
             pass  # Fall through to mouse click
 
-        # Fallback: Click at element center using mouse
+        # Fallback: Click at element center using native API (multi-monitor safe)
         if best_match.center_x is None or best_match.center_y is None:
             return ElementClickResult(
                 success=False, error="Could not determine element position"
             )
 
         try:
-            import pyautogui
+            from ..platform import click_mouse_native
 
-            pyautogui.click(x=best_match.center_x, y=best_match.center_y)
+            success, error = click_mouse_native(
+                x=best_match.center_x, y=best_match.center_y, button="left", clicks=1
+            )
+
+            if not success:
+                return ElementClickResult(
+                    success=False, error=f"Native click failed: {error}"
+                )
 
             emit_info(
                 f"[green]Clicked '{best_match.title}' at ({best_match.center_x}, {best_match.center_y})[/green]",
@@ -719,7 +733,7 @@ def register_accessibility_tools(agent):
             return ElementClickResult(
                 success=True,
                 clicked=True,
-                method="mouse_click",
+                method="native_mouse_click",
                 element=best_match.title,
                 role=best_match.role,
                 x=best_match.center_x,

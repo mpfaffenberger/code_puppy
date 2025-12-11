@@ -314,8 +314,18 @@ def register_multi_strategy_click_tools(agent):
                         message_group=group_id,
                     )
 
-                    # Perform click
-                    pyautogui.click(x=point.x, y=point.y)
+                    # Perform click using native API (multi-monitor safe)
+                    from .platform import click_mouse_native
+
+                    click_success, click_error = click_mouse_native(
+                        x=point.x, y=point.y, button="left", clicks=1
+                    )
+                    if not click_success:
+                        emit_error(
+                            f"[red]Native click failed: {click_error}[/red]",
+                            message_group=group_id,
+                        )
+                        # Continue anyway - the click might have partially worked
 
                     # Wait for UI update
                     import time
