@@ -25,8 +25,7 @@ from code_puppy.plugins.walmart_specific.bigquery_client import (
 )
 
 RESULTS_DIR_NAME = "bigquery_results"
-DEFAULT_PREVIEW_ROWS = 50
-AUTO_SAVE_ROW_THRESHOLD = 200
+DEFAULT_PREVIEW_ROWS = 5  # Only show 5 rows to agent to minimize token usage
 VALID_OUTPUT_FORMATS = {"csv", "json"}
 
 
@@ -422,39 +421,38 @@ def bigquery_execute_query(
     ctx: RunContext,
     query: str,
     max_results: int = 100,
-    save_results: bool | None = None,
+    save_to_file: bool = False,
     output_path: str | None = None,
     file_name_hint: str | None = None,
     output_format: str = "csv",
-    preview_rows: int = DEFAULT_PREVIEW_ROWS,
 ) -> dict:
     """Execute a SQL query in BigQuery.
 
     SAFETY: Only SELECT queries are allowed. Destructive operations (DELETE, DROP,
     TRUNCATE, INSERT, UPDATE, MERGE, ALTER, CREATE, REPLACE) are blocked.
 
+    Only 5 preview rows are returned inline to minimize token usage. Set save_to_file=True
+    to save full results to a CSV file.
+
     Args:
         ctx: PydanticAI run context
         query: SQL query string to execute (SELECT only)
         max_results: Maximum number of results to return (default: 100)
-        save_results: Force saving the full result set to disk (default: automatic)
-        output_path: Explicit output path (file or directory) for saved results
-        file_name_hint: Friendly name used when generating filenames
-        output_format: File format for saved results ("csv" or "json")
-        preview_rows: Number of rows returned inline for reasoning (default: 50)
+        save_to_file: Whether to save full results to a file (default: False)
+        output_path: Optional explicit output path (file or directory) for saved results
+        file_name_hint: Optional friendly name used when generating filenames
+        output_format: File format for saved results ("csv" or "json", default: csv)
 
     Returns:
         Dict containing:
             - success (bool): Whether the query succeeded
-            - rows (list): Inline preview rows (capped by preview_rows)
-            - schema (list): List of field definitions
             - total_rows (int): Total number of rows in result
+            - preview_rows (list): First 5 rows as preview for quick context
+            - saved_file_path (str | None): Path to saved file (only when save_to_file=True)
+            - schema (list): List of field definitions
             - job_id (str): BigQuery job ID
             - bytes_processed (int): Bytes processed by the query
             - bytes_billed (int): Bytes billed for the query
-            - rows_truncated (bool): True if inline rows were truncated
-            - saved_file_path (str | None): Path to saved results when available
-            - rows_saved_to_file (int): Number of rows persisted to disk
             - error (str, optional): Error message if query failed
     """
     # Truncate query for display
@@ -469,27 +467,19 @@ def bigquery_execute_query(
         result = client.execute_query(query=query, max_results=max_results)
 
         rows = result.get("rows", [])
-        preview_limit = max(1, preview_rows or DEFAULT_PREVIEW_ROWS)
-        inline_rows = rows[:preview_limit]
-        rows_were_truncated = len(rows) > preview_limit
+        total_rows = result["total_rows"]
+        preview_rows_data = rows[:DEFAULT_PREVIEW_ROWS]  # Always limit to 5 rows
         saved_file_path: str | None = None
-        rows_saved = 0
-        auto_saved = False
-        saved_format: str | None = None
 
         emit_success(
-            f"Query completed: {result['total_rows']} total rows, "
+            f"Query completed: {total_rows} total rows, "
             f"returned {len(rows)} rows\n"
             f"Bytes processed: {result['bytes_processed']:,}\n"
             f"Job ID: {result['job_id']}"
         )
 
-        explicit_save_requested = bool(
-            save_results or output_path is not None or file_name_hint is not None
-        )
-        should_save = explicit_save_requested or len(rows) > AUTO_SAVE_ROW_THRESHOLD
-
-        if should_save:
+        # Only save results to file when save_to_file=True
+        if save_to_file and rows:
             saved_format = _normalize_output_format(output_format)
             try:
                 output_file = _resolve_output_path(
@@ -499,45 +489,31 @@ def bigquery_execute_query(
                     rows, result["schema"], output_file, saved_format
                 )
                 saved_file_path = str(output_file)
-                rows_saved = len(rows)
-                auto_saved = (
-                    not explicit_save_requested and len(rows) > AUTO_SAVE_ROW_THRESHOLD
-                )
-                emit_success(
-                    f"Saved {rows_saved} row(s) to {saved_file_path}"
-                    + (" (auto-saved due to large result set)" if auto_saved else "")
-                )
+                emit_success(f"Saved {len(rows)} row(s) to {saved_file_path}")
             except Exception as file_error:
                 emit_warning(f"Failed to save query results to file: {file_error}")
-                inline_rows = rows
-                rows_were_truncated = False
-
-        if rows_were_truncated and saved_file_path:
-            emit_info(
-                "Inline results truncated to manage token usage. "
-                f"Full results are available at: {saved_file_path}"
-            )
-        elif rows_were_truncated:
-            emit_warning(
-                "Inline results truncated but no file was saved. "
-                "Re-run with save_results=True or provide output_path to persist data."
-            )
+                # Return error but include preview rows for context
+                return {
+                    "success": True,
+                    "total_rows": total_rows,
+                    "saved_file_path": None,
+                    "save_error": str(file_error),
+                    "preview_rows": preview_rows_data,
+                    "schema": result["schema"],
+                    "job_id": result["job_id"],
+                    "bytes_processed": result["bytes_processed"],
+                    "bytes_billed": result["bytes_billed"],
+                }
 
         return {
             "success": True,
-            "rows": inline_rows,
+            "total_rows": total_rows,
+            "saved_file_path": saved_file_path,
+            "preview_rows": preview_rows_data,
             "schema": result["schema"],
-            "total_rows": result["total_rows"],
             "job_id": result["job_id"],
             "bytes_processed": result["bytes_processed"],
             "bytes_billed": result["bytes_billed"],
-            "rows_returned": len(inline_rows),
-            "rows_truncated": rows_were_truncated,
-            "rows_saved_to_file": rows_saved,
-            "saved_file_path": saved_file_path,
-            "saved_file_format": saved_format,
-            "auto_saved_result_file": auto_saved,
-            "preview_row_limit": preview_limit,
         }
 
     except Exception as e:
