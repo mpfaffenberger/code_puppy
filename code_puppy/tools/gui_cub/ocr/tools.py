@@ -152,14 +152,23 @@ def desktop_find_text(
             )
 
         # Extract text from screenshot
-        text_elements = extract_text_from_image(
+        extract_result = extract_text_from_image(
             screenshot,
             language=language,
             scale_factor=scale_factor,
         )
 
+        if not extract_result.success:
+            return OCRFindResult(
+                success=False,
+                error=extract_result.error or "OCR extraction failed",
+                search_text=search_text,
+            )
+
+        text_elements = extract_result.text_elements or []
+
         # Apply region offset to coordinates
-        if region:
+        if region and text_elements:
             offset_x = region[0] / scale_factor if scale_factor != 1.0 else region[0]
             offset_y = region[1] / scale_factor if scale_factor != 1.0 else region[1]
             for elem in text_elements:
