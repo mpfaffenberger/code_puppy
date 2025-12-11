@@ -251,7 +251,7 @@ class ElementClickResult(BaseAutomationResult):
 
     clicked: bool = False
     element_found: bool = False  # For VQA - whether element was detected
-    method: Literal["ax_press", "mouse_click", "native_click", "vqa_click"] | None = (
+    method: Literal["ax_press", "mouse_click", "native_click", "vqa_click", "coordinate_click"] | None = (
         None
     )
     element: str | None = None

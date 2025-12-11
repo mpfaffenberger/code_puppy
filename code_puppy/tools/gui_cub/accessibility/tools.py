@@ -38,6 +38,124 @@ from .element_list import (
 )
 
 
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (importable for use by other modules)
+# ============================================================================
+
+
+def desktop_click_accessible_element(
+    context: RunContext | None = None,
+    role: str | None = None,
+    title: str | None = None,
+    identifier: str | None = None,
+    in_frontmost_app: bool = True,
+    fuzzy: bool = True,
+    fuzzy_threshold: float = 0.25,
+) -> ElementClickResult:
+    """
+    Find and click a UI element using Accessibility API with FUZZY MATCHING.
+
+    This is the module-level function that can be imported directly.
+    Uses fuzzy matching to handle common UI element naming variations.
+
+    Args:
+        context: Optional RunContext (not used, kept for API compatibility)
+        role: Element role (e.g., 'AXButton')
+        title: Element title/name to search for (supports fuzzy matching!)
+        identifier: AXIdentifier for exact match (HIGHEST PRIORITY!)
+        in_frontmost_app: Search only in active app
+        fuzzy: Enable intelligent fuzzy matching (default: True)
+        fuzzy_threshold: Minimum similarity score (0.0-1.0, default: 0.25)
+
+    Returns:
+        ElementClickResult with success status and click coordinates
+    """
+    # Find the element with fuzzy matching
+    result = find_accessible_element(
+        role=role,
+        title=title,
+        identifier=identifier,
+        in_frontmost_app=in_frontmost_app,
+        fuzzy=fuzzy,
+        fuzzy_threshold=fuzzy_threshold,
+    )
+
+    if not result.success or not result.found:
+        return ElementClickResult(
+            success=False, error=result.error or "Element not found"
+        )
+
+    best_match = result.best_match
+    if not best_match:
+        return ElementClickResult(success=False, error="No element found")
+
+    group_id = generate_group_id("desktop_click_accessible", f"{role}_{title}")
+
+    # Try native AX Press action first
+    try:
+        app = get_frontmost_app()
+        if app:
+            search_criteria: dict[str, Any] = {}
+            if role:
+                search_criteria["AXRole"] = role
+            if title:
+                search_criteria["AXTitle"] = title
+
+            if search_criteria:
+                matches = app.findAllR(**search_criteria)
+                if matches:
+                    element_ref = matches[0]
+                    try:
+                        element_ref.Press()
+                        emit_info(
+                            f"[green]Pressed '{best_match.title}' using native AX Press[/green]",
+                            message_group=group_id,
+                        )
+                        return ElementClickResult(
+                            success=True,
+                            clicked=True,
+                            element_found=True,
+                            method="ax_press",
+                            element=best_match.title,
+                            role=best_match.role,
+                            click_x=best_match.center_x,
+                            click_y=best_match.center_y,
+                        )
+                    except Exception:
+                        pass  # Fall through to mouse click
+    except Exception:
+        pass  # Fall through to mouse click
+
+    # Fallback: Click at element center using mouse
+    if best_match.center_x is None or best_match.center_y is None:
+        return ElementClickResult(
+            success=False, error="Could not determine element position"
+        )
+
+    try:
+        import pyautogui
+
+        pyautogui.click(x=best_match.center_x, y=best_match.center_y)
+
+        emit_info(
+            f"[green]Clicked '{best_match.title}' at ({best_match.center_x}, {best_match.center_y})[/green]",
+            message_group=group_id,
+        )
+
+        return ElementClickResult(
+            success=True,
+            clicked=True,
+            element_found=True,
+            method="mouse_click",
+            element=best_match.title,
+            role=best_match.role,
+            click_x=best_match.center_x,
+            click_y=best_match.center_y,
+        )
+    except Exception as e:
+        return ElementClickResult(success=False, error=f"Click failed: {str(e)}")
+
+
 def register_accessibility_tools(agent):
     """Register accessibility API tools for macOS."""
 
