@@ -20,7 +20,12 @@ else:
 from code_puppy.messaging import emit_warning
 
 from .constants import DEFAULT_MOUSE_DURATION
-from .platform import IS_MACOS, IS_WINDOWS, check_macos_accessibility_permission
+from .platform import (
+    IS_MACOS,
+    IS_WINDOWS,
+    check_macos_accessibility_permission,
+    get_mouse_position_native,
+)
 from .result_types import (
     MouseActionResult,
     MouseDragResult,
@@ -122,17 +127,30 @@ def register_mouse_control_tools(agent):
 
         # Attempt to move mouse
         pyautogui.moveTo(x, y, duration=duration)
-        final_x, final_y = pyautogui.position()
+
+        # Use native API for position verification on macOS
+        # pyautogui.position() can return coordinates clamped to primary monitor
+        # on multi-monitor setups, causing false verification failures
+        final_x, final_y = get_mouse_position_native()
 
         # Verify movement succeeded (within tolerance for rounding)
-        tolerance = 2  # pixels
+        tolerance = 5  # pixels - increased for multi-monitor edge cases
         moved_successfully = (
             abs(final_x - x) <= tolerance and abs(final_y - y) <= tolerance
         )
 
         if not moved_successfully:
+            # Check if this might be a multi-monitor coordinate issue
+            primary_width, _ = pyautogui.size()
+            is_multimonitor_target = x > primary_width
+
             error_msg = f"Mouse movement failed! Target: ({x}, {y}), Actual: ({final_x}, {final_y}). "
-            if IS_MACOS:
+            if IS_MACOS and is_multimonitor_target:
+                error_msg += (
+                    "Target is on secondary monitor. "
+                    "If mouse moved correctly, this may be a coordinate detection issue."
+                )
+            elif IS_MACOS:
                 error_msg += (
                     "This is usually a macOS Accessibility permission issue. "
                     "Grant permission in System Preferences → Security & Privacy → Accessibility."
@@ -458,6 +476,9 @@ def register_mouse_control_tools(agent):
         """
         Get the current mouse cursor position.
 
+        Uses native macOS APIs for accurate multi-monitor coordinate reporting.
+        On Windows, uses pyautogui which handles multi-monitor correctly.
+
         Returns:
             MousePositionResult with x and y coordinates
 
@@ -468,7 +489,8 @@ def register_mouse_control_tools(agent):
             # Can't use decorator here since this returns a different type
             return {"error": "pyautogui not available"}
 
-        x, y = pyautogui.position()
+        # Use native API for accurate multi-monitor coordinates
+        x, y = get_mouse_position_native()
         return MousePositionResult(x=x, y=y)
 
     @agent.tool

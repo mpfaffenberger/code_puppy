@@ -23,6 +23,9 @@ else:
 # Import thread-safe screenshot function
 from ..screen_capture.capture import _safe_screenshot
 
+# Import native mouse position getter for multi-monitor support
+from ..platform import get_mouse_position_native
+
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
@@ -114,8 +117,8 @@ def register_click_debugging_tools(agent):
 
             time.sleep(0.1)
 
-            # Get actual cursor position
-            actual_x, actual_y = pyautogui.position()
+            # Get actual cursor position using native API (multi-monitor safe)
+            actual_x, actual_y = get_mouse_position_native()
             offset_x = actual_x - x
             offset_y = actual_y - y
 

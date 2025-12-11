@@ -388,3 +388,42 @@ def get_display_info() -> dict[str, any]:
             info["permission_error"] = permission_error
 
     return info
+
+
+def get_mouse_position_native() -> tuple[int, int]:
+    """Get mouse position using native APIs (multi-monitor safe).
+
+    On macOS, pyautogui.position() can return coordinates clamped to the
+    primary monitor bounds on multi-monitor setups. This function uses
+    native macOS Quartz APIs to get the true global cursor position.
+
+    On Windows, uses pyautogui which handles multi-monitor correctly.
+
+    Returns:
+        Tuple of (x, y) coordinates in logical screen space.
+
+    Example:
+        >>> x, y = get_mouse_position_native()
+        >>> print(f"Mouse at ({x}, {y})")
+    """
+    if IS_MACOS:
+        try:
+            from Quartz import CGEventCreate, CGEventGetLocation
+
+            # Create a null event to query current mouse location
+            event = CGEventCreate(None)
+            if event is not None:
+                point = CGEventGetLocation(event)
+                return int(point.x), int(point.y)
+        except ImportError:
+            pass  # Quartz not available, fall through to pyautogui
+        except Exception:
+            pass  # Any other error, fall through
+
+    # Fallback to pyautogui (works correctly on Windows)
+    try:
+        import pyautogui
+
+        return pyautogui.position()
+    except Exception:
+        return (0, 0)
