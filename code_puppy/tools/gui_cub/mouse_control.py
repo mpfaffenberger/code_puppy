@@ -24,7 +24,9 @@ from .platform import (
     IS_MACOS,
     IS_WINDOWS,
     check_macos_accessibility_permission,
+    click_mouse_native,
     get_mouse_position_native,
+    move_mouse_native,
 )
 from .result_types import (
     MouseActionResult,
@@ -57,6 +59,9 @@ def desktop_mouse_click(
 ) -> MouseActionResult:
     """Click the mouse at the current position or specific coordinates.
 
+    Uses native Quartz APIs on macOS for multi-monitor support.
+    pyautogui.click() is clamped to primary monitor bounds on macOS.
+
     Args:
         x: Optional X coordinate (if None, clicks current position)
         y: Optional Y coordinate (if None, clicks current position)
@@ -67,12 +72,33 @@ def desktop_mouse_click(
     Returns:
         MouseActionResult with success status and click details
     """
-    if x is not None and y is not None:
-        pyautogui.click(x=x, y=y, button=button, clicks=clicks, interval=interval)
-    else:
-        pyautogui.click(button=button, clicks=clicks, interval=interval)
+    # Get current position if coordinates not specified
+    if x is None or y is None:
+        current_x, current_y = get_mouse_position_native()
+        if x is None:
+            x = current_x
+        if y is None:
+            y = current_y
 
-    final_x, final_y = pyautogui.position()
+    # Use native API for clicking on macOS (multi-monitor safe)
+    if IS_MACOS:
+        success, error = click_mouse_native(
+            x=x, y=y, button=button, clicks=clicks, interval=interval
+        )
+        if not success:
+            return MouseActionResult(
+                success=False,
+                error=error or "Native mouse click failed",
+                x=x,
+                y=y,
+                button=button,
+                clicks=clicks,
+            )
+    else:
+        # Windows: pyautogui works correctly for multi-monitor
+        pyautogui.click(x=x, y=y, button=button, clicks=clicks, interval=interval)
+
+    final_x, final_y = get_mouse_position_native()
     return MouseActionResult(
         success=True, x=final_x, y=final_y, button=button, clicks=clicks
     )
@@ -125,12 +151,23 @@ def register_mouse_control_tools(agent):
                     y=y,
                 )
 
-        # Attempt to move mouse
-        pyautogui.moveTo(x, y, duration=duration)
+        # Use native API for mouse movement on macOS (multi-monitor safe)
+        # pyautogui.moveTo() is clamped to primary monitor bounds on macOS
+        if IS_MACOS:
+            success, error = move_mouse_native(x, y, duration=duration)
+            if not success:
+                emit_warning(f"[yellow]Native mouse move failed: {error}[/yellow]")
+                return MouseActionResult(
+                    success=False,
+                    error=error or "Native mouse move failed",
+                    x=x,
+                    y=y,
+                )
+        else:
+            # Windows: pyautogui works correctly for multi-monitor
+            pyautogui.moveTo(x, y, duration=duration)
 
-        # Use native API for position verification on macOS
-        # pyautogui.position() can return coordinates clamped to primary monitor
-        # on multi-monitor setups, causing false verification failures
+        # Use native API for position verification
         final_x, final_y = get_mouse_position_native()
 
         # Verify movement succeeded (within tolerance for rounding)
@@ -140,17 +177,8 @@ def register_mouse_control_tools(agent):
         )
 
         if not moved_successfully:
-            # Check if this might be a multi-monitor coordinate issue
-            primary_width, _ = pyautogui.size()
-            is_multimonitor_target = x > primary_width
-
             error_msg = f"Mouse movement failed! Target: ({x}, {y}), Actual: ({final_x}, {final_y}). "
-            if IS_MACOS and is_multimonitor_target:
-                error_msg += (
-                    "Target is on secondary monitor. "
-                    "If mouse moved correctly, this may be a coordinate detection issue."
-                )
-            elif IS_MACOS:
+            if IS_MACOS:
                 error_msg += (
                     "This is usually a macOS Accessibility permission issue. "
                     "Grant permission in System Preferences → Security & Privacy → Accessibility."
