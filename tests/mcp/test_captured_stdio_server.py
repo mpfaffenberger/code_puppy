@@ -540,9 +540,7 @@ class TestStderrCollector:
 
             handler("user output line")
 
-            mock_emit.assert_called_once_with(
-                "[MCP user-server] user output line", style="dim cyan"
-            )
+            mock_emit.assert_called_once_with("MCP user-server: user output line")
 
             assert "user-server" in collector.servers
             assert collector.servers["user-server"] == ["user output line"]

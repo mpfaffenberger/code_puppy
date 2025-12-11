@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from code_puppy import config
 from .managed_server import ServerConfig
 
 # Configure logging
@@ -23,7 +24,7 @@ class ServerRegistry:
     Registry for managing MCP server configurations.
 
     Provides CRUD operations for server configurations with thread-safe access,
-    validation, and persistent storage to ~/.code_puppy/mcp_registry.json.
+    validation, and persistent storage to XDG_DATA_HOME/code_puppy/mcp_registry.json.
 
     All operations are thread-safe and use JSON serialization for ServerConfig objects.
     Handles file not existing gracefully and validates configurations according to
@@ -36,13 +37,12 @@ class ServerRegistry:
 
         Args:
             storage_path: Optional custom path for registry storage.
-                         Defaults to ~/.code_puppy/mcp_registry.json
+                         Defaults to XDG_DATA_HOME/code_puppy/mcp_registry.json
         """
         if storage_path is None:
-            home_dir = Path.home()
-            code_puppy_dir = home_dir / ".code_puppy"
-            code_puppy_dir.mkdir(exist_ok=True)
-            self._storage_path = code_puppy_dir / "mcp_registry.json"
+            data_dir = Path(config.DATA_DIR)
+            data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self._storage_path = data_dir / "mcp_registry.json"
         else:
             self._storage_path = Path(storage_path)
 

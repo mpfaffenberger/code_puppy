@@ -7,8 +7,7 @@ import logging
 import os
 from typing import List, Optional
 
-from code_puppy.messaging import emit_info
-from code_puppy.tui_state import is_tui_mode
+from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
 from .wizard_utils import run_interactive_install_wizard
@@ -41,18 +40,6 @@ class AddCommand(MCPCommandBase):
         """
         if group_id is None:
             group_id = self.generate_group_id()
-
-        # Check if in TUI mode and guide user to use Ctrl+T instead
-        if is_tui_mode() and not args:
-            emit_info(
-                "💡 In TUI mode, press Ctrl+T to open the MCP Install Wizard",
-                message_group=group_id,
-            )
-            emit_info(
-                "   The wizard provides a better interface for browsing and installing MCP servers.",
-                message_group=group_id,
-            )
-            return
 
         try:
             if args:
@@ -120,7 +107,7 @@ class AddCommand(MCPCommandBase):
             emit_info("Required module not available", message_group=group_id)
         except Exception as e:
             logger.error(f"Error in add command: {e}")
-            emit_info(f"[red]Error adding server: {e}[/red]", message_group=group_id)
+            emit_error(f"Error adding server: {e}", message_group=group_id)
 
     def _add_server_from_json(self, config_dict: dict, group_id: str) -> bool:
         """
@@ -184,5 +171,5 @@ class AddCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error adding server from JSON: {e}")
-            emit_info(f"[red]Failed to add server: {e}[/red]", message_group=group_id)
+            emit_error(f"Failed to add server: {e}", message_group=group_id)
             return False

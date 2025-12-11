@@ -9,8 +9,6 @@ import re
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
-from rich.console import Console
-
 from code_puppy.mcp_.manager import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
@@ -19,8 +17,6 @@ from code_puppy.messaging import (
     emit_success,
     emit_warning,
 )
-
-console = Console()
 
 
 def prompt_ask(

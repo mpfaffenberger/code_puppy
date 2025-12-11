@@ -197,7 +197,7 @@ def handle_agent_command(command: str) -> bool:
                     f"Switched to agent: {new_agent.display_name}",
                     message_group=group_id,
                 )
-                emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
+                emit_info(f"{new_agent.description}", message_group=group_id)
                 emit_info(
                     f"[dim]Auto-save session rotated to: {new_session_id}[/dim]",
                     message_group=group_id,
@@ -241,7 +241,7 @@ def handle_agent_command(command: str) -> bool:
                     f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}",
                     message_group=group_id,
                 )
-                emit_info(f"    [dim]{description}[/dim]", message_group=group_id)
+                emit_info(f"    {description}", message_group=group_id)
 
             emit_info(
                 "\n[yellow]Usage:[/yellow] /agent <agent-name>",
@@ -288,7 +288,7 @@ def handle_agent_command(command: str) -> bool:
             f"Switched to agent: {new_agent.display_name}",
             message_group=group_id,
         )
-        emit_info(f"[dim]{new_agent.description}[/dim]", message_group=group_id)
+        emit_info(f"{new_agent.description}", message_group=group_id)
         emit_info(
             f"[dim]Auto-save session rotated to: {new_session_id}[/dim]",
             message_group=group_id,
@@ -364,10 +364,10 @@ async def interactive_agent_picker() -> str | None:
     set_awaiting_user_input(True)
     time.sleep(0.3)  # Let spinners fully stop
 
-    console = Console()
-    console.print()
-    console.print(panel)
-    console.print()
+    local_console = Console()
+    emit_info("")
+    local_console.print(panel)
+    emit_info("")
 
     # Flush output before prompt_toolkit takes control
     sys.stdout.flush()
@@ -399,7 +399,7 @@ async def interactive_agent_picker() -> str | None:
             selected_agent = agent_name
 
     except (KeyboardInterrupt, EOFError):
-        console.print("\n[bold red]⊗ Cancelled by user[/bold red]")
+        emit_error("Cancelled by user")
         selected_agent = None
 
     finally:
@@ -458,10 +458,10 @@ async def interactive_model_picker() -> str | None:
     set_awaiting_user_input(True)
     time.sleep(0.3)  # Let spinners fully stop
 
-    console = Console()
-    console.print()
-    console.print(panel)
-    console.print()
+    local_console = Console()
+    emit_info("")
+    local_console.print(panel)
+    emit_info("")
 
     # Flush output before prompt_toolkit takes control
     sys.stdout.flush()
@@ -488,7 +488,7 @@ async def interactive_model_picker() -> str | None:
                 selected_model = selected_model[:-10].strip()
 
     except (KeyboardInterrupt, EOFError):
-        console.print("\n[bold red]⊗ Cancelled by user[/bold red]")
+        emit_error("Cancelled by user")
         selected_model = None
 
     finally:

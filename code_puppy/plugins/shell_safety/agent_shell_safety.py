@@ -108,6 +108,7 @@ class ShellSafetyAgent(BaseAgent):
                 return ShellSafetyAssessment(
                     risk="high",
                     reasoning="Model configuration unavailable - failing safe",
+                    is_fallback=True,
                 )
 
             model = ModelFactory.get_model(model_name, models_config)
@@ -127,7 +128,7 @@ class ShellSafetyAgent(BaseAgent):
             temp_agent = Agent(
                 model=model,
                 system_prompt=instructions,
-                retries=1,
+                retries=2,  # Increase from 1 to 2 for better reliability
                 output_type=ShellSafetyAssessment,
                 model_settings=model_settings,
             )
@@ -154,7 +155,7 @@ class ShellSafetyAgent(BaseAgent):
                     task = asyncio.create_task(
                         temp_agent.run(
                             prompt,
-                            usage_limits=UsageLimits(request_limit=1),
+                            usage_limits=UsageLimits(request_limit=3),
                         )
                     )
                     _active_subagent_tasks.add(task)
@@ -162,7 +163,7 @@ class ShellSafetyAgent(BaseAgent):
                 task = asyncio.create_task(
                     temp_agent.run(
                         prompt,
-                        usage_limits=UsageLimits(request_limit=1),
+                        usage_limits=UsageLimits(request_limit=3),
                     )
                 )
                 _active_subagent_tasks.add(task)
@@ -175,28 +176,11 @@ class ShellSafetyAgent(BaseAgent):
                     if get_use_dbos():
                         DBOS.cancel_workflow(workflow_id)
 
-            # Return the structured output
-            # The result.output should be a ShellSafetyAssessment due to the generic type
-            output = result.output
-
-            # If it's a string, try to parse it as JSON into ShellSafetyAssessment
-            if isinstance(output, str):
-                import json
-
-                try:
-                    data = json.loads(output)
-                    return ShellSafetyAssessment(**data)
-                except Exception:
-                    # If parsing fails, fail safe
-                    return ShellSafetyAssessment(
-                        risk="high",
-                        reasoning=f"Could not parse assessment output: {output[:100]}",
-                    )
-
-            return output
+            return result.output
 
         except Exception as e:
             return ShellSafetyAssessment(
                 risk="high",
                 reasoning=f"Safety assessment failed: {str(e)[:200]} - failing safe",
+                is_fallback=True,
             )

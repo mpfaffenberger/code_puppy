@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_error, emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 from .camoufox_manager import get_camoufox_manager
@@ -75,11 +75,11 @@ async def _capture_screenshot(
                 f.write(screenshot_data)
 
             result["screenshot_path"] = str(screenshot_path)
-            message = f"[green]Screenshot saved: {screenshot_path}[/green]"
+            message = f"Screenshot saved: {screenshot_path}"
             if group_id:
-                emit_info(message, message_group=group_id)
+                emit_success(message, message_group=group_id)
             else:
-                emit_info(message)
+                emit_success(message)
 
         return result
 
@@ -110,7 +110,7 @@ async def take_screenshot_and_analyze(
         "browser_screenshot_analyze", f"{question[:50]}_{target}"
     )
     emit_info(
-        f"[bold white on blue] BROWSER SCREENSHOT ANALYZE [/bold white on blue] 📷 question='{question[:100]}{'...' if len(question) > 100 else ''}' target={target}",
+        f"BROWSER SCREENSHOT ANALYZE 📷 question='{question[:100]}{'...' if len(question) > 100 else ''}' target={target}",
         message_group=group_id,
     )
     try:
@@ -137,7 +137,7 @@ async def take_screenshot_and_analyze(
         if not screenshot_result["success"]:
             error_message = screenshot_result.get("error", "Screenshot failed")
             emit_error(
-                f"[red]Screenshot capture failed: {error_message}[/red]",
+                f"Screenshot capture failed: {error_message}",
                 message_group=group_id,
             )
             return {
@@ -149,7 +149,7 @@ async def take_screenshot_and_analyze(
         screenshot_bytes = screenshot_result.get("screenshot_data")
         if not screenshot_bytes:
             emit_error(
-                "[red]Screenshot captured but pixel data missing; cannot run visual analysis.[/red]",
+                "Screenshot captured but pixel data missing; cannot run visual analysis.",
                 message_group=group_id,
             )
             return {
@@ -166,7 +166,7 @@ async def take_screenshot_and_analyze(
             )
         except Exception as exc:
             emit_error(
-                f"[red]Visual question answering failed: {exc}[/red]",
+                f"Visual question answering failed: {exc}",
                 message_group=group_id,
             )
             return {
@@ -181,12 +181,12 @@ async def take_screenshot_and_analyze(
                 },
             }
 
-        emit_info(
-            f"[green]Visual analysis answer: {vqa_result.answer}[/green]",
+        emit_success(
+            f"Visual analysis answer: {vqa_result.answer}",
             message_group=group_id,
         )
         emit_info(
-            f"[dim]Observations: {vqa_result.observations}[/dim]",
+            f"Observations: {vqa_result.observations}",
             message_group=group_id,
         )
 
@@ -206,9 +206,7 @@ async def take_screenshot_and_analyze(
         }
 
     except Exception as e:
-        emit_info(
-            f"[red]Screenshot analysis failed: {str(e)}[/red]", message_group=group_id
-        )
+        emit_error(f"Screenshot analysis failed: {str(e)}", message_group=group_id)
         return {"success": False, "error": str(e), "question": question}
 
 

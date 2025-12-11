@@ -1,7 +1,6 @@
 import threading
 import time
 from datetime import datetime, timezone
-from unittest.mock import patch
 
 from code_puppy.messaging.message_queue import (
     MessageQueue,
@@ -262,11 +261,8 @@ class TestMessagingExtended:
         # Test that it's started automatically
         assert queue1._running
 
-    @patch("code_puppy.tui_state.is_tui_mode")
-    def test_emit_divider(self, mock_tui_mode):
-        """Test divider emission in different modes."""
-        # Test non-TUI mode
-        mock_tui_mode.return_value = False
+    def test_emit_divider(self):
+        """Test divider emission."""
         self.queue.mark_renderer_active()
 
         # Create a divider message directly

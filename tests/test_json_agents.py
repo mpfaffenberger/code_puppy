@@ -248,7 +248,8 @@ class TestJSONAgentDiscovery:
         user_dir = get_user_agents_directory()
 
         assert isinstance(user_dir, str)
-        assert ".code_puppy" in user_dir
+        # Should contain code_puppy (either legacy .code_puppy or XDG code_puppy)
+        assert "code_puppy" in user_dir
         assert "agents" in user_dir
 
         # Directory should be created

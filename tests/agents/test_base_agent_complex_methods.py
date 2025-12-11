@@ -46,18 +46,14 @@ class TestBaseAgentComplexMethods:
             ModelResponse(parts=[TextPart(content="Hi there!")]),
         ]
 
-        # Mock the spinner and TUI methods to avoid TUI dependencies
+        # Mock the spinner to avoid dependencies
         with patch("code_puppy.agents.base_agent.update_spinner_context"):
-            with patch("code_puppy.tui_state.is_tui_mode", return_value=False):
-                with patch(
-                    "code_puppy.tui_state.get_tui_app_instance", return_value=None
-                ):
-                    result = agent.message_history_processor(mock_run_context, messages)
+            result = agent.message_history_processor(mock_run_context, messages)
 
-                    # Should return some processed messages
-                    assert len(result) > 0
-                    # Should preserve the basic structure
-                    assert all(hasattr(msg, "parts") for msg in result)
+            # Should return some processed messages
+            assert len(result) > 0
+            # Should preserve the basic structure
+            assert all(hasattr(msg, "parts") for msg in result)
 
     def test_truncation_simple(self, agent):
         """Test truncating messages over limit."""
@@ -213,14 +209,10 @@ class TestBaseAgentComplexMethods:
 
         # Mock dependencies
         with patch("code_puppy.agents.base_agent.update_spinner_context"):
-            with patch("code_puppy.tui_state.is_tui_mode", return_value=False):
-                with patch(
-                    "code_puppy.tui_state.get_tui_app_instance", return_value=None
-                ):
-                    result = agent.message_history_processor(mock_run_context, messages)
+            result = agent.message_history_processor(mock_run_context, messages)
 
-                    # Should return processed messages
-                    assert isinstance(result, list)
-                    assert len(result) > 0
-                    # Should preserve message structure
-                    assert all(hasattr(msg, "parts") for msg in result)
+            # Should return processed messages
+            assert isinstance(result, list)
+            assert len(result) > 0
+            # Should preserve message structure
+            assert all(hasattr(msg, "parts") for msg in result)

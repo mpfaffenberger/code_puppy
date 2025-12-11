@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 from .camoufox_manager import get_camoufox_manager
@@ -17,7 +17,7 @@ async def execute_javascript(
     """Execute JavaScript code in the browser context."""
     group_id = generate_group_id("browser_execute_js", script[:100])
     emit_info(
-        f"[bold white on blue] BROWSER EXECUTE JS [/bold white on blue] 📜 script='{script[:100]}{'...' if len(script) > 100 else ''}'",
+        f"BROWSER EXECUTE JS 📜 script='{script[:100]}{'...' if len(script) > 100 else ''}'",
         message_group=group_id,
     )
     try:
@@ -30,16 +30,12 @@ async def execute_javascript(
         # Execute JavaScript
         result = await page.evaluate(script, timeout=timeout)
 
-        emit_info(
-            "[green]JavaScript executed successfully[/green]", message_group=group_id
-        )
+        emit_success("JavaScript executed successfully", message_group=group_id)
 
         return {"success": True, "script": script, "result": result}
 
     except Exception as e:
-        emit_info(
-            f"[red]JavaScript execution failed: {str(e)}[/red]", message_group=group_id
-        )
+        emit_error(f"JavaScript execution failed: {str(e)}", message_group=group_id)
         return {"success": False, "error": str(e), "script": script}
 
 
@@ -52,7 +48,7 @@ async def scroll_page(
     target = element_selector or "page"
     group_id = generate_group_id("browser_scroll", f"{direction}_{amount}_{target}")
     emit_info(
-        f"[bold white on blue] BROWSER SCROLL [/bold white on blue] 📋 direction={direction} amount={amount} target='{target}'",
+        f"BROWSER SCROLL 📋 direction={direction} amount={amount} target='{target}'",
         message_group=group_id,
     )
     try:
@@ -120,9 +116,7 @@ async def scroll_page(
             })
         """)
 
-        emit_info(
-            f"[green]Scrolled {target} {direction}[/green]", message_group=group_id
-        )
+        emit_success(f"Scrolled {target} {direction}", message_group=group_id)
 
         return {
             "success": True,
@@ -148,7 +142,7 @@ async def scroll_to_element(
     """Scroll to bring an element into view."""
     group_id = generate_group_id("browser_scroll_to_element", selector[:100])
     emit_info(
-        f"[bold white on blue] BROWSER SCROLL TO ELEMENT [/bold white on blue] 🎯 selector='{selector}'",
+        f"BROWSER SCROLL TO ELEMENT 🎯 selector='{selector}'",
         message_group=group_id,
     )
     try:
@@ -165,9 +159,7 @@ async def scroll_to_element(
         # Check if element is now visible
         is_visible = await element.is_visible()
 
-        emit_info(
-            f"[green]Scrolled to element: {selector}[/green]", message_group=group_id
-        )
+        emit_success(f"Scrolled to element: {selector}", message_group=group_id)
 
         return {"success": True, "selector": selector, "visible": is_visible}
 
@@ -182,7 +174,7 @@ async def set_viewport_size(
     """Set the viewport size."""
     group_id = generate_group_id("browser_set_viewport", f"{width}x{height}")
     emit_info(
-        f"[bold white on blue] BROWSER SET VIEWPORT [/bold white on blue] 🖥️ size={width}x{height}",
+        f"BROWSER SET VIEWPORT 🖥️ size={width}x{height}",
         message_group=group_id,
     )
     try:
@@ -194,8 +186,8 @@ async def set_viewport_size(
 
         await page.set_viewport_size({"width": width, "height": height})
 
-        emit_info(
-            f"[green]Set viewport size to {width}x{height}[/green]",
+        emit_success(
+            f"Set viewport size to {width}x{height}",
             message_group=group_id,
         )
 
@@ -213,7 +205,7 @@ async def wait_for_element(
     """Wait for an element to reach a specific state."""
     group_id = generate_group_id("browser_wait_for_element", f"{selector[:50]}_{state}")
     emit_info(
-        f"[bold white on blue] BROWSER WAIT FOR ELEMENT [/bold white on blue] ⏱️ selector='{selector}' state={state} timeout={timeout}ms",
+        f"BROWSER WAIT FOR ELEMENT ⏱️ selector='{selector}' state={state} timeout={timeout}ms",
         message_group=group_id,
     )
     try:
@@ -226,9 +218,7 @@ async def wait_for_element(
         element = page.locator(selector)
         await element.wait_for(state=state, timeout=timeout)
 
-        emit_info(
-            f"[green]Element {selector} is now {state}[/green]", message_group=group_id
-        )
+        emit_success(f"Element {selector} is now {state}", message_group=group_id)
 
         return {"success": True, "selector": selector, "state": state}
 
@@ -246,7 +236,7 @@ async def highlight_element(
         "browser_highlight_element", f"{selector[:50]}_{color}"
     )
     emit_info(
-        f"[bold white on blue] BROWSER HIGHLIGHT ELEMENT [/bold white on blue] 🔦 selector='{selector}' color={color}",
+        f"BROWSER HIGHLIGHT ELEMENT 🔦 selector='{selector}' color={color}",
         message_group=group_id,
     )
     try:
@@ -271,9 +261,7 @@ async def highlight_element(
 
         await element.evaluate(highlight_script)
 
-        emit_info(
-            f"[green]Highlighted element: {selector}[/green]", message_group=group_id
-        )
+        emit_success(f"Highlighted element: {selector}", message_group=group_id)
 
         return {"success": True, "selector": selector, "color": color}
 
@@ -285,7 +273,7 @@ async def clear_highlights() -> Dict[str, Any]:
     """Clear all element highlights."""
     group_id = generate_group_id("browser_clear_highlights")
     emit_info(
-        "[bold white on blue] BROWSER CLEAR HIGHLIGHTS [/bold white on blue] 🧹",
+        "BROWSER CLEAR HIGHLIGHTS 🧹",
         message_group=group_id,
     )
     try:
@@ -311,7 +299,7 @@ async def clear_highlights() -> Dict[str, Any]:
 
         count = await page.evaluate(clear_script)
 
-        emit_info(f"[green]Cleared {count} highlights[/green]", message_group=group_id)
+        emit_success(f"Cleared {count} highlights", message_group=group_id)
 
         return {"success": True, "cleared_count": count}
 

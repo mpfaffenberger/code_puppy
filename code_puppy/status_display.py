@@ -7,6 +7,8 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
+from code_puppy.messaging import emit_info
+
 # Global variable to track current token per second rate
 CURRENT_TOKEN_RATE = 0.0
 
@@ -185,7 +187,7 @@ class StatusDisplay:
     async def _update_display(self) -> None:
         """Update the display continuously while active using Rich Live display"""
         # Add a newline to ensure we're below the blue bar
-        self.console.print("\n")
+        emit_info("")
 
         # Create a Live display that will update in-place
         with Live(
@@ -221,8 +223,8 @@ class StatusDisplay:
             # Print final stats
             elapsed = time.time() - self.start_time if self.start_time else 0
             avg_rate = self.token_count / elapsed if elapsed > 0 else 0
-            self.console.print(
-                f"[dim]Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)[/dim]"
+            emit_info(
+                f"Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)"
             )
 
             # Reset state
@@ -240,6 +242,6 @@ class StatusDisplay:
             # This is for testing purposes
             elapsed = time.time() - self.start_time if self.start_time else 0
             avg_rate = self.token_count / elapsed if elapsed > 0 else 0
-            self.console.print(
-                f"[dim]Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)[/dim]"
+            emit_info(
+                f"Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)"
             )

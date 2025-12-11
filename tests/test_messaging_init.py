@@ -60,11 +60,9 @@ class TestMessagingPackageExports:
     def test_renderer_exports(self):
         """Test that all renderer classes are exported."""
         assert "InteractiveRenderer" in messaging_package.__all__
-        assert "TUIRenderer" in messaging_package.__all__
         assert "SynchronousInteractiveRenderer" in messaging_package.__all__
 
         assert hasattr(messaging_package, "InteractiveRenderer")
-        assert hasattr(messaging_package, "TUIRenderer")
         assert hasattr(messaging_package, "SynchronousInteractiveRenderer")
 
     def test_console_exports(self):
@@ -84,8 +82,8 @@ class TestMessagingPackageExports:
 
     def test_expected_export_count(self):
         """Test that __all__ has the expected number of exports."""
-        # Based on the __all__ list in the module
-        expected_exports = {
+        # Legacy exports that must be present for backward compatibility
+        legacy_exports = {
             "MessageQueue",
             "MessageType",
             "UIMessage",
@@ -106,10 +104,94 @@ class TestMessagingPackageExports:
             "provide_prompt_response",
             "get_buffered_startup_messages",
             "InteractiveRenderer",
-            "TUIRenderer",
             "SynchronousInteractiveRenderer",
             "QueueConsole",
             "get_queue_console",
         }
 
+        # New structured messaging API exports
+        new_api_exports = {
+            # Enums
+            "MessageLevel",
+            "MessageCategory",
+            # Base classes
+            "BaseMessage",
+            "BaseCommand",
+            # Message types
+            "TextMessage",
+            "FileEntry",
+            "FileListingMessage",
+            "FileContentMessage",
+            "GrepMatch",
+            "GrepResultMessage",
+            "DiffLine",
+            "DiffMessage",
+            "ShellOutputMessage",
+            "ShellStartMessage",
+            "AgentReasoningMessage",
+            "AgentResponseMessage",
+            "SubAgentInvocationMessage",
+            "SubAgentResponseMessage",
+            "UserInputRequest",
+            "ConfirmationRequest",
+            "SelectionRequest",
+            "SpinnerControl",
+            "DividerMessage",
+            "StatusPanelMessage",
+            "VersionCheckMessage",
+            "AnyMessage",
+            # Command types
+            "CancelAgentCommand",
+            "InterruptShellCommand",
+            "UserInputResponse",
+            "ConfirmationResponse",
+            "SelectionResponse",
+            "AnyCommand",
+            # Message bus
+            "MessageBus",
+            "get_message_bus",
+            "reset_message_bus",
+            # New API convenience functions
+            "bus_emit",
+            "bus_emit_info",
+            "bus_emit_warning",
+            "bus_emit_error",
+            "bus_emit_success",
+            "bus_emit_debug",
+            # Renderer
+            "RendererProtocol",
+            "RichConsoleRenderer",
+            "DEFAULT_STYLES",
+            "DIFF_STYLES",
+        }
+
+        expected_exports = legacy_exports | new_api_exports
+
+        # Verify all legacy exports are still present (backward compatibility)
+        assert legacy_exports.issubset(set(messaging_package.__all__)), (
+            "Missing legacy exports for backward compatibility"
+        )
+
+        # Verify all expected exports match
         assert set(messaging_package.__all__) == expected_exports
+
+    def test_new_messaging_api_exports(self):
+        """Test that new structured messaging API exports are available."""
+        # Message types
+        assert hasattr(messaging_package, "TextMessage")
+        assert hasattr(messaging_package, "MessageLevel")
+        assert hasattr(messaging_package, "MessageCategory")
+        assert hasattr(messaging_package, "DiffMessage")
+        assert hasattr(messaging_package, "ShellOutputMessage")
+
+        # Command types
+        assert hasattr(messaging_package, "CancelAgentCommand")
+        assert hasattr(messaging_package, "UserInputResponse")
+
+        # Message bus
+        assert hasattr(messaging_package, "MessageBus")
+        assert hasattr(messaging_package, "get_message_bus")
+
+        # Renderer
+        assert hasattr(messaging_package, "RichConsoleRenderer")
+        assert hasattr(messaging_package, "RendererProtocol")

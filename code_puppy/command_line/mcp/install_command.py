@@ -5,8 +5,7 @@ MCP Install Command - Installs pre-configured MCP servers from the registry.
 import logging
 from typing import List, Optional
 
-from code_puppy.messaging import emit_info
-from code_puppy.tui_state import is_tui_mode
+from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
 from .install_menu import run_mcp_install_menu
@@ -34,14 +33,6 @@ class InstallCommand(MCPCommandBase):
             group_id = self.generate_group_id()
 
         try:
-            # If in TUI mode, show message to use Ctrl+T
-            if is_tui_mode():
-                emit_info(
-                    "In TUI mode, use Ctrl+T to open the MCP Install Wizard",
-                    message_group=group_id,
-                )
-                return
-
             # In interactive mode, use the menu-based browser
             if not args:
                 # No args - launch interactive menu
@@ -214,5 +205,5 @@ class InstallCommand(MCPCommandBase):
             return False
         except Exception as e:
             logger.error(f"Error installing from catalog: {e}")
-            emit_info(f"[red]Installation error: {e}[/red]", message_group=group_id)
+            emit_error(f"Installation error: {e}", message_group=group_id)
             return False

@@ -216,12 +216,29 @@ def handle_set_command(command: str) -> bool:
         try:
             current_agent = get_current_agent()
             current_agent.reload_code_generation_agent()
-            emit_info("[dim]Agent reloaded with updated config[/dim]")
+            emit_info("Agent reloaded with updated config")
         except Exception as reload_error:
             emit_warning(f"Config saved but agent reload failed: {reload_error}")
     else:
         emit_error("You must supply a key.")
     return True
+
+
+def _get_json_agents_pinned_to_model(model_name: str) -> list:
+    """Get JSON agents that have this model pinned in their JSON file."""
+    from code_puppy.agents.json_agent import discover_json_agents
+
+    pinned = []
+    json_agents = discover_json_agents()
+    for agent_name, agent_path in json_agents.items():
+        try:
+            with open(agent_path, "r") as f:
+                agent_data = json.load(f)
+                if agent_data.get("model") == model_name:
+                    pinned.append(agent_name)
+        except Exception:
+            continue
+    return pinned
 
 
 @register_command(
@@ -252,17 +269,17 @@ def handle_pin_model_command(command: str) -> bool:
 
         emit_info("Available models:")
         for model in available_models:
-            emit_info(f"  [cyan]{model}[/cyan]")
+            emit_info(f"  {model}")
 
         if builtin_agents:
             emit_info("\nAvailable built-in agents:")
             for agent_name, description in builtin_agents.items():
-                emit_info(f"  [cyan]{agent_name}[/cyan] - {description}")
+                emit_info(f"  {agent_name} - {description}")
 
         if json_agents:
             emit_info("\nAvailable JSON agents:")
             for agent_name, agent_path in json_agents.items():
-                emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
+                emit_info(f"  {agent_name} ({agent_path})")
         return True
 
     agent_name = tokens[1].lower()
@@ -298,12 +315,12 @@ def handle_pin_model_command(command: str) -> bool:
         if builtin_agents:
             emit_info("Available built-in agents:")
             for name, desc in builtin_agents.items():
-                emit_info(f"  [cyan]{name}[/cyan] - {desc}")
+                emit_info(f"  {name} - {desc}")
 
         if json_agents:
             emit_info("\nAvailable JSON agents:")
             for name, path in json_agents.items():
-                emit_info(f"  [cyan]{name}[/cyan] ({path})")
+                emit_info(f"  {name} ({path})")
         return True
 
     # Handle different agent types
@@ -359,6 +376,7 @@ def handle_pin_model_command(command: str) -> bool:
 def handle_unpin_command(command: str) -> bool:
     """Unpin a model from an agent (resets to default)."""
     from code_puppy.agents.json_agent import discover_json_agents
+    from code_puppy.config import get_agent_pinned_model
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     tokens = command.split()
@@ -377,12 +395,26 @@ def handle_unpin_command(command: str) -> bool:
         if builtin_agents:
             emit_info("Available built-in agents:")
             for agent_name, description in builtin_agents.items():
-                emit_info(f"  [cyan]{agent_name}[/cyan] - {description}")
+                pinned_model = get_agent_pinned_model(agent_name)
+                if pinned_model:
+                    emit_info(f"  {agent_name} - {description} [→ {pinned_model}]")
+                else:
+                    emit_info(f"  {agent_name} - {description}")
 
         if json_agents:
             emit_info("\nAvailable JSON agents:")
             for agent_name, agent_path in json_agents.items():
-                emit_info(f"  [cyan]{agent_name}[/cyan] ({agent_path})")
+                # Read the JSON file to check for pinned model
+                try:
+                    with open(agent_path, "r") as f:
+                        agent_config = json.load(f)
+                    pinned_model = agent_config.get("model")
+                    if pinned_model:
+                        emit_info(f"  {agent_name} ({agent_path}) [→ {pinned_model}]")
+                    else:
+                        emit_info(f"  {agent_name} ({agent_path})")
+                except Exception:
+                    emit_info(f"  {agent_name} ({agent_path})")
         return True
 
     agent_name_input = tokens[1].lower()
@@ -422,12 +454,12 @@ def handle_unpin_command(command: str) -> bool:
         if builtin_agents:
             emit_info("Available built-in agents:")
             for name, desc in builtin_agents.items():
-                emit_info(f"  [cyan]{name}[/cyan] - {desc}")
+                emit_info(f"  {name} - {desc}")
 
         if json_agents:
             emit_info("\nAvailable JSON agents:")
             for name, path in json_agents.items():
-                emit_info(f"  [cyan]{name}[/cyan] ({path})")
+                emit_info(f"  {name} ({path})")
         return True
 
     try:
@@ -597,15 +629,15 @@ def _show_color_options(color_type: str):
                 f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}"
             )
 
-    emit_info("\n[bold]🎨 All Available Rich Colors:[/bold]")
+    emit_info("\n🎨 All Available Rich Colors:")
     for category, colors in color_categories.items():
-        emit_info(f"\n[cyan]{category}:[/cyan]")
+        emit_info(f"\n{category}:")
         # Display in columns for better readability
         for i in range(0, len(colors), 4):
             row = colors[i : i + 4]
             row_text = "  ".join([f"[{color}]■[/{color}] {color}" for color, _ in row])
             emit_info(f"  {row_text}")
 
-    emit_info("\n[yellow]Usage:[/yellow] [cyan]/diff {color_type} <color_name>[/cyan]")
-    emit_info("[dim]All diffs use white text on your chosen background colors[/dim]")
-    emit_info("[dim]You can also use hex colors like #ff0000 or rgb(255,0,0)[/dim]")
+    emit_info("\nUsage: /diff {color_type} <color_name>")
+    emit_info("All diffs use white text on your chosen background colors")
+    emit_info("You can also use hex colors like #ff0000 or rgb(255,0,0)")

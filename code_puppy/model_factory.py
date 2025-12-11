@@ -38,10 +38,12 @@ def make_model_settings(
     This handles model-specific settings:
     - GPT-5 models: reasoning_effort and verbosity (non-codex only)
     - Claude/Anthropic models: extended_thinking and budget_tokens
+    - Automatic max_tokens calculation based on model context length
 
     Args:
         model_name: The name of the model to create settings for.
-        max_tokens: Optional max tokens limit to include in settings.
+        max_tokens: Optional max tokens limit. If None, automatically calculated
+            as: max(2048, min(15% of context_length, 65536))
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -53,8 +55,21 @@ def make_model_settings(
     )
 
     model_settings_dict: dict = {}
-    if max_tokens is not None:
-        model_settings_dict["max_tokens"] = max_tokens
+
+    # Calculate max_tokens if not explicitly provided
+    if max_tokens is None:
+        # Load model config to get context length
+        try:
+            models_config = ModelFactory.load_config()
+            model_config = models_config.get(model_name, {})
+            context_length = model_config.get("context_length", 128000)
+        except Exception:
+            # Fallback if config loading fails (e.g., in CI environments)
+            context_length = 128000
+        # min 2048, 15% of context, max 65536
+        max_tokens = max(2048, min(int(0.15 * context_length), 65536))
+
+    model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
@@ -167,29 +182,51 @@ class ModelFactory:
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
 
-        extra_sources = [(pathlib.Path(EXTRA_MODELS_FILE), "extra models")]
+        # Import OAuth model file paths from main config
+        from code_puppy.config import (
+            CHATGPT_MODELS_FILE,
+            CLAUDE_MODELS_FILE,
+            GEMINI_MODELS_FILE,
+        )
 
-        for source_path, label in extra_sources:
-            # source_path is already a Path object from the functions above
-            # Use hasattr to check if it's Path-like (works with mocks too)
-            if hasattr(source_path, "exists"):
-                path = source_path
-            else:
-                path = pathlib.Path(source_path).expanduser()
-            if not path.exists():
+        # Build list of extra model sources
+        extra_sources: list[tuple[pathlib.Path, str, bool]] = [
+            (pathlib.Path(EXTRA_MODELS_FILE), "extra models", False),
+            (pathlib.Path(CHATGPT_MODELS_FILE), "ChatGPT OAuth models", False),
+            (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
+            (pathlib.Path(GEMINI_MODELS_FILE), "Gemini OAuth models", False),
+        ]
+
+        for source_path, label, use_filtered in extra_sources:
+            if not source_path.exists():
                 continue
             try:
                 # Use filtered loading for Claude Code OAuth models to show only latest versions
-                with open(path, "r") as f:
-                    extra_config = json.load(f)
+                if use_filtered:
+                    try:
+                        from code_puppy.plugins.claude_code_oauth.utils import (
+                            load_claude_models_filtered,
+                        )
+
+                        extra_config = load_claude_models_filtered()
+                    except ImportError:
+                        # Plugin not available, fall back to standard JSON loading
+                        logging.getLogger(__name__).debug(
+                            f"claude_code_oauth plugin not available, loading {label} as plain JSON"
+                        )
+                        with open(source_path, "r") as f:
+                            extra_config = json.load(f)
+                else:
+                    with open(source_path, "r") as f:
+                        extra_config = json.load(f)
                 config.update(extra_config)
             except json.JSONDecodeError as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load {label} config from {path}: Invalid JSON - {exc}"
+                    f"Failed to load {label} config from {source_path}: Invalid JSON - {exc}"
                 )
             except Exception as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load {label} config from {path}: {exc}"
+                    f"Failed to load {label} config from {source_path}: {exc}"
                 )
         return config
 
@@ -510,6 +547,63 @@ class ModelFactory:
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
+            return model
+
+        elif model_type == "gemini_oauth":
+            # Gemini OAuth models use the Code Assist API (cloudcode-pa.googleapis.com)
+            # This is a different API than the standard Generative Language API
+            try:
+                # Try user plugin first, then built-in plugin
+                try:
+                    from gemini_oauth.config import GEMINI_OAUTH_CONFIG
+                    from gemini_oauth.utils import (
+                        get_project_id,
+                        get_valid_access_token,
+                    )
+                except ImportError:
+                    from code_puppy.plugins.gemini_oauth.config import (
+                        GEMINI_OAUTH_CONFIG,
+                    )
+                    from code_puppy.plugins.gemini_oauth.utils import (
+                        get_project_id,
+                        get_valid_access_token,
+                    )
+            except ImportError as exc:
+                emit_warning(
+                    f"Gemini OAuth plugin not available; skipping model '{model_config.get('name')}'. "
+                    f"Error: {exc}"
+                )
+                return None
+
+            # Get a valid access token (refreshing if needed)
+            access_token = get_valid_access_token()
+            if not access_token:
+                emit_warning(
+                    f"Failed to get valid Gemini OAuth token; skipping model '{model_config.get('name')}'. "
+                    "Run /gemini-auth to re-authenticate."
+                )
+                return None
+
+            # Get project ID from stored tokens
+            project_id = get_project_id()
+            if not project_id:
+                emit_warning(
+                    f"No Code Assist project ID found; skipping model '{model_config.get('name')}'. "
+                    "Run /gemini-auth to re-authenticate."
+                )
+                return None
+
+            # Import the Code Assist model wrapper
+            from code_puppy.gemini_code_assist import GeminiCodeAssistModel
+
+            # Create the Code Assist model
+            model = GeminiCodeAssistModel(
+                model_name=model_config["name"],
+                access_token=access_token,
+                project_id=project_id,
+                api_base_url=GEMINI_OAUTH_CONFIG["api_base_url"],
+                api_version=GEMINI_OAUTH_CONFIG["api_version"],
+            )
             return model
 
         elif model_type == "round_robin":

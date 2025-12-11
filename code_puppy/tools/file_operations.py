@@ -12,11 +12,15 @@ from pydantic_ai import RunContext
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
-from code_puppy.messaging import (
+from code_puppy.messaging import (  # New structured messaging types
+    FileContentMessage,
+    FileEntry,
+    FileListingMessage,
+    GrepMatch,
+    GrepResultMessage,
     emit_error,
-    emit_info,
-    emit_success,
     emit_warning,
+    get_message_bus,
 )
 from code_puppy.tools.common import generate_group_id
 
@@ -154,44 +158,24 @@ def _list_files(
     results = []
     directory = os.path.abspath(os.path.expanduser(directory))
 
-    # Build string representation
+    # Plain text output for LLM consumption
     output_lines = []
-
-    directory_listing_header = (
-        "\n[bold white on blue] DIRECTORY LISTING [/bold white on blue]"
-    )
-    output_lines.append(directory_listing_header)
-
-    directory_info = f"\U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim](recursive={recursive})[/dim]\n"
-    output_lines.append(directory_info)
-
-    divider = "[dim]" + "─" * 100 + "\n" + "[/dim]"
-    output_lines.append(divider)
+    output_lines.append(f"DIRECTORY LISTING: {directory} (recursive={recursive})")
 
     if not os.path.exists(directory):
-        error_msg = (
-            f"[red bold]Error:[/red bold] Directory '{directory}' does not exist"
-        )
-        output_lines.append(error_msg)
-
-        output_lines.append(divider)
-        return ListFileOutput(content="\n".join(output_lines))
+        error_msg = f"Error: Directory '{directory}' does not exist"
+        return ListFileOutput(content=error_msg, error=error_msg)
     if not os.path.isdir(directory):
-        error_msg = f"[red bold]Error:[/red bold] '{directory}' is not a directory"
-        output_lines.append(error_msg)
-
-        output_lines.append(divider)
-        return ListFileOutput(content="\n".join(output_lines))
+        error_msg = f"Error: '{directory}' is not a directory"
+        return ListFileOutput(content=error_msg, error=error_msg)
 
     # Smart home directory detection - auto-limit recursion for performance
     # But allow recursion in tests (when context=None) or when explicitly requested
     if context is not None and is_likely_home_directory(directory) and recursive:
         if not is_project_directory(directory):
-            warning_msg = "[yellow bold]Warning:[/yellow bold] 🏠 Detected home directory - limiting to non-recursive listing for performance"
-            output_lines.append(warning_msg)
-
-            info_msg = f"[dim]💡 To force recursive listing in home directory, use list_files('{directory}', recursive=True) explicitly[/dim]"
-            output_lines.append(info_msg)
+            output_lines.append(
+                "Warning: Detected home directory - limiting to non-recursive listing for performance"
+            )
             recursive = False
 
     # Create a temporary ignore file with our ignore patterns
@@ -217,9 +201,8 @@ def _list_files(
 
         if not rg_path and recursive:
             # Only need ripgrep for recursive listings
-            error_msg = "[red bold]Error:[/red bold] ripgrep (rg) not found. Please install ripgrep to use this tool."
-            output_lines.append(error_msg)
-            return ListFileOutput(content="\n".join(output_lines))
+            error_msg = "Error: ripgrep (rg) not found. Please install ripgrep to use this tool."
+            return ListFileOutput(content=error_msg, error=error_msg)
 
         # Only use ripgrep for recursive listings
         if recursive:
@@ -371,17 +354,11 @@ def _list_files(
                 # Skip entries we can't access
                 pass
     except subprocess.TimeoutExpired:
-        error_msg = (
-            "[red bold]Error:[/red bold] List files command timed out after 30 seconds"
-        )
-        output_lines.append(error_msg)
-        return ListFileOutput(content="\n".join(output_lines))
+        error_msg = "Error: List files command timed out after 30 seconds"
+        return ListFileOutput(content=error_msg, error=error_msg)
     except Exception as e:
-        error_msg = (
-            f"[red bold]Error:[/red bold] Error during list files operation: {e}"
-        )
-        output_lines.append(error_msg)
-        return ListFileOutput(content="\n".join(output_lines))
+        error_msg = f"Error: Error during list files operation: {e}"
+        return ListFileOutput(content=error_msg, error=error_msg)
     finally:
         # Clean up the temporary ignore file
         if ignore_file and os.path.exists(ignore_file):
@@ -431,59 +408,48 @@ def _list_files(
     file_count = sum(1 for item in results if item.type == "file")
     total_size = sum(item.size for item in results if item.type == "file")
 
-    # Build the directory header section
-    dir_name = os.path.basename(directory) or directory
-    dir_header = f"\U0001f4c1 [bold blue]{dir_name}[/bold blue]"
-    output_lines.append(dir_header)
-
-    # Sort all items by path for consistent display
-    all_items = sorted(results, key=lambda x: x.path)
-
-    # Build file and directory tree representation
-    parent_dirs_with_content = set()
-    for item in all_items:
-        # Skip root directory entries with no path
+    # Build structured FileEntry objects for the UI
+    file_entries = []
+    for item in sorted(results, key=lambda x: x.path):
         if item.type == "directory" and not item.path:
             continue
+        file_entries.append(
+            FileEntry(
+                path=item.path,
+                type="dir" if item.type == "directory" else "file",
+                size=item.size,
+                depth=item.depth or 0,
+            )
+        )
 
-        # Track parent directories that contain files/dirs
-        if os.sep in item.path:
-            parent_path = os.path.dirname(item.path)
-            parent_dirs_with_content.add(parent_path)
+    # Emit structured message for the UI
+    file_listing_msg = FileListingMessage(
+        directory=directory,
+        files=file_entries,
+        recursive=recursive,
+        total_size=total_size,
+        dir_count=dir_count,
+        file_count=file_count,
+    )
+    get_message_bus().emit(file_listing_msg)
 
-        # Calculate indentation depth based on path separators
-        depth = item.path.count(os.sep) + 1 if item.path else 0
-        prefix = ""
-        for d in range(depth):
-            if d == depth - 1:
-                prefix += "\u2514\u2500\u2500 "
-            else:
-                prefix += "    "
-
-        # Get the display name (basename) of the item
+    # Build plain text output for LLM consumption
+    for item in sorted(results, key=lambda x: x.path):
+        if item.type == "directory" and not item.path:
+            continue
         name = os.path.basename(item.path) or item.path
-
-        # Add directory or file line with appropriate formatting
+        indent = "  " * (item.depth or 0)
         if item.type == "directory":
-            dir_line = f"{prefix}\U0001f4c1 [bold blue]{name}/[/bold blue]"
-            output_lines.append(dir_line)
+            output_lines.append(f"{indent}{name}/")
         else:
-            icon = get_file_icon(item.path)
             size_str = format_size(item.size)
-            file_line = f"{prefix}{icon} [green]{name}[/green] [dim]({size_str})[/dim]"
-            output_lines.append(file_line)
+            output_lines.append(f"{indent}{name} ({size_str})")
 
-    # Add summary information
-    summary_header = "\n[bold cyan]Summary:[/bold cyan]"
-    output_lines.append(summary_header)
+    # Add summary
+    output_lines.append(
+        f"\nSummary: {dir_count} directories, {file_count} files ({format_size(total_size)} total)"
+    )
 
-    summary_line = f"\U0001f4c1 [blue]{dir_count} directories[/blue], \U0001f4c4 [green]{file_count} files[/green] [dim]({format_size(total_size)} total)[/dim]"
-    output_lines.append(summary_line)
-
-    final_divider = "[dim]" + "─" * 100 + "\n" + "[/dim]"
-    output_lines.append(final_divider)
-
-    # Return the content string
     return ListFileOutput(content="\n".join(output_lines))
 
 
@@ -494,15 +460,6 @@ def _read_file(
     num_lines: int | None = None,
 ) -> ReadFileOutput:
     file_path = os.path.abspath(os.path.expanduser(file_path))
-
-    # Generate group_id for this tool execution
-    group_id = generate_group_id("read_file", file_path)
-
-    # Build console message with optional parameters
-    console_msg = f"\n[bold white on blue] READ FILE [/bold white on blue] \U0001f4c2 [bold cyan]{file_path}[/bold cyan]"
-    if start_line is not None and num_lines is not None:
-        console_msg += f" [dim](lines {start_line}-{start_line + num_lines - 1})[/dim]"
-    emit_info(console_msg, message_group=group_id)
 
     if not os.path.exists(file_path):
         error_msg = f"File {file_path} does not exist"
@@ -552,6 +509,30 @@ def _read_file(
                     error="The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.",
                     num_tokens=0,
                 )
+
+            # Count total lines for the message
+            total_lines = content.count("\n") + (
+                1 if content and not content.endswith("\n") else 0
+            )
+
+            # Emit structured message for the UI
+            # Only include start_line/num_lines if they are valid positive integers
+            emit_start_line = (
+                start_line if start_line is not None and start_line >= 1 else None
+            )
+            emit_num_lines = (
+                num_lines if num_lines is not None and num_lines >= 1 else None
+            )
+            file_content_msg = FileContentMessage(
+                path=file_path,
+                content=content,
+                start_line=emit_start_line,
+                num_lines=emit_num_lines,
+                total_lines=total_lines,
+                num_tokens=num_tokens,
+            )
+            get_message_bus().emit(file_content_msg)
+
         return ReadFileOutput(content=content, num_tokens=num_tokens)
     except (FileNotFoundError, PermissionError):
         # For backward compatibility with tests, return "FILE NOT FOUND" for these specific errors
@@ -604,11 +585,6 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
     # Generate group_id for this tool execution
     group_id = generate_group_id("grep", f"{directory}_{search_string}")
-
-    emit_info(
-        f"\n[bold white on blue] GREP [/bold white on blue] \U0001f4c2 [bold cyan]{directory}[/bold cyan] [dim]for '{search_string}'[/dim]",
-        message_group=group_id,
-    )
 
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
@@ -712,83 +688,32 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                 # Skip lines that aren't valid JSON
                 continue
 
+        # Build structured GrepMatch objects for the UI
+        grep_matches = [
+            GrepMatch(
+                file_path=m.file_path or "",
+                line_number=m.line_number or 1,
+                line_content=m.line_content or "",
+            )
+            for m in matches
+        ]
+
+        # Count unique files searched (approximation based on matches)
+        unique_files = len(set(m.file_path for m in matches)) if matches else 0
+
+        # Emit structured message for the UI
+        grep_result_msg = GrepResultMessage(
+            search_term=search_string,
+            directory=directory,
+            matches=grep_matches,
+            total_matches=len(matches),
+            files_searched=unique_files,
+        )
+        get_message_bus().emit(grep_result_msg)
+
         if not matches:
             emit_warning(
                 f"No matches found for '{search_string}' in {directory}",
-                message_group=group_id,
-            )
-        else:
-            # Check if verbose output is enabled
-            from collections import defaultdict
-
-            from code_puppy.config import get_grep_output_verbose
-
-            matches_by_file = defaultdict(list)
-            for match in matches:
-                matches_by_file[match.file_path].append(match)
-
-            verbose = get_grep_output_verbose()
-
-            if verbose:
-                # Verbose mode: Show full output with line numbers and content
-                emit_info(
-                    "\n[bold cyan]─────────────────────────────────────────────────────[/bold cyan]",
-                    message_group=group_id,
-                )
-
-                for file_path in sorted(matches_by_file.keys()):
-                    file_matches = matches_by_file[file_path]
-                    emit_info(
-                        f"\n[bold white]📄 {file_path}[/bold white] [dim]({len(file_matches)} match{'es' if len(file_matches) != 1 else ''})[/dim]",
-                        message_group=group_id,
-                    )
-
-                    # Show each match with line number and content
-                    for match in file_matches:
-                        line = match.line_content
-                        search_term = search_string.split()[-1]
-                        if search_term.startswith("-"):
-                            search_term = (
-                                search_string.split()[0]
-                                if search_string.split()
-                                else search_string
-                            )
-
-                        # Case-insensitive highlighting
-                        import re
-
-                        highlighted_line = (
-                            re.sub(
-                                f"({re.escape(search_term)})",
-                                r"[bold yellow on black]\1[/bold yellow on black]",
-                                line,
-                                flags=re.IGNORECASE,
-                            )
-                            if search_term and not search_term.startswith("-")
-                            else line
-                        )
-
-                        emit_info(
-                            f"  [bold cyan]{match.line_number:4d}[/bold cyan] │ {highlighted_line}",
-                            message_group=group_id,
-                        )
-
-                emit_info(
-                    "\n[bold cyan]─────────────────────────────────────────────────────[/bold cyan]",
-                    message_group=group_id,
-                )
-            else:
-                # Concise mode (default): Show only file summaries
-                emit_info("", message_group=group_id)
-                for file_path in sorted(matches_by_file.keys()):
-                    file_matches = matches_by_file[file_path]
-                    emit_info(
-                        f"[dim]📄 {file_path} ({len(file_matches)} match{'es' if len(file_matches) != 1 else ''})[/dim]",
-                        message_group=group_id,
-                    )
-
-            emit_success(
-                f"✓ Found [bold]{len(matches)}[/bold] match{'es' if len(matches) != 1 else ''} across [bold]{len(matches_by_file)}[/bold] file{'s' if len(matches_by_file) != 1 else ''}",
                 message_group=group_id,
             )
 
@@ -867,10 +792,8 @@ def register_list_files(agent):
             recursive = False
         result = _list_files(context, directory, recursive)
 
-        # Emit the content directly to ensure it's displayed to the user
-        emit_info(
-            result.content, message_group=generate_group_id("list_files", directory)
-        )
+        # The structured FileListingMessage is already emitted by _list_files
+        # No need to emit again here
         if warning:
             result.error = warning
         if (len(result.content)) > 200000:
