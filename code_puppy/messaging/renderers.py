@@ -105,7 +105,7 @@ class InteractiveRenderer(MessageRenderer):
             # Special handling for agent responses - they'll be rendered as markdown
             style = None
         elif message.type == MessageType.SYSTEM:
-            style = "dim"
+            style = None
         else:
             style = None
 
@@ -232,7 +232,7 @@ class SynchronousInteractiveRenderer:
             # Special handling for agent responses - they'll be rendered as markdown
             style = None
         elif message.type == MessageType.SYSTEM:
-            style = "dim"
+            style = None
         else:
             style = None
 

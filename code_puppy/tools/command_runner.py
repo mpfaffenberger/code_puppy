@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from pydantic_ai import RunContext
 from rich.text import Text
 
+from code_puppy.callbacks import on_run_shell_command_output
+from code_puppy.config import get_command_timeout_seconds
 from code_puppy.messaging import (  # Structured messaging types
     AgentReasoningMessage,
     ShellOutputMessage,
