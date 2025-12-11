@@ -153,7 +153,7 @@ def desktop_click_accessible_element(
             success=True,
             clicked=True,
             element_found=True,
-            method="native_mouse_click",
+            method="native_click",
             element=best_match.title,
             role=best_match.role,
             click_x=best_match.center_x,
@@ -733,7 +733,7 @@ def register_accessibility_tools(agent):
             return ElementClickResult(
                 success=True,
                 clicked=True,
-                method="native_mouse_click",
+                method="native_click",
                 element=best_match.title,
                 role=best_match.role,
                 x=best_match.center_x,

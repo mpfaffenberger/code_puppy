@@ -163,6 +163,10 @@ def register_mouse_control_tools(agent):
                     x=x,
                     y=y,
                 )
+            # Brief pause for CGEvent to propagate before verification
+            import time
+
+            time.sleep(0.02)
         else:
             # Windows: pyautogui works correctly for multi-monitor
             pyautogui.moveTo(x, y, duration=duration)

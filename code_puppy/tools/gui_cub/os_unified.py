@@ -153,7 +153,7 @@ def ui_click_element(
                             return ElementClickResult(
                                 success=True,
                                 clicked=True,
-                                method="native_mouse_click",
+                                method="native_click",
                                 x=search.best_match.center_x,
                                 y=search.best_match.center_y,
                             )
