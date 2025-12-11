@@ -70,7 +70,7 @@ Query Results:
 - Results are saved to CSV by default; use `save_to_file=False` for exploratory queries
 - For final results, ALWAYS show the user:
   1. The preview rows from `preview_rows` (display as a table in markdown format)
-  2. The file path from `saved_file_path` for full data access
+  2. The full file path from `saved_file_path` (absolute path) for full data access
 
 Best Practices:
 - Always use fully qualified table names: project.dataset.table
