@@ -258,6 +258,20 @@ class TestRenderMenuPanel:
         assert "Load" in lines_str
         assert "Cancel" in lines_str
 
+    def test_shows_session_title_when_available(self):
+        """Session titles are displayed when present in metadata."""
+        entries = [
+            (
+                "auto_session_1",
+                {"timestamp": "2024-01-01T12:00:00", "message_count": 3, "session_title": "My Session"},
+            )
+        ]
+
+        result = _render_menu_panel(entries, 0, 0)
+        lines_str = str(result)
+
+        assert "My Session — 2024-01-01" in lines_str
+
 
 class TestRenderPreviewPanel:
     """Test the _render_preview_panel function."""
@@ -277,6 +291,7 @@ class TestRenderPreviewPanel:
             "timestamp": "2024-01-01T12:30:45",
             "message_count": 10,
             "total_tokens": 1500,
+            "session_title": "Great Session",
         }
         entry = (session_name, metadata)
 
@@ -288,6 +303,7 @@ class TestRenderPreviewPanel:
         assert "Messages: 10" in lines_str
         assert "Tokens: 1,500" in lines_str
         assert "Last Message:" in lines_str
+        assert "Great Session" in lines_str
 
     def test_handles_preview_loading_error(self):
         """Test graceful handling of preview loading errors."""

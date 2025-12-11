@@ -119,14 +119,18 @@ def _render_menu_panel(
         except Exception:
             time_str = "unknown time"
 
-        # Format message count
+        # Format message count and optional title
         msg_count = metadata.get("message_count", "?")
+        session_title = metadata.get("session_title")
+        title_prefix = f"{session_title} — " if session_title else ""
+
+        display_text = f"{title_prefix}{time_str} • {msg_count} msgs"
 
         # Highlight selected item
         if is_selected:
-            lines.append(("fg:ansibrightblack", f" > {time_str} • {msg_count} msgs"))
+            lines.append(("fg:ansibrightblack", f" > {display_text}"))
         else:
-            lines.append(("fg:ansibrightblack", f"   {time_str} • {msg_count} msgs"))
+            lines.append(("fg:ansibrightblack", f"   {display_text}"))
 
         lines.append(("", "\n"))
 
@@ -162,6 +166,11 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     lines.append(("bold", "  Session: "))
     lines.append(("", session_name))
     lines.append(("", "\n"))
+
+    session_title = metadata.get("session_title")
+    if session_title:
+        lines.append(("fg:cyan", f"  Title: {session_title}"))
+        lines.append(("", "\n"))
 
     timestamp = metadata.get("timestamp", "unknown")
     try:
