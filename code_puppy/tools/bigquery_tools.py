@@ -421,7 +421,7 @@ def bigquery_execute_query(
     ctx: RunContext,
     query: str,
     max_results: int = 100,
-    save_to_file: bool = False,
+    save_to_file: bool = True,
     output_path: str | None = None,
     file_name_hint: str | None = None,
     output_format: str = "csv",
@@ -431,14 +431,14 @@ def bigquery_execute_query(
     SAFETY: Only SELECT queries are allowed. Destructive operations (DELETE, DROP,
     TRUNCATE, INSERT, UPDATE, MERGE, ALTER, CREATE, REPLACE) are blocked.
 
-    Only 5 preview rows are returned inline to minimize token usage. Set save_to_file=True
-    to save full results to a CSV file.
+    Only 5 preview rows are returned inline to minimize token usage. Results are saved
+    to a CSV file by default. Set save_to_file=False for exploratory/intermediate queries.
 
     Args:
         ctx: PydanticAI run context
         query: SQL query string to execute (SELECT only)
         max_results: Maximum number of results to return (default: 100)
-        save_to_file: Whether to save full results to a file (default: False)
+        save_to_file: Whether to save full results to a file (default: True)
         output_path: Optional explicit output path (file or directory) for saved results
         file_name_hint: Optional friendly name used when generating filenames
         output_format: File format for saved results ("csv" or "json", default: csv)
@@ -448,7 +448,7 @@ def bigquery_execute_query(
             - success (bool): Whether the query succeeded
             - total_rows (int): Total number of rows in result
             - preview_rows (list): First 5 rows as preview for quick context
-            - saved_file_path (str | None): Path to saved file (only when save_to_file=True)
+            - saved_file_path (str | None): Path to saved file (when save_to_file=True)
             - schema (list): List of field definitions
             - job_id (str): BigQuery job ID
             - bytes_processed (int): Bytes processed by the query

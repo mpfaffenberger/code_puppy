@@ -67,8 +67,10 @@ Usage:
 
 Query Results:
 - Queries return only 5 preview rows to minimize token usage
-- Use `save_to_file=True` to save full results to CSV
-- When saving, tell the user the file path from `saved_file_path`
+- Results are saved to CSV by default; use `save_to_file=False` for exploratory queries
+- For final results, ALWAYS show the user:
+  1. The preview rows from `preview_rows` (display as a table in markdown format)
+  2. The file path from `saved_file_path` for full data access
 
 Best Practices:
 - Always use fully qualified table names: project.dataset.table
