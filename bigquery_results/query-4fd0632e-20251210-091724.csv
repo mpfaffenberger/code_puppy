@@ -1,6 +1,0 @@
-transaction_id,event_name,timestamp,driver_user_id,device_model,device_os,status,login_type,ip,true_ip_city,true_ip_region,summary_risk_score,tmx_risk_rating,review_status,load_timestamp
-ed7179cd-f40f-4ff7-8551-91500006e2db,DRIVER_LOGIN_DETAILS,1765378280477,shaylajefferson2014@gmail.com,"iPhone12,1",iOS,SUCCESS,ID_TOKEN,2603:6081:57f0:6af0::172c,hope mills,north carolina,-3,neutral,pass,2025-12-10T14:51:53.738036+00:00
-0b320efa-a2f4-49c9-871d-3426452ad427,DRIVER_LOGIN_DETAILS,1765378301387,syedahinashah@outlook.com,"iPhone15,4",iOS,SUCCESS,ID_TOKEN,2607:fc20:ea95:b99d:158c:ec5f:2943:264f,baltimore,maryland,-6,neutral,pass,2025-12-10T14:51:49.793918+00:00
-469eb930-6e30-4aab-9776-f4d965a89c3d,DRIVER_LOGIN_DETAILS,1765378279460,tyeaishagreen24@icloud.com,"iPhone15,5",iOS,SUCCESS,ID_TOKEN,2600:1004:102f:d356:394a:36a8:fc79:6bf9,marshville,north carolina,17,neutral,pass,2025-12-10T14:51:49.403494+00:00
-a8033fb8-f590-4f6a-8643-b5dea4835496,DRIVER_LOGIN_DETAILS,1765378301541,sahilbhatia71@gmail.com,"iPhone16,1",iOS,SUCCESS,ID_TOKEN,2600:381:e966:5dc8:edc8:6f6b:1537:d9d1,newburgh,new york,14,neutral,pass,2025-12-10T14:51:48.666222+00:00
-a4e80069-73e9-4008-9846-06e9d7746753,DRIVER_LOGIN_DETAILS,1765378300079,gibbsember055@gmail.com,"iPhone17,5",iOS,SUCCESS,ID_TOKEN,10.148.6.179,brownstown charter township,michigan,-16,neutral,pass,2025-12-10T14:51:47.344159+00:00
