@@ -203,6 +203,11 @@ async def main():
 
     ensure_config_exists()
 
+    # Initialize session logging JSON config
+    from code_puppy.config import initialize_session_logging_config
+
+    initialize_session_logging_config()
+
     # Validate cancel_agent_key configuration early
     try:
         validate_cancel_agent_key()
@@ -377,6 +382,38 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         emit_warning(f"MOTD error: {e}")
 
+    # Initialize session logger
+    session_logger = None
+    try:
+        from code_puppy.agents.agent_manager import get_terminal_session_id
+        from code_puppy.config import get_session_logging_config
+        from code_puppy.session_logging import (
+            SessionLogger,
+            set_global_session_logger,
+        )
+        from code_puppy.session_logging.config_schema import (
+            load_session_logging_config_from_dict,
+        )
+
+        session_logging_dict = get_session_logging_config()
+        session_logging_config = load_session_logging_config_from_dict(
+            session_logging_dict
+        )
+
+        if session_logging_config.enabled:
+            terminal_session_id = get_terminal_session_id()
+            session_logger = SessionLogger(session_logging_config, terminal_session_id)
+            await session_logger.initialize()
+            # Make logger available globally for tool access and commands
+            set_global_session_logger(session_logger)
+            emit_system_message(
+                f"📝 Session logging enabled: {session_logger.log_path}"
+            )
+    except Exception as e:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(f"Failed to initialize session logger: {e}")
+
     # Initialize the runtime agent manager
     if initial_command:
         from code_puppy.agents import get_current_agent
@@ -521,10 +558,21 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 emit_system_message,
                 emit_warning,
             )
+            from code_puppy.session_logging import get_global_session_logger
 
             agent = get_current_agent()
             new_session_id = finalize_autosave_session()
             agent.clear_message_history()
+            
+            # Log context cleared event to session logger
+            session_logger = get_global_session_logger()
+            if session_logger:
+                try:
+                    await session_logger.log_context_cleared()
+                except Exception:
+                    # Silently ignore logging errors
+                    pass
+            
             emit_warning("Conversation history cleared!")
             emit_system_message("The agent will not remember previous interactions.")
             emit_info(f"Auto-save session rotated to: {new_session_id}")
@@ -627,6 +675,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
 
+            # Log user prompt
+            if session_logger:
+                try:
+                    await session_logger.log_user_prompt(task)
+                except Exception:
+                    pass  # Silently ignore logging errors
+
             try:
                 prettier_code_blocks()
 
@@ -643,6 +698,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     continue
                 # Get the structured response
                 agent_response = result.output
+
+                # Log agent response
+                if session_logger:
+                    try:
+                        await session_logger.log_agent_response(agent_response)
+                    except Exception:
+                        pass  # Silently ignore logging errors
 
                 # Emit structured message for proper markdown rendering
                 from code_puppy.messaging import get_message_bus

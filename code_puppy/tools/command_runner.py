@@ -804,6 +804,25 @@ def share_your_reasoning(
     )
     get_message_bus().emit(reasoning_msg)
 
+    # Also log to session logger if available
+    try:
+        from code_puppy.main import get_session_logger
+
+        session_logger = get_session_logger()
+        if session_logger:
+            import asyncio
+
+            # Create coroutine for logging
+            full_reasoning = reasoning
+            if next_steps and next_steps.strip():
+                full_reasoning += f"\n\n**Next Steps:**\n{next_steps}"
+
+            # Run async logging in a fire-and-forget manner
+            asyncio.create_task(session_logger.log_agent_reasoning(full_reasoning))
+    except Exception:
+        # Silently ignore logging errors
+        pass
+
     return ReasoningOutput(success=True)
 
 

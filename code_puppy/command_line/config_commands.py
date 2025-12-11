@@ -19,6 +19,131 @@ def get_commands_help():
     return _gch()
 
 
+def _get_session_logging_status() -> str:
+    """Get formatted session logging status for /show command."""
+    try:
+        from code_puppy.session_logging import get_global_session_logger
+
+        logger = get_global_session_logger()
+        if logger is None:
+            return "[dim]not configured[/dim]"
+        elif logger.is_enabled():
+            return "[green]enabled[/green] (toggle: /session_logging)"
+        else:
+            return "[yellow]disabled[/yellow] (toggle: /session_logging)"
+    except Exception:
+        return "[dim]unavailable[/dim]"
+
+
+@register_command(
+    name="session_logging",
+    description="Toggle or check session logging status",
+    usage="/session_logging [status|on|off|toggle]",
+    aliases=["log", "logging"],
+    category="config",
+    detailed_help="""Control session logging at runtime.
+
+Commands:
+  /session_logging          - Show current logging status
+  /session_logging status   - Show current logging status  
+  /session_logging on       - Enable session logging
+  /session_logging off      - Disable session logging
+  /session_logging toggle   - Toggle logging on/off
+
+Note: Session logging must be configured in puppy.cfg first.
+This command only controls the runtime state.""",
+)
+def handle_session_logging_command(command: str) -> bool:
+    """Toggle or check session logging status."""
+    from code_puppy.config import (
+        get_session_logging_config,
+        save_session_logging_config,
+    )
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.session_logging import get_global_session_logger
+
+    logger = get_global_session_logger()
+
+    # Parse subcommand
+    tokens = command.split()
+    subcommand = tokens[1].lower() if len(tokens) > 1 else "status"
+
+    # Check if logger exists (configured in session_logging.json)
+    if logger is None:
+        emit_warning(
+            "Session logging is not configured. "
+            "Set enabled=true in ~/.code_puppy/session_logging.json to enable."
+        )
+        return True
+
+    # Handle subcommands
+    if subcommand in ["status", "state"]:
+        status = "[green]enabled[/green]" if logger.is_enabled() else "[yellow]disabled[/yellow]"
+        emit_info(
+            f"Session logging: {status}\n"
+            f"Log file: [cyan]{logger.log_path}[/cyan]\n"
+            f"Format: [cyan]{logger.config.format}[/cyan]"
+        )
+    elif subcommand == "on":
+        if logger.is_enabled():
+            emit_info("Session logging is already enabled")
+        else:
+            # Update runtime state
+            logger.set_enabled(True)
+            # Persist to JSON config
+            config = get_session_logging_config()
+            config["enabled"] = True
+            if save_session_logging_config(config):
+                emit_success(
+                    f"📝 Session logging enabled\n"
+                    f"Writing to: [cyan]{logger.log_path}[/cyan]"
+                )
+            else:
+                emit_warning("Session logging enabled (but failed to save to config file)")
+    elif subcommand == "off":
+        if not logger.is_enabled():
+            emit_info("Session logging is already disabled")
+        else:
+            # Update runtime state
+            logger.set_enabled(False)
+            # Persist to JSON config
+            config = get_session_logging_config()
+            config["enabled"] = False
+            if save_session_logging_config(config):
+                emit_success("Session logging disabled")
+            else:
+                emit_warning("Session logging disabled (but failed to save to config file)")
+    elif subcommand == "toggle":
+        new_state = not logger.is_enabled()
+        # Update runtime state
+        logger.set_enabled(new_state)
+        # Persist to JSON config
+        config = get_session_logging_config()
+        config["enabled"] = new_state
+        saved = save_session_logging_config(config)
+        
+        if new_state:
+            if saved:
+                emit_success(
+                    f"📝 Session logging enabled\n"
+                    f"Writing to: [cyan]{logger.log_path}[/cyan]"
+                )
+            else:
+                emit_warning("Session logging enabled (but failed to save to config file)")
+        else:
+            if saved:
+                emit_success("Session logging disabled")
+            else:
+                emit_warning("Session logging disabled (but failed to save to config file)")
+    else:
+        emit_error(
+            f"Unknown subcommand: {subcommand}\n"
+            "Usage: /session_logging [status|on|off|toggle]"
+        )
+
+    return True
+
+
 @register_command(
     name="show",
     description="Show puppy config key-values",
@@ -71,6 +196,7 @@ def handle_show_command(command: str) -> bool:
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]DBOS:[/bold]                  {"[green]enabled[/green]" if get_use_dbos() else "[yellow]disabled[/yellow]"} (toggle: /set enable_dbos true|false)
 [bold]auto_save_session:[/bold]     {"[green]enabled[/green]" if auto_save else "[yellow]disabled[/yellow]"}
+[bold]session_logging:[/bold]       {_get_session_logging_status()}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
