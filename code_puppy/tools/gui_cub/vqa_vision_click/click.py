@@ -396,7 +396,6 @@ def desktop_click_element_vqa(
     )
 
     try:
-        import pyautogui
 
         scale_factor = get_screen_scale_factor()
         emit_info(f"   Scale: {scale_factor}x", message_group=group_id)
@@ -646,7 +645,22 @@ def desktop_click_element_vqa(
             message_group=group_id,
         )
 
-        pyautogui.click(click_x_logical, click_y_logical)
+        # Use native API for multi-monitor support
+        from ..platform import click_mouse_native
+
+        click_success, click_error = click_mouse_native(
+            x=click_x_logical, y=click_y_logical, button="left", clicks=1
+        )
+
+        if not click_success:
+            emit_warning(
+                f"Native click failed: {click_error}",
+                message_group=group_id,
+            )
+            return ElementClickResult(
+                success=False,
+                error=f"Native click failed: {click_error}",
+            )
 
         return ElementClickResult(
             success=True,

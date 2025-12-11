@@ -39,6 +39,258 @@ from .result_types import (
 from .search import _check_ocr_capability, find_text_in_elements
 
 
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (importable for use by other modules)
+# ============================================================================
+
+
+def desktop_find_text(
+    context: "RunContext | None" = None,
+    search_text: str = "",
+    case_sensitive: bool = False,
+    fuzzy: bool = False,
+    fuzzy_threshold: float = 0.75,
+    x: int | None = None,
+    y: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    use_active_window: bool = True,
+    use_full_screen: bool = False,
+    language: str = "eng",
+    min_confidence: float | None = None,
+) -> OCRFindResult:
+    """
+    Find text on screen using OCR and return its coordinates.
+
+    This is the module-level function that can be imported directly.
+    Searches ONLY the active window by default for better performance.
+
+    Args:
+        context: Optional RunContext (not used, kept for API compatibility)
+        search_text: Text to search for (case-insensitive by default)
+        case_sensitive: Whether to match case exactly (default: False)
+        fuzzy: Enable fuzzy matching (default: False)
+        fuzzy_threshold: Minimum similarity for fuzzy matching (default: 0.75)
+        x: Optional left coordinate of region to search within
+        y: Optional top coordinate of region to search within
+        width: Optional width of region to search within
+        height: Optional height of region to search within
+        use_active_window: Search only the active window (default: True)
+        use_full_screen: Search the entire screen (default: False)
+        language: Language code for OCR (default: "eng")
+        min_confidence: Optional minimum confidence filter (0.0-1.0)
+
+    Returns:
+        OCRFindResult with matches sorted by confidence
+    """
+    if not search_text:
+        return OCRFindResult(
+            success=False,
+            error="search_text is required",
+            search_text=search_text,
+        )
+
+    # Check capabilities
+    is_available, error_msg = _check_ocr_capability()
+    if not is_available:
+        return OCRFindResult(
+            success=False,
+            error=error_msg,
+            search_text=search_text,
+        )
+
+    if not PYAUTOGUI_AVAILABLE:
+        return OCRFindResult(
+            success=False,
+            error=ERROR_PYAUTOGUI_MISSING,
+            search_text=search_text,
+        )
+
+    group_id = generate_group_id("ocr_find", search_text[:30])
+
+    # Determine region to capture
+    region = None
+
+    if x is not None and y is not None and width is not None and height is not None:
+        region = (x, y, width, height)
+    elif use_full_screen:
+        region = None
+    elif use_active_window:
+        from ..window_control import _get_active_window_bounds_impl
+
+        bounds_result = _get_active_window_bounds_impl()
+        if bounds_result.success and bounds_result.x is not None:
+            region = (
+                bounds_result.x,
+                bounds_result.y,
+                bounds_result.width,
+                bounds_result.height,
+            )
+
+    try:
+        # Detect HiDPI scaling
+        from ..platform import get_screen_scale_factor
+
+        scale_factor = get_screen_scale_factor()
+
+        # Convert to physical pixels if needed
+        if region and scale_factor != 1.0:
+            region = (
+                int(region[0] * scale_factor),
+                int(region[1] * scale_factor),
+                int(region[2] * scale_factor),
+                int(region[3] * scale_factor),
+            )
+
+        # Take screenshot
+        screenshot = _safe_screenshot(region=region)
+        if screenshot is None:
+            return OCRFindResult(
+                success=False,
+                error="Failed to capture screenshot",
+                search_text=search_text,
+            )
+
+        # Extract text from screenshot
+        extract_result = extract_text_from_image(
+            screenshot,
+            language=language,
+            scale_factor=scale_factor,
+        )
+
+        if not extract_result.success:
+            return OCRFindResult(
+                success=False,
+                error=extract_result.error or "OCR extraction failed",
+                search_text=search_text,
+            )
+
+        text_elements = extract_result.text_elements or []
+
+        # Apply region offset to coordinates
+        if region and text_elements:
+            offset_x = region[0] / scale_factor if scale_factor != 1.0 else region[0]
+            offset_y = region[1] / scale_factor if scale_factor != 1.0 else region[1]
+            for elem in text_elements:
+                elem.x = int(elem.x + offset_x)
+                elem.center_x = int(elem.center_x + offset_x)
+                elem.y = int(elem.y + offset_y)
+                elem.center_y = int(elem.center_y + offset_y)
+
+        # Search for text
+        find_result = find_text_in_elements(
+            search_text=search_text,
+            text_elements=text_elements,
+            case_sensitive=case_sensitive,
+            fuzzy=fuzzy,
+            fuzzy_threshold=fuzzy_threshold,
+        )
+
+        # Apply confidence filter if specified
+        if min_confidence is not None and find_result.found:
+            if find_result.matches:
+                high_conf = [m for m in find_result.matches if m.confidence >= min_confidence]
+                if not high_conf:
+                    return OCRFindResult(
+                        success=True,
+                        search_text=search_text,
+                        found=False,
+                        total_matches=0,
+                        best_match=None,
+                        matches=[],
+                    )
+                best = max(high_conf, key=lambda m: m.confidence)
+                find_result = OCRFindResult(
+                    success=True,
+                    search_text=search_text,
+                    found=True,
+                    total_matches=len(high_conf),
+                    best_match=best,
+                    matches=high_conf,
+                )
+            elif find_result.best_match:
+                if find_result.best_match.confidence < min_confidence:
+                    return OCRFindResult(
+                        success=True,
+                        search_text=search_text,
+                        found=False,
+                        total_matches=0,
+                        best_match=None,
+                        matches=[],
+                    )
+
+        if find_result.found:
+            emit_info(
+                f"[green]Found {find_result.total_matches} match(es) for '{search_text}'[/green]",
+                message_group=group_id,
+            )
+            return _compact_ocr_find_result(find_result)
+        else:
+            emit_warning(
+                f"[yellow]No matches found for '{search_text}'[/yellow]",
+                message_group=group_id,
+            )
+            return find_result
+
+    except Exception as e:
+        return OCRFindResult(
+            success=False,
+            error=f"OCR failed: {str(e)}",
+            search_text=search_text,
+        )
+
+
+def desktop_find_text_reliable(
+    context: "RunContext | None" = None,
+    search_text: str = "",
+    min_confidence: float = 0.7,
+    case_sensitive: bool = False,
+    x: int | None = None,
+    y: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    use_active_window: bool = True,
+    use_full_screen: bool = False,
+    language: str = "eng",
+) -> OCRFindResult:
+    """
+    Find text on screen with OCR confidence filtering for reliable results.
+
+    This is the module-level function that can be imported directly.
+    Wrapper around desktop_find_text() that ONLY returns matches with
+    OCR confidence >= min_confidence.
+
+    Args:
+        context: Optional RunContext (not used, kept for API compatibility)
+        search_text: Text to search for
+        min_confidence: Minimum OCR confidence required (0.0-1.0, default: 0.7)
+        case_sensitive: Whether to match case exactly (default: False)
+        x: Optional left coordinate of search region
+        y: Optional top coordinate of search region
+        width: Optional width of search region
+        height: Optional height of search region
+        use_active_window: Search only active window (default: True)
+        use_full_screen: Search entire screen (default: False)
+        language: Language code for OCR (default: "eng")
+
+    Returns:
+        OCRFindResult with only high-confidence matches
+    """
+    return desktop_find_text(
+        context=context,
+        search_text=search_text,
+        case_sensitive=case_sensitive,
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        use_active_window=use_active_window,
+        use_full_screen=use_full_screen,
+        language=language,
+        min_confidence=min_confidence,
+    )
+
+
 def register_ocr_tools(agent):
     """Register OCR (Optical Character Recognition) tools.
 

@@ -104,14 +104,16 @@ class GUICubAgent(BaseAgent):
 
         if sys.platform == "win32":
             return """**Platform: Windows**
-- Use `windows_automation` and `ui_automation` tools
+- Use `desktop_click_element_smart()` for clicking (PRIMARY)
+- Use `windows_automation` tools for exploration/debugging
 - PowerShell for system operations
-- Use automation_id and class_name as primary selectors"""
+- automation_id is the most reliable selector for Windows apps"""
         elif sys.platform == "darwin":
             return """**Platform: macOS**
+- Use `desktop_click_element_smart()` for clicking (PRIMARY)
 - Use `mac_launch_app()` instead of Spotlight (more reliable)
-- Use `macos_automation` and `ui_automation` tools
-- Use accessibility roles and attributes as selectors"""
+- Use `macos_automation` tools for exploration/debugging
+- Use accessibility roles and AXTitle as selectors"""
         else:
             return """**Platform: Unsupported**
 - GUI-Cub only fully supports macOS and Windows
@@ -143,8 +145,8 @@ This is NON-NEGOTIABLE. Even for simple tasks like "open calculator" - check wor
 
 1. **Check workflows FIRST:** `gui_cub_list_workflows()` before ANY task - NO EXCEPTIONS
 2. **Focus window first:** `desktop_focus_window()` BEFORE any interaction
-3. **Tool priority (Tier system):** Keyboard → Accessibility API → OCR → VQA (LAST RESORT)
-4. **ALWAYS explore before clicking:** `ui_list_elements()` to understand UI first
+3. **Use `desktop_click_element_smart()` for clicking** - it handles search+click automatically!
+4. **Tool priority (Tier system):** Keyboard → Smart Click → OCR → VQA (LAST RESORT)
 5. **Verify actions:** Screenshot or element tree check after each step
 6. **NEVER OCR terminals:** Security risk - contains secrets/credentials
 
@@ -161,13 +163,21 @@ This is NON-NEGOTIABLE. Even for simple tasks like "open calculator" - check wor
 
 ### Phase 2: Execute (Follow Tier Priority)
 
+**🚨 CLICKING ELEMENTS - USE THIS:**
+```python
+# PRIMARY METHOD - handles search + click + fallbacks automatically!
+desktop_click_element_smart("Submit")  # ✅ Just works!
+desktop_click_element_smart("4", element_type="button")  # Calculator buttons
+desktop_click_element_smart("OK", verify_click=True)  # With verification
+```
+
 **Interaction Tiers (ALWAYS follow this order):**
 
 | Tier | Method | Token Cost | When to Use |
 |------|--------|------------|-------------|
 | 1 | Keyboard | ~50 | Tab, Enter, hotkeys - ALWAYS try first |
-| 2 | Accessibility API | ~100-500 | `ui_click_element()`, element tree - ±1px accuracy |
-| 3 | OCR | ~500-2000 | `desktop_find_text()` - only if no accessibility label |
+| 2 | Smart Click | ~100-500 | `desktop_click_element_smart()` - **PRIMARY CLICK METHOD** |
+| 3 | OCR | ~500-2000 | `desktop_find_text()` - only if smart click fails |
 | 4 | VQA (Last Resort) | ~1000-3000 | `desktop_vqa_click_two_stage()` - visual-only elements |
 
 **Verification Tiers:**
@@ -231,28 +241,46 @@ If `desktop_focus_window()` fails (window minimized):
 1. Use `macos_click_dock_icon("AppName")`
 2. Screenshot to verify
 
-## Element Tree Search (Token-Efficient)
+## Clicking Elements - Tool Selection Guide (with Examples)
 
-**Example - search with adaptive depth:**
+**✅ PRIMARY: `desktop_click_element_smart()` - Use for 95% of clicks!**
 ```python
-# Always search element tree BEFORE using OCR
-result = windows_search_elements(search_query="Submit")
-if not result.found:
-    # Try deeper for complex/legacy apps (SAP, Connexus, EMR)
-    result = windows_search_elements(search_query="Submit", max_depth=25)
-if result.found:
-    click(result.best_match.center_x, result.best_match.center_y)
-else:
-    # Only fall back to OCR if element tree fails
-    ocr_result = desktop_find_text("Submit")
+# Simple and reliable - handles everything automatically:
+desktop_click_element_smart("Submit")  # Searches + clicks + has fallbacks
+desktop_click_element_smart("4")  # Works for Calculator buttons
+desktop_click_element_smart("Save", element_type="button")
 ```
 
-**Depth Strategy (IMPORTANT for legacy apps):**
-- Default (15): Works for 95% of modern apps
-- Depth 20-25: Complex enterprise/legacy apps
-- Depth 30+: Rare, exceptionally nested UIs
+This tool automatically tries:
+1. Accessibility API (most accurate)
+2. OCR with smart offset (fallback)
+3. Reports detailed errors if all fail
 
-**Always try deeper search if default fails** - legacy apps often have deeply nested UI trees.
+**⚠️ ADVANCED: Low-level tools (use only for debugging/exploration)**
+```python
+# For EXPLORING what's available (not clicking):
+windows_list_interactive_elements()  # See what's clickable
+windows_search_elements("Submit")    # Find element details
+
+# For clicking with SPECIFIC element properties:
+windows_click_element(title="Four", control_type="Button")
+windows_click_element(automation_id="num4Button")  # By automation ID
+windows_click_element(x=555, y=300)  # By coordinates from search result
+```
+
+**❌ WRONG - Don't do this:**
+```python
+# BAD: Search then click with no parameters!
+result = windows_search_elements("Submit")
+windows_click_element()  # ❌ WRONG - no params = clicks random element!
+
+# GOOD: Either use smart click OR pass the found info:
+desktop_click_element_smart("Submit")  # ✅ Recommended
+# OR
+windows_click_element(title=result.best_match.title)  # ✅ Pass the title
+# OR  
+windows_click_element(x=result.best_match.center_x, y=result.best_match.center_y)  # ✅ Pass coords
+```
 
 ## Communication Style
 

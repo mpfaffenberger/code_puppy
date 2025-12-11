@@ -20,7 +20,14 @@ else:
 from code_puppy.messaging import emit_warning
 
 from .constants import DEFAULT_MOUSE_DURATION
-from .platform import IS_MACOS, IS_WINDOWS, check_macos_accessibility_permission
+from .platform import (
+    IS_MACOS,
+    IS_WINDOWS,
+    check_macos_accessibility_permission,
+    click_mouse_native,
+    get_mouse_position_native,
+    move_mouse_native,
+)
 from .result_types import (
     MouseActionResult,
     MouseDragResult,
@@ -52,6 +59,9 @@ def desktop_mouse_click(
 ) -> MouseActionResult:
     """Click the mouse at the current position or specific coordinates.
 
+    Uses native Quartz APIs on macOS for multi-monitor support.
+    pyautogui.click() is clamped to primary monitor bounds on macOS.
+
     Args:
         x: Optional X coordinate (if None, clicks current position)
         y: Optional Y coordinate (if None, clicks current position)
@@ -62,12 +72,33 @@ def desktop_mouse_click(
     Returns:
         MouseActionResult with success status and click details
     """
-    if x is not None and y is not None:
-        pyautogui.click(x=x, y=y, button=button, clicks=clicks, interval=interval)
-    else:
-        pyautogui.click(button=button, clicks=clicks, interval=interval)
+    # Get current position if coordinates not specified
+    if x is None or y is None:
+        current_x, current_y = get_mouse_position_native()
+        if x is None:
+            x = current_x
+        if y is None:
+            y = current_y
 
-    final_x, final_y = pyautogui.position()
+    # Use native API for clicking on macOS (multi-monitor safe)
+    if IS_MACOS:
+        success, error = click_mouse_native(
+            x=x, y=y, button=button, clicks=clicks, interval=interval
+        )
+        if not success:
+            return MouseActionResult(
+                success=False,
+                error=error or "Native mouse click failed",
+                x=x,
+                y=y,
+                button=button,
+                clicks=clicks,
+            )
+    else:
+        # Windows: pyautogui works correctly for multi-monitor
+        pyautogui.click(x=x, y=y, button=button, clicks=clicks, interval=interval)
+
+    final_x, final_y = get_mouse_position_native()
     return MouseActionResult(
         success=True, x=final_x, y=final_y, button=button, clicks=clicks
     )
@@ -120,12 +151,31 @@ def register_mouse_control_tools(agent):
                     y=y,
                 )
 
-        # Attempt to move mouse
-        pyautogui.moveTo(x, y, duration=duration)
-        final_x, final_y = pyautogui.position()
+        # Use native API for mouse movement on macOS (multi-monitor safe)
+        # pyautogui.moveTo() is clamped to primary monitor bounds on macOS
+        if IS_MACOS:
+            success, error = move_mouse_native(x, y, duration=duration)
+            if not success:
+                emit_warning(f"[yellow]Native mouse move failed: {error}[/yellow]")
+                return MouseActionResult(
+                    success=False,
+                    error=error or "Native mouse move failed",
+                    x=x,
+                    y=y,
+                )
+            # Brief pause for CGEvent to propagate before verification
+            import time
+
+            time.sleep(0.02)
+        else:
+            # Windows: pyautogui works correctly for multi-monitor
+            pyautogui.moveTo(x, y, duration=duration)
+
+        # Use native API for position verification
+        final_x, final_y = get_mouse_position_native()
 
         # Verify movement succeeded (within tolerance for rounding)
-        tolerance = 2  # pixels
+        tolerance = 5  # pixels - increased for multi-monitor edge cases
         moved_successfully = (
             abs(final_x - x) <= tolerance and abs(final_y - y) <= tolerance
         )
@@ -458,6 +508,9 @@ def register_mouse_control_tools(agent):
         """
         Get the current mouse cursor position.
 
+        Uses native macOS APIs for accurate multi-monitor coordinate reporting.
+        On Windows, uses pyautogui which handles multi-monitor correctly.
+
         Returns:
             MousePositionResult with x and y coordinates
 
@@ -468,7 +521,8 @@ def register_mouse_control_tools(agent):
             # Can't use decorator here since this returns a different type
             return {"error": "pyautogui not available"}
 
-        x, y = pyautogui.position()
+        # Use native API for accurate multi-monitor coordinates
+        x, y = get_mouse_position_native()
         return MousePositionResult(x=x, y=y)
 
     @agent.tool

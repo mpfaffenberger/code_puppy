@@ -23,6 +23,9 @@ else:
 # Import thread-safe screenshot function
 from ..screen_capture.capture import _safe_screenshot
 
+# Import native mouse position getter for multi-monitor support
+from ..platform import get_mouse_position_native
+
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
@@ -114,8 +117,8 @@ def register_click_debugging_tools(agent):
 
             time.sleep(0.1)
 
-            # Get actual cursor position
-            actual_x, actual_y = pyautogui.position()
+            # Get actual cursor position using native API (multi-monitor safe)
+            actual_x, actual_y = get_mouse_position_native()
             offset_x = actual_x - x
             offset_y = actual_y - y
 
@@ -915,8 +918,19 @@ def register_click_debugging_tools(agent):
 
             pixel_color = screenshot.getpixel((sx, sy))
 
-            # Perform click
-            pyautogui.click(x=x, y=y, button=button)
+            # Perform click using native API (multi-monitor safe)
+            from ..platform import click_mouse_native
+
+            click_success, click_error = click_mouse_native(
+                x=x, y=y, button=button, clicks=1
+            )
+            if not click_success:
+                return ClickDebugResult(
+                    success=False,
+                    x=x,
+                    y=y,
+                    error=f"Native click failed: {click_error}",
+                )
 
             emit_info(
                 f"[green]✅ Clicked at ({x}, {y})[/green]",
@@ -1081,8 +1095,13 @@ def register_click_debugging_tools(agent):
                     message_group=group_id,
                 )
 
-                # Perform click
-                pyautogui.click(x=click_x, y=click_y)
+                # Perform click using native API (multi-monitor safe)
+                from ..platform import click_mouse_native
+
+                click_success, _ = click_mouse_native(
+                    x=click_x, y=click_y, button="left", clicks=1
+                )
+                # Continue even if click fails - we're in diagnostic mode
 
                 # Wait briefly for UI to update
                 import time
