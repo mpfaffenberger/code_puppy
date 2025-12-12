@@ -159,9 +159,10 @@ async def main():
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
 
-    # Show the awesome Code Puppy logo only in interactive mode (never in TUI mode)
-    # Always check both command line args AND runtime TUI state for safety
-    if args.interactive:
+    # Show the awesome Code Puppy logo when entering interactive mode
+    # This happens when: no -p flag (prompt-only mode) is used
+    # The logo should appear for both `code-puppy` and `code-puppy -i`
+    if not args.prompt:
         try:
             import pyfiglet
 
@@ -171,7 +172,7 @@ async def main():
 
             # Simple blue to green gradient (top to bottom)
             gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
-            emit_system_message("\n\n")
+            display_console.print("\n")
 
             lines = []
             # Apply gradient line by line
@@ -183,7 +184,8 @@ async def main():
                     lines.append(f"[{color}]{line}[/{color}]")
                 else:
                     lines.append("")
-            emit_system_message("\n".join(lines))
+            # Print directly to console to avoid the 'dim' style from emit_system_message
+            display_console.print("\n".join(lines))
         except ImportError:
             emit_system_message("🐶 Code Puppy is Loading...")
 
