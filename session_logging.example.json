@@ -1,0 +1,14 @@
+// Example session logging configuration
+// Copy this to ~/.code_puppy/session_logging.json and customize
+// Code Puppy will auto-create this file on first run with default values
+{
+  "enabled": false,
+  "log_file": "~/.code_puppy/sessions/{session_id}.md",
+  "format": "markdown",
+  "user_prompts": true,
+  "agent_reasoning": true,
+  "agent_responses": true,
+  "tool_calls": true,
+  "tool_outputs": true,
+  "timestamp_format": "ISO8601"
+}
