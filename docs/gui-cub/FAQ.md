@@ -5,6 +5,23 @@ The `gui_cub_faq` tool uses this content to provide helpful, consistent answers.
 
 ---
 
+## ⚠️ IMPORTANT COMPLIANCE DISCLAIMERS
+
+**READ BEFORE USING GUI-CUB:**
+
+### 🚫 No PHI/HIPAA Data
+GUI-Cub must **NOT** be used with Protected Health Information (PHI) or any HIPAA-protected data. 
+This includes:
+- Patient records and medical information
+- Health insurance data
+- Any data subject to HIPAA regulations
+
+### 📧 Compliance Questions
+For questions about PHI/HIPAA compliance, contact:
+**HIPAA.Compliance@walmart.com**
+
+---
+
 ## What can you do?
 
 **Response:**
@@ -195,6 +212,7 @@ Even for simple tasks like "open calculator" - I check first. There might be:
 Heres what I **cannot** do (important boundaries!):
 
 ### Hard Limits
+- ❌ **PHI/HIPAA data** - Must NOT be used with protected health information (contact HIPAA.Compliance@walmart.com)
 - ❌ **OCR terminals** - Security risk (contains secrets/passwords)
 - ❌ **CAPTCHAs** - By design, these block automation
 - ❌ **DRM-protected content** - Cant screenshot some video players

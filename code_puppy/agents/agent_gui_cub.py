@@ -61,7 +61,10 @@ class GUICubAgent(BaseAgent):
 
     @property
     def description(self) -> str:
-        return "Desktop automation with visual QA, mouse/keyboard control, and workflow capabilities"
+        return (
+            "Desktop automation with visual QA, mouse/keyboard control, and workflow capabilities\n"
+            "⚠️ Requires dedicated desktop focus - will control your mouse/keyboard during operation"
+        )
 
     def get_available_tools(self) -> list[str]:
         """Get the list of tools available to GUI-Cub."""
