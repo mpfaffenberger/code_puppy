@@ -915,6 +915,9 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                         f"💡 Default project '{default_project}' is now set.\n"
                         f"   You can work with other projects by specifying project_id in commands."
                     )
+                    emit_info(
+                        "📚 Learn more about the BigQuery agent: https://puppy.walmart.com/agents/bigquery-explorer"
+                    )
                     return "BigQuery authentication successful!"
                 else:
                     emit_warning(
@@ -947,12 +950,13 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                     error_msg = error_output or "Unknown error"
                     emit_error(f"❌ Authentication failed:\n{error_msg}")
                     if attempt >= max_attempts:
-                        emit_info(
-                            "💡 Troubleshooting tips:\n"
-                            "   - Make sure you're allowing all required scopes/permissions\n"
-                            "   - Check if your browser is blocking popups\n"
-                            "   - Try running: gcloud auth application-default login --no-browser"
-                        )
+                    emit_info(
+                        "💡 Troubleshooting tips:\n"
+                        "   - Make sure you're allowing all required scopes/permissions\n"
+                        "   - Check if your browser is blocking popups\n"
+                        "   - Try running: gcloud auth application-default login --no-browser\n"
+                        "   - For more details: https://puppy.walmart.com/agents/bigquery-explorer/getting-started"
+                    )
                     return f"Authentication failed after {max_attempts} attempts: {error_msg}"
 
         except subprocess.TimeoutExpired:
