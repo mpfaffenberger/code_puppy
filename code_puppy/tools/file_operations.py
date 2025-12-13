@@ -18,11 +18,8 @@ from code_puppy.messaging import (  # New structured messaging types
     FileListingMessage,
     GrepMatch,
     GrepResultMessage,
-    emit_error,
-    emit_warning,
     get_message_bus,
 )
-from code_puppy.tools.common import generate_group_id
 
 
 # Pydantic models for tool return types
@@ -53,6 +50,7 @@ class MatchInfo(BaseModel):
 
 class GrepOutput(BaseModel):
     matches: List[MatchInfo]
+    error: str | None = None
 
 
 def is_likely_home_directory(directory):
@@ -582,9 +580,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
     directory = os.path.abspath(os.path.expanduser(directory))
     matches: List[MatchInfo] = []
-
-    # Generate group_id for this tool execution
-    group_id = generate_group_id("grep", f"{directory}_{search_string}")
+    error_message: str | None = None
 
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
@@ -616,11 +612,10 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                     break
 
         if not rg_path:
-            emit_error(
-                "ripgrep (rg) not found. Please install ripgrep to use this tool.",
-                message_group=group_id,
+            error_message = (
+                "ripgrep (rg) not found. Please install ripgrep to use this tool."
             )
-            return GrepOutput(matches=[])
+            return GrepOutput(matches=[], error=error_message)
 
         cmd = [
             rg_path,
@@ -688,50 +683,43 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                 # Skip lines that aren't valid JSON
                 continue
 
-        # Build structured GrepMatch objects for the UI
-        grep_matches = [
-            GrepMatch(
-                file_path=m.file_path or "",
-                line_number=m.line_number or 1,
-                line_content=m.line_content or "",
-            )
-            for m in matches
-        ]
-
-        # Count unique files searched (approximation based on matches)
-        unique_files = len(set(m.file_path for m in matches)) if matches else 0
-
-        # Emit structured message for the UI
-        grep_result_msg = GrepResultMessage(
-            search_term=search_string,
-            directory=directory,
-            matches=grep_matches,
-            total_matches=len(matches),
-            files_searched=unique_files,
-        )
-        get_message_bus().emit(grep_result_msg)
-
-        if not matches:
-            emit_warning(
-                f"No matches found for '{search_string}' in {directory}",
-                message_group=group_id,
-            )
-
     except subprocess.TimeoutExpired:
-        emit_error("Grep command timed out after 30 seconds", message_group=group_id)
+        error_message = "Grep command timed out after 30 seconds"
     except FileNotFoundError:
-        emit_error(
-            "ripgrep (rg) not found. Please install ripgrep to use this tool.",
-            message_group=group_id,
+        error_message = (
+            "ripgrep (rg) not found. Please install ripgrep to use this tool."
         )
     except Exception as e:
-        emit_error(f"Error during grep operation: {e}", message_group=group_id)
+        error_message = f"Error during grep operation: {e}"
     finally:
         # Clean up the temporary ignore file
         if ignore_file and os.path.exists(ignore_file):
             os.unlink(ignore_file)
 
-    return GrepOutput(matches=matches)
+    # Build structured GrepMatch objects for the UI
+    grep_matches = [
+        GrepMatch(
+            file_path=m.file_path or "",
+            line_number=m.line_number or 1,
+            line_content=m.line_content or "",
+        )
+        for m in matches
+    ]
+
+    # Count unique files searched (approximation based on matches)
+    unique_files = len(set(m.file_path for m in matches)) if matches else 0
+
+    # Emit structured message for the UI (only once, at the end)
+    grep_result_msg = GrepResultMessage(
+        search_term=search_string,
+        directory=directory,
+        matches=grep_matches,
+        total_matches=len(matches),
+        files_searched=unique_files,
+    )
+    get_message_bus().emit(grep_result_msg)
+
+    return GrepOutput(matches=matches, error=error_message)
 
 
 def register_list_files(agent):
