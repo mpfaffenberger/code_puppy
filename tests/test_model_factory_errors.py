@@ -277,7 +277,7 @@ class TestModelFactoryErrors:
                 result = ModelFactory.get_model("openai-test", config_openai)
                 assert result is None
                 mock_warn.assert_called_with(
-                    "OPENAI_API_KEY is not set; skipping OpenAI model 'gpt-4'."
+                    "OPENAI_API_KEY is not set (check config or environment); skipping OpenAI model 'gpt-4'."
                 )
 
             # Test Anthropic without API key
@@ -288,7 +288,7 @@ class TestModelFactoryErrors:
                 result = ModelFactory.get_model("anthropic-test", config_anthropic)
                 assert result is None
                 mock_warn.assert_called_with(
-                    "ANTHROPIC_API_KEY is not set; skipping Anthropic model 'claude-3'."
+                    "ANTHROPIC_API_KEY is not set (check config or environment); skipping Anthropic model 'claude-3'."
                 )
 
             # Test Gemini without API key
@@ -297,7 +297,7 @@ class TestModelFactoryErrors:
                 result = ModelFactory.get_model("gemini-test", config_gemini)
                 assert result is None
                 mock_warn.assert_called_with(
-                    "GEMINI_API_KEY is not set; skipping Gemini model 'gemini-pro'."
+                    "GEMINI_API_KEY is not set (check config or environment); skipping Gemini model 'gemini-pro'."
                 )
 
             # Test ZAI models without API key
@@ -306,7 +306,7 @@ class TestModelFactoryErrors:
                 result = ModelFactory.get_model("zai-test", config_zai)
                 assert result is None
                 mock_warn.assert_called_with(
-                    "ZAI_API_KEY is not set; skipping ZAI coding model 'zai-model'."
+                    "ZAI_API_KEY is not set (check config or environment); skipping ZAI coding model 'zai-model'."
                 )
 
             # Test OpenRouter without API key
@@ -317,7 +317,7 @@ class TestModelFactoryErrors:
                 result = ModelFactory.get_model("openrouter-test", config_openrouter)
                 assert result is None
                 mock_warn.assert_called_with(
-                    "OPENROUTER_API_KEY is not set; skipping OpenRouter model 'anthropic/claude-3'."
+                    "OPENROUTER_API_KEY is not set (check config or environment); skipping OpenRouter model 'anthropic/claude-3'."
                 )
 
         finally:
