@@ -121,22 +121,24 @@ class JSONAgent(BaseAgent):
         return result
 
 
-def discover_json_agents() -> Dict[str, str]:
-    """Discover JSON agent files in the user's agents directory.
+def discover_local_json_agents() -> Dict[str, str]:
+    """Discover JSON agent files in the local .code_puppy/agents directory.
 
     Returns:
         Dict mapping agent names to their JSON file paths.
     """
-    from code_puppy.config import get_user_agents_directory
+    import os
 
     agents = {}
-    agents_dir = Path(get_user_agents_directory())
+    # Get the current working directory
+    cwd = Path(os.getcwd())
+    local_agents_dir = cwd / ".code_puppy" / "agents"
 
-    if not agents_dir.exists() or not agents_dir.is_dir():
+    if not local_agents_dir.exists() or not local_agents_dir.is_dir():
         return agents
 
-    # Find all .json files in the agents directory
-    for json_file in agents_dir.glob("*.json"):
+    # Find all .json files in the local agents directory
+    for json_file in local_agents_dir.glob("*.json"):
         try:
             # Try to load and validate the agent
             agent = JSONAgent(str(json_file))
@@ -144,5 +146,38 @@ def discover_json_agents() -> Dict[str, str]:
         except Exception:
             # Skip invalid JSON agent files
             continue
+
+    return agents
+
+
+def discover_json_agents() -> Dict[str, str]:
+    """Discover JSON agent files in the user's agents directory and local .code_puppy/agents directory.
+
+    Local agents in .code_puppy/agents take precedence over global agents in ~/.code_puppy/agents.
+
+    Returns:
+        Dict mapping agent names to their JSON file paths.
+    """
+    from code_puppy.config import get_user_agents_directory
+
+    agents = {}
+
+    # First, discover global agents from user's home directory
+    agents_dir = Path(get_user_agents_directory())
+
+    if agents_dir.exists() and agents_dir.is_dir():
+        # Find all .json files in the global agents directory
+        for json_file in agents_dir.glob("*.json"):
+            try:
+                # Try to load and validate the agent
+                agent = JSONAgent(str(json_file))
+                agents[agent.name] = str(json_file)
+            except Exception:
+                # Skip invalid JSON agent files
+                continue
+
+    # Then, discover local agents (these will override global agents with same name)
+    local_agents = discover_local_json_agents()
+    agents.update(local_agents)
 
     return agents

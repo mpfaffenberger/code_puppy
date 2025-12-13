@@ -9,7 +9,11 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy.agents.base_agent import BaseAgent
-from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
+from code_puppy.agents.json_agent import (
+    JSONAgent,
+    discover_json_agents,
+    discover_local_json_agents,
+)
 from code_puppy.config import get_user_agents_directory
 
 
@@ -186,6 +190,8 @@ class TestJSONAgentDiscovery:
             monkeypatch.setattr(
                 "code_puppy.config.get_user_agents_directory", lambda: temp_dir
             )
+            # Mock CWD to prevent local agents from interfering
+            monkeypatch.setattr("os.getcwd", lambda: "/nonexistent/test/dir")
 
             # Create valid JSON agent
             agent1_config = {
@@ -240,6 +246,8 @@ class TestJSONAgentDiscovery:
             "code_puppy.config.get_user_agents_directory",
             lambda: "/nonexistent/directory",
         )
+        # Mock CWD to prevent local agents from interfering
+        monkeypatch.setattr("os.getcwd", lambda: "/nonexistent/test/dir")
         agents = discover_json_agents()
         assert agents == {}
 
@@ -281,3 +289,269 @@ class TestJSONAgentDiscovery:
 
             assert user_dir == mock_agents_dir
             mock_makedirs.assert_called_once_with(mock_agents_dir, exist_ok=True)
+
+
+class TestLocalJSONAgentDiscovery:
+    """Test local JSON agent discovery functionality."""
+
+    def test_discover_local_json_agents(self, monkeypatch):
+        """Test discovering JSON agents in the local .code_puppy/agents directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Mock the current working directory
+            monkeypatch.setattr("os.getcwd", lambda: temp_dir)
+
+            # Create .code_puppy/agents directory
+            local_agents_dir = Path(temp_dir) / ".code_puppy" / "agents"
+            local_agents_dir.mkdir(parents=True)
+
+            # Create valid JSON agents
+            agent1_config = {
+                "name": "local-agent-1",
+                "description": "First local agent",
+                "system_prompt": "Local agent 1 prompt",
+                "tools": ["list_files"],
+            }
+            agent1_path = local_agents_dir / "local-agent-1.json"
+            with open(agent1_path, "w") as f:
+                json.dump(agent1_config, f)
+
+            agent2_config = {
+                "name": "local-agent-2",
+                "description": "Second local agent",
+                "system_prompt": "Local agent 2 prompt",
+                "tools": ["read_file"],
+            }
+            agent2_path = local_agents_dir / "local-agent-2.json"
+            with open(agent2_path, "w") as f:
+                json.dump(agent2_config, f)
+
+            # Discover local agents
+            agents = discover_local_json_agents()
+
+            # Should find both local agents
+            assert len(agents) == 2
+            assert "local-agent-1" in agents
+            assert "local-agent-2" in agents
+            assert agents["local-agent-1"] == str(agent1_path)
+            assert agents["local-agent-2"] == str(agent2_path)
+
+    def test_discover_local_agents_no_directory(self, monkeypatch):
+        """Test discovering local agents when .code_puppy/agents doesn't exist."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Mock the current working directory
+            monkeypatch.setattr("os.getcwd", lambda: temp_dir)
+
+            # Don't create .code_puppy/agents directory
+            agents = discover_local_json_agents()
+
+            # Should return empty dict
+            assert agents == {}
+
+    def test_discover_local_agents_empty_directory(self, monkeypatch):
+        """Test discovering local agents when directory is empty."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Mock the current working directory
+            monkeypatch.setattr("os.getcwd", lambda: temp_dir)
+
+            # Create empty .code_puppy/agents directory
+            local_agents_dir = Path(temp_dir) / ".code_puppy" / "agents"
+            local_agents_dir.mkdir(parents=True)
+
+            agents = discover_local_json_agents()
+
+            # Should return empty dict
+            assert agents == {}
+
+    def test_discover_local_agents_skip_invalid(self, monkeypatch):
+        """Test that invalid local agent files are skipped."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Mock the current working directory
+            monkeypatch.setattr("os.getcwd", lambda: temp_dir)
+
+            # Create .code_puppy/agents directory
+            local_agents_dir = Path(temp_dir) / ".code_puppy" / "agents"
+            local_agents_dir.mkdir(parents=True)
+
+            # Create valid agent
+            valid_config = {
+                "name": "valid-local-agent",
+                "description": "Valid agent",
+                "system_prompt": "Valid prompt",
+                "tools": ["list_files"],
+            }
+            valid_path = local_agents_dir / "valid.json"
+            with open(valid_path, "w") as f:
+                json.dump(valid_config, f)
+
+            # Create invalid JSON
+            invalid_path = local_agents_dir / "invalid.json"
+            with open(invalid_path, "w") as f:
+                f.write("invalid json content")
+
+            # Create JSON with missing fields
+            incomplete_path = local_agents_dir / "incomplete.json"
+            with open(incomplete_path, "w") as f:
+                json.dump({"name": "incomplete"}, f)
+
+            agents = discover_local_json_agents()
+
+            # Should only find the valid agent
+            assert len(agents) == 1
+            assert "valid-local-agent" in agents
+
+    def test_local_agents_override_global_agents(self, monkeypatch):
+        """Test that local agents override global agents with the same name."""
+        with (
+            tempfile.TemporaryDirectory() as global_dir,
+            tempfile.TemporaryDirectory() as local_dir,
+        ):
+            # Mock directories
+            monkeypatch.setattr(
+                "code_puppy.config.get_user_agents_directory", lambda: global_dir
+            )
+            monkeypatch.setattr("os.getcwd", lambda: local_dir)
+
+            # Create global agent
+            global_config = {
+                "name": "test-agent",
+                "description": "Global agent",
+                "system_prompt": "Global prompt",
+                "tools": ["list_files"],
+            }
+            global_path = Path(global_dir) / "test-agent.json"
+            with open(global_path, "w") as f:
+                json.dump(global_config, f)
+
+            # Create local agent with same name
+            local_agents_dir = Path(local_dir) / ".code_puppy" / "agents"
+            local_agents_dir.mkdir(parents=True)
+
+            local_config = {
+                "name": "test-agent",
+                "description": "Local agent (override)",
+                "system_prompt": "Local override prompt",
+                "tools": ["read_file"],
+            }
+            local_path = local_agents_dir / "test-agent.json"
+            with open(local_path, "w") as f:
+                json.dump(local_config, f)
+
+            # Discover all agents
+            agents = discover_json_agents()
+
+            # Should have only one entry for 'test-agent'
+            assert "test-agent" in agents
+
+            # The path should be the local one (not global)
+            assert agents["test-agent"] == str(local_path)
+            assert agents["test-agent"] != str(global_path)
+
+            # Verify the agent loads with local config
+            agent = JSONAgent(agents["test-agent"])
+            assert agent.description == "Local agent (override)"
+            assert agent.get_system_prompt() == "Local override prompt"
+
+    def test_mixed_global_and_local_agents(self, monkeypatch):
+        """Test discovery with both global and local agents."""
+        with (
+            tempfile.TemporaryDirectory() as global_dir,
+            tempfile.TemporaryDirectory() as local_dir,
+        ):
+            # Mock directories
+            monkeypatch.setattr(
+                "code_puppy.config.get_user_agents_directory", lambda: global_dir
+            )
+            monkeypatch.setattr("os.getcwd", lambda: local_dir)
+
+            # Create global agents
+            global_config_1 = {
+                "name": "global-agent-1",
+                "description": "Global agent 1",
+                "system_prompt": "Global prompt 1",
+                "tools": ["list_files"],
+            }
+            global_path_1 = Path(global_dir) / "global-agent-1.json"
+            with open(global_path_1, "w") as f:
+                json.dump(global_config_1, f)
+
+            global_config_2 = {
+                "name": "global-agent-2",
+                "description": "Global agent 2",
+                "system_prompt": "Global prompt 2",
+                "tools": ["read_file"],
+            }
+            global_path_2 = Path(global_dir) / "global-agent-2.json"
+            with open(global_path_2, "w") as f:
+                json.dump(global_config_2, f)
+
+            # Create local agents
+            local_agents_dir = Path(local_dir) / ".code_puppy" / "agents"
+            local_agents_dir.mkdir(parents=True)
+
+            local_config_1 = {
+                "name": "local-agent-1",
+                "description": "Local agent 1",
+                "system_prompt": "Local prompt 1",
+                "tools": ["grep"],
+            }
+            local_path_1 = local_agents_dir / "local-agent-1.json"
+            with open(local_path_1, "w") as f:
+                json.dump(local_config_1, f)
+
+            local_config_2 = {
+                "name": "local-agent-2",
+                "description": "Local agent 2",
+                "system_prompt": "Local prompt 2",
+                "tools": ["edit_file"],
+            }
+            local_path_2 = local_agents_dir / "local-agent-2.json"
+            with open(local_path_2, "w") as f:
+                json.dump(local_config_2, f)
+
+            # Discover all agents
+            agents = discover_json_agents()
+
+            # Should have all 4 agents
+            assert len(agents) == 4
+            assert "global-agent-1" in agents
+            assert "global-agent-2" in agents
+            assert "local-agent-1" in agents
+            assert "local-agent-2" in agents
+
+            # Verify paths
+            assert agents["global-agent-1"] == str(global_path_1)
+            assert agents["global-agent-2"] == str(global_path_2)
+            assert agents["local-agent-1"] == str(local_path_1)
+            assert agents["local-agent-2"] == str(local_path_2)
+
+    def test_local_agents_only(self, monkeypatch):
+        """Test discovery when only local agents exist (no global)."""
+        with tempfile.TemporaryDirectory() as local_dir:
+            # Mock directories - global doesn't exist
+            monkeypatch.setattr(
+                "code_puppy.config.get_user_agents_directory",
+                lambda: "/nonexistent/global",
+            )
+            monkeypatch.setattr("os.getcwd", lambda: local_dir)
+
+            # Create local agents
+            local_agents_dir = Path(local_dir) / ".code_puppy" / "agents"
+            local_agents_dir.mkdir(parents=True)
+
+            local_config = {
+                "name": "local-only-agent",
+                "description": "Local only agent",
+                "system_prompt": "Local only prompt",
+                "tools": ["list_files"],
+            }
+            local_path = local_agents_dir / "local-only-agent.json"
+            with open(local_path, "w") as f:
+                json.dump(local_config, f)
+
+            # Discover all agents
+            agents = discover_json_agents()
+
+            # Should find local agent even without global directory
+            assert len(agents) == 1
+            assert "local-only-agent" in agents
+            assert agents["local-only-agent"] == str(local_path)

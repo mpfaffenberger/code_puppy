@@ -230,7 +230,11 @@ Code Puppy features a modular agent architecture. Each agent has its own system 
 
 ## 🔧 Creating Custom Agents
 
-You can create custom agents using JSON files! Place them in `~/.code_puppy/agents/`.
+You can create custom agents using JSON files! Place them in:
+- **Global agents**: `~/.code_puppy/agents/` (available from any directory)
+- **Local agents**: `.code_puppy/agents/` (in your current working directory)
+
+**Note**: Local agents take precedence over global agents with the same name, allowing you to override global agents on a per-project basis.
 
 ### JSON Agent Schema
 

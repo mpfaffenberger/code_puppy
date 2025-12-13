@@ -225,7 +225,8 @@ def _discover_agents(message_group_id: Optional[str] = None):
             )
             continue
 
-    # 2. Discover JSON agents in user directory
+    # 2. Discover JSON agents in user directory and local .code_puppy/agents directory
+    # Local agents take precedence over global agents with the same name
     try:
         json_agents = discover_json_agents()
 
