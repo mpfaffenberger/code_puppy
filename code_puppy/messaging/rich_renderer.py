@@ -11,6 +11,7 @@ from typing import Dict, Optional, Protocol, runtime_checkable
 
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape as escape_rich_markup
 from rich.panel import Panel
 from rich.rule import Rule
 
@@ -187,7 +188,9 @@ class RichConsoleRenderer:
             self._do_render(message)
         except Exception as e:
             # Don't let rendering errors crash the loop
-            self._console.print(f"[dim red]Render error: {e}[/dim red]")
+            # Escape the error message to prevent nested markup errors
+            safe_error = escape_rich_markup(str(e))
+            self._console.print(f"[dim red]Render error: {safe_error}[/dim red]")
 
     # =========================================================================
     # Async Lifecycle (for future async-first usage)
@@ -282,7 +285,12 @@ class RichConsoleRenderer:
     # =========================================================================
 
     def _render_text(self, msg: TextMessage) -> None:
-        """Render a text message with appropriate styling."""
+        """Render a text message with appropriate styling.
+
+        Text is escaped to prevent Rich markup injection which could crash
+        the renderer if malformed tags are present in shell output or other
+        user-provided content.
+        """
         style = self._styles.get(msg.level, "white")
 
         # Make version messages dim
@@ -290,7 +298,9 @@ class RichConsoleRenderer:
             style = "dim"
 
         prefix = self._get_level_prefix(msg.level)
-        self._console.print(f"{prefix}{msg.text}", style=style)
+        # Escape Rich markup to prevent crashes from malformed tags
+        safe_text = escape_rich_markup(msg.text)
+        self._console.print(f"{prefix}{safe_text}", style=style)
 
     def _get_level_prefix(self, level: MessageLevel) -> str:
         """Get a prefix icon for the message level."""
@@ -474,7 +484,12 @@ class RichConsoleRenderer:
             elif line.type == "remove":
                 diff_text_lines.append(f"-{line.content}")
             else:  # context
-                diff_text_lines.append(f" {line.content}")
+                # Don't add space prefix to diff headers - they need to be preserved
+                # exactly for syntax highlighting to detect the file extension
+                if line.content.startswith(("---", "+++", "@@", "diff ", "index ")):
+                    diff_text_lines.append(line.content)
+                else:
+                    diff_text_lines.append(f" {line.content}")
 
         diff_text = "\n".join(diff_text_lines)
 
@@ -488,43 +503,30 @@ class RichConsoleRenderer:
 
     def _render_shell_start(self, msg: ShellStartMessage) -> None:
         """Render shell command start notification."""
+        # Escape command to prevent Rich markup injection
+        safe_command = escape_rich_markup(msg.command)
         # Header showing command is starting
         self._console.print(
             f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] "
-            f"🚀 [bold green]$ {msg.command}[/bold green]"
+            f"🚀 [bold green]$ {safe_command}[/bold green]"
         )
 
         # Show working directory if specified
         if msg.cwd:
-            self._console.print(f"[dim]📂 Working directory: {msg.cwd}[/dim]")
+            safe_cwd = escape_rich_markup(msg.cwd)
+            self._console.print(f"[dim]📂 Working directory: {safe_cwd}[/dim]")
 
         # Show timeout
         self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
-        """Render shell command output matching old format."""
-        # Header matching old format
-        self._console.print(
-            f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] "
-            f"📂 [bold green]$ {msg.command}[/bold green]"
-        )
+        """Render shell command output - suppressed for clean output.
 
-        # stdout
-        if msg.stdout:
-            self._console.print(msg.stdout)
-
-        # stderr (if any)
-        if msg.stderr:
-            self._console.print(f"[red]{msg.stderr}[/red]")
-
-        # Footer with timing and exit code
-        if msg.exit_code == 0:
-            self._console.print(f"[dim]Completed in {msg.duration_seconds:.2f}s[/dim]")
-        else:
-            dur = msg.duration_seconds
-            self._console.print(
-                f"[red]Exit code: {msg.exit_code}[/red] [dim]({dur:.2f}s)[/dim]"
-            )
+        Shell command results are already returned to the LLM via tool responses,
+        so we don't need to clutter the UI with redundant output.
+        """
+        # Intentionally suppressed - output is shown in tool response
+        pass
 
     # =========================================================================
     # Agent Messages
@@ -633,9 +635,11 @@ class RichConsoleRenderer:
 
     async def _render_confirmation_request(self, msg: ConfirmationRequest) -> None:
         """Render confirmation dialog and send response back."""
-        # Show title and description
-        self._console.print(f"\n[bold yellow]{msg.title}[/bold yellow]")
-        self._console.print(msg.description)
+        # Show title and description - escape to prevent markup injection
+        safe_title = escape_rich_markup(msg.title)
+        safe_description = escape_rich_markup(msg.description)
+        self._console.print(f"\n[bold yellow]{safe_title}[/bold yellow]")
+        self._console.print(safe_description)
 
         # Show options
         options_str = "/".join(msg.options)
@@ -669,11 +673,13 @@ class RichConsoleRenderer:
 
     async def _render_selection_request(self, msg: SelectionRequest) -> None:
         """Render selection menu and send response back."""
-        self._console.print(f"\n[bold]{msg.prompt_text}[/bold]")
+        safe_prompt = escape_rich_markup(msg.prompt_text)
+        self._console.print(f"\n[bold]{safe_prompt}[/bold]")
 
-        # Show numbered options
+        # Show numbered options - escape to prevent markup injection
         for i, opt in enumerate(msg.options):
-            self._console.print(f"  [cyan]{i + 1}[/cyan]. {opt}")
+            safe_opt = escape_rich_markup(opt)
+            self._console.print(f"  [cyan]{i + 1}[/cyan]. {safe_opt}")
 
         if msg.allow_cancel:
             self._console.print("  [dim]0. Cancel[/dim]")
