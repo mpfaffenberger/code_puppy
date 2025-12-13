@@ -3,9 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 from code_puppy.agents.agent_manager import (
     get_available_agents,
