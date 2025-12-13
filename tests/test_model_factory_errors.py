@@ -200,7 +200,7 @@ class TestModelFactoryErrors:
             assert result is None
             mock_warn.assert_called()
             warning_msg = mock_warn.call_args[0][0]
-            assert "not found or is empty" in warning_msg
+            assert "not found (check config or environment)" in warning_msg
             assert "NONEXISTENT_VAR" in warning_msg
 
         # Custom endpoint with non-existent environment variable in header
