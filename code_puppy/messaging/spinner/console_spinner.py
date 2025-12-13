@@ -2,6 +2,7 @@
 Console spinner implementation for CLI mode using Rich's Live Display.
 """
 
+import platform
 import threading
 import time
 
@@ -74,6 +75,33 @@ class ConsoleSpinner(SpinnerBase):
             self._thread.join(timeout=0.5)
 
         self._thread = None
+
+        # Windows-specific cleanup: Rich's Live display can leave terminal in corrupted state
+        if platform.system() == "Windows":
+            import sys
+
+            try:
+                # Reset ANSI formatting for both stdout and stderr
+                sys.stdout.write("\x1b[0m")  # Reset all attributes
+                sys.stdout.flush()
+                sys.stderr.write("\x1b[0m")
+                sys.stderr.flush()
+
+                # Clear the line and reposition cursor
+                sys.stdout.write("\r")  # Return to start of line
+                sys.stdout.write("\x1b[K")  # Clear to end of line
+                sys.stdout.flush()
+
+                # Flush keyboard input buffer to clear any stuck keys
+                try:
+                    import msvcrt
+
+                    while msvcrt.kbhit():
+                        msvcrt.getch()
+                except ImportError:
+                    pass  # msvcrt not available (not Windows or different Python impl)
+            except Exception:
+                pass  # Fail silently if cleanup doesn't work
 
         # Unregister this spinner from global management
         from . import unregister_spinner
