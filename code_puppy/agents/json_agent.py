@@ -127,14 +127,20 @@ def discover_local_json_agents() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to their JSON file paths.
     """
-    import os
-
     agents = {}
-    # Get the current working directory
-    cwd = Path(os.getcwd())
-    local_agents_dir = cwd / ".code_puppy" / "agents"
 
-    if not local_agents_dir.exists() or not local_agents_dir.is_dir():
+    # Fast path: check if .code_puppy even exists first
+    cwd_path = Path.cwd()  # Slightly faster than os.getcwd()
+    code_puppy_dir = cwd_path / ".code_puppy"
+
+    # Early exit if .code_puppy doesn't exist - no need to check agents subdir
+    if not code_puppy_dir.exists():
+        return agents
+
+    local_agents_dir = code_puppy_dir / "agents"
+
+    # Now check agents subdirectory
+    if not local_agents_dir.is_dir():
         return agents
 
     # Find all .json files in the local agents directory
