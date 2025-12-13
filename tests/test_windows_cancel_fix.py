@@ -8,7 +8,7 @@ cleanup after cancellation.
 
 import platform
 import sys
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -90,7 +90,7 @@ class TestConsoleSpinnerWindowsCleanup:
             # On non-Windows, we shouldn't see the Windows-specific cleanup
             # (though Rich may still write to stdout for its own cleanup)
             # Just verify we didn't import msvcrt
-            stdout_calls = [call[0][0] for call in mock_stdout.write.call_args_list]
+            [call[0][0] for call in mock_stdout.write.call_args_list]
 
             # If there are no calls, that's fine for non-Windows
             # Just checking the test runs without error on non-Windows

@@ -26,9 +26,30 @@ from code_puppy.messaging import emit_warning
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
-from .config import EXTRA_MODELS_FILE
+from .config import EXTRA_MODELS_FILE, get_value
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
+
+
+def get_api_key(env_var_name: str) -> str | None:
+    """Get an API key from config first, then fall back to environment variable.
+
+    This allows users to set API keys via `/set KIMI_API_KEY=xxx` in addition to
+    setting them as environment variables.
+
+    Args:
+        env_var_name: The name of the environment variable (e.g., "OPENAI_API_KEY")
+
+    Returns:
+        The API key value, or None if not found in either config or environment.
+    """
+    # First check config (case-insensitive key lookup)
+    config_value = get_value(env_var_name.lower())
+    if config_value:
+        return config_value
+
+    # Fall back to environment variable
+    return os.environ.get(env_var_name)
 
 
 def make_model_settings(
@@ -118,10 +139,10 @@ def get_custom_config(model_config):
     for key, value in custom_config.get("headers", {}).items():
         if value.startswith("$"):
             env_var_name = value[1:]
-            resolved_value = os.environ.get(env_var_name)
+            resolved_value = get_api_key(env_var_name)
             if resolved_value is None:
                 emit_warning(
-                    f"Environment variable '{env_var_name}' is not set for custom endpoint header '{key}'. Proceeding with empty value."
+                    f"'{env_var_name}' is not set (check config or environment) for custom endpoint header '{key}'. Proceeding with empty value."
                 )
                 resolved_value = ""
             value = resolved_value
@@ -131,10 +152,10 @@ def get_custom_config(model_config):
             for token in tokens:
                 if token.startswith("$"):
                     env_var = token[1:]
-                    resolved_value = os.environ.get(env_var)
+                    resolved_value = get_api_key(env_var)
                     if resolved_value is None:
                         emit_warning(
-                            f"Environment variable '{env_var}' is not set for custom endpoint header '{key}'. Proceeding with empty value."
+                            f"'{env_var}' is not set (check config or environment) for custom endpoint header '{key}'. Proceeding with empty value."
                         )
                         resolved_values.append("")
                     else:
@@ -147,10 +168,10 @@ def get_custom_config(model_config):
     if "api_key" in custom_config:
         if custom_config["api_key"].startswith("$"):
             env_var_name = custom_config["api_key"][1:]
-            api_key = os.environ.get(env_var_name)
+            api_key = get_api_key(env_var_name)
             if api_key is None:
                 emit_warning(
-                    f"Environment variable '{env_var_name}' is not set for custom endpoint API key; proceeding without API key."
+                    f"API key '{env_var_name}' is not set (checked config and environment); proceeding without API key."
                 )
         else:
             api_key = custom_config["api_key"]
@@ -245,10 +266,10 @@ class ModelFactory:
         model_type = model_config.get("type")
 
         if model_type == "gemini":
-            api_key = os.environ.get("GEMINI_API_KEY")
+            api_key = get_api_key("GEMINI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"GEMINI_API_KEY is not set; skipping Gemini model '{model_config.get('name')}'."
+                    f"GEMINI_API_KEY is not set (check config or environment); skipping Gemini model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -258,10 +279,10 @@ class ModelFactory:
             return model
 
         elif model_type == "openai":
-            api_key = os.environ.get("OPENAI_API_KEY")
+            api_key = get_api_key("OPENAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"OPENAI_API_KEY is not set; skipping OpenAI model '{model_config.get('name')}'."
+                    f"OPENAI_API_KEY is not set (check config or environment); skipping OpenAI model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -275,10 +296,10 @@ class ModelFactory:
             return model
 
         elif model_type == "anthropic":
-            api_key = os.environ.get("ANTHROPIC_API_KEY", None)
+            api_key = get_api_key("ANTHROPIC_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ANTHROPIC_API_KEY is not set; skipping Anthropic model '{model_config.get('name')}'."
+                    f"ANTHROPIC_API_KEY is not set (check config or environment); skipping Anthropic model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -376,10 +397,10 @@ class ModelFactory:
                 )
             azure_endpoint = azure_endpoint_config
             if azure_endpoint_config.startswith("$"):
-                azure_endpoint = os.environ.get(azure_endpoint_config[1:])
+                azure_endpoint = get_api_key(azure_endpoint_config[1:])
             if not azure_endpoint:
                 emit_warning(
-                    f"Azure OpenAI endpoint environment variable '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else azure_endpoint_config}' not found or is empty; skipping model '{model_config.get('name')}'."
+                    f"Azure OpenAI endpoint '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else azure_endpoint_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -390,10 +411,10 @@ class ModelFactory:
                 )
             api_version = api_version_config
             if api_version_config.startswith("$"):
-                api_version = os.environ.get(api_version_config[1:])
+                api_version = get_api_key(api_version_config[1:])
             if not api_version:
                 emit_warning(
-                    f"Azure OpenAI API version environment variable '{api_version_config[1:] if api_version_config.startswith('$') else api_version_config}' not found or is empty; skipping model '{model_config.get('name')}'."
+                    f"Azure OpenAI API version '{api_version_config[1:] if api_version_config.startswith('$') else api_version_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -404,10 +425,10 @@ class ModelFactory:
                 )
             api_key = api_key_config
             if api_key_config.startswith("$"):
-                api_key = os.environ.get(api_key_config[1:])
+                api_key = get_api_key(api_key_config[1:])
             if not api_key:
                 emit_warning(
-                    f"Azure OpenAI API key environment variable '{api_key_config[1:] if api_key_config.startswith('$') else api_key_config}' not found or is empty; skipping model '{model_config.get('name')}'."
+                    f"Azure OpenAI API key '{api_key_config[1:] if api_key_config.startswith('$') else api_key_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -441,10 +462,10 @@ class ModelFactory:
             setattr(model, "provider", provider)
             return model
         elif model_type == "zai_coding":
-            api_key = os.getenv("ZAI_API_KEY")
+            api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ZAI_API_KEY is not set; skipping ZAI coding model '{model_config.get('name')}'."
+                    f"ZAI_API_KEY is not set (check config or environment); skipping ZAI coding model '{model_config.get('name')}'."
                 )
                 return None
             provider = OpenAIProvider(
@@ -458,10 +479,10 @@ class ModelFactory:
             setattr(zai_model, "provider", provider)
             return zai_model
         elif model_type == "zai_api":
-            api_key = os.getenv("ZAI_API_KEY")
+            api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ZAI_API_KEY is not set; skipping ZAI API model '{model_config.get('name')}'."
+                    f"ZAI_API_KEY is not set (check config or environment); skipping ZAI API model '{model_config.get('name')}'."
                 )
                 return None
             provider = OpenAIProvider(
@@ -537,21 +558,21 @@ class ModelFactory:
                 if api_key_config.startswith("$"):
                     # It's an environment variable reference
                     env_var_name = api_key_config[1:]  # Remove the $ prefix
-                    api_key = os.environ.get(env_var_name)
+                    api_key = get_api_key(env_var_name)
                     if api_key is None:
                         emit_warning(
-                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty; skipping model '{model_config.get('name')}'."
+                            f"OpenRouter API key '{env_var_name}' not found (check config or environment); skipping model '{model_config.get('name')}'."
                         )
                         return None
                 else:
                     # It's a raw API key value
                     api_key = api_key_config
             else:
-                # No API key in config, try to get it from the default environment variable
-                api_key = os.environ.get("OPENROUTER_API_KEY")
+                # No API key in config, try to get it from config or the default environment variable
+                api_key = get_api_key("OPENROUTER_API_KEY")
                 if api_key is None:
                     emit_warning(
-                        f"OPENROUTER_API_KEY is not set; skipping OpenRouter model '{model_config.get('name')}'."
+                        f"OPENROUTER_API_KEY is not set (check config or environment); skipping OpenRouter model '{model_config.get('name')}'."
                     )
                     return None
 

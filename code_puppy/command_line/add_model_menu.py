@@ -576,9 +576,16 @@ class AddModelMenu:
         # Determine the model type
         model_type = type_mapping.get(provider.id, "custom_openai")
 
+        # Special case: kimi-for-coding provider uses "kimi-for-coding" as the model name
+        # instead of the model_id from models.dev (which is "kimi-k2-thinking")
+        if provider.id == "kimi-for-coding":
+            model_name = "kimi-for-coding"
+        else:
+            model_name = model.model_id
+
         config: dict = {
             "type": model_type,
-            "name": model.model_id,
+            "name": model_name,
         }
 
         # Add custom endpoint for non-standard providers

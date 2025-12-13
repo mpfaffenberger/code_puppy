@@ -12,6 +12,7 @@ from typing import Optional
 
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape as escape_rich_markup
 
 from .message_queue import MessageQueue, MessageType, UIMessage
 
@@ -126,11 +127,15 @@ class InteractiveRenderer(MessageRenderer):
                     self.console.print(markdown)
                 except Exception:
                     # Fallback to plain text if markdown parsing fails
-                    self.console.print(message.content)
+                    safe_content = escape_rich_markup(message.content)
+                    self.console.print(safe_content)
             elif style:
-                self.console.print(message.content, style=style)
+                # Escape Rich markup to prevent crashes from malformed tags
+                safe_content = escape_rich_markup(message.content)
+                self.console.print(safe_content, style=style)
             else:
-                self.console.print(message.content)
+                safe_content = escape_rich_markup(message.content)
+                self.console.print(safe_content)
         else:
             # For complex Rich objects (Tables, Markdown, Text, etc.)
             self.console.print(message.content)
@@ -145,7 +150,8 @@ class InteractiveRenderer(MessageRenderer):
         # This renderer is not currently used in practice, but if it were:
         # We would need async input handling here
         # For now, just render as a system message
-        self.console.print(f"[bold cyan]INPUT REQUESTED:[/bold cyan] {message.content}")
+        safe_content = escape_rich_markup(str(message.content))
+        self.console.print(f"[bold cyan]INPUT REQUESTED:[/bold cyan] {safe_content}")
         if hasattr(self.console.file, "flush"):
             self.console.file.flush()
 
@@ -253,11 +259,16 @@ class SynchronousInteractiveRenderer:
                     self.console.print(markdown)
                 except Exception:
                     # Fallback to plain text if markdown parsing fails
-                    self.console.print(message.content)
+                    safe_content = escape_rich_markup(message.content)
+                    self.console.print(safe_content)
             elif style:
-                self.console.print(message.content, style=style)
+                # Escape Rich markup to prevent crashes from malformed tags
+                # in shell output or other user-provided content
+                safe_content = escape_rich_markup(message.content)
+                self.console.print(safe_content, style=style)
             else:
-                self.console.print(message.content)
+                safe_content = escape_rich_markup(message.content)
+                self.console.print(safe_content)
         else:
             # For complex Rich objects (Tables, Markdown, Text, etc.)
             self.console.print(message.content)
@@ -276,8 +287,9 @@ class SynchronousInteractiveRenderer:
             )
             return
 
-        # Display the prompt
-        self.console.print(f"[bold cyan]{message.content}[/bold cyan]")
+        # Display the prompt - escape to prevent markup injection
+        safe_content = escape_rich_markup(str(message.content))
+        self.console.print(f"[bold cyan]{safe_content}[/bold cyan]")
         if hasattr(self.console.file, "flush"):
             self.console.file.flush()
 
