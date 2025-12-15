@@ -25,6 +25,7 @@ from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
+    DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
     get_use_dbos,
@@ -332,7 +333,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
-    from code_puppy.messaging import emit_info
 
     emit_info("[bold cyan]Initializing agent...[/bold cyan]")
 
