@@ -263,7 +263,11 @@ class TestRenderMenuPanel:
         entries = [
             (
                 "auto_session_1",
-                {"timestamp": "2024-01-01T12:00:00", "message_count": 3, "session_title": "My Session"},
+                {
+                    "timestamp": "2024-01-01T12:00:00",
+                    "message_count": 3,
+                    "session_title": "My Session",
+                },
             )
         ]
 

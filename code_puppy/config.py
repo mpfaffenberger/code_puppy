@@ -8,7 +8,6 @@ from typing import Optional
 from code_puppy.session_storage import save_session
 
 
-
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
     """
     Get directory for code_puppy files, defaulting to ~/.code_puppy.

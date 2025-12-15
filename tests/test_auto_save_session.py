@@ -167,7 +167,8 @@ class TestAutoSaveSessionFunctionality:
             timestamp="2024-01-01T01:01:01",
             message_count=len(history),
             total_tokens=6,
-            pickle_path=Path(cp_config.AUTOSAVE_DIR) / "auto_session_20240101_010101.pkl",
+            pickle_path=Path(cp_config.AUTOSAVE_DIR)
+            / "auto_session_20240101_010101.pkl",
             metadata_path=Path(cp_config.AUTOSAVE_DIR)
             / "auto_session_20240101_010101_meta.json",
             session_title=None,
