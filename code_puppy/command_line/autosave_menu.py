@@ -79,8 +79,77 @@ def _extract_last_user_message(history: list) -> str:
     return "[No messages found]"
 
 
+def _extract_message_content(msg) -> Tuple[str, str]:
+    """Extract role and content from a message.
+
+    Returns:
+        Tuple of (role, content) where role is 'user', 'assistant', or 'tool'
+    """
+    # Determine role based on message kind AND part types
+    # tool-return comes in a 'request' message but it's not from the user
+    part_kinds = [getattr(p, "part_kind", "unknown") for p in msg.parts]
+
+    if msg.kind == "request":
+        # Check if this is a tool return (not actually user input)
+        if all(pk == "tool-return" for pk in part_kinds):
+            role = "tool"
+        else:
+            role = "user"
+    else:
+        # Response from assistant
+        if all(pk == "tool-call" for pk in part_kinds):
+            role = "tool"  # Pure tool call, label as tool activity
+        else:
+            role = "assistant"
+
+    # Extract content from parts, handling different part types
+    content_parts = []
+    for part in msg.parts:
+        part_kind = getattr(part, "part_kind", "unknown")
+
+        if part_kind == "tool-call":
+            # Assistant is calling a tool - show tool name and args preview
+            tool_name = getattr(part, "tool_name", "unknown")
+            args = getattr(part, "args", {})
+            # Create a condensed args preview
+            if args:
+                args_preview = str(args)[:100]
+                if len(str(args)) > 100:
+                    args_preview += "..."
+                content_parts.append(
+                    f"🔧 Tool Call: {tool_name}\n   Args: {args_preview}"
+                )
+            else:
+                content_parts.append(f"🔧 Tool Call: {tool_name}")
+
+        elif part_kind == "tool-return":
+            # Tool result being returned - show tool name and truncated result
+            tool_name = getattr(part, "tool_name", "unknown")
+            result = getattr(part, "content", "")
+            if isinstance(result, str) and result.strip():
+                # Truncate long results
+                preview = result[:200].replace("\n", " ")
+                if len(result) > 200:
+                    preview += "..."
+                content_parts.append(f"📥 Tool Result: {tool_name}\n   {preview}")
+            else:
+                content_parts.append(f"📥 Tool Result: {tool_name}")
+
+        elif hasattr(part, "content"):
+            # Regular text content (user-prompt, text, thinking, etc.)
+            content = part.content
+            if isinstance(content, str) and content.strip():
+                content_parts.append(content)
+
+    content = "\n\n".join(content_parts) if content_parts else "[No content]"
+    return role, content
+
+
 def _render_menu_panel(
-    entries: List[Tuple[str, dict]], page: int, selected_idx: int
+    entries: List[Tuple[str, dict]],
+    page: int,
+    selected_idx: int,
+    browse_mode: bool = False,
 ) -> List:
     """Render the left menu panel with pagination."""
     lines = []
@@ -130,16 +199,136 @@ def _render_menu_panel(
 
         lines.append(("", "\n"))
 
-    # Navigation hints
+    # Navigation hints - change based on browse mode
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑/↓ "))
-    lines.append(("", "Navigate\n"))
-    lines.append(("fg:ansibrightblack", "  ←/→ "))
-    lines.append(("", "Page\n"))
+    if browse_mode:
+        lines.append(("fg:ansicyan", "  ↑/↓ "))
+        lines.append(("", "Browse msgs\n"))
+        lines.append(("fg:ansiyellow", "  Esc "))
+        lines.append(("", "Exit browser\n"))
+    else:
+        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+        lines.append(("", "Navigate\n"))
+        lines.append(("fg:ansibrightblack", "  ←/→ "))
+        lines.append(("", "Page\n"))
+        lines.append(("fg:ansicyan", "  e   "))
+        lines.append(("", "Browse msgs\n"))
     lines.append(("fg:green", "  Enter  "))
     lines.append(("", "Load\n"))
     lines.append(("fg:ansibrightred", "  Ctrl+C "))
     lines.append(("", "Cancel"))
+
+    return lines
+
+
+def _render_message_browser_panel(
+    history: list,
+    message_idx: int,
+    session_name: str,
+) -> List:
+    """Render the message browser panel showing a single message.
+
+    Args:
+        history: Full message history list
+        message_idx: Index into history (0 = most recent)
+        session_name: Name of the session being browsed
+    """
+    lines = []
+
+    lines.append(("fg:ansicyan bold", " MESSAGE BROWSER"))
+    lines.append(("", "\n\n"))
+
+    total_messages = len(history)
+    if total_messages == 0:
+        lines.append(("fg:yellow", "  No messages in this session."))
+        lines.append(("", "\n"))
+        return lines
+
+    # Clamp index to valid range
+    message_idx = max(0, min(message_idx, total_messages - 1))
+
+    # Get message (reverse index so 0 = most recent)
+    actual_idx = total_messages - 1 - message_idx
+    msg = history[actual_idx]
+
+    # Extract role and content
+    role, content = _extract_message_content(msg)
+
+    # Session info
+    lines.append(("fg:ansibrightblack", f"  Session: {session_name}"))
+    lines.append(("", "\n"))
+
+    # Message position indicator
+    display_num = message_idx + 1  # 1-based for display
+    lines.append(("bold", f"  Message {display_num} of {total_messages}"))
+    lines.append(("", "\n\n"))
+
+    # Role indicator with icon and color
+    if role == "user":
+        lines.append(("fg:ansicyan bold", "  🧑 USER"))
+    elif role == "tool":
+        lines.append(("fg:ansiyellow bold", "  🔧 TOOL"))
+    else:
+        lines.append(("fg:ansigreen bold", "  🤖 ASSISTANT"))
+    lines.append(("", "\n"))
+
+    # Separator line
+    lines.append(("fg:ansibrightblack", "  " + "─" * 40))
+    lines.append(("", "\n"))
+
+    # Render content with markdown
+    try:
+        console = Console(
+            file=StringIO(),
+            legacy_windows=False,
+            no_color=False,
+            force_terminal=False,
+            width=72,
+        )
+        md = Markdown(content)
+        console.print(md)
+        rendered = console.file.getvalue()
+
+        # Truncate if too long (max 35 lines)
+        message_lines = rendered.split("\n")[:35]
+        is_truncated = len(rendered.split("\n")) > 35
+
+        # Color based on role
+        if role == "user":
+            text_color = "fg:ansicyan"
+        elif role == "tool":
+            text_color = "fg:ansiyellow"
+        else:
+            text_color = "fg:ansigreen"
+
+        for line in message_lines:
+            # Headers
+            if line.strip().startswith("#"):
+                lines.append((f"{text_color} bold", f"  {line}"))
+            # Code blocks
+            elif line.strip().startswith("│"):
+                lines.append(("fg:ansibrightblack", f"  {line}"))
+            # List items
+            elif re.match(r"^\s*[•\-\*]", line):
+                lines.append((text_color, f"  {line}"))
+            # Regular text
+            else:
+                lines.append((text_color, f"  {line}"))
+            lines.append(("", "\n"))
+
+        if is_truncated:
+            lines.append(("", "\n"))
+            lines.append(("fg:yellow", "  ... truncated (message too long)"))
+            lines.append(("", "\n"))
+
+    except Exception as e:
+        lines.append(("fg:red", f"  Error rendering message: {e}"))
+        lines.append(("", "\n"))
+
+    # Navigation hint at bottom
+    lines.append(("", "\n"))
+    lines.append(("fg:ansibrightblack", "  ↑ older  ↓ newer  Esc exit"))
+    lines.append(("", "\n"))
 
     return lines
 
@@ -180,6 +369,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     lines.append(("", "\n\n"))
 
     lines.append(("bold", "  Last Message:"))
+    lines.append(("fg:ansibrightblack", "  (press 'e' to browse all)"))
     lines.append(("", "\n"))
 
     # Try to load and preview the last message
@@ -257,6 +447,11 @@ async def interactive_autosave_picker() -> Optional[str]:
     current_page = [0]  # Current page
     result = [None]  # Selected session name
 
+    # Browse mode state
+    browse_mode = [False]  # Are we browsing messages within a session?
+    message_idx = [0]  # Current message index (0 = most recent)
+    cached_history = [None]  # Cached history for current session in browse mode
+
     total_pages = (len(entries) + PAGE_SIZE - 1) // PAGE_SIZE
 
     def get_current_entry() -> Optional[Tuple[str, dict]]:
@@ -271,9 +466,17 @@ async def interactive_autosave_picker() -> Optional[str]:
     def update_display():
         """Update both panels."""
         menu_control.text = _render_menu_panel(
-            entries, current_page[0], selected_idx[0]
+            entries, current_page[0], selected_idx[0], browse_mode[0]
         )
-        preview_control.text = _render_preview_panel(base_dir, get_current_entry())
+        # Show message browser if in browse mode, otherwise show preview
+        if browse_mode[0] and cached_history[0] is not None:
+            entry = get_current_entry()
+            session_name = entry[0] if entry else "unknown"
+            preview_control.text = _render_message_browser_panel(
+                cached_history[0], message_idx[0], session_name
+            )
+        else:
+            preview_control.text = _render_preview_panel(base_dir, get_current_entry())
 
     menu_window = Window(
         content=menu_control, wrap_lines=True, width=Dimension(weight=30)
@@ -298,19 +501,33 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     @kb.add("up")
     def _(event):
-        if selected_idx[0] > 0:
-            selected_idx[0] -= 1
-            # Update page if needed
-            current_page[0] = selected_idx[0] // PAGE_SIZE
-            update_display()
+        if browse_mode[0]:
+            # In browse mode: go to older message
+            if cached_history[0] and message_idx[0] < len(cached_history[0]) - 1:
+                message_idx[0] += 1
+                update_display()
+        else:
+            # Normal mode: navigate sessions
+            if selected_idx[0] > 0:
+                selected_idx[0] -= 1
+                # Update page if needed
+                current_page[0] = selected_idx[0] // PAGE_SIZE
+                update_display()
 
     @kb.add("down")
     def _(event):
-        if selected_idx[0] < len(entries) - 1:
-            selected_idx[0] += 1
-            # Update page if needed
-            current_page[0] = selected_idx[0] // PAGE_SIZE
-            update_display()
+        if browse_mode[0]:
+            # In browse mode: go to newer message
+            if message_idx[0] > 0:
+                message_idx[0] -= 1
+                update_display()
+        else:
+            # Normal mode: navigate sessions
+            if selected_idx[0] < len(entries) - 1:
+                selected_idx[0] += 1
+                # Update page if needed
+                current_page[0] = selected_idx[0] // PAGE_SIZE
+                update_display()
 
     @kb.add("left")
     def _(event):
@@ -324,6 +541,44 @@ async def interactive_autosave_picker() -> Optional[str]:
         if current_page[0] < total_pages - 1:
             current_page[0] += 1
             selected_idx[0] = current_page[0] * PAGE_SIZE
+            update_display()
+
+    @kb.add("e")
+    def _(event):
+        """Enter message browse mode."""
+        if browse_mode[0]:
+            return  # Already in browse mode
+        entry = get_current_entry()
+        if entry:
+            session_name = entry[0]
+            try:
+                cached_history[0] = load_session(session_name, base_dir)
+                browse_mode[0] = True
+                message_idx[0] = 0  # Start at most recent
+                update_display()
+            except Exception:
+                pass  # Silently fail if can't load
+
+    @kb.add("escape")
+    def _(event):
+        """Exit browse mode or cancel."""
+        if browse_mode[0]:
+            browse_mode[0] = False
+            cached_history[0] = None
+            message_idx[0] = 0
+            update_display()
+        else:
+            # Not in browse mode - treat as cancel
+            result[0] = None
+            event.app.exit()
+
+    @kb.add("q")
+    def _(event):
+        """Exit browse mode (only when in browse mode)."""
+        if browse_mode[0]:
+            browse_mode[0] = False
+            cached_history[0] = None
+            message_idx[0] = 0
             update_display()
 
     @kb.add("enter")
