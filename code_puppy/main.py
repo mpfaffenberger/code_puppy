@@ -49,7 +49,6 @@ from code_puppy.keymap import (
     get_cancel_agent_display_name,
     validate_cancel_agent_key,
 )
-from code_puppy.messaging import emit_info
 from code_puppy.tools.common import console
 
 # message_history_accumulator and prune_interrupted_tool_calls have been moved to BaseAgent class
@@ -127,19 +126,25 @@ def escape_system32_if_needed():
 
     if is_problematic:
         from code_puppy.messaging import emit_system_message, emit_warning
+        from rich.text import Text
 
         home_dir = Path.home()
         emit_warning(
             f"🚨 Whoa there! You're running Code Puppy from a system directory: {cwd}"
         )
         emit_system_message(
-            "[yellow]This can cause permission issues and other weirdness.[/yellow]"
+            Text.from_markup(
+                "[dim]This can cause permission issues and other weirdness.[/dim]"
+            )
         )
         emit_system_message(
-            f"[bold green]Auto-relocating to your home directory: {home_dir}[/bold green]"
+            Text.from_markup(
+                f"[dim]Auto-relocating to your home directory: {home_dir}[/dim]"
+            )
         )
-        os.chdir(home_dir)
-        emit_system_message(f"[dim]New working directory: {Path.cwd()}[/dim]")
+        emit_system_message(
+            Text.from_markup(f"[dim]New working directory: {Path.cwd()}[/dim]")
+        )
 
 
 async def main():
@@ -207,8 +212,11 @@ async def main():
 
     # Show the awesome Code Puppy logo when entering interactive mode
     # This happens when: no -p flag (prompt-only mode) is used
+    # Show the awesome Code Puppy logo when entering interactive mode
+    # This happens when: no -p flag (prompt-only mode) is used
     # The logo should appear for both `code-puppy` and `code-puppy -i`
     if not args.prompt:
+        print("🐶 Code Puppy is Loading...")
         try:
             import pyfiglet
 
@@ -231,9 +239,9 @@ async def main():
                 else:
                     logo.append("")
 
-            emit_system_message("\n".join(logo))
+            emit_system_message(Text.from_markup("\n".join(logo)))
         except ImportError:
-            emit_system_message("🐶 Code Puppy is Loading...")
+            pass  # Loading message already printed above
 
     available_port = find_available_port()
     if available_port is None:
@@ -279,11 +287,13 @@ async def main():
                 available_models = list(models_config.keys()) if models_config else []
 
                 emit_error(f"Model '{model_name}' not found")
-                emit_system_message(f"Available models: {', '.join(available_models)}")
+                emit_system_message(
+                    Text.from_markup(f"[dim]Available models: {', '.join(available_models)}[/dim]")
+                )
                 sys.exit(1)
 
             # Model is valid, show confirmation (already set earlier)
-            emit_system_message(f"🎯 Using model: {model_name}")
+            emit_system_message(Text.from_markup(f"[dim]🎯 Using model: {model_name}[/dim]"))
         except Exception as e:
             emit_error(f"Error validating model: {str(e)}")
             sys.exit(1)
@@ -302,13 +312,15 @@ async def main():
             if agent_name not in available_agents:
                 emit_error(f"Agent '{agent_name}' not found")
                 emit_system_message(
-                    f"Available agents: {', '.join(available_agents.keys())}"
+                    Text.from_markup(
+                        f"[dim]Available agents: {', '.join(available_agents.keys())}[/dim]"
+                    )
                 )
                 sys.exit(1)
 
             # Agent exists, set it
             set_current_agent(agent_name)
-            emit_system_message(f"🤖 Using agent: {agent_name}")
+            emit_system_message(Text.from_markup(f"[dim]🤖 Using agent: {agent_name}[/dim]"))
         except Exception as e:
             emit_error(f"Error setting agent: {str(e)}")
             sys.exit(1)
@@ -326,8 +338,8 @@ async def main():
         update_disabled_msg = (
             "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true"
         )
-        emit_system_message(version_msg)
-        emit_system_message(update_disabled_msg)
+        emit_system_message(Text.from_markup(f"[dim]{version_msg}[/dim]"))
+        emit_system_message(Text.from_markup(f"[dim]{update_disabled_msg}[/dim]"))
     else:
         if len(callbacks.get_callbacks("version_check")):
             await callbacks.on_version_check(current_version)
@@ -345,7 +357,9 @@ async def main():
         if not get_use_dbos():
             set_config_value("enable_dbos", "true")
             emit_system_message(
-                "[dim]🎲 You've been selected for DBOS beta testing (2% sample)[/dim]"
+                Text.from_markup(
+                    "[dim]🎲 You've been selected for DBOS beta testing (2% sample)[/dim]"
+                )
             )
 
     # Initialize DBOS if not disabled
@@ -410,26 +424,43 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     """Run the agent in interactive mode."""
 
     display_console = message_renderer.console
-    from code_puppy.messaging import emit_info, emit_system_message
+    from code_puppy.messaging import emit_system_message
 
-    emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
-    emit_system_message("Type 'clear' to reset the conversation history.")
-    emit_system_message("Type /help to view all commands")
     emit_system_message(
-        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Ctrl+J."
+        Text.from_markup("[dim]Type '/exit' or '/quit' to exit the interactive mode.[/dim]")
+    )
+    emit_system_message(
+        Text.from_markup("[dim]Type 'clear' to reset the conversation history.[/dim]")
+    )
+    emit_system_message(Text.from_markup("[dim]Type /help to view all commands[/dim]"))
+    emit_system_message(
+        Text.from_markup(
+            "[dim]Type @ for path completion, or /model to pick a model. "
+            "Toggle multiline with Alt+M or F2; newline: Ctrl+J.[/dim]"
+        )
     )
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
-        f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands."
+        Text.from_markup(
+            f"[dim]Press {cancel_key} during processing to cancel the current task "
+            "or inference. Use Ctrl+X to interrupt running shell commands.[/dim]"
+        )
     )
     emit_system_message(
-        "Use /autosave_load to manually load a previous autosave session."
+        Text.from_markup(
+            "[dim]Use /autosave_load to manually load a previous autosave session.[/dim]"
+        )
     )
     emit_system_message(
-        "Use /diff to configure diff highlighting colors for file changes."
+        Text.from_markup(
+            "[dim]Use /diff to configure diff highlighting colors for file changes.[/dim]"
+        )
     )
     emit_system_message(
-        "[dim]⚠️  Type [bold blue]/disclaimer[/bold blue] to view important usage terms and data sensitivity guidelines.[/dim]"
+        Text.from_markup(
+            "[dim]⚠️  Type [bold blue]/disclaimer[/bold blue] to view "
+            "important usage terms and data sensitivity guidelines.[/dim]"
+        )
     )
     try:
         from code_puppy.command_line.motd import print_motd
@@ -443,10 +474,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # Initialize the runtime agent manager
     if initial_command:
         from code_puppy.agents import get_current_agent
-        from code_puppy.messaging import emit_info, emit_success, emit_system_message
+        from code_puppy.messaging import emit_success, emit_system_message
 
         agent = get_current_agent()
-        emit_info(f"Processing initial command: {initial_command}")
+        display_console.print(f"Processing initial command: {initial_command}")
 
         try:
             # Check if any tool is waiting for user input before showing spinner
@@ -484,7 +515,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 emit_success("🐶 Continuing in Interactive Mode")
                 emit_system_message(
-                    "Your command and response are preserved in the conversation history."
+                    Text.from_markup(
+                        "[dim]Your command and response are preserved in the "
+                        "conversation history.[/dim]"
+                    )
                 )
 
         except Exception as e:
@@ -528,13 +562,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.messaging import emit_info
 
         # Get the custom prompt from the current agent, or use default
         current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
 
-        emit_info(f"{user_prompt}\n")
+        display_console.print(f"{user_prompt}\n")
 
         try:
             # Use prompt_toolkit for enhanced input with path completion
@@ -575,7 +608,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             # Cancel any running agent task for clean shutdown
             if current_agent_task and not current_agent_task.done():
-                emit_info("Cancelling running agent task...")
+                display_console.print("Cancelling running agent task...")
                 current_agent_task.cancel()
                 try:
                     await current_agent_task
@@ -588,7 +621,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         # Check for clear command (supports both `clear` and `/clear`)
         if task.strip().lower() in ("clear", "/clear"):
             from code_puppy.messaging import (
-                emit_info,
                 emit_system_message,
                 emit_warning,
             )
@@ -597,8 +629,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             new_session_id = finalize_autosave_session()
             agent.clear_message_history()
             emit_warning("Conversation history cleared!")
-            emit_system_message("The agent will not remember previous interactions.")
-            emit_info(f"Auto-save session rotated to: {new_session_id}")
+            emit_system_message(
+                Text.from_markup(
+                    "[dim]The agent will not remember previous interactions.[/dim]"
+                )
+            )
+            display_console.print(f"Auto-save session rotated to: {new_session_id}")
             continue
 
         # Parse attachments first so leading paths aren't misread as commands
@@ -808,7 +844,11 @@ async def run_prompt_with_attachments(
     if processed_prompt.link_attachments:
         summary_parts.append(f"urls: {len(processed_prompt.link_attachments)}")
     if summary_parts:
-        emit_system_message("Attachments detected -> " + ", ".join(summary_parts))
+        emit_system_message(
+            Text.from_markup(
+                "[dim]Attachments detected -> " + ", ".join(summary_parts) + "[/dim]"
+            )
+        )
 
     if not processed_prompt.prompt:
         emit_warning(
@@ -835,7 +875,7 @@ async def run_prompt_with_attachments(
             try:
                 result = await agent_task
             except asyncio.CancelledError:
-                emit_info("Agent task cancelled")
+                spinner_console.print("Agent task cancelled")
                 return None, agent_task
         return result, agent_task
     else:
@@ -843,15 +883,17 @@ async def run_prompt_with_attachments(
             result = await agent_task
             return result, agent_task
         except asyncio.CancelledError:
-            emit_info("Agent task cancelled")
+            if spinner_console:
+                spinner_console.print("Agent task cancelled")
+            else:
+                print("Agent task cancelled")
             return None, agent_task
 
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
-    from code_puppy.messaging import emit_info
-
-    emit_info(f"Executing prompt: {prompt}")
+    display_console = message_renderer.console
+    display_console.print(f"Executing prompt: {prompt}")
 
     try:
         # Get agent through runtime manager and use helper for attachments

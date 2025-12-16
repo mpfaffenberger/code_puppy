@@ -118,6 +118,10 @@ class InteractiveRenderer(MessageRenderer):
             ):
                 style = "dim"
 
+        # Allow explicit dim styling via metadata
+        if message.metadata and message.metadata.get("dim"):
+            style = "dim"
+
         # Render the content
         if isinstance(message.content, str):
             if message.type == MessageType.AGENT_RESPONSE:
@@ -249,6 +253,10 @@ class SynchronousInteractiveRenderer:
                 or "Latest version:" in message.content
             ):
                 style = "dim"
+
+        # Allow explicit dim styling via metadata
+        if message.metadata and message.metadata.get("dim"):
+            style = "dim"
 
         # Render the content
         if isinstance(message.content, str):
