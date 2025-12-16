@@ -27,7 +27,6 @@ from code_puppy.messaging import (
     SubAgentResponseMessage,
     emit_error,
     emit_info,
-    emit_system_message,
     get_message_bus,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
@@ -207,6 +206,7 @@ class AgentInfo(BaseModel):
 
     name: str
     display_name: str
+    description: str
 
 
 class ListAgentsOutput(BaseModel):
@@ -242,29 +242,41 @@ def register_list_agents(agent):
         # Generate a group ID for this tool execution
         group_id = generate_group_id("list_agents")
 
+        from rich.text import Text
+
         emit_info(
-            "\n[bold white on blue] LIST AGENTS [/bold white on blue]",
+            Text.from_markup(
+                "\n[bold white on blue] LIST AGENTS [/bold white on blue]"
+            ),
             message_group=group_id,
         )
 
         try:
-            from code_puppy.agents import get_available_agents
+            from code_puppy.agents import get_agent_descriptions, get_available_agents
 
-            # Get available agents from the agent manager
+            # Get available agents and their descriptions from the agent manager
             agents_dict = get_available_agents()
+            descriptions_dict = get_agent_descriptions()
 
             # Convert to list of AgentInfo objects
             agents = [
-                AgentInfo(name=name, display_name=display_name)
+                AgentInfo(
+                    name=name,
+                    display_name=display_name,
+                    description=descriptions_dict.get(name, "No description available"),
+                )
                 for name, display_name in agents_dict.items()
             ]
 
-            # Display the agents in the console
+            # Accumulate output into a single string and emit once
+            # Use Text.from_markup() to pass a Rich object that won't be escaped
+            lines = []
             for agent_item in agents:
-                emit_system_message(
-                    f"- [bold]{agent_item.name}[/bold]: {agent_item.display_name}",
-                    message_group=group_id,
+                lines.append(
+                    f"- [bold]{agent_item.name}[/bold]: {agent_item.display_name}\n"
+                    f"  [dim]{agent_item.description}[/dim]"
                 )
+            emit_info(Text.from_markup("\n".join(lines)), message_group=group_id)
 
             return ListAgentsOutput(agents=agents)
 
