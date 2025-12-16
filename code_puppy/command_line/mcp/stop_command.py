@@ -5,6 +5,8 @@ MCP Stop Command - Stops a specific MCP server.
 import logging
 from typing import List, Optional
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_error, emit_info
 
 from ...agents import get_current_agent
@@ -35,7 +37,7 @@ class StopCommand(MCPCommandBase):
 
         if not args:
             emit_info(
-                "[yellow]Usage: /mcp stop <server_name>[/yellow]",
+                Text.from_markup("[yellow]Usage: /mcp stop <server_name>[/yellow]"),
                 message_group=group_id,
             )
             return

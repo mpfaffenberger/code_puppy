@@ -6,6 +6,7 @@ import logging
 from typing import List, Optional
 
 from rich.table import Table
+from rich.text import Text
 
 from code_puppy.messaging import emit_info, emit_system_message, emit_warning
 
@@ -99,19 +100,24 @@ class SearchCommand(MCPCommandBase):
             emit_system_message(table, message_group=group_id)
             emit_info("\n✓ = Verified  ⭐ = Popular", message_group=group_id)
             emit_info(
-                "[yellow]To install:[/yellow] /mcp install <id>", message_group=group_id
+                Text.from_markup("[yellow]To install:[/yellow] /mcp install <id>"),
+                message_group=group_id,
             )
             emit_info(
-                "[yellow]For details:[/yellow] /mcp search <specific-term>",
+                Text.from_markup(
+                    "[yellow]For details:[/yellow] /mcp search <specific-term>"
+                ),
                 message_group=group_id,
             )
 
         except ImportError:
             emit_info(
-                "[red]Server registry not available[/red]", message_group=group_id
+                Text.from_markup("[red]Server registry not available[/red]"),
+                message_group=group_id,
             )
         except Exception as e:
             logger.error(f"Error searching server registry: {e}")
             emit_info(
-                f"[red]Error searching servers: {e}[/red]", message_group=group_id
+                Text.from_markup(f"[red]Error searching servers: {e}[/red]"),
+                message_group=group_id,
             )

@@ -33,6 +33,7 @@ from pydantic_ai.messages import (
     ToolReturn,
     ToolReturnPart,
 )
+from rich.text import Text
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -1173,7 +1174,9 @@ class BaseAgent(ABC):
 
         if len(filtered_mcp_servers) != len(mcp_servers):
             emit_info(
-                f"[dim]Filtered {len(mcp_servers) - len(filtered_mcp_servers)} conflicting MCP tools[/dim]"
+                Text.from_markup(
+                    f"[dim]Filtered {len(mcp_servers) - len(filtered_mcp_servers)} conflicting MCP tools[/dim]"
+                )
             )
 
         self._last_model_name = resolved_model_name

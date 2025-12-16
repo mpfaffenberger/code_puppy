@@ -145,6 +145,8 @@ def handle_exit_command(command: str) -> bool:
 )
 def handle_agent_command(command: str) -> bool:
     """Handle agent switching."""
+    from rich.text import Text
+
     from code_puppy.agents import (
         get_agent_descriptions,
         get_available_agents,
@@ -201,7 +203,9 @@ def handle_agent_command(command: str) -> bool:
                 )
                 emit_info(f"{new_agent.description}", message_group=group_id)
                 emit_info(
-                    f"[dim]Auto-save session rotated to: {new_session_id}[/dim]",
+                    Text.from_markup(
+                        f"[dim]Auto-save session rotated to: {new_session_id}[/dim]"
+                    ),
                     message_group=group_id,
                 )
             else:
@@ -224,15 +228,19 @@ def handle_agent_command(command: str) -> bool:
             group_id = str(uuid.uuid4())
 
             emit_info(
-                f"[bold green]Current Agent:[/bold green] {current_agent.display_name}",
+                Text.from_markup(
+                    f"[bold green]Current Agent:[/bold green] {current_agent.display_name}"
+                ),
                 message_group=group_id,
             )
             emit_info(
-                f"[dim]{current_agent.description}[/dim]\n", message_group=group_id
+                Text.from_markup(f"[dim]{current_agent.description}[/dim]\n"),
+                message_group=group_id,
             )
 
             emit_info(
-                "[bold magenta]Available Agents:[/bold magenta]", message_group=group_id
+                Text.from_markup("[bold magenta]Available Agents:[/bold magenta]"),
+                message_group=group_id,
             )
             for name, display_name in available_agents.items():
                 description = descriptions.get(name, "No description")
@@ -240,13 +248,15 @@ def handle_agent_command(command: str) -> bool:
                     " [green]← current[/green]" if name == current_agent.name else ""
                 )
                 emit_info(
-                    f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}",
+                    Text.from_markup(
+                        f"  [cyan]{name:<12}[/cyan] {display_name}{current_marker}"
+                    ),
                     message_group=group_id,
                 )
                 emit_info(f"    {description}", message_group=group_id)
 
             emit_info(
-                "\n[yellow]Usage:[/yellow] /agent <agent-name>",
+                Text.from_markup("\n[yellow]Usage:[/yellow] /agent <agent-name>"),
                 message_group=group_id,
             )
             return True
@@ -292,7 +302,9 @@ def handle_agent_command(command: str) -> bool:
         )
         emit_info(f"{new_agent.description}", message_group=group_id)
         emit_info(
-            f"[dim]Auto-save session rotated to: {new_session_id}[/dim]",
+            Text.from_markup(
+                f"[dim]Auto-save session rotated to: {new_session_id}[/dim]"
+            ),
             message_group=group_id,
         )
         return True

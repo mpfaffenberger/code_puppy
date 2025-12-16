@@ -9,6 +9,8 @@ import re
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
+from rich.text import Text
+
 from code_puppy.mcp_.manager import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
@@ -487,7 +489,9 @@ def run_add_wizard(group_id: str = None) -> bool:
                 json.dump(data, f, indent=2)
 
             emit_info(
-                f"[dim]Configuration saved to {MCP_SERVERS_FILE}[/dim]",
+                Text.from_markup(
+                    f"[dim]Configuration saved to {MCP_SERVERS_FILE}[/dim]"
+                ),
                 message_group=group_id,
             )
             return True
