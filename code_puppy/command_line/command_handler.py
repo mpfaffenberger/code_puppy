@@ -168,6 +168,8 @@ def handle_command(command: str):
     Returns:
         True if the command was handled, False if not, or a string to be processed as user input
     """
+    from rich.text import Text
+
     from code_puppy.command_line.command_registry import get_command
     from code_puppy.messaging import emit_info, emit_warning
 
@@ -261,7 +263,9 @@ def handle_command(command: str):
 
         if name:
             emit_warning(
-                f"Unknown command: {command}\n[dim]Type /help for options.[/dim]"
+                Text.from_markup(
+                    f"Unknown command: {command}\n[dim]Type /help for options.[/dim]"
+                )
             )
         else:
             # Show current model ONLY here
@@ -269,7 +273,9 @@ def handle_command(command: str):
 
             current_model = get_active_model()
             emit_info(
-                f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]"
+                Text.from_markup(
+                    f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]"
+                )
             )
         return True
 

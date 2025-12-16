@@ -5,6 +5,8 @@ MCP Install Command - Installs pre-configured MCP servers from the registry.
 import logging
 from typing import List, Optional
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
@@ -150,7 +152,9 @@ class InstallCommand(MCPCommandBase):
             required_env_vars = selected_server.get_environment_vars()
             if required_env_vars:
                 emit_info(
-                    "\n[yellow]Required Environment Variables:[/yellow]",
+                    Text.from_markup(
+                        "\n[yellow]Required Environment Variables:[/yellow]"
+                    ),
                     message_group=group_id,
                 )
                 for var in required_env_vars:
@@ -160,7 +164,7 @@ class InstallCommand(MCPCommandBase):
                     current_value = os.environ.get(var, "")
                     if current_value:
                         emit_info(
-                            f"  {var}: [green]Already set[/green]",
+                            Text.from_markup(f"  {var}: [green]Already set[/green]"),
                             message_group=group_id,
                         )
                         env_vars[var] = current_value
@@ -173,7 +177,8 @@ class InstallCommand(MCPCommandBase):
             required_cmd_args = selected_server.get_command_line_args()
             if required_cmd_args:
                 emit_info(
-                    "\n[yellow]Command Line Arguments:[/yellow]", message_group=group_id
+                    Text.from_markup("\n[yellow]Command Line Arguments:[/yellow]"),
+                    message_group=group_id,
                 )
                 for arg_config in required_cmd_args:
                     name = arg_config.get("name", "")

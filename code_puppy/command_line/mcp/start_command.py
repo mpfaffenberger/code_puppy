@@ -6,6 +6,8 @@ import logging
 import time
 from typing import List, Optional
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_error, emit_info, emit_success
 
 from ...agents import get_current_agent
@@ -36,7 +38,7 @@ class StartCommand(MCPCommandBase):
 
         if not args:
             emit_info(
-                "[yellow]Usage: /mcp start <server_name>[/yellow]",
+                Text.from_markup("[yellow]Usage: /mcp start <server_name>[/yellow]"),
                 message_group=group_id,
             )
             return

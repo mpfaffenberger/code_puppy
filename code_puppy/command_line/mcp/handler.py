@@ -8,6 +8,8 @@ to their respective command modules.
 import logging
 import shlex
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_info
 
 from .add_command import AddCommand
@@ -103,7 +105,8 @@ class MCPCommandHandler(MCPCommandBase):
                 args = shlex.split(args_str)
             except ValueError as e:
                 emit_info(
-                    f"[red]Invalid command syntax: {e}[/red]", message_group=group_id
+                    Text.from_markup(f"[red]Invalid command syntax: {e}[/red]"),
+                    message_group=group_id,
                 )
                 return True
 
@@ -121,7 +124,9 @@ class MCPCommandHandler(MCPCommandBase):
                 return True
             else:
                 emit_info(
-                    f"[yellow]Unknown MCP subcommand: {subcommand}[/yellow]",
+                    Text.from_markup(
+                        f"[yellow]Unknown MCP subcommand: {subcommand}[/yellow]"
+                    ),
                     message_group=group_id,
                 )
                 emit_info(
