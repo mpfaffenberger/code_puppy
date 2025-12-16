@@ -1,3 +1,8 @@
+# Apply pydantic-ai patches BEFORE any pydantic-ai imports
+from code_puppy.pydantic_patches import apply_all_patches
+
+apply_all_patches()
+
 import sys
 import warnings
 
@@ -7,13 +12,6 @@ import warnings
 warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pywinauto\..*")
 warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pywinauto")
 warnings.filterwarnings("ignore", category=SyntaxWarning, module=r".*pywinauto.*")
-
-# Print immediate feedback using basic print before any heavy imports
-# This gives instant visual confirmation that the app is loading
-print("🐶 Code Puppy is Loading...", flush=True)
-from pydantic_ai import _agent_graph
-
-_agent_graph._clean_message_history = lambda messages: messages
 
 # ruff: noqa: E402
 import argparse
@@ -25,61 +23,6 @@ import subprocess
 import time
 import traceback
 from pathlib import Path
-
-from pydantic_ai import _agent_graph
-
-# Monkey-patch: disable overly strict message history cleaning
-_agent_graph._clean_message_history = lambda messages: messages
-
-# Monkey-patch: store original _process_message_history and create a less strict version
-# Pydantic AI added a validation that history must end with ModelRequest, but this
-# breaks valid use cases. We patch it to skip that validation.
-_original_process_message_history = _agent_graph._process_message_history
-
-
-async def _patched_process_message_history(messages, processors, run_context):
-    """Patched version that doesn't enforce ModelRequest at end."""
-    from pydantic_ai._agent_graph import (
-        _HistoryProcessorAsync,
-        _HistoryProcessorSync,
-        _HistoryProcessorSyncWithCtx,
-        cast,
-        exceptions,
-        is_async_callable,
-        is_takes_ctx,
-        run_in_executor,
-    )
-
-    for processor in processors:
-        takes_ctx = is_takes_ctx(processor)
-
-        if is_async_callable(processor):
-            if takes_ctx:
-                messages = await processor(run_context, messages)
-            else:
-                async_processor = cast(_HistoryProcessorAsync, processor)
-                messages = await async_processor(messages)
-        else:
-            if takes_ctx:
-                sync_processor_with_ctx = cast(_HistoryProcessorSyncWithCtx, processor)
-                messages = await run_in_executor(
-                    sync_processor_with_ctx, run_context, messages
-                )
-            else:
-                sync_processor = cast(_HistoryProcessorSync, processor)
-                messages = await run_in_executor(sync_processor, messages)
-
-    if len(messages) == 0:
-        raise exceptions.UserError("Processed history cannot be empty.")
-
-    # NOTE: We intentionally skip the "must end with ModelRequest" validation
-    # that was added in newer Pydantic AI versions. It's overly strict and
-    # breaks valid conversation flows.
-
-    return messages
-
-
-_agent_graph._process_message_history = _patched_process_message_history
 
 from dbos import DBOS, DBOSConfig
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -262,9 +205,10 @@ async def main():
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
 
-    # Show the awesome Code Puppy logo only in interactive mode (never in TUI mode)
-    # Always check both command line args AND runtime TUI state for safety
-    if args.interactive:
+    # Show the awesome Code Puppy logo when entering interactive mode
+    # This happens when: no -p flag (prompt-only mode) is used
+    # The logo should appear for both `code-puppy` and `code-puppy -i`
+    if not args.prompt:
         try:
             import pyfiglet
 
@@ -274,7 +218,7 @@ async def main():
 
             # Simple blue to green gradient (top to bottom)
             gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
-            emit_system_message("\n\n")
+            display_console.print("\n")
 
             # Apply gradient line by line
             logo = []
@@ -595,6 +539,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         try:
             # Use prompt_toolkit for enhanced input with path completion
             try:
+                # Windows-specific: Reset terminal state before prompting
+                if platform.system() == "Windows":
+                    try:
+                        sys.stdout.write("\x1b[0m")  # Reset ANSI formatting
+                        sys.stdout.flush()
+                    except Exception:
+                        pass
+
                 # Use the async version of get_input_with_combined_completion
                 task = await get_input_with_combined_completion(
                     get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
@@ -759,6 +711,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
+                    # Windows-specific: Reset terminal state after cancellation
+                    if platform.system() == "Windows":
+                        try:
+                            sys.stdout.write("\x1b[0m")  # Reset ANSI formatting
+                            sys.stdout.flush()
+                            sys.stderr.write("\x1b[0m")
+                            sys.stderr.flush()
+                        except Exception:
+                            pass
                     continue
                 # Get the structured response
                 agent_response = result.output
