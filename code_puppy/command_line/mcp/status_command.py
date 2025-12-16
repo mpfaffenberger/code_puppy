@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from rich.panel import Panel
+from rich.text import Text
 
 from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_error, emit_info
@@ -158,7 +159,7 @@ class StatusCommand(MCPCommandBase):
                 status_lines.append(f"[bold]Metadata:[/bold] {len(metadata)} keys")
 
             # Create and show the panel
-            panel_content = "\n".join(status_lines)
+            panel_content = Text.from_markup("\n".join(status_lines))
             panel = Panel(
                 panel_content, title=f"🔌 {server_name} Status", border_style="cyan"
             )

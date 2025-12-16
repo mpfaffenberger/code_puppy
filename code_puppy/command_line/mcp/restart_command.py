@@ -5,6 +5,8 @@ MCP Restart Command - Restarts a specific MCP server.
 import logging
 from typing import List, Optional
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_info
 
 from .base import MCPCommandBase
@@ -72,7 +74,9 @@ class RestartCommand(MCPCommandBase):
                         # Update MCP tool cache immediately so token counts reflect the change
                         agent.update_mcp_tool_cache_sync()
                         emit_info(
-                            "[dim]Agent reloaded with updated servers[/dim]",
+                            Text.from_markup(
+                                "[dim]Agent reloaded with updated servers[/dim]"
+                            ),
                             message_group=group_id,
                         )
                     except Exception as e:
@@ -91,5 +95,6 @@ class RestartCommand(MCPCommandBase):
         except Exception as e:
             logger.error(f"Error restarting server '{server_name}': {e}")
             emit_info(
-                f"[red]Failed to restart server: {e}[/red]", message_group=group_id
+                Text.from_markup(f"[red]Failed to restart server: {e}[/red]"),
+                message_group=group_id,
             )

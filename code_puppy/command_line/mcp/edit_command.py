@@ -8,6 +8,8 @@ import logging
 import os
 from typing import List, Optional
 
+from rich.text import Text
+
 from code_puppy.config import MCP_SERVERS_FILE
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 
@@ -39,7 +41,7 @@ class EditCommand(MCPCommandBase):
             # Need a server name
             if not args:
                 emit_info(
-                    "[yellow]Usage: /mcp edit <server_name>[/yellow]",
+                    Text.from_markup("[yellow]Usage: /mcp edit <server_name>[/yellow]"),
                     message_group=group_id,
                 )
                 emit_info(

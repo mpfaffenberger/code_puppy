@@ -6,6 +6,8 @@ import logging
 import time
 from typing import List, Optional
 
+from rich.text import Text
+
 from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_info
 
@@ -67,20 +69,23 @@ class StartAllCommand(MCPCommandBase):
                 if success:
                     started_count += 1
                     emit_info(
-                        f"  [green]✓ Started: {server_name}[/green]",
+                        Text.from_markup(f"  [green]✓ Started: {server_name}[/green]"),
                         message_group=group_id,
                     )
                 else:
                     failed_count += 1
                     emit_info(
-                        f"  [red]✗ Failed: {server_name}[/red]", message_group=group_id
+                        Text.from_markup(f"  [red]✗ Failed: {server_name}[/red]"),
+                        message_group=group_id,
                     )
 
             # Summary
             emit_info("", message_group=group_id)
             if started_count > 0:
                 emit_info(
-                    f"[green]Started {started_count} server(s)[/green]",
+                    Text.from_markup(
+                        f"[green]Started {started_count} server(s)[/green]"
+                    ),
                     message_group=group_id,
                 )
             if already_running > 0:
@@ -90,7 +95,9 @@ class StartAllCommand(MCPCommandBase):
                 )
             if failed_count > 0:
                 emit_info(
-                    f"[yellow]Failed to start {failed_count} server(s)[/yellow]",
+                    Text.from_markup(
+                        f"[yellow]Failed to start {failed_count} server(s)[/yellow]"
+                    ),
                     message_group=group_id,
                 )
 
@@ -112,7 +119,9 @@ class StartAllCommand(MCPCommandBase):
                     # Update MCP tool cache immediately so token counts reflect the change
                     agent.update_mcp_tool_cache_sync()
                     emit_info(
-                        "[dim]Agent reloaded with updated servers[/dim]",
+                        Text.from_markup(
+                            "[dim]Agent reloaded with updated servers[/dim]"
+                        ),
                         message_group=group_id,
                     )
                 except Exception as e:
@@ -121,5 +130,6 @@ class StartAllCommand(MCPCommandBase):
         except Exception as e:
             logger.error(f"Error starting all servers: {e}")
             emit_info(
-                f"[red]Failed to start servers: {e}[/red]", message_group=group_id
+                Text.from_markup(f"[red]Failed to start servers: {e}[/red]"),
+                message_group=group_id,
             )
