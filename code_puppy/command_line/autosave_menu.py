@@ -5,7 +5,6 @@ autosave sessions with live preview of message content.
 """
 
 import json
-import re
 import sys
 import time
 from datetime import datetime
@@ -276,44 +275,35 @@ def _render_message_browser_panel(
     lines.append(("fg:ansibrightblack", "  " + "─" * 40))
     lines.append(("", "\n"))
 
-    # Render content with markdown
+    # Render content - use markdown for user/assistant, plain text for tool
     try:
-        console = Console(
-            file=StringIO(),
-            legacy_windows=False,
-            no_color=False,
-            force_terminal=False,
-            width=72,
-        )
-        md = Markdown(content)
-        console.print(md)
-        rendered = console.file.getvalue()
+        if role == "tool":
+            # Tool messages are already formatted, don't pass through markdown
+            # Use yellow color for tool output
+            rendered = content
+            text_color = "fg:ansiyellow"
+        else:
+            # User and assistant messages should be rendered as markdown
+            # Rich will handle the styling via ANSI codes
+            console = Console(
+                file=StringIO(),
+                legacy_windows=False,
+                no_color=False,
+                force_terminal=False,
+                width=72,
+            )
+            md = Markdown(content)
+            console.print(md)
+            rendered = console.file.getvalue()
+            # Don't override Rich's ANSI styling - use empty style
+            text_color = ""
 
         # Truncate if too long (max 35 lines)
         message_lines = rendered.split("\n")[:35]
         is_truncated = len(rendered.split("\n")) > 35
 
-        # Color based on role
-        if role == "user":
-            text_color = "fg:ansicyan"
-        elif role == "tool":
-            text_color = "fg:ansiyellow"
-        else:
-            text_color = "fg:ansigreen"
-
         for line in message_lines:
-            # Headers
-            if line.strip().startswith("#"):
-                lines.append((f"{text_color} bold", f"  {line}"))
-            # Code blocks
-            elif line.strip().startswith("│"):
-                lines.append(("fg:ansibrightblack", f"  {line}"))
-            # List items
-            elif re.match(r"^\s*[•\-\*]", line):
-                lines.append((text_color, f"  {line}"))
-            # Regular text
-            else:
-                lines.append((text_color, f"  {line}"))
+            lines.append((text_color, f"  {line}"))
             lines.append(("", "\n"))
 
         if is_truncated:
@@ -397,22 +387,8 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
         message_lines = rendered.split("\n")[:30]
 
         for line in message_lines:
-            # Apply basic styling based on markdown patterns
-            styled_line = line
-
-            # Headers - make cyan and bold (dimmed)
-            if line.strip().startswith("#"):
-                lines.append(("fg:cyan", f"  {styled_line}"))
-            # Code blocks - make them green (dimmed)
-            elif line.strip().startswith("│"):
-                lines.append(("fg:ansibrightblack", f"  {styled_line}"))
-            # List items - make them dimmed
-            elif re.match(r"^\s*[•\-\*]", line):
-                lines.append(("fg:ansibrightblack", f"  {styled_line}"))
-            # Regular text - dimmed
-            else:
-                lines.append(("fg:ansibrightblack", f"  {styled_line}"))
-
+            # Rich already rendered the markdown, just display it dimmed
+            lines.append(("fg:ansibrightblack", f"  {line}"))
             lines.append(("", "\n"))
 
         if is_long:
