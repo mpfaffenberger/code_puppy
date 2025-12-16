@@ -27,6 +27,8 @@ def get_commands_help():
 )
 def handle_show_command(command: str) -> bool:
     """Show current puppy configuration."""
+    from rich.text import Text
+
     from code_puppy.agents import get_current_agent
     from code_puppy.command_line.model_picker_completion import get_active_model
     from code_puppy.config import (
@@ -79,7 +81,7 @@ def handle_show_command(command: str) -> bool:
 [bold]temperature:[/bold]           [cyan]{effective_temperature if effective_temperature is not None else "(model default)"}[/cyan]{" (per-model)" if effective_temperature != global_temperature and effective_temperature is not None else ""}
 
 """
-    emit_info(status_msg)
+    emit_info(Text.from_markup(status_msg))
     return True
 
 
@@ -171,6 +173,8 @@ def handle_verbosity_command(command: str) -> bool:
 )
 def handle_set_command(command: str) -> bool:
     """Set configuration values."""
+    from rich.text import Text
+
     from code_puppy.config import set_config_value
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
@@ -197,14 +201,18 @@ def handle_set_command(command: str) -> bool:
             "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
         )
         emit_warning(
-            f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}"
+            Text.from_markup(
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}"
+            )
         )
         return True
     if key:
         # Check if we're toggling DBOS enablement
         if key == "enable_dbos":
             emit_info(
-                "[yellow]⚠️ DBOS configuration changed. Please restart Code Puppy for this change to take effect.[/yellow]"
+                Text.from_markup(
+                    "[yellow]⚠️ DBOS configuration changed. Please restart Code Puppy for this change to take effect.[/yellow]"
+                )
             )
 
         set_config_value(key, value)
@@ -550,6 +558,8 @@ def _show_color_options(color_type: str):
     # ============================================================================
 
     """Show available Rich color options organized by category."""
+    from rich.text import Text
+
     from code_puppy.messaging import emit_info
 
     # Standard Rich colors organized by category
@@ -607,11 +617,15 @@ def _show_color_options(color_type: str):
             ("sea_green1", "🟢"),
         ]
         emit_info(
-            "[bold white on green]🎨 Recommended Colors for Additions:[/bold white on green]"
+            Text.from_markup(
+                "[bold white on green]🎨 Recommended Colors for Additions:[/bold white on green]"
+            )
         )
         for color, emoji in suggestions:
             emit_info(
-                f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}"
+                Text.from_markup(
+                    f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}"
+                )
             )
     elif color_type == "deletions":
         suggestions = [
@@ -622,11 +636,15 @@ def _show_color_options(color_type: str):
             ("dark_red", "🔴"),
         ]
         emit_info(
-            "[bold white on orange1]🎨 Recommended Colors for Deletions:[/bold white on orange1]"
+            Text.from_markup(
+                "[bold white on orange1]🎨 Recommended Colors for Deletions:[/bold white on orange1]"
+            )
         )
         for color, emoji in suggestions:
             emit_info(
-                f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}"
+                Text.from_markup(
+                    f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}"
+                )
             )
 
     emit_info("\n🎨 All Available Rich Colors:")
@@ -636,7 +654,7 @@ def _show_color_options(color_type: str):
         for i in range(0, len(colors), 4):
             row = colors[i : i + 4]
             row_text = "  ".join([f"[{color}]■[/{color}] {color}" for color, _ in row])
-            emit_info(f"  {row_text}")
+            emit_info(Text.from_markup(f"  {row_text}"))
 
     emit_info("\nUsage: /diff {color_type} <color_name>")
     emit_info("All diffs use white text on your chosen background colors")

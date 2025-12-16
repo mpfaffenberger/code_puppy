@@ -8,6 +8,8 @@ to their respective command modules.
 import logging
 import shlex
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_info
 
 from .add_command import AddCommand
@@ -98,24 +100,15 @@ class MCPCommandHandler(MCPCommandBase):
                 self._commands["list"].execute([], group_id=group_id)
                 return True
 
-            # Special handling for 'add' command with JSON - preserve JSON intact
-            # This fixes the issue where shlex.split() would break JSON strings containing spaces
-            # Example: "/mcp add {\"command\": \"echo hello world\"}" would be split incorrectly
-            if args_str.startswith("add ") and "{" in args_str:
-                # For 'add' command with JSON, split only on the first space
-                parts = args_str.split(" ", 1)
-                subcommand = parts[0].lower()
-                sub_args = [parts[1]] if len(parts) > 1 else []
-            else:
-                # Parse arguments using shlex for proper handling of quoted strings
-                try:
-                    args = shlex.split(args_str)
-                except ValueError as e:
-                    emit_info(
-                        f"[red]Invalid command syntax: {e}[/red]",
-                        message_group=group_id,
-                    )
-                    return True
+            # Parse arguments using shlex for proper handling of quoted strings
+            try:
+                args = shlex.split(args_str)
+            except ValueError as e:
+                emit_info(
+                    Text.from_markup(f"[red]Invalid command syntax: {e}[/red]"),
+                    message_group=group_id,
+                )
+                return True
 
                 if not args:
                     self._commands["list"].execute([], group_id=group_id)
@@ -131,7 +124,9 @@ class MCPCommandHandler(MCPCommandBase):
                 return True
             else:
                 emit_info(
-                    f"[yellow]Unknown MCP subcommand: {subcommand}[/yellow]",
+                    Text.from_markup(
+                        f"[yellow]Unknown MCP subcommand: {subcommand}[/yellow]"
+                    ),
                     message_group=group_id,
                 )
                 emit_info(
