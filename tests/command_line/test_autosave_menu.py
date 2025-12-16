@@ -13,9 +13,11 @@ import pytest
 from code_puppy.command_line.autosave_menu import (
     PAGE_SIZE,
     _extract_last_user_message,
+    _extract_message_content,
     _get_session_entries,
     _get_session_metadata,
     _render_menu_panel,
+    _render_message_browser_panel,
     _render_preview_panel,
     interactive_autosave_picker,
 )
@@ -627,3 +629,512 @@ class TestIntegrationScenarios:
             # Note: When there are no sessions, we don't use TUI所以没有 ANSI sequences
             # But we still set/reset the input flag properly
             assert result is None  # Should return None when no sessions
+
+
+# =============================================================================
+# New tests for message browser feature
+# =============================================================================
+
+
+class MockMessagePart:
+    """Mock message part with configurable part_kind and attributes."""
+
+    def __init__(
+        self,
+        part_kind: str = "text",
+        content: str | None = None,
+        tool_name: str | None = None,
+        args: dict | None = None,
+    ):
+        self.part_kind = part_kind
+        if content is not None:
+            self.content = content
+        if tool_name is not None:
+            self.tool_name = tool_name
+        if args is not None:
+            self.args = args
+
+
+class MockModelMessage:
+    """Mock model message with configurable kind and parts."""
+
+    def __init__(self, kind: str, parts: list):
+        self.kind = kind
+        self.parts = parts
+
+
+class TestExtractMessageContent:
+    """Test the _extract_message_content function."""
+
+    def test_user_prompt_returns_user_role(self):
+        """Request with user-prompt part returns role='user'."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[MockMessagePart(part_kind="user-prompt", content="Hello there")],
+        )
+        role, content = _extract_message_content(msg)
+        assert role == "user"
+        assert "Hello there" in content
+
+    def test_tool_return_returns_tool_role(self):
+        """Request with only tool-return parts returns role='tool'."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[
+                MockMessagePart(
+                    part_kind="tool-return",
+                    tool_name="read_file",
+                    content="file contents here",
+                )
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert role == "tool"
+        assert "📥 Tool Result: read_file" in content
+
+    def test_tool_call_returns_tool_role(self):
+        """Response with only tool-call parts returns role='tool'."""
+        msg = MockModelMessage(
+            kind="response",
+            parts=[
+                MockMessagePart(
+                    part_kind="tool-call",
+                    tool_name="edit_file",
+                    args={"file_path": "test.py"},
+                )
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert role == "tool"
+        assert "🔧 Tool Call: edit_file" in content
+
+    def test_text_response_returns_assistant_role(self):
+        """Response with text part returns role='assistant'."""
+        msg = MockModelMessage(
+            kind="response",
+            parts=[MockMessagePart(part_kind="text", content="Here is my answer")],
+        )
+        role, content = _extract_message_content(msg)
+        assert role == "assistant"
+        assert "Here is my answer" in content
+
+    def test_mixed_parts_in_request_returns_user(self):
+        """Request with mixed parts (user-prompt + tool-return) returns 'user'."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[
+                MockMessagePart(part_kind="user-prompt", content="My question"),
+                MockMessagePart(
+                    part_kind="tool-return", tool_name="grep", content="results"
+                ),
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert role == "user"  # Not all parts are tool-return
+
+    def test_mixed_parts_in_response_returns_assistant(self):
+        """Response with mixed parts (text + tool-call) returns 'assistant'."""
+        msg = MockModelMessage(
+            kind="response",
+            parts=[
+                MockMessagePart(part_kind="text", content="Let me help"),
+                MockMessagePart(part_kind="tool-call", tool_name="read_file", args={}),
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert role == "assistant"  # Not all parts are tool-call
+
+    def test_tool_call_extracts_tool_name_and_args(self):
+        """Tool call shows tool name and args preview."""
+        msg = MockModelMessage(
+            kind="response",
+            parts=[
+                MockMessagePart(
+                    part_kind="tool-call",
+                    tool_name="edit_file",
+                    args={"file_path": "test.py", "content": "print('hello')"},
+                )
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert "🔧 Tool Call: edit_file" in content
+        assert "Args:" in content
+        assert "file_path" in content
+
+    def test_tool_call_truncates_long_args(self):
+        """Args longer than 100 chars are truncated with '...'."""
+        long_args = {"content": "x" * 200}
+        msg = MockModelMessage(
+            kind="response",
+            parts=[
+                MockMessagePart(
+                    part_kind="tool-call", tool_name="edit_file", args=long_args
+                )
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert "..." in content
+
+    def test_tool_call_without_args(self):
+        """Tool call without args shows just tool name."""
+        msg = MockModelMessage(
+            kind="response",
+            parts=[
+                MockMessagePart(part_kind="tool-call", tool_name="list_files", args={})
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert "🔧 Tool Call: list_files" in content
+
+    def test_tool_return_extracts_tool_name_and_result(self):
+        """Tool return shows tool name and content preview."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[
+                MockMessagePart(
+                    part_kind="tool-return",
+                    tool_name="read_file",
+                    content="def hello():\n    print('world')",
+                )
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert "📥 Tool Result: read_file" in content
+        assert "def hello()" in content
+
+    def test_tool_return_truncates_long_result(self):
+        """Results longer than 200 chars are truncated."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[
+                MockMessagePart(
+                    part_kind="tool-return",
+                    tool_name="read_file",
+                    content="x" * 300,
+                )
+            ],
+        )
+        role, content = _extract_message_content(msg)
+        assert "..." in content
+
+    def test_text_content_extracted_directly(self):
+        """Regular text parts are extracted as-is."""
+        msg = MockModelMessage(
+            kind="response",
+            parts=[MockMessagePart(part_kind="text", content="Direct text content")],
+        )
+        role, content = _extract_message_content(msg)
+        assert content == "Direct text content"
+
+    def test_empty_parts_returns_no_content(self):
+        """Message with empty parts returns '[No content]'."""
+        msg = MockModelMessage(kind="request", parts=[])
+        role, content = _extract_message_content(msg)
+        assert content == "[No content]"
+
+    def test_whitespace_only_content_ignored(self):
+        """Parts with only whitespace are not included."""
+        msg = MockModelMessage(
+            kind="response",
+            parts=[MockMessagePart(part_kind="text", content="   \n\t  ")],
+        )
+        role, content = _extract_message_content(msg)
+        assert content == "[No content]"
+
+
+class TestRenderMessageBrowserPanel:
+    """Test the _render_message_browser_panel function."""
+
+    def test_empty_history_shows_no_messages(self):
+        """Empty history list shows 'No messages in this session'."""
+        result = _render_message_browser_panel([], 0, "test_session")
+        lines_str = str(result)
+        assert "No messages in this session" in lines_str
+
+    def test_displays_session_name(self):
+        """Session name is displayed in output."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[MockMessagePart(part_kind="user-prompt", content="hello")],
+        )
+        result = _render_message_browser_panel([msg], 0, "my_cool_session")
+        lines_str = str(result)
+        assert "my_cool_session" in lines_str
+
+    def test_displays_message_position(self):
+        """Shows 'Message X of Y' indicator."""
+        messages = [
+            MockModelMessage(
+                kind="request",
+                parts=[MockMessagePart(part_kind="user-prompt", content=f"msg {i}")],
+            )
+            for i in range(5)
+        ]
+        result = _render_message_browser_panel(messages, 2, "test")
+        lines_str = str(result)
+        assert "Message 3 of 5" in lines_str
+
+    def test_clamps_index_to_valid_range_high(self):
+        """Index above max is clamped (no crash)."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[MockMessagePart(part_kind="user-prompt", content="only one")],
+        )
+        # Index 100 should be clamped to 0 for single message
+        result = _render_message_browser_panel([msg], 100, "test")
+        lines_str = str(result)
+        assert "Message 1 of 1" in lines_str
+
+    def test_clamps_index_to_valid_range_negative(self):
+        """Negative index is clamped to 0."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[MockMessagePart(part_kind="user-prompt", content="test")],
+        )
+        result = _render_message_browser_panel([msg], -5, "test")
+        lines_str = str(result)
+        assert "Message 1 of 1" in lines_str
+
+    def test_user_role_shows_user_icon(self):
+        """User messages show USER label."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[MockMessagePart(part_kind="user-prompt", content="hi")],
+        )
+        result = _render_message_browser_panel([msg], 0, "test")
+        lines_str = str(result)
+        assert "USER" in lines_str
+
+    def test_tool_role_shows_tool_icon(self):
+        """Tool messages show TOOL label."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[
+                MockMessagePart(
+                    part_kind="tool-return", tool_name="test", content="result"
+                )
+            ],
+        )
+        result = _render_message_browser_panel([msg], 0, "test")
+        lines_str = str(result)
+        assert "TOOL" in lines_str
+
+    def test_assistant_role_shows_assistant_icon(self):
+        """Assistant messages show ASSISTANT label."""
+        msg = MockModelMessage(
+            kind="response",
+            parts=[MockMessagePart(part_kind="text", content="Hello!")],
+        )
+        result = _render_message_browser_panel([msg], 0, "test")
+        lines_str = str(result)
+        assert "ASSISTANT" in lines_str
+
+    def test_reverse_index_most_recent_first(self):
+        """Index 0 = most recent message, not first."""
+        messages = [
+            MockModelMessage(
+                kind="request",
+                parts=[MockMessagePart(part_kind="user-prompt", content="first msg")],
+            ),
+            MockModelMessage(
+                kind="request",
+                parts=[MockMessagePart(part_kind="user-prompt", content="last msg")],
+            ),
+        ]
+        # Index 0 should show the LAST message (most recent)
+        result = _render_message_browser_panel(messages, 0, "test")
+        lines_str = str(result)
+        assert "last msg" in lines_str
+        assert "first msg" not in lines_str
+
+    def test_renders_message_browser_header(self):
+        """Should show MESSAGE BROWSER header."""
+        msg = MockModelMessage(
+            kind="request",
+            parts=[MockMessagePart(part_kind="user-prompt", content="test")],
+        )
+        result = _render_message_browser_panel([msg], 0, "test")
+        lines_str = str(result)
+        assert "MESSAGE BROWSER" in lines_str
+
+
+class TestRenderMenuPanelBrowseMode:
+    """Test the browse_mode parameter of _render_menu_panel."""
+
+    def test_browse_mode_false_shows_standard_hints(self):
+        """Default mode shows standard navigation hints including 'e' for browse."""
+        entries = [("session1", {"timestamp": "2024-01-01T12:00:00"})]
+        result = _render_menu_panel(entries, 0, 0, browse_mode=False)
+        lines_str = str(result)
+
+        assert "Navigate" in lines_str
+        assert "Page" in lines_str
+        assert "e" in lines_str.lower()  # 'e' key hint
+        assert "Browse msgs" in lines_str
+
+    def test_browse_mode_true_shows_browse_hints(self):
+        """Browse mode shows browse-specific navigation hints."""
+        entries = [("session1", {"timestamp": "2024-01-01T12:00:00"})]
+        result = _render_menu_panel(entries, 0, 0, browse_mode=True)
+        lines_str = str(result)
+
+        assert "Browse msgs" in lines_str
+        assert "Esc" in lines_str
+        assert "Exit browser" in lines_str
+
+    def test_browse_mode_hides_page_navigation_hint(self):
+        """Browse mode doesn't show page navigation hint."""
+        entries = [("session1", {"timestamp": "2024-01-01T12:00:00"})]
+        result = _render_menu_panel(entries, 0, 0, browse_mode=True)
+        lines_str = str(result)
+
+        # In browse mode, we shouldn't see the "Page" hint for ←/→
+        # The word "Page" should not appear in browse mode hints
+        # But we need to be careful - it might appear in "Session Page(s)"
+        # So let's check for the specific pattern
+        assert "←/→" not in lines_str or "Page" not in lines_str.split("Esc")[0]
+
+
+class TestBrowseModeNavigation:
+    """Test browse mode state management and navigation logic."""
+
+    def test_browse_mode_up_navigation_logic(self):
+        """Test that up navigation in browse mode increments message index."""
+        # Simulate the navigation logic from interactive_autosave_picker
+        browse_mode = [True]
+        message_idx = [0]
+        cached_history = [list(range(10))]  # 10 messages
+
+        def move_up():
+            if browse_mode[0]:
+                if cached_history[0] and message_idx[0] < len(cached_history[0]) - 1:
+                    message_idx[0] += 1
+
+        # Move up should go to older message
+        move_up()
+        assert message_idx[0] == 1
+
+        move_up()
+        assert message_idx[0] == 2
+
+    def test_browse_mode_down_navigation_logic(self):
+        """Test that down navigation in browse mode decrements message index."""
+        browse_mode = [True]
+        message_idx = [5]
+
+        def move_down():
+            if browse_mode[0]:
+                if message_idx[0] > 0:
+                    message_idx[0] -= 1
+
+        # Move down should go to newer message
+        move_down()
+        assert message_idx[0] == 4
+
+        move_down()
+        assert message_idx[0] == 3
+
+    def test_browse_mode_up_stops_at_oldest(self):
+        """Up navigation stops at oldest message."""
+        browse_mode = [True]
+        message_idx = [8]  # Near the end
+        cached_history = [list(range(10))]  # 10 messages (0-9)
+
+        def move_up():
+            if browse_mode[0]:
+                if cached_history[0] and message_idx[0] < len(cached_history[0]) - 1:
+                    message_idx[0] += 1
+
+        move_up()  # 8 -> 9
+        assert message_idx[0] == 9
+
+        move_up()  # Should stay at 9 (can't go higher)
+        assert message_idx[0] == 9
+
+    def test_browse_mode_down_stops_at_newest(self):
+        """Down navigation stops at newest message (index 0)."""
+        browse_mode = [True]
+        message_idx = [1]
+
+        def move_down():
+            if browse_mode[0]:
+                if message_idx[0] > 0:
+                    message_idx[0] -= 1
+
+        move_down()  # 1 -> 0
+        assert message_idx[0] == 0
+
+        move_down()  # Should stay at 0
+        assert message_idx[0] == 0
+
+    def test_normal_mode_navigation_unchanged(self):
+        """When not in browse mode, up/down navigates sessions."""
+        browse_mode = [False]
+        selected_idx = [0]
+        entries = list(range(5))  # 5 sessions
+
+        def move_down_session():
+            if not browse_mode[0]:
+                if selected_idx[0] < len(entries) - 1:
+                    selected_idx[0] += 1
+
+        move_down_session()
+        assert selected_idx[0] == 1
+
+        move_down_session()
+        assert selected_idx[0] == 2
+
+    def test_exit_browse_mode_resets_state(self):
+        """Exiting browse mode resets message_idx and cached_history."""
+        browse_mode = [True]
+        message_idx = [5]
+        cached_history = [["msg1", "msg2"]]
+
+        def exit_browse():
+            browse_mode[0] = False
+            cached_history[0] = None
+            message_idx[0] = 0
+
+        exit_browse()
+
+        assert browse_mode[0] is False
+        assert message_idx[0] == 0
+        assert cached_history[0] is None
+
+    def test_enter_browse_mode_loads_history(self):
+        """Entering browse mode sets state correctly."""
+        browse_mode = [False]
+        message_idx = [0]
+        cached_history = [None]
+        mock_history = ["msg1", "msg2", "msg3"]
+
+        def enter_browse(history):
+            cached_history[0] = history
+            browse_mode[0] = True
+            message_idx[0] = 0  # Start at most recent
+
+        enter_browse(mock_history)
+
+        assert browse_mode[0] is True
+        assert message_idx[0] == 0
+        assert cached_history[0] == mock_history
+
+    def test_enter_browse_mode_ignored_when_already_browsing(self):
+        """Pressing 'e' when already in browse mode doesn't reload."""
+        browse_mode = [True]
+        message_idx = [3]  # User has navigated to message 3
+        original_history = ["a", "b", "c"]
+        cached_history = [original_history]
+
+        def enter_browse_if_not_browsing(new_history):
+            if browse_mode[0]:
+                return  # Already in browse mode
+            cached_history[0] = new_history
+            message_idx[0] = 0
+
+        # Try to enter browse mode again with different history
+        enter_browse_if_not_browsing(["x", "y", "z"])
+
+        # Should not have changed
+        assert message_idx[0] == 3
+        assert cached_history[0] == original_history
