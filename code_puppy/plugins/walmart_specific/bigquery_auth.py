@@ -7,11 +7,15 @@ that can be used by the BigQuery Python client.
 Also handles automatic installation of gcloud CLI and Python dependencies.
 """
 
+import json
 import os
 import platform
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
@@ -362,6 +366,70 @@ def _ensure_gcloud_account_authenticated(gcloud_cmd: str = "gcloud") -> bool:
         return False
 
 
+def _get_access_token(gcloud_cmd: str = "gcloud") -> str | None:
+    """Get access token from gcloud for API calls."""
+    try:
+        result = subprocess.run(
+            [gcloud_cmd, "auth", "print-access-token"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    except Exception:
+        return None
+
+
+def _check_bigquery_permission(project_id: str, token: str) -> bool:
+    """Check if user has bigquery.jobs.create permission on a project."""
+    try:
+        url = (
+            f"https://cloudresourcemanager.googleapis.com/v1/projects/"
+            f"{project_id}:testIamPermissions"
+        )
+        data = json.dumps({"permissions": ["bigquery.jobs.create"]}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            resp_data = json.loads(response.read().decode())
+            return "bigquery.jobs.create" in resp_data.get("permissions", [])
+    except Exception:
+        return False
+
+
+def _get_projects_with_bq_access(
+    project_ids: list[str], gcloud_cmd: str = "gcloud"
+) -> list[str]:
+    """Get list of projects where user has bigquery.jobs.create permission."""
+    if not project_ids:
+        return []
+
+    token = _get_access_token(gcloud_cmd)
+    if not token:
+        return []
+
+    permitted = []
+
+    def check(pid: str) -> str | None:
+        if _check_bigquery_permission(pid, token):
+            return pid
+        return None
+
+    with ThreadPoolExecutor(max_workers=40) as executor:
+        futures = [executor.submit(check, p) for p in project_ids]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                permitted.append(result)
+
+    permitted.sort()
+    return permitted
+
+
 def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
     """Get default project from gcloud config or prompt user to select one.
 
@@ -398,6 +466,19 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
             emit_info("📊 No default project set. Listing your available projects...")
         emit_info("")
 
+        # Get project IDs for BQ permission check (run in background)
+        ids_result = subprocess.run(
+            [gcloud_cmd, "projects", "list", "--format=value(projectId)"],
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+        all_project_ids = (
+            [p.strip() for p in ids_result.stdout.strip().split("\n") if p.strip()]
+            if ids_result.returncode == 0
+            else []
+        )
+
         # Show projects in table format
         list_result = subprocess.run(
             [gcloud_cmd, "projects", "list", "--format=table(projectId, name)"],
@@ -410,6 +491,27 @@ def _get_default_project(gcloud_cmd: str = "gcloud") -> str | None:
             return None
 
         emit_info("")
+
+        # Check BigQuery permissions and show summary
+        if all_project_ids:
+            emit_info("🔍 Checking BigQuery access permissions...")
+            bq_permitted = _get_projects_with_bq_access(all_project_ids, gcloud_cmd)
+            if bq_permitted:
+                emit_info("")
+                emit_info(f"✅ Projects with BigQuery access ({len(bq_permitted)}):")
+                emit_info("   " + "-" * 50)
+                for proj in bq_permitted:
+                    marker = " (current default)" if proj == current_default else ""
+                    emit_info(f"   {proj}{marker}")
+                emit_info("   " + "-" * 50)
+            else:
+                emit_warning("⚠️  No projects found with BigQuery access")
+            emit_info("")
+            emit_info(
+                "💡 Tip: Preferably select projects with prefix 'wmt-*' or 'sams-*' "
+                "for Walmart BigQuery access."
+            )
+            emit_info("")
 
         # If default exists, use timeout and allow Enter to keep default
         if current_default:
@@ -813,6 +915,9 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                         f"💡 Default project '{default_project}' is now set.\n"
                         f"   You can work with other projects by specifying project_id in commands."
                     )
+                    emit_info(
+                        "📚 Learn more about the BigQuery agent: https://puppy.walmart.com/agents/bigquery-explorer"
+                    )
                     return "BigQuery authentication successful!"
                 else:
                     emit_warning(
@@ -849,9 +954,10 @@ def handle_bigquery_auth_command(command: str, name: str) -> str | None:
                             "💡 Troubleshooting tips:\n"
                             "   - Make sure you're allowing all required scopes/permissions\n"
                             "   - Check if your browser is blocking popups\n"
-                            "   - Try running: gcloud auth application-default login --no-browser"
+                            "   - Try running: gcloud auth application-default login --no-browser\n"
+                            "   - For more details: https://puppy.walmart.com/agents/bigquery-explorer/getting-started"
                         )
-                    return f"Authentication failed after {max_attempts} attempts: {error_msg}"
+                        return f"Authentication failed after {max_attempts} attempts: {error_msg}"
 
         except subprocess.TimeoutExpired:
             emit_error(

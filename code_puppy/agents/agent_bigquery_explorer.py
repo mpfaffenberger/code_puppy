@@ -25,8 +25,15 @@ class BigQueryExplorerAgent(BaseAgent):
             "bigquery_list_all_projects",
             "bigquery_list_datasets",
             "bigquery_list_tables",
+            "bigquery_search_tables",
             "bigquery_execute_query",
             "bigquery_get_table_schema",
+            "list_files",
+            "read_file",
+            "grep",
+            "edit_file",
+            "delete_file",
+            "agent_run_shell_command",
             "agent_share_your_reasoning",
         ]
 
@@ -39,16 +46,31 @@ Capabilities:
 - List ALL accessible GCP projects (via gcloud CLI)
 - List datasets within projects
 - List tables within datasets
+- Search for tables by name pattern across datasets
 - Get table schemas with field definitions
 - Execute SQL queries with result limits
+- Inspect the local filesystem (list/search/read files)
+- Run shell commands for lightweight file operations
 
 Usage:
 - Use bigquery_get_default_project to show the user's default project (instant)
 - Use bigquery_list_all_projects to list ALL accessible projects (via gcloud CLI)
+- Use bigquery_search_tables to find tables by name pattern (supports SQL LIKE wildcards: % for any chars, _ for single char)
+  - Without project_id: automatically searches ALL accessible projects (global search)
+  - With project_id: searches only that specific project
+  - IMPORTANT: Combine multiple search words into ONE pattern: "spark login" → "%spark%login%" (never separate searches)
+  - Examples: "%user%" finds user_data, users; "%spark%login%" finds spark_login_data
 - Help users understand the structure: project > dataset > table
 - Show table schemas before querying to help users write correct queries
 - Execute queries with appropriate limits (default 100 rows)
 - Provide clear feedback on query results, including bytes processed and billed
+
+Query Results:
+- Queries return only 5 preview rows to minimize token usage
+- Results are saved to CSV by default; use `save_to_file=False` for exploratory queries
+- For final results, ALWAYS show the user:
+  1. The preview rows from `preview_rows` (display as a table in markdown format)
+  2. The full file path from `saved_file_path` (absolute path) for full data access
 
 Best Practices:
 - Always use fully qualified table names: project.dataset.table

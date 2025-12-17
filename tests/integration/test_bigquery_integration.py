@@ -1,7 +1,9 @@
 """Integration tests for BigQuery functionality."""
 
-import pytest
+from pathlib import Path
 from unittest.mock import Mock, patch
+
+import pytest
 
 from code_puppy.plugins.walmart_specific.bigquery_client import (
     BigQueryClient,
@@ -213,6 +215,75 @@ class TestBigQueryToolsIntegration:
             assert len(result["rows"]) == 1
             assert result["rows"][0]["count"] == 100
 
+    def test_execute_query_tool_saves_results(
+        self, mock_run_context, tmp_path: Path
+    ):
+        """Test saving query results to a user-provided path."""
+        with patch("code_puppy.tools.bigquery_tools.BigQueryClient") as MockClient:
+            mock_client = Mock()
+            mock_client.execute_query.return_value = {
+                "rows": [{"id": i, "value": f"row-{i}"} for i in range(10)],
+                "schema": [
+                    {"name": "id", "type": "INTEGER"},
+                    {"name": "value", "type": "STRING"},
+                ],
+                "total_rows": 10,
+                "job_id": "job-save-123",
+                "bytes_processed": 512,
+                "bytes_billed": 1024,
+            }
+            MockClient.return_value = mock_client
+
+            output_file = tmp_path / "scan_and_go.csv"
+            result = bigquery_execute_query(
+                mock_run_context,
+                query="SELECT * FROM table",
+                max_results=10,
+                save_results=True,
+                output_path=str(output_file),
+                preview_rows=5,
+            )
+
+            assert result["success"] is True
+            assert result["saved_file_path"] == str(output_file)
+            assert output_file.exists()
+            assert result["rows_truncated"] is True
+            assert len(result["rows"]) == 5
+            assert result["rows_saved_to_file"] == 10
+
+    def test_execute_query_tool_auto_saves_large_results(
+        self, mock_run_context, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test automatic saving when result sets are large."""
+        with patch("code_puppy.tools.bigquery_tools.BigQueryClient") as MockClient:
+            mock_client = Mock()
+            mock_client.execute_query.return_value = {
+                "rows": [{"id": i} for i in range(250)],
+                "schema": [{"name": "id", "type": "INTEGER"}],
+                "total_rows": 250,
+                "job_id": "job-auto-456",
+                "bytes_processed": 2048,
+                "bytes_billed": 4096,
+            }
+            MockClient.return_value = mock_client
+
+            monkeypatch.chdir(tmp_path)
+            result = bigquery_execute_query(
+                mock_run_context,
+                query="SELECT * FROM big_table",
+                max_results=250,
+                preview_rows=25,
+            )
+
+            assert result["success"] is True
+            assert result["saved_file_path"] is not None
+            saved_path = Path(result["saved_file_path"])
+            assert saved_path.exists()
+            assert result["auto_saved_result_file"] is True
+            assert result["rows_truncated"] is True
+            assert len(result["rows"]) == 25
+            assert saved_path.parent == Path.cwd() / "bigquery_results"
+
     def test_execute_query_tool_blocked(self, mock_run_context):
         """Test bigquery_execute_query blocks dangerous queries."""
         with patch("code_puppy.tools.bigquery_tools.BigQueryClient") as MockClient:
@@ -291,6 +362,13 @@ class TestBigQueryAgentIntegration:
             "bigquery_list_tables",
             "bigquery_execute_query",
             "bigquery_get_table_schema",
+            "list_files",
+            "read_file",
+            "grep",
+            "edit_file",
+            "delete_file",
+            "agent_run_shell_command",
+            "agent_share_your_reasoning",
         ]
 
         for tool in expected_tools:
