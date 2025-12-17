@@ -23,6 +23,8 @@ else:
     ImageDraw = None
     ImageFont = None
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_error, emit_info
 from code_puppy.tools.common import generate_group_id
 
@@ -379,10 +381,10 @@ Marker reference:
                 instructions += f"  Marker #{idx}: ({x}, {y})\n"
 
             emit_info(
-                f"[green]Test pattern saved: {save_path}[/green]",
+                Text.from_markup(f"[green]Test pattern saved: {save_path}[/green]"),
                 message_group=group_id,
             )
-            emit_info(f"[dim]{instructions.strip()}[/dim]", message_group=group_id)
+            emit_info(Text.from_markup(f"[dim]{instructions.strip()}[/dim]"), message_group=group_id)
 
             return GridCalibrationResult(
                 success=True,
@@ -394,7 +396,7 @@ Marker reference:
 
         except Exception as e:
             emit_error(
-                f"[red]Failed to create test pattern: {e}[/red]",
+                Text.from_markup(f"[red]Failed to create test pattern: {e}[/red]"),
                 message_group=group_id,
             )
             return GridCalibrationResult(

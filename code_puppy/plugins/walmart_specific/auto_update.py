@@ -4,6 +4,8 @@ import tempfile
 import time
 import httpx
 
+from rich.text import Text
+
 from code_puppy.http_utils import create_client
 from code_puppy.messaging import emit_system_message
 from code_puppy.plugins.walmart_specific.urls import (
@@ -72,19 +74,19 @@ def _handle_update(current_version):
     if latest_version and versions_are_equal(current_version, latest_version):
         return
     update_available_msg = f"A new version of code puppy is available: {latest_version}"
-    emit_system_message(f"[bold yellow]{update_available_msg}[/bold yellow]")
-    emit_system_message("[bold green]Auto-updating now...[/bold green]")
+    emit_system_message(Text.from_markup(f"[bold yellow]{update_available_msg}[/bold yellow]"))
+    emit_system_message(Text.from_markup("[bold green]Auto-updating now...[/bold green]"))
 
     try:
         if sys.platform == "win32":
             # Windows update command
-            emit_system_message("[bold yellow]Running Windows update...[/bold yellow]")
+            emit_system_message(Text.from_markup("[bold yellow]Running Windows update...[/bold yellow]"))
             time.sleep(2)
             proceed = input(
                 "This will stop *ALL* other running instances of Code Puppy on your computer. Proceed (y/n)? "
             )
             if proceed.lower()[0] != "y":
-                emit_system_message("[yellow]Update cancelled by user.[/yellow]")
+                emit_system_message(Text.from_markup("[yellow]Update cancelled by user.[/yellow]"))
                 return
             # Write the batch file to the temp directory to avoid permission issues in System32
             temp_dir = tempfile.gettempdir()
@@ -95,22 +97,22 @@ def _handle_update(current_version):
                 )
 
             update_command = f"start cmd.exe /k {update_bat_path}"
-            emit_system_message(f"[dim]Running: {update_command}[/dim]")
+            emit_system_message(Text.from_markup(f"[dim]Running: {update_command}[/dim]"))
             result = subprocess.run(update_command, shell=True)
             emit_system_message("This instance of Code Puppy will close.")
             time.sleep(20)
             error_msg = (
                 f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
             )
-            emit_system_message(f"[bold red]{error_msg}[/bold red]")
+            emit_system_message(Text.from_markup(f"[bold red]{error_msg}[/bold red]"))
             emit_system_message(
-                "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
+                Text.from_markup("[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]")
             )
 
         else:
             # macOS and Linux update
             setup_url = get_setup_url()
-            emit_system_message(f"[dim]{setup_url}[/dim]")
+            emit_system_message(Text.from_markup(f"[dim]{setup_url}[/dim]"))
 
             result = subprocess.run(
                 ["curl", "-skSL", setup_url],
@@ -127,44 +129,44 @@ def _handle_update(current_version):
                 if bash_result.returncode == 0:
                     success_msg = "✅ Update completed successfully!"
                     restart_msg = "Restarting code-puppy..."
-                    emit_system_message(f"[bold green]{success_msg}[/bold green]")
-                    emit_system_message(f"[yellow]{restart_msg}[/yellow]")
+                    emit_system_message(Text.from_markup(f"[bold green]{success_msg}[/bold green]"))
+                    emit_system_message(Text.from_markup(f"[yellow]{restart_msg}[/yellow]"))
                     sys.exit(0)
                 else:
                     error_msg = f"❌ Update script failed with exit code: {bash_result.returncode}"
-                    emit_system_message(f"[bold red]{error_msg}[/bold red]")
+                    emit_system_message(Text.from_markup(f"[bold red]{error_msg}[/bold red]"))
                     emit_system_message(
-                        "[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]"
+                        Text.from_markup("[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]")
                     )
             else:
                 error_msg = f"❌ Failed to download update script: {result.stderr}"
-                emit_system_message(f"[bold red]{error_msg}[/bold red]")
+                emit_system_message(Text.from_markup(f"[bold red]{error_msg}[/bold red]"))
                 emit_system_message(
-                    "[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]"
+                    Text.from_markup("[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]")
                 )
 
     except subprocess.TimeoutExpired:
         timeout_msg = "❌ Update timed out"
-        emit_system_message(f"[bold red]{timeout_msg}[/bold red]")
+        emit_system_message(Text.from_markup(f"[bold red]{timeout_msg}[/bold red]"))
         if sys.platform == "win32":
             emit_system_message(
-                "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
+                Text.from_markup("[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]")
             )
         else:
             emit_system_message(
-                "[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]"
+                Text.from_markup("[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]")
             )
     except Exception as e:
         error_msg = f"❌ An unexpected error occurred during update: {str(e)}"
-        emit_system_message(f"[bold red]{error_msg}[/bold red]")
+        emit_system_message(Text.from_markup(f"[bold red]{error_msg}[/bold red]"))
         if sys.platform == "win32":
             emit_system_message(
-                "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
+                Text.from_markup("[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]")
             )
         else:
             emit_system_message(
-                "[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]"
+                Text.from_markup("[yellow]Try reinstalling from https://puppy.walmart.com[/yellow]")
             )
 
     continue_msg = "Continuing with current version..."
-    emit_system_message(f"[yellow]{continue_msg}[/yellow]")
+    emit_system_message(Text.from_markup(f"[yellow]{continue_msg}[/yellow]"))

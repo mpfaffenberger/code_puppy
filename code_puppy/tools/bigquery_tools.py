@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
+from rich.text import Text
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.walmart_specific.bigquery_client import (
@@ -108,7 +109,7 @@ def bigquery_get_default_project(ctx: RunContext) -> dict:
             - count (int): Always 1 (default project)
             - error (str, optional): Error message if operation failed
     """
-    emit_info("\n[bold white on blue] BIGQUERY LIST PROJECTS [/bold white on blue] 📊")
+    emit_info(Text.from_markup("\n[bold white on blue] BIGQUERY LIST PROJECTS [/bold white on blue] 📊"))
 
     try:
         client = BigQueryClient()
@@ -163,7 +164,7 @@ def bigquery_list_all_projects(ctx: RunContext) -> dict:
             - error (str, optional): Error message if operation failed
     """
     emit_info(
-        "\n[bold white on blue] BIGQUERY LIST ALL PROJECTS [/bold white on blue] 🌐"
+        Text.from_markup("\n[bold white on blue] BIGQUERY LIST ALL PROJECTS [/bold white on blue] 🌐")
     )
 
     try:
@@ -216,7 +217,7 @@ def bigquery_list_datasets(ctx: RunContext, project_id: str | None = None) -> di
     """
     project_display = project_id or "default"
     emit_info(
-        f"\n[bold white on blue] BIGQUERY LIST DATASETS [/bold white on blue] 📂 [bold cyan]{project_display}[/bold cyan]"
+        Text.from_markup(f"\n[bold white on blue] BIGQUERY LIST DATASETS [/bold white on blue] 📂 [bold cyan]{project_display}[/bold cyan]")
     )
 
     try:
@@ -276,8 +277,10 @@ def bigquery_list_tables(
     """
     project_display = project_id or "default"
     emit_info(
-        f"\n[bold white on blue] BIGQUERY LIST TABLES [/bold white on blue] 📋 "
-        f"[bold cyan]{project_display}.{dataset_id}[/bold cyan]"
+        Text.from_markup(
+            f"\n[bold white on blue] BIGQUERY LIST TABLES [/bold white on blue] 📋 "
+            f"[bold cyan]{project_display}.{dataset_id}[/bold cyan]"
+        )
     )
 
     try:
@@ -342,8 +345,10 @@ def bigquery_execute_query(ctx: RunContext, query: str, max_results: int = 100) 
     # Truncate query for display
     query_preview = query[:100] + "..." if len(query) > 100 else query
     emit_info(
-        f"\n[bold white on blue] BIGQUERY EXECUTE QUERY [/bold white on blue] 🔍\n"
-        f"[dim]{query_preview}[/dim]"
+        Text.from_markup(
+            f"\n[bold white on blue] BIGQUERY EXECUTE QUERY [/bold white on blue] 🔍\n"
+            f"[dim]{query_preview}[/dim]"
+        )
     )
 
     try:
@@ -408,8 +413,10 @@ def bigquery_get_table_schema(
     """
     project_display = project_id or "default"
     emit_info(
-        f"\n[bold white on blue] BIGQUERY GET TABLE SCHEMA [/bold white on blue] 📐 "
-        f"[bold cyan]{project_display}.{dataset_id}.{table_id}[/bold cyan]"
+        Text.from_markup(
+            f"\n[bold white on blue] BIGQUERY GET TABLE SCHEMA [/bold white on blue] 📐 "
+            f"[bold cyan]{project_display}.{dataset_id}.{table_id}[/bold cyan]"
+        )
     )
 
     try:

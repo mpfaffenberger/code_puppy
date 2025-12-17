@@ -8,6 +8,8 @@ from typing import Any, Dict, Union
 
 import uvicorn
 
+from rich.text import Text
+
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_puppy_token
 from code_puppy.http_utils import find_available_port
@@ -93,7 +95,7 @@ async def auth_flow() -> None:
             await server.serve()
         except Exception as e:
             # Log HTTP server errors but don't crash the main application
-            emit_system_message(f"[dim red]HTTP server error: {e}[/dim red]")
+            emit_system_message(Text.from_markup(f"[dim red]HTTP server error: {e}[/dim red]"))
 
     # Store the HTTP server task for proper lifecycle management
     http_server_task = asyncio.create_task(run_http_server())

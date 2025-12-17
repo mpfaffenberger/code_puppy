@@ -26,6 +26,8 @@ else:
 
 from pydantic_ai import RunContext
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
@@ -108,13 +110,13 @@ def register_windows_tools(agent):
 
         if success:
             emit_info(
-                f"[green]Focused window: {window_title or class_name}[/green]",
+                Text.from_markup(f"[green]Focused window: {window_title or class_name}[/green]"),
                 message_group=group_id,
             )
             return WindowFocusResult(success=True, window=window_title or class_name)
         else:
             emit_warning(
-                f"[yellow]Could not focus window: {window_title or class_name}[/yellow]",
+                Text.from_markup(f"[yellow]Could not focus window: {window_title or class_name}[/yellow]"),
                 message_group=group_id,
             )
             return WindowFocusResult(success=False, error="Window not found")
@@ -159,7 +161,7 @@ def register_windows_tools(agent):
             "windows_find_element", title or control_type or "unknown"
         )
         emit_info(
-            f"[bold white on blue] WINDOWS FIND ELEMENT [/bold white on blue] 🔍 {title or control_type}",
+            Text.from_markup(f"[bold white on blue] WINDOWS FIND ELEMENT [/bold white on blue] 🔍 {title or control_type}"),
             message_group=group_id,
         )
 
@@ -173,11 +175,11 @@ def register_windows_tools(agent):
 
         if result.found and result.best_match:
             emit_info(
-                f"[green]Found element: {result.best_match.title} at ({result.best_match.center_x}, {result.best_match.center_y})[/green]",
+                Text.from_markup(f"[green]Found element: {result.best_match.title} at ({result.best_match.center_x}, {result.best_match.center_y})[/green]"),
                 message_group=group_id,
             )
         else:
-            emit_warning("[yellow]Element not found[/yellow]", message_group=group_id)
+            emit_warning(Text.from_markup("[yellow]Element not found[/yellow]"), message_group=group_id)
 
         return result
 
@@ -306,13 +308,15 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_list_elements", "all")
         emit_warning(
-            "[yellow]⚠️ windows_list_elements() is deprecated. "
-            "Use windows_list_interactive_elements(), windows_search_elements(), "
-            "or windows_list_all_elements() instead.[/yellow]",
+            Text.from_markup(
+                "[yellow]⚠️ windows_list_elements() is deprecated. "
+                "Use windows_list_interactive_elements(), windows_search_elements(), "
+                "or windows_list_all_elements() instead.[/yellow]"
+            ),
             message_group=group_id,
         )
         emit_info(
-            "[bold white on blue] WINDOWS LIST ELEMENTS [/bold white on blue] 📋",
+            Text.from_markup("[bold white on blue] WINDOWS LIST ELEMENTS [/bold white on blue] 📋"),
             message_group=group_id,
         )
 
@@ -320,7 +324,7 @@ def register_windows_tools(agent):
 
         if result.success:
             emit_info(
-                f"[green]Found {result.total_elements} elements across {len(result.types or [])} types[/green]",
+                Text.from_markup(f"[green]Found {result.total_elements} elements across {len(result.types or [])} types[/green]"),
                 message_group=group_id,
             )
 
@@ -453,14 +457,16 @@ def register_windows_tools(agent):
 
         if result.found and result.best_match:
             emit_info(
-                f"[green]✅ Found '{search_query}': {result.best_match.title or result.best_match.control_type} "
-                f"at ({result.best_match.center_x}, {result.best_match.center_y}) "
-                f"confidence={result.best_match.confidence:.1%}[/green]",
+                Text.from_markup(
+                    f"[green]✅ Found '{search_query}': {result.best_match.title or result.best_match.control_type} "
+                    f"at ({result.best_match.center_x}, {result.best_match.center_y}) "
+                    f"confidence={result.best_match.confidence:.1%}[/green]"
+                ),
                 message_group=group_id,
             )
         else:
             emit_info(
-                f"[yellow]No elements matching '{search_query}' found[/yellow]",
+                Text.from_markup(f"[yellow]No elements matching '{search_query}' found[/yellow]"),
                 message_group=group_id,
             )
 
@@ -505,11 +511,11 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_list_all", "all")
         emit_warning(
-            "[yellow]⚠️ Getting ALL elements (no filtering). This can be verbose![/yellow]",
+            Text.from_markup("[yellow]⚠️ Getting ALL elements (no filtering). This can be verbose![/yellow]"),
             message_group=group_id,
         )
         emit_info(
-            "[bold white on blue] WINDOWS LIST ALL ELEMENTS [/bold white on blue] 📋",
+            Text.from_markup("[bold white on blue] WINDOWS LIST ALL ELEMENTS [/bold white on blue] 📋"),
             message_group=group_id,
         )
 
@@ -518,7 +524,7 @@ def register_windows_tools(agent):
 
         if result.success:
             emit_info(
-                f"[green]Found {result.total_elements} elements across {len(result.types or [])} types[/green]",
+                Text.from_markup(f"[green]Found {result.total_elements} elements across {len(result.types or [])} types[/green]"),
                 message_group=group_id,
             )
 
@@ -670,11 +676,11 @@ def register_windows_tools(agent):
                         f"'{w}'" for w in sorted(unique_windows) if w
                     )
                     emit_info(
-                        f"[dim]Windows: {windows_list}[/dim]",
+                        Text.from_markup(f"[dim]Windows: {windows_list}[/dim]"),
                         message_group=group_id,
                     )
         else:
-            emit_error(f"[red]Failed: {result.error}[/red]", message_group=group_id)
+            emit_error(Text.from_markup(f"[red]Failed: {result.error}[/red]"), message_group=group_id)
 
         return result
 
@@ -768,7 +774,7 @@ def register_windows_tools(agent):
 
             if not target_hwnd:
                 emit_info(
-                    f"[yellow]Window '{window_title}' not found[/yellow]",
+                    Text.from_markup(f"[yellow]Window '{window_title}' not found[/yellow]"),
                     message_group=group_id,
                 )
                 return WindowFocusResult(
@@ -794,7 +800,7 @@ def register_windows_tools(agent):
                 # Windows focus stealing prevention can block SetForegroundWindow
                 # This is normal Windows security behavior, not a real error
                 emit_warning(
-                    f"[yellow]⚠ Could not set foreground (Windows focus stealing prevention): {type(e).__name__}[/yellow]",
+                    Text.from_markup(f"[yellow]⚠ Could not set foreground (Windows focus stealing prevention): {type(e).__name__}[/yellow]"),
                     message_group=group_id,
                 )
 
@@ -807,7 +813,7 @@ def register_windows_tools(agent):
 
             if is_restored and is_foreground:
                 emit_info(
-                    "[green]✅ Un-minimized window successfully[/green]",
+                    Text.from_markup("[green]✅ Un-minimized window successfully[/green]"),
                     message_group=group_id,
                 )
                 return WindowFocusResult(
@@ -819,7 +825,7 @@ def register_windows_tools(agent):
                 # Try taskbar button click as fallback
                 if foreground_exception:
                     emit_info(
-                        "[cyan]🔄 Trying fallback: clicking taskbar button...[/cyan]",
+                        Text.from_markup("[cyan]🔄 Trying fallback: clicking taskbar button...[/cyan]"),
                         message_group=group_id,
                     )
                     from .core import _find_and_click_taskbar_button
@@ -836,7 +842,7 @@ def register_windows_tools(agent):
                             )
                             if is_foreground:
                                 emit_info(
-                                    "[green]✅ Taskbar button click successful![/green]",
+                                    Text.from_markup("[green]✅ Taskbar button click successful![/green]"),
                                     message_group=group_id,
                                 )
                                 return WindowFocusResult(
@@ -847,13 +853,13 @@ def register_windows_tools(agent):
                             pass
                     else:
                         emit_warning(
-                            f"[yellow]⚠ Taskbar fallback failed: {error}[/yellow]",
+                            Text.from_markup(f"[yellow]⚠ Taskbar fallback failed: {error}[/yellow]"),
                             message_group=group_id,
                         )
 
                 # Window is usable even if not foreground
                 emit_info(
-                    "[cyan]💡 Window is restored and ready for interaction. Click inside the window to bring it to foreground if needed.[/cyan]",
+                    Text.from_markup("[cyan]💡 Window is restored and ready for interaction. Click inside the window to bring it to foreground if needed.[/cyan]"),
                     message_group=group_id,
                 )
                 # Return success=True because window IS usable, just not foreground
@@ -864,12 +870,12 @@ def register_windows_tools(agent):
             else:
                 # Failed to restore - try taskbar button as last resort
                 emit_warning(
-                    f"[yellow]❌ Failed to restore window (restored={is_restored}, foreground={is_foreground})[/yellow]",
+                    Text.from_markup(f"[yellow]❌ Failed to restore window (restored={is_restored}, foreground={is_foreground})[/yellow]"),
                     message_group=group_id,
                 )
 
                 emit_info(
-                    "[cyan]🔄 Trying fallback: clicking taskbar button...[/cyan]",
+                    Text.from_markup("[cyan]🔄 Trying fallback: clicking taskbar button...[/cyan]"),
                     message_group=group_id,
                 )
                 from .core import _find_and_click_taskbar_button
@@ -1054,7 +1060,7 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_get_focused_element", f"pid_{pid}")
         emit_info(
-            f"[bold white on blue] WINDOWS GET FOCUSED ELEMENT [/bold white on blue] 🎯 PID {pid}",
+            Text.from_markup(f"[bold white on blue] WINDOWS GET FOCUSED ELEMENT [/bold white on blue] 🎯 PID {pid}"),
             message_group=group_id,
         )
 
@@ -1062,12 +1068,12 @@ def register_windows_tools(agent):
 
         if result.get("success"):
             emit_info(
-                f"[green]Focused element: {result.get('name', 'N/A')} ({result.get('control_type', 'N/A')})[/green]",
+                Text.from_markup(f"[green]Focused element: {result.get('name', 'N/A')} ({result.get('control_type', 'N/A')})[/green]"),
                 message_group=group_id,
             )
         else:
             emit_warning(
-                f"[yellow]Could not get focused element: {result.get('error', 'Unknown error')}[/yellow]",
+                Text.from_markup(f"[yellow]Could not get focused element: {result.get('error', 'Unknown error')}[/yellow]"),
                 message_group=group_id,
             )
 
@@ -1123,7 +1129,7 @@ def register_windows_tools(agent):
             f"pid_{pid}_{name or automation_id or control_type or 'unknown'}",
         )
         emit_info(
-            f"[bold white on blue] WINDOWS GET ELEMENT VALUE [/bold white on blue] 📝 PID {pid}",
+            Text.from_markup(f"[bold white on blue] WINDOWS GET ELEMENT VALUE [/bold white on blue] 📝 PID {pid}"),
             message_group=group_id,
         )
 
@@ -1137,12 +1143,12 @@ def register_windows_tools(agent):
 
         if result.get("success"):
             emit_info(
-                f"[green]Element value: '{result.get('value', '')}' ({result.get('name', 'N/A')})[/green]",
+                Text.from_markup(f"[green]Element value: '{result.get('value', '')}' ({result.get('name', 'N/A')})[/green]"),
                 message_group=group_id,
             )
         else:
             emit_warning(
-                f"[yellow]Could not get element value: {result.get('error', 'Unknown error')}[/yellow]",
+                Text.from_markup(f"[yellow]Could not get element value: {result.get('error', 'Unknown error')}[/yellow]"),
                 message_group=group_id,
             )
 
@@ -1189,7 +1195,7 @@ def register_windows_tools(agent):
             "windows_close", window_title or str(hwnd) or str(pid)
         )
         emit_info(
-            f"[bold white on blue] CLOSE WINDOW [/bold white on blue] ✖️ {window_title or hwnd or f'PID {pid}'} (force={force})",
+            Text.from_markup(f"[bold white on blue] CLOSE WINDOW [/bold white on blue] ✖️ {window_title or hwnd or f'PID {pid}'} (force={force})"),
             message_group=group_id,
         )
 
@@ -1220,7 +1226,7 @@ def register_windows_tools(agent):
 
             if not windows_to_close:
                 emit_warning(
-                    "[yellow]No windows found to close[/yellow]",
+                    Text.from_markup("[yellow]No windows found to close[/yellow]"),
                     message_group=group_id,
                 )
                 return {

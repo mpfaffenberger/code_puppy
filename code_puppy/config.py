@@ -240,6 +240,8 @@ def load_mcp_server_configs():
     Returns a dict mapping names to their URL or config dict.
     If file does not exist, returns an empty dict.
     """
+    from rich.text import Text
+
     from code_puppy.messaging.message_queue import emit_error
     from code_puppy.messaging import emit_system_message
 
@@ -249,7 +251,7 @@ def load_mcp_server_configs():
         with open(MCP_SERVERS_FILE, "r") as f:
             content = f.read().strip()
             if not content:
-                emit_system_message("[dim]MCP configuration file is empty[/dim]")
+                emit_system_message(Text.from_markup("[dim]MCP configuration file is empty[/dim]"))
                 return {}
 
             conf = json.loads(content)
@@ -269,7 +271,7 @@ def load_mcp_server_configs():
                 # Legacy format: assume the entire dict IS the servers config
                 elif conf:
                     emit_system_message(
-                        "[dim]Converting legacy MCP server format[/dim]"
+                        Text.from_markup("[dim]Converting legacy MCP server format[/dim]")
                     )
                     # Migrate to new format by wrapping and saving
                     new_format = {"mcp_servers": conf}
@@ -277,7 +279,7 @@ def load_mcp_server_configs():
                         with open(MCP_SERVERS_FILE, "w") as f_write:
                             json.dump(new_format, f_write, indent=2)
                         emit_system_message(
-                            "[green]✓ MCP configuration migrated to new format[/green]"
+                            Text.from_markup("[green]✓ MCP configuration migrated to new format[/green]")
                         )
                     except Exception as write_e:
                         emit_error(f"Failed to migrate MCP config format: {write_e}")

@@ -1,5 +1,7 @@
 """GUI-Cub - Desktop automation agent."""
 
+from rich.text import Text
+
 from .base_agent import BaseAgent
 
 
@@ -42,7 +44,7 @@ class GUICubAgent(BaseAgent):
                 self._guard_context = gui_cub_agent_guard()
                 self._guard_context.__enter__()
             except GuiCubAlreadyRunningError as e:
-                emit_error(f"[red]✖ {str(e)}[/red]")
+                emit_error(Text.from_markup(f"[red]✖ {str(e)}[/red]"))
                 raise
 
         if not self._calibrated:

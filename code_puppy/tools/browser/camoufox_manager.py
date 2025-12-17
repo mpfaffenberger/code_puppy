@@ -11,6 +11,8 @@ from typing import Optional
 
 from playwright.async_api import Browser, BrowserContext, Page
 
+from rich.text import Text
+
 from code_puppy import config
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 
@@ -101,7 +103,7 @@ class CamoufoxManager:
         import camoufox
         from camoufox.addons import DefaultAddons
 
-        emit_info(f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]")
+        emit_info(Text.from_markup(f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]"))
 
         camoufox_instance = camoufox.AsyncCamoufox(
             headless=self.headless,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from rich.text import Text
+
 from ..fuzzy_matching import similarity_score
 from ..ocr_providers import get_ocr_provider
 from .result_types import OCRFindResult, TextBoundingBox
@@ -33,11 +35,13 @@ def find_text_in_elements(
     from code_puppy.messaging import emit_info, emit_warning
 
     emit_info(
-        f"[cyan]🔎 OCR TEXT SEARCH[/cyan]\n"
-        f"[dim]   Searching for: '{search_text}'[/dim]\n"
-        f"[dim]   Case sensitive: {case_sensitive}[/dim]\n"
-        f"[dim]   Fuzzy: {fuzzy} (threshold={fuzzy_threshold})[/dim]\n"
-        f"[dim]   Total OCR elements: {len(text_elements)}[/dim]"
+        Text.from_markup(
+            f"[cyan]🔎 OCR TEXT SEARCH[/cyan]\n"
+            f"[dim]   Searching for: '{search_text}'[/dim]\n"
+            f"[dim]   Case sensitive: {case_sensitive}[/dim]\n"
+            f"[dim]   Fuzzy: {fuzzy} (threshold={fuzzy_threshold})[/dim]\n"
+            f"[dim]   Total OCR elements: {len(text_elements)}[/dim]"
+        )
     )
 
     matches = []
@@ -64,20 +68,26 @@ def find_text_in_elements(
 
     if matches:
         emit_info(
-            f"[green]✅ FOUND {len(matches)} MATCH(ES)[/green]\n"
-            f"[dim]   Best match: '{matches[0].text}' at ({matches[0].center_x}, {matches[0].center_y}) confidence {matches[0].confidence:.2%}[/dim]"
+            Text.from_markup(
+                f"[green]✅ FOUND {len(matches)} MATCH(ES)[/green]\n"
+                f"[dim]   Best match: '{matches[0].text}' at ({matches[0].center_x}, {matches[0].center_y}) confidence {matches[0].confidence:.2%}[/dim]"
+            )
         )
         for i, match in enumerate(matches[:5], 1):  # Show first 5
             emit_info(
-                f"[dim]   {i}. '{match.text}' at ({match.center_x}, {match.center_y}) conf:{match.confidence:.2%}[/dim]"
+                Text.from_markup(
+                    f"[dim]   {i}. '{match.text}' at ({match.center_x}, {match.center_y}) conf:{match.confidence:.2%}[/dim]"
+                )
             )
         if len(matches) > 5:
-            emit_info(f"[dim]   ... and {len(matches) - 5} more[/dim]")
+            emit_info(Text.from_markup(f"[dim]   ... and {len(matches) - 5} more[/dim]"))
     else:
         emit_warning(
-            f"[yellow]❌ NO MATCHES FOUND[/yellow]\n"
-            f"[dim]   Searched for: '{search_text}'[/dim]\n"
-            f"[dim]   In {len(text_elements)} OCR elements[/dim]"
+            Text.from_markup(
+                f"[yellow]❌ NO MATCHES FOUND[/yellow]\n"
+                f"[dim]   Searched for: '{search_text}'[/dim]\n"
+                f"[dim]   In {len(text_elements)} OCR elements[/dim]"
+            )
         )
 
     return OCRFindResult(

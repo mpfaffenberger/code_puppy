@@ -15,6 +15,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_info
 
 
@@ -143,10 +145,10 @@ class PerformanceMonitor:
         Args:
             show_details: Show detailed per-operation stats
         """
-        emit_info("[bold cyan]\n=== Performance Report ===[/bold cyan]")
+        emit_info(Text.from_markup("[bold cyan]\n=== Performance Report ===[/bold cyan]"))
 
         if show_details and self.metrics:
-            emit_info("\n[bold]Operation Timings:[/bold]")
+            emit_info(Text.from_markup("\n[bold]Operation Timings:[/bold]"))
             for op, metrics in sorted(self.metrics.items()):
                 emit_info(
                     f"  {op:30s} "
@@ -159,7 +161,7 @@ class PerformanceMonitor:
         # Cache stats
         total_cache_ops = self.cache_hits + self.cache_misses
         if total_cache_ops > 0:
-            emit_info("\n[bold]Cache Performance:[/bold]")
+            emit_info(Text.from_markup("\n[bold]Cache Performance:[/bold]"))
             emit_info(f"  Hits:      {self.cache_hits}")
             emit_info(f"  Misses:    {self.cache_misses}")
             emit_info(f"  Hit Rate:  {self.cache_hit_rate * 100:.1f}%")
@@ -167,12 +169,12 @@ class PerformanceMonitor:
         # Search optimization stats
         total_searches = self.early_stops + self.full_searches
         if total_searches > 0:
-            emit_info("\n[bold]Search Optimization:[/bold]")
+            emit_info(Text.from_markup("\n[bold]Search Optimization:[/bold]"))
             emit_info(f"  Early Stops:   {self.early_stops}")
             emit_info(f"  Full Searches: {self.full_searches}")
             emit_info(f"  Early Stop Rate: {self.early_stop_rate * 100:.1f}%")
 
-        emit_info("[bold cyan]=========================\n[/bold cyan]")
+        emit_info(Text.from_markup("[bold cyan]=========================\n[/bold cyan]"))
 
     def reset(self) -> None:
         """Reset all metrics."""

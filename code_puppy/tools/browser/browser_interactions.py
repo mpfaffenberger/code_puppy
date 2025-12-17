@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional, Literal
 
 from pydantic_ai import RunContext
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
@@ -102,7 +104,7 @@ async def click_element(
         count = await element.count()
         if count == 0:
             emit_info(
-                f"[red]✗ No elements found: {selector}[/red]", message_group=group_id
+                Text.from_markup(f"[red]✗ No elements found: {selector}[/red]"), message_group=group_id
             )
             return {
                 "success": False,
@@ -113,7 +115,7 @@ async def click_element(
 
         if count > 1:
             emit_info(
-                f"[yellow]⚠ {count} elements match selector, clicking first[/yellow]",
+                Text.from_markup(f"[yellow]⚠ {count} elements match selector, clicking first[/yellow]"),
                 message_group=group_id,
             )
             element = element.first
@@ -147,7 +149,7 @@ async def click_element(
                 await element.click(**click_options)
 
                 emit_info(
-                    f"[green]✓ Clicked element: {selector}[/green]",
+                    Text.from_markup(f"[green]✓ Clicked element: {selector}[/green]"),
                     message_group=group_id,
                 )
                 return {
@@ -176,7 +178,7 @@ async def click_element(
 
                 if is_retriable and attempt < max_retries:
                     emit_info(
-                        f"[yellow]⚠ Click attempt {attempt + 1} failed, retrying... ({type(e).__name__})[/yellow]",
+                        Text.from_markup(f"[yellow]⚠ Click attempt {attempt + 1} failed, retrying... ({type(e).__name__})[/yellow]"),
                         message_group=group_id,
                     )
                     # Wait for animations/transitions to settle
@@ -191,7 +193,7 @@ async def click_element(
         error_type = _classify_click_error(str(last_error))
 
         emit_info(
-            f"[red]✗ Click failed after {max_retries + 1} attempts: {last_error}[/red]",
+            Text.from_markup(f"[red]✗ Click failed after {max_retries + 1} attempts: {last_error}[/red]"),
             message_group=group_id,
         )
 
@@ -205,7 +207,7 @@ async def click_element(
         }
 
     except Exception as e:
-        emit_info(f"[red]✗ Click failed: {e}[/red]", message_group=group_id)
+        emit_info(Text.from_markup(f"[red]✗ Click failed: {e}[/red]"), message_group=group_id)
         return {
             "success": False,
             "error": str(e),
@@ -241,7 +243,7 @@ async def double_click_element(
         count = await element.count()
         if count == 0:
             emit_info(
-                f"[red]✗ No elements found: {selector}[/red]", message_group=group_id
+                Text.from_markup(f"[red]✗ No elements found: {selector}[/red]"), message_group=group_id
             )
             return {
                 "success": False,
@@ -252,7 +254,7 @@ async def double_click_element(
 
         if count > 1:
             emit_info(
-                f"[yellow]⚠ {count} elements match, double-clicking first[/yellow]",
+                Text.from_markup(f"[yellow]⚠ {count} elements match, double-clicking first[/yellow]"),
                 message_group=group_id,
             )
             element = element.first
@@ -275,7 +277,7 @@ async def double_click_element(
                 await element.dblclick(force=force, timeout=timeout)
 
                 emit_info(
-                    f"[green]✓ Double-clicked element: {selector}[/green]",
+                    Text.from_markup(f"[green]✓ Double-clicked element: {selector}[/green]"),
                     message_group=group_id,
                 )
                 return {
@@ -303,7 +305,7 @@ async def double_click_element(
 
                 if is_retriable and attempt < max_retries:
                     emit_info(
-                        f"[yellow]⚠ Double-click attempt {attempt + 1} failed, retrying...[/yellow]",
+                        Text.from_markup(f"[yellow]⚠ Double-click attempt {attempt + 1} failed, retrying...[/yellow]"),
                         message_group=group_id,
                     )
                     await page.wait_for_timeout(300)
@@ -314,7 +316,7 @@ async def double_click_element(
 
         error_type = _classify_click_error(str(last_error))
         emit_info(
-            f"[red]✗ Double-click failed: {last_error}[/red]", message_group=group_id
+            Text.from_markup(f"[red]✗ Double-click failed: {last_error}[/red]"), message_group=group_id
         )
 
         return {
@@ -327,7 +329,7 @@ async def double_click_element(
         }
 
     except Exception as e:
-        emit_info(f"[red]✗ Double-click failed: {e}[/red]", message_group=group_id)
+        emit_info(Text.from_markup(f"[red]✗ Double-click failed: {e}[/red]"), message_group=group_id)
         return {
             "success": False,
             "error": str(e),
@@ -363,7 +365,7 @@ async def hover_element(
         count = await element.count()
         if count == 0:
             emit_info(
-                f"[red]✗ No elements found: {selector}[/red]", message_group=group_id
+                Text.from_markup(f"[red]✗ No elements found: {selector}[/red]"), message_group=group_id
             )
             return {
                 "success": False,
@@ -374,7 +376,7 @@ async def hover_element(
 
         if count > 1:
             emit_info(
-                f"[yellow]⚠ {count} elements match, hovering first[/yellow]",
+                Text.from_markup(f"[yellow]⚠ {count} elements match, hovering first[/yellow]"),
                 message_group=group_id,
             )
             element = element.first
@@ -397,7 +399,7 @@ async def hover_element(
                 await element.hover(force=force, timeout=timeout)
 
                 emit_info(
-                    f"[green]✓ Hovered over element: {selector}[/green]",
+                    Text.from_markup(f"[green]✓ Hovered over element: {selector}[/green]"),
                     message_group=group_id,
                 )
                 return {
@@ -425,7 +427,7 @@ async def hover_element(
 
                 if is_retriable and attempt < max_retries:
                     emit_info(
-                        f"[yellow]⚠ Hover attempt {attempt + 1} failed, retrying...[/yellow]",
+                        Text.from_markup(f"[yellow]⚠ Hover attempt {attempt + 1} failed, retrying...[/yellow]"),
                         message_group=group_id,
                     )
                     await page.wait_for_timeout(300)
@@ -435,7 +437,7 @@ async def hover_element(
                 break
 
         error_type = _classify_click_error(str(last_error))
-        emit_info(f"[red]✗ Hover failed: {last_error}[/red]", message_group=group_id)
+        emit_info(Text.from_markup(f"[red]✗ Hover failed: {last_error}[/red]"), message_group=group_id)
 
         return {
             "success": False,
@@ -447,7 +449,7 @@ async def hover_element(
         }
 
     except Exception as e:
-        emit_info(f"[red]✗ Hover failed: {e}[/red]", message_group=group_id)
+        emit_info(Text.from_markup(f"[red]✗ Hover failed: {e}[/red]"), message_group=group_id)
         return {
             "success": False,
             "error": str(e),

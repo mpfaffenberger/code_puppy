@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple
 
+from rich.text import Text
+
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_error, emit_info, emit_success
 
@@ -44,8 +46,10 @@ async def _scrape_pingfed_tokens_playwright() -> Optional[Tuple[str, str]]:
     # Use a dedicated Chrome profile for code-puppy (avoids conflicts with main Chrome)
     profile_path = _get_code_puppy_chrome_profile_path()
     emit_info(
-        f"🌐 Launching browser with code-puppy profile...\n"
-        f"   [dim]Profile: {profile_path}[/dim]"
+        Text.from_markup(
+            f"🌐 Launching browser with code-puppy profile...\n"
+            f"   [dim]Profile: {profile_path}[/dim]"
+        )
     )
 
     try:
@@ -105,7 +109,7 @@ async def _scrape_pingfed_tokens_playwright() -> Optional[Tuple[str, str]]:
                 emit_error(f"Error extracting tokens: {e}")
                 import traceback
 
-                emit_error(f"[dim]{traceback.format_exc()}[/dim]")
+                emit_error(Text.from_markup(f"[dim]{traceback.format_exc()}[/dim]"))
 
             # If we couldn't find the tokens, provide helpful debugging info
             if not pingfed_token or not refresh_token:
@@ -138,7 +142,7 @@ async def _scrape_pingfed_tokens_playwright() -> Optional[Tuple[str, str]]:
         emit_error(f"🐞 Browser automation failed: {e}")
         import traceback
 
-        emit_error(f"[dim]{traceback.format_exc()}[/dim]")
+        emit_error(Text.from_markup(f"[dim]{traceback.format_exc()}[/dim]"))
         return None
 
 
@@ -191,7 +195,7 @@ def handle_pingfed_auth_command(command: str, name: str) -> Optional[bool]:
         emit_error(f"Failed to run async browser automation: {e}")
         import traceback
 
-        emit_error(f"[dim]{traceback.format_exc()}[/dim]")
+        emit_error(Text.from_markup(f"[dim]{traceback.format_exc()}[/dim]"))
         return True
 
     if not result:

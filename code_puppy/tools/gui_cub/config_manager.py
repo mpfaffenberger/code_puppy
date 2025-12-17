@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
@@ -42,11 +44,15 @@ def _emit_debug(message: str, **kwargs):
     """Emit debug log message only if debug logging is enabled.
 
     Args:
-        message: Debug message to emit
+        message: Debug message to emit (can contain Rich markup)
         **kwargs: Additional arguments passed to emit_info
     """
     if _is_debug_logging_enabled():
-        emit_info(message, **kwargs)
+        # Wrap message with Text.from_markup if it contains Rich tags
+        if "[" in message and "]" in message:
+            emit_info(Text.from_markup(message), **kwargs)
+        else:
+            emit_info(message, **kwargs)
 
 
 def get_gui_cub_base_dir() -> Path:
@@ -162,7 +168,7 @@ def load_config() -> Optional[Dict[str, Any]]:
             if save_config(config):
                 _emit_debug("[dim]   ✅ Config migration saved successfully[/dim]")
             else:
-                emit_warning("[yellow]⚠️  Config migration failed to save![/yellow]")
+                emit_warning(Text.from_markup("[yellow]⚠️  Config migration failed to save![/yellow]"))
         else:
             _emit_debug("[dim]   No migrations needed[/dim]")
 
@@ -171,12 +177,12 @@ def load_config() -> Optional[Dict[str, Any]]:
         if stored_hash:
             computed_hash = _compute_config_hash(config)
             if stored_hash != computed_hash:
-                emit_warning("[yellow]Config hash mismatch, may be corrupted[/yellow]")
+                emit_warning(Text.from_markup("[yellow]Config hash mismatch, may be corrupted[/yellow]"))
 
         return config
 
     except Exception as e:
-        emit_warning(f"[yellow]Failed to load config: {e}[/yellow]")
+        emit_warning(Text.from_markup(f"[yellow]Failed to load config: {e}[/yellow]"))
         return None
 
 
@@ -236,7 +242,7 @@ def set_debug_screenshots_enabled(enabled: bool):
     current_value = config.get("debug", {}).get("copy_screenshots_to_cwd", False)
     if current_value == enabled:
         status = "enabled" if enabled else "disabled"
-        emit_info(f"[green]✓ Debug screenshot copying already {status}[/green]")
+        emit_info(Text.from_markup(f"[green]✓ Debug screenshot copying already {status}[/green]"))
         return
 
     if "debug" not in config:
@@ -251,7 +257,7 @@ def set_debug_screenshots_enabled(enabled: bool):
     save_config(config)
 
     status = "enabled" if enabled else "disabled"
-    emit_info(f"[green]✓ Debug screenshot copying {status}[/green]")
+    emit_info(Text.from_markup(f"[green]✓ Debug screenshot copying {status}[/green]"))
 
 
 def set_vqa_model_name(model: str):
@@ -305,7 +311,7 @@ def save_config(config: Dict[str, Any]) -> bool:
         return True
 
     except Exception as e:
-        emit_warning(f"[red]❌ Failed to save config: {e}[/red]")
+        emit_warning(Text.from_markup(f"[red]❌ Failed to save config: {e}[/red]"))
         return False
 
 

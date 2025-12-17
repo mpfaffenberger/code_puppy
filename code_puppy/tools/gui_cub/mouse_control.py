@@ -17,6 +17,8 @@ if PYAUTOGUI_AVAILABLE:
 else:
     pyautogui = None
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_warning
 
 from .constants import DEFAULT_MOUSE_DURATION
@@ -143,7 +145,7 @@ def register_mouse_control_tools(agent):
         if IS_MACOS:
             has_permission, error_msg = check_macos_accessibility_permission()
             if not has_permission:
-                emit_warning(f"[yellow]{error_msg}[/yellow]")
+                emit_warning(Text.from_markup(f"[yellow]{error_msg}[/yellow]"))
                 return MouseActionResult(
                     success=False,
                     error=error_msg,
@@ -156,7 +158,7 @@ def register_mouse_control_tools(agent):
         if IS_MACOS:
             success, error = move_mouse_native(x, y, duration=duration)
             if not success:
-                emit_warning(f"[yellow]Native mouse move failed: {error}[/yellow]")
+                emit_warning(Text.from_markup(f"[yellow]Native mouse move failed: {error}[/yellow]"))
                 return MouseActionResult(
                     success=False,
                     error=error or "Native mouse move failed",
@@ -187,7 +189,7 @@ def register_mouse_control_tools(agent):
                     "This is usually a macOS Accessibility permission issue. "
                     "Grant permission in System Preferences → Security & Privacy → Accessibility."
                 )
-            emit_warning(f"[yellow]{error_msg}[/yellow]")
+            emit_warning(Text.from_markup(f"[yellow]{error_msg}[/yellow]"))
             return MouseActionResult(
                 success=False,
                 error=error_msg,

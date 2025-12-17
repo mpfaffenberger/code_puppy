@@ -5,6 +5,8 @@ from __future__ import annotations
 import functools
 from typing import Any, Callable
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
 
@@ -233,7 +235,7 @@ def desktop_tool(
                     elif "answer" in result:
                         success_msg = f"Answer: {result['answer'][:100]}"
 
-                    emit_info(f"[green]{success_msg}[/green]", message_group=group_id)
+                    emit_info(Text.from_markup(f"[green]{success_msg}[/green]"), message_group=group_id)
 
                 return result
 
@@ -243,7 +245,7 @@ def desktop_tool(
                 if error_class == "FailSafeException":
                     if emit_errors:
                         emit_warning(
-                            f"[yellow]{ERROR_FAILSAFE_TRIGGERED}[/yellow]",
+                            Text.from_markup(f"[yellow]{ERROR_FAILSAFE_TRIGGERED}[/yellow]"),
                             message_group=group_id,
                         )
                     return {"success": False, "error": ERROR_FAILSAFE_TRIGGERED}
@@ -252,7 +254,7 @@ def desktop_tool(
                 error_msg = str(e)
                 if emit_errors:
                     emit_error(
-                        f"[red]{tool_name} failed: {error_msg}[/red]",
+                        Text.from_markup(f"[red]{tool_name} failed: {error_msg}[/red]"),
                         message_group=group_id,
                     )
                 return {"success": False, "error": error_msg}
