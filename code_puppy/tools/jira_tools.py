@@ -17,6 +17,8 @@ from typing import Any
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 
+from rich.text import Text
+
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.walmart_specific.jira_client import (
     JiraAPIError,
@@ -295,8 +297,10 @@ def jira_search(
             - By label: ``"project = PROJ AND labels = 'urgent'"``
     """
     emit_info(
-        f"\n[bold white on blue] JIRA SEARCH [/bold white on blue] "
-        f"🔍 [bold cyan]{jql}[/bold cyan]"
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA SEARCH [/bold white on blue] "
+            f"🔍 [bold cyan]{jql}[/bold cyan]"
+        )
     )
 
     try:
@@ -379,8 +383,10 @@ def jira_get_issue(
             - error_type (str, optional): Error category if retrieval failed.
     """
     emit_info(
-        f"\n[bold white on blue] JIRA GET ISSUE [/bold white on blue] "
-        f"📋 [bold cyan]{issue_key}[/bold cyan]"
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA GET ISSUE [/bold white on blue] "
+            f"📋 [bold cyan]{issue_key}[/bold cyan]"
+        )
     )
 
     try:
@@ -469,8 +475,10 @@ def jira_create_issue(
             - error_type (str, optional): Error category if creation failed.
     """
     emit_info(
-        f"\n[bold white on blue] JIRA CREATE ISSUE [/bold white on blue] "
-        f"➕ [bold cyan]{project_key}[/bold cyan] - {issue_type}"
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA CREATE ISSUE [/bold white on blue] "
+            f"➕ [bold cyan]{project_key}[/bold cyan] - {issue_type}"
+        )
     )
 
     try:
@@ -534,8 +542,10 @@ def jira_add_comment(
             - error_type (str, optional): Error category if comment failed.
     """
     emit_info(
-        f"\n[bold white on blue] JIRA ADD COMMENT [/bold white on blue] "
-        f"💬 [bold cyan]{issue_key}[/bold cyan]"
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA ADD COMMENT [/bold white on blue] "
+            f"💬 [bold cyan]{issue_key}[/bold cyan]"
+        )
     )
 
     try:
@@ -599,8 +609,10 @@ def jira_update_issue(
             - error_type (str, optional): Error category if update failed.
     """
     emit_info(
-        f"\n[bold white on blue] JIRA UPDATE ISSUE [/bold white on blue] "
-        f"✏️ [bold cyan]{issue_key}[/bold cyan]"
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA UPDATE ISSUE [/bold white on blue] "
+            f"✏️ [bold cyan]{issue_key}[/bold cyan]"
+        )
     )
 
     try:
@@ -679,8 +691,10 @@ def jira_transition_issue(
             - error_type (str, optional): Error category if transition failed.
     """
     emit_info(
-        f"\n[bold white on blue] JIRA TRANSITION [/bold white on blue] "
-        f"🔄 [bold cyan]{issue_key}[/bold cyan] → {status_name}"
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA TRANSITION [/bold white on blue] "
+            f"🔄 [bold cyan]{issue_key}[/bold cyan] → {status_name}"
+        )
     )
 
     try:
@@ -786,8 +800,10 @@ def jira_get_comments(
             - error_type (str, optional): Error category if retrieval failed.
     """
     emit_info(
-        f"\n[bold white on blue] JIRA GET COMMENTS [/bold white on blue] "
-        f"💬 [bold cyan]{issue_key}[/bold cyan]"
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA GET COMMENTS [/bold white on blue] "
+            f"💬 [bold cyan]{issue_key}[/bold cyan]"
+        )
     )
 
     try:
