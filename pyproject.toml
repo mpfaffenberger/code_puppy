@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.287"
+version = "0.0.306"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -15,18 +15,11 @@ dependencies = [
     "logfire>=0.7.1",
     "pydantic>=2.4.0",
     "python-dotenv>=1.0.0",
-    "bs4>=0.0.2",
     "pytest-cov>=6.1.1",
     "ruff>=0.11.11",
-    "httpx-limiter>=0.3.0",
     "prompt-toolkit>=3.0.52",
-    "pathspec>=0.11.0",
     "rapidfuzz>=3.13.0",
-    "fastapi>=0.110.0",
     "json-repair>=0.46.2",
-    "uvicorn>=0.29.0",
-    "PyJWT>=2.8.0",
-    "termcolor>=3.1.0",
     "pyfiglet>=0.8.post1",
     "openai>=1.99.1",
     "ripgrep==14.1.0",
@@ -34,27 +27,29 @@ dependencies = [
     "playwright>=1.40.0",
     "camoufox>=0.4.11",
     "dbos>=2.5.0",
+    "uvicorn>=0.30.0",
+    "fastapi>=0.111.0",
     "markdownify>=0.11.0",
     "sqlparse>=0.4.0",
     "google-cloud-bigquery>=3.0.0",
     # GUI-Cub dependencies
     "atomacos>=3.2.0; sys_platform == 'darwin'",
-    "pillow>=11.0.0", # Updated from 10.0.0 - latest with security fixes
-    "pyautogui>=0.9.40,<0.9.42", # Locked for atomacos compatibility (macOS)
+    "pillow>=12.0.0",  # Updated from 11.0.0 - latest with security fixes
+    "pyautogui>=0.9.40,<0.9.42",  # Locked by atomacos 3.3.0 requirement (last update: Jan 2019)
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
-    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
-    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
-    "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
+    "pyobjc-framework-Quartz>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
+    "pyobjc-framework-Vision>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
     # WinRT OCR dependencies (Windows 10+ native OCR) - modular PyWinRT packages
     # See: https://pywinrt.readthedocs.io
-    "pywin32>=306; sys_platform == 'win32'",
-    "pywinauto>=0.6.8; sys_platform == 'win32'",
-    "winrt-runtime>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-foundation-collections>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-foundation>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-graphics-imaging>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-media-ocr>=2.0.0; sys_platform == 'win32'",
-    "winrt-windows-storage-streams>=2.0.0; sys_platform == 'win32'",
+    "pywin32>=311; sys_platform == 'win32'",  # Updated from 306 - Windows 11 fixes
+    "pywinauto>=0.6.9; sys_platform == 'win32'",  # Updated from 0.6.8
+    "winrt-runtime>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0 - Windows 11 support
+    "winrt-windows-foundation-collections>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "winrt-windows-foundation>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "winrt-windows-graphics-imaging>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "winrt-windows-media-ocr>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "winrt-windows-storage-streams>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
@@ -117,7 +112,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-omit = ["code_puppy/main.py", "code_puppy/tui/*"]
+omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"

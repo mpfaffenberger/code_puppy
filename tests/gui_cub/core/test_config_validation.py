@@ -12,32 +12,50 @@ class TestValidateResolutionMatch:
 
     def test_identical_resolution_valid(self):
         """Identical resolutions should match."""
-        current = {"width": 1920, "height": 1080}
-        cached = {"width": 1920, "height": 1080}
-        is_valid, _ = validate_resolution_match(current, cached)
+        cached = [1920, 1080]
+        current = [1920, 1080]
+        is_valid, _ = validate_resolution_match(cached, current)
         assert is_valid is True
 
     def test_different_resolution_invalid(self):
         """Different resolutions should not match."""
-        current = {"width": 1920, "height": 1080}
-        cached = {"width": 2560, "height": 1440}
-        is_valid, msg = validate_resolution_match(current, cached)
+        cached = [1920, 1080]
+        current = [2560, 1440]
+        is_valid, msg = validate_resolution_match(cached, current)
         assert is_valid is False
         assert "resolution" in msg.lower()
 
     def test_width_changed(self):
         """Changed width should invalidate."""
-        current = {"width": 1920, "height": 1080}
-        cached = {"width": 1680, "height": 1080}
-        is_valid, _ = validate_resolution_match(current, cached)
+        cached = [1680, 1080]
+        current = [1920, 1080]
+        is_valid, _ = validate_resolution_match(cached, current)
         assert is_valid is False
 
     def test_height_changed(self):
         """Changed height should invalidate."""
-        current = {"width": 1920, "height": 1080}
-        cached = {"width": 1920, "height": 1200}
-        is_valid, _ = validate_resolution_match(current, cached)
+        cached = [1920, 1200]
+        current = [1920, 1080]
+        is_valid, _ = validate_resolution_match(cached, current)
         assert is_valid is False
+
+    def test_none_cached_resolution(self):
+        """None cached resolution should be invalid."""
+        is_valid, msg = validate_resolution_match(None, [1920, 1080])
+        assert is_valid is False
+        assert "no cached" in msg.lower()
+
+    def test_invalid_cached_format(self):
+        """Invalid cached resolution format should be handled."""
+        is_valid, msg = validate_resolution_match("invalid", [1920, 1080])
+        assert is_valid is False
+        assert "invalid" in msg.lower()
+
+    def test_invalid_current_format(self):
+        """Invalid current resolution format should be handled."""
+        is_valid, msg = validate_resolution_match([1920, 1080], "invalid")
+        assert is_valid is False
+        assert "invalid" in msg.lower()
 
 
 class TestValidatePlatformMatch:

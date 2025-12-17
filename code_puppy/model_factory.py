@@ -25,9 +25,30 @@ from code_puppy.messaging import emit_warning
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
-from .config import EXTRA_MODELS_FILE
+from .config import EXTRA_MODELS_FILE, get_value
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
+
+
+def get_api_key(env_var_name: str) -> str | None:
+    """Get an API key from config first, then fall back to environment variable.
+
+    This allows users to set API keys via `/set KIMI_API_KEY=xxx` in addition to
+    setting them as environment variables.
+
+    Args:
+        env_var_name: The name of the environment variable (e.g., "OPENAI_API_KEY")
+
+    Returns:
+        The API key value, or None if not found in either config or environment.
+    """
+    # First check config (case-insensitive key lookup)
+    config_value = get_value(env_var_name.lower())
+    if config_value:
+        return config_value
+
+    # Fall back to environment variable
+    return os.environ.get(env_var_name)
 
 
 def make_model_settings(
@@ -38,10 +59,12 @@ def make_model_settings(
     This handles model-specific settings:
     - GPT-5 models: reasoning_effort and verbosity (non-codex only)
     - Claude/Anthropic models: extended_thinking and budget_tokens
+    - Automatic max_tokens calculation based on model context length
 
     Args:
         model_name: The name of the model to create settings for.
-        max_tokens: Optional max tokens limit to include in settings.
+        max_tokens: Optional max tokens limit. If None, automatically calculated
+            as: max(2048, min(15% of context_length, 65536))
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -53,8 +76,21 @@ def make_model_settings(
     )
 
     model_settings_dict: dict = {}
-    if max_tokens is not None:
-        model_settings_dict["max_tokens"] = max_tokens
+
+    # Calculate max_tokens if not explicitly provided
+    if max_tokens is None:
+        # Load model config to get context length
+        try:
+            models_config = ModelFactory.load_config()
+            model_config = models_config.get(model_name, {})
+            context_length = model_config.get("context_length", 128000)
+        except Exception:
+            # Fallback if config loading fails (e.g., in CI environments)
+            context_length = 128000
+        # min 2048, 15% of context, max 65536
+        max_tokens = max(2048, min(int(0.15 * context_length), 65536))
+
+    model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
@@ -102,10 +138,10 @@ def get_custom_config(model_config):
     for key, value in custom_config.get("headers", {}).items():
         if value.startswith("$"):
             env_var_name = value[1:]
-            resolved_value = os.environ.get(env_var_name)
+            resolved_value = get_api_key(env_var_name)
             if resolved_value is None:
                 emit_warning(
-                    f"Environment variable '{env_var_name}' is not set for custom endpoint header '{key}'. Proceeding with empty value."
+                    f"'{env_var_name}' is not set (check config or environment) for custom endpoint header '{key}'. Proceeding with empty value."
                 )
                 resolved_value = ""
             value = resolved_value
@@ -115,10 +151,10 @@ def get_custom_config(model_config):
             for token in tokens:
                 if token.startswith("$"):
                     env_var = token[1:]
-                    resolved_value = os.environ.get(env_var)
+                    resolved_value = get_api_key(env_var)
                     if resolved_value is None:
                         emit_warning(
-                            f"Environment variable '{env_var}' is not set for custom endpoint header '{key}'. Proceeding with empty value."
+                            f"'{env_var}' is not set (check config or environment) for custom endpoint header '{key}'. Proceeding with empty value."
                         )
                         resolved_values.append("")
                     else:
@@ -131,10 +167,10 @@ def get_custom_config(model_config):
     if "api_key" in custom_config:
         if custom_config["api_key"].startswith("$"):
             env_var_name = custom_config["api_key"][1:]
-            api_key = os.environ.get(env_var_name)
+            api_key = get_api_key(env_var_name)
             if api_key is None:
                 emit_warning(
-                    f"Environment variable '{env_var_name}' is not set for custom endpoint API key; proceeding without API key."
+                    f"API key '{env_var_name}' is not set (checked config and environment); proceeding without API key."
                 )
         else:
             api_key = custom_config["api_key"]
@@ -167,29 +203,51 @@ class ModelFactory:
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
 
-        extra_sources = [(pathlib.Path(EXTRA_MODELS_FILE), "extra models")]
+        # Import OAuth model file paths from main config
+        from code_puppy.config import (
+            CHATGPT_MODELS_FILE,
+            CLAUDE_MODELS_FILE,
+            GEMINI_MODELS_FILE,
+        )
 
-        for source_path, label in extra_sources:
-            # source_path is already a Path object from the functions above
-            # Use hasattr to check if it's Path-like (works with mocks too)
-            if hasattr(source_path, "exists"):
-                path = source_path
-            else:
-                path = pathlib.Path(source_path).expanduser()
-            if not path.exists():
+        # Build list of extra model sources
+        extra_sources: list[tuple[pathlib.Path, str, bool]] = [
+            (pathlib.Path(EXTRA_MODELS_FILE), "extra models", False),
+            (pathlib.Path(CHATGPT_MODELS_FILE), "ChatGPT OAuth models", False),
+            (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
+            (pathlib.Path(GEMINI_MODELS_FILE), "Gemini OAuth models", False),
+        ]
+
+        for source_path, label, use_filtered in extra_sources:
+            if not source_path.exists():
                 continue
             try:
                 # Use filtered loading for Claude Code OAuth models to show only latest versions
-                with open(path, "r") as f:
-                    extra_config = json.load(f)
+                if use_filtered:
+                    try:
+                        from code_puppy.plugins.claude_code_oauth.utils import (
+                            load_claude_models_filtered,
+                        )
+
+                        extra_config = load_claude_models_filtered()
+                    except ImportError:
+                        # Plugin not available, fall back to standard JSON loading
+                        logging.getLogger(__name__).debug(
+                            f"claude_code_oauth plugin not available, loading {label} as plain JSON"
+                        )
+                        with open(source_path, "r") as f:
+                            extra_config = json.load(f)
+                else:
+                    with open(source_path, "r") as f:
+                        extra_config = json.load(f)
                 config.update(extra_config)
             except json.JSONDecodeError as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load {label} config from {path}: Invalid JSON - {exc}"
+                    f"Failed to load {label} config from {source_path}: Invalid JSON - {exc}"
                 )
             except Exception as exc:
                 logging.getLogger(__name__).warning(
-                    f"Failed to load {label} config from {path}: {exc}"
+                    f"Failed to load {label} config from {source_path}: {exc}"
                 )
         return config
 
@@ -207,10 +265,10 @@ class ModelFactory:
         model_type = model_config.get("type")
 
         if model_type == "gemini":
-            api_key = os.environ.get("GEMINI_API_KEY")
+            api_key = get_api_key("GEMINI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"GEMINI_API_KEY is not set; skipping Gemini model '{model_config.get('name')}'."
+                    f"GEMINI_API_KEY is not set (check config or environment); skipping Gemini model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -220,10 +278,10 @@ class ModelFactory:
             return model
 
         elif model_type == "openai":
-            api_key = os.environ.get("OPENAI_API_KEY")
+            api_key = get_api_key("OPENAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"OPENAI_API_KEY is not set; skipping OpenAI model '{model_config.get('name')}'."
+                    f"OPENAI_API_KEY is not set (check config or environment); skipping OpenAI model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -237,10 +295,10 @@ class ModelFactory:
             return model
 
         elif model_type == "anthropic":
-            api_key = os.environ.get("ANTHROPIC_API_KEY", None)
+            api_key = get_api_key("ANTHROPIC_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ANTHROPIC_API_KEY is not set; skipping Anthropic model '{model_config.get('name')}'."
+                    f"ANTHROPIC_API_KEY is not set (check config or environment); skipping Anthropic model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -338,10 +396,10 @@ class ModelFactory:
                 )
             azure_endpoint = azure_endpoint_config
             if azure_endpoint_config.startswith("$"):
-                azure_endpoint = os.environ.get(azure_endpoint_config[1:])
+                azure_endpoint = get_api_key(azure_endpoint_config[1:])
             if not azure_endpoint:
                 emit_warning(
-                    f"Azure OpenAI endpoint environment variable '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else azure_endpoint_config}' not found or is empty; skipping model '{model_config.get('name')}'."
+                    f"Azure OpenAI endpoint '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else azure_endpoint_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -352,10 +410,10 @@ class ModelFactory:
                 )
             api_version = api_version_config
             if api_version_config.startswith("$"):
-                api_version = os.environ.get(api_version_config[1:])
+                api_version = get_api_key(api_version_config[1:])
             if not api_version:
                 emit_warning(
-                    f"Azure OpenAI API version environment variable '{api_version_config[1:] if api_version_config.startswith('$') else api_version_config}' not found or is empty; skipping model '{model_config.get('name')}'."
+                    f"Azure OpenAI API version '{api_version_config[1:] if api_version_config.startswith('$') else api_version_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -366,10 +424,10 @@ class ModelFactory:
                 )
             api_key = api_key_config
             if api_key_config.startswith("$"):
-                api_key = os.environ.get(api_key_config[1:])
+                api_key = get_api_key(api_key_config[1:])
             if not api_key:
                 emit_warning(
-                    f"Azure OpenAI API key environment variable '{api_key_config[1:] if api_key_config.startswith('$') else api_key_config}' not found or is empty; skipping model '{model_config.get('name')}'."
+                    f"Azure OpenAI API key '{api_key_config[1:] if api_key_config.startswith('$') else api_key_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
                 )
                 return None
 
@@ -403,10 +461,10 @@ class ModelFactory:
             setattr(model, "provider", provider)
             return model
         elif model_type == "zai_coding":
-            api_key = os.getenv("ZAI_API_KEY")
+            api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ZAI_API_KEY is not set; skipping ZAI coding model '{model_config.get('name')}'."
+                    f"ZAI_API_KEY is not set (check config or environment); skipping ZAI coding model '{model_config.get('name')}'."
                 )
                 return None
             provider = OpenAIProvider(
@@ -420,10 +478,10 @@ class ModelFactory:
             setattr(zai_model, "provider", provider)
             return zai_model
         elif model_type == "zai_api":
-            api_key = os.getenv("ZAI_API_KEY")
+            api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ZAI_API_KEY is not set; skipping ZAI API model '{model_config.get('name')}'."
+                    f"ZAI_API_KEY is not set (check config or environment); skipping ZAI API model '{model_config.get('name')}'."
                 )
                 return None
             provider = OpenAIProvider(
@@ -488,21 +546,21 @@ class ModelFactory:
                 if api_key_config.startswith("$"):
                     # It's an environment variable reference
                     env_var_name = api_key_config[1:]  # Remove the $ prefix
-                    api_key = os.environ.get(env_var_name)
+                    api_key = get_api_key(env_var_name)
                     if api_key is None:
                         emit_warning(
-                            f"OpenRouter API key environment variable '{env_var_name}' not found or is empty; skipping model '{model_config.get('name')}'."
+                            f"OpenRouter API key '{env_var_name}' not found (check config or environment); skipping model '{model_config.get('name')}'."
                         )
                         return None
                 else:
                     # It's a raw API key value
                     api_key = api_key_config
             else:
-                # No API key in config, try to get it from the default environment variable
-                api_key = os.environ.get("OPENROUTER_API_KEY")
+                # No API key in config, try to get it from config or the default environment variable
+                api_key = get_api_key("OPENROUTER_API_KEY")
                 if api_key is None:
                     emit_warning(
-                        f"OPENROUTER_API_KEY is not set; skipping OpenRouter model '{model_config.get('name')}'."
+                        f"OPENROUTER_API_KEY is not set (check config or environment); skipping OpenRouter model '{model_config.get('name')}'."
                     )
                     return None
 
@@ -510,6 +568,63 @@ class ModelFactory:
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             setattr(model, "provider", provider)
+            return model
+
+        elif model_type == "gemini_oauth":
+            # Gemini OAuth models use the Code Assist API (cloudcode-pa.googleapis.com)
+            # This is a different API than the standard Generative Language API
+            try:
+                # Try user plugin first, then built-in plugin
+                try:
+                    from gemini_oauth.config import GEMINI_OAUTH_CONFIG
+                    from gemini_oauth.utils import (
+                        get_project_id,
+                        get_valid_access_token,
+                    )
+                except ImportError:
+                    from code_puppy.plugins.gemini_oauth.config import (
+                        GEMINI_OAUTH_CONFIG,
+                    )
+                    from code_puppy.plugins.gemini_oauth.utils import (
+                        get_project_id,
+                        get_valid_access_token,
+                    )
+            except ImportError as exc:
+                emit_warning(
+                    f"Gemini OAuth plugin not available; skipping model '{model_config.get('name')}'. "
+                    f"Error: {exc}"
+                )
+                return None
+
+            # Get a valid access token (refreshing if needed)
+            access_token = get_valid_access_token()
+            if not access_token:
+                emit_warning(
+                    f"Failed to get valid Gemini OAuth token; skipping model '{model_config.get('name')}'. "
+                    "Run /gemini-auth to re-authenticate."
+                )
+                return None
+
+            # Get project ID from stored tokens
+            project_id = get_project_id()
+            if not project_id:
+                emit_warning(
+                    f"No Code Assist project ID found; skipping model '{model_config.get('name')}'. "
+                    "Run /gemini-auth to re-authenticate."
+                )
+                return None
+
+            # Import the Code Assist model wrapper
+            from code_puppy.gemini_code_assist import GeminiCodeAssistModel
+
+            # Create the Code Assist model
+            model = GeminiCodeAssistModel(
+                model_name=model_config["name"],
+                access_token=access_token,
+                project_id=project_id,
+                api_base_url=GEMINI_OAUTH_CONFIG["api_base_url"],
+                api_version=GEMINI_OAUTH_CONFIG["api_version"],
+            )
             return model
 
         elif model_type == "round_robin":

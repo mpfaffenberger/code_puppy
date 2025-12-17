@@ -5,7 +5,9 @@ MCP Stop Command - Stops a specific MCP server.
 import logging
 from typing import List, Optional
 
-from code_puppy.messaging import emit_info
+from rich.text import Text
+
+from code_puppy.messaging import emit_error, emit_info
 
 from ...agents import get_current_agent
 from .base import MCPCommandBase
@@ -35,7 +37,7 @@ class StopCommand(MCPCommandBase):
 
         if not args:
             emit_info(
-                "[yellow]Usage: /mcp stop <server_name>[/yellow]",
+                Text.from_markup("[yellow]Usage: /mcp stop <server_name>[/yellow]"),
                 message_group=group_id,
             )
             return
@@ -63,7 +65,7 @@ class StopCommand(MCPCommandBase):
                     # Update MCP tool cache immediately so token counts reflect the change
                     agent.update_mcp_tool_cache_sync()
                     emit_info(
-                        "[dim]Agent reloaded with updated servers[/dim]",
+                        "Agent reloaded with updated servers",
                         message_group=group_id,
                     )
                 except Exception as e:
@@ -75,4 +77,4 @@ class StopCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error stopping server '{server_name}': {e}")
-            emit_info(f"[red]Failed to stop server: {e}[/red]", message_group=group_id)
+            emit_error(f"Failed to stop server: {e}", message_group=group_id)

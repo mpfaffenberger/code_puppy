@@ -39,9 +39,9 @@ def _handle_custom_command(command: str, name: str):
         rest = command.split(maxsplit=1)
         if len(rest) == 2:
             text = rest[1]
-            emit_info(f"[dim]example plugin echo ->[/dim] {text}")
+            emit_info(f"example plugin echo -> {text}")
             return text
-        emit_info("[dim]example plugin echo (empty)[/dim]")
+        emit_info("example plugin echo (empty)")
         return ""
 
     return None

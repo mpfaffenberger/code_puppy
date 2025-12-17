@@ -1,6 +1,6 @@
 """
 🐶 MOTD (Message of the Day) feature for code-puppy! 🐕
-Stores seen versions in ~/.code_puppy/motd.txt - woof woof! 🐾
+Stores seen versions in XDG_CONFIG_HOME/code_puppy/motd.txt - woof woof! 🐾
 """
 
 import os

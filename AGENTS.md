@@ -77,7 +77,6 @@ Code Puppy features a modular agent architecture. Each agent has its own system 
 | `version_checker.py` | PyPI version checking |
 | `http_utils.py` | HTTP utilities |
 | `status_display.py` | Status bar and display utilities |
-
 | `round_robin_model.py` | Round-robin model rotation |
 | `reopenable_async_client.py` | Resilient async HTTP client |
 | `claude_cache_client.py` | Claude API caching client |

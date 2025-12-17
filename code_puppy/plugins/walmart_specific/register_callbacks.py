@@ -33,6 +33,11 @@ from code_puppy.plugins.walmart_specific.confluence_auth import (
     get_confluence_auth_help,
     handle_confluence_auth_command,
 )
+from code_puppy.plugins.walmart_specific.jira_auth import (
+    get_jira_auth_help,
+    handle_jira_auth_command,
+    handle_jira_test_command,
+)
 from code_puppy.plugins.walmart_specific.disclaimer import (
     get_disclaimer_help,
     handle_disclaimer_command,
@@ -222,6 +227,9 @@ register_callback("custom_command_help", get_pingfed_auth_help)
 register_callback("custom_command", handle_pingfed_auth_command)
 register_callback("custom_command_help", get_confluence_auth_help)
 register_callback("custom_command", handle_confluence_auth_command)
+register_callback("custom_command_help", get_jira_auth_help)
+register_callback("custom_command", handle_jira_auth_command)
+register_callback("custom_command", handle_jira_test_command)
 register_callback("custom_command_help", get_bigquery_auth_help)
 register_callback("custom_command", handle_bigquery_auth_command)
 register_callback("custom_command_help", get_disclaimer_help)

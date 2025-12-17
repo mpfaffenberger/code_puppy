@@ -8,11 +8,11 @@ appropriately for their respective interfaces.
 import asyncio
 import threading
 from abc import ABC, abstractmethod
-from io import StringIO
 from typing import Optional
 
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape as escape_rich_markup
 
 from .message_queue import MessageQueue, MessageType, UIMessage
 
@@ -64,7 +64,10 @@ class MessageRenderer(ABC):
                 break
             except Exception as e:
                 # Log error but continue processing
-                print(f"Error rendering message: {e}")
+                # Note: Using sys.stderr - can't use messaging in renderer
+                import sys
+
+                sys.stderr.write(f"Error rendering message: {e}\n")
 
 
 class InteractiveRenderer(MessageRenderer):
@@ -107,6 +110,18 @@ class InteractiveRenderer(MessageRenderer):
         else:
             style = None
 
+        # Make version messages dim regardless of message type
+        if isinstance(message.content, str):
+            if (
+                "Current version:" in message.content
+                or "Latest version:" in message.content
+            ):
+                style = "dim"
+
+        # Allow explicit dim styling via metadata
+        if message.metadata and message.metadata.get("dim"):
+            style = "dim"
+
         # Render the content
         if isinstance(message.content, str):
             if message.type == MessageType.AGENT_RESPONSE:
@@ -116,11 +131,15 @@ class InteractiveRenderer(MessageRenderer):
                     self.console.print(markdown)
                 except Exception:
                     # Fallback to plain text if markdown parsing fails
-                    self.console.print(message.content)
+                    safe_content = escape_rich_markup(message.content)
+                    self.console.print(safe_content)
             elif style:
-                self.console.print(message.content, style=style)
+                # Escape Rich markup to prevent crashes from malformed tags
+                safe_content = escape_rich_markup(message.content)
+                self.console.print(safe_content, style=style)
             else:
-                self.console.print(message.content)
+                safe_content = escape_rich_markup(message.content)
+                self.console.print(safe_content)
         else:
             # For complex Rich objects (Tables, Markdown, Text, etc.)
             self.console.print(message.content)
@@ -135,137 +154,10 @@ class InteractiveRenderer(MessageRenderer):
         # This renderer is not currently used in practice, but if it were:
         # We would need async input handling here
         # For now, just render as a system message
-        self.console.print(f"[bold cyan]INPUT REQUESTED:[/bold cyan] {message.content}")
+        safe_content = escape_rich_markup(str(message.content))
+        self.console.print(f"[bold cyan]INPUT REQUESTED:[/bold cyan] {safe_content}")
         if hasattr(self.console.file, "flush"):
             self.console.file.flush()
-
-
-class TUIRenderer(MessageRenderer):
-    """Renderer for TUI mode that adds messages to the chat view."""
-
-    def __init__(self, queue: MessageQueue, tui_app=None):
-        super().__init__(queue)
-        self.tui_app = tui_app
-
-    def set_tui_app(self, app):
-        """Set the TUI app reference."""
-        self.tui_app = app
-
-    async def render_message(self, message: UIMessage):
-        """Render a message in the TUI chat view."""
-        if not self.tui_app:
-            return
-
-        # Handle human input requests
-        if message.type == MessageType.HUMAN_INPUT_REQUEST:
-            await self._handle_human_input_request(message)
-            return
-
-        # Extract group_id from message metadata (fixing the key name)
-        group_id = message.metadata.get("message_group") if message.metadata else None
-
-        # For INFO messages with Rich objects (like Markdown), preserve them for proper rendering
-        if message.type == MessageType.INFO and hasattr(
-            message.content, "__rich_console__"
-        ):
-            # Pass the Rich object directly to maintain markdown formatting
-            self.tui_app.add_system_message_rich(
-                message.content, message_group=group_id
-            )
-            return
-
-        # Convert content to string for TUI display (for all other cases)
-        if hasattr(message.content, "__rich_console__"):
-            # For Rich objects, render to plain text using a Console
-            string_io = StringIO()
-            # Use markup=False to prevent interpretation of square brackets as markup
-            temp_console = Console(
-                file=string_io, width=80, legacy_windows=False, markup=False
-            )
-            temp_console.print(message.content)
-            content_str = string_io.getvalue().rstrip("\n")
-        else:
-            content_str = str(message.content)
-
-        # Map message types to TUI message types - ALL get group_id now
-        if message.type in (MessageType.ERROR,):
-            self.tui_app.add_error_message(content_str, message_group=group_id)
-        elif message.type in (
-            MessageType.SYSTEM,
-            MessageType.INFO,
-            MessageType.WARNING,
-            MessageType.SUCCESS,
-        ):
-            self.tui_app.add_system_message(content_str, message_group=group_id)
-        elif message.type == MessageType.AGENT_REASONING:
-            # Agent reasoning messages should use the dedicated method
-            self.tui_app.add_agent_reasoning_message(
-                content_str, message_group=group_id
-            )
-        elif message.type == MessageType.PLANNED_NEXT_STEPS:
-            # Agent reasoning messages should use the dedicated method
-            self.tui_app.add_planned_next_steps_message(
-                content_str, message_group=group_id
-            )
-        elif message.type in (
-            MessageType.TOOL_OUTPUT,
-            MessageType.COMMAND_OUTPUT,
-            MessageType.AGENT_RESPONSE,
-        ):
-            # These are typically agent/tool outputs
-            self.tui_app.add_agent_message(content_str, message_group=group_id)
-        else:
-            # Default to system message
-            self.tui_app.add_system_message(content_str, message_group=group_id)
-
-    async def _handle_human_input_request(self, message: UIMessage):
-        """Handle a human input request in TUI mode."""
-        try:
-            # Check if tui_app is available
-            if not self.tui_app:
-                prompt_id = (
-                    message.metadata.get("prompt_id") if message.metadata else None
-                )
-                if prompt_id:
-                    from code_puppy.messaging import provide_prompt_response
-
-                    provide_prompt_response(prompt_id, "")
-                return
-
-            prompt_id = message.metadata.get("prompt_id") if message.metadata else None
-            if not prompt_id:
-                self.tui_app.add_error_message("Error: Invalid human input request")
-                return
-
-            # For now, use a simple fallback instead of modal to avoid crashes
-            self.tui_app.add_system_message(
-                f"[yellow]INPUT NEEDED:[/yellow] {str(message.content)}"
-            )
-            self.tui_app.add_system_message(
-                "[dim]This would normally show a modal, but using fallback to prevent crashes[/dim]"
-            )
-
-            # Provide empty response for now to unblock the waiting thread
-            from code_puppy.messaging import provide_prompt_response
-
-            provide_prompt_response(prompt_id, "")
-
-        except Exception as e:
-            print(f"Exception in _handle_human_input_request: {e}")
-            import traceback
-
-            traceback.print_exc()
-            # Last resort - provide empty response to prevent hanging
-            try:
-                prompt_id = (
-                    message.metadata.get("prompt_id") if message.metadata else None
-                )
-                if prompt_id:
-                    from code_puppy.messaging import provide_prompt_response
-
-                    provide_prompt_response(prompt_id, "")
-            except Exception:
-                pass  # Can't do anything more
 
 
 class SynchronousInteractiveRenderer:
@@ -354,6 +246,18 @@ class SynchronousInteractiveRenderer:
         else:
             style = None
 
+        # Make version messages dim regardless of message type
+        if isinstance(message.content, str):
+            if (
+                "Current version:" in message.content
+                or "Latest version:" in message.content
+            ):
+                style = "dim"
+
+        # Allow explicit dim styling via metadata
+        if message.metadata and message.metadata.get("dim"):
+            style = "dim"
+
         # Render the content
         if isinstance(message.content, str):
             if message.type == MessageType.AGENT_RESPONSE:
@@ -363,11 +267,16 @@ class SynchronousInteractiveRenderer:
                     self.console.print(markdown)
                 except Exception:
                     # Fallback to plain text if markdown parsing fails
-                    self.console.print(message.content)
+                    safe_content = escape_rich_markup(message.content)
+                    self.console.print(safe_content)
             elif style:
-                self.console.print(message.content, style=style)
+                # Escape Rich markup to prevent crashes from malformed tags
+                # in shell output or other user-provided content
+                safe_content = escape_rich_markup(message.content)
+                self.console.print(safe_content, style=style)
             else:
-                self.console.print(message.content)
+                safe_content = escape_rich_markup(message.content)
+                self.console.print(safe_content)
         else:
             # For complex Rich objects (Tables, Markdown, Text, etc.)
             self.console.print(message.content)
@@ -386,8 +295,9 @@ class SynchronousInteractiveRenderer:
             )
             return
 
-        # Display the prompt
-        self.console.print(f"[bold cyan]{message.content}[/bold cyan]")
+        # Display the prompt - escape to prevent markup injection
+        safe_content = escape_rich_markup(str(message.content))
+        self.console.print(f"[bold cyan]{safe_content}[/bold cyan]")
         if hasattr(self.console.file, "flush"):
             self.console.file.flush()
 

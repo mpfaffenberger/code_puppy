@@ -18,6 +18,9 @@ from code_puppy.tools.gui_cub.config_manager import (
     register_config_tools as register_gui_cub_config,
     register_debug_screenshot_tools as register_gui_cub_debug_screenshots,
 )
+from code_puppy.tools.gui_cub.faq_tool import (
+    register_faq_tool as register_gui_cub_faq,
+)
 
 # GUI-Cub desktop automation tools (always available - required dependencies)
 from code_puppy.tools.gui_cub.keyboard_control import register_keyboard_control_tools
@@ -113,6 +116,17 @@ GUI_CUB_TOOLS.update(
         "gui_cub_validate_config": register_gui_cub_config,
         "gui_cub_reset_config": register_gui_cub_config,
         "save_debug_screenshot": register_gui_cub_debug_screenshots,
+        # FAQ tool for canned responses
+        "gui_cub_faq": {
+            "register": register_gui_cub_faq,
+            "category": CATEGORY_DESKTOP,
+            "description": "FAQ tool for answering common questions about GUI-Cub",
+            "keywords": ["faq", "help", "capabilities", "what can you do"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["answer capability questions", "explain how GUI-Cub works"],
+        },
+        "gui_cub_list_faq_topics": register_gui_cub_faq,
     }
 )
 

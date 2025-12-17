@@ -7,17 +7,58 @@ from typing import Optional
 
 from code_puppy.session_storage import save_session
 
-CONFIG_DIR = os.path.join(os.getenv("HOME", os.path.expanduser("~")), ".code_puppy")
+
+def _get_xdg_dir(env_var: str, fallback: str) -> str:
+    """
+    Get directory for code_puppy files, defaulting to ~/.code_puppy.
+
+    XDG paths are only used when the corresponding environment variable
+    is explicitly set by the user. Otherwise, we use the legacy ~/.code_puppy
+    directory for all file types (config, data, cache, state).
+
+    Args:
+        env_var: XDG environment variable name (e.g., "XDG_CONFIG_HOME")
+        fallback: Fallback path relative to home (e.g., ".config") - unused unless XDG var is set
+
+    Returns:
+        Path to the directory for code_puppy files
+    """
+    # Use XDG directory ONLY if environment variable is explicitly set
+    xdg_base = os.getenv(env_var)
+    if xdg_base:
+        return os.path.join(xdg_base, "code_puppy")
+
+    # Default to legacy ~/.code_puppy for all file types
+    return os.path.join(os.path.expanduser("~"), ".code_puppy")
+
+
+# XDG Base Directory paths
+CONFIG_DIR = _get_xdg_dir("XDG_CONFIG_HOME", ".config")
+DATA_DIR = _get_xdg_dir("XDG_DATA_HOME", ".local/share")
+CACHE_DIR = _get_xdg_dir("XDG_CACHE_HOME", ".cache")
+STATE_DIR = _get_xdg_dir("XDG_STATE_HOME", ".local/state")
+
+# Configuration files (XDG_CONFIG_HOME)
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
-COMMAND_HISTORY_FILE = os.path.join(CONFIG_DIR, "command_history.txt")
-MODELS_FILE = os.path.join(CONFIG_DIR, "models.json")
-EXTRA_MODELS_FILE = os.path.join(CONFIG_DIR, "extra_models.json")
-AGENTS_DIR = os.path.join(CONFIG_DIR, "agents")
-CONTEXTS_DIR = os.path.join(CONFIG_DIR, "contexts")
-AUTOSAVE_DIR = os.path.join(CONFIG_DIR, "autosaves")
-# Default saving to a SQLite DB in the config dir
-_DEFAULT_SQLITE_FILE = os.path.join(CONFIG_DIR, "dbos_store.sqlite")
+
+# Data files (XDG_DATA_HOME)
+MODELS_FILE = os.path.join(DATA_DIR, "models.json")
+EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
+AGENTS_DIR = os.path.join(DATA_DIR, "agents")
+CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
+_DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
+
+# OAuth plugin model files (XDG_DATA_HOME)
+GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
+CHATGPT_MODELS_FILE = os.path.join(DATA_DIR, "chatgpt_models.json")
+CLAUDE_MODELS_FILE = os.path.join(DATA_DIR, "claude_models.json")
+
+# Cache files (XDG_CACHE_HOME)
+AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
+
+# State files (XDG_STATE_HOME)
+COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
 DBOS_DATABASE_URL = os.environ.get(
     "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
 )
@@ -48,11 +89,13 @@ _default_vqa_model_cache = None
 
 def ensure_config_exists():
     """
-    Ensure that the .code_puppy dir and puppy.cfg exist, prompting if needed.
+    Ensure that XDG directories and puppy.cfg exist, prompting if needed.
     Returns configparser.ConfigParser for reading.
     """
-    if not os.path.exists(CONFIG_DIR):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+    # Create all XDG directories with 0700 permissions per XDG spec
+    for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR]:
+        if not os.path.exists(directory):
+            os.makedirs(directory, mode=0o700, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
     config = configparser.ConfigParser()
     if exists:
@@ -64,7 +107,11 @@ def ensure_config_exists():
         if not config[DEFAULT_SECTION].get(key):
             missing.append(key)
     if missing:
-        print("🐾 Let's get your Puppy ready!")
+        # Note: Using sys.stdout here for initial setup before messaging system is available
+        import sys
+
+        sys.stdout.write("🐾 Let's get your Puppy ready!\n")
+        sys.stdout.flush()
         for key in missing:
             if key == "puppy_name":
                 val = input("What should we name the puppy? ").strip()
@@ -163,6 +210,8 @@ def get_config_keys():
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
+    # Add cancel agent key configuration
+    default_keys.append("cancel_agent_key")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -187,7 +236,7 @@ def set_config_value(key: str, value: str):
 # --- MODEL STICKY EXTENSION STARTS HERE ---
 def load_mcp_server_configs():
     """
-    Loads the MCP server configurations from ~/.code_puppy/mcp_servers.json.
+    Loads the MCP server configurations from XDG_CONFIG_HOME/code_puppy/mcp_servers.json.
     Returns a dict mapping names to their URL or config dict.
     If file does not exist, returns an empty dict.
     """
@@ -832,11 +881,11 @@ def normalize_command_history():
             ) as f:
                 f.write(updated_content)
     except Exception as e:
-        from rich.console import Console
+        from code_puppy.messaging import emit_error
 
-        direct_console = Console()
-        error_msg = f"❌ An unexpected error occurred while normalizing command history: {str(e)}"
-        direct_console.print(f"[bold red]{error_msg}[/bold red]")
+        emit_error(
+            f"An unexpected error occurred while normalizing command history: {str(e)}"
+        )
 
 
 def get_user_agents_directory() -> str:
@@ -858,9 +907,9 @@ def initialize_command_history_file():
     import os
     from pathlib import Path
 
-    # Ensure the config directory exists before trying to create the history file
-    if not os.path.exists(CONFIG_DIR):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+    # Ensure the state directory exists before trying to create the history file
+    if not os.path.exists(STATE_DIR):
+        os.makedirs(STATE_DIR, exist_ok=True)
 
     command_history_exists = os.path.isfile(COMMAND_HISTORY_FILE)
     if not command_history_exists:
@@ -881,11 +930,11 @@ def initialize_command_history_file():
                 # Normalize the command history format if needed
                 normalize_command_history()
         except Exception as e:
-            from rich.console import Console
+            from code_puppy.messaging import emit_error
 
-            direct_console = Console()
-            error_msg = f"❌ An unexpected error occurred while trying to initialize history file: {str(e)}"
-            direct_console.print(f"[bold red]{error_msg}[/bold red]")
+            emit_error(
+                f"An unexpected error occurred while trying to initialize history file: {str(e)}"
+            )
 
 
 def get_yolo_mode():
@@ -1097,13 +1146,11 @@ def save_command_to_history(command: str):
         ) as f:
             f.write(f"\n# {timestamp}\n{command}\n")
     except Exception as e:
-        from rich.console import Console
+        from code_puppy.messaging import emit_error
 
-        direct_console = Console()
-        error_msg = (
-            f"❌ An unexpected error occurred while saving command history: {str(e)}"
+        emit_error(
+            f"An unexpected error occurred while saving command history: {str(e)}"
         )
-        direct_console.print(f"[bold red]{error_msg}[/bold red]")
 
 
 def get_agent_pinned_model(agent_name: str) -> str:
@@ -1137,6 +1184,38 @@ def clear_agent_pinned_model(agent_name: str):
     # We can't easily delete keys from configparser, so set to empty string
     # which will be treated as None by get_agent_pinned_model
     set_config_value(f"agent_model_{agent_name}", "")
+
+
+def get_all_agent_pinned_models() -> dict:
+    """Get all agent-to-model pinnings from config.
+
+    Returns:
+        Dict mapping agent names to their pinned model names.
+        Only includes agents that have a pinned model (non-empty value).
+    """
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+
+    pinnings = {}
+    if DEFAULT_SECTION in config:
+        for key, value in config[DEFAULT_SECTION].items():
+            if key.startswith("agent_model_") and value:
+                agent_name = key[len("agent_model_") :]
+                pinnings[agent_name] = value
+    return pinnings
+
+
+def get_agents_pinned_to_model(model_name: str) -> list:
+    """Get all agents that are pinned to a specific model.
+
+    Args:
+        model_name: The model name to look up.
+
+    Returns:
+        List of agent names pinned to this model.
+    """
+    all_pinnings = get_all_agent_pinned_models()
+    return [agent for agent, model in all_pinnings.items() if model == model_name]
 
 
 def get_auto_save_session() -> bool:
@@ -1284,11 +1363,8 @@ def auto_save_session_if_enabled() -> bool:
     try:
         import pathlib
 
-        from rich.console import Console
-
         from code_puppy.agents.agent_manager import get_current_agent
-
-        console = Console()
+        from code_puppy.messaging import emit_info
 
         current_agent = get_current_agent()
         history = current_agent.get_message_history()
@@ -1308,16 +1384,16 @@ def auto_save_session_if_enabled() -> bool:
             auto_saved=True,
         )
 
-        console.print(
-            f"🐾 [dim]Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)[/dim]"
+        emit_info(
+            f"🐾 Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)"
         )
 
         return True
 
     except Exception as exc:  # pragma: no cover - defensive logging
-        from rich.console import Console
+        from code_puppy.messaging import emit_error
 
-        Console().print(f"[dim]❌ Failed to auto-save session: {exc}[/dim]")
+        emit_error(f"Failed to auto-save session: {exc}")
         return False
 
 

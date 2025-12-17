@@ -7,7 +7,9 @@ Provides interactive functionality for installing and configuring MCP servers.
 import logging
 from typing import Any, Dict, Optional
 
-from code_puppy.messaging import emit_info, emit_prompt
+from rich.text import Text
+
+from code_puppy.messaging import emit_error, emit_info, emit_prompt
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -51,7 +53,7 @@ def run_interactive_install_wizard(manager, group_id: str) -> bool:
         required_env_vars = selected_server.get_environment_vars()
         if required_env_vars:
             emit_info(
-                "\n[yellow]Required Environment Variables:[/yellow]",
+                Text.from_markup("\n[yellow]Required Environment Variables:[/yellow]"),
                 message_group=group_id,
             )
             for var in required_env_vars:
@@ -61,7 +63,8 @@ def run_interactive_install_wizard(manager, group_id: str) -> bool:
                 current_value = os.environ.get(var, "")
                 if current_value:
                     emit_info(
-                        f"  {var}: [green]Already set[/green]", message_group=group_id
+                        Text.from_markup(f"  {var}: [green]Already set[/green]"),
+                        message_group=group_id,
                     )
                     env_vars[var] = current_value
                 else:
@@ -73,7 +76,8 @@ def run_interactive_install_wizard(manager, group_id: str) -> bool:
         required_cmd_args = selected_server.get_command_line_args()
         if required_cmd_args:
             emit_info(
-                "\n[yellow]Command Line Arguments:[/yellow]", message_group=group_id
+                Text.from_markup("\n[yellow]Command Line Arguments:[/yellow]"),
+                message_group=group_id,
             )
             for arg_config in required_cmd_args:
                 name = arg_config.get("name", "")
@@ -101,11 +105,11 @@ def run_interactive_install_wizard(manager, group_id: str) -> bool:
         )
 
     except ImportError:
-        emit_info("[red]Server catalog not available[/red]", message_group=group_id)
+        emit_error("Server catalog not available", message_group=group_id)
         return False
     except Exception as e:
         logger.error(f"Error in interactive wizard: {e}")
-        emit_info(f"[red]Wizard error: {e}[/red]", message_group=group_id)
+        emit_error(f"Wizard error: {e}", message_group=group_id)
         return False
 
 
@@ -122,9 +126,7 @@ def interactive_server_selection(group_id: str):
 
         servers = catalog.get_popular(10)
         if not servers:
-            emit_info(
-                "[red]No servers available in catalog[/red]", message_group=group_id
-            )
+            emit_info("No servers available in catalog", message_group=group_id)
             return None
 
         emit_info("Popular MCP Servers:", message_group=group_id)
@@ -156,10 +158,10 @@ def interactive_server_selection(group_id: str):
             if 0 <= index < len(servers):
                 return servers[index]
             else:
-                emit_info("[red]Invalid selection[/red]", message_group=group_id)
+                emit_error("Invalid selection", message_group=group_id)
                 return None
         except ValueError:
-            emit_info("[red]Invalid input[/red]", message_group=group_id)
+            emit_error("Invalid input", message_group=group_id)
             return None
 
     except Exception as e:
@@ -215,7 +217,7 @@ def interactive_configure_server(
         if env_vars:
             emit_info("Environment Variables:", message_group=group_id)
             for var, value in env_vars.items():
-                emit_info(f"  {var}: [hidden]{value}[/hidden]", message_group=group_id)
+                emit_info(f"  {var}: ***", message_group=group_id)
 
         if cmd_args:
             emit_info("Command Line Arguments:", message_group=group_id)
@@ -234,7 +236,7 @@ def interactive_configure_server(
 
     except Exception as e:
         logger.error(f"Error configuring server: {e}")
-        emit_info(f"[red]Configuration error: {e}[/red]", message_group=group_id)
+        emit_error(f"Configuration error: {e}", message_group=group_id)
         return False
 
 
@@ -288,7 +290,7 @@ def install_server_from_catalog(
 
         if not server_id:
             emit_info(
-                "[red]Failed to register server with manager[/red]",
+                "Failed to register server with manager",
                 message_group=group_id,
             )
             return False
@@ -314,7 +316,9 @@ def install_server_from_catalog(
             json.dump(data, f, indent=2)
 
         emit_info(
-            f"[green]✓ Successfully installed server: {server_name}[/green]",
+            Text.from_markup(
+                f"[green]✓ Successfully installed server: {server_name}[/green]"
+            ),
             message_group=group_id,
         )
         emit_info(
@@ -326,5 +330,5 @@ def install_server_from_catalog(
 
     except Exception as e:
         logger.error(f"Error installing server: {e}")
-        emit_info(f"[red]Installation failed: {e}[/red]", message_group=group_id)
+        emit_error(f"Installation failed: {e}", message_group=group_id)
         return False

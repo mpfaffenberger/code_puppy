@@ -14,6 +14,7 @@ def get_commands_help():
     Only shows two sections: Built-in Commands and Custom Commands.
     """
     from rich.text import Text
+
     from code_puppy.command_line.command_registry import get_unique_commands
 
     # Ensure plugins are loaded so custom help can register
@@ -154,27 +155,6 @@ def _ensure_plugins_loaded() -> None:
 # MAIN COMMAND DISPATCHER
 # ============================================================================
 
-
-def _ensure_plugins_loaded() -> None:
-    global _PLUGINS_LOADED
-    if _PLUGINS_LOADED:
-        return
-    try:
-        from code_puppy import plugins
-
-        plugins.load_plugin_callbacks()
-        _PLUGINS_LOADED = True
-    except Exception as e:
-        # If plugins fail to load, continue gracefully but note it
-        try:
-            from code_puppy.messaging import emit_warning
-
-            emit_warning(f"Plugin load error: {e}")
-        except Exception:
-            pass
-        _PLUGINS_LOADED = True
-
-
 # _show_color_options has been moved to builtin_commands.py
 
 
@@ -188,8 +168,10 @@ def handle_command(command: str):
     Returns:
         True if the command was handled, False if not, or a string to be processed as user input
     """
-    from code_puppy.messaging import emit_info, emit_warning
+    from rich.text import Text
+
     from code_puppy.command_line.command_registry import get_command
+    from code_puppy.messaging import emit_info, emit_warning
 
     _ensure_plugins_loaded()
 
@@ -291,7 +273,9 @@ def handle_command(command: str):
 
         if name:
             emit_warning(
-                f"Unknown command: {command}\n[dim]Type /help for options.[/dim]"
+                Text.from_markup(
+                    f"Unknown command: {command}\n[dim]Type /help for options.[/dim]"
+                )
             )
         else:
             # Show current model ONLY here
@@ -299,7 +283,9 @@ def handle_command(command: str):
 
             current_model = get_active_model()
             emit_info(
-                f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]"
+                Text.from_markup(
+                    f"[bold green]Current Model:[/bold green] [cyan]{current_model}[/cyan]"
+                )
             )
         return True
 

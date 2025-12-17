@@ -69,37 +69,59 @@ class TestGetWorkflowsDirectory(BrowserWorkflowsBaseTest):
     def test_get_workflows_directory_creates_directory(self):
         """Test that workflows directory is created if it doesn't exist."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Mock home directory
-            mock_home = Path(temp_dir)
+            # Import the config module that browser_workflows uses
+            from code_puppy.tools.browser import browser_workflows
 
-            with patch("pathlib.Path.home", return_value=mock_home):
+            # Patch the DATA_DIR on the already-imported config object
+            original_data_dir = browser_workflows.config.DATA_DIR
+            try:
+                browser_workflows.config.DATA_DIR = temp_dir
                 workflows_dir = get_workflows_directory()
 
-                expected_dir = mock_home / ".code_puppy" / "browser_workflows"
+                expected_dir = Path(temp_dir) / "browser_workflows"
                 assert workflows_dir == expected_dir
                 assert workflows_dir.exists()
                 assert workflows_dir.is_dir()
+            finally:
+                # Restore original value
+                browser_workflows.config.DATA_DIR = original_data_dir
 
     def test_get_workflows_directory_existing_directory(self):
         """Test returning existing workflows directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            mock_home = Path(temp_dir)
-            expected_dir = mock_home / ".code_puppy" / "browser_workflows"
+            # Import the config module that browser_workflows uses
+            from code_puppy.tools.browser import browser_workflows
+
+            expected_dir = Path(temp_dir) / "browser_workflows"
             expected_dir.mkdir(parents=True, exist_ok=True)
 
-            with patch("pathlib.Path.home", return_value=mock_home):
+            # Patch the DATA_DIR on the already-imported config object
+            original_data_dir = browser_workflows.config.DATA_DIR
+            try:
+                browser_workflows.config.DATA_DIR = temp_dir
                 workflows_dir = get_workflows_directory()
 
                 assert workflows_dir == expected_dir
                 assert workflows_dir.exists()
+            finally:
+                # Restore original value
+                browser_workflows.config.DATA_DIR = original_data_dir
 
     def test_get_workflows_directory_path_object(self):
         """Test that get_workflows_directory returns a Path object."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("pathlib.Path.home") as mock_home:
-                mock_home.return_value = Path(temp_dir)
+            # Import the config module that browser_workflows uses
+            from code_puppy.tools.browser import browser_workflows
+
+            # Patch the DATA_DIR on the already-imported config object
+            original_data_dir = browser_workflows.config.DATA_DIR
+            try:
+                browser_workflows.config.DATA_DIR = temp_dir
                 workflows_dir = get_workflows_directory()
                 assert isinstance(workflows_dir, Path)
+            finally:
+                # Restore original value
+                browser_workflows.config.DATA_DIR = original_data_dir
 
 
 class TestSaveWorkflow(BrowserWorkflowsBaseTest):

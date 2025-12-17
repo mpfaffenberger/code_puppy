@@ -388,3 +388,234 @@ def get_display_info() -> dict[str, any]:
             info["permission_error"] = permission_error
 
     return info
+
+
+def get_mouse_position_native() -> tuple[int, int]:
+    """Get mouse position using native APIs (multi-monitor safe).
+
+    On macOS, pyautogui.position() can return coordinates clamped to the
+    primary monitor bounds on multi-monitor setups. This function uses
+    native macOS Quartz APIs to get the true global cursor position.
+
+    On Windows, uses pyautogui which handles multi-monitor correctly.
+
+    Returns:
+        Tuple of (x, y) coordinates in logical screen space.
+
+    Example:
+        >>> x, y = get_mouse_position_native()
+        >>> print(f"Mouse at ({x}, {y})")
+    """
+    if IS_MACOS:
+        try:
+            from Quartz import CGEventCreate, CGEventGetLocation
+
+            # Create a null event to query current mouse location
+            event = CGEventCreate(None)
+            if event is not None:
+                point = CGEventGetLocation(event)
+                return int(point.x), int(point.y)
+        except ImportError:
+            pass  # Quartz not available, fall through to pyautogui
+        except Exception:
+            pass  # Any other error, fall through
+
+    # Fallback to pyautogui (works correctly on Windows)
+    try:
+        import pyautogui
+
+        return pyautogui.position()
+    except Exception:
+        return (0, 0)
+
+
+def move_mouse_native(x: int, y: int, duration: float = 0.0) -> tuple[bool, str | None]:
+    """Move mouse using native APIs (multi-monitor safe).
+
+    On macOS, pyautogui.moveTo() is clamped to primary monitor bounds.
+    This function uses native Quartz CGEvent APIs to move the mouse
+    across all monitors.
+
+    On Windows, uses pyautogui which handles multi-monitor correctly.
+
+    Args:
+        x: Target X coordinate
+        y: Target Y coordinate
+        duration: Movement duration in seconds (only used for pyautogui fallback)
+
+    Returns:
+        Tuple of (success, error_message)
+
+    Example:
+        >>> success, error = move_mouse_native(2400, 300)
+        >>> if success:
+        ...     print("Mouse moved to secondary monitor!")
+    """
+    if IS_MACOS:
+        try:
+            from Quartz import (
+                CGEventCreateMouseEvent,
+                CGEventPost,
+                kCGEventMouseMoved,
+                kCGHIDEventTap,
+                kCGMouseButtonLeft,
+            )
+
+            # Create a mouse moved event at the target coordinates
+            event = CGEventCreateMouseEvent(
+                None,  # No event source
+                kCGEventMouseMoved,
+                (float(x), float(y)),
+                kCGMouseButtonLeft,  # Button state (not pressed)
+            )
+
+            if event is not None:
+                # Post the event to the HID event tap (works across all monitors)
+                CGEventPost(kCGHIDEventTap, event)
+                return True, None
+            else:
+                return False, "Failed to create mouse move event"
+
+        except ImportError:
+            pass  # Quartz not available, fall through to pyautogui
+        except Exception as e:
+            return False, f"Native mouse move failed: {e}"
+
+    # Fallback to pyautogui (works correctly on Windows)
+    try:
+        import pyautogui
+
+        pyautogui.moveTo(x, y, duration=duration)
+        return True, None
+    except Exception as e:
+        return False, f"pyautogui move failed: {e}"
+
+
+def click_mouse_native(
+    x: int,
+    y: int,
+    button: str = "left",
+    clicks: int = 1,
+    interval: float = 0.0,
+) -> tuple[bool, str | None]:
+    """Click mouse using native APIs (multi-monitor safe).
+
+    On macOS, pyautogui.click() is clamped to primary monitor bounds.
+    This function uses native Quartz CGEvent APIs to click the mouse
+    at any position across all monitors.
+
+    On Windows, uses pyautogui which handles multi-monitor correctly.
+
+    Args:
+        x: Target X coordinate
+        y: Target Y coordinate
+        button: 'left', 'right', or 'middle'
+        clicks: Number of clicks (1 for single, 2 for double)
+        interval: Time between clicks in seconds
+
+    Returns:
+        Tuple of (success, error_message)
+
+    Example:
+        >>> success, error = click_mouse_native(2400, 300)
+        >>> if success:
+        ...     print("Clicked on secondary monitor!")
+    """
+    if IS_MACOS:
+        try:
+            from Quartz import (
+                CGEventCreateMouseEvent,
+                CGEventPost,
+                CGEventSetIntegerValueField,
+                kCGEventLeftMouseDown,
+                kCGEventLeftMouseUp,
+                kCGEventRightMouseDown,
+                kCGEventRightMouseUp,
+                kCGEventOtherMouseDown,
+                kCGEventOtherMouseUp,
+                kCGHIDEventTap,
+                kCGMouseButtonLeft,
+                kCGMouseButtonRight,
+                kCGMouseButtonCenter,
+                kCGMouseEventClickState,
+            )
+            import time
+
+            # Map button names to Quartz constants
+            button_map = {
+                "left": (kCGMouseButtonLeft, kCGEventLeftMouseDown, kCGEventLeftMouseUp),
+                "right": (kCGMouseButtonRight, kCGEventRightMouseDown, kCGEventRightMouseUp),
+                "middle": (kCGMouseButtonCenter, kCGEventOtherMouseDown, kCGEventOtherMouseUp),
+            }
+
+            if button not in button_map:
+                return False, f"Unknown button: {button}"
+
+            mouse_button, down_event_type, up_event_type = button_map[button]
+            point = (float(x), float(y))
+
+            # First move to the target position
+            move_event = CGEventCreateMouseEvent(
+                None,
+                21,  # kCGEventMouseMoved
+                point,
+                mouse_button,
+            )
+            if move_event:
+                CGEventPost(kCGHIDEventTap, move_event)
+                time.sleep(0.01)  # Brief pause for move to register
+
+            # Perform the clicks
+            for click_num in range(clicks):
+                if click_num > 0 and interval > 0:
+                    time.sleep(interval)
+
+                # Mouse down
+                down_event = CGEventCreateMouseEvent(
+                    None,
+                    down_event_type,
+                    point,
+                    mouse_button,
+                )
+                if down_event is None:
+                    return False, "Failed to create mouse down event"
+
+                # Set click count for double/triple clicks
+                CGEventSetIntegerValueField(
+                    down_event, kCGMouseEventClickState, click_num + 1
+                )
+                CGEventPost(kCGHIDEventTap, down_event)
+
+                # Brief pause between down and up
+                time.sleep(0.01)
+
+                # Mouse up
+                up_event = CGEventCreateMouseEvent(
+                    None,
+                    up_event_type,
+                    point,
+                    mouse_button,
+                )
+                if up_event is None:
+                    return False, "Failed to create mouse up event"
+
+                CGEventSetIntegerValueField(
+                    up_event, kCGMouseEventClickState, click_num + 1
+                )
+                CGEventPost(kCGHIDEventTap, up_event)
+
+            return True, None
+
+        except ImportError:
+            pass  # Quartz not available, fall through to pyautogui
+        except Exception as e:
+            return False, f"Native mouse click failed: {e}"
+
+    # Fallback to pyautogui (works correctly on Windows)
+    try:
+        import pyautogui
+
+        pyautogui.click(x=x, y=y, button=button, clicks=clicks, interval=interval)
+        return True, None
+    except Exception as e:
+        return False, f"pyautogui click failed: {e}"

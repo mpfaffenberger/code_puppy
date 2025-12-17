@@ -6,6 +6,8 @@ import logging
 import time
 from typing import List, Optional
 
+from rich.text import Text
+
 from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_info
 
@@ -97,7 +99,9 @@ class StopAllCommand(MCPCommandBase):
                     # Update MCP tool cache immediately so token counts reflect the change
                     agent.update_mcp_tool_cache_sync()
                     emit_info(
-                        "[dim]Agent reloaded with updated servers[/dim]",
+                        Text.from_markup(
+                            "[dim]Agent reloaded with updated servers[/dim]"
+                        ),
                         message_group=group_id,
                     )
                 except Exception as e:

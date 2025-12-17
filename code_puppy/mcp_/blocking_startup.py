@@ -74,8 +74,7 @@ class StderrFileCapture:
                                 self.captured_lines.append(line)
                                 if self.emit_to_user:
                                     emit_info(
-                                        f"[bold white on blue] MCP {self.server_name} [/bold white on blue] {line}",
-                                        style="dim cyan",
+                                        f"MCP {self.server_name}: {line}",
                                         message_group=self.message_group,
                                     )
 
@@ -106,8 +105,7 @@ class StderrFileCapture:
                             self.captured_lines.append(line)
                             if self.emit_to_user:
                                 emit_info(
-                                    f"[bold white on blue] MCP {self.server_name} [/bold white on blue] {line}",
-                                    style="dim cyan",
+                                    f"MCP {self.server_name}: {line}",
                                     message_group=self.message_group,
                                 )
 

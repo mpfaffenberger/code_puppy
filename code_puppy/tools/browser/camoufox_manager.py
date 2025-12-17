@@ -11,7 +11,8 @@ from typing import Optional
 
 from playwright.async_api import Browser, BrowserContext, Page
 
-from code_puppy.messaging import emit_info
+from code_puppy import config
+from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 # Lazy imports for camoufox to ensure monkey patches are applied first:
 # - import camoufox
@@ -63,13 +64,14 @@ class CamoufoxManager:
         return cls._instance
 
     def _get_profile_directory(self) -> Path:
-        """Get or create the persistent profile directory.
+        """Get or create the persistent profile directory (uses XDG_CACHE_HOME).
 
-        Returns a Path object pointing to ~/.code_puppy/camoufox_profile
+        Returns a Path object pointing to XDG_CACHE_HOME/code_puppy/camoufox_profile
         where browser data (cookies, history, bookmarks, etc.) will be stored.
         """
-        profile_path = Path.home() / ".code_puppy" / "camoufox_profile"
-        profile_path.mkdir(parents=True, exist_ok=True)
+        cache_dir = Path(config.CACHE_DIR)
+        profile_path = cache_dir / "camoufox_profile"
+        profile_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return profile_path
 
     async def async_initialize(self) -> None:
@@ -78,7 +80,7 @@ class CamoufoxManager:
             return
 
         try:
-            emit_info("[yellow]Initializing Camoufox (privacy Firefox)...[/yellow]")
+            emit_info("Initializing Camoufox (privacy Firefox)...")
 
             # Ensure Camoufox binary and dependencies are fetched before launching
             await self._prefetch_camoufox()
@@ -159,12 +161,12 @@ class CamoufoxManager:
         needs_install = False
         try:
             camoufox_path(download_if_missing=False)
-            emit_info("[cyan]🗃️ Using cached Camoufox installation[/cyan]")
+            emit_info("Using cached Camoufox installation")
         except (CamoufoxNotInstalled, FileNotFoundError):
-            emit_info("[cyan]📥 Camoufox not found, installing fresh copy[/cyan]")
+            emit_info("Camoufox not found, installing fresh copy")
             needs_install = True
         except UnsupportedVersion:
-            emit_info("[cyan]♻️ Camoufox update required, reinstalling[/cyan]")
+            emit_info("Camoufox update required, reinstalling")
             needs_install = True
 
         if needs_install:
@@ -174,7 +176,7 @@ class CamoufoxManager:
         if ALLOW_GEOIP:
             download_mmdb()
 
-        emit_info("[cyan]📦 Camoufox dependencies ready[/cyan]")
+        emit_info("Camoufox dependencies ready")
 
     def _get_default_addons_to_exclude(self) -> list:
         """Get default addons to exclude - imports only when camoufox starts.
@@ -205,13 +207,9 @@ class CamoufoxManager:
                 try:
                     storage_state_path = self.profile_dir / "storage_state.json"
                     await self._context.storage_state(path=str(storage_state_path))
-                    emit_info(
-                        f"[green]💾 Browser state saved to {storage_state_path}[/green]"
-                    )
+                    emit_success(f"Browser state saved to {storage_state_path}")
                 except Exception as e:
-                    emit_info(
-                        f"[yellow]Warning: Could not save storage state: {e}[/yellow]"
-                    )
+                    emit_warning(f"Could not save storage state: {e}")
 
                 await self._context.close()
                 self._context = None
@@ -220,12 +218,12 @@ class CamoufoxManager:
                 self._browser = None
             self._initialized = False
         except Exception as e:
-            emit_info(f"[yellow]Warning during cleanup: {e}[/yellow]")
+            emit_warning(f"Warning during cleanup: {e}")
 
     async def close(self) -> None:
         """Close the browser and clean up resources."""
         await self._cleanup()
-        emit_info("[yellow]Camoufox browser closed[/yellow]")
+        emit_info("Camoufox browser closed")
 
     def __del__(self):
         """Ensure cleanup on object destruction."""

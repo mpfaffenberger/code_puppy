@@ -7,6 +7,23 @@ falls back through multiple methods:
 3. Manual coordinates (last resort)
 
 This maximizes success rate across different applications and platforms.
+
+PLATFORM-SPECIFIC THRESHOLD NOTES:
+==================================
+
+OCR Confidence (min_ocr_confidence):
+- macOS (Vision Framework): Reports 0.3-0.6 for clean UI text (internal model scores,
+  NOT calibrated probabilities). Use 0.25-0.5 threshold.
+- Windows (WinRT OCR): Always returns 1.0 (no confidence scores available).
+  Threshold is effectively ignored but kept for API consistency.
+
+Fuzzy Matching (fuzzy_threshold):
+- macOS (atomacos): Uses AXTitle/AXDescription matching. Default 0.6 works well.
+- Windows (UI Automation): Uses Name/AutomationId/Value matching. Slightly higher
+  threshold (0.7) recommended due to different text normalization.
+
+The defaults are tuned for cross-platform compatibility. Adjust per-platform
+if needed for specific applications.
 """
 
 from __future__ import annotations
@@ -21,11 +38,8 @@ from code_puppy.tools.common import generate_group_id
 
 from .result_types import BaseAutomationResult
 from .smart_click_calculator import SmartClickCalculator
+from .platform_defaults import get_default_ocr_confidence, get_default_fuzzy_threshold
 
-from .core.click_strategy import (
-    ClickStrategy,
-    is_strategy_enabled,
-)
 from .dependencies import PYAUTOGUI_AVAILABLE
 
 if PYAUTOGUI_AVAILABLE:
@@ -60,9 +74,9 @@ def register_multi_strategy_click_tools(agent):
         context: RunContext,
         search_text: str,
         element_type: str = "button",
-        min_ocr_confidence: float = 0.7,
+        min_ocr_confidence: float | None = None,
         use_accessibility_api: bool = True,
-        fuzzy_threshold: float = 0.6,
+        fuzzy_threshold: float | None = None,
         max_ocr_retries: int = 3,
         verify_click: bool = True,
         verify_text: str | None = None,
@@ -91,9 +105,14 @@ def register_multi_strategy_click_tools(agent):
             element_type: Type of element - one of:
                          "button", "link", "checkbox", "radio_button",
                          "text_field", "dropdown", "icon", "menu_item", "tab", "generic"
-            min_ocr_confidence: Minimum OCR confidence for text matching (0.0-1.0, default: 0.7)
+            min_ocr_confidence: Minimum OCR confidence for text matching (0.0-1.0).
+                               Default: None (uses platform default: 0.5 on both platforms)
+                               Platform notes:
+                               - macOS (Vision): Uses internal scores (0.3-0.6 typical)
+                               - Windows (WinRT): Always returns 1.0, threshold ignored
             use_accessibility_api: Whether to try accessibility API first (default: True)
-            fuzzy_threshold: Fuzzy matching threshold for accessibility (0.0-1.0, default: 0.6)
+            fuzzy_threshold: Fuzzy matching threshold for accessibility (0.0-1.0).
+                            Default: None (uses platform default: 0.6 macOS, 0.7 Windows)
             max_ocr_retries: Maximum OCR click attempts with different offsets (default: 3)
             verify_click: Whether to verify click success by checking if element disappeared
             verify_text: Optional text to verify after clicking (e.g., "Success", "Saved")
@@ -132,6 +151,12 @@ def register_multi_strategy_click_tools(agent):
                 search_text=search_text,
             )
 
+        # Apply platform-specific defaults if not explicitly provided
+        if min_ocr_confidence is None:
+            min_ocr_confidence = get_default_ocr_confidence()
+        if fuzzy_threshold is None:
+            fuzzy_threshold = get_default_fuzzy_threshold()
+
         group_id = generate_group_id("multi_strategy_click", search_text[:30])
         emit_info(
             f"[bold magenta on black] MULTI-STRATEGY CLICK [/bold magenta on black] 🎯 '{search_text}' type={element_type}",
@@ -141,10 +166,9 @@ def register_multi_strategy_click_tools(agent):
         attempts_log = []
         platform = sys.platform
 
-        # Validate platform support using extracted logic
-        accessibility_supported = is_strategy_enabled(
-            ClickStrategy.ACCESSIBILITY, platform=platform
-        )
+        # Check if accessibility API is supported on this platform
+        # Accessibility is only available on macOS and Windows
+        accessibility_supported = platform in ("darwin", "win32")
 
         # TIER 1: Try Accessibility API first (macOS/Windows only)
         if use_accessibility_api and accessibility_supported:
@@ -155,14 +179,16 @@ def register_multi_strategy_click_tools(agent):
 
             try:
                 if platform == "darwin":
-                    # macOS accessibility
+                    # macOS accessibility via atomacos
+                    # Uses AXTitle/AXDescription matching
+                    # Platform default (0.6) is tuned for macOS - see platform_defaults.py
                     from .accessibility.tools import desktop_click_accessible_element  # noqa: E402
 
                     accessibility_result = desktop_click_accessible_element(
                         context=context,
                         title=search_text,
                         fuzzy=True,
-                        fuzzy_threshold=fuzzy_threshold,
+                        fuzzy_threshold=fuzzy_threshold,  # Uses platform default (0.6) or user override
                     )
 
                     if (
@@ -195,17 +221,19 @@ def register_multi_strategy_click_tools(agent):
                         )
 
                 elif platform == "win32":
-                    # Windows UI Automation
-                    from .windows_automation import windows_click_element
+                    # Windows UI Automation via pywinauto
+                    # Uses Name/AutomationId/Value matching
+                    # Platform default (0.7) is higher than macOS (0.6) due to
+                    # different text normalization - see platform_defaults.py
+                    from .windows_automation import click_element as _win_click
 
-                    windows_result = windows_click_element(
-                        context=context,
+                    windows_result = _win_click(
                         title=search_text,
                         fuzzy=True,
-                        fuzzy_threshold=0.7,
+                        fuzzy_threshold=fuzzy_threshold,  # Uses platform default (0.7) or user override
                     )
 
-                    if windows_result.success and windows_result.element_found:
+                    if windows_result.success and windows_result.clicked:
                         emit_info(
                             "[bold green]✅ SUCCESS via Windows UI Automation![/bold green]",
                             message_group=group_id,
@@ -242,15 +270,20 @@ def register_multi_strategy_click_tools(agent):
                 attempts_log.append(f"Accessibility API: SKIPPED (platform={platform})")
 
         # TIER 2: Try OCR with Smart Offset
+        # See platform_defaults.py for OCR confidence threshold details:
+        # - macOS (Vision Framework): Returns 0.3-0.6 for clean text
+        # - Windows (WinRT): Always returns 1.0, threshold ignored
         emit_info(
             "[cyan]🔍 TIER 2: Trying OCR with SmartClickCalculator...[/cyan]",
             message_group=group_id,
         )
 
         try:
+            # Use OCR tool layer (proper abstraction)
             from .ocr.tools import desktop_find_text_reliable  # noqa: E402
 
             # Find text with confidence filtering
+            # Uses platform default (0.5) or user override - see platform_defaults.py
             ocr_result = desktop_find_text_reliable(
                 context=context,
                 search_text=search_text,
@@ -281,8 +314,18 @@ def register_multi_strategy_click_tools(agent):
                         message_group=group_id,
                     )
 
-                    # Perform click
-                    pyautogui.click(x=point.x, y=point.y)
+                    # Perform click using native API (multi-monitor safe)
+                    from .platform import click_mouse_native
+
+                    click_success, click_error = click_mouse_native(
+                        x=point.x, y=point.y, button="left", clicks=1
+                    )
+                    if not click_success:
+                        emit_error(
+                            f"[red]Native click failed: {click_error}[/red]",
+                            message_group=group_id,
+                        )
+                        # Continue anyway - the click might have partially worked
 
                     # Wait for UI update
                     import time

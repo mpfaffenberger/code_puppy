@@ -246,6 +246,8 @@ def handle_dump_context_command(command: str) -> bool:
 )
 def handle_load_context_command(command: str) -> bool:
     """Load message history from a file."""
+    from rich.text import Text
+
     from code_puppy.agents.agent_manager import get_current_agent
     from code_puppy.config import rotate_autosave_id
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
@@ -278,12 +280,17 @@ def handle_load_context_command(command: str) -> bool:
     # Rotate autosave id to avoid overwriting any existing autosave
     try:
         new_id = rotate_autosave_id()
-        autosave_info = f"\n[dim]Autosave session rotated to: {new_id}[/dim]"
+        autosave_info = Text.from_markup(
+            f"\n[dim]Autosave session rotated to: {new_id}[/dim]"
+        )
     except Exception:
-        autosave_info = ""
+        autosave_info = Text("")
 
-    emit_success(
+    # Build the success message with proper Text concatenation
+    success_msg = Text(
         f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
-        f"📁 From: {session_path}{autosave_info}"
+        f"📁 From: {session_path}"
     )
+    success_msg.append_text(autosave_info)
+    emit_success(success_msg)
     return True

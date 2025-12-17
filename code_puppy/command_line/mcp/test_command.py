@@ -5,7 +5,7 @@ MCP Test Command - Tests connectivity to a specific MCP server.
 import logging
 from typing import List, Optional
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
 from .utils import find_server_id_by_name, suggest_similar_servers
@@ -104,4 +104,4 @@ class TestCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error testing server '{server_name}': {e}")
-            emit_info(f"[red]Error testing server: {e}[/red]", message_group=group_id)
+            emit_error(f"Error testing server: {e}", message_group=group_id)

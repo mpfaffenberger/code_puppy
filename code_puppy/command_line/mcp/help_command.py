@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from rich.text import Text
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
 
@@ -148,4 +148,4 @@ class HelpCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error showing help: {e}")
-            emit_info(f"[red]Error showing help: {e}[/red]", message_group=group_id)
+            emit_error(f"Error showing help: {e}", message_group=group_id)

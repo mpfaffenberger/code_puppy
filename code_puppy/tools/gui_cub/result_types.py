@@ -251,7 +251,7 @@ class ElementClickResult(BaseAutomationResult):
 
     clicked: bool = False
     element_found: bool = False  # For VQA - whether element was detected
-    method: Literal["ax_press", "mouse_click", "native_click", "vqa_click"] | None = (
+    method: Literal["ax_press", "mouse_click", "native_click", "vqa_click", "coordinate_click"] | None = (
         None
     )
     element: str | None = None
@@ -333,6 +333,8 @@ class MonitorInfo(BaseModel):
     width: int
     height: int
     is_primary: bool = False
+    scale_factor: float = 1.0  # HiDPI scale (2.0 for Retina, 1.0 for standard)
+    scale_factor_detected: bool = False  # True if scale was detected via native API
 
 
 class MonitorsResult(BaseAutomationResult):

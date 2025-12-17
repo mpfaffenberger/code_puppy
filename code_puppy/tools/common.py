@@ -29,7 +29,13 @@ except ImportError:
 
 # Import our queue-based console system
 try:
-    from code_puppy.messaging import get_queue_console
+    from code_puppy.messaging import (
+        emit_error,
+        emit_info,
+        emit_success,
+        emit_warning,
+        get_queue_console,
+    )
 
     # Use queue console by default, but allow fallback
     NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
@@ -41,6 +47,19 @@ except ImportError:
     # Fallback to regular Rich console if messaging system not available
     NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
     console = Console(no_color=NO_COLOR)
+
+    # Provide fallback emit functions
+    def emit_error(msg: str) -> None:
+        console.print(f"[bold red]{msg}[/bold red]")
+
+    def emit_info(msg: str) -> None:
+        console.print(msg)
+
+    def emit_success(msg: str) -> None:
+        console.print(f"[bold green]{msg}[/bold green]")
+
+    def emit_warning(msg: str) -> None:
+        console.print(f"[bold yellow]{msg}[/bold yellow]")
 
 
 def should_suppress_browser() -> bool:
@@ -782,9 +801,7 @@ def format_diff_with_colors(diff_text: str) -> Text:
 
     # Always use beautiful syntax highlighting!
     if not PYGMENTS_AVAILABLE:
-        console.print(
-            "[yellow]Warning: Pygments not available, diffs will look plain[/yellow]"
-        )
+        emit_warning("Pygments not available, diffs will look plain")
         # Return plain text as fallback
         return Text(diff_text)
 
@@ -1088,10 +1105,10 @@ def get_user_approval(
     time.sleep(0.3)  # Let spinners fully stop
 
     # Display panel
-    console = Console()
-    console.print()
-    console.print(panel)
-    console.print()
+    local_console = Console()
+    emit_info("")
+    local_console.print(panel)
+    emit_info("")
 
     # Flush and buffer before selector
     sys.stdout.flush()
@@ -1122,8 +1139,8 @@ def get_user_approval(
         else:
             # User wants to provide feedback
             confirmed = False
-            console.print()
-            console.print(f"[bold cyan]Tell {puppy_name} what to change:[/bold cyan]")
+            emit_info("")
+            emit_info(f"Tell {puppy_name} what to change:")
             user_feedback = Prompt.ask(
                 "[bold green]➤[/bold green]",
                 default="",
@@ -1133,7 +1150,7 @@ def get_user_approval(
                 user_feedback = None
 
     except (KeyboardInterrupt, EOFError):
-        console.print("\n[bold red]⊗ Cancelled by user[/bold red]")
+        emit_error("Cancelled by user")
         confirmed = False
 
     finally:
@@ -1142,9 +1159,9 @@ def get_user_approval(
         # Force Rich console to reset display state to prevent artifacts
         try:
             # Clear Rich's internal display state to prevent artifacts
-            console.file.write("\r")  # Return to start of line
-            console.file.write("\x1b[K")  # Clear current line
-            console.file.flush()
+            local_console.file.write("\r")  # Return to start of line
+            local_console.file.write("\x1b[K")  # Clear current line
+            local_console.file.flush()
         except Exception:
             pass
 
@@ -1153,17 +1170,15 @@ def get_user_approval(
         sys.stderr.flush()
 
     # Show result BEFORE resuming spinners (no puppy litter!)
-    console.print()
+    emit_info("")
     if not confirmed:
         if user_feedback:
-            console.print("[bold red]✗ Rejected with feedback![/bold red]")
-            console.print(
-                f'[bold yellow]📝 Telling {puppy_name}: "{user_feedback}"[/bold yellow]'
-            )
+            emit_error("Rejected with feedback!")
+            emit_warning(f'Telling {puppy_name}: "{user_feedback}"')
         else:
-            console.print("[bold red]✗ Rejected.[/bold red]")
+            emit_error("Rejected.")
     else:
-        console.print("[bold green]✓ Approved![/bold green]")
+        emit_success("Approved!")
 
     # NOW resume spinners after showing the result
     try:
@@ -1258,10 +1273,10 @@ async def get_user_approval_async(
     await asyncio.sleep(0.3)  # Let spinners fully stop
 
     # Display panel
-    console = Console()
-    console.print()
-    console.print(panel)
-    console.print()
+    local_console = Console()
+    emit_info("")
+    local_console.print(panel)
+    emit_info("")
 
     # Flush and buffer before selector
     sys.stdout.flush()
@@ -1292,8 +1307,8 @@ async def get_user_approval_async(
         else:
             # User wants to provide feedback
             confirmed = False
-            console.print()
-            console.print(f"[bold cyan]Tell {puppy_name} what to change:[/bold cyan]")
+            emit_info("")
+            emit_info(f"Tell {puppy_name} what to change:")
             user_feedback = Prompt.ask(
                 "[bold green]➤[/bold green]",
                 default="",
@@ -1303,7 +1318,7 @@ async def get_user_approval_async(
                 user_feedback = None
 
     except (KeyboardInterrupt, EOFError):
-        console.print("\n[bold red]⊗ Cancelled by user[/bold red]")
+        emit_error("Cancelled by user")
         confirmed = False
 
     finally:
@@ -1312,9 +1327,9 @@ async def get_user_approval_async(
         # Force Rich console to reset display state to prevent artifacts
         try:
             # Clear Rich's internal display state to prevent artifacts
-            console.file.write("\r")  # Return to start of line
-            console.file.write("\x1b[K")  # Clear current line
-            console.file.flush()
+            local_console.file.write("\r")  # Return to start of line
+            local_console.file.write("\x1b[K")  # Clear current line
+            local_console.file.flush()
         except Exception:
             pass
 
@@ -1323,17 +1338,15 @@ async def get_user_approval_async(
         sys.stderr.flush()
 
     # Show result BEFORE resuming spinners (no puppy litter!)
-    console.print()
+    emit_info("")
     if not confirmed:
         if user_feedback:
-            console.print("[bold red]✗ Rejected with feedback![/bold red]")
-            console.print(
-                f'[bold yellow]📝 Telling {puppy_name}: "{user_feedback}"[/bold yellow]'
-            )
+            emit_error("Rejected with feedback!")
+            emit_warning(f'Telling {puppy_name}: "{user_feedback}"')
         else:
-            console.print("[bold red]✗ Rejected.[/bold red]")
+            emit_error("Rejected.")
     else:
-        console.print("[bold green]✓ Approved![/bold green]")
+        emit_success("Approved!")
 
     # NOW resume spinners after showing the result
     try:

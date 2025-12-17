@@ -9,6 +9,10 @@ from typing import Any, Dict, Optional
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_safety_permission_level, get_yolo_mode
 from code_puppy.messaging import emit_info
+from code_puppy.plugins.shell_safety.command_cache import (
+    cache_assessment,
+    get_cached_assessment,
+)
 
 # Risk level hierarchy for numeric comparison
 # Lower numbers = safer commands, higher numbers = more dangerous
@@ -73,6 +77,31 @@ async def shell_safety_callback(
     threshold = get_safety_permission_level()
 
     try:
+        # Check cache first (fast path - no LLM call)
+        cached = get_cached_assessment(command, cwd)
+
+        if cached:
+            # Got a cached result - check against threshold
+            if compare_risk_levels(cached.risk, threshold):
+                # Cached result says it's too risky
+                risk_display = cached.risk or "unknown"
+                concise_reason = cached.reasoning or "No reasoning provided"
+                error_msg = (
+                    f"🛑 Command blocked (risk {risk_display.upper()} > permission {threshold.upper()}).\n"
+                    f"Reason: {concise_reason}\n"
+                    f"Override: /set yolo_mode true or /set safety_permission_level {risk_display}"
+                )
+                emit_info(error_msg)
+                return {
+                    "blocked": True,
+                    "risk": cached.risk,
+                    "reasoning": cached.reasoning,
+                    "error_message": error_msg,
+                }
+            # Cached result is within threshold - allow silently
+            return None
+
+        # Cache miss - need LLM assessment
         # Import here to avoid circular imports
         from code_puppy.plugins.shell_safety.agent_shell_safety import ShellSafetyAgent
 
@@ -81,6 +110,10 @@ async def shell_safety_callback(
 
         # Run async assessment (we're in an async callback now!)
         assessment = await agent.assess_command(command, cwd)
+
+        # Cache the result for future use, but only if it's not a fallback assessment
+        if not getattr(assessment, "is_fallback", False):
+            cache_assessment(command, cwd, assessment.risk, assessment.reasoning)
 
         # Check if risk exceeds threshold (commands at threshold are allowed)
         if compare_risk_levels(assessment.risk, threshold):

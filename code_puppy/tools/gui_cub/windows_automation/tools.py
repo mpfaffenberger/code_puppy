@@ -190,6 +190,8 @@ def register_windows_tools(agent):
         automation_id: str | None = None,
         fuzzy: bool = False,
         fuzzy_threshold: float = 0.7,
+        x: int | None = None,
+        y: int | None = None,
     ) -> ElementClickResult:
         """
         Find and click UI element on Windows.
@@ -206,16 +208,28 @@ def register_windows_tools(agent):
                           Tip: Check element tree output for automation_id values!
             fuzzy: Enable fuzzy matching for title (default: False)
             fuzzy_threshold: Minimum similarity score (0.0-1.0, default: 0.7)
+            x: X coordinate for direct click (use with y, skips element search)
+            y: Y coordinate for direct click (use with x, skips element search)
 
         Returns:
             ElementClickResult with success status
 
-        Search Priority:
+        **Workflow after windows_search_elements():**
+            1. Call windows_search_elements("Submit") to find element
+            2. Extract coordinates from result.best_match (center_x, center_y)
+            3. Call windows_click_element(x=center_x, y=center_y) to click
+
+            OR use the title/auto_id from the search result:
+            1. Call windows_search_elements("Submit")
+            2. Call windows_click_element(title=result.best_match.title)
+
+        Search Priority (when using element selectors, not x/y):
             1. AutomationId (exact match) - MOST RELIABLE
             2. Title (exact or fuzzy match)
             3. Combination of control_type + class_name
 
         Examples:
+            - windows_click_element(x=555, y=300)  # Direct coordinate click
             - windows_click_element(automation_id="num7Button")  # Calculator "7" button
             - windows_click_element(automation_id="clearButton")  # Calculator C button
             - windows_click_element(title="OK", control_type="Button")
@@ -234,11 +248,15 @@ def register_windows_tools(agent):
                 success=False, error=ERROR_WINDOWS_AUTOMATION_MISSING
             )
 
-        group_id = generate_group_id(
-            "windows_click_element", title or control_type or "unknown"
-        )
+        # Determine what to log
+        if x is not None and y is not None:
+            click_target = f"({x}, {y})"
+        else:
+            click_target = title or automation_id or control_type or "unknown"
+
+        group_id = generate_group_id("windows_click_element", str(click_target))
         emit_info(
-            f"[bold white on blue] WINDOWS CLICK [/bold white on blue] 🖱️ {title or control_type}",
+            f"[bold white on blue] WINDOWS CLICK [/bold white on blue] 🖱️ {click_target}",
             message_group=group_id,
         )
 
@@ -249,6 +267,8 @@ def register_windows_tools(agent):
             auto_id=automation_id,
             fuzzy=fuzzy,
             fuzzy_threshold=fuzzy_threshold,
+            x=x,
+            y=y,
         )
 
         if result.success:

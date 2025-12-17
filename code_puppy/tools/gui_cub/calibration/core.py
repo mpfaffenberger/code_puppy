@@ -101,6 +101,69 @@ def _is_admin() -> bool:
         return False  # Assume not admin if check fails
 
 
+def detect_winrt_ocr() -> bool:
+    """Detect if WinRT OCR is available (Windows 10+).
+
+    This matches the actual provider initialization logic to ensure
+    detection accurately reflects runtime availability.
+    """
+    try:
+        if sys.platform != "win32":
+            return False
+
+        # Test critical WinRT imports
+        from winrt.windows.media.ocr import OcrEngine  # noqa: F401
+        from winrt.windows.graphics.imaging import SoftwareBitmap  # noqa: F401
+        from winrt.windows.storage.streams import (
+            InMemoryRandomAccessStream,  # noqa: F401
+        )
+
+        # Try to create OCR engine using the same method as the provider
+        # This is more reliable than checking available_languages
+        engine = OcrEngine.try_create_from_user_profile_languages()
+        return engine is not None
+    except Exception:
+        return False
+
+
+def detect_vision_framework() -> bool:
+    """Detect if Vision Framework OCR is available (macOS 10.15+)."""
+    try:
+        if sys.platform != "darwin":
+            return False
+
+        # Check macOS version >= 10.15
+        import platform
+
+        version = platform.mac_ver()[0]
+        if not version:
+            return False
+
+        major, minor = map(int, version.split(".")[:2])
+        if major < 10 or (major == 10 and minor < 15):
+            return False
+
+        # Test Vision Framework imports
+        import Vision  # noqa: F401
+        import Quartz  # noqa: F401
+
+        return True
+    except Exception:
+        return False
+
+
+def detect_tesseract() -> bool:
+    """Detect if Tesseract OCR is available."""
+    try:
+        import pytesseract
+
+        # Try to get version (will fail if tesseract not installed)
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
 def detect_capabilities() -> Dict[str, bool]:
     """Detect which libraries are available."""
     capabilities = {}

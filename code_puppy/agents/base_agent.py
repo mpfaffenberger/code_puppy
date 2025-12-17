@@ -38,6 +38,7 @@ from pydantic_ai.messages import (
     ToolReturn,
     ToolReturnPart,
 )
+from rich.text import Text
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -51,6 +52,8 @@ from code_puppy.config import (
     get_value,
     load_mcp_server_configs,
 )
+from code_puppy.error_logging import log_error
+from code_puppy.keymap import cancel_agent_uses_signal, get_cancel_agent_char_code
 from code_puppy.mcp_ import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
@@ -467,8 +470,8 @@ class BaseAgent(ABC):
         # fixed instructions. For other models, count the full system prompt.
         try:
             from code_puppy.model_utils import (
-                is_claude_code_model,
                 get_claude_code_instructions,
+                is_claude_code_model,
             )
 
             model_name = (
@@ -932,30 +935,11 @@ class BaseAgent(ABC):
         total_current_tokens = message_tokens + context_overhead
         proportion_used = total_current_tokens / model_max
 
-        # Check if we're in TUI mode and can update the status bar
-        from code_puppy.tui_state import get_tui_app_instance, is_tui_mode
-
         context_summary = SpinnerBase.format_context_info(
             total_current_tokens, model_max, proportion_used
         )
         update_spinner_context(context_summary)
 
-        if is_tui_mode():
-            tui_app = get_tui_app_instance()
-            if tui_app:
-                try:
-                    # Update the status bar instead of emitting a chat message
-                    status_bar = tui_app.query_one("StatusBar")
-                    status_bar.update_token_info(
-                        total_current_tokens, model_max, proportion_used
-                    )
-                except Exception as e:
-                    emit_error(e)
-            else:
-                emit_info(
-                    f"Final token count after processing: {total_current_tokens}",
-                    message_group="token_context_status",
-                )
         # Get the configured compaction threshold
         compaction_threshold = get_compaction_threshold()
 
@@ -994,30 +978,12 @@ class BaseAgent(ABC):
             final_token_count = sum(
                 self.estimate_tokens_for_message(msg) for msg in result_messages
             )
-            # Update status bar with final token count if in TUI mode
+            # Update spinner with final token count
             final_summary = SpinnerBase.format_context_info(
                 final_token_count, model_max, final_token_count / model_max
             )
             update_spinner_context(final_summary)
 
-            if is_tui_mode():
-                tui_app = get_tui_app_instance()
-                if tui_app:
-                    try:
-                        status_bar = tui_app.query_one("StatusBar")
-                        status_bar.update_token_info(
-                            final_token_count, model_max, final_token_count / model_max
-                        )
-                    except Exception:
-                        emit_info(
-                            f"Final token count after processing: {final_token_count}",
-                            message_group="token_context_status",
-                        )
-                else:
-                    emit_info(
-                        f"Final token count after processing: {final_token_count}",
-                        message_group="token_context_status",
-                    )
             self.set_message_history(result_messages)
             for m in summarized_messages:
                 self.add_compacted_message_hash(self.hash_message(m))
@@ -1079,18 +1045,43 @@ class BaseAgent(ABC):
 
     # ===== Agent wiring formerly in code_puppy/agent.py =====
     def load_puppy_rules(self) -> Optional[str]:
-        """Load AGENT(S).md if present and cache the contents."""
+        """Load AGENT(S).md from both global config and project directory.
+
+        Checks for AGENTS.md/AGENT.md/agents.md/agent.md in this order:
+        1. Global config directory (~/.code_puppy/ or XDG config)
+        2. Current working directory (project-specific)
+
+        If both exist, they are combined with global rules first, then project rules.
+        This allows project-specific rules to override or extend global rules.
+        """
         if self._puppy_rules is not None:
             return self._puppy_rules
         from pathlib import Path
 
         possible_paths = ["AGENTS.md", "AGENT.md", "agents.md", "agent.md"]
+
+        # Load global rules from CONFIG_DIR
+        global_rules = None
+        from code_puppy.config import CONFIG_DIR
+
         for path_str in possible_paths:
-            puppy_rules_path = Path(path_str)
-            if puppy_rules_path.exists():
-                with open(puppy_rules_path, "r", encoding="utf-8") as f:
-                    self._puppy_rules = f.read()
-                    break
+            global_path = Path(CONFIG_DIR) / path_str
+            if global_path.exists():
+                global_rules = global_path.read_text(encoding="utf-8-sig")
+                break
+
+        # Load project-local rules from current working directory
+        project_rules = None
+        for path_str in possible_paths:
+            project_path = Path(path_str)
+            if project_path.exists():
+                project_rules = project_path.read_text(encoding="utf-8-sig")
+                break
+
+        # Combine global and project rules
+        # Global rules come first, project rules second (allowing project to override)
+        rules = [r for r in [global_rules, project_rules] if r]
+        self._puppy_rules = "\n\n".join(rules) if rules else None
         return self._puppy_rules
 
     def load_mcp_servers(self, extra_headers: Optional[Dict[str, str]] = None):
@@ -1154,8 +1145,8 @@ class BaseAgent(ABC):
             )
             emit_warning(
                 (
-                    f"[yellow]Model '{requested_model_name}' not found. "
-                    f"Available models: {available_str}[/yellow]"
+                    f"Model '{requested_model_name}' not found. "
+                    f"Available models: {available_str}"
                 ),
                 message_group=message_group,
             )
@@ -1175,7 +1166,7 @@ class BaseAgent(ABC):
                 try:
                     model = ModelFactory.get_model(candidate, models_config)
                     emit_info(
-                        f"[bold cyan]Using fallback model: {candidate}[/bold cyan]",
+                        f"Using fallback model: {candidate}",
                         message_group=message_group,
                     )
                     return model, candidate
@@ -1187,7 +1178,7 @@ class BaseAgent(ABC):
                 "a valid model with `config set`."
             )
             emit_error(
-                f"[bold red]{friendly_message}[/bold red]",
+                friendly_message,
                 message_group=message_group,
             )
             raise ValueError(friendly_message) from exc
@@ -1215,13 +1206,7 @@ class BaseAgent(ABC):
 
         mcp_servers = self.load_mcp_servers()
 
-        output_tokens = max(
-            2**11,
-            min(int(0.12 * self.get_model_context_length()), 2**15),
-        )
-        model_settings = make_model_settings(
-            resolved_model_name, max_tokens=output_tokens
-        )
+        model_settings = make_model_settings(resolved_model_name)
 
         # Handle claude-code models: swap instructions (prompt prepending happens in run_with_mcp)
         from code_puppy.model_utils import prepare_prompt_for_model
@@ -1294,7 +1279,9 @@ class BaseAgent(ABC):
 
         if len(filtered_mcp_servers) != len(mcp_servers):
             emit_info(
-                f"[dim]Filtered {len(mcp_servers) - len(filtered_mcp_servers)} conflicting MCP tools[/dim]"
+                Text.from_markup(
+                    f"[dim]Filtered {len(mcp_servers) - len(filtered_mcp_servers)} conflicting MCP tools[/dim]"
+                )
             )
 
         self._last_model_name = resolved_model_name
@@ -1390,8 +1377,19 @@ class BaseAgent(ABC):
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
+        on_cancel_agent: Optional[Callable[[], None]] = None,
     ) -> Optional[threading.Thread]:
-        """Start a Ctrl+X key listener thread for CLI sessions."""
+        """Start a keyboard listener thread for CLI sessions.
+
+        Listens for Ctrl+X (shell command cancel) and optionally the configured
+        cancel_agent_key (when not using SIGINT/Ctrl+C).
+
+        Args:
+            stop_event: Event to signal the listener to stop.
+            on_escape: Callback for Ctrl+X (shell command cancel).
+            on_cancel_agent: Optional callback for cancel_agent_key (only used
+                when cancel_agent_uses_signal() returns False).
+        """
         try:
             import sys
         except ImportError:
@@ -1409,16 +1407,20 @@ class BaseAgent(ABC):
         def listener() -> None:
             try:
                 if sys.platform.startswith("win"):
-                    self._listen_for_ctrl_x_windows(stop_event, on_escape)
+                    self._listen_for_ctrl_x_windows(
+                        stop_event, on_escape, on_cancel_agent
+                    )
                 else:
-                    self._listen_for_ctrl_x_posix(stop_event, on_escape)
+                    self._listen_for_ctrl_x_posix(
+                        stop_event, on_escape, on_cancel_agent
+                    )
             except Exception:
                 emit_warning(
-                    "Ctrl+X key listener stopped unexpectedly; press Ctrl+C to cancel."
+                    "Key listener stopped unexpectedly; press Ctrl+C to cancel."
                 )
 
         thread = threading.Thread(
-            target=listener, name="code-puppy-esc-listener", daemon=True
+            target=listener, name="code-puppy-key-listener", daemon=True
         )
         thread.start()
         return thread
@@ -1427,9 +1429,15 @@ class BaseAgent(ABC):
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
+        on_cancel_agent: Optional[Callable[[], None]] = None,
     ) -> None:
         import msvcrt
         import time
+
+        # Get the cancel agent char code if we're using keyboard-based cancel
+        cancel_agent_char: Optional[str] = None
+        if on_cancel_agent is not None and not cancel_agent_uses_signal():
+            cancel_agent_char = get_cancel_agent_char_code()
 
         while not stop_event.is_set():
             try:
@@ -1442,9 +1450,18 @@ class BaseAgent(ABC):
                             emit_warning(
                                 "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                             )
+                    elif (
+                        cancel_agent_char
+                        and on_cancel_agent
+                        and key == cancel_agent_char
+                    ):
+                        try:
+                            on_cancel_agent()
+                        except Exception:
+                            emit_warning("Cancel agent handler raised unexpectedly.")
             except Exception:
                 emit_warning(
-                    "Windows Ctrl+X listener error; Ctrl+C is still available for cancel."
+                    "Windows key listener error; Ctrl+C is still available for cancel."
                 )
                 return
             time.sleep(0.05)
@@ -1453,11 +1470,17 @@ class BaseAgent(ABC):
         self,
         stop_event: threading.Event,
         on_escape: Callable[[], None],
+        on_cancel_agent: Optional[Callable[[], None]] = None,
     ) -> None:
         import select
         import sys
         import termios
         import tty
+
+        # Get the cancel agent char code if we're using keyboard-based cancel
+        cancel_agent_char: Optional[str] = None
+        if on_cancel_agent is not None and not cancel_agent_uses_signal():
+            cancel_agent_char = get_cancel_agent_char_code()
 
         stdin = sys.stdin
         try:
@@ -1488,6 +1511,13 @@ class BaseAgent(ABC):
                         emit_warning(
                             "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                         )
+                elif (
+                    cancel_agent_char and on_cancel_agent and data == cancel_agent_char
+                ):
+                    try:
+                        on_cancel_agent()
+                    except Exception:
+                        emit_warning("Cancel agent handler raised unexpectedly.")
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
 
@@ -1537,7 +1567,11 @@ class BaseAgent(ABC):
 
         if is_claude_code_model(self.get_model_name()):
             if len(self.get_message_history()) == 0:
-                prompt = self.get_system_prompt() + "\n\n" + prompt
+                system_prompt = self.get_system_prompt()
+                puppy_rules = self.load_puppy_rules()
+                if puppy_rules:
+                    system_prompt += f"\n{puppy_rules}"
+                prompt = system_prompt + "\n\n" + prompt
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []
@@ -1694,11 +1728,12 @@ class BaseAgent(ABC):
                         log_path = _log_error_to_file(exc)
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
                         emit_info(f"{str(exc.args)}", group_id=group_id)
-                        if log_path:
-                            emit_info(
-                                f"Error details logged to: {log_path}",
-                                group_id=group_id,
-                            )
+                        # Log to file for debugging
+                        log_error(
+                            exc,
+                            context=f"Agent run (group_id={group_id})",
+                            include_traceback=True,
+                        )
 
                 collect_non_cancelled_exceptions(other_error)
 
@@ -1757,10 +1792,35 @@ class BaseAgent(ABC):
 
             schedule_agent_cancel()
 
+        def graceful_sigint_handler(_sig, _frame):
+            # When using keyboard-based cancel, SIGINT should be a no-op
+            # (just show a hint to user about the configured cancel key)
+            from code_puppy.keymap import get_cancel_agent_display_name
+
+            cancel_key = get_cancel_agent_display_name()
+            emit_info(f"Use {cancel_key} to cancel the agent task.")
+
         original_handler = None
+        key_listener_stop_event = None
+        _key_listener_thread = None
+
         try:
-            # Save original handler and set our custom one AFTER task is created
-            original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+            if cancel_agent_uses_signal():
+                # Use SIGINT-based cancellation (default Ctrl+C behavior)
+                original_handler = signal.signal(
+                    signal.SIGINT, keyboard_interrupt_handler
+                )
+            else:
+                # Use keyboard listener for agent cancellation
+                # Set a graceful SIGINT handler that shows a hint
+                original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
+                # Spawn keyboard listener with the cancel agent callback
+                key_listener_stop_event = threading.Event()
+                _key_listener_thread = self._spawn_ctrl_x_key_listener(
+                    key_listener_stop_event,
+                    on_escape=lambda: None,  # Ctrl+X handled by command_runner
+                    on_cancel_agent=schedule_agent_cancel,
+                )
 
             # Wait for the task to complete or be cancelled
             result = await agent_task
@@ -1780,6 +1840,11 @@ class BaseAgent(ABC):
             if not agent_task.done():
                 agent_task.cancel()
         finally:
+            # Stop keyboard listener if it was started
+            if key_listener_stop_event is not None:
+                key_listener_stop_event.set()
             # Restore original signal handler
-            if original_handler:
+            if (
+                original_handler is not None
+            ):  # Explicit None check - SIG_DFL can be 0/falsy!
                 signal.signal(signal.SIGINT, original_handler)

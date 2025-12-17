@@ -9,7 +9,7 @@ from typing import List, Optional
 from rich.table import Table
 from rich.text import Text
 
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
 from .utils import find_server_id_by_name, suggest_similar_servers
@@ -123,4 +123,4 @@ class LogsCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error getting logs for server '{server_name}': {e}")
-            emit_info(f"[red]Error getting logs: {e}[/red]", message_group=group_id)
+            emit_error(f"Error getting logs: {e}", message_group=group_id)

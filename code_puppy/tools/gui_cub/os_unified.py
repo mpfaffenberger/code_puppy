@@ -138,21 +138,31 @@ def ui_click_element(
                                         break
                         except Exception:
                             pass
-                # Fallback to coordinate click using pyautogui
+                # Fallback to coordinate click using native API (multi-monitor safe)
                 if search.best_match.center_x and search.best_match.center_y:
                     try:
-                        import pyautogui
+                        from .platform import click_mouse_native
 
-                        pyautogui.click(
-                            search.best_match.center_x, search.best_match.center_y
-                        )
-                        return ElementClickResult(
-                            success=True,
-                            clicked=True,
-                            method="mouse_click",
+                        success, error = click_mouse_native(
                             x=search.best_match.center_x,
                             y=search.best_match.center_y,
+                            button="left",
+                            clicks=1,
                         )
+                        if success:
+                            return ElementClickResult(
+                                success=True,
+                                clicked=True,
+                                method="native_click",
+                                x=search.best_match.center_x,
+                                y=search.best_match.center_y,
+                            )
+                        else:
+                            return ElementClickResult(
+                                success=False,
+                                clicked=False,
+                                error=error or "Native click failed",
+                            )
                     except Exception as e:
                         return ElementClickResult(
                             success=False, clicked=False, error=str(e)
