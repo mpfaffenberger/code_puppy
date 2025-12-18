@@ -139,6 +139,11 @@ class DatabricksClient:
         config = load_databricks_config() or {}
 
         self._host = host or config.get("host") or os.environ.get("DATABRICKS_HOST")
+        self._auth_type = (
+            config.get("auth_type")
+            or os.environ.get("DATABRICKS_AUTH_TYPE")
+            or "external-browser"  # Default to browser-based OAuth
+        )
         self._warehouse_id = (
             warehouse_id
             or config.get("warehouse_id")
@@ -158,9 +163,12 @@ class DatabricksClient:
             )
 
         try:
-            # Initialize workspace client with OAuth U2M authentication
-            # The SDK automatically handles OAuth token refresh
-            self._client = WorkspaceClient(host=self._host)
+            # Initialize workspace client with OAuth U2M (external-browser) authentication
+            # This uses the browser-based OAuth flow which:
+            # 1. Opens a browser window for user to authenticate
+            # 2. Caches tokens locally at ~/.databricks/token-cache.json
+            # 3. Automatically refreshes tokens when they expire
+            self._client = WorkspaceClient(host=self._host, auth_type=self._auth_type)
 
             # Test authentication by getting current user
             current_user = self._client.current_user.me()
@@ -485,10 +493,12 @@ class DatabricksClient:
 
         try:
             # Execute query using statement execution API
+            # wait_timeout must be "0s" (don't wait) or "Ns" where N is 5-50 seconds
+            # Using "50s" as the maximum allowed synchronous wait time
             response = self._client.statement_execution.execute_statement(
                 warehouse_id=self._warehouse_id,
                 statement=query,
-                wait_timeout="5m",
+                wait_timeout="50s",
                 row_limit=max_results,
                 catalog=self._catalog,
                 schema=self._schema,

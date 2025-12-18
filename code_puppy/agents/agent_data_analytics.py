@@ -2,7 +2,8 @@
 
 This agent acts as a data analyst, leveraging custom knowledge base markdown files
 to understand data context, domain expertise, and best practices. It integrates
-with BigQuery for data access and provides intelligent data analysis capabilities.
+with BigQuery and Databricks for data access and provides intelligent data analysis
+capabilities across multiple data platforms.
 """
 
 from pathlib import Path
@@ -21,7 +22,8 @@ class DataAnalyticsAgent(BaseAgent):
 
     This agent:
     - Loads domain knowledge from custom markdown files
-    - Integrates with BigQuery for data access
+    - Integrates with BigQuery (Google Cloud) for data access
+    - Integrates with Databricks (Unity Catalog) for data access
     - Provides data analysis, insights, and recommendations
     - Helps data analysts with queries, visualizations, and reporting
     """
@@ -43,7 +45,7 @@ class DataAnalyticsAgent(BaseAgent):
 
     @property
     def description(self) -> str:
-        return "Data analyst agent with custom knowledge base and BigQuery integration"
+        return "Data analyst agent with custom knowledge base, BigQuery and Databricks integration"
 
     @staticmethod
     def get_configured_knowledge_path() -> Optional[str]:
@@ -154,13 +156,14 @@ class DataAnalyticsAgent(BaseAgent):
         """Return the list of tools available to this agent.
 
         Includes:
-        - All BigQuery tools for data access
+        - All BigQuery tools for Google Cloud data access
+        - All Databricks tools for Unity Catalog data access
         - File operations for reading/writing analysis results
         - Shell command execution for data processing scripts
         - Agent reasoning capabilities
         """
         return [
-            # BigQuery tools (from bigquery-explorer agent)
+            # BigQuery tools (Google Cloud)
             "bigquery_get_default_project",
             "bigquery_list_all_projects",
             "bigquery_list_datasets",
@@ -168,6 +171,13 @@ class DataAnalyticsAgent(BaseAgent):
             "bigquery_search_tables",
             "bigquery_execute_query",
             "bigquery_get_table_schema",
+            # Databricks tools (Unity Catalog)
+            "databricks_list_catalogs",
+            "databricks_list_schemas",
+            "databricks_list_tables",
+            "databricks_get_table_schema",
+            "databricks_list_warehouses",
+            "databricks_execute_query",
             # File operations
             "list_files",
             "read_file",
@@ -193,15 +203,15 @@ You are the Data Analytics Agent - a specialized AI assistant for data analysts.
 
 ## Your Role
 You act as an expert data analyst, helping users:
-- Understand and explore data sets
-- Write efficient SQL queries for BigQuery
+- Understand and explore data sets across multiple platforms
+- Write efficient SQL queries for BigQuery and Databricks
 - Analyze data patterns and trends
 - Generate insights and recommendations
 - Create data documentation and reports
 
 ## Core Capabilities
 
-### 1. BigQuery Integration
+### 1. BigQuery Integration (Google Cloud)
 You have full access to BigQuery tools:
 - `bigquery_get_default_project`: Show the user's default GCP project
 - `bigquery_list_all_projects`: List all accessible GCP projects
@@ -211,17 +221,36 @@ You have full access to BigQuery tools:
 - `bigquery_get_table_schema`: Get detailed schema information for tables
 - `bigquery_execute_query`: Execute SQL queries (SELECT only for safety)
 
-### 2. Data Analysis Workflow
+### 2. Databricks Integration (Unity Catalog)
+You have full access to Databricks tools:
+- `databricks_list_catalogs`: List all accessible catalogs in the workspace
+- `databricks_list_schemas`: List schemas within a catalog
+- `databricks_list_tables`: List tables within a schema
+- `databricks_get_table_schema`: Get detailed schema for a specific table
+- `databricks_list_warehouses`: List available SQL warehouses
+- `databricks_execute_query`: Execute SQL queries (SELECT only for safety)
+
+#### Databricks Namespace Structure
+Databricks uses Unity Catalog with a three-level namespace:
+- **Catalog**: Top-level container (e.g., 'main', 'hive_metastore')
+- **Schema**: Database within a catalog (e.g., 'default', 'analytics')
+- **Table**: Actual data table
+
+Fully qualified table name: `catalog.schema.table`
+
+### 3. Data Analysis Workflow
 When analyzing data:
 1. First understand the user's question and data needs
-2. **IMPORTANT: Before writing any query, ALWAYS pull 10 sample records first** to understand the actual schema, column names, and data types:
-   ```sql
-   SELECT * FROM `project.dataset.table` LIMIT 10
-   ```
-3. Explore available tables and schemas using `bigquery_get_table_schema`
-4. Write optimized SQL queries based on the actual schema you discovered
-5. Present results with clear explanations
-6. Provide actionable insights
+2. **DETERMINE THE PLATFORM**: Check if the user is asking about:
+   - BigQuery data: Use `bigquery_*` tools (table format: `project.dataset.table`)
+   - Databricks data: Use `databricks_*` tools (table format: `catalog.schema.table`)
+3. **IMPORTANT: Before writing any query, ALWAYS pull 10 sample records first** to understand the actual schema:
+   - BigQuery: SELECT * FROM `project.dataset.table` LIMIT 10
+   - Databricks: SELECT * FROM catalog.schema.table LIMIT 10
+4. Explore available tables and schemas using the appropriate `*_get_table_schema` tool
+5. Write optimized SQL queries based on the actual schema you discovered
+6. Present results with clear explanations
+7. Provide actionable insights
 
 ### Schema Discovery Best Practice
 **ALWAYS start by pulling 10 records** from any table before writing complex queries.
@@ -232,25 +261,26 @@ This helps you:
 - Identify NULL patterns
 - Discover any unexpected data formats
 
-### 3. Cross-Project Data Access
-**IMPORTANT:** You are NOT restricted to querying only the user's default project.
-You can query ANY BigQuery project/dataset that the user has access to:
-- Use fully qualified table names: `project.dataset.table`
-- The user may have access to multiple GCP projects (e.g., `prod-sams-cdp`, `analytics-project`, etc.)
-- Use `bigquery_list_all_projects` to discover all accessible projects
-- Always respect the project specified in the knowledge base or by the user
+### 4. Cross-Platform and Cross-Project Data Access
+**IMPORTANT:** You can access data from BOTH platforms:
+- **BigQuery**: Use fully qualified table names: `project.dataset.table`
+  - Use `bigquery_list_all_projects` to discover all accessible GCP projects
+- **Databricks**: Use fully qualified table names: `catalog.schema.table`
+  - Use `databricks_list_catalogs` to discover all accessible catalogs
 
-### 4. Query Best Practices
-- Always use fully qualified table names: `project.dataset.table`
+### 5. Query Best Practices
+- Always use fully qualified table names
 - Use LIMIT clauses to avoid expensive queries
-- Show bytes processed to keep users cost-aware
+- BigQuery: Show bytes processed to keep users cost-aware
+- Databricks: Be mindful of warehouse compute usage
 - Validate table/dataset existence before complex operations
 - Only SELECT queries are allowed (no modifications)
 
-### 5. Sub-Agent Collaboration
-You can invoke the `bigquery-explorer` agent for complex BigQuery operations:
-- Use `invoke_agent` with agent_name="bigquery-explorer" for deep exploration
-- Delegate specialized BigQuery tasks when appropriate
+### 6. Sub-Agent Collaboration
+You can invoke specialized agents for complex operations:
+- Use `invoke_agent` with agent_name="bigquery-explorer" for deep BigQuery exploration
+- Use `invoke_agent` with agent_name="databricks" for deep Databricks exploration
+- Delegate specialized tasks when appropriate
 
 ## Query Results Format
 - Queries return 5 preview rows to minimize token usage
@@ -272,8 +302,8 @@ You can:
 - No schema changes (ALTER, CREATE, REPLACE)
 
 ## Authentication
-Users must authenticate via `/bigquery_auth` command before using BigQuery tools.
-This runs `gcloud auth application-default login`.
+- **BigQuery**: Users must authenticate via `/bigquery_auth` command (runs `gcloud auth application-default login`)
+- **Databricks**: Users must authenticate via `/databricks_auth` command (OAuth browser-based login)
 """
 
         # Add knowledge base section if available

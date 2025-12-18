@@ -68,6 +68,14 @@ from code_puppy.tools.bigquery_tools import (
     register_bigquery_list_tables,
     register_bigquery_search_tables,
 )
+from code_puppy.tools.databricks_tools import (
+    register_databricks_list_catalogs,
+    register_databricks_list_schemas,
+    register_databricks_list_tables,
+    register_databricks_get_table_schema,
+    register_databricks_list_warehouses,
+    register_databricks_execute_query,
+)
 from code_puppy.tools.confluence_tools import (
     register_confluence_search,
     register_confluence_read_page,
@@ -178,6 +186,13 @@ TOOL_REGISTRY = {
     "bigquery_execute_query": register_bigquery_execute_query,
     "bigquery_get_table_schema": register_bigquery_get_table_schema,
     "bigquery_search_tables": register_bigquery_search_tables,
+    # Databricks Tools
+    "databricks_list_catalogs": register_databricks_list_catalogs,
+    "databricks_list_schemas": register_databricks_list_schemas,
+    "databricks_list_tables": register_databricks_list_tables,
+    "databricks_get_table_schema": register_databricks_get_table_schema,
+    "databricks_list_warehouses": register_databricks_list_warehouses,
+    "databricks_execute_query": register_databricks_execute_query,
 }
 
 # Merge in GUI-Cub tools from separate registry

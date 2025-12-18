@@ -37,8 +37,19 @@ def _install_databricks_dependencies() -> bool:
     emit_info("Installing Databricks SDK...")
 
     try:
+        # Use Walmart's internal PyPI proxy to avoid corporate firewall blocks
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "databricks-sdk>=0.20.0"],
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "databricks-sdk>=0.20.0",
+                "--index-url",
+                "https://repository.walmart.com/repository/pypi-proxy/simple/",
+                "--trusted-host",
+                "repository.walmart.com",
+            ],
             capture_output=True,
             text=True,
             timeout=120,
@@ -86,7 +97,7 @@ def _get_user_input(prompt: str, default: Optional[str] = None) -> str:
 def _test_databricks_connection(
     host: str, warehouse_id: Optional[str] = None
 ) -> bool:
-    """Test Databricks connection with OAuth.
+    """Test Databricks connection with OAuth U2M (external browser).
 
     Args:
         host: Databricks workspace URL
@@ -100,8 +111,10 @@ def _test_databricks_connection(
 
         emit_info("Testing connection...")
 
-        # Initialize client - this will trigger OAuth flow if needed
-        client = WorkspaceClient(host=host)
+        # Initialize client with external-browser auth type
+        # This explicitly triggers the OAuth U2M browser-based flow
+        # which opens a browser for user authentication
+        client = WorkspaceClient(host=host, auth_type="external-browser")
 
         # Test by getting current user
         current_user = client.current_user.me()
@@ -190,9 +203,17 @@ def handle_databricks_auth_command(command: str, name: str) -> Optional[str]:
 
     emit_info("")
 
-    # Step 3: Test connection with OAuth
+    # Step 3: Test connection with OAuth U2M (external-browser)
     emit_info("Testing OAuth authentication...")
-    emit_info("A browser window will open for you to log in with your credentials.")
+    emit_info("")
+    emit_warning("IMPORTANT: A browser window should open automatically.")
+    emit_info("If it doesn't open, please check:")
+    emit_info("  1. Your default browser is running")
+    emit_info("  2. No popup blockers are preventing the window")
+    emit_info("  3. You have network access to Databricks")
+    emit_info("")
+    emit_info("The browser will ask you to log in with your corporate credentials.")
+    emit_info("After successful login, return to this terminal.")
     emit_info("")
 
     if not _test_databricks_connection(host):
@@ -229,6 +250,7 @@ def handle_databricks_auth_command(command: str, name: str) -> Optional[str]:
     # Step 6: Save configuration
     config = {
         "host": host,
+        "auth_type": "external-browser",  # Use OAuth U2M browser-based auth
         "warehouse_id": warehouse_id or None,
         "catalog": catalog or None,
         "schema": schema or None,
