@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Optional
 
 from code_puppy.agents.base_agent import BaseAgent
+from code_puppy.config import get_value, set_config_value
 from code_puppy.messaging import emit_info, emit_warning
+
+# Config key for custom knowledge base path
+KNOWLEDGE_BASE_PATH_CONFIG_KEY = "data_analytics_knowledge_path"
 
 
 class DataAnalyticsAgent(BaseAgent):
@@ -41,14 +45,56 @@ class DataAnalyticsAgent(BaseAgent):
     def description(self) -> str:
         return "Data analyst agent with custom knowledge base and BigQuery integration"
 
+    @staticmethod
+    def get_configured_knowledge_path() -> Optional[str]:
+        """Get the user-configured knowledge base path from config.
+
+        Returns:
+            The configured path string, or None if not set.
+        """
+        return get_value(KNOWLEDGE_BASE_PATH_CONFIG_KEY)
+
+    @staticmethod
+    def set_knowledge_base_path(path: str) -> bool:
+        """Set a custom knowledge base file path.
+
+        Args:
+            path: Absolute or relative path to the knowledge base markdown file.
+
+        Returns:
+            True if the path was set successfully, False if the file doesn't exist.
+        """
+        # Expand user home directory (~) and resolve to absolute path
+        resolved_path = Path(path).expanduser().resolve()
+
+        if not resolved_path.exists():
+            emit_warning(f"Knowledge base file not found: {resolved_path}")
+            return False
+
+        if not resolved_path.is_file():
+            emit_warning(f"Path is not a file: {resolved_path}")
+            return False
+
+        # Save the resolved absolute path to config
+        set_config_value(KNOWLEDGE_BASE_PATH_CONFIG_KEY, str(resolved_path))
+        emit_info(f"Knowledge base path configured: {resolved_path}")
+        return True
+
+    @staticmethod
+    def clear_knowledge_base_path() -> None:
+        """Clear the custom knowledge base path configuration."""
+        set_config_value(KNOWLEDGE_BASE_PATH_CONFIG_KEY, "")
+        emit_info("Knowledge base path configuration cleared. Using default search paths.")
+
     def _load_knowledge_base(self) -> Optional[str]:
         """Load the data analytics knowledge base from markdown files.
 
         Searches for knowledge base files in the following order:
-        1. Current working directory: ./data_analytics_knowledge.md
-        2. Project .data_analytics/ directory: ./.data_analytics/knowledge.md
-        3. Code-puppy package directory (where this agent file is located)
-        4. Global config: ~/.code_puppy/data_analytics_knowledge.md
+        1. User-configured path (via set_knowledge_base_path or /set command)
+        2. Current working directory: ./data_analytics_knowledge.md
+        3. Project .data_analytics/ directory: ./.data_analytics/knowledge.md
+        4. Code-puppy package directory (where this agent file is located)
+        5. Global config: ~/.code_puppy/data_analytics_knowledge.md
 
         Returns:
             The content of the knowledge base file, or None if not found.
@@ -59,8 +105,16 @@ class DataAnalyticsAgent(BaseAgent):
         # Get the code-puppy package root directory (parent of agents/)
         package_dir = Path(__file__).parent.parent.parent
 
-        # Search paths in priority order
-        search_paths = [
+        # Build search paths - start with configured path if set
+        search_paths = []
+
+        # 1. Check for user-configured custom path first (highest priority)
+        configured_path = self.get_configured_knowledge_path()
+        if configured_path and configured_path.strip():
+            search_paths.append(Path(configured_path).expanduser().resolve())
+
+        # 2. Add default search paths
+        search_paths.extend([
             # Current directory (where user runs code-puppy from)
             Path.cwd() / self.KNOWLEDGE_BASE_FILENAME,
             Path.cwd() / "data_analytics_knowledge.md",
@@ -75,7 +129,7 @@ class DataAnalyticsAgent(BaseAgent):
             # Global config directory
             Path.home() / ".code_puppy" / self.KNOWLEDGE_BASE_FILENAME,
             Path.home() / ".code_puppy" / "data_analytics" / "knowledge.md",
-        ]
+        ])
 
         for path in search_paths:
             if path.exists() and path.is_file():
@@ -92,7 +146,7 @@ class DataAnalyticsAgent(BaseAgent):
         emit_warning(
             "No data analytics knowledge base found. "
             f"Create '{self.KNOWLEDGE_BASE_FILENAME}' in your project directory "
-            "to provide domain-specific context."
+            f"or use '/set {KNOWLEDGE_BASE_PATH_CONFIG_KEY} /path/to/file.md' to configure."
         )
         return None
 
