@@ -6,6 +6,7 @@ Organized by API category:
 - mail_extended.py: Extended mail operations (move, archive, attachments)
 - calendar.py: Calendar events and scheduling
 - calendar_shared.py: Shared calendar access and meeting time finder
+- meeting_health.py: Proactive meeting health monitoring and remediation
 - onedrive.py: File storage and sharing
 - teams.py: Teams channels, messaging, and online meetings
 - sharepoint.py: SharePoint sites and content
@@ -131,6 +132,15 @@ from code_puppy.tools.msgraph.presence import (
     register_msgraph_get_user_presence,
 )
 
+# Meeting Health (proactive monitoring)
+from code_puppy.tools.msgraph.meeting_health import (
+    register_msgraph_analyze_meeting_health,
+    register_msgraph_get_meeting_responses,
+    register_msgraph_find_pending_rsvps,
+    register_msgraph_find_my_pending_responses,
+    register_msgraph_suggest_reschedule,
+)
+
 # Common (generic API request)
 from code_puppy.tools.msgraph.common import register_msgraph_api_request
 
@@ -220,6 +230,12 @@ MSGRAPH_TOOLS = {
     # Presence
     "msgraph_get_my_presence": register_msgraph_get_my_presence,
     "msgraph_get_user_presence": register_msgraph_get_user_presence,
+    # Meeting Health (proactive monitoring)
+    "msgraph_analyze_meeting_health": register_msgraph_analyze_meeting_health,
+    "msgraph_get_meeting_responses": register_msgraph_get_meeting_responses,
+    "msgraph_find_pending_rsvps": register_msgraph_find_pending_rsvps,
+    "msgraph_find_my_pending_responses": register_msgraph_find_my_pending_responses,
+    "msgraph_suggest_reschedule": register_msgraph_suggest_reschedule,
     # Generic API request (fallback for any endpoint)
     "msgraph_api_request": register_msgraph_api_request,
 }
