@@ -292,17 +292,41 @@ Send reminders to attendees who haven't responded to a meeting invite.
 "Send a reminder about the design review"
 ```
 
+### `msgraph_gather_all_tasks`
+Gather tasks from ALL Microsoft 365 sources and organize by workstream.
+```
+"Gather all my tasks and organize them"
+"What tasks do I have across all systems?"
+"Consolidate my tasks into To Do lists by project"
+```
+
+**Important:** This tool gathers from MS 365 only. For comprehensive task gathering,
+you MUST also invoke sub-agents:
+1. Call `msgraph_gather_all_tasks` for MS 365 tasks
+2. Call `invoke_agent("jira", "Search for my unresolved issues assigned to me")` for Jira
+3. Optionally call `invoke_agent("confluence-search", "Find action items assigned to me")` for Confluence
+4. Combine results and present a unified task list organized by workstream
+
 ---
 
-## 🔗 EXTENSIBILITY: Jira/Confluence Integration
+## 🔗 CROSS-SYSTEM ORCHESTRATION: Jira/Confluence/Planner
 
-The EA workflow tools are designed to be extended with other systems:
-- **Jira**: Completed tickets, sprint progress, blockers → for developers
-- **Confluence**: Docs authored/edited → for knowledge workers
-- **GitHub**: PRs merged, code reviews → for engineers
+The EA workflow tools focus on MS 365. For comprehensive context, **delegate to sub-agents**:
 
-When these integrations are available, the workflow tools will automatically
-include that context. Check `extensibility.jira_available` in the response.
+- **Jira**: `invoke_agent("jira", "find my open issues")` → Tickets, sprint progress, blockers
+- **Confluence**: `invoke_agent("confluence-search", "find docs about X")` → Docs, wikis, action items
+
+**Always synthesize** results from multiple agents into a coherent summary.
+
+### Workstream Organization
+
+Tasks are automatically classified into workstreams using:
+1. **User's existing To Do lists** - Respects the user's own organizational structure
+2. **Generic patterns** - Relationships, Admin & Compliance, Pending Responses
+3. **Planner plan names** - Project-based organization
+
+When organizing tasks, the EA creates/uses To Do lists that match the user's existing
+organization. New tasks are placed in the most appropriate existing list.
 
 ---
 

@@ -947,35 +947,114 @@ def register_msgraph_performance_summary(agent: Any) -> Tool:
 # =============================================================================
 
 
+# Generic workstream keywords (user-agnostic patterns)
+# These are common task patterns that apply to any knowledge worker
+# User-specific projects are discovered dynamically from existing To Do lists
+GENERIC_WORKSTREAM_KEYWORDS = {
+    "Relationships": [
+        "reconnect",
+        "check-in",
+        "1:1",
+        "one on one",
+        "connect with",
+        "introduce",
+        "meet with",
+        "networking",
+    ],
+    "Admin & Compliance": [
+        "learning",
+        "certification",
+        "compliance",
+        "expense",
+        "timesheet",
+        "training",
+        "onboarding",
+    ],
+    "Pending Responses": [
+        "respond:",
+        "rsvp",
+        "reply to",
+        "waiting for",
+        "follow up with",
+        "need response",
+    ],
+}
+
+
+def _infer_workstream(
+    task_title: str,
+    task_context: str = "",
+    existing_lists: list[str] | None = None,
+) -> str:
+    """Infer the workstream for a task based on context.
+
+    Uses a priority order that respects user's existing organization:
+    1. Match against existing To Do list names (user's own structure)
+    2. Match against generic patterns (relationships, admin, responses)
+    3. Default to "General"
+
+    Args:
+        task_title: The task title to classify
+        task_context: Additional context (body, notes, etc.)
+        existing_lists: User's existing To Do list names for matching
+
+    Returns:
+        The inferred workstream name
+    """
+    combined = f"{task_title} {task_context}".lower()
+
+    # First, try to match against user's existing lists
+    # This respects the user's own organizational structure
+    if existing_lists:
+        for list_name in existing_lists:
+            # Skip system lists
+            if list_name.lower() in ["tasks", "flagged emails"]:
+                continue
+            # Check if list name keywords appear in the task
+            # Use individual words from list name for matching
+            list_words = list_name.lower().split()
+            for word in list_words:
+                if len(word) > 3 and word in combined:  # Skip short words
+                    return list_name
+
+    # Then, match against generic patterns
+    for workstream, keywords in GENERIC_WORKSTREAM_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in combined:
+                return workstream
+
+    return "General"  # Default workstream
+
+
 def msgraph_gather_all_tasks(
     ctx: RunContext[Any],
     *,
     organize_into_todo: bool = True,
-    create_ea_list: bool = True,
-    include_jira: bool = True,
-    include_confluence: bool = True,
+    organize_by_workstream: bool = True,
     include_onenote: bool = True,
 ) -> dict:
-    """Gather tasks from ALL sources and optionally organize into To Do.
+    """Gather tasks from Microsoft 365 sources and organize into To Do.
 
-    Sources searched:
+    This workflow gathers tasks from MS Graph sources only:
     - Microsoft To Do (existing tasks)
     - Flagged emails (auto-synced to To Do)
     - Calendar items needing response
     - Planner tasks assigned to you
-    - Jira issues (via sub-agent if available)
-    - Confluence action items (via sub-agent if available)
-    - OneNote action items (search for TODO, action item patterns)
+    - OneNote pages (for potential action items)
+
+    **For Jira and Confluence tasks:**
+    The EA agent should invoke the 'jira' and 'confluence-search' sub-agents
+    separately, then combine results. This provides better authentication
+    handling and richer context.
 
     Args:
         organize_into_todo: If True, consolidate tasks into To Do lists.
-        create_ea_list: If True, create an "EA Managed Tasks" list.
-        include_jira: If True, search Jira for assigned issues.
-        include_confluence: If True, search Confluence for action items.
+        organize_by_workstream: If True, create lists per workstream.
         include_onenote: If True, search OneNote for TODO patterns.
 
     Returns:
-        Dict with all tasks organized by source and priority.
+        Dict with tasks organized by source, priority, AND workstream.
+        Includes guidance for the EA to invoke sub-agents for Jira/Confluence.
     """
     emit_info(
         Text.from_markup(
@@ -992,6 +1071,7 @@ def msgraph_gather_all_tasks(
         "success": True,
         "sources_searched": [],
         "tasks_by_source": {},
+        "tasks_by_workstream": {},  # NEW: Group by workstream
         "all_tasks": [],
         "prioritized": {
             "critical": [],  # Due today or overdue, from VIPs
@@ -1002,6 +1082,11 @@ def msgraph_gather_all_tasks(
         "organized_into_todo": False,
         "todo_link": "https://wmlink/todo",
         "errors": [],
+        # Guidance for EA to invoke sub-agents
+        "sub_agent_guidance": {
+            "jira": "Invoke 'jira' sub-agent with: 'Search for my unresolved issues assigned to me'",
+            "confluence": "Invoke 'confluence-search' sub-agent with: 'Find pages where I have action items'",
+        },
     }
 
     today = datetime.now(timezone.utc).date()
@@ -1009,9 +1094,14 @@ def msgraph_gather_all_tasks(
     next_week = today + timedelta(days=14)
 
     # === 1. MICROSOFT TO DO ===
+    # First, get all list names for workstream inference
+    existing_list_names: list[str] = []
     try:
         result["sources_searched"].append("Microsoft To Do")
         lists_response = client.get("/me/todo/lists")
+        existing_list_names = [
+            lst.get("displayName", "") for lst in lists_response.get("value", [])
+        ]
         todo_tasks = []
 
         for lst in lists_response.get("value", []):
@@ -1034,15 +1124,26 @@ def msgraph_gather_all_tasks(
                     except Exception:
                         pass
 
+                title = task.get("title", "")
+                body_content = task.get("body", {}).get("content", "")
+                # For To Do tasks, use the list name as workstream if not a system list
+                if list_name.lower() not in ["tasks", "flagged emails"]:
+                    workstream = list_name
+                else:
+                    workstream = _infer_workstream(
+                        title, body_content, existing_list_names
+                    )
+
                 todo_tasks.append(
                     {
                         "source": "To Do",
                         "list": list_name,
-                        "title": task.get("title"),
+                        "title": title,
                         "due_date": str(due_date) if due_date else None,
                         "importance": task.get("importance", "normal"),
                         "id": task.get("id"),
                         "status": task.get("status"),
+                        "workstream": workstream,
                     }
                 )
 
@@ -1078,16 +1179,22 @@ def msgraph_gather_all_tasks(
             except Exception:
                 event_date = None
 
+            subject = event.get("subject", "")
+            workstream = _infer_workstream(subject, "", existing_list_names)
+
             calendar_tasks.append(
                 {
                     "source": "Calendar",
-                    "title": f"RESPOND: {event.get('subject')}",
+                    "title": f"RESPOND: {subject}",
                     "due_date": str(event_date) if event_date else None,
                     "importance": "high",
                     "organizer": event.get("organizer", {})
                     .get("emailAddress", {})
                     .get("name"),
                     "id": event.get("id"),
+                    "workstream": workstream
+                    if workstream != "General"
+                    else "Pending Responses",
                 }
             )
 
@@ -1117,16 +1224,20 @@ def msgraph_gather_all_tasks(
                         except Exception:
                             pass
 
+                    title = task.get("title", "")
+                    workstream = _infer_workstream(title, "", existing_list_names)
+
                     planner_tasks.append(
                         {
                             "source": "Planner",
-                            "title": task.get("title"),
+                            "title": title,
                             "due_date": str(due_date) if due_date else None,
                             "importance": "high"
                             if task.get("priority", 5) <= 3
                             else "normal",
                             "percent_complete": task.get("percentComplete", 0),
                             "id": task.get("id"),
+                            "workstream": workstream,
                         }
                     )
         except Exception:
@@ -1138,53 +1249,16 @@ def msgraph_gather_all_tasks(
     except Exception as e:
         result["errors"].append(f"Planner: {str(e)[:50]}")
 
-    # === 4. JIRA ISSUES (via sub-agent) ===
-    if include_jira:
-        try:
-            result["sources_searched"].append("Jira")
-            # Import here to avoid circular imports
-            from code_puppy.tools.jira_tools import get_jira_client
-
-            jira_client = get_jira_client()
-            if jira_client:
-                # Search for issues assigned to current user
-                jira_results = jira_client.search_issues(
-                    "assignee = currentUser() AND resolution = Unresolved ORDER BY priority DESC, updated DESC",
-                    max_results=50,
-                )
-
-                jira_tasks = []
-                for issue in jira_results.get("issues", []):
-                    fields = issue.get("fields", {})
-                    due = fields.get("duedate")
-                    priority = fields.get("priority", {})
-                    priority_name = priority.get("name", "Medium").lower() if priority else "medium"
-
-                    importance = "normal"
-                    if priority_name in ["highest", "blocker", "critical"]:
-                        importance = "high"
-                    elif priority_name in ["lowest", "trivial"]:
-                        importance = "low"
-
-                    jira_tasks.append(
-                        {
-                            "source": "Jira",
-                            "title": f"[{issue.get('key')}] {fields.get('summary', 'Untitled')}",
-                            "due_date": due,
-                            "importance": importance,
-                            "status": str(fields.get("status", {}).get("name", "Unknown")),
-                            "key": issue.get("key"),
-                            "url": f"https://jira.walmart.com/browse/{issue.get('key')}",
-                        }
-                    )
-
-                result["tasks_by_source"]["jira"] = jira_tasks
-                result["all_tasks"].extend(jira_tasks)
-            else:
-                result["errors"].append("Jira: Not authenticated")
-
-        except Exception as e:
-            result["errors"].append(f"Jira: {str(e)[:50]}")
+    # === 4. JIRA & CONFLUENCE (via sub-agents) ===
+    # NOTE: Jira and Confluence should be queried via sub-agents for better
+    # authentication handling and richer context. The EA agent should:
+    # 1. Call this workflow to get MS 365 tasks
+    # 2. Invoke 'jira' sub-agent for Jira issues
+    # 3. Invoke 'confluence-search' sub-agent for Confluence action items
+    # 4. Combine and organize all results
+    #
+    # The sub_agent_guidance field provides prompts for the EA to use.
+    result["requires_sub_agents"] = ["jira", "confluence-search"]
 
     # === 5. ONENOTE ACTION ITEMS ===
     if include_onenote:
@@ -1226,6 +1300,13 @@ def msgraph_gather_all_tasks(
         except Exception as e:
             result["errors"].append(f"OneNote: {str(e)[:50]}")
 
+    # === GROUP BY WORKSTREAM ===
+    for task in result["all_tasks"]:
+        workstream = task.get("workstream", "General")
+        if workstream not in result["tasks_by_workstream"]:
+            result["tasks_by_workstream"][workstream] = []
+        result["tasks_by_workstream"][workstream].append(task)
+
     # === PRIORITIZE ALL TASKS ===
     for task in result["all_tasks"]:
         due_str = task.get("due_date")
@@ -1250,37 +1331,48 @@ def msgraph_gather_all_tasks(
             result["prioritized"]["low"].append(task)
 
     # === ORGANIZE INTO TO DO (if requested) ===
-    if organize_into_todo and create_ea_list:
+    # === ORGANIZE INTO TO DO BY WORKSTREAM ===
+    if organize_into_todo and organize_by_workstream:
         try:
-            # Check if EA list exists
-            lists = client.get("/me/todo/lists")
-            ea_list = None
-            for lst in lists.get("value", []):
-                if lst.get("displayName") == "EA Managed Tasks":
-                    ea_list = lst
-                    break
+            # Get existing lists
+            existing_lists = client.get("/me/todo/lists")
+            list_map = {
+                lst.get("displayName"): lst.get("id")
+                for lst in existing_lists.get("value", [])
+            }
 
-            if not ea_list:
-                # Create the EA list
-                ea_list = client.post(
-                    "/me/todo/lists",
-                    json={"displayName": "EA Managed Tasks"},
-                )
+            tasks_organized = 0
+            lists_created = []
 
-            ea_list_id = ea_list.get("id")
+            for workstream, tasks in result["tasks_by_workstream"].items():
+                # Skip if all tasks are already from To Do
+                non_todo_tasks = [t for t in tasks if t.get("source") != "To Do"]
+                if not non_todo_tasks:
+                    continue
 
-            # Add critical and high priority items that aren't already in To Do
-            tasks_added = 0
-            for task in (
-                result["prioritized"]["critical"] + result["prioritized"]["high"]
-            ):
-                if task.get("source") not in ["To Do"]:  # Don't duplicate To Do tasks
+                # Get or create the workstream list
+                list_name = f"📂 {workstream}"
+                if list_name not in list_map:
+                    try:
+                        new_list = client.post(
+                            "/me/todo/lists",
+                            json={"displayName": list_name},
+                        )
+                        list_map[list_name] = new_list.get("id")
+                        lists_created.append(list_name)
+                    except Exception:
+                        continue  # Skip if can't create list
+
+                list_id = list_map.get(list_name)
+                if not list_id:
+                    continue
+
+                # Add non-To Do tasks to the workstream list
+                for task in non_todo_tasks:
                     try:
                         task_body: dict = {
                             "title": task.get("title", "Untitled"),
-                            "importance": "high"
-                            if task in result["prioritized"]["critical"]
-                            else "normal",
+                            "importance": task.get("importance", "normal"),
                         }
 
                         if task.get("due_date"):
@@ -1302,16 +1394,17 @@ def msgraph_gather_all_tasks(
                         }
 
                         client.post(
-                            f"/me/todo/lists/{ea_list_id}/tasks",
+                            f"/me/todo/lists/{list_id}/tasks",
                             json=task_body,
                         )
-                        tasks_added += 1
+                        tasks_organized += 1
 
                     except Exception:
                         pass  # Skip individual task failures
 
             result["organized_into_todo"] = True
-            result["tasks_added_to_ea_list"] = tasks_added
+            result["tasks_organized"] = tasks_organized
+            result["lists_created"] = lists_created
 
         except Exception as e:
             result["errors"].append(f"Organize: {str(e)[:50]}")
@@ -1325,11 +1418,19 @@ def msgraph_gather_all_tasks(
             "medium": len(result["prioritized"]["medium"]),
             "low": len(result["prioritized"]["low"]),
         },
+        "by_workstream": {
+            ws: len(tasks) for ws, tasks in result["tasks_by_workstream"].items()
+        },
         "sources": result["sources_searched"],
     }
 
+    workstream_summary = ", ".join(
+        f"{ws}: {len(tasks)}" for ws, tasks in result["tasks_by_workstream"].items()
+    )
     emit_success(
-        f"Gathered {len(result['all_tasks'])} tasks from {len(result['sources_searched'])} sources"
+        f"Gathered {len(result['all_tasks'])} tasks from {len(result['sources_searched'])} MS 365 sources\n"
+        f"    Workstreams: {workstream_summary}\n"
+        f"    ℹ️  For Jira/Confluence tasks, invoke the sub-agents separately."
     )
 
     return result
