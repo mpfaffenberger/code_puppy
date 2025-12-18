@@ -187,16 +187,17 @@ def msgraph_api_request(
         client = get_msgraph_client()
 
         # Call the appropriate client method based on HTTP method
+        # Note: The client expects `json=` not `body=` for JSON payloads
         if method == "GET":
             response = client.get(endpoint, params=params)
         elif method == "POST":
-            response = client.post(endpoint, body=body, params=params)
+            response = client.post(endpoint, json=body, params=params)
         elif method == "PATCH":
-            response = client.patch(endpoint, body=body, params=params)
+            response = client.patch(endpoint, json=body, params=params)
         elif method == "DELETE":
             response = client.delete(endpoint, params=params)
         elif method == "PUT":
-            response = client.put(endpoint, body=body, params=params)
+            response = client.put(endpoint, json=body, params=params)
         else:
             # This should never happen due to validation above
             raise ValueError(f"Unsupported method: {method}")
