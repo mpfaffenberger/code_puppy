@@ -157,9 +157,16 @@ class MSGraphAgent(BaseAgent):
             "msgraph_batch_add_tasks",  # Batch add tasks (e.g., after relationship check)
             #
             # === TASKS (To Do) ===
-            "msgraph_list_todo_tasks",
-            "msgraph_create_todo_task",
-            "msgraph_complete_todo_task",
+            # To Do Lists (for organizing tasks into groups)
+            "msgraph_list_todo_lists",  # List all To Do lists
+            "msgraph_create_todo_list",  # Create a new list (e.g., "Code Puppy EA Tasks")
+            "msgraph_delete_todo_list",  # Delete a list
+            # To Do Tasks
+            "msgraph_list_todo_tasks",  # List tasks in a list
+            "msgraph_create_todo_task",  # Create a task
+            "msgraph_update_todo_task",  # Update a task (title, due date, etc.)
+            "msgraph_complete_todo_task",  # Mark task as complete
+            "msgraph_delete_todo_task",  # Delete a task
             #
             # === SHAREPOINT ===
             "msgraph_search_sharepoint",
