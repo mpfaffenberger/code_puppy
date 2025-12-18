@@ -6,6 +6,7 @@ Organized by API category:
 - mail_extended.py: Extended mail operations (move, archive, attachments)
 - calendar.py: Calendar events and scheduling
 - calendar_shared.py: Shared calendar access and meeting time finder
+- calendar_attendees.py: Attendee management (add/remove) and event search
 - meeting_health.py: Proactive meeting health monitoring and remediation
 - onedrive.py: File storage and sharing
 - teams.py: Teams channels, messaging, and online meetings
@@ -63,6 +64,14 @@ from code_puppy.tools.msgraph.calendar_shared import (
     register_msgraph_get_user_calendar_events,
     register_msgraph_find_meeting_times,
     register_msgraph_get_schedule,
+)
+
+# Calendar Attendee Management
+from code_puppy.tools.msgraph.calendar_attendees import (
+    register_msgraph_add_event_attendees,
+    register_msgraph_remove_event_attendee,
+    register_msgraph_search_events,
+    register_msgraph_respond_to_event,
 )
 
 # OneDrive
@@ -181,6 +190,11 @@ MSGRAPH_TOOLS = {
     "msgraph_get_user_calendar_events": register_msgraph_get_user_calendar_events,
     "msgraph_find_meeting_times": register_msgraph_find_meeting_times,
     "msgraph_get_schedule": register_msgraph_get_schedule,
+    # Calendar Attendee Management
+    "msgraph_add_event_attendees": register_msgraph_add_event_attendees,
+    "msgraph_remove_event_attendee": register_msgraph_remove_event_attendee,
+    "msgraph_search_events": register_msgraph_search_events,
+    "msgraph_respond_to_event": register_msgraph_respond_to_event,
     # OneDrive
     "msgraph_list_drive_items": register_msgraph_list_drive_items,
     "msgraph_get_drive_item": register_msgraph_get_drive_item,
