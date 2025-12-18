@@ -7,7 +7,6 @@ Tests the high-level workflow tools:
 """
 
 import pytest
-from datetime import datetime, timezone
 from unittest.mock import Mock, patch, MagicMock
 
 from code_puppy.tools.msgraph.workflows import (
@@ -85,7 +84,9 @@ class TestMsgraphPrepareMeetingBrief:
     """Tests for msgraph_prepare_meeting_brief workflow."""
 
     @patch("code_puppy.tools.msgraph.workflows.get_msgraph_client")
-    def test_prepare_brief_by_event_id(self, mock_client_fn, mock_context, mock_event_data):
+    def test_prepare_brief_by_event_id(
+        self, mock_client_fn, mock_context, mock_event_data
+    ):
         """Test preparing brief using event ID."""
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
@@ -104,7 +105,9 @@ class TestMsgraphPrepareMeetingBrief:
         assert result["attendance"]["no_response"] == 1
 
     @patch("code_puppy.tools.msgraph.workflows.get_msgraph_client")
-    def test_prepare_brief_by_subject(self, mock_client_fn, mock_context, mock_event_data):
+    def test_prepare_brief_by_subject(
+        self, mock_client_fn, mock_context, mock_event_data
+    ):
         """Test preparing brief using meeting subject search."""
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
@@ -165,7 +168,7 @@ class TestMsgraphDailyDigest:
         """Test generating daily digest successfully."""
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
-        
+
         # Mock calendar response
         mock_client.get.side_effect = [
             # Today's events
@@ -204,7 +207,10 @@ class TestMsgraphDailyDigest:
                         "id": "msg-1",
                         "subject": "Urgent: Review needed",
                         "from": {
-                            "emailAddress": {"name": "Boss", "address": "boss@walmart.com"}
+                            "emailAddress": {
+                                "name": "Boss",
+                                "address": "boss@walmart.com",
+                            }
                         },
                         "receivedDateTime": "2025-12-18T08:00:00",
                         "importance": "high",
@@ -285,7 +291,7 @@ class TestMsgraphSmartSchedule:
         """Test finding available meeting times."""
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
-        
+
         # Mock findMeetingTimes response
         mock_client.post.return_value = {
             "meetingTimeSuggestions": [
@@ -362,7 +368,7 @@ class TestMsgraphSmartSchedule:
         """Test auto-creating event at best time."""
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
-        
+
         # Mock findMeetingTimes response
         mock_client.post.side_effect = [
             # First call: findMeetingTimes
@@ -416,9 +422,10 @@ class TestWorkflowToolFunctionSignatures:
     def test_prepare_meeting_brief_signature(self):
         """Verify msgraph_prepare_meeting_brief has expected parameters."""
         import inspect
+
         sig = inspect.signature(msgraph_prepare_meeting_brief)
         params = list(sig.parameters.keys())
-        
+
         assert "ctx" in params
         assert "event_id" in params
         assert "meeting_subject" in params
@@ -426,18 +433,20 @@ class TestWorkflowToolFunctionSignatures:
     def test_daily_digest_signature(self):
         """Verify msgraph_daily_digest has expected parameters."""
         import inspect
+
         sig = inspect.signature(msgraph_daily_digest)
         params = list(sig.parameters.keys())
-        
+
         assert "ctx" in params
         assert "include_tomorrow" in params
 
     def test_smart_schedule_signature(self):
         """Verify msgraph_smart_schedule has expected parameters."""
         import inspect
+
         sig = inspect.signature(msgraph_smart_schedule)
         params = list(sig.parameters.keys())
-        
+
         assert "ctx" in params
         assert "subject" in params
         assert "attendees" in params

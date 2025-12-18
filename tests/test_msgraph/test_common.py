@@ -326,3 +326,20 @@ class TestGetMsgraphClient:
 
         with pytest.raises(MSGraphAuthError):
             get_msgraph_client()
+
+
+class TestRegisterMsgraphApiRequest:
+    """Tests for register_msgraph_api_request function."""
+
+    def test_register_returns_tool(self):
+        """Test that register function returns a Tool."""
+        from code_puppy.tools.msgraph.common import register_msgraph_api_request
+
+        mock_agent = MagicMock()
+        mock_tool = MagicMock()
+        mock_agent.tool.return_value = mock_tool
+
+        result = register_msgraph_api_request(mock_agent)
+
+        mock_agent.tool.assert_called_once_with(msgraph_api_request)
+        assert result == mock_tool

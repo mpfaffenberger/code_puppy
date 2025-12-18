@@ -104,7 +104,7 @@ class TestMsgraphEmailMeetingAttendees:
         assert result["preview_only"] is True
         assert result["sent_count"] == 0
         # All attendees minus organizer (who isn't in attendees list anyway)
-        assert len(result["recipients"]) == 4  
+        assert len(result["recipients"]) == 4
         assert result["email"]["subject"] == "Please submit your slides"
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
@@ -195,9 +195,7 @@ class TestMsgraphEmailMeetingAttendees:
         assert result["meeting"]["id"] == "event-123-abc"
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_email_attendees_meeting_not_found(
-        self, mock_client_fn, mock_context
-    ):
+    def test_email_attendees_meeting_not_found(self, mock_client_fn, mock_context):
         """Test error when meeting not found."""
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
@@ -214,9 +212,7 @@ class TestMsgraphEmailMeetingAttendees:
         assert "No upcoming meeting found" in result["error"]
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_email_attendees_missing_params(
-        self, mock_client_fn, mock_context
-    ):
+    def test_email_attendees_missing_params(self, mock_client_fn, mock_context):
         """Test error when neither meeting_subject nor event_id provided."""
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
@@ -255,9 +251,7 @@ class TestMsgraphEmailMeetingAttendees:
         assert mock_client.post.called
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_email_attendees_not_authenticated(
-        self, mock_client_fn, mock_context
-    ):
+    def test_email_attendees_not_authenticated(self, mock_client_fn, mock_context):
         """Test error when not authenticated."""
         mock_client_fn.return_value = None
 
@@ -354,16 +348,14 @@ class TestMsgraphNudgeNonResponders:
         """Test when everyone has responded."""
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
-        
+
         # Event where everyone responded
         event = {
             "id": "event-all-responded",
             "subject": "All Responded Meeting",
             "start": {"dateTime": "2025-12-20T10:00:00"},
             "end": {"dateTime": "2025-12-20T11:00:00"},
-            "organizer": {
-                "emailAddress": {"address": "org@walmart.com"}
-            },
+            "organizer": {"emailAddress": {"address": "org@walmart.com"}},
             "attendees": [
                 {
                     "emailAddress": {"name": "A", "address": "a@walmart.com"},
@@ -465,9 +457,10 @@ class TestMeetingWorkflowToolSignatures:
     def test_email_meeting_attendees_signature(self):
         """Verify msgraph_email_meeting_attendees has expected parameters."""
         import inspect
+
         sig = inspect.signature(msgraph_email_meeting_attendees)
         params = list(sig.parameters.keys())
-        
+
         assert "ctx" in params
         assert "email_subject" in params
         assert "email_body" in params
@@ -480,9 +473,10 @@ class TestMeetingWorkflowToolSignatures:
     def test_nudge_non_responders_signature(self):
         """Verify msgraph_nudge_non_responders has expected parameters."""
         import inspect
+
         sig = inspect.signature(msgraph_nudge_non_responders)
         params = list(sig.parameters.keys())
-        
+
         assert "ctx" in params
         assert "email_subject" in params
         assert "email_body" in params
@@ -494,11 +488,11 @@ class TestMeetingWorkflowToolSignatures:
     def test_preview_only_defaults_true(self):
         """Verify preview_only defaults to True (safety first)."""
         import inspect
-        
+
         # Check email_meeting_attendees
         sig1 = inspect.signature(msgraph_email_meeting_attendees)
         assert sig1.parameters["preview_only"].default is True
-        
+
         # Check nudge_non_responders
         sig2 = inspect.signature(msgraph_nudge_non_responders)
         assert sig2.parameters["preview_only"].default is True
