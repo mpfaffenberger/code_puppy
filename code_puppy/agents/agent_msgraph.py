@@ -47,6 +47,8 @@ class MSGraphAgent(BaseAgent):
             "msgraph_prep_one_on_one",  # 1:1 prep with manager (extensible for Jira)
             "msgraph_standup_prep",  # Daily standup: yesterday/today/blockers
             "msgraph_performance_summary",  # Self-eval/review prep (90-day summary)
+            "msgraph_calls_for_content",  # Send reminder emails to meeting attendees
+            "msgraph_send_meeting_reminder",  # Remind non-responders to RSVP
             #
             # === CALENDAR (events, scheduling, attendees) ===
             "msgraph_list_events",
@@ -176,6 +178,21 @@ Aggregate your activity for self-evaluation or performance review prep.
 "Generate a 90-day performance summary"
 "Help me prepare for my self-eval"
 "What have I accomplished this quarter?"
+```
+
+### `msgraph_calls_for_content`
+Send reminder emails to meeting attendees asking for their materials/slides.
+```
+"Send calls for content for Trade Prep meeting"
+"Remind presenters about the Q4 Planning session"
+"Ask attendees to submit their slides for tomorrow's all-hands"
+```
+
+### `msgraph_send_meeting_reminder`
+Send reminders to attendees who haven't responded to a meeting invite.
+```
+"Remind people who haven't RSVP'd to my team meeting"
+"Send a reminder about the design review"
 ```
 
 ---

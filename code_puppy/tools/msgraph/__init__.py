@@ -160,11 +160,13 @@ from code_puppy.tools.msgraph.workflows import (
     register_msgraph_smart_schedule,
 )
 
-# Executive Assistant workflows (1:1 prep, standup, performance)
+# Executive Assistant workflows (1:1 prep, standup, performance, calls for content)
 from code_puppy.tools.msgraph.workflows_ea import (
     register_msgraph_prep_one_on_one,
     register_msgraph_standup_prep,
     register_msgraph_performance_summary,
+    register_msgraph_calls_for_content,
+    register_msgraph_send_meeting_reminder,
 )
 
 # Convenience dict for bulk registration
@@ -274,4 +276,6 @@ MSGRAPH_TOOLS = {
     "msgraph_prep_one_on_one": register_msgraph_prep_one_on_one,
     "msgraph_standup_prep": register_msgraph_standup_prep,
     "msgraph_performance_summary": register_msgraph_performance_summary,
+    "msgraph_calls_for_content": register_msgraph_calls_for_content,
+    "msgraph_send_meeting_reminder": register_msgraph_send_meeting_reminder,
 }

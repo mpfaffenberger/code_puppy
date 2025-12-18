@@ -15,6 +15,8 @@ from code_puppy.tools.msgraph.workflows_ea import (
     msgraph_prep_one_on_one,
     msgraph_standup_prep,
     msgraph_performance_summary,
+    msgraph_calls_for_content,
+    msgraph_send_meeting_reminder,
 )
 
 
@@ -514,3 +516,234 @@ class TestPerformanceSummary:
         # Should mention meetings per week
         insight_text = " ".join(result["insights"])
         assert "meetings" in insight_text.lower() or "week" in insight_text.lower()
+
+
+class TestCallsForContent:
+    """Tests for msgraph_calls_for_content workflow."""
+
+    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    def test_calls_for_content_preview(self, mock_client_factory, mock_context):
+        """Test calls for content in preview mode."""
+        client = MagicMock()
+        mock_client_factory.return_value = client
+
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        meeting_start = now + timedelta(days=5)
+
+        client.get.return_value = {
+            "value": [
+                {
+                    "id": "event-123",
+                    "subject": "Trade Prep Meeting",
+                    "start": {"dateTime": meeting_start.isoformat()},
+                    "end": {
+                        "dateTime": (meeting_start + timedelta(hours=1)).isoformat()
+                    },
+                    "location": {"displayName": "Conference Room A"},
+                    "organizer": {
+                        "emailAddress": {
+                            "address": "organizer@walmart.com",
+                            "name": "Organizer",
+                        }
+                    },
+                    "attendees": [
+                        {
+                            "emailAddress": {
+                                "address": "presenter1@walmart.com",
+                                "name": "Presenter One",
+                            }
+                        },
+                        {
+                            "emailAddress": {
+                                "address": "presenter2@walmart.com",
+                                "name": "Presenter Two",
+                            }
+                        },
+                    ],
+                }
+            ]
+        }
+
+        result = msgraph_calls_for_content(
+            mock_context, meeting_subject="Trade Prep", preview_only=True
+        )
+
+        assert result["success"] is True
+        assert result["meeting"]["subject"] == "Trade Prep Meeting"
+        assert len(result["recipients"]) == 2
+        assert result["preview_only"] is True
+        assert result["sent_count"] == 0
+        assert "Call for Content" in result["email"]["subject"]
+
+    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    def test_calls_for_content_no_meeting_found(
+        self, mock_client_factory, mock_context
+    ):
+        """Test error when meeting not found."""
+        client = MagicMock()
+        mock_client_factory.return_value = client
+
+        client.get.return_value = {"value": []}
+
+        result = msgraph_calls_for_content(
+            mock_context, meeting_subject="Nonexistent Meeting"
+        )
+
+        assert result["success"] is False
+        assert "No upcoming meeting found" in result["error"]
+
+    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    def test_calls_for_content_custom_message(self, mock_client_factory, mock_context):
+        """Test calls for content with custom email body."""
+        client = MagicMock()
+        mock_client_factory.return_value = client
+
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+
+        client.get.return_value = {
+            "value": [
+                {
+                    "id": "event-123",
+                    "subject": "Q4 Planning",
+                    "start": {"dateTime": (now + timedelta(days=3)).isoformat()},
+                    "end": {"dateTime": (now + timedelta(days=3, hours=2)).isoformat()},
+                    "location": {},
+                    "organizer": {"emailAddress": {"address": "org@walmart.com"}},
+                    "attendees": [
+                        {
+                            "emailAddress": {
+                                "address": "user@walmart.com",
+                                "name": "User",
+                            }
+                        }
+                    ],
+                }
+            ]
+        }
+
+        result = msgraph_calls_for_content(
+            mock_context,
+            meeting_subject="Q4 Planning",
+            email_body="Please submit slides by Friday.",
+            preview_only=True,
+        )
+
+        assert result["success"] is True
+        assert result["email"]["body"] == "Please submit slides by Friday."
+
+
+class TestSendMeetingReminder:
+    """Tests for msgraph_send_meeting_reminder workflow."""
+
+    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    def test_meeting_reminder_with_non_responders(
+        self, mock_client_factory, mock_context
+    ):
+        """Test sending reminders to non-responders."""
+        client = MagicMock()
+        mock_client_factory.return_value = client
+
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+
+        client.get.return_value = {
+            "value": [
+                {
+                    "id": "event-456",
+                    "subject": "Team Standup",
+                    "start": {"dateTime": (now + timedelta(days=1)).isoformat()},
+                    "end": {
+                        "dateTime": (now + timedelta(days=1, minutes=30)).isoformat()
+                    },
+                    "organizer": {"emailAddress": {"address": "me@walmart.com"}},
+                    "attendees": [
+                        {
+                            "emailAddress": {
+                                "address": "alice@walmart.com",
+                                "name": "Alice",
+                            },
+                            "status": {"response": "accepted"},
+                        },
+                        {
+                            "emailAddress": {
+                                "address": "bob@walmart.com",
+                                "name": "Bob",
+                            },
+                            "status": {"response": "none"},
+                        },
+                        {
+                            "emailAddress": {
+                                "address": "charlie@walmart.com",
+                                "name": "Charlie",
+                            },
+                            "status": {"response": "tentativelyAccepted"},
+                        },
+                    ],
+                }
+            ]
+        }
+
+        result = msgraph_send_meeting_reminder(
+            mock_context, meeting_subject="Standup", preview_only=True
+        )
+
+        assert result["success"] is True
+        assert len(result["attendee_status"]["accepted"]) == 1
+        assert len(result["attendee_status"]["no_response"]) == 1
+        assert len(result["attendee_status"]["tentative"]) == 1
+        # Should send to no_response + tentative = 2 people
+        assert len(result["will_send_to"]) == 2
+
+    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    def test_meeting_reminder_all_responded(self, mock_client_factory, mock_context):
+        """Test when everyone has responded - no reminders needed."""
+        client = MagicMock()
+        mock_client_factory.return_value = client
+
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+
+        client.get.return_value = {
+            "value": [
+                {
+                    "id": "event-789",
+                    "subject": "Design Review",
+                    "start": {"dateTime": (now + timedelta(days=2)).isoformat()},
+                    "end": {"dateTime": (now + timedelta(days=2, hours=1)).isoformat()},
+                    "organizer": {"emailAddress": {"address": "me@walmart.com"}},
+                    "attendees": [
+                        {
+                            "emailAddress": {
+                                "address": "alice@walmart.com",
+                                "name": "Alice",
+                            },
+                            "status": {"response": "accepted"},
+                        },
+                        {
+                            "emailAddress": {
+                                "address": "bob@walmart.com",
+                                "name": "Bob",
+                            },
+                            "status": {"response": "accepted"},
+                        },
+                    ],
+                }
+            ]
+        }
+
+        result = msgraph_send_meeting_reminder(
+            mock_context,
+            meeting_subject="Design Review",
+            include_non_responders_only=True,
+            preview_only=True,
+        )
+
+        assert result["success"] is True
+        assert len(result["will_send_to"]) == 0
+        assert "Everyone has responded" in result.get("message", "")
