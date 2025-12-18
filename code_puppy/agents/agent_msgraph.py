@@ -76,6 +76,9 @@ class MSGraphAgent(BaseAgent):
             "msgraph_mark_as_read",
             "msgraph_archive_message",
             #
+            # === BATCH OPERATIONS (20 requests per call!) ===
+            "msgraph_batch_request",  # Universal batch - move, flag, delete, create in bulk
+            #
             # === MAIL RULES ===
             "msgraph_list_mail_rules",
             "msgraph_get_mail_rule",

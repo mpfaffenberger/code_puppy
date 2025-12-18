@@ -47,6 +47,10 @@ from code_puppy.tools.msgraph.mail_extended import (
     register_msgraph_get_attachment,
 )
 
+# Batch Operations (bulk actions - up to 20 per call)
+# This single tool can batch ANY MS Graph operation (GET, POST, PATCH, DELETE)
+from code_puppy.tools.msgraph.batch import register_msgraph_batch_request
+
 # Calendar
 from code_puppy.tools.msgraph.calendar import (
     register_msgraph_list_events,
@@ -432,4 +436,6 @@ MSGRAPH_TOOLS = {
     "msgraph_create_section": register_msgraph_create_section,
     "msgraph_create_page": register_msgraph_create_page,
     "msgraph_search_notes": register_msgraph_search_notes,
+    # Batch Operations (universal - works with any MS Graph request)
+    "msgraph_batch_request": register_msgraph_batch_request,
 }
