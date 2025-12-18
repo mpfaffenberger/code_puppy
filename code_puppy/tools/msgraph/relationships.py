@@ -368,7 +368,10 @@ def msgraph_get_relationship_context(
 
                 break
 
-        if result["relevance_rank"] is None and result["relationship_type"] == "unknown":
+        if (
+            result["relevance_rank"] is None
+            and result["relationship_type"] == "unknown"
+        ):
             # Not in top 100 and no org relationship found - external or rarely interacted
             result["relationship_type"] = (
                 "external" if not result["is_internal"] else "infrequent"

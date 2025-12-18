@@ -186,7 +186,6 @@ from code_puppy.tools.msgraph.mail_rules import (
     register_msgraph_update_mail_rule,
     register_msgraph_delete_mail_rule,
     register_msgraph_create_noise_filter_rule,
-    register_msgraph_list_mail_folders as register_msgraph_list_mail_folders_v2,
 )
 
 # Mail Triage (inbox zero workflows)
