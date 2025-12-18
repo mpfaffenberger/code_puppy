@@ -145,12 +145,12 @@ def msgraph_analyze_inbox(
         sender_counts: dict[str, int] = {}
 
         for email in emails:
-            from_info = email.get("from", {}).get("emailAddress", {})
-            sender_email = from_info.get("address", "").lower()
-            sender_name = from_info.get("name", "Unknown")
-            subject = email.get("subject", "").lower()
-            body_preview = email.get("bodyPreview", "").lower()
-            importance = email.get("importance", "normal").lower()
+            from_info = email.get("from", {}).get("emailAddress", {}) or {}
+            sender_email = (from_info.get("address") or "").lower()
+            sender_name = from_info.get("name") or "Unknown"
+            subject = (email.get("subject") or "").lower()
+            body_preview = (email.get("bodyPreview") or "").lower()
+            importance = (email.get("importance") or "normal").lower()
 
             # Extract domain
             domain = sender_email.split("@")[-1] if "@" in sender_email else "unknown"
