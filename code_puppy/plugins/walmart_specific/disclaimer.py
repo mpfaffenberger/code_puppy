@@ -1,6 +1,7 @@
 from typing import Optional
 
 from rich.console import Console
+from rich.text import Text
 
 
 def display_disclaimer():
@@ -8,7 +9,7 @@ def display_disclaimer():
     from code_puppy.messaging import emit_system_message
 
     message = "\n[bold yellow]DISCLAIMER: Be a responsible Puppy Owner[/bold yellow]"
-    emit_system_message(message)
+    emit_system_message(Text.from_markup(message))
 
     message = (
         "[yellow]All information entered will be monitored in accordance with "
@@ -19,7 +20,7 @@ def display_disclaimer():
         "[yellow]• US Associate Device Usage Policy: "
         "https://one.walmart.com/content/uswire/en_us/work1/policies/people-policies/us-associate-device-usage-policy0.html[/yellow]"
     )
-    emit_system_message(message)
+    emit_system_message(Text.from_markup(message))
 
     message = (
         "\n[bold yellow]Your Responsibility:[/bold yellow]\n"
@@ -28,7 +29,7 @@ def display_disclaimer():
         "(for example, deployed into production cloud resources), it must have its own approved "
         "Solution Security Plan (SSP).[/yellow]"
     )
-    emit_system_message(message)
+    emit_system_message(Text.from_markup(message))
 
     message = (
         "[bold magenta]🐻 GUI-Cub Desktop Automation:[/bold magenta]\n"
@@ -36,13 +37,13 @@ def display_disclaimer():
         "[magenta]• GUI-Cub must NOT be used with PHI/HIPAA-protected data or systems[/magenta]\n"
         "[magenta]• For PHI/HIPAA compliance questions, contact: HIPAA.Compliance@walmart.com[/magenta]"
     )
-    emit_system_message(message)
+    emit_system_message(Text.from_markup(message))
 
     message = (
         "\n[bold red]⚠️  CRITICAL - Data Restrictions:[/bold red]\n"
         "[red]NEVER put HIPAA or PCI data into Code-Puppy prompts or files.[/red]\n"
     )
-    emit_system_message(message)
+    emit_system_message(Text.from_markup(message))
 
 
 def get_disclaimer_help() -> list:

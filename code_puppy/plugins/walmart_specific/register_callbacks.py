@@ -40,6 +40,11 @@ from code_puppy.plugins.walmart_specific.jira_auth import (
     handle_jira_auth_command,
     handle_jira_test_command,
 )
+from code_puppy.plugins.walmart_specific.msgraph_auth import (
+    get_msgraph_auth_help,
+    handle_msgraph_auth_command,
+    handle_msgraph_test_command,
+)
 from code_puppy.plugins.walmart_specific.disclaimer import (
     get_disclaimer_help,
     handle_disclaimer_command,
@@ -236,3 +241,6 @@ register_callback("custom_command_help", get_bigquery_auth_help)
 register_callback("custom_command", handle_bigquery_auth_command)
 register_callback("custom_command_help", get_disclaimer_help)
 register_callback("custom_command", handle_disclaimer_command)
+register_callback("custom_command_help", get_msgraph_auth_help)
+register_callback("custom_command", handle_msgraph_auth_command)
+register_callback("custom_command", handle_msgraph_test_command)

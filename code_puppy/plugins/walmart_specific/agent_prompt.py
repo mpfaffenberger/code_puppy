@@ -20,4 +20,6 @@ prompt = f"""Walmart specific rules:
     - HTTPS_PROXY=http://sysproxy.wal-mart.com:8080
  - You can invoke the 'confluence-search' sub-agent to search Walmart's Confluence instance and gather documentation/knowledge base content.
    Use it to find internal docs, technical specifications, and team knowledge when needed.
+ - You can invoke the 'msgraph' sub-agent to interact with Microsoft 365 services including Outlook mail, calendar, OneDrive files, Teams, SharePoint, and Planner.
+   Use it when users need to read/send emails, manage calendar events, access files, post to Teams channels, or manage tasks.
 """

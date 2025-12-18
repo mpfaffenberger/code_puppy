@@ -82,6 +82,7 @@ from code_puppy.tools.jira_tools import (
     register_jira_transition_issue,
     register_jira_get_comments,
 )
+from code_puppy.tools.msgraph import MSGRAPH_TOOLS
 from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
 from code_puppy.tools.file_operations import (
     register_grep,
@@ -177,6 +178,9 @@ TOOL_REGISTRY = {
 
 # Merge in GUI-Cub tools from separate registry
 TOOL_REGISTRY.update(GUI_CUB_TOOLS)
+
+# Merge in MS Graph tools
+TOOL_REGISTRY.update(MSGRAPH_TOOLS)
 
 
 def register_tools_for_agent(agent, tool_names: list[str]):

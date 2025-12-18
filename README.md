@@ -301,6 +301,65 @@ The `rotate_every` parameter controls how many requests are made to each model b
 
 ---
 
+## Microsoft Graph Integration 📊
+
+Code Puppy includes a Microsoft Graph sub-agent that provides access to Microsoft 365 services.
+
+### Setup
+
+1. **Authenticate:**
+   ```
+   /msgraph_auth
+   ```
+   This opens a browser for Azure AD login. No app registration required!
+
+2. **Test your connection:**
+   ```
+   /msgraph_test
+   ```
+
+> **Advanced:** If your organization blocks the default Azure CLI Client ID, you can register a custom app and set `MSGRAPH_CLIENT_ID`. See the [full MS Graph documentation](docs/msgraph_agent.md) for details.
+
+### Using the MS Graph Agent
+
+Switch to the agent:
+```
+/agent msgraph
+```
+
+Or invoke it as a sub-agent:
+```
+"Use the msgraph agent to check my calendar for tomorrow"
+```
+
+### Available Capabilities
+
+| Category | Tools | Examples |
+|----------|-------|----------|
+| **Users** | 5 | Get profile, search directory, org chart |
+| **Mail** | 6 | Read inbox, send email, search mail |
+| **Calendar** | 7 | List events, create meetings, check availability |
+| **OneDrive** | 8 | Browse files, upload/download, share |
+| **Teams** | 8 | List teams, post to channels, create meetings |
+| **SharePoint** | 5 | Search sites, browse document libraries |
+| **Planner** | 8 | Manage tasks, plans, and buckets |
+
+**Total: 47 tools**
+
+### Required Permissions
+
+Your Azure AD app needs these delegated permissions:
+- `User.Read`, `User.ReadBasic.All`
+- `Mail.Read`, `Mail.Send`
+- `Calendars.ReadWrite`
+- `Files.ReadWrite.All`
+- `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `ChannelMessage.Read.All`, `ChannelMessage.Send`
+- `Sites.Read.All`
+- `Tasks.ReadWrite`
+- `offline_access`
+
+---
+
 ## Create your own Agent!!!
 
 Code Puppy features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The system supports both built-in Python agents and custom JSON agents that you can create yourself.
