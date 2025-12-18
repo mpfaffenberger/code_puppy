@@ -153,6 +153,20 @@ from code_puppy.tools.msgraph.meeting_health import (
 # Common (generic API request)
 from code_puppy.tools.msgraph.common import register_msgraph_api_request
 
+# Workflow tools (high-level composite operations)
+from code_puppy.tools.msgraph.workflows import (
+    register_msgraph_prepare_meeting_brief,
+    register_msgraph_daily_digest,
+    register_msgraph_smart_schedule,
+)
+
+# Executive Assistant workflows (1:1 prep, standup, performance)
+from code_puppy.tools.msgraph.workflows_ea import (
+    register_msgraph_prep_one_on_one,
+    register_msgraph_standup_prep,
+    register_msgraph_performance_summary,
+)
+
 # Convenience dict for bulk registration
 MSGRAPH_TOOLS = {
     # Users
@@ -252,4 +266,12 @@ MSGRAPH_TOOLS = {
     "msgraph_suggest_reschedule": register_msgraph_suggest_reschedule,
     # Generic API request (fallback for any endpoint)
     "msgraph_api_request": register_msgraph_api_request,
+    # Workflow tools (high-level composite operations)
+    "msgraph_prepare_meeting_brief": register_msgraph_prepare_meeting_brief,
+    "msgraph_daily_digest": register_msgraph_daily_digest,
+    "msgraph_smart_schedule": register_msgraph_smart_schedule,
+    # Executive Assistant workflows
+    "msgraph_prep_one_on_one": register_msgraph_prep_one_on_one,
+    "msgraph_standup_prep": register_msgraph_standup_prep,
+    "msgraph_performance_summary": register_msgraph_performance_summary,
 }

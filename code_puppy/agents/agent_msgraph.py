@@ -28,67 +28,93 @@ class MSGraphAgent(BaseAgent):
         return "Access Microsoft 365 services - mail, calendar, files, Teams, and more"
 
     def get_available_tools(self) -> list[str]:
-        """All Microsoft Graph tools organized by service."""
+        """Curated Microsoft Graph tools - prioritized for common use cases.
+
+        Tool selection philosophy:
+        - Workflow tools first (high-level, composite operations)
+        - Core primitives for each service (mail, calendar, files, etc.)
+        - Generic API fallback for edge cases
+        - Total: ~55 tools (extensible via sub-agents for specialized needs)
+        """
         return [
-            # Users - Profile and org hierarchy
-            "msgraph_get_me",
-            "msgraph_get_user",
-            "msgraph_search_users",
-            "msgraph_get_manager",
-            "msgraph_get_direct_reports",
-            # Mail - Outlook email operations
-            "msgraph_list_messages",
-            "msgraph_get_message",
-            "msgraph_send_mail",
-            "msgraph_reply_to_message",
-            "msgraph_search_mail",
-            "msgraph_list_mail_folders",
-            # Calendar - Events and scheduling
+            # === WORKFLOW TOOLS (high-level, composite operations) ===
+            # These combine multiple primitives for common workflows
+            "msgraph_daily_digest",  # Morning summary: calendar + mail + tasks
+            "msgraph_prepare_meeting_brief",  # Pre-meeting prep with attendee context
+            "msgraph_smart_schedule",  # Find time + optionally create event
+            #
+            # === EXECUTIVE ASSISTANT WORKFLOWS ===
+            "msgraph_prep_one_on_one",  # 1:1 prep with manager (extensible for Jira)
+            "msgraph_standup_prep",  # Daily standup: yesterday/today/blockers
+            "msgraph_performance_summary",  # Self-eval/review prep (90-day summary)
+            #
+            # === CALENDAR (events, scheduling, attendees) ===
             "msgraph_list_events",
             "msgraph_get_event",
             "msgraph_create_event",
             "msgraph_update_event",
             "msgraph_delete_event",
+            "msgraph_search_events",  # Find events by subject
+            "msgraph_add_event_attendees",  # Add attendees to existing event
+            "msgraph_remove_event_attendee",  # Remove attendee from event
+            "msgraph_respond_to_event",  # Accept/decline/tentative
             "msgraph_get_availability",
-            "msgraph_list_calendars",
-            # OneDrive - File storage
-            "msgraph_list_drive_items",
-            "msgraph_get_drive_item",
-            "msgraph_download_file",
-            "msgraph_upload_file",
-            "msgraph_create_folder",
-            "msgraph_share_file",
-            "msgraph_search_files",
-            "msgraph_delete_drive_item",
-            # Teams - Collaboration
+            "msgraph_find_meeting_times",  # Find times when all attendees are free
+            "msgraph_get_meeting_responses",  # Get RSVP status for an event
+            "msgraph_find_my_pending_responses",  # Find events I haven't responded to
+            #
+            # === MAIL (Outlook) ===
+            "msgraph_list_messages",
+            "msgraph_get_message",
+            "msgraph_send_mail",
+            "msgraph_reply_to_message",
+            "msgraph_forward_message",
+            "msgraph_search_mail",
+            "msgraph_mark_as_read",
+            "msgraph_archive_message",
+            #
+            # === TEAMS ===
             "msgraph_list_teams",
-            "msgraph_get_team",
             "msgraph_list_channels",
-            "msgraph_get_channel",
-            "msgraph_list_channel_messages",
             "msgraph_send_channel_message",
-            "msgraph_create_online_meeting",
+            "msgraph_send_direct_message",
             "msgraph_list_chats",
             "msgraph_send_chat_message",
-            "msgraph_send_direct_message",
-            # SharePoint - Sites and documents
-            "msgraph_list_sites",
-            "msgraph_get_site",
-            "msgraph_list_site_drives",
-            "msgraph_list_site_items",
+            "msgraph_create_online_meeting",
+            #
+            # === ONEDRIVE (files) ===
+            "msgraph_list_drive_items",
+            "msgraph_search_files",
+            "msgraph_download_file",
+            "msgraph_upload_file",
+            "msgraph_share_file",
+            #
+            # === USERS & ORG ===
+            "msgraph_get_me",
+            "msgraph_get_user",
+            "msgraph_search_users",
+            "msgraph_get_manager",
+            "msgraph_get_direct_reports",
+            "msgraph_get_my_presence",
+            #
+            # === TASKS (To Do) ===
+            "msgraph_list_todo_tasks",
+            "msgraph_create_todo_task",
+            "msgraph_complete_todo_task",
+            #
+            # === SHAREPOINT ===
             "msgraph_search_sharepoint",
-            # Planner - Tasks and project management
+            "msgraph_list_sites",
+            #
+            # === PLANNER ===
             "msgraph_list_plans",
-            "msgraph_get_plan",
-            "msgraph_list_buckets",
             "msgraph_list_tasks",
-            "msgraph_get_task",
             "msgraph_create_task",
-            "msgraph_update_task",
-            "msgraph_delete_task",
-            # Generic API fallback
-            "msgraph_api_request",
-            # Core tools
+            #
+            # === GENERIC FALLBACK ===
+            "msgraph_api_request",  # Any MS Graph endpoint not covered above
+            #
+            # === CORE ===
             "agent_share_your_reasoning",
         ]
 
@@ -98,13 +124,71 @@ You are the Microsoft Graph Agent - your gateway to Microsoft 365 services at Wa
 
 You can help users interact with their Microsoft 365 data including email, calendar, files, Teams, SharePoint, and Planner.
 
-## ⚠️ Authentication Required
+## ⚠️ Authentication
 
-Before using any Microsoft Graph tools, users must authenticate with:
+Authentication happens automatically when you use any msgraph tool. If tokens are missing or expired,
+a browser will open for Microsoft login. You can also manually authenticate with `/msgraph_auth`.
+
+---
+
+## 🚀 WORKFLOW TOOLS (Start Here!)
+
+These high-level tools handle common tasks in one call:
+
+### `msgraph_daily_digest`
+Get your morning summary: today's meetings, unread emails, pending RSVPs, and action items.
 ```
-/msgraph_auth
+"Give me my daily digest"
+"What's on my plate today?"
 ```
-This will open a browser for Microsoft login and store tokens securely.
+
+### `msgraph_prepare_meeting_brief`
+Comprehensive meeting prep: attendees with titles, RSVP status, related emails, and prep notes.
+```
+"Prepare a brief for my 2pm meeting"
+"Get me ready for the Q4 Planning session"
+```
+
+### `msgraph_smart_schedule`
+Find optimal meeting times and optionally create the event in one shot.
+```
+"Find a time for a 30-min sync with john@walmart.com next week"
+"Schedule a meeting with the platform team" (with auto_create=True)
+```
+
+### `msgraph_prep_one_on_one`
+Comprehensive 1:1 prep with your manager: emails, meetings, completed tasks, talking points.
+```
+"Prepare for my 1:1 with my manager"
+"Get me ready for my 1:1 with sarah@walmart.com"
+```
+
+### `msgraph_standup_prep`
+Generate a daily standup summary: what you did yesterday, today's plan, blockers.
+```
+"Give me my standup update"
+"What should I say in standup?"
+```
+
+### `msgraph_performance_summary`
+Aggregate your activity for self-evaluation or performance review prep.
+```
+"Generate a 90-day performance summary"
+"Help me prepare for my self-eval"
+"What have I accomplished this quarter?"
+```
+
+---
+
+## 🔗 EXTENSIBILITY: Jira/Confluence Integration
+
+The EA workflow tools are designed to be extended with other systems:
+- **Jira**: Completed tickets, sprint progress, blockers → for developers
+- **Confluence**: Docs authored/edited → for knowledge workers
+- **GitHub**: PRs merged, code reviews → for engineers
+
+When these integrations are available, the workflow tools will automatically
+include that context. Check `extensibility.jira_available` in the response.
 
 ---
 
