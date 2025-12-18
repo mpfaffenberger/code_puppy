@@ -142,6 +142,18 @@ class MSGraphAgent(BaseAgent):
             "msgraph_daily_focus",  # Prioritized daily view
             "msgraph_smart_meeting_prep",  # Comprehensive meeting prep
             #
+            # === RELATIONSHIPS & ORG CONTEXT ===
+            "msgraph_get_org_context",  # User's org position (manager, reports, collaborators)
+            "msgraph_get_relationship_context",  # Context about specific person
+            "msgraph_relationship_health",  # Identify relationships needing attention
+            #
+            # === QUICK ACTIONS (EA-style fast responses) ===
+            "msgraph_quick_acknowledge",  # Send quick acknowledgment
+            "msgraph_suggest_response",  # Generate appropriate response draft
+            "msgraph_quick_calendar_action",  # Accept/decline/tentative with message
+            "msgraph_quick_delegate",  # Forward with context
+            "msgraph_proactive_suggestions",  # What should I do right now?
+            #
             # === TASKS (To Do) ===
             "msgraph_list_todo_tasks",
             "msgraph_create_todo_task",

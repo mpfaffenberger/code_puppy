@@ -234,6 +234,22 @@ from code_puppy.tools.msgraph.workflows_focus import (
     register_msgraph_smart_meeting_prep,
 )
 
+# Relationships and org context
+from code_puppy.tools.msgraph.relationships import (
+    register_msgraph_get_org_context,
+    register_msgraph_get_relationship_context,
+    register_msgraph_relationship_health,
+)
+
+# Quick actions (EA-style fast responses)
+from code_puppy.tools.msgraph.quick_actions import (
+    register_msgraph_quick_acknowledge,
+    register_msgraph_suggest_response,
+    register_msgraph_quick_calendar_action,
+    register_msgraph_quick_delegate,
+    register_msgraph_proactive_suggestions,
+)
+
 # Convenience dict for bulk registration
 MSGRAPH_TOOLS = {
     # Users
@@ -379,4 +395,14 @@ MSGRAPH_TOOLS = {
     # Focus and productivity
     "msgraph_daily_focus": register_msgraph_daily_focus,
     "msgraph_smart_meeting_prep": register_msgraph_smart_meeting_prep,
+    # Relationships and org context
+    "msgraph_get_org_context": register_msgraph_get_org_context,
+    "msgraph_get_relationship_context": register_msgraph_get_relationship_context,
+    "msgraph_relationship_health": register_msgraph_relationship_health,
+    # Quick actions
+    "msgraph_quick_acknowledge": register_msgraph_quick_acknowledge,
+    "msgraph_suggest_response": register_msgraph_suggest_response,
+    "msgraph_quick_calendar_action": register_msgraph_quick_calendar_action,
+    "msgraph_quick_delegate": register_msgraph_quick_delegate,
+    "msgraph_proactive_suggestions": register_msgraph_proactive_suggestions,
 }
