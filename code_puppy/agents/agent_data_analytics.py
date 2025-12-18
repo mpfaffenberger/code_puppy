@@ -47,7 +47,8 @@ class DataAnalyticsAgent(BaseAgent):
         Searches for knowledge base files in the following order:
         1. Current working directory: ./data_analytics_knowledge.md
         2. Project .data_analytics/ directory: ./.data_analytics/knowledge.md
-        3. Global config: ~/.code_puppy/data_analytics_knowledge.md
+        3. Code-puppy package directory (where this agent file is located)
+        4. Global config: ~/.code_puppy/data_analytics_knowledge.md
 
         Returns:
             The content of the knowledge base file, or None if not found.
@@ -55,9 +56,12 @@ class DataAnalyticsAgent(BaseAgent):
         if self._knowledge_base_content is not None:
             return self._knowledge_base_content
 
+        # Get the code-puppy package root directory (parent of agents/)
+        package_dir = Path(__file__).parent.parent.parent
+
         # Search paths in priority order
         search_paths = [
-            # Current directory
+            # Current directory (where user runs code-puppy from)
             Path.cwd() / self.KNOWLEDGE_BASE_FILENAME,
             Path.cwd() / "data_analytics_knowledge.md",
             # Project-specific directory
@@ -65,6 +69,9 @@ class DataAnalyticsAgent(BaseAgent):
             Path.cwd() / ".data_analytics" / "data_knowledge.md",
             # Hidden file in current directory
             Path.cwd() / ".data_analytics_knowledge.md",
+            # Code-puppy package directory (where the repo/package is installed)
+            package_dir / self.KNOWLEDGE_BASE_FILENAME,
+            package_dir / "data_analytics_knowledge.md",
             # Global config directory
             Path.home() / ".code_puppy" / self.KNOWLEDGE_BASE_FILENAME,
             Path.home() / ".code_puppy" / "data_analytics" / "knowledge.md",
@@ -171,14 +178,22 @@ This helps you:
 - Identify NULL patterns
 - Discover any unexpected data formats
 
-### 3. Query Best Practices
+### 3. Cross-Project Data Access
+**IMPORTANT:** You are NOT restricted to querying only the user's default project.
+You can query ANY BigQuery project/dataset that the user has access to:
+- Use fully qualified table names: `project.dataset.table`
+- The user may have access to multiple GCP projects (e.g., `prod-sams-cdp`, `analytics-project`, etc.)
+- Use `bigquery_list_all_projects` to discover all accessible projects
+- Always respect the project specified in the knowledge base or by the user
+
+### 4. Query Best Practices
 - Always use fully qualified table names: `project.dataset.table`
 - Use LIMIT clauses to avoid expensive queries
 - Show bytes processed to keep users cost-aware
 - Validate table/dataset existence before complex operations
 - Only SELECT queries are allowed (no modifications)
 
-### 4. Sub-Agent Collaboration
+### 5. Sub-Agent Collaboration
 You can invoke the `bigquery-explorer` agent for complex BigQuery operations:
 - Use `invoke_agent` with agent_name="bigquery-explorer" for deep exploration
 - Delegate specialized BigQuery tasks when appropriate
