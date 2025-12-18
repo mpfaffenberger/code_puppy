@@ -153,10 +153,23 @@ You have full access to BigQuery tools:
 ### 2. Data Analysis Workflow
 When analyzing data:
 1. First understand the user's question and data needs
-2. Explore available tables and schemas
-3. Write optimized SQL queries
-4. Present results with clear explanations
-5. Provide actionable insights
+2. **IMPORTANT: Before writing any query, ALWAYS pull 10 sample records first** to understand the actual schema, column names, and data types:
+   ```sql
+   SELECT * FROM `project.dataset.table` LIMIT 10
+   ```
+3. Explore available tables and schemas using `bigquery_get_table_schema`
+4. Write optimized SQL queries based on the actual schema you discovered
+5. Present results with clear explanations
+6. Provide actionable insights
+
+### Schema Discovery Best Practice
+**ALWAYS start by pulling 10 records** from any table before writing complex queries.
+This helps you:
+- Verify exact column names (case-sensitive!)
+- Understand actual data types
+- See sample data values
+- Identify NULL patterns
+- Discover any unexpected data formats
 
 ### 3. Query Best Practices
 - Always use fully qualified table names: `project.dataset.table`

@@ -8,11 +8,9 @@ and customize it with your domain-specific information.
 
 ## Overview
 
-Describe your data domain and the primary use cases for data analysis.
-
-**Domain:** [e.g., E-commerce, Healthcare, Finance, Retail]
-**Primary Data Sources:** [e.g., BigQuery, Data Warehouse, etc.]
-**Key Stakeholders:** [e.g., Marketing, Operations, Finance teams]
+**Domain:** Sam's Club - Retail Membership Warehouse
+**Primary Data Sources:** BigQuery (prod-sams-cdp)
+**Key Stakeholders:** Marketing, Operations, Membership, Finance teams
 
 ---
 
@@ -22,47 +20,43 @@ Describe your data domain and the primary use cases for data analysis.
 
 | GCP Project | Purpose | Access Level |
 |-------------|---------|--------------|
-| `project-prod` | Production data | Read-only |
-| `project-analytics` | Analytics workspace | Read/Write |
-| `project-sandbox` | Development/Testing | Full access |
+| `prod-sams-cdp` | Sam's Club CDP Production Data | Read-only |
 
 ### Key Datasets
 
-#### Dataset: `analytics.core_metrics`
-**Description:** Central metrics and KPIs
-**Update Frequency:** Daily at 2:00 AM UTC
-**Retention:** 3 years
-
-#### Dataset: `analytics.user_behavior`
-**Description:** User interaction and journey data
-**Update Frequency:** Real-time streaming
-**Retention:** 90 days
+#### Dataset: `prod-sams-cdp.US_SAMS_CORE_CDP_VM`
+**Description:** Sam's Club Core CDP Virtual Mart - Contains club and member information
+**Update Frequency:** Daily
+**Retention:** As per data governance policy
 
 ---
 
 ## Data Dictionary
 
-### Table: `analytics.core_metrics.daily_sales`
+### Table: `prod-sams-cdp.US_SAMS_CORE_CDP_VM.CLUB_INFO`
+
+This table contains information about Sam's Club warehouse locations.
+
+**Fully Qualified Name:** `prod-sams-cdp.US_SAMS_CORE_CDP_VM.CLUB_INFO`
 
 | Column | Type | Description | Example |
 |--------|------|-------------|---------|
-| `date` | DATE | Transaction date | 2024-01-15 |
-| `store_id` | STRING | Store identifier | STORE_001 |
-| `product_category` | STRING | Product category | Electronics |
-| `total_sales` | FLOAT64 | Total sales amount (USD) | 15000.50 |
-| `transaction_count` | INT64 | Number of transactions | 250 |
-| `avg_basket_size` | FLOAT64 | Average transaction value | 60.00 |
+| `CLUB_NBR` | INT64 | Unique club/warehouse number | 6365 |
+| `CLUB_NM` | STRING | Club name | Sam's Club |
+| `ADDR_LINE_1` | STRING | Street address | 1234 Main St |
+| `CITY_NM` | STRING | City name | Bentonville |
+| `STATE_CD` | STRING | State code | AR |
+| `POSTAL_CD` | STRING | ZIP/Postal code | 72712 |
+| `CNTRY_CD` | STRING | Country code | US |
+| `CLUB_OPEN_DT` | DATE | Date club opened | 1990-05-15 |
+| `CLUB_CLOSE_DT` | DATE | Date club closed (if applicable) | NULL |
+| `CLUB_STATUS` | STRING | Current status (OPEN/CLOSED) | OPEN |
+| `REGION_CD` | STRING | Regional code | SOUTH |
+| `DISTRICT_CD` | STRING | District code | D001 |
+| `MARKET_CD` | STRING | Market code | M001 |
+| `TIMEZONE` | STRING | Club timezone | America/Chicago |
 
-### Table: `analytics.user_behavior.page_views`
-
-| Column | Type | Description | Example |
-|--------|------|-------------|---------|
-| `event_timestamp` | TIMESTAMP | When the event occurred | 2024-01-15 10:30:00 |
-| `user_id` | STRING | Anonymous user identifier | USR_ABC123 |
-| `session_id` | STRING | Session identifier | SES_XYZ789 |
-| `page_path` | STRING | URL path visited | /products/electronics |
-| `device_type` | STRING | User's device type | mobile, desktop, tablet |
-| `country_code` | STRING | User's country | US, UK, CA |
+**Note:** Always verify schema by running a sample query first. Column names and types may vary.
 
 ---
 
@@ -96,74 +90,74 @@ Describe your data domain and the primary use cases for data analysis.
 
 ## Common Query Patterns
 
-### Daily Sales Summary
+### Schema Discovery (ALWAYS DO THIS FIRST!)
 
 ```sql
--- Get daily sales by category for the last 30 days
-SELECT
-  date,
-  product_category,
-  SUM(total_sales) AS total_revenue,
-  SUM(transaction_count) AS total_transactions,
-  ROUND(SUM(total_sales) / SUM(transaction_count), 2) AS avg_order_value
-FROM `project.analytics.daily_sales`
-WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-GROUP BY date, product_category
-ORDER BY date DESC, total_revenue DESC
+-- ALWAYS pull 10 records first to understand schema and data types
+SELECT *
+FROM `prod-sams-cdp.US_SAMS_CORE_CDP_VM.CLUB_INFO`
+LIMIT 10
 ```
 
-### User Funnel Analysis
+### List All Clubs by State
 
 ```sql
--- Analyze conversion funnel by device type
-WITH funnel AS (
-  SELECT
-    device_type,
-    COUNT(DISTINCT CASE WHEN page_path LIKE '/products%' THEN session_id END) AS product_views,
-    COUNT(DISTINCT CASE WHEN page_path = '/cart' THEN session_id END) AS cart_views,
-    COUNT(DISTINCT CASE WHEN page_path = '/checkout' THEN session_id END) AS checkout_starts,
-    COUNT(DISTINCT CASE WHEN page_path = '/order-confirmation' THEN session_id END) AS purchases
-  FROM `project.analytics.page_views`
-  WHERE event_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
-  GROUP BY device_type
-)
+-- Get all clubs grouped by state
 SELECT
-  device_type,
-  product_views,
-  cart_views,
-  ROUND(100.0 * cart_views / NULLIF(product_views, 0), 2) AS view_to_cart_rate,
-  ROUND(100.0 * purchases / NULLIF(checkout_starts, 0), 2) AS checkout_conversion_rate
-FROM funnel
-ORDER BY product_views DESC
+  STATE_CD,
+  COUNT(*) AS club_count,
+  STRING_AGG(CAST(CLUB_NBR AS STRING), ', ' ORDER BY CLUB_NBR) AS club_numbers
+FROM `prod-sams-cdp.US_SAMS_CORE_CDP_VM.CLUB_INFO`
+WHERE CLUB_STATUS = 'OPEN'
+GROUP BY STATE_CD
+ORDER BY club_count DESC
 ```
 
-### Cohort Retention Analysis
+### Find Clubs in a Specific Region
 
 ```sql
--- Monthly cohort retention analysis
-WITH first_purchase AS (
-  SELECT
-    user_id,
-    DATE_TRUNC(MIN(order_date), MONTH) AS cohort_month
-  FROM `project.analytics.orders`
-  GROUP BY user_id
-),
-monthly_activity AS (
-  SELECT
-    user_id,
-    DATE_TRUNC(order_date, MONTH) AS activity_month
-  FROM `project.analytics.orders`
-  GROUP BY user_id, DATE_TRUNC(order_date, MONTH)
-)
+-- Find all clubs in a specific region
 SELECT
-  fp.cohort_month,
-  DATE_DIFF(ma.activity_month, fp.cohort_month, MONTH) AS months_since_first,
-  COUNT(DISTINCT ma.user_id) AS active_users
-FROM first_purchase fp
-JOIN monthly_activity ma ON fp.user_id = ma.user_id
-WHERE fp.cohort_month >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 12 MONTH)
-GROUP BY cohort_month, months_since_first
-ORDER BY cohort_month, months_since_first
+  CLUB_NBR,
+  CLUB_NM,
+  CITY_NM,
+  STATE_CD,
+  REGION_CD,
+  DISTRICT_CD
+FROM `prod-sams-cdp.US_SAMS_CORE_CDP_VM.CLUB_INFO`
+WHERE REGION_CD = 'SOUTH'
+  AND CLUB_STATUS = 'OPEN'
+ORDER BY STATE_CD, CITY_NM
+```
+
+### Club Opening Timeline Analysis
+
+```sql
+-- Analyze club openings by year
+SELECT
+  EXTRACT(YEAR FROM CLUB_OPEN_DT) AS open_year,
+  COUNT(*) AS clubs_opened,
+  STRING_AGG(CAST(CLUB_NBR AS STRING), ', ' ORDER BY CLUB_OPEN_DT LIMIT 5) AS sample_clubs
+FROM `prod-sams-cdp.US_SAMS_CORE_CDP_VM.CLUB_INFO`
+WHERE CLUB_OPEN_DT IS NOT NULL
+GROUP BY open_year
+ORDER BY open_year DESC
+LIMIT 20
+```
+
+### Geographic Distribution
+
+```sql
+-- Club distribution by state with city breakdown
+SELECT
+  STATE_CD,
+  CITY_NM,
+  COUNT(*) AS club_count
+FROM `prod-sams-cdp.US_SAMS_CORE_CDP_VM.CLUB_INFO`
+WHERE CLUB_STATUS = 'OPEN'
+GROUP BY STATE_CD, CITY_NM
+HAVING COUNT(*) > 1
+ORDER BY STATE_CD, club_count DESC
 ```
 
 ---
