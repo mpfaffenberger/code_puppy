@@ -86,6 +86,9 @@ class MessageBus:
         # Request/Response correlation: prompt_id → Future (for async usage)
         self._pending_requests: Dict[str, asyncio.Future[Any]] = {}
 
+        # Session context for multi-agent tracking
+        self._current_session_id: Optional[str] = None
+
     # =========================================================================
     # Outgoing Messages (Agent → UI)
     # =========================================================================
@@ -95,11 +98,16 @@ class MessageBus:
 
         Thread-safe. Can be called from sync or async context.
         If no renderer is active, messages are buffered for later.
+        Auto-tags message with current session_id if not already set.
 
         Args:
             message: The message to emit.
         """
+        # Auto-tag message with current session if not already set
         with self._lock:
+            if message.session_id is None and self._current_session_id is not None:
+                message.session_id = self._current_session_id
+
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
                 return
@@ -150,6 +158,31 @@ class MessageBus:
     def emit_debug(self, text: str) -> None:
         """Emit a DEBUG level text message."""
         self.emit_text(MessageLevel.DEBUG, text)
+
+    # =========================================================================
+    # Session Context (Multi-Agent Tracking)
+    # =========================================================================
+
+    def set_session_context(self, session_id: Optional[str]) -> None:
+        """Set the current session context for auto-tagging messages.
+
+        When set, all messages emitted via emit() will be automatically tagged
+        with this session_id unless they already have one set.
+
+        Args:
+            session_id: The session ID to tag messages with, or None to clear.
+        """
+        with self._lock:
+            self._current_session_id = session_id
+
+    def get_session_context(self) -> Optional[str]:
+        """Get the current session context.
+
+        Returns:
+            The current session_id, or None if not set.
+        """
+        with self._lock:
+            return self._current_session_id
 
     # =========================================================================
     # User Input Requests (Agent waits for UI response)
@@ -526,6 +559,16 @@ def emit_debug(text: str) -> None:
     get_message_bus().emit_debug(text)
 
 
+def set_session_context(session_id: Optional[str]) -> None:
+    """Set the session context on the global bus."""
+    get_message_bus().set_session_context(session_id)
+
+
+def get_session_context() -> Optional[str]:
+    """Get the session context from the global bus."""
+    return get_message_bus().get_session_context()
+
+
 # =============================================================================
 # Export all public symbols
 # =============================================================================
@@ -543,4 +586,7 @@ __all__ = [
     "emit_error",
     "emit_success",
     "emit_debug",
+    # Session context
+    "set_session_context",
+    "get_session_context",
 ]
