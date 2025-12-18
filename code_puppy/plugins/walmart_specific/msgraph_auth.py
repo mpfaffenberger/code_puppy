@@ -131,10 +131,44 @@ async def _scrape_graph_explorer_token() -> dict[str, Any]:
 
         try:
             emit_info("⏳ Waiting for browser to initialize...")
-            await asyncio.sleep(4)
+            await asyncio.sleep(2)
 
             emit_info(f"📍 Navigating to {GRAPH_EXPLORER_URL}...")
             await page.goto(GRAPH_EXPLORER_URL, timeout=30000)
+
+            # Wait for page to load
+            await asyncio.sleep(3)
+
+            # Try to auto-click the sign-in button to make it easier for users
+            sign_in_clicked = False
+            try:
+                # Graph Explorer has a "Sign in" button - try multiple selectors
+                sign_in_selectors = [
+                    "button:has-text('Sign in')",
+                    "[data-testid='sign-in-button']",
+                    ".sign-in-button",
+                    "button.ms-Button:has-text('Sign in')",
+                    "#signin-button",
+                ]
+                for selector in sign_in_selectors:
+                    try:
+                        sign_in_btn = page.locator(selector).first
+                        if await sign_in_btn.is_visible(timeout=2000):
+                            emit_info("🔑 Found sign-in button, clicking...")
+                            await sign_in_btn.click()
+                            sign_in_clicked = True
+                            await asyncio.sleep(2)
+                            break
+                    except Exception:
+                        continue
+
+                if not sign_in_clicked:
+                    emit_info(
+                        "ℹ️  Could not auto-click sign-in button.\n"
+                        "   Please click 'Sign in' in the top-right corner."
+                    )
+            except Exception as e:
+                emit_info(f"ℹ️  Auto sign-in click skipped: {e!s}")
 
             emit_info(
                 "⏳ Please sign in with your Microsoft account in the browser.\n"
@@ -483,3 +517,55 @@ def get_valid_access_token() -> str | None:
         return None
 
     return tokens.get("access_token")
+
+
+def run_auth_flow_if_needed(*, force: bool = False) -> bool:
+    """Run the auth flow automatically if tokens are missing or invalid.
+
+    This function can be called by the msgraph client when it detects
+    authentication is needed, providing a smoother UX than requiring
+    users to manually run /msgraph_auth.
+
+    Args:
+        force: If True, run auth even if tokens exist.
+
+    Returns:
+        True if authentication succeeded, False otherwise.
+    """
+    # Check if we already have valid tokens
+    if not force:
+        token = get_valid_access_token()
+        if token:
+            # Validate the token is still working
+            result = validate_msgraph_auth()
+            if result.get("success"):
+                return True
+
+    emit_info("\n🔐 Microsoft Graph authentication required...")
+    emit_info("🚀 Launching browser for Graph Explorer authentication...")
+
+    if async_playwright is None:
+        emit_error(
+            "❌ Playwright is not installed.\n"
+            "   Install it with:\n"
+            "   uv pip install playwright --index-url "
+            "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple "
+            "--allow-insecure-host pypi.ci.artifacts.walmart.com\n"
+            "   playwright install chromium"
+        )
+        return False
+
+    try:
+        tokens = _run_async_scraper()
+        _save_tokens(tokens)
+
+        emit_success(
+            f"🎉 Microsoft Graph authentication complete!\n"
+            f"   Tokens saved to: {MSGRAPH_TOKENS_FILE}\n"
+            f"   Timestamp: {tokens['timestamp']}"
+        )
+        return True
+
+    except Exception as e:
+        emit_error(f"❌ Auto-authentication failed: {e!s}")
+        return False
