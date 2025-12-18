@@ -214,6 +214,20 @@ from code_puppy.tools.msgraph.search import (
     register_msgraph_search_teams_messages,
 )
 
+# Context workflows (cross-source gathering)
+from code_puppy.tools.msgraph.workflows_context import (
+    register_msgraph_gather_context,
+    register_msgraph_prioritized_inbox,
+    register_msgraph_draft_response,
+)
+
+# Extended Teams capabilities
+from code_puppy.tools.msgraph.teams_extended import (
+    register_msgraph_get_unread_chats,
+    register_msgraph_search_chat_messages,
+    register_msgraph_get_recent_channel_activity,
+)
+
 # Convenience dict for bulk registration
 MSGRAPH_TOOLS = {
     # Users
@@ -348,4 +362,12 @@ MSGRAPH_TOOLS = {
     "msgraph_search_emails_advanced": register_msgraph_search_emails_advanced,
     "msgraph_search_files_advanced": register_msgraph_search_files_advanced,
     "msgraph_search_teams_messages": register_msgraph_search_teams_messages,
+    # Context workflows
+    "msgraph_gather_context": register_msgraph_gather_context,
+    "msgraph_prioritized_inbox": register_msgraph_prioritized_inbox,
+    "msgraph_draft_response": register_msgraph_draft_response,
+    # Extended Teams
+    "msgraph_get_unread_chats": register_msgraph_get_unread_chats,
+    "msgraph_search_chat_messages": register_msgraph_search_chat_messages,
+    "msgraph_get_recent_channel_activity": register_msgraph_get_recent_channel_activity,
 }

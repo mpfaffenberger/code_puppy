@@ -128,6 +128,16 @@ class MSGraphAgent(BaseAgent):
             "msgraph_search_files_advanced",  # Advanced file search
             "msgraph_search_teams_messages",  # Search Teams messages
             #
+            # === CONTEXT WORKFLOWS (High-level intelligence) ===
+            "msgraph_gather_context",  # Gather all context about a topic
+            "msgraph_prioritized_inbox",  # Inbox ranked by sender importance
+            "msgraph_draft_response",  # Prepare response context for email
+            #
+            # === EXTENDED TEAMS ===
+            "msgraph_get_unread_chats",  # Get chats with unread messages
+            "msgraph_search_chat_messages",  # Search within Teams chats
+            "msgraph_get_recent_channel_activity",  # Recent channel activity
+            #
             # === TASKS (To Do) ===
             "msgraph_list_todo_tasks",
             "msgraph_create_todo_task",

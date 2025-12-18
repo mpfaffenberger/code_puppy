@@ -54,10 +54,23 @@ def msgraph_get_trending_docs(
         if not client:
             return _handle_msgraph_error(Exception("Not authenticated"))
 
-        response = client.get(
-            "/me/insights/trending",
-            params={"$top": min(top, 100)},
-        )
+        try:
+            response = client.get(
+                "/me/insights/trending",
+                params={"$top": min(top, 100)},
+            )
+        except Exception as e:
+            error_str = str(e).lower()
+            if "iteminsightsdisabled" in error_str or "403" in error_str:
+                # Tenant has disabled Item Insights - common in enterprise
+                return {
+                    "success": False,
+                    "error": "Item Insights disabled by tenant policy",
+                    "note": "Your organization has disabled trending document insights for privacy. Use msgraph_get_recent_docs instead.",
+                    "fallback": "msgraph_get_recent_docs",
+                }
+            raise
+
         items = response.get("value", [])
 
         docs = []
