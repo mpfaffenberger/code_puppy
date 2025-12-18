@@ -56,6 +56,10 @@ class BaseMessage(BaseModel):
     category: MessageCategory = Field(
         description="Category for routing and rendering decisions"
     )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session ID of the agent that emitted this message (for multi-agent tracking)",
+    )
 
     model_config = {"frozen": False, "extra": "forbid"}
 

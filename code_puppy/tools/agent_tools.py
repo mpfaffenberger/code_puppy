@@ -28,6 +28,8 @@ from code_puppy.messaging import (
     emit_error,
     emit_info,
     get_message_bus,
+    get_session_context,
+    set_session_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.tools.common import generate_group_id
@@ -419,6 +421,10 @@ def register_invoke_agent(agent):
             )
         )
 
+        # Save current session context and set the new one for this sub-agent
+        previous_session_id = get_session_context()
+        set_session_context(session_id)
+
         try:
             # Load the specified agent config
             agent_config = load_agent(agent_name)
@@ -554,5 +560,9 @@ def register_invoke_agent(agent):
                 session_id=session_id,
                 error=error_msg,
             )
+
+        finally:
+            # Restore the previous session context
+            set_session_context(previous_session_id)
 
     return invoke_agent

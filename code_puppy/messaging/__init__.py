@@ -45,7 +45,9 @@ from .bus import emit_success as bus_emit_success
 from .bus import emit_warning as bus_emit_warning
 from .bus import (
     get_message_bus,
+    get_session_context,
     reset_message_bus,
+    set_session_context,
 )
 
 # Command types (UI -> Agent)
@@ -201,6 +203,9 @@ __all__ = [
     "MessageBus",
     "get_message_bus",
     "reset_message_bus",
+    # Session context
+    "set_session_context",
+    "get_session_context",
     # New API convenience functions (prefixed to avoid collision)
     "bus_emit",
     "bus_emit_info",
