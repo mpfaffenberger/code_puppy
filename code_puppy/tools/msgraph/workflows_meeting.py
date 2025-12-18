@@ -35,6 +35,7 @@ def msgraph_calls_for_content(
     days_before: int = 3,
     email_subject: str | None = None,
     email_body: str | None = None,
+    cc_emails: list[str] | None = None,
     send_to_organizer: bool = False,
     send_to_all_attendees: bool = True,
     preview_only: bool = True,
@@ -55,6 +56,7 @@ def msgraph_calls_for_content(
         days_before: Days before meeting to mention in email (default 3).
         email_subject: Custom email subject (uses template if not provided).
         email_body: Custom email body (uses template if not provided).
+        cc_emails: List of email addresses to CC on all emails (e.g., support staff).
         send_to_organizer: Include the meeting organizer (default False).
         send_to_all_attendees: Send to all attendees (default True).
         preview_only: If True, preview emails without sending (default True).
@@ -70,10 +72,11 @@ def msgraph_calls_for_content(
             preview_only=True
         )
 
-        # Send with custom message
+        # Send with custom message and CC support staff
         msgraph_calls_for_content(
             meeting_subject="Q4 Planning",
             email_body="Please submit your slides by EOD Friday.",
+            cc_emails=["support@walmart.com"],
             preview_only=False
         )
     """
@@ -95,6 +98,7 @@ def msgraph_calls_for_content(
             "success": True,
             "meeting": None,
             "recipients": [],
+            "cc_recipients": cc_emails or [],
             "email": {
                 "subject": None,
                 "body": None,
@@ -232,40 +236,50 @@ Thank you!
 """
 
         # Step 4: Send or preview
+        cc_count = len(result["cc_recipients"])
+        cc_msg = f" (CC: {cc_count})" if cc_count > 0 else ""
+
         if preview_only:
             emit_success(
-                f"Preview ready: {len(result['recipients'])} recipients for "
+                f"Preview ready: {len(result['recipients'])} recipients{cc_msg} for "
                 f"'{meeting_info['subject']}'"
             )
             result["message"] = (
-                f"Preview mode: Would send to {len(result['recipients'])} recipients. "
+                f"Preview mode: Would send to {len(result['recipients'])} recipients{cc_msg}. "
                 f"Set preview_only=False to send."
             )
         else:
+            # Build CC recipients list
+            cc_list = [
+                {"emailAddress": {"address": cc_email}}
+                for cc_email in (cc_emails or [])
+            ]
+
             # Actually send the emails
             sent = 0
             for recipient in result["recipients"]:
                 try:
-                    client.post(
-                        "/me/sendMail",
-                        json={
-                            "message": {
-                                "subject": result["email"]["subject"],
-                                "body": {
-                                    "contentType": "text",
-                                    "content": result["email"]["body"],
-                                },
-                                "toRecipients": [
-                                    {
-                                        "emailAddress": {
-                                            "address": recipient["email"],
-                                            "name": recipient["name"],
-                                        }
-                                    }
-                                ],
-                            }
+                    message = {
+                        "subject": result["email"]["subject"],
+                        "body": {
+                            "contentType": "text",
+                            "content": result["email"]["body"],
                         },
-                    )
+                        "toRecipients": [
+                            {
+                                "emailAddress": {
+                                    "address": recipient["email"],
+                                    "name": recipient["name"],
+                                }
+                            }
+                        ],
+                    }
+
+                    # Add CC if provided
+                    if cc_list:
+                        message["ccRecipients"] = cc_list
+
+                    client.post("/me/sendMail", json={"message": message})
                     sent += 1
                 except Exception as e:
                     result["skipped"].append(

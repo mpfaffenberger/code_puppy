@@ -637,6 +637,50 @@ class TestCallsForContent:
         assert result["success"] is True
         assert result["email"]["body"] == "Please submit slides by Friday."
 
+    @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
+    def test_calls_for_content_with_cc(self, mock_client_factory, mock_context):
+        """Test calls for content with CC recipients (Monica's use case)."""
+        client = MagicMock()
+        mock_client_factory.return_value = client
+
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+
+        client.get.return_value = {
+            "value": [
+                {
+                    "id": "event-123",
+                    "subject": "Strategy Leadership",
+                    "start": {"dateTime": (now + timedelta(days=5)).isoformat()},
+                    "end": {"dateTime": (now + timedelta(days=5, hours=2)).isoformat()},
+                    "location": {},
+                    "organizer": {"emailAddress": {"address": "org@walmart.com"}},
+                    "attendees": [
+                        {
+                            "emailAddress": {
+                                "address": "presenter@walmart.com",
+                                "name": "Presenter",
+                            }
+                        }
+                    ],
+                }
+            ]
+        }
+
+        result = msgraph_calls_for_content(
+            mock_context,
+            meeting_subject="Strategy Leadership",
+            cc_emails=["support@walmart.com", "admin@walmart.com"],
+            preview_only=True,
+        )
+
+        assert result["success"] is True
+        assert result["cc_recipients"] == ["support@walmart.com", "admin@walmart.com"]
+        assert len(result["recipients"]) == 1
+        assert "Preview mode" in result["message"]
+        assert "(CC: 2)" in result["message"]
+
 
 class TestSendMeetingReminder:
     """Tests for msgraph_send_meeting_reminder workflow."""
