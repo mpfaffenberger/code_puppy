@@ -873,3 +873,245 @@ def msgraph_proactive_suggestions(
 def register_msgraph_proactive_suggestions(agent: Any) -> Tool:
     """Register the proactive suggestions tool."""
     return agent.tool()(msgraph_proactive_suggestions)
+
+
+# =============================================================================
+# ADD FOLLOW-UP TASK
+# =============================================================================
+
+
+def msgraph_add_follow_up_task(
+    ctx: RunContext[Any],
+    *,
+    title: str,
+    context: str | None = None,
+    due_date: str | None = None,
+    reminder_date: str | None = None,
+    list_name: str = "Tasks",
+    importance: str = "normal",
+) -> dict:
+    """Add a follow-up task to Microsoft To Do.
+
+    Used by the EA agent to track commitments, follow-ups, and action items.
+    This allows the agent to ensure nothing falls through the cracks.
+
+    Args:
+        title: Task title (e.g., "Follow up with Austin Gress").
+        context: Additional notes/context for the task body.
+        due_date: Due date in ISO format (e.g., "2025-01-06").
+        reminder_date: Reminder date/time in ISO format.
+        list_name: To Do list name (default "Tasks").
+        importance: "low", "normal", or "high".
+
+    Returns:
+        Dict with created task details.
+    """
+    if not title or not title.strip():
+        return {
+            "success": False,
+            "error": "title cannot be empty",
+        }
+
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] MS GRAPH [/bold white on blue] "
+            f"\u2705 [bold cyan]Adding task: {title[:50]}...[/bold cyan]"
+        )
+    )
+
+    client = get_msgraph_client()
+    if not client:
+        return _handle_msgraph_error(Exception("Not authenticated"))
+
+    try:
+        # Find or create the list
+        lists = client.get("/me/todo/lists")
+        target_list = None
+        for lst in lists.get("value", []):
+            if lst.get("displayName", "").lower() == list_name.lower():
+                target_list = lst
+                break
+
+        if not target_list:
+            # Create the list if it doesn't exist
+            target_list = client.post(
+                "/me/todo/lists",
+                json={"displayName": list_name},
+            )
+
+        list_id = target_list.get("id")
+
+        # Build task payload
+        task_body: dict = {
+            "title": title,
+            "importance": importance,
+        }
+
+        if context:
+            task_body["body"] = {
+                "content": context,
+                "contentType": "text",
+            }
+
+        if due_date:
+            task_body["dueDateTime"] = {
+                "dateTime": due_date if "T" in due_date else f"{due_date}T00:00:00",
+                "timeZone": "UTC",
+            }
+
+        if reminder_date:
+            task_body["reminderDateTime"] = {
+                "dateTime": reminder_date,
+                "timeZone": "UTC",
+            }
+            task_body["isReminderOn"] = True
+
+        # Create the task
+        created_task = client.post(
+            f"/me/todo/lists/{list_id}/tasks",
+            json=task_body,
+        )
+
+        emit_success(f"Task created: {title[:50]}")
+
+        return {
+            "success": True,
+            "task": {
+                "id": created_task.get("id"),
+                "title": created_task.get("title"),
+                "list": list_name,
+                "due_date": due_date,
+                "importance": importance,
+                "status": created_task.get("status"),
+            },
+            "message": f"Task '{title}' added to {list_name}",
+        }
+
+    except Exception as e:
+        return _handle_msgraph_error(e)
+
+
+def register_msgraph_add_follow_up_task(agent: Any) -> Tool:
+    """Register the add follow-up task tool."""
+    return agent.tool()(msgraph_add_follow_up_task)
+
+
+# =============================================================================
+# BATCH ADD TASKS
+# =============================================================================
+
+
+def msgraph_batch_add_tasks(
+    ctx: RunContext[Any],
+    *,
+    tasks: list[dict],
+    list_name: str = "Tasks",
+) -> dict:
+    """Add multiple follow-up tasks at once.
+
+    Useful after relationship health check or meeting to batch-create tasks.
+
+    Args:
+        tasks: List of task dicts, each with:
+            - title (required): Task title
+            - context (optional): Notes/body
+            - due_date (optional): Due date ISO format
+            - importance (optional): low/normal/high
+        list_name: To Do list name (default "Tasks").
+
+    Returns:
+        Dict with created tasks and any failures.
+    """
+    if not tasks:
+        return {
+            "success": False,
+            "error": "tasks list cannot be empty",
+        }
+
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] MS GRAPH [/bold white on blue] "
+            f"\u2705 [bold cyan]Adding {len(tasks)} tasks...[/bold cyan]"
+        )
+    )
+
+    client = get_msgraph_client()
+    if not client:
+        return _handle_msgraph_error(Exception("Not authenticated"))
+
+    try:
+        # Find or create the list
+        lists = client.get("/me/todo/lists")
+        target_list = None
+        for lst in lists.get("value", []):
+            if lst.get("displayName", "").lower() == list_name.lower():
+                target_list = lst
+                break
+
+        if not target_list:
+            target_list = client.post(
+                "/me/todo/lists",
+                json={"displayName": list_name},
+            )
+
+        list_id = target_list.get("id")
+
+        created = []
+        failed = []
+
+        for task_data in tasks:
+            title = task_data.get("title", "")
+            if not title:
+                failed.append({"error": "Missing title", "data": task_data})
+                continue
+
+            try:
+                task_body: dict = {
+                    "title": title,
+                    "importance": task_data.get("importance", "normal"),
+                }
+
+                if task_data.get("context"):
+                    task_body["body"] = {
+                        "content": task_data["context"],
+                        "contentType": "text",
+                    }
+
+                if task_data.get("due_date"):
+                    due = task_data["due_date"]
+                    task_body["dueDateTime"] = {
+                        "dateTime": due if "T" in due else f"{due}T00:00:00",
+                        "timeZone": "UTC",
+                    }
+
+                result = client.post(
+                    f"/me/todo/lists/{list_id}/tasks",
+                    json=task_body,
+                )
+
+                created.append(
+                    {
+                        "id": result.get("id"),
+                        "title": title,
+                        "due_date": task_data.get("due_date"),
+                    }
+                )
+            except Exception as e:
+                failed.append({"title": title, "error": str(e)[:50]})
+
+        emit_success(f"Created {len(created)} tasks, {len(failed)} failed")
+
+        return {
+            "success": True,
+            "created": created,
+            "failed": failed,
+            "summary": f"Created {len(created)} of {len(tasks)} tasks in '{list_name}'",
+        }
+
+    except Exception as e:
+        return _handle_msgraph_error(e)
+
+
+def register_msgraph_batch_add_tasks(agent: Any) -> Tool:
+    """Register the batch add tasks tool."""
+    return agent.tool()(msgraph_batch_add_tasks)

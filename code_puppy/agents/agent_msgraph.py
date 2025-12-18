@@ -153,6 +153,8 @@ class MSGraphAgent(BaseAgent):
             "msgraph_quick_calendar_action",  # Accept/decline/tentative with message
             "msgraph_quick_delegate",  # Forward with context
             "msgraph_proactive_suggestions",  # What should I do right now?
+            "msgraph_add_follow_up_task",  # Add single follow-up task
+            "msgraph_batch_add_tasks",  # Batch add tasks (e.g., after relationship check)
             #
             # === TASKS (To Do) ===
             "msgraph_list_todo_tasks",

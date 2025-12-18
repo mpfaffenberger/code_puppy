@@ -248,6 +248,8 @@ from code_puppy.tools.msgraph.quick_actions import (
     register_msgraph_quick_calendar_action,
     register_msgraph_quick_delegate,
     register_msgraph_proactive_suggestions,
+    register_msgraph_add_follow_up_task,
+    register_msgraph_batch_add_tasks,
 )
 
 # Convenience dict for bulk registration
@@ -405,4 +407,6 @@ MSGRAPH_TOOLS = {
     "msgraph_quick_calendar_action": register_msgraph_quick_calendar_action,
     "msgraph_quick_delegate": register_msgraph_quick_delegate,
     "msgraph_proactive_suggestions": register_msgraph_proactive_suggestions,
+    "msgraph_add_follow_up_task": register_msgraph_add_follow_up_task,
+    "msgraph_batch_add_tasks": register_msgraph_batch_add_tasks,
 }
