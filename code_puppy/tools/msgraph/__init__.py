@@ -165,6 +165,7 @@ from code_puppy.tools.msgraph.workflows_ea import (
     register_msgraph_prep_one_on_one,
     register_msgraph_standup_prep,
     register_msgraph_performance_summary,
+    register_msgraph_gather_all_tasks,
 )
 
 # Meeting management workflows (email attendees, nudge non-responders)
@@ -226,6 +227,18 @@ from code_puppy.tools.msgraph.teams_extended import (
     register_msgraph_get_unread_chats,
     register_msgraph_search_chat_messages,
     register_msgraph_get_recent_channel_activity,
+)
+
+# OneNote (notebooks, sections, pages)
+from code_puppy.tools.msgraph.onenote import (
+    register_msgraph_list_notebooks,
+    register_msgraph_list_sections,
+    register_msgraph_list_pages,
+    register_msgraph_get_page_content,
+    register_msgraph_create_notebook,
+    register_msgraph_create_section,
+    register_msgraph_create_page,
+    register_msgraph_search_notes,
 )
 
 # Focus and productivity workflows
@@ -359,6 +372,7 @@ MSGRAPH_TOOLS = {
     "msgraph_prep_one_on_one": register_msgraph_prep_one_on_one,
     "msgraph_standup_prep": register_msgraph_standup_prep,
     "msgraph_performance_summary": register_msgraph_performance_summary,
+    "msgraph_gather_all_tasks": register_msgraph_gather_all_tasks,
     "msgraph_email_meeting_attendees": register_msgraph_email_meeting_attendees,
     "msgraph_nudge_non_responders": register_msgraph_nudge_non_responders,
     # Mail Rules
@@ -409,4 +423,13 @@ MSGRAPH_TOOLS = {
     "msgraph_proactive_suggestions": register_msgraph_proactive_suggestions,
     "msgraph_add_follow_up_task": register_msgraph_add_follow_up_task,
     "msgraph_batch_add_tasks": register_msgraph_batch_add_tasks,
+    # OneNote
+    "msgraph_list_notebooks": register_msgraph_list_notebooks,
+    "msgraph_list_sections": register_msgraph_list_sections,
+    "msgraph_list_pages": register_msgraph_list_pages,
+    "msgraph_get_page_content": register_msgraph_get_page_content,
+    "msgraph_create_notebook": register_msgraph_create_notebook,
+    "msgraph_create_section": register_msgraph_create_section,
+    "msgraph_create_page": register_msgraph_create_page,
+    "msgraph_search_notes": register_msgraph_search_notes,
 }

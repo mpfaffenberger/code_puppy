@@ -176,7 +176,7 @@ class TestMsgraphApiRequest:
         assert result["success"] is True
         assert result["method"] == "POST"
         mock_client.post.assert_called_once_with(
-            "/me/events", body={"subject": "New Meeting"}, params=None
+            "/me/events", json={"subject": "New Meeting"}, params=None
         )
 
     @patch("code_puppy.tools.msgraph.common.get_msgraph_client")

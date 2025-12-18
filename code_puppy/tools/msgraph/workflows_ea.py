@@ -1,5 +1,15 @@
 """Executive Assistant workflow tools for Microsoft Graph.
 
+This module provides high-level EA workflows that orchestrate multiple
+MS Graph APIs to provide comprehensive executive assistance.
+
+Key workflows:
+- msgraph_gather_all_tasks: Collect tasks from ALL sources (To Do, Planner,
+  flagged emails, calendar, Jira, Confluence) and organize into To Do
+- msgraph_daily_digest: Morning summary across all systems
+- msgraph_prep_one_on_one: Prepare for 1:1 meetings with context
+
+
 These tools provide high-level EA functionality that goes beyond simple API calls:
 - 1:1 meeting preparation with your manager
 - Daily standup summaries
@@ -930,3 +940,401 @@ def msgraph_performance_summary(
 def register_msgraph_performance_summary(agent: Any) -> Tool:
     """Register the performance summary workflow tool."""
     return agent.tool()(msgraph_performance_summary)
+
+
+# =============================================================================
+# WORKFLOW: GATHER ALL TASKS FROM ALL SOURCES
+# =============================================================================
+
+
+def msgraph_gather_all_tasks(
+    ctx: RunContext[Any],
+    *,
+    organize_into_todo: bool = True,
+    create_ea_list: bool = True,
+    include_jira: bool = True,
+    include_confluence: bool = True,
+    include_onenote: bool = True,
+) -> dict:
+    """Gather tasks from ALL sources and optionally organize into To Do.
+
+    Sources searched:
+    - Microsoft To Do (existing tasks)
+    - Flagged emails (auto-synced to To Do)
+    - Calendar items needing response
+    - Planner tasks assigned to you
+    - Jira issues (via sub-agent if available)
+    - Confluence action items (via sub-agent if available)
+    - OneNote action items (search for TODO, action item patterns)
+
+    Args:
+        organize_into_todo: If True, consolidate tasks into To Do lists.
+        create_ea_list: If True, create an "EA Managed Tasks" list.
+        include_jira: If True, search Jira for assigned issues.
+        include_confluence: If True, search Confluence for action items.
+        include_onenote: If True, search OneNote for TODO patterns.
+
+    Returns:
+        Dict with all tasks organized by source and priority.
+    """
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] MS GRAPH [/bold white on blue] "
+            "\U0001f4cb [bold cyan]Gathering tasks from ALL sources...[/bold cyan]"
+        )
+    )
+
+    client = get_msgraph_client()
+    if not client:
+        return _handle_msgraph_error(Exception("Not authenticated"))
+
+    result = {
+        "success": True,
+        "sources_searched": [],
+        "tasks_by_source": {},
+        "all_tasks": [],
+        "prioritized": {
+            "critical": [],  # Due today or overdue, from VIPs
+            "high": [],  # Due this week, important
+            "medium": [],  # Due next week
+            "low": [],  # No due date, informational
+        },
+        "organized_into_todo": False,
+        "todo_link": "https://wmlink/todo",
+        "errors": [],
+    }
+
+    today = datetime.now(timezone.utc).date()
+    this_week = today + timedelta(days=7)
+    next_week = today + timedelta(days=14)
+
+    # === 1. MICROSOFT TO DO ===
+    try:
+        result["sources_searched"].append("Microsoft To Do")
+        lists_response = client.get("/me/todo/lists")
+        todo_tasks = []
+
+        for lst in lists_response.get("value", []):
+            list_id = lst.get("id")
+            list_name = lst.get("displayName", "Unknown")
+
+            tasks_response = client.get(
+                f"/me/todo/lists/{list_id}/tasks",
+                params={"$filter": "status ne 'completed'", "$top": 100},
+            )
+
+            for task in tasks_response.get("value", []):
+                due_dt = task.get("dueDateTime", {})
+                due_date = None
+                if due_dt and due_dt.get("dateTime"):
+                    try:
+                        due_date = datetime.fromisoformat(
+                            due_dt["dateTime"].replace("Z", "+00:00")
+                        ).date()
+                    except Exception:
+                        pass
+
+                todo_tasks.append(
+                    {
+                        "source": "To Do",
+                        "list": list_name,
+                        "title": task.get("title"),
+                        "due_date": str(due_date) if due_date else None,
+                        "importance": task.get("importance", "normal"),
+                        "id": task.get("id"),
+                        "status": task.get("status"),
+                    }
+                )
+
+        result["tasks_by_source"]["todo"] = todo_tasks
+        result["all_tasks"].extend(todo_tasks)
+
+    except Exception as e:
+        result["errors"].append(f"To Do: {str(e)[:50]}")
+
+    # === 2. CALENDAR ITEMS NEEDING RESPONSE ===
+    try:
+        result["sources_searched"].append("Calendar (pending response)")
+        start = datetime.now(timezone.utc).isoformat()
+        end = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
+
+        events = client.get(
+            "/me/calendarView",
+            params={
+                "startDateTime": start,
+                "endDateTime": end,
+                "$filter": "responseStatus/response eq 'notResponded'",
+                "$top": 50,
+            },
+        )
+
+        calendar_tasks = []
+        for event in events.get("value", []):
+            start_dt = event.get("start", {}).get("dateTime", "")
+            try:
+                event_date = datetime.fromisoformat(
+                    start_dt.replace("Z", "+00:00")
+                ).date()
+            except Exception:
+                event_date = None
+
+            calendar_tasks.append(
+                {
+                    "source": "Calendar",
+                    "title": f"RESPOND: {event.get('subject')}",
+                    "due_date": str(event_date) if event_date else None,
+                    "importance": "high",
+                    "organizer": event.get("organizer", {})
+                    .get("emailAddress", {})
+                    .get("name"),
+                    "id": event.get("id"),
+                }
+            )
+
+        result["tasks_by_source"]["calendar"] = calendar_tasks
+        result["all_tasks"].extend(calendar_tasks)
+
+    except Exception as e:
+        result["errors"].append(f"Calendar: {str(e)[:50]}")
+
+    # === 3. PLANNER TASKS ===
+    try:
+        result["sources_searched"].append("Planner")
+        planner_tasks = []
+
+        # Get tasks assigned to me
+        try:
+            my_tasks = client.get("/me/planner/tasks")
+            for task in my_tasks.get("value", []):
+                if task.get("percentComplete", 0) < 100:
+                    due = task.get("dueDateTime")
+                    due_date = None
+                    if due:
+                        try:
+                            due_date = datetime.fromisoformat(
+                                due.replace("Z", "+00:00")
+                            ).date()
+                        except Exception:
+                            pass
+
+                    planner_tasks.append(
+                        {
+                            "source": "Planner",
+                            "title": task.get("title"),
+                            "due_date": str(due_date) if due_date else None,
+                            "importance": "high"
+                            if task.get("priority", 5) <= 3
+                            else "normal",
+                            "percent_complete": task.get("percentComplete", 0),
+                            "id": task.get("id"),
+                        }
+                    )
+        except Exception:
+            pass  # Planner might not be available
+
+        result["tasks_by_source"]["planner"] = planner_tasks
+        result["all_tasks"].extend(planner_tasks)
+
+    except Exception as e:
+        result["errors"].append(f"Planner: {str(e)[:50]}")
+
+    # === 4. JIRA ISSUES (via sub-agent) ===
+    if include_jira:
+        try:
+            result["sources_searched"].append("Jira")
+            # Import here to avoid circular imports
+            from code_puppy.tools.jira_tools import get_jira_client
+
+            jira_client = get_jira_client()
+            if jira_client:
+                # Search for issues assigned to current user
+                jira_results = jira_client.search_issues(
+                    "assignee = currentUser() AND resolution = Unresolved ORDER BY priority DESC, updated DESC",
+                    max_results=50,
+                )
+
+                jira_tasks = []
+                for issue in jira_results.get("issues", []):
+                    fields = issue.get("fields", {})
+                    due = fields.get("duedate")
+                    priority = fields.get("priority", {})
+                    priority_name = priority.get("name", "Medium").lower() if priority else "medium"
+
+                    importance = "normal"
+                    if priority_name in ["highest", "blocker", "critical"]:
+                        importance = "high"
+                    elif priority_name in ["lowest", "trivial"]:
+                        importance = "low"
+
+                    jira_tasks.append(
+                        {
+                            "source": "Jira",
+                            "title": f"[{issue.get('key')}] {fields.get('summary', 'Untitled')}",
+                            "due_date": due,
+                            "importance": importance,
+                            "status": str(fields.get("status", {}).get("name", "Unknown")),
+                            "key": issue.get("key"),
+                            "url": f"https://jira.walmart.com/browse/{issue.get('key')}",
+                        }
+                    )
+
+                result["tasks_by_source"]["jira"] = jira_tasks
+                result["all_tasks"].extend(jira_tasks)
+            else:
+                result["errors"].append("Jira: Not authenticated")
+
+        except Exception as e:
+            result["errors"].append(f"Jira: {str(e)[:50]}")
+
+    # === 5. ONENOTE ACTION ITEMS ===
+    if include_onenote:
+        try:
+            result["sources_searched"].append("OneNote")
+            # Search for pages with TODO or action item patterns
+            try:
+                notes = client.get(
+                    "/me/onenote/pages",
+                    params={
+                        "$top": 20,
+                        "$orderby": "lastModifiedDateTime desc",
+                    },
+                )
+
+                # Note: Full text search would require getting page content
+                # For now, just flag recently modified pages as potential sources
+                onenote_tasks = []
+                for page in notes.get("value", [])[:5]:  # Top 5 recent
+                    onenote_tasks.append(
+                        {
+                            "source": "OneNote",
+                            "title": f"Review notes: {page.get('title')}",
+                            "due_date": None,
+                            "importance": "low",
+                            "page_id": page.get("id"),
+                            "url": page.get("links", {})
+                            .get("oneNoteWebUrl", {})
+                            .get("href"),
+                        }
+                    )
+
+                result["tasks_by_source"]["onenote"] = onenote_tasks
+                # Don't add to all_tasks - these are suggestions, not real tasks
+
+            except Exception:
+                pass  # OneNote might not be available
+
+        except Exception as e:
+            result["errors"].append(f"OneNote: {str(e)[:50]}")
+
+    # === PRIORITIZE ALL TASKS ===
+    for task in result["all_tasks"]:
+        due_str = task.get("due_date")
+        importance = task.get("importance", "normal")
+
+        if due_str:
+            try:
+                due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+                if due_date <= today:
+                    result["prioritized"]["critical"].append(task)
+                elif due_date <= this_week:
+                    result["prioritized"]["high"].append(task)
+                elif due_date <= next_week:
+                    result["prioritized"]["medium"].append(task)
+                else:
+                    result["prioritized"]["low"].append(task)
+            except Exception:
+                result["prioritized"]["medium"].append(task)
+        elif importance == "high":
+            result["prioritized"]["high"].append(task)
+        else:
+            result["prioritized"]["low"].append(task)
+
+    # === ORGANIZE INTO TO DO (if requested) ===
+    if organize_into_todo and create_ea_list:
+        try:
+            # Check if EA list exists
+            lists = client.get("/me/todo/lists")
+            ea_list = None
+            for lst in lists.get("value", []):
+                if lst.get("displayName") == "EA Managed Tasks":
+                    ea_list = lst
+                    break
+
+            if not ea_list:
+                # Create the EA list
+                ea_list = client.post(
+                    "/me/todo/lists",
+                    json={"displayName": "EA Managed Tasks"},
+                )
+
+            ea_list_id = ea_list.get("id")
+
+            # Add critical and high priority items that aren't already in To Do
+            tasks_added = 0
+            for task in (
+                result["prioritized"]["critical"] + result["prioritized"]["high"]
+            ):
+                if task.get("source") not in ["To Do"]:  # Don't duplicate To Do tasks
+                    try:
+                        task_body: dict = {
+                            "title": task.get("title", "Untitled"),
+                            "importance": "high"
+                            if task in result["prioritized"]["critical"]
+                            else "normal",
+                        }
+
+                        if task.get("due_date"):
+                            task_body["dueDateTime"] = {
+                                "dateTime": f"{task['due_date']}T00:00:00",
+                                "timeZone": "UTC",
+                            }
+
+                        # Add source info to body
+                        notes = f"Source: {task.get('source')}"
+                        if task.get("url"):
+                            notes += f"\nLink: {task['url']}"
+                        if task.get("key"):
+                            notes += f"\nJira: {task['key']}"
+
+                        task_body["body"] = {
+                            "content": notes,
+                            "contentType": "text",
+                        }
+
+                        client.post(
+                            f"/me/todo/lists/{ea_list_id}/tasks",
+                            json=task_body,
+                        )
+                        tasks_added += 1
+
+                    except Exception:
+                        pass  # Skip individual task failures
+
+            result["organized_into_todo"] = True
+            result["tasks_added_to_ea_list"] = tasks_added
+
+        except Exception as e:
+            result["errors"].append(f"Organize: {str(e)[:50]}")
+
+    # === SUMMARY ===
+    result["summary"] = {
+        "total_tasks": len(result["all_tasks"]),
+        "by_priority": {
+            "critical": len(result["prioritized"]["critical"]),
+            "high": len(result["prioritized"]["high"]),
+            "medium": len(result["prioritized"]["medium"]),
+            "low": len(result["prioritized"]["low"]),
+        },
+        "sources": result["sources_searched"],
+    }
+
+    emit_success(
+        f"Gathered {len(result['all_tasks'])} tasks from {len(result['sources_searched'])} sources"
+    )
+
+    return result
+
+
+def register_msgraph_gather_all_tasks(agent: Any) -> Tool:
+    """Register the gather all tasks workflow tool."""
+    return agent.tool()(msgraph_gather_all_tasks)

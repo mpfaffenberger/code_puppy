@@ -47,6 +47,7 @@ class MSGraphAgent(BaseAgent):
             "msgraph_prep_one_on_one",  # 1:1 prep with manager (extensible for Jira)
             "msgraph_standup_prep",  # Daily standup: yesterday/today/blockers
             "msgraph_performance_summary",  # Self-eval/review prep (90-day summary)
+            "msgraph_gather_all_tasks",  # Collect tasks from ALL sources (To Do, Jira, Planner, etc.)
             "msgraph_email_meeting_attendees",  # Send email to all meeting attendees
             "msgraph_nudge_non_responders",  # Remind non-responders to RSVP
             #
@@ -146,6 +147,16 @@ class MSGraphAgent(BaseAgent):
             "msgraph_get_org_context",  # User's org position (manager, reports, collaborators)
             "msgraph_get_relationship_context",  # Context about specific person
             "msgraph_relationship_health",  # Identify relationships needing attention
+            #
+            # === ONENOTE ===
+            "msgraph_list_notebooks",  # List all notebooks
+            "msgraph_list_sections",  # List sections in notebook
+            "msgraph_list_pages",  # List pages in section
+            "msgraph_get_page_content",  # Get page HTML content
+            "msgraph_create_notebook",  # Create new notebook
+            "msgraph_create_section",  # Create section in notebook
+            "msgraph_create_page",  # Create page in section
+            "msgraph_search_notes",  # Search across all notes
             #
             # === QUICK ACTIONS (EA-style fast responses) ===
             "msgraph_quick_acknowledge",  # Send quick acknowledgment
