@@ -3,11 +3,15 @@
 Organized by API category:
 - users.py: User profiles, org hierarchy, directory search
 - mail.py: Outlook mail operations
+- mail_extended.py: Extended mail operations (move, archive, attachments)
 - calendar.py: Calendar events and scheduling
+- calendar_shared.py: Shared calendar access and meeting time finder
 - onedrive.py: File storage and sharing
 - teams.py: Teams channels, messaging, and online meetings
 - sharepoint.py: SharePoint sites and content
 - planner.py: Task and project management
+- todo.py: Personal task management (Microsoft To Do)
+- presence.py: Teams presence/availability status
 """
 
 # Users
@@ -29,6 +33,18 @@ from code_puppy.tools.msgraph.mail import (
     register_msgraph_list_mail_folders,
 )
 
+# Extended Mail (granular operations)
+from code_puppy.tools.msgraph.mail_extended import (
+    register_msgraph_move_message,
+    register_msgraph_archive_message,
+    register_msgraph_mark_as_read,
+    register_msgraph_mark_as_unread,
+    register_msgraph_forward_message,
+    register_msgraph_delete_message,
+    register_msgraph_list_attachments,
+    register_msgraph_get_attachment,
+)
+
 # Calendar
 from code_puppy.tools.msgraph.calendar import (
     register_msgraph_list_events,
@@ -38,6 +54,14 @@ from code_puppy.tools.msgraph.calendar import (
     register_msgraph_delete_event,
     register_msgraph_get_availability,
     register_msgraph_list_calendars,
+)
+
+# Shared Calendar
+from code_puppy.tools.msgraph.calendar_shared import (
+    register_msgraph_list_shared_calendars,
+    register_msgraph_get_user_calendar_events,
+    register_msgraph_find_meeting_times,
+    register_msgraph_get_schedule,
 )
 
 # OneDrive
@@ -87,6 +111,26 @@ from code_puppy.tools.msgraph.planner import (
     register_msgraph_delete_task,
 )
 
+# To Do (personal task management)
+from code_puppy.tools.msgraph.todo import (
+    register_msgraph_list_todo_lists,
+    register_msgraph_get_todo_list,
+    register_msgraph_create_todo_list,
+    register_msgraph_delete_todo_list,
+    register_msgraph_list_todo_tasks,
+    register_msgraph_get_todo_task,
+    register_msgraph_create_todo_task,
+    register_msgraph_update_todo_task,
+    register_msgraph_complete_todo_task,
+    register_msgraph_delete_todo_task,
+)
+
+# Presence
+from code_puppy.tools.msgraph.presence import (
+    register_msgraph_get_my_presence,
+    register_msgraph_get_user_presence,
+)
+
 # Common (generic API request)
 from code_puppy.tools.msgraph.common import register_msgraph_api_request
 
@@ -105,6 +149,15 @@ MSGRAPH_TOOLS = {
     "msgraph_reply_to_message": register_msgraph_reply_to_message,
     "msgraph_search_mail": register_msgraph_search_mail,
     "msgraph_list_mail_folders": register_msgraph_list_mail_folders,
+    # Extended Mail
+    "msgraph_move_message": register_msgraph_move_message,
+    "msgraph_archive_message": register_msgraph_archive_message,
+    "msgraph_mark_as_read": register_msgraph_mark_as_read,
+    "msgraph_mark_as_unread": register_msgraph_mark_as_unread,
+    "msgraph_forward_message": register_msgraph_forward_message,
+    "msgraph_delete_message": register_msgraph_delete_message,
+    "msgraph_list_attachments": register_msgraph_list_attachments,
+    "msgraph_get_attachment": register_msgraph_get_attachment,
     # Calendar
     "msgraph_list_events": register_msgraph_list_events,
     "msgraph_get_event": register_msgraph_get_event,
@@ -113,6 +166,11 @@ MSGRAPH_TOOLS = {
     "msgraph_delete_event": register_msgraph_delete_event,
     "msgraph_get_availability": register_msgraph_get_availability,
     "msgraph_list_calendars": register_msgraph_list_calendars,
+    # Shared Calendar
+    "msgraph_list_shared_calendars": register_msgraph_list_shared_calendars,
+    "msgraph_get_user_calendar_events": register_msgraph_get_user_calendar_events,
+    "msgraph_find_meeting_times": register_msgraph_find_meeting_times,
+    "msgraph_get_schedule": register_msgraph_get_schedule,
     # OneDrive
     "msgraph_list_drive_items": register_msgraph_list_drive_items,
     "msgraph_get_drive_item": register_msgraph_get_drive_item,
@@ -148,6 +206,20 @@ MSGRAPH_TOOLS = {
     "msgraph_create_task": register_msgraph_create_task,
     "msgraph_update_task": register_msgraph_update_task,
     "msgraph_delete_task": register_msgraph_delete_task,
+    # To Do (personal task management)
+    "msgraph_list_todo_lists": register_msgraph_list_todo_lists,
+    "msgraph_get_todo_list": register_msgraph_get_todo_list,
+    "msgraph_create_todo_list": register_msgraph_create_todo_list,
+    "msgraph_delete_todo_list": register_msgraph_delete_todo_list,
+    "msgraph_list_todo_tasks": register_msgraph_list_todo_tasks,
+    "msgraph_get_todo_task": register_msgraph_get_todo_task,
+    "msgraph_create_todo_task": register_msgraph_create_todo_task,
+    "msgraph_update_todo_task": register_msgraph_update_todo_task,
+    "msgraph_complete_todo_task": register_msgraph_complete_todo_task,
+    "msgraph_delete_todo_task": register_msgraph_delete_todo_task,
+    # Presence
+    "msgraph_get_my_presence": register_msgraph_get_my_presence,
+    "msgraph_get_user_presence": register_msgraph_get_user_presence,
     # Generic API request (fallback for any endpoint)
     "msgraph_api_request": register_msgraph_api_request,
 }
