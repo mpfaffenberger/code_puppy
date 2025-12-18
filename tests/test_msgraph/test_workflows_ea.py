@@ -15,6 +15,8 @@ from code_puppy.tools.msgraph.workflows_ea import (
     msgraph_prep_one_on_one,
     msgraph_standup_prep,
     msgraph_performance_summary,
+)
+from code_puppy.tools.msgraph.workflows_meeting import (
     msgraph_calls_for_content,
     msgraph_send_meeting_reminder,
 )
@@ -521,7 +523,7 @@ class TestPerformanceSummary:
 class TestCallsForContent:
     """Tests for msgraph_calls_for_content workflow."""
 
-    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
     def test_calls_for_content_preview(self, mock_client_factory, mock_context):
         """Test calls for content in preview mode."""
         client = MagicMock()
@@ -577,7 +579,7 @@ class TestCallsForContent:
         assert result["sent_count"] == 0
         assert "Call for Content" in result["email"]["subject"]
 
-    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
     def test_calls_for_content_no_meeting_found(
         self, mock_client_factory, mock_context
     ):
@@ -594,7 +596,7 @@ class TestCallsForContent:
         assert result["success"] is False
         assert "No upcoming meeting found" in result["error"]
 
-    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
     def test_calls_for_content_custom_message(self, mock_client_factory, mock_context):
         """Test calls for content with custom email body."""
         client = MagicMock()
@@ -639,7 +641,7 @@ class TestCallsForContent:
 class TestSendMeetingReminder:
     """Tests for msgraph_send_meeting_reminder workflow."""
 
-    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
     def test_meeting_reminder_with_non_responders(
         self, mock_client_factory, mock_context
     ):
@@ -699,7 +701,7 @@ class TestSendMeetingReminder:
         # Should send to no_response + tentative = 2 people
         assert len(result["will_send_to"]) == 2
 
-    @patch("code_puppy.tools.msgraph.workflows_ea.get_msgraph_client")
+    @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
     def test_meeting_reminder_all_responded(self, mock_client_factory, mock_context):
         """Test when everyone has responded - no reminders needed."""
         client = MagicMock()
