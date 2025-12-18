@@ -47,8 +47,8 @@ class MSGraphAgent(BaseAgent):
             "msgraph_prep_one_on_one",  # 1:1 prep with manager (extensible for Jira)
             "msgraph_standup_prep",  # Daily standup: yesterday/today/blockers
             "msgraph_performance_summary",  # Self-eval/review prep (90-day summary)
-            "msgraph_calls_for_content",  # Send reminder emails to meeting attendees
-            "msgraph_send_meeting_reminder",  # Remind non-responders to RSVP
+            "msgraph_email_meeting_attendees",  # Send email to all meeting attendees
+            "msgraph_nudge_non_responders",  # Remind non-responders to RSVP
             #
             # === CALENDAR (events, scheduling, attendees) ===
             "msgraph_list_events",

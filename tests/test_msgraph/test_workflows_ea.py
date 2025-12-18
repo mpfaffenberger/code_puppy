@@ -17,8 +17,8 @@ from code_puppy.tools.msgraph.workflows_ea import (
     msgraph_performance_summary,
 )
 from code_puppy.tools.msgraph.workflows_meeting import (
-    msgraph_calls_for_content,
-    msgraph_send_meeting_reminder,
+    msgraph_email_meeting_attendees,
+    msgraph_nudge_non_responders,
 )
 
 
@@ -520,12 +520,12 @@ class TestPerformanceSummary:
         assert "meetings" in insight_text.lower() or "week" in insight_text.lower()
 
 
-class TestCallsForContent:
-    """Tests for msgraph_calls_for_content workflow."""
+class TestEmailMeetingAttendees:
+    """Tests for msgraph_email_meeting_attendees workflow."""
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_calls_for_content_preview(self, mock_client_factory, mock_context):
-        """Test calls for content in preview mode."""
+    def test_email_attendees_preview(self, mock_client_factory, mock_context):
+        """Test emailing attendees in preview mode."""
         client = MagicMock()
         mock_client_factory.return_value = client
 
@@ -568,8 +568,12 @@ class TestCallsForContent:
             ]
         }
 
-        result = msgraph_calls_for_content(
-            mock_context, meeting_subject="Trade Prep", preview_only=True
+        result = msgraph_email_meeting_attendees(
+            mock_context,
+            meeting_subject="Trade Prep",
+            email_subject="Please submit your slides",
+            email_body="Hi, please send your materials by Friday.",
+            preview_only=True,
         )
 
         assert result["success"] is True
@@ -577,69 +581,30 @@ class TestCallsForContent:
         assert len(result["recipients"]) == 2
         assert result["preview_only"] is True
         assert result["sent_count"] == 0
-        assert "Call for Content" in result["email"]["subject"]
+        assert result["email"]["subject"] == "Please submit your slides"
+        assert result["email"]["body"] == "Hi, please send your materials by Friday."
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_calls_for_content_no_meeting_found(
-        self, mock_client_factory, mock_context
-    ):
+    def test_email_attendees_no_meeting_found(self, mock_client_factory, mock_context):
         """Test error when meeting not found."""
         client = MagicMock()
         mock_client_factory.return_value = client
 
         client.get.return_value = {"value": []}
 
-        result = msgraph_calls_for_content(
-            mock_context, meeting_subject="Nonexistent Meeting"
+        result = msgraph_email_meeting_attendees(
+            mock_context,
+            meeting_subject="Nonexistent Meeting",
+            email_subject="Test",
+            email_body="Test body",
         )
 
         assert result["success"] is False
         assert "No upcoming meeting found" in result["error"]
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_calls_for_content_custom_message(self, mock_client_factory, mock_context):
-        """Test calls for content with custom email body."""
-        client = MagicMock()
-        mock_client_factory.return_value = client
-
-        from datetime import datetime, timedelta, timezone
-
-        now = datetime.now(timezone.utc)
-
-        client.get.return_value = {
-            "value": [
-                {
-                    "id": "event-123",
-                    "subject": "Q4 Planning",
-                    "start": {"dateTime": (now + timedelta(days=3)).isoformat()},
-                    "end": {"dateTime": (now + timedelta(days=3, hours=2)).isoformat()},
-                    "location": {},
-                    "organizer": {"emailAddress": {"address": "org@walmart.com"}},
-                    "attendees": [
-                        {
-                            "emailAddress": {
-                                "address": "user@walmart.com",
-                                "name": "User",
-                            }
-                        }
-                    ],
-                }
-            ]
-        }
-
-        result = msgraph_calls_for_content(
-            mock_context,
-            meeting_subject="Q4 Planning",
-            email_body="Please submit slides by Friday.",
-            preview_only=True,
-        )
-
-        assert result["success"] is True
-        assert result["email"]["body"] == "Please submit slides by Friday."
-
-    @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_calls_for_content_with_cc(self, mock_client_factory, mock_context):
-        """Test calls for content with CC recipients (Monica's use case)."""
+    def test_email_attendees_with_cc(self, mock_client_factory, mock_context):
+        """Test emailing attendees with CC recipients."""
         client = MagicMock()
         mock_client_factory.return_value = client
 
@@ -668,9 +633,11 @@ class TestCallsForContent:
             ]
         }
 
-        result = msgraph_calls_for_content(
+        result = msgraph_email_meeting_attendees(
             mock_context,
             meeting_subject="Strategy Leadership",
+            email_subject="Reminder",
+            email_body="Please submit materials.",
             cc_emails=["support@walmart.com", "admin@walmart.com"],
             preview_only=True,
         )
@@ -682,14 +649,12 @@ class TestCallsForContent:
         assert "(CC: 2)" in result["message"]
 
 
-class TestSendMeetingReminder:
-    """Tests for msgraph_send_meeting_reminder workflow."""
+class TestNudgeNonResponders:
+    """Tests for msgraph_nudge_non_responders workflow."""
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_meeting_reminder_with_non_responders(
-        self, mock_client_factory, mock_context
-    ):
-        """Test sending reminders to non-responders."""
+    def test_nudge_with_non_responders(self, mock_client_factory, mock_context):
+        """Test nudging non-responders."""
         client = MagicMock()
         mock_client_factory.return_value = client
 
@@ -734,8 +699,12 @@ class TestSendMeetingReminder:
             ]
         }
 
-        result = msgraph_send_meeting_reminder(
-            mock_context, meeting_subject="Standup", preview_only=True
+        result = msgraph_nudge_non_responders(
+            mock_context,
+            meeting_subject="Standup",
+            email_subject="Please RSVP: Team Standup",
+            email_body="Hi, please respond to the calendar invite.",
+            preview_only=True,
         )
 
         assert result["success"] is True
@@ -744,10 +713,11 @@ class TestSendMeetingReminder:
         assert len(result["attendee_status"]["tentative"]) == 1
         # Should send to no_response + tentative = 2 people
         assert len(result["will_send_to"]) == 2
+        assert result["email"]["subject"] == "Please RSVP: Team Standup"
 
     @patch("code_puppy.tools.msgraph.workflows_meeting.get_msgraph_client")
-    def test_meeting_reminder_all_responded(self, mock_client_factory, mock_context):
-        """Test when everyone has responded - no reminders needed."""
+    def test_nudge_all_responded(self, mock_client_factory, mock_context):
+        """Test when everyone has responded - no nudges needed."""
         client = MagicMock()
         mock_client_factory.return_value = client
 
@@ -783,10 +753,12 @@ class TestSendMeetingReminder:
             ]
         }
 
-        result = msgraph_send_meeting_reminder(
+        result = msgraph_nudge_non_responders(
             mock_context,
             meeting_subject="Design Review",
-            include_non_responders_only=True,
+            email_subject="Please RSVP",
+            email_body="Please respond.",
+            include_tentative=False,
             preview_only=True,
         )
 

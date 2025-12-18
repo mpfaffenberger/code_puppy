@@ -167,10 +167,10 @@ from code_puppy.tools.msgraph.workflows_ea import (
     register_msgraph_performance_summary,
 )
 
-# Meeting management workflows (calls for content, reminders)
+# Meeting management workflows (email attendees, nudge non-responders)
 from code_puppy.tools.msgraph.workflows_meeting import (
-    register_msgraph_calls_for_content,
-    register_msgraph_send_meeting_reminder,
+    register_msgraph_email_meeting_attendees,
+    register_msgraph_nudge_non_responders,
 )
 
 # Convenience dict for bulk registration
@@ -280,6 +280,6 @@ MSGRAPH_TOOLS = {
     "msgraph_prep_one_on_one": register_msgraph_prep_one_on_one,
     "msgraph_standup_prep": register_msgraph_standup_prep,
     "msgraph_performance_summary": register_msgraph_performance_summary,
-    "msgraph_calls_for_content": register_msgraph_calls_for_content,
-    "msgraph_send_meeting_reminder": register_msgraph_send_meeting_reminder,
+    "msgraph_email_meeting_attendees": register_msgraph_email_meeting_attendees,
+    "msgraph_nudge_non_responders": register_msgraph_nudge_non_responders,
 }

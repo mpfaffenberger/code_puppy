@@ -1,89 +1,91 @@
 """Meeting management workflow tools for Microsoft Graph.
 
 These tools provide high-level meeting automation:
-- Calls for content (remind presenters to submit materials)
-- Meeting reminders (nudge non-responders)
+- Email meeting attendees (bulk notify with filtering)
+- Nudge non-responders to RSVP
 
 Design Principles:
 - Preview by default (safety first)
 - Return structured data for chaining
-- Support custom templates
+- Require explicit email content (no bespoke templates)
 - Track send/skip status
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 from rich.text import Text
 
-from code_puppy.messaging import emit_info, emit_success
+from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.tools.msgraph.common import _handle_msgraph_error, get_msgraph_client
 
 
 # =============================================================================
-# WORKFLOW: CALLS FOR CONTENT
+# WORKFLOW: EMAIL MEETING ATTENDEES
 # =============================================================================
 
 
-def msgraph_calls_for_content(
+def msgraph_email_meeting_attendees(
     ctx: RunContext[Any],
     *,
+    email_subject: str,
+    email_body: str,
     meeting_subject: str | None = None,
     event_id: str | None = None,
-    days_before: int = 3,
-    email_subject: str | None = None,
-    email_body: str | None = None,
     cc_emails: list[str] | None = None,
-    send_to_organizer: bool = False,
-    send_to_all_attendees: bool = True,
+    include_organizer: bool = False,
     preview_only: bool = True,
 ) -> dict:
-    """Send "Calls for Content" reminder emails to meeting attendees.
+    """Send an email to all attendees of a meeting.
 
-    This workflow automates the common pattern of reminding presenters
-    to submit their materials before a meeting. It:
-    1. Finds the meeting by subject or ID
-    2. Gets the attendee list
-    3. Generates or uses a custom email template
-    4. Sends (or previews) the reminder emails
+    This workflow finds a meeting and sends a custom email to its attendees.
+    Useful for: meeting prep reminders, follow-ups, material requests, etc.
 
     Args:
         ctx: The run context.
+        email_subject: Subject line for the email (REQUIRED).
+        email_body: Body content for the email (REQUIRED).
         meeting_subject: Search for meeting by subject (partial match).
         event_id: Direct event ID (if known).
-        days_before: Days before meeting to mention in email (default 3).
-        email_subject: Custom email subject (uses template if not provided).
-        email_body: Custom email body (uses template if not provided).
-        cc_emails: List of email addresses to CC on all emails (e.g., support staff).
-        send_to_organizer: Include the meeting organizer (default False).
-        send_to_all_attendees: Send to all attendees (default True).
-        preview_only: If True, preview emails without sending (default True).
+        cc_emails: List of email addresses to CC on all emails.
+        include_organizer: Include the meeting organizer in recipients (default False).
+        preview_only: If True, preview without sending (default True).
 
     Returns:
-        Dict with meeting info, recipient list, email content, and send status.
+        Dict with:
+        - success: bool
+        - meeting: Meeting details (id, subject, start)
+        - recipients: List of {email, name} who will receive/received email
+        - cc_recipients: List of CC email addresses
+        - email: {subject, body} that will be/was sent
+        - preview_only: Whether this was a preview
+        - sent_count: Number of emails sent (0 if preview)
+        - skipped: List of {email, reason} for skipped recipients
 
     Example:
-        # Preview calls for content for Trade Prep meeting
-        msgraph_calls_for_content(
-            meeting_subject="Trade Prep",
-            days_before=5,
+        # Preview sending prep reminder
+        msgraph_email_meeting_attendees(
+            meeting_subject="Q4 Planning",
+            email_subject="Please submit your slides",
+            email_body="Hi, please send your slides by Friday EOD.",
             preview_only=True
         )
 
-        # Send with custom message and CC support staff
-        msgraph_calls_for_content(
-            meeting_subject="Q4 Planning",
-            email_body="Please submit your slides by EOD Friday.",
-            cc_emails=["support@walmart.com"],
+        # Send with CC to admin
+        msgraph_email_meeting_attendees(
+            meeting_subject="Trade Prep",
+            email_subject="Materials needed for Monday",
+            email_body="Please submit your deck updates.",
+            cc_emails=["admin@company.com"],
             preview_only=False
         )
     """
     emit_info(
         Text.from_markup(
             "\n[bold white on blue] MS GRAPH [/bold white on blue] "
-            "\U0001f4e2 [bold cyan]Preparing calls for content...[/bold cyan]"
+            "\U0001f4e7 [bold cyan]Preparing to email meeting attendees...[/bold cyan]"
         )
     )
 
@@ -100,8 +102,8 @@ def msgraph_calls_for_content(
             "recipients": [],
             "cc_recipients": cc_emails or [],
             "email": {
-                "subject": None,
-                "body": None,
+                "subject": email_subject,
+                "body": email_body,
             },
             "preview_only": preview_only,
             "sent_count": 0,
@@ -160,18 +162,6 @@ def msgraph_calls_for_content(
         }
         result["meeting"] = meeting_info
 
-        # Parse meeting date for email
-        try:
-            meeting_dt = datetime.fromisoformat(
-                meeting_info["start"].replace("Z", "+00:00")
-            )
-            meeting_date_str = meeting_dt.strftime("%A, %B %d")
-            deadline_dt = meeting_dt - timedelta(days=days_before)
-            deadline_str = deadline_dt.strftime("%A, %B %d")
-        except (ValueError, TypeError, AttributeError):
-            meeting_date_str = "the upcoming meeting"
-            deadline_str = f"{days_before} days before the meeting"
-
         # Step 2: Build recipient list
         organizer_email = (
             event.get("organizer", {})
@@ -187,14 +177,14 @@ def msgraph_calls_for_content(
             name = email_info.get("name", email)
 
             # Skip organizer unless requested
-            if email == organizer_email and not send_to_organizer:
+            if email == organizer_email and not include_organizer:
                 result["skipped"].append({"email": email, "reason": "organizer"})
                 continue
 
-            if send_to_all_attendees:
-                result["recipients"].append({"email": email, "name": name})
+            result["recipients"].append({"email": email, "name": name})
 
         if not result["recipients"]:
+            emit_warning("No recipients found for this meeting")
             return {
                 "success": False,
                 "error": "No recipients found for this meeting",
@@ -202,51 +192,18 @@ def msgraph_calls_for_content(
                 "skipped": result["skipped"],
             }
 
-        # Step 3: Build email content
-        if email_subject:
-            result["email"]["subject"] = email_subject
-        else:
-            result["email"]["subject"] = (
-                f"\U0001f4cb Call for Content: {meeting_info['subject']}"
-            )
-
-        if email_body:
-            result["email"]["body"] = email_body
-        else:
-            location = meeting_info["location"] or "See calendar invite"
-            result["email"]["body"] = f"""Hi there,
-
-This is a friendly reminder that you're invited to **{meeting_info["subject"]}** on **{meeting_date_str}**.
-
-If you're presenting or have materials to share, please send them by **{deadline_str}** so we can compile the agenda.
-
-**Meeting Details:**
-- **When:** {meeting_date_str}
-- **Where:** {location}
-
-Please reply to this email with:
-- Your presentation slides (if presenting)
-- Any agenda items you'd like to add
-- Topics you'd like to discuss
-
-Thank you!
-
----
-*This is an automated reminder from Code Puppy \U0001f436*
-"""
-
-        # Step 4: Send or preview
+        # Step 3: Send or preview
         cc_count = len(result["cc_recipients"])
         cc_msg = f" (CC: {cc_count})" if cc_count > 0 else ""
 
         if preview_only:
             emit_success(
-                f"Preview ready: {len(result['recipients'])} recipients{cc_msg} for "
+                f"Preview: {len(result['recipients'])} recipients{cc_msg} for "
                 f"'{meeting_info['subject']}'"
             )
             result["message"] = (
-                f"Preview mode: Would send to {len(result['recipients'])} recipients{cc_msg}. "
-                f"Set preview_only=False to send."
+                f"Preview mode: Would send to {len(result['recipients'])} "
+                f"recipients{cc_msg}. Set preview_only=False to send."
             )
         else:
             # Build CC recipients list
@@ -260,10 +217,10 @@ Thank you!
             for recipient in result["recipients"]:
                 try:
                     message = {
-                        "subject": result["email"]["subject"],
+                        "subject": email_subject,
                         "body": {
                             "contentType": "text",
-                            "content": result["email"]["body"],
+                            "content": email_body,
                         },
                         "toRecipients": [
                             {
@@ -287,9 +244,7 @@ Thank you!
                     )
 
             result["sent_count"] = sent
-            emit_success(
-                f"Sent {sent} calls for content emails for '{meeting_info['subject']}'"
-            )
+            emit_success(f"Sent {sent} emails for '{meeting_info['subject']}'")
 
         return result
 
@@ -297,47 +252,61 @@ Thank you!
         return _handle_msgraph_error(e)
 
 
-def register_msgraph_calls_for_content(agent: Any) -> Tool:
-    """Register the calls for content workflow tool."""
-    return agent.tool()(msgraph_calls_for_content)
+def register_msgraph_email_meeting_attendees(agent: Any) -> Tool:
+    """Register the email meeting attendees workflow tool."""
+    return agent.tool()(msgraph_email_meeting_attendees)
 
 
 # =============================================================================
-# WORKFLOW: MEETING REMINDER
+# WORKFLOW: NUDGE NON-RESPONDERS
 # =============================================================================
 
 
-def msgraph_send_meeting_reminder(
+def msgraph_nudge_non_responders(
     ctx: RunContext[Any],
     *,
+    email_subject: str,
+    email_body: str,
     meeting_subject: str | None = None,
     event_id: str | None = None,
-    custom_message: str | None = None,
-    include_non_responders_only: bool = False,
+    include_tentative: bool = True,
     preview_only: bool = True,
 ) -> dict:
     """Send reminder emails to meeting attendees who haven't responded.
 
-    This workflow helps ensure meeting attendance by:
-    1. Finding the meeting
-    2. Checking RSVP status of each attendee
-    3. Sending reminders to non-responders (or all attendees)
+    This workflow finds attendees who haven't RSVP'd and sends them a reminder.
 
     Args:
         ctx: The run context.
+        email_subject: Subject line for the reminder (REQUIRED).
+        email_body: Body content for the reminder (REQUIRED).
         meeting_subject: Search for meeting by subject.
         event_id: Direct event ID.
-        custom_message: Custom message to include in reminder.
-        include_non_responders_only: Only send to those who haven't RSVP'd (default False).
+        include_tentative: Also nudge tentative responders (default True).
         preview_only: Preview without sending (default True).
 
     Returns:
-        Dict with attendee status and send results.
+        Dict with:
+        - success: bool
+        - meeting: Meeting details
+        - attendee_status: {accepted, declined, tentative, no_response} lists
+        - will_send_to: Recipients who will receive/received the nudge
+        - email: {subject, body}
+        - preview_only: Whether this was a preview
+        - sent_count: Number of emails sent
+
+    Example:
+        msgraph_nudge_non_responders(
+            meeting_subject="Team Standup",
+            email_subject="Please RSVP: Team Standup",
+            email_body="Hi, please respond to the calendar invite.",
+            preview_only=True
+        )
     """
     emit_info(
         Text.from_markup(
             "\n[bold white on blue] MS GRAPH [/bold white on blue] "
-            "\U0001f514 [bold cyan]Preparing meeting reminder...[/bold cyan]"
+            "\U0001f514 [bold cyan]Finding non-responders...[/bold cyan]"
         )
     )
 
@@ -358,6 +327,10 @@ def msgraph_send_meeting_reminder(
                 "no_response": [],
             },
             "will_send_to": [],
+            "email": {
+                "subject": email_subject,
+                "body": email_body,
+            },
             "preview_only": preview_only,
             "sent_count": 0,
         }
@@ -402,15 +375,6 @@ def msgraph_send_meeting_reminder(
             "start": event.get("start", {}).get("dateTime"),
         }
 
-        # Parse meeting date
-        try:
-            meeting_dt = datetime.fromisoformat(
-                event["start"]["dateTime"].replace("Z", "+00:00")
-            )
-            meeting_date_str = meeting_dt.strftime("%A, %B %d at %I:%M %p")
-        except (ValueError, TypeError, KeyError):
-            meeting_date_str = "the scheduled time"
-
         # Categorize attendees by response
         for att in event.get("attendees", []):
             email_info = att.get("emailAddress", {})
@@ -430,49 +394,23 @@ def msgraph_send_meeting_reminder(
                 result["attendee_status"]["no_response"].append(attendee_info)
 
         # Determine who to send to
-        if include_non_responders_only:
-            result["will_send_to"] = result["attendee_status"]["no_response"]
-        else:
-            # Send to non-responders + tentative
-            result["will_send_to"] = (
-                result["attendee_status"]["no_response"]
-                + result["attendee_status"]["tentative"]
-            )
+        result["will_send_to"] = list(result["attendee_status"]["no_response"])
+        if include_tentative:
+            result["will_send_to"].extend(result["attendee_status"]["tentative"])
 
         if not result["will_send_to"]:
-            result["message"] = "Everyone has responded! No reminders needed."
-            emit_success("All attendees have responded - no reminders needed")
+            result["message"] = "Everyone has responded! No nudges needed."
+            emit_success("All attendees have responded - no nudges needed")
             return result
-
-        # Build reminder email
-        subject = f"\U0001f514 Reminder: {event.get('subject', 'Meeting')}"
-        meeting_name = event.get("subject", "our upcoming meeting")
-        body = f"""Hi,
-
-This is a friendly reminder about **{meeting_name}** on **{meeting_date_str}**.
-
-Please respond to the calendar invite to confirm your attendance.
-
-"""
-        if custom_message:
-            body += f"{custom_message}\n\n"
-
-        body += """Thank you!
-
----
-*This is an automated reminder from Code Puppy \U0001f436*
-"""
-
-        result["email"] = {"subject": subject, "body": body}
 
         # Send or preview
         if preview_only:
             emit_success(
-                f"Preview: Would remind {len(result['will_send_to'])} attendees"
+                f"Preview: Would nudge {len(result['will_send_to'])} attendees"
             )
             result["message"] = (
-                f"Preview mode: Would send to {len(result['will_send_to'])} attendees. "
-                f"Set preview_only=False to send."
+                f"Preview mode: Would send to {len(result['will_send_to'])} "
+                f"attendees. Set preview_only=False to send."
             )
         else:
             sent = 0
@@ -482,8 +420,11 @@ Please respond to the calendar invite to confirm your attendance.
                         "/me/sendMail",
                         json={
                             "message": {
-                                "subject": subject,
-                                "body": {"contentType": "text", "content": body},
+                                "subject": email_subject,
+                                "body": {
+                                    "contentType": "text",
+                                    "content": email_body,
+                                },
                                 "toRecipients": [
                                     {
                                         "emailAddress": {
@@ -500,7 +441,7 @@ Please respond to the calendar invite to confirm your attendance.
                     pass
 
             result["sent_count"] = sent
-            emit_success(f"Sent {sent} reminder emails")
+            emit_success(f"Sent {sent} nudge emails")
 
         return result
 
@@ -508,6 +449,6 @@ Please respond to the calendar invite to confirm your attendance.
         return _handle_msgraph_error(e)
 
 
-def register_msgraph_send_meeting_reminder(agent: Any) -> Tool:
-    """Register the meeting reminder workflow tool."""
-    return agent.tool()(msgraph_send_meeting_reminder)
+def register_msgraph_nudge_non_responders(agent: Any) -> Tool:
+    """Register the nudge non-responders workflow tool."""
+    return agent.tool()(msgraph_nudge_non_responders)
