@@ -228,6 +228,12 @@ from code_puppy.tools.msgraph.teams_extended import (
     register_msgraph_get_recent_channel_activity,
 )
 
+# Focus and productivity workflows
+from code_puppy.tools.msgraph.workflows_focus import (
+    register_msgraph_daily_focus,
+    register_msgraph_smart_meeting_prep,
+)
+
 # Convenience dict for bulk registration
 MSGRAPH_TOOLS = {
     # Users
@@ -370,4 +376,7 @@ MSGRAPH_TOOLS = {
     "msgraph_get_unread_chats": register_msgraph_get_unread_chats,
     "msgraph_search_chat_messages": register_msgraph_search_chat_messages,
     "msgraph_get_recent_channel_activity": register_msgraph_get_recent_channel_activity,
+    # Focus and productivity
+    "msgraph_daily_focus": register_msgraph_daily_focus,
+    "msgraph_smart_meeting_prep": register_msgraph_smart_meeting_prep,
 }

@@ -138,6 +138,10 @@ class MSGraphAgent(BaseAgent):
             "msgraph_search_chat_messages",  # Search within Teams chats
             "msgraph_get_recent_channel_activity",  # Recent channel activity
             #
+            # === FOCUS & PRODUCTIVITY ===
+            "msgraph_daily_focus",  # Prioritized daily view
+            "msgraph_smart_meeting_prep",  # Comprehensive meeting prep
+            #
             # === TASKS (To Do) ===
             "msgraph_list_todo_tasks",
             "msgraph_create_todo_task",
