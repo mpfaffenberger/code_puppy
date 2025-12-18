@@ -1035,14 +1035,15 @@ class TestMeetingHealthErrors:
     internally, so we mock at the calendar level.
     """
 
-    @patch("code_puppy.tools.msgraph.calendar.get_msgraph_client")
+    @patch("code_puppy.tools.msgraph.meeting_health.get_msgraph_client")
     def test_analyze_meeting_health_error(self, mock_client_fn):
-        """Test analyzing meeting when API fails."""
+        """Test analyzing meeting when not authenticated."""
         from code_puppy.tools.msgraph.meeting_health import (
             msgraph_analyze_meeting_health,
         )
 
-        mock_client_fn.side_effect = Exception("API error")
+        # Simulate not being authenticated
+        mock_client_fn.return_value = None
 
         mock_context = MagicMock()
         result = msgraph_analyze_meeting_health(mock_context)
@@ -1066,26 +1067,28 @@ class TestMeetingHealthErrors:
 
         assert result["success"] is False
 
-    @patch("code_puppy.tools.msgraph.calendar.get_msgraph_client")
+    @patch("code_puppy.tools.msgraph.meeting_health.get_msgraph_client")
     def test_find_pending_rsvps_error(self, mock_client_fn):
-        """Test finding pending RSVPs when API fails."""
+        """Test finding pending RSVPs when not authenticated."""
         from code_puppy.tools.msgraph.meeting_health import msgraph_find_pending_rsvps
 
-        mock_client_fn.side_effect = Exception("API error")
+        # Simulate not being authenticated
+        mock_client_fn.return_value = None
 
         mock_context = MagicMock()
         result = msgraph_find_pending_rsvps(mock_context)
 
         assert result["success"] is False
 
-    @patch("code_puppy.tools.msgraph.calendar.get_msgraph_client")
+    @patch("code_puppy.tools.msgraph.meeting_health.get_msgraph_client")
     def test_find_my_pending_responses_error(self, mock_client_fn):
-        """Test finding my pending when API fails."""
+        """Test finding my pending when not authenticated."""
         from code_puppy.tools.msgraph.meeting_health import (
             msgraph_find_my_pending_responses,
         )
 
-        mock_client_fn.side_effect = Exception("API error")
+        # Simulate not being authenticated
+        mock_client_fn.return_value = None
 
         mock_context = MagicMock()
         result = msgraph_find_my_pending_responses(mock_context)

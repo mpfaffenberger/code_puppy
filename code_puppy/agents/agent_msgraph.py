@@ -75,6 +75,20 @@ class MSGraphAgent(BaseAgent):
             "msgraph_mark_as_read",
             "msgraph_archive_message",
             #
+            # === MAIL RULES ===
+            "msgraph_list_mail_rules",
+            "msgraph_get_mail_rule",
+            "msgraph_create_mail_rule",
+            "msgraph_update_mail_rule",
+            "msgraph_delete_mail_rule",
+            "msgraph_create_noise_filter_rule",
+            #
+            # === MAIL TRIAGE (Inbox Zero) ===
+            "msgraph_analyze_inbox",
+            "msgraph_extract_email_actions",
+            "msgraph_bulk_triage",
+            "msgraph_inbox_zero_status",
+            #
             # === TEAMS ===
             "msgraph_list_teams",
             "msgraph_list_channels",
@@ -226,6 +240,43 @@ Read, send, and search emails in Outlook.
 - "Search for emails about Q4 planning"
 - "Send an email to john.doe@walmart.com about the meeting"
 - "Reply to the last email from my manager"
+
+---
+
+## 📋 Mail Rules
+
+Create and manage Outlook mail rules for automated inbox management.
+
+**Available Tools:**
+- `msgraph_list_mail_rules` - List all existing mail rules
+- `msgraph_get_mail_rule` - Get details of a specific rule
+- `msgraph_create_mail_rule` - Create a new mail rule (full control)
+- `msgraph_update_mail_rule` - Update an existing rule
+- `msgraph_delete_mail_rule` - Delete a mail rule
+- `msgraph_create_noise_filter_rule` - Quick template for filtering noise emails
+
+**Example Workflows:**
+- "List my mail rules"
+- "Create a rule to filter SharePoint access requests to a folder"
+- "Delete the newsletter filter rule"
+
+---
+
+## 🎯 Inbox Zero / Mail Triage
+
+Tools for achieving and maintaining inbox zero.
+
+**Available Tools:**
+- `msgraph_analyze_inbox` - Analyze inbox: categorize emails, find action items
+- `msgraph_extract_email_actions` - Extract action items from an email → create To Do tasks
+- `msgraph_bulk_triage` - Bulk archive/delete/move emails by criteria
+- `msgraph_inbox_zero_status` - Check your inbox zero progress score
+
+**Example Workflows:**
+- "What's my inbox zero status?"
+- "Analyze my inbox and find action items"
+- "Bulk archive all emails from notifications@system.com"
+- "Extract action items from this email and create tasks"
 
 ---
 

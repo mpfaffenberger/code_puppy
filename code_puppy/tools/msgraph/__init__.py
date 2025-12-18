@@ -173,6 +173,25 @@ from code_puppy.tools.msgraph.workflows_meeting import (
     register_msgraph_nudge_non_responders,
 )
 
+# Mail Rules (create, update, delete mail rules)
+from code_puppy.tools.msgraph.mail_rules import (
+    register_msgraph_list_mail_rules,
+    register_msgraph_get_mail_rule,
+    register_msgraph_create_mail_rule,
+    register_msgraph_update_mail_rule,
+    register_msgraph_delete_mail_rule,
+    register_msgraph_create_noise_filter_rule,
+    register_msgraph_list_mail_folders as register_msgraph_list_mail_folders_v2,
+)
+
+# Mail Triage (inbox zero workflows)
+from code_puppy.tools.msgraph.mail_triage import (
+    register_msgraph_analyze_inbox,
+    register_msgraph_extract_email_actions,
+    register_msgraph_bulk_triage,
+    register_msgraph_inbox_zero_status,
+)
+
 # Convenience dict for bulk registration
 MSGRAPH_TOOLS = {
     # Users
@@ -282,4 +301,16 @@ MSGRAPH_TOOLS = {
     "msgraph_performance_summary": register_msgraph_performance_summary,
     "msgraph_email_meeting_attendees": register_msgraph_email_meeting_attendees,
     "msgraph_nudge_non_responders": register_msgraph_nudge_non_responders,
+    # Mail Rules
+    "msgraph_list_mail_rules": register_msgraph_list_mail_rules,
+    "msgraph_get_mail_rule": register_msgraph_get_mail_rule,
+    "msgraph_create_mail_rule": register_msgraph_create_mail_rule,
+    "msgraph_update_mail_rule": register_msgraph_update_mail_rule,
+    "msgraph_delete_mail_rule": register_msgraph_delete_mail_rule,
+    "msgraph_create_noise_filter_rule": register_msgraph_create_noise_filter_rule,
+    # Mail Triage
+    "msgraph_analyze_inbox": register_msgraph_analyze_inbox,
+    "msgraph_extract_email_actions": register_msgraph_extract_email_actions,
+    "msgraph_bulk_triage": register_msgraph_bulk_triage,
+    "msgraph_inbox_zero_status": register_msgraph_inbox_zero_status,
 }
