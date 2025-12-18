@@ -288,12 +288,16 @@ async def main():
 
                 emit_error(f"Model '{model_name}' not found")
                 emit_system_message(
-                    Text.from_markup(f"[dim]Available models: {', '.join(available_models)}[/dim]")
+                    Text.from_markup(
+                        f"[dim]Available models: {', '.join(available_models)}[/dim]"
+                    )
                 )
                 sys.exit(1)
 
             # Model is valid, show confirmation (already set earlier)
-            emit_system_message(Text.from_markup(f"[dim]🎯 Using model: {model_name}[/dim]"))
+            emit_system_message(
+                Text.from_markup(f"[dim]🎯 Using model: {model_name}[/dim]")
+            )
         except Exception as e:
             emit_error(f"Error validating model: {str(e)}")
             sys.exit(1)
@@ -320,7 +324,9 @@ async def main():
 
             # Agent exists, set it
             set_current_agent(agent_name)
-            emit_system_message(Text.from_markup(f"[dim]🤖 Using agent: {agent_name}[/dim]"))
+            emit_system_message(
+                Text.from_markup(f"[dim]🤖 Using agent: {agent_name}[/dim]")
+            )
         except Exception as e:
             emit_error(f"Error setting agent: {str(e)}")
             sys.exit(1)
@@ -427,7 +433,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.messaging import emit_system_message
 
     emit_system_message(
-        Text.from_markup("[dim]Type '/exit' or '/quit' to exit the interactive mode.[/dim]")
+        Text.from_markup(
+            "[dim]Type '/exit' or '/quit' to exit the interactive mode.[/dim]"
+        )
     )
     emit_system_message(
         Text.from_markup("[dim]Type 'clear' to reset the conversation history.[/dim]")

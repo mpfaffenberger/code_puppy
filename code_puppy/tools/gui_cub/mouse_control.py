@@ -158,7 +158,11 @@ def register_mouse_control_tools(agent):
         if IS_MACOS:
             success, error = move_mouse_native(x, y, duration=duration)
             if not success:
-                emit_warning(Text.from_markup(f"[yellow]Native mouse move failed: {error}[/yellow]"))
+                emit_warning(
+                    Text.from_markup(
+                        f"[yellow]Native mouse move failed: {error}[/yellow]"
+                    )
+                )
                 return MouseActionResult(
                     success=False,
                     error=error or "Native mouse move failed",

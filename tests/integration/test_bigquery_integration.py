@@ -215,9 +215,7 @@ class TestBigQueryToolsIntegration:
             assert len(result["rows"]) == 1
             assert result["rows"][0]["count"] == 100
 
-    def test_execute_query_tool_saves_results(
-        self, mock_run_context, tmp_path: Path
-    ):
+    def test_execute_query_tool_saves_results(self, mock_run_context, tmp_path: Path):
         """Test saving query results to a user-provided path."""
         with patch("code_puppy.tools.bigquery_tools.BigQueryClient") as MockClient:
             mock_client = Mock()

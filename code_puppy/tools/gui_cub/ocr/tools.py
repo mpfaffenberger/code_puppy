@@ -189,7 +189,9 @@ def desktop_find_text(
         # Apply confidence filter if specified
         if min_confidence is not None and find_result.found:
             if find_result.matches:
-                high_conf = [m for m in find_result.matches if m.confidence >= min_confidence]
+                high_conf = [
+                    m for m in find_result.matches if m.confidence >= min_confidence
+                ]
                 if not high_conf:
                     return OCRFindResult(
                         success=True,

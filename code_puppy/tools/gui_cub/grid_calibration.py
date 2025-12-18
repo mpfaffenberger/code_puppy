@@ -384,7 +384,10 @@ Marker reference:
                 Text.from_markup(f"[green]Test pattern saved: {save_path}[/green]"),
                 message_group=group_id,
             )
-            emit_info(Text.from_markup(f"[dim]{instructions.strip()}[/dim]"), message_group=group_id)
+            emit_info(
+                Text.from_markup(f"[dim]{instructions.strip()}[/dim]"),
+                message_group=group_id,
+            )
 
             return GridCalibrationResult(
                 success=True,

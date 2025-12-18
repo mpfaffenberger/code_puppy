@@ -543,9 +543,21 @@ def click_mouse_native(
 
             # Map button names to Quartz constants
             button_map = {
-                "left": (kCGMouseButtonLeft, kCGEventLeftMouseDown, kCGEventLeftMouseUp),
-                "right": (kCGMouseButtonRight, kCGEventRightMouseDown, kCGEventRightMouseUp),
-                "middle": (kCGMouseButtonCenter, kCGEventOtherMouseDown, kCGEventOtherMouseUp),
+                "left": (
+                    kCGMouseButtonLeft,
+                    kCGEventLeftMouseDown,
+                    kCGEventLeftMouseUp,
+                ),
+                "right": (
+                    kCGMouseButtonRight,
+                    kCGEventRightMouseDown,
+                    kCGEventRightMouseUp,
+                ),
+                "middle": (
+                    kCGMouseButtonCenter,
+                    kCGEventOtherMouseDown,
+                    kCGEventOtherMouseUp,
+                ),
             }
 
             if button not in button_map:

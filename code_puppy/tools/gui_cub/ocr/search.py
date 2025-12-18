@@ -80,7 +80,9 @@ def find_text_in_elements(
                 )
             )
         if len(matches) > 5:
-            emit_info(Text.from_markup(f"[dim]   ... and {len(matches) - 5} more[/dim]"))
+            emit_info(
+                Text.from_markup(f"[dim]   ... and {len(matches) - 5} more[/dim]")
+            )
     else:
         emit_warning(
             Text.from_markup(

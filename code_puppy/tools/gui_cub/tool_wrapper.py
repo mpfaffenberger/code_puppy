@@ -235,7 +235,10 @@ def desktop_tool(
                     elif "answer" in result:
                         success_msg = f"Answer: {result['answer'][:100]}"
 
-                    emit_info(Text.from_markup(f"[green]{success_msg}[/green]"), message_group=group_id)
+                    emit_info(
+                        Text.from_markup(f"[green]{success_msg}[/green]"),
+                        message_group=group_id,
+                    )
 
                 return result
 
@@ -245,7 +248,9 @@ def desktop_tool(
                 if error_class == "FailSafeException":
                     if emit_errors:
                         emit_warning(
-                            Text.from_markup(f"[yellow]{ERROR_FAILSAFE_TRIGGERED}[/yellow]"),
+                            Text.from_markup(
+                                f"[yellow]{ERROR_FAILSAFE_TRIGGERED}[/yellow]"
+                            ),
                             message_group=group_id,
                         )
                     return {"success": False, "error": ERROR_FAILSAFE_TRIGGERED}

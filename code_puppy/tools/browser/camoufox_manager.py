@@ -103,7 +103,11 @@ class CamoufoxManager:
         import camoufox
         from camoufox.addons import DefaultAddons
 
-        emit_info(Text.from_markup(f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]"))
+        emit_info(
+            Text.from_markup(
+                f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]"
+            )
+        )
 
         camoufox_instance = camoufox.AsyncCamoufox(
             headless=self.headless,

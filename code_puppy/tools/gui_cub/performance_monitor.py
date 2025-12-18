@@ -145,7 +145,9 @@ class PerformanceMonitor:
         Args:
             show_details: Show detailed per-operation stats
         """
-        emit_info(Text.from_markup("[bold cyan]\n=== Performance Report ===[/bold cyan]"))
+        emit_info(
+            Text.from_markup("[bold cyan]\n=== Performance Report ===[/bold cyan]")
+        )
 
         if show_details and self.metrics:
             emit_info(Text.from_markup("\n[bold]Operation Timings:[/bold]"))
@@ -174,7 +176,9 @@ class PerformanceMonitor:
             emit_info(f"  Full Searches: {self.full_searches}")
             emit_info(f"  Early Stop Rate: {self.early_stop_rate * 100:.1f}%")
 
-        emit_info(Text.from_markup("[bold cyan]=========================\n[/bold cyan]"))
+        emit_info(
+            Text.from_markup("[bold cyan]=========================\n[/bold cyan]")
+        )
 
     def reset(self) -> None:
         """Reset all metrics."""

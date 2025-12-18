@@ -18,6 +18,7 @@ try:
 except ImportError:
     # Fallback if messaging isn't available yet (during early import)
     Text = None
+
     def emit_info(msg, **kwargs):
         pass  # Silent fallback during bootstrap
 
@@ -74,7 +75,11 @@ def set_proxy_environment():
     for key, value in WALMART_PROXY_SETTINGS.items():
         if key not in os.environ:
             os.environ[key] = value
-            emit_info(Text.from_markup(f"[dim]🌐 Set proxy env {key}={value}[/dim]") if Text else f"Set proxy env {key}={value}")
+            emit_info(
+                Text.from_markup(f"[dim]🌐 Set proxy env {key}={value}[/dim]")
+                if Text
+                else f"Set proxy env {key}={value}"
+            )
 
 
 def transform_github_url(url: str) -> str:
@@ -99,8 +104,20 @@ def transform_github_url(url: str) -> str:
 
         # Replace the base GitHub URL with Walmart artifactory
         transformed_url = url.replace(GITHUB_BASE, WALMART_ARTIFACTORY_BASE, 1)
-        emit_info(Text.from_markup(f"[cyan]🔀 Redirecting GitHub download:[/cyan] {url[:60]}...") if Text else f"Redirecting GitHub download: {url[:60]}...")
-        emit_info(Text.from_markup(f"[cyan]   → Walmart mirror:[/cyan] {transformed_url[:60]}...") if Text else f"   -> Walmart mirror: {transformed_url[:60]}...")
+        emit_info(
+            Text.from_markup(
+                f"[cyan]🔀 Redirecting GitHub download:[/cyan] {url[:60]}..."
+            )
+            if Text
+            else f"Redirecting GitHub download: {url[:60]}..."
+        )
+        emit_info(
+            Text.from_markup(
+                f"[cyan]   → Walmart mirror:[/cyan] {transformed_url[:60]}..."
+            )
+            if Text
+            else f"   -> Walmart mirror: {transformed_url[:60]}..."
+        )
         return transformed_url
 
     return url
@@ -123,9 +140,19 @@ def try_github_fallback(
     if original_github_url and original_github_url.startswith(GITHUB_BASE):
         try:
             emit_info(
-                Text.from_markup("[yellow]🔄 All artifactory mirrors failed, trying original GitHub URL as fallback...[/yellow]") if Text else "All artifactory mirrors failed, trying original GitHub URL as fallback..."
+                Text.from_markup(
+                    "[yellow]🔄 All artifactory mirrors failed, trying original GitHub URL as fallback...[/yellow]"
+                )
+                if Text
+                else "All artifactory mirrors failed, trying original GitHub URL as fallback..."
             )
-            emit_info(Text.from_markup(f"[cyan]   → Fallback: {original_github_url[:60]}...[/cyan]") if Text else f"   -> Fallback: {original_github_url[:60]}...")
+            emit_info(
+                Text.from_markup(
+                    f"[cyan]   → Fallback: {original_github_url[:60]}...[/cyan]"
+                )
+                if Text
+                else f"   -> Fallback: {original_github_url[:60]}..."
+            )
 
             # For requests-style calls where URL is first positional arg or in kwargs
             if len(args) > 0:
@@ -138,7 +165,13 @@ def try_github_fallback(
                 return original_function(original_github_url, **kwargs)
 
         except Exception as fallback_e:
-            emit_info(Text.from_markup(f"[red]❌ GitHub fallback also failed: {fallback_e}[/red]") if Text else f"GitHub fallback also failed: {fallback_e}")
+            emit_info(
+                Text.from_markup(
+                    f"[red]❌ GitHub fallback also failed: {fallback_e}[/red]"
+                )
+                if Text
+                else f"GitHub fallback also failed: {fallback_e}"
+            )
             raise
     else:
         raise ValueError(f"Not a GitHub URL: {original_github_url}")
@@ -232,12 +265,28 @@ def get_ssl_context_for_url(url: str) -> ssl.SSLContext | None:
                 if cert_path.exists():
                     context.load_verify_locations(cert_path)
                     emit_info(
-                        Text.from_markup(f"[dim]🔒 Using Walmart cert bundle for: {url[:50]}...[/dim]") if Text else f"Using Walmart cert bundle for: {url[:50]}..."
+                        Text.from_markup(
+                            f"[dim]🔒 Using Walmart cert bundle for: {url[:50]}...[/dim]"
+                        )
+                        if Text
+                        else f"Using Walmart cert bundle for: {url[:50]}..."
                     )
             except Exception as e:
-                emit_info(Text.from_markup(f"[dim]⚠️  Could not load Walmart cert bundle: {e}[/dim]") if Text else f"Could not load Walmart cert bundle: {e}")
+                emit_info(
+                    Text.from_markup(
+                        f"[dim]⚠️  Could not load Walmart cert bundle: {e}[/dim]"
+                    )
+                    if Text
+                    else f"Could not load Walmart cert bundle: {e}"
+                )
         else:
-            emit_info(Text.from_markup(f"[dim]🔓 Skipping SSL verification for: {url[:50]}...[/dim]") if Text else f"Skipping SSL verification for: {url[:50]}...")
+            emit_info(
+                Text.from_markup(
+                    f"[dim]🔓 Skipping SSL verification for: {url[:50]}...[/dim]"
+                )
+                if Text
+                else f"Skipping SSL verification for: {url[:50]}..."
+            )
 
         return context
 
@@ -304,7 +353,11 @@ def patch_urllib_urlopen():
                     e
                 ):
                     emit_info(
-                        Text.from_markup("[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]") if Text else "DNS failed for primary artifactory, trying alternatives..."
+                        Text.from_markup(
+                            "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                        )
+                        if Text
+                        else "DNS failed for primary artifactory, trying alternatives..."
                     )
 
                     # Try alternative artifactory URLs
@@ -314,7 +367,11 @@ def patch_urllib_urlopen():
                                 WALMART_ARTIFACTORY_BASE, alt_base, 1
                             )
                             emit_info(
-                                Text.from_markup(f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]") if Text else f"Trying alternative: {alt_url[:60]}..."
+                                Text.from_markup(
+                                    f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                )
+                                if Text
+                                else f"Trying alternative: {alt_url[:60]}..."
                             )
 
                             if isinstance(url, str):
@@ -338,7 +395,13 @@ def patch_urllib_urlopen():
                                     url, data, timeout, *args, **kwargs
                                 )
                         except (OSError, urllib.error.URLError) as alt_e:
-                            emit_info(Text.from_markup(f"[red]❌ Alternative failed: {alt_e}[/red]") if Text else f"Alternative failed: {alt_e}")
+                            emit_info(
+                                Text.from_markup(
+                                    f"[red]❌ Alternative failed: {alt_e}[/red]"
+                                )
+                                if Text
+                                else f"Alternative failed: {alt_e}"
+                            )
                             continue
 
                     # If all alternatives fail, try original GitHub URL as fallback
@@ -406,7 +469,11 @@ def patch_requests():
                     e
                 ):
                     emit_info(
-                        Text.from_markup("[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]") if Text else "DNS failed for primary artifactory, trying alternatives..."
+                        Text.from_markup(
+                            "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                        )
+                        if Text
+                        else "DNS failed for primary artifactory, trying alternatives..."
                     )
 
                     # Try alternative artifactory URLs
@@ -414,11 +481,21 @@ def patch_requests():
                         try:
                             alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
                             emit_info(
-                                Text.from_markup(f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]") if Text else f"Trying alternative: {alt_url[:60]}..."
+                                Text.from_markup(
+                                    f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                )
+                                if Text
+                                else f"Trying alternative: {alt_url[:60]}..."
                             )
                             return original_get(alt_url, **kwargs)
                         except Exception as alt_e:
-                            emit_info(Text.from_markup(f"[red]❌ Alternative failed: {alt_e}[/red]") if Text else f"Alternative failed: {alt_e}")
+                            emit_info(
+                                Text.from_markup(
+                                    f"[red]❌ Alternative failed: {alt_e}[/red]"
+                                )
+                                if Text
+                                else f"Alternative failed: {alt_e}"
+                            )
                             continue
 
                     # If all alternatives fail, try original GitHub URL as fallback
@@ -458,7 +535,11 @@ def patch_requests():
                     e
                 ):
                     emit_info(
-                        Text.from_markup("[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]") if Text else "DNS failed for primary artifactory, trying alternatives..."
+                        Text.from_markup(
+                            "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                        )
+                        if Text
+                        else "DNS failed for primary artifactory, trying alternatives..."
                     )
 
                     # Try alternative artifactory URLs
@@ -466,11 +547,21 @@ def patch_requests():
                         try:
                             alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
                             emit_info(
-                                Text.from_markup(f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]") if Text else f"Trying alternative: {alt_url[:60]}..."
+                                Text.from_markup(
+                                    f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                )
+                                if Text
+                                else f"Trying alternative: {alt_url[:60]}..."
                             )
                             return original_post(alt_url, **kwargs)
                         except Exception as alt_e:
-                            emit_info(Text.from_markup(f"[red]❌ Alternative failed: {alt_e}[/red]") if Text else f"Alternative failed: {alt_e}")
+                            emit_info(
+                                Text.from_markup(
+                                    f"[red]❌ Alternative failed: {alt_e}[/red]"
+                                )
+                                if Text
+                                else f"Alternative failed: {alt_e}"
+                            )
                             continue
 
                     # If all alternatives fail, try original GitHub URL as fallback
@@ -510,7 +601,11 @@ def patch_requests():
                     e
                 ):
                     emit_info(
-                        Text.from_markup("[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]") if Text else "DNS failed for primary artifactory, trying alternatives..."
+                        Text.from_markup(
+                            "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                        )
+                        if Text
+                        else "DNS failed for primary artifactory, trying alternatives..."
                     )
 
                     # Try alternative artifactory URLs
@@ -518,11 +613,21 @@ def patch_requests():
                         try:
                             alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
                             emit_info(
-                                Text.from_markup(f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]") if Text else f"Trying alternative: {alt_url[:60]}..."
+                                Text.from_markup(
+                                    f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                )
+                                if Text
+                                else f"Trying alternative: {alt_url[:60]}..."
                             )
                             return original_request(method, alt_url, **kwargs)
                         except Exception as alt_e:
-                            emit_info(Text.from_markup(f"[red]❌ Alternative failed: {alt_e}[/red]") if Text else f"Alternative failed: {alt_e}")
+                            emit_info(
+                                Text.from_markup(
+                                    f"[red]❌ Alternative failed: {alt_e}[/red]"
+                                )
+                                if Text
+                                else f"Alternative failed: {alt_e}"
+                            )
                             continue
 
                     # If all alternatives fail, try original GitHub URL as fallback
@@ -590,7 +695,11 @@ def patch_httpx():
                     e
                 ):
                     emit_info(
-                        Text.from_markup("[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]") if Text else "DNS failed for primary artifactory, trying alternatives..."
+                        Text.from_markup(
+                            "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                        )
+                        if Text
+                        else "DNS failed for primary artifactory, trying alternatives..."
                     )
 
                     # Try alternative artifactory URLs
@@ -598,11 +707,21 @@ def patch_httpx():
                         try:
                             alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
                             emit_info(
-                                Text.from_markup(f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]") if Text else f"Trying alternative: {alt_url[:60]}..."
+                                Text.from_markup(
+                                    f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                )
+                                if Text
+                                else f"Trying alternative: {alt_url[:60]}..."
                             )
                             return original_get(alt_url, **kwargs)
                         except Exception as alt_e:
-                            emit_info(Text.from_markup(f"[red]❌ Alternative failed: {alt_e}[/red]") if Text else f"Alternative failed: {alt_e}")
+                            emit_info(
+                                Text.from_markup(
+                                    f"[red]❌ Alternative failed: {alt_e}[/red]"
+                                )
+                                if Text
+                                else f"Alternative failed: {alt_e}"
+                            )
                             continue
 
                     # If all alternatives fail, try original GitHub URL as fallback
@@ -642,7 +761,11 @@ def patch_httpx():
                     e
                 ):
                     emit_info(
-                        Text.from_markup("[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]") if Text else "DNS failed for primary artifactory, trying alternatives..."
+                        Text.from_markup(
+                            "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                        )
+                        if Text
+                        else "DNS failed for primary artifactory, trying alternatives..."
                     )
 
                     # Try alternative artifactory URLs
@@ -650,11 +773,21 @@ def patch_httpx():
                         try:
                             alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
                             emit_info(
-                                Text.from_markup(f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]") if Text else f"Trying alternative: {alt_url[:60]}..."
+                                Text.from_markup(
+                                    f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                )
+                                if Text
+                                else f"Trying alternative: {alt_url[:60]}..."
                             )
                             return original_post(alt_url, **kwargs)
                         except Exception as alt_e:
-                            emit_info(Text.from_markup(f"[red]❌ Alternative failed: {alt_e}[/red]") if Text else f"Alternative failed: {alt_e}")
+                            emit_info(
+                                Text.from_markup(
+                                    f"[red]❌ Alternative failed: {alt_e}[/red]"
+                                )
+                                if Text
+                                else f"Alternative failed: {alt_e}"
+                            )
                             continue
 
                     # If all alternatives fail, try original GitHub URL as fallback
@@ -694,7 +827,11 @@ def patch_httpx():
                     e
                 ):
                     emit_info(
-                        Text.from_markup("[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]") if Text else "DNS failed for primary artifactory, trying alternatives..."
+                        Text.from_markup(
+                            "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                        )
+                        if Text
+                        else "DNS failed for primary artifactory, trying alternatives..."
                     )
 
                     # Try alternative artifactory URLs
@@ -702,11 +839,21 @@ def patch_httpx():
                         try:
                             alt_url = url.replace(WALMART_ARTIFACTORY_BASE, alt_base, 1)
                             emit_info(
-                                Text.from_markup(f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]") if Text else f"Trying alternative: {alt_url[:60]}..."
+                                Text.from_markup(
+                                    f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                )
+                                if Text
+                                else f"Trying alternative: {alt_url[:60]}..."
                             )
                             return original_request(method, alt_url, **kwargs)
                         except Exception as alt_e:
-                            emit_info(Text.from_markup(f"[red]❌ Alternative failed: {alt_e}[/red]") if Text else f"Alternative failed: {alt_e}")
+                            emit_info(
+                                Text.from_markup(
+                                    f"[red]❌ Alternative failed: {alt_e}[/red]"
+                                )
+                                if Text
+                                else f"Alternative failed: {alt_e}"
+                            )
                             continue
 
                     # If all alternatives fail, try original GitHub URL as fallback
@@ -782,7 +929,13 @@ def patch_httpx():
         httpx.AsyncClient.request = patched_async_client_request
 
     except Exception as e:
-        emit_info(Text.from_markup(f"[yellow]⚠️  Could not patch httpx Client/AsyncClient: {e}[/yellow]") if Text else f"Could not patch httpx Client/AsyncClient: {e}")
+        emit_info(
+            Text.from_markup(
+                f"[yellow]⚠️  Could not patch httpx Client/AsyncClient: {e}[/yellow]"
+            )
+            if Text
+            else f"Could not patch httpx Client/AsyncClient: {e}"
+        )
 
 
 def patch_urllib3():
@@ -870,7 +1023,11 @@ def patch_aiohttp():
                         e
                     ) or "Name or service not known" in str(e):
                         emit_info(
-                            Text.from_markup("[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]") if Text else "DNS failed for primary artifactory, trying alternatives..."
+                            Text.from_markup(
+                                "[yellow]⚠️  DNS failed for primary artifactory, trying alternatives...[/yellow]"
+                            )
+                            if Text
+                            else "DNS failed for primary artifactory, trying alternatives..."
                         )
 
                         # Try alternative artifactory URLs
@@ -880,23 +1037,41 @@ def patch_aiohttp():
                                     WALMART_ARTIFACTORY_BASE, alt_base, 1
                                 )
                                 emit_info(
-                                    Text.from_markup(f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]") if Text else f"Trying alternative: {alt_url[:60]}..."
+                                    Text.from_markup(
+                                        f"[cyan]🔄 Trying alternative: {alt_url[:60]}...[/cyan]"
+                                    )
+                                    if Text
+                                    else f"Trying alternative: {alt_url[:60]}..."
                                 )
                                 return await original_request(
                                     self, method, alt_url, **kwargs
                                 )
                             except Exception as alt_e:
-                                emit_info(Text.from_markup(f"[red]❌ Alternative failed: {alt_e}[/red]") if Text else f"Alternative failed: {alt_e}")
+                                emit_info(
+                                    Text.from_markup(
+                                        f"[red]❌ Alternative failed: {alt_e}[/red]"
+                                    )
+                                    if Text
+                                    else f"Alternative failed: {alt_e}"
+                                )
                                 continue
 
                         # If all alternatives fail, try original GitHub URL as fallback
                         if original_github_url:
                             try:
                                 emit_info(
-                                    Text.from_markup("[yellow]🔄 All artifactory mirrors failed, trying original GitHub URL as fallback...[/yellow]") if Text else "All artifactory mirrors failed, trying original GitHub URL as fallback..."
+                                    Text.from_markup(
+                                        "[yellow]🔄 All artifactory mirrors failed, trying original GitHub URL as fallback...[/yellow]"
+                                    )
+                                    if Text
+                                    else "All artifactory mirrors failed, trying original GitHub URL as fallback..."
                                 )
                                 emit_info(
-                                    Text.from_markup(f"[cyan]   → Fallback: {original_github_url[:60]}...[/cyan]") if Text else f"   -> Fallback: {original_github_url[:60]}..."
+                                    Text.from_markup(
+                                        f"[cyan]   → Fallback: {original_github_url[:60]}...[/cyan]"
+                                    )
+                                    if Text
+                                    else f"   -> Fallback: {original_github_url[:60]}..."
                                 )
                                 return await original_request(
                                     self, method, original_github_url, **kwargs
@@ -914,7 +1089,13 @@ def patch_aiohttp():
 
         aiohttp.ClientSession._request = patched_request
     except Exception as e:
-        emit_info(Text.from_markup(f"[yellow]⚠️  Could not patch aiohttp._request: {e}[/yellow]") if Text else f"Could not patch aiohttp._request: {e}")
+        emit_info(
+            Text.from_markup(
+                f"[yellow]⚠️  Could not patch aiohttp._request: {e}[/yellow]"
+            )
+            if Text
+            else f"Could not patch aiohttp._request: {e}"
+        )
 
 
 def apply_github_redirect_patches():
@@ -928,7 +1109,13 @@ def apply_github_redirect_patches():
     if _patches_applied:
         return  # Already applied
 
-    emit_info(Text.from_markup("[yellow]🔧 Applying Walmart GitHub redirect and SSL patches...[/yellow]") if Text else "Applying Walmart GitHub redirect and SSL patches...")
+    emit_info(
+        Text.from_markup(
+            "[yellow]🔧 Applying Walmart GitHub redirect and SSL patches...[/yellow]"
+        )
+        if Text
+        else "Applying Walmart GitHub redirect and SSL patches..."
+    )
 
     # Patch urllib (always available)
     patch_urllib_urlopen()
@@ -946,7 +1133,13 @@ def apply_github_redirect_patches():
     patch_urllib3()
 
     _patches_applied = True
-    emit_info(Text.from_markup("[green]✅ GitHub redirect and SSL patches applied successfully[/green]") if Text else "GitHub redirect and SSL patches applied successfully")
+    emit_info(
+        Text.from_markup(
+            "[green]✅ GitHub redirect and SSL patches applied successfully[/green]"
+        )
+        if Text
+        else "GitHub redirect and SSL patches applied successfully"
+    )
 
 
 def remove_github_redirect_patches():
@@ -959,7 +1152,13 @@ def remove_github_redirect_patches():
     if not _patches_applied:
         return  # No patches applied
 
-    emit_info(Text.from_markup("[yellow]🔧 Removing GitHub redirect and SSL patches...[/yellow]") if Text else "Removing GitHub redirect and SSL patches...")
+    emit_info(
+        Text.from_markup(
+            "[yellow]🔧 Removing GitHub redirect and SSL patches...[/yellow]"
+        )
+        if Text
+        else "Removing GitHub redirect and SSL patches..."
+    )
 
     # Restore urllib
     if "urllib_urlopen" in _original_functions:
@@ -1023,7 +1222,11 @@ def remove_github_redirect_patches():
 
     _original_functions.clear()
     _patches_applied = False
-    emit_info(Text.from_markup("[green]✅ GitHub redirect and SSL patches removed[/green]") if Text else "GitHub redirect and SSL patches removed")
+    emit_info(
+        Text.from_markup("[green]✅ GitHub redirect and SSL patches removed[/green]")
+        if Text
+        else "GitHub redirect and SSL patches removed"
+    )
 
 
 def is_github_redirect_active() -> bool:

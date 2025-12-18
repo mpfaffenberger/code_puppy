@@ -209,7 +209,11 @@ def bigquery_get_default_project(ctx: RunContext) -> dict:
             - count (int): Always 1 (default project)
             - error (str, optional): Error message if operation failed
     """
-    emit_info(Text.from_markup("\n[bold white on blue] BIGQUERY LIST PROJECTS [/bold white on blue] 📊"))
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] BIGQUERY LIST PROJECTS [/bold white on blue] 📊"
+        )
+    )
 
     try:
         client = BigQueryClient()
@@ -264,7 +268,9 @@ def bigquery_list_all_projects(ctx: RunContext) -> dict:
             - error (str, optional): Error message if operation failed
     """
     emit_info(
-        Text.from_markup("\n[bold white on blue] BIGQUERY LIST ALL PROJECTS [/bold white on blue] 🌐")
+        Text.from_markup(
+            "\n[bold white on blue] BIGQUERY LIST ALL PROJECTS [/bold white on blue] 🌐"
+        )
     )
 
     try:
@@ -317,7 +323,9 @@ def bigquery_list_datasets(ctx: RunContext, project_id: str | None = None) -> di
     """
     project_display = project_id or "default"
     emit_info(
-        Text.from_markup(f"\n[bold white on blue] BIGQUERY LIST DATASETS [/bold white on blue] 📂 [bold cyan]{project_display}[/bold cyan]")
+        Text.from_markup(
+            f"\n[bold white on blue] BIGQUERY LIST DATASETS [/bold white on blue] 📂 [bold cyan]{project_display}[/bold cyan]"
+        )
     )
 
     try:
@@ -731,7 +739,9 @@ def bigquery_search_tables(
         else:
             emit_warning(f"No tables found matching '{search_pattern}'")
             if projects_skipped > 0:
-                emit_info(f"💡 {projects_skipped} project(s) were skipped due to access restrictions")
+                emit_info(
+                    f"💡 {projects_skipped} project(s) were skipped due to access restrictions"
+                )
             if not dataset_filter:
                 emit_info(
                     "💡 Tip: If your data is in a different region (not US), "

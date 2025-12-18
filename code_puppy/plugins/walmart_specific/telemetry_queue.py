@@ -218,18 +218,26 @@ class TelemetryQueue:
 
                 if response.status_code != 200:
                     emit_system_message(
-                        Text.from_markup(f"[dim yellow]Telemetry upload failed: {response.status_code}[/dim yellow]")
+                        Text.from_markup(
+                            f"[dim yellow]Telemetry upload failed: {response.status_code}[/dim yellow]"
+                        )
                     )
 
         except httpx.TimeoutException:
-            emit_system_message(Text.from_markup("[dim yellow]Telemetry request timed out[/dim yellow]"))
+            emit_system_message(
+                Text.from_markup("[dim yellow]Telemetry request timed out[/dim yellow]")
+            )
         except httpx.RequestError as e:
             emit_system_message(
-                Text.from_markup(f"[dim yellow]Telemetry request error: {str(e)[:50]}[/dim yellow]")
+                Text.from_markup(
+                    f"[dim yellow]Telemetry request error: {str(e)[:50]}[/dim yellow]"
+                )
             )
         except Exception as e:
             emit_system_message(
-                Text.from_markup(f"[dim red]Unexpected telemetry error: {str(e)[:50]}[/dim red]")
+                Text.from_markup(
+                    f"[dim red]Unexpected telemetry error: {str(e)[:50]}[/dim red]"
+                )
             )
 
     def get_queue_size(self) -> int:

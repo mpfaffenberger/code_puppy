@@ -148,7 +148,9 @@ def confluence_search(
             - error (str, optional): Error message if search failed
     """
     emit_info(
-        Text.from_markup(f"\n[bold white on blue] CONFLUENCE SEARCH [/bold white on blue] 🔍 [bold cyan]'{query}'[/bold cyan]")
+        Text.from_markup(
+            f"\n[bold white on blue] CONFLUENCE SEARCH [/bold white on blue] 🔍 [bold cyan]'{query}'[/bold cyan]"
+        )
     )
 
     try:
@@ -236,7 +238,9 @@ def confluence_read_page(
             - error (str, optional): Error message if read failed
     """
     emit_info(
-        Text.from_markup(f"\n[bold white on blue] CONFLUENCE READ PAGE [/bold white on blue] 📄 [bold cyan]{page_id}[/bold cyan]")
+        Text.from_markup(
+            f"\n[bold white on blue] CONFLUENCE READ PAGE [/bold white on blue] 📄 [bold cyan]{page_id}[/bold cyan]"
+        )
     )
 
     try:
@@ -342,11 +346,15 @@ def confluence_search_by_space(
     """
     if query:
         emit_info(
-            Text.from_markup(f"\n[bold white on blue] CONFLUENCE SEARCH SPACE [/bold white on blue] 📚 [bold cyan]{space_key}[/bold cyan] [dim]for '{query}'[/dim]")
+            Text.from_markup(
+                f"\n[bold white on blue] CONFLUENCE SEARCH SPACE [/bold white on blue] 📚 [bold cyan]{space_key}[/bold cyan] [dim]for '{query}'[/dim]"
+            )
         )
     else:
         emit_info(
-            Text.from_markup(f"\n[bold white on blue] CONFLUENCE SEARCH SPACE [/bold white on blue] 📚 [bold cyan]{space_key}[/bold cyan]")
+            Text.from_markup(
+                f"\n[bold white on blue] CONFLUENCE SEARCH SPACE [/bold white on blue] 📚 [bold cyan]{space_key}[/bold cyan]"
+            )
         )
 
     try:
@@ -411,7 +419,9 @@ async def search_confluence(query: str, limit: int = 10) -> str:
         Formatted string with search results
     """
     emit_info(
-        Text.from_markup(f"\n[bold white on blue] CONFLUENCE SEARCH [/bold white on blue] 🔍 [bold cyan]'{query}'[/bold cyan]")
+        Text.from_markup(
+            f"\n[bold white on blue] CONFLUENCE SEARCH [/bold white on blue] 🔍 [bold cyan]'{query}'[/bold cyan]"
+        )
     )
 
     try:

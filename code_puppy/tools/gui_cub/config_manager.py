@@ -168,7 +168,11 @@ def load_config() -> Optional[Dict[str, Any]]:
             if save_config(config):
                 _emit_debug("[dim]   ✅ Config migration saved successfully[/dim]")
             else:
-                emit_warning(Text.from_markup("[yellow]⚠️  Config migration failed to save![/yellow]"))
+                emit_warning(
+                    Text.from_markup(
+                        "[yellow]⚠️  Config migration failed to save![/yellow]"
+                    )
+                )
         else:
             _emit_debug("[dim]   No migrations needed[/dim]")
 
@@ -177,7 +181,11 @@ def load_config() -> Optional[Dict[str, Any]]:
         if stored_hash:
             computed_hash = _compute_config_hash(config)
             if stored_hash != computed_hash:
-                emit_warning(Text.from_markup("[yellow]Config hash mismatch, may be corrupted[/yellow]"))
+                emit_warning(
+                    Text.from_markup(
+                        "[yellow]Config hash mismatch, may be corrupted[/yellow]"
+                    )
+                )
 
         return config
 
@@ -242,7 +250,11 @@ def set_debug_screenshots_enabled(enabled: bool):
     current_value = config.get("debug", {}).get("copy_screenshots_to_cwd", False)
     if current_value == enabled:
         status = "enabled" if enabled else "disabled"
-        emit_info(Text.from_markup(f"[green]✓ Debug screenshot copying already {status}[/green]"))
+        emit_info(
+            Text.from_markup(
+                f"[green]✓ Debug screenshot copying already {status}[/green]"
+            )
+        )
         return
 
     if "debug" not in config:

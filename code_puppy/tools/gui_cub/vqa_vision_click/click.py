@@ -396,7 +396,6 @@ def desktop_click_element_vqa(
     )
 
     try:
-
         scale_factor = get_screen_scale_factor()
         emit_info(f"   Scale: {scale_factor}x", message_group=group_id)
 
