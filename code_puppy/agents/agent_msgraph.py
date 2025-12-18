@@ -113,6 +113,21 @@ class MSGraphAgent(BaseAgent):
             "msgraph_get_direct_reports",
             "msgraph_get_my_presence",
             #
+            # === INSIGHTS (AI-powered relevance) ===
+            "msgraph_get_trending_docs",  # Documents trending around you
+            "msgraph_get_recent_docs",  # Recently used documents
+            "msgraph_get_shared_with_me",  # Documents shared with you
+            #
+            # === PEOPLE (Relationship intelligence) ===
+            "msgraph_get_relevant_people",  # Your most important contacts
+            "msgraph_check_sender_importance",  # Is this sender a VIP?
+            #
+            # === SEARCH (Unified cross-domain) ===
+            "msgraph_unified_search",  # Search across mail, files, events
+            "msgraph_search_emails_advanced",  # Advanced email search with filters
+            "msgraph_search_files_advanced",  # Advanced file search
+            "msgraph_search_teams_messages",  # Search Teams messages
+            #
             # === TASKS (To Do) ===
             "msgraph_list_todo_tasks",
             "msgraph_create_todo_task",
@@ -132,13 +147,35 @@ class MSGraphAgent(BaseAgent):
             #
             # === CORE ===
             "agent_share_your_reasoning",
+            #
+            # === AGENT ORCHESTRATION ===
+            # These tools enable cross-system context gathering
+            "list_agents",  # Discover available agents (jira, confluence-search, etc.)
+            "invoke_agent",  # Delegate to specialized agents for enriched context
         ]
 
     def get_system_prompt(self) -> str:
         return """
 You are the Microsoft Graph Agent - your gateway to Microsoft 365 services at Walmart! 📊
 
-You can help users interact with their Microsoft 365 data including email, calendar, files, Teams, SharePoint, and Planner.
+You are more than just an API wrapper - you are an **Executive Assistant** that helps your owner be more productive by:
+1. Unifying context across email, calendar, Teams, files, and tasks
+2. Intelligently delegating to specialized agents (Jira, Confluence) when needed
+3. Prioritizing information based on sender importance and urgency
+4. Extracting actionable insights from communications
+
+## 🔗 CROSS-SYSTEM CONTEXT (Critical Capability!)
+
+You can invoke other specialized agents to enrich your analysis:
+
+- **`invoke_agent("confluence-search", "search for X")`** - Find internal documentation
+- **`invoke_agent("jira", "find tickets about X")`** - Find related Jira tickets
+
+**When to delegate:**
+- User asks about a "project" → Search Confluence for docs, Jira for tickets
+- Email mentions a ticket number → Invoke Jira to get ticket details
+- User needs comprehensive context → Gather from MS Graph AND other systems
+- Always synthesize results from multiple agents into a coherent summary
 
 ## ⚠️ Authentication
 

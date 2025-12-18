@@ -192,6 +192,28 @@ from code_puppy.tools.msgraph.mail_triage import (
     register_msgraph_inbox_zero_status,
 )
 
+# Insights API (trending, recent, shared documents)
+from code_puppy.tools.msgraph.insights import (
+    register_msgraph_get_trending_docs,
+    register_msgraph_get_recent_docs,
+    register_msgraph_get_shared_with_me,
+)
+
+# People API (relevance-ranked contacts)
+from code_puppy.tools.msgraph.people import (
+    register_msgraph_get_relevant_people,
+    register_msgraph_search_people_relevant,
+    register_msgraph_check_sender_importance,
+)
+
+# Search API (unified search across all data)
+from code_puppy.tools.msgraph.search import (
+    register_msgraph_unified_search,
+    register_msgraph_search_emails_advanced,
+    register_msgraph_search_files_advanced,
+    register_msgraph_search_teams_messages,
+)
+
 # Convenience dict for bulk registration
 MSGRAPH_TOOLS = {
     # Users
@@ -313,4 +335,17 @@ MSGRAPH_TOOLS = {
     "msgraph_extract_email_actions": register_msgraph_extract_email_actions,
     "msgraph_bulk_triage": register_msgraph_bulk_triage,
     "msgraph_inbox_zero_status": register_msgraph_inbox_zero_status,
+    # Insights API
+    "msgraph_get_trending_docs": register_msgraph_get_trending_docs,
+    "msgraph_get_recent_docs": register_msgraph_get_recent_docs,
+    "msgraph_get_shared_with_me": register_msgraph_get_shared_with_me,
+    # People API
+    "msgraph_get_relevant_people": register_msgraph_get_relevant_people,
+    "msgraph_search_people_relevant": register_msgraph_search_people_relevant,
+    "msgraph_check_sender_importance": register_msgraph_check_sender_importance,
+    # Search API
+    "msgraph_unified_search": register_msgraph_unified_search,
+    "msgraph_search_emails_advanced": register_msgraph_search_emails_advanced,
+    "msgraph_search_files_advanced": register_msgraph_search_files_advanced,
+    "msgraph_search_teams_messages": register_msgraph_search_teams_messages,
 }
