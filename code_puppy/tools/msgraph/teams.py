@@ -697,6 +697,83 @@ def register_msgraph_send_chat_message(agent: Any) -> Tool:
 # =============================================================================
 
 
+def _find_existing_chat_with_user(client: Any, user_email: str) -> str | None:
+    """Find an existing 1:1 chat with a user by searching recent chats.
+
+    Searches by email, userId, or partial name match to handle different
+    email formats (e.g., t0d00bh@homeoffice.wal-mart.com vs Trevor.Dodson@walmart.com).
+
+    Args:
+        client: MSGraphClient instance.
+        user_email: The user's email, UPN, or userId to find a chat with.
+
+    Returns:
+        Chat ID if found, None otherwise.
+    """
+    try:
+        # Get recent chats and look for a 1:1 with this user
+        # Expand members to see who's in each chat
+        params = {
+            "$top": 50,
+            "$expand": "members",
+        }
+        response = client.get("/me/chats", params=params)
+        chats = response.get("value", [])
+
+        # Normalize the search term
+        search_lower = user_email.lower().strip()
+        # Extract just the username part if it's an email (before @)
+        search_username = (
+            search_lower.split("@")[0] if "@" in search_lower else search_lower
+        )
+
+        for chat in chats:
+            # Only look at 1:1 chats
+            if chat.get("chatType") != "oneOnOne":
+                continue
+
+            members = chat.get("members", [])
+            for member in members:
+                member_email = (member.get("email") or "").lower()
+                member_id = (member.get("userId") or "").lower()
+                member_display = (member.get("displayName") or "").lower()
+
+                # Try multiple matching strategies:
+                # 1. Exact email match
+                if search_lower == member_email:
+                    return chat.get("id")
+
+                # 2. Email contains search term (handles partial matches)
+                if search_lower in member_email or member_email in search_lower:
+                    return chat.get("id")
+
+                # 3. UserId match
+                if search_lower == member_id or search_username == member_id:
+                    return chat.get("id")
+
+                # 4. Username part matches (e.g., "michael.pfaffenberger" from email)
+                member_username = (
+                    member_email.split("@")[0] if "@" in member_email else ""
+                )
+                if search_username and member_username:
+                    # Check if usernames are similar
+                    if (
+                        search_username in member_username
+                        or member_username in search_username
+                    ):
+                        return chat.get("id")
+
+                # 5. Display name contains search term
+                if search_username in member_display:
+                    return chat.get("id")
+
+    except Exception:
+        # If search fails, return None and let caller try to create
+        pass
+
+    return None
+
+
 def msgraph_send_direct_message(
     ctx: RunContext,
     user_email: str,
@@ -705,7 +782,8 @@ def msgraph_send_direct_message(
 ) -> dict:
     """Send a direct message to a user by email.
 
-    This creates or finds a 1:1 chat with the specified user and sends a message.
+    First searches for an existing 1:1 chat with the user, then falls back
+    to creating a new chat if none exists.
 
     Args:
         user_email: The recipient's email address.
@@ -724,35 +802,61 @@ def msgraph_send_direct_message(
 
     try:
         client = get_msgraph_client()
+        chat_id = None
+        chat_response = None
 
-        # Step 1: Create or get the 1:1 chat with the user
-        # MS Graph will return the existing chat if one already exists
-        chat_payload = {
-            "chatType": "oneOnOne",
-            "members": [
-                {
-                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
-                    "roles": ["owner"],
-                    "user@odata.bind": "https://graph.microsoft.com/v1.0/users/me",
-                },
-                {
-                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
-                    "roles": ["owner"],
-                    "user@odata.bind": f"https://graph.microsoft.com/v1.0/users/{user_email}",
-                },
-            ],
-        }
+        # Step 1: Try to find an existing chat with this user first
+        existing_chat_id = _find_existing_chat_with_user(client, user_email)
 
-        chat_response = client.post("/me/chats", json=chat_payload)
-        chat_id = chat_response.get("id")
+        if existing_chat_id:
+            chat_id = existing_chat_id
+            emit_info(
+                Text.from_markup(f"[dim]Found existing chat with {user_email}[/dim]")
+            )
+        else:
+            # Step 2: No existing chat found, try to create one
+            # NOTE: This may fail with 405 if tenant doesn't allow chat creation
+            chat_payload = {
+                "chatType": "oneOnOne",
+                "members": [
+                    {
+                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                        "roles": ["owner"],
+                        "user@odata.bind": "https://graph.microsoft.com/v1.0/me",
+                    },
+                    {
+                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                        "roles": ["owner"],
+                        "user@odata.bind": f"https://graph.microsoft.com/v1.0/users/{user_email}",
+                    },
+                ],
+            }
+
+            try:
+                chat_response = client.post("/chats", json=chat_payload)
+                chat_id = chat_response.get("id")
+            except Exception as create_err:
+                # Chat creation failed - provide helpful error
+                return {
+                    "success": False,
+                    "error": (
+                        f"No existing chat found with {user_email} and unable to "
+                        f"create a new chat. You may need to start a conversation "
+                        f"with this user in Teams first. Error: {create_err}"
+                    ),
+                    "suggestion": (
+                        "Try messaging this user directly in Teams to create a chat, "
+                        "then retry this command."
+                    ),
+                }
 
         if not chat_id:
             return {
                 "success": False,
-                "error": "Failed to create or find chat - no chat ID returned",
+                "error": "Failed to find or create chat - no chat ID available",
             }
 
-        # Step 2: Send the message to the chat
+        # Step 3: Send the message to the chat
         message_payload = {
             "body": {
                 "contentType": content_type,
@@ -766,7 +870,7 @@ def msgraph_send_direct_message(
         )
 
         message = _format_message(message_response)
-        chat = _format_chat(chat_response)
+        chat = _format_chat(chat_response) if chat_response else {"id": chat_id}
 
         emit_success(f"Direct message sent to {user_email}!")
 
