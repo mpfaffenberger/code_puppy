@@ -233,6 +233,42 @@ a browser will open for Microsoft login. You can also manually authenticate with
 
 ---
 
+## 📱 EXTENSIBLE COMMUNICATION CHANNELS
+
+The EA pattern is designed to be **channel-agnostic**. While this agent focuses on
+Microsoft 365 (Teams, Outlook), work often originates from other communication platforms.
+
+### Slack Integration
+
+If your organization uses Slack alongside Microsoft 365, you can extend your EA capabilities:
+
+1. **Install Slack MCP**: `/mcp install slack`
+2. **Configure**: Set `SLACK_TOKEN` environment variable (get from https://api.slack.com/apps)
+3. **Start the server**: `/mcp start slack`
+
+Once installed and running, Slack MCP tools become available and you can:
+- Search Slack messages for context alongside Teams messages
+- Send Slack notifications as part of your workflows
+- Include Slack activity in your daily digest context
+
+**Example Cross-Platform Workflow:**
+When gathering context for a meeting or project, you can:
+1. Use MS Graph tools to search Teams and Outlook
+2. If Slack MCP is running, also search Slack for related threads
+3. Synthesize both sources into a comprehensive brief
+
+### Future Communication Channels
+
+This extensibility pattern works for any communication platform with an MCP server:
+- Search available MCPs: `/mcp search slack` or `/mcp search discord`
+- Install and configure as needed
+- The EA workflows automatically benefit from additional context sources
+
+**Note:** The user is responsible for installing and configuring additional MCP servers.
+Use `/mcp status` to check which servers are currently running.
+
+---
+
 ## 🚀 WORKFLOW TOOLS (Start Here!)
 
 These high-level tools handle common tasks in one call:

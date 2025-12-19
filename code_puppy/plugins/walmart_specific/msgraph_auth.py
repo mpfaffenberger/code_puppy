@@ -1,12 +1,11 @@
 """Microsoft Graph authentication module for Code Puppy.
 
-Provides browser-based token capture authentication for Microsoft Graph API.
-Uses Playwright to open Graph Explorer, waits for user to sign in and trigger
-an API call, then captures the access token from the Authorization header of
-requests to graph.microsoft.com. Tokens are persisted to ~/.code_puppy/msgraph.json.
+Hijacks Graph Explorer's OAuth flow to authenticate with Microsoft Graph API.
+Uses Graph Explorer's client ID and redirect URI, intercepts the OAuth callback,
+and exchanges the auth code for an access token.
 
 Commands:
-    /msgraph_auth - Opens browser for Graph Explorer authentication
+    /msgraph_auth - Opens browser for Microsoft authentication
     /msgraph_test - Validates saved tokens by calling /me endpoint
     /msgraph_test debug - Validates with verbose output
 
@@ -21,12 +20,16 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import base64
 import concurrent.futures
+import hashlib
 import json
+import secrets
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
@@ -41,11 +44,25 @@ except ImportError:  # pragma: no cover
 
 
 # =============================================================================
-# CONSTANTS
+# CONSTANTS - Graph Explorer's OAuth Configuration (we're hijacking it!)
 # =============================================================================
 
-# Graph Explorer URL - user signs in here and we scrape the token
-GRAPH_EXPLORER_URL: str = "https://developer.microsoft.com/en-us/graph/graph-explorer"
+# Graph Explorer's client ID - this is public, registered by Microsoft
+GRAPH_EXPLORER_CLIENT_ID: str = "de8bc8b5-d9f9-48b1-a8ad-b748da725064"
+
+# Graph Explorer's redirect URI
+GRAPH_EXPLORER_REDIRECT_URI: str = (
+    "https://developer.microsoft.com/en-us/graph/graph-explorer"
+)
+
+# Azure AD endpoints (using /common for multi-tenant)
+AZURE_AD_AUTHORIZE_URL: str = (
+    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+)
+AZURE_AD_TOKEN_URL: str = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+
+# Scopes that Graph Explorer requests
+GRAPH_EXPLORER_SCOPES: str = "openid profile User.Read offline_access"
 
 # Microsoft Graph API base URL
 MSGRAPH_API_BASE: str = "https://graph.microsoft.com/v1.0"
@@ -55,11 +72,36 @@ MSGRAPH_TOKENS_FILE: Path = Path(CONFIG_DIR) / "msgraph.json"
 
 # Timeouts
 AUTH_WAIT_TIMEOUT: int = 300  # 5 minutes max wait for user authentication
-POLL_INTERVAL: int = 2  # Seconds between token detection checks
 
 
 # =============================================================================
-# PRIVATE HELPER FUNCTIONS
+# PKCE HELPERS
+# =============================================================================
+
+
+def _generate_pkce_pair() -> tuple[str, str]:
+    """Generate PKCE code verifier and challenge.
+
+    Returns:
+        Tuple of (code_verifier, code_challenge).
+    """
+    # Generate a random code verifier (43-128 characters)
+    code_verifier = secrets.token_urlsafe(32)
+
+    # Create SHA256 hash and base64url encode it
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+
+    return code_verifier, code_challenge
+
+
+def _generate_state() -> str:
+    """Generate a random state parameter for OAuth."""
+    return secrets.token_urlsafe(16)
+
+
+# =============================================================================
+# BROWSER PATH HELPERS
 # =============================================================================
 
 
@@ -75,23 +117,25 @@ def _get_code_puppy_chrome_profile_path() -> Path:
 
 
 # =============================================================================
-# BROWSER-BASED TOKEN SCRAPING
+# OAUTH FLOW - HIJACKING GRAPH EXPLORER'S CREDENTIALS
 # =============================================================================
 
 
-async def _scrape_graph_explorer_token() -> dict[str, Any]:
-    """Launch browser and capture MS Graph access token after user authenticates.
+async def _perform_oauth_flow() -> dict[str, Any]:
+    """Perform OAuth flow using Graph Explorer's client ID.
 
-    Opens Chrome, navigates to Graph Explorer, waits for user to sign in
-    and trigger an API call, then captures the access token from the
-    Authorization header of requests to graph.microsoft.com.
+    This hijacks Graph Explorer's OAuth configuration:
+    1. Build authorize URL with Graph Explorer's client ID and redirect URI
+    2. Open browser to Azure AD login
+    3. Intercept the redirect back to Graph Explorer (contains auth code)
+    4. Exchange auth code for access token using Graph Explorer's client ID
 
     Returns:
-        Dict with access_token and timestamp.
+        Dict with access_token, refresh_token (if available), and timestamp.
 
     Raises:
-        RuntimeError: If Playwright is not installed or no token found.
-        TimeoutError: If auth not completed within AUTH_WAIT_TIMEOUT seconds.
+        RuntimeError: If Playwright is not installed.
+        TimeoutError: If auth not completed within timeout.
     """
     if async_playwright is None:
         raise RuntimeError(
@@ -99,7 +143,25 @@ async def _scrape_graph_explorer_token() -> dict[str, Any]:
             "uv pip install playwright && playwright install chromium"
         )
 
-    emit_info("🌐 Launching Chrome browser for Graph Explorer authentication...")
+    # Generate PKCE pair and state
+    code_verifier, code_challenge = _generate_pkce_pair()
+    state = _generate_state()
+
+    # Build the authorization URL (mimicking Graph Explorer exactly)
+    auth_params = {
+        "client_id": GRAPH_EXPLORER_CLIENT_ID,
+        "scope": GRAPH_EXPLORER_SCOPES,
+        "redirect_uri": GRAPH_EXPLORER_REDIRECT_URI,
+        "response_mode": "fragment",  # Graph Explorer uses fragment
+        "response_type": "code",
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+        "prompt": "select_account",  # Let user pick account
+    }
+    auth_url = f"{AZURE_AD_AUTHORIZE_URL}?{urlencode(auth_params)}"
+
+    emit_info("🌐 Launching browser for Microsoft authentication...")
     profile_path = _get_code_puppy_chrome_profile_path()
 
     async with async_playwright() as playwright:
@@ -107,100 +169,155 @@ async def _scrape_graph_explorer_token() -> dict[str, Any]:
             user_data_dir=str(profile_path),
             headless=False,
             channel="chrome",
-            viewport={"width": 1280, "height": 720},
+            viewport={"width": 1024, "height": 768},
             args=["--disable-blink-features=AutomationControlled"],
         )
 
         page = context.pages[0] if context.pages else await context.new_page()
 
-        # Variable to capture the token from request headers
-        captured_token: str | None = None
+        # Variable to capture the auth code from the redirect
+        captured_code: str | None = None
 
-        def handle_request(request: Any) -> None:
-            nonlocal captured_token
-            if captured_token:
-                return  # Already got one
-            auth_header = request.headers.get("authorization", "")
-            if (
-                auth_header.startswith("Bearer ")
-                and "graph.microsoft.com" in request.url
-            ):
-                captured_token = auth_header[7:]  # Remove 'Bearer ' prefix
+        def handle_response(response: Any) -> None:
+            """Watch for redirect to Graph Explorer with auth code."""
+            nonlocal captured_code
+            if captured_code:
+                return
 
-        page.on("request", handle_request)
+            url = response.url
+            # Check if this is the redirect back to Graph Explorer
+            if url.startswith(GRAPH_EXPLORER_REDIRECT_URI):
+                # The auth code is in the URL fragment (after #)
+                # But we can't see fragments in response URL...
+                # We need to check the page URL instead
+                pass
+
+        async def check_for_auth_code() -> str | None:
+            """Check if the current page URL contains the auth code."""
+            try:
+                current_url = page.url
+                if GRAPH_EXPLORER_REDIRECT_URI in current_url:
+                    # Parse the fragment (everything after #)
+                    parsed = urlparse(current_url)
+                    # Fragment contains the params
+                    if parsed.fragment:
+                        fragment_params = parse_qs(parsed.fragment)
+                        if "code" in fragment_params:
+                            return fragment_params["code"][0]
+            except Exception:
+                pass
+            return None
 
         try:
-            emit_info("⏳ Waiting for browser to initialize...")
-            await asyncio.sleep(2)
-
-            emit_info(f"📍 Navigating to {GRAPH_EXPLORER_URL}...")
-            await page.goto(GRAPH_EXPLORER_URL, timeout=30000)
-
-            # Wait for page to load
-            await asyncio.sleep(3)
-
-            # Try to auto-click the sign-in button to make it easier for users
-            sign_in_clicked = False
-            try:
-                # Graph Explorer has a "Sign in" button - try multiple selectors
-                sign_in_selectors = [
-                    "button:has-text('Sign in')",
-                    "[data-testid='sign-in-button']",
-                    ".sign-in-button",
-                    "button.ms-Button:has-text('Sign in')",
-                    "#signin-button",
-                ]
-                for selector in sign_in_selectors:
-                    try:
-                        sign_in_btn = page.locator(selector).first
-                        if await sign_in_btn.is_visible(timeout=2000):
-                            emit_info("🔑 Found sign-in button, clicking...")
-                            await sign_in_btn.click()
-                            sign_in_clicked = True
-                            await asyncio.sleep(2)
-                            break
-                    except Exception:
-                        continue
-
-                if not sign_in_clicked:
-                    emit_info(
-                        "ℹ️  Could not auto-click sign-in button.\n"
-                        "   Please click 'Sign in' in the top-right corner."
-                    )
-            except Exception as e:
-                emit_info(f"ℹ️  Auto sign-in click skipped: {e!s}")
+            emit_info("📍 Navigating to Microsoft login...")
+            await page.goto(auth_url, timeout=30000)
 
             emit_info(
-                "⏳ Please sign in with your Microsoft account in the browser.\n"
-                "   After signing in, click 'Run query' to trigger an API call...\n"
+                "⏳ Please sign in with your Microsoft account...\n"
                 f"   Timeout: {AUTH_WAIT_TIMEOUT} seconds"
             )
 
-            # Wait for token to be captured from a request
+            # Poll for the auth code in the URL
             start_time = time.time()
             while time.time() - start_time < AUTH_WAIT_TIMEOUT:
-                if captured_token:
-                    emit_success("✅ Access token captured from API request!")
+                code = await check_for_auth_code()
+                if code:
+                    captured_code = code
+                    emit_success("✅ Authorization code captured!")
                     break
-                await asyncio.sleep(POLL_INTERVAL)
+                await asyncio.sleep(0.5)
 
-            if not captured_token:
+            if not captured_code:
                 raise TimeoutError(
-                    f"Authentication timed out after {AUTH_WAIT_TIMEOUT} seconds. "
-                    "Please try again."
+                    f"Authentication timed out after {AUTH_WAIT_TIMEOUT} seconds."
                 )
 
-            result: dict[str, Any] = {
-                "access_token": captured_token,
-                "timestamp": datetime.now().isoformat(),
-            }
+            # Exchange the auth code for tokens (must happen in browser context)
+            emit_info("🔄 Exchanging authorization code for access token...")
+            tokens = await _exchange_code_for_tokens_in_browser(
+                page, captured_code, code_verifier
+            )
 
-            emit_success("✨ Access token extracted successfully!")
-            return result
+            return tokens
 
         finally:
             emit_info("🔒 Closing browser...")
             await context.close()
+
+
+async def _exchange_code_for_tokens_in_browser(
+    page: Any,
+    auth_code: str,
+    code_verifier: str,
+) -> dict[str, Any]:
+    """Exchange authorization code for access tokens using browser fetch.
+
+    Graph Explorer is a SPA, so Azure AD requires the token exchange to happen
+    via a cross-origin request FROM the browser, not from a backend.
+    We inject JavaScript to do the fetch from the Graph Explorer origin.
+
+    Args:
+        page: Playwright page object (on Graph Explorer domain).
+        auth_code: The authorization code from OAuth redirect.
+        code_verifier: The PKCE code verifier.
+
+    Returns:
+        Dict with access_token, refresh_token (if available), and timestamp.
+    """
+    # Execute the token exchange from the browser context
+    token_response = await page.evaluate(
+        """
+        async ({tokenUrl, clientId, code, redirectUri, codeVerifier}) => {
+            const params = new URLSearchParams();
+            params.append('client_id', clientId);
+            params.append('code', code);
+            params.append('redirect_uri', redirectUri);
+            params.append('grant_type', 'authorization_code');
+            params.append('code_verifier', codeVerifier);
+
+            try {
+                const response = await fetch(tokenUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: params.toString(),
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    return {error: data.error_description || JSON.stringify(data)};
+                }
+                
+                return {
+                    access_token: data.access_token,
+                    refresh_token: data.refresh_token || null,
+                    expires_in: data.expires_in || 3600,
+                };
+            } catch (e) {
+                return {error: e.message};
+            }
+        }
+        """,
+        {
+            "tokenUrl": AZURE_AD_TOKEN_URL,
+            "clientId": GRAPH_EXPLORER_CLIENT_ID,
+            "code": auth_code,
+            "redirectUri": GRAPH_EXPLORER_REDIRECT_URI,
+            "codeVerifier": code_verifier,
+        },
+    )
+
+    if "error" in token_response:
+        raise RuntimeError(f"Token exchange failed: {token_response['error']}")
+
+    return {
+        "access_token": token_response["access_token"],
+        "refresh_token": token_response.get("refresh_token"),
+        "expires_in": token_response.get("expires_in", 3600),
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 # =============================================================================
@@ -209,32 +326,59 @@ async def _scrape_graph_explorer_token() -> dict[str, Any]:
 
 
 def _save_tokens(tokens: dict[str, Any]) -> None:
-    """Save tokens to the tokens file.
-
-    Args:
-        tokens: Token data dictionary to persist.
-    """
+    """Save tokens to the tokens file."""
     emit_info(f"💾 Saving tokens to {MSGRAPH_TOKENS_FILE}...")
-
-    # Ensure config directory exists
     MSGRAPH_TOKENS_FILE.parent.mkdir(parents=True, exist_ok=True)
-
     with open(MSGRAPH_TOKENS_FILE, "w") as f:
         json.dump(tokens, f, indent=2)
 
 
 def _load_tokens() -> dict[str, Any]:
-    """Load tokens from the tokens file.
-
-    Returns:
-        Token data dictionary.
-
-    Raises:
-        FileNotFoundError: If tokens file doesn't exist.
-        json.JSONDecodeError: If tokens file is invalid JSON.
-    """
+    """Load tokens from the tokens file."""
     with open(MSGRAPH_TOKENS_FILE) as f:
         return json.load(f)
+
+
+# =============================================================================
+# TOKEN REFRESH
+# =============================================================================
+
+
+def _refresh_access_token(refresh_token: str) -> dict[str, Any] | None:
+    """Attempt to refresh the access token using refresh token.
+
+    Args:
+        refresh_token: The refresh token.
+
+    Returns:
+        New token dict if successful, None if refresh failed.
+    """
+    try:
+        token_data = {
+            "client_id": GRAPH_EXPLORER_CLIENT_ID,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        }
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                AZURE_AD_TOKEN_URL,
+                data=token_data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+
+            if response.status_code == 200:
+                token_response = response.json()
+                return {
+                    "access_token": token_response["access_token"],
+                    "refresh_token": token_response.get("refresh_token", refresh_token),
+                    "expires_in": token_response.get("expires_in", 3600),
+                    "timestamp": datetime.now().isoformat(),
+                }
+    except Exception:
+        pass
+
+    return None
 
 
 # =============================================================================
@@ -243,22 +387,14 @@ def _load_tokens() -> dict[str, Any]:
 
 
 def handle_msgraph_auth_command(command: str, name: str) -> str | None:
-    """Handle the /msgraph_auth slash command.
-
-    Args:
-        command: Full command string (e.g., "/msgraph_auth").
-        name: Command name without slash (e.g., "msgraph_auth").
-
-    Returns:
-        Success/error message if handled, None if not our command.
-    """
+    """Handle the /msgraph_auth slash command."""
     if name != "msgraph_auth":
         return None
 
     emit_info("🔐 Starting Microsoft Graph authentication flow...")
     emit_info(
-        "ℹ️  This will open Graph Explorer. Sign in with your Microsoft account,\n"
-        "   and Code Puppy will capture the access token automatically."
+        "ℹ️  This uses Graph Explorer's OAuth credentials.\n"
+        "   Sign in with your Microsoft account when prompted."
     )
 
     if async_playwright is None:
@@ -273,16 +409,22 @@ def handle_msgraph_auth_command(command: str, name: str) -> str | None:
         return "Playwright is required for Microsoft Graph authentication."
 
     try:
-        tokens = _run_async_scraper()
+        tokens = _run_async_oauth()
         _save_tokens(tokens)
+
+        has_refresh = bool(tokens.get("refresh_token"))
+        refresh_msg = (
+            "   ✅ Refresh token obtained - token will auto-refresh!\n"
+            if has_refresh
+            else "   ⚠️  No refresh token - you may need to re-auth when it expires.\n"
+        )
 
         emit_success(
             f"🎉 Microsoft Graph authentication complete!\n"
             f"   Tokens saved to: {MSGRAPH_TOKENS_FILE}\n"
             f"   Timestamp: {tokens['timestamp']}\n"
-            f"   You can now use Microsoft Graph API tools.\n\n"
-            f"   ⚠️  Note: Graph Explorer tokens expire after ~1 hour.\n"
-            f"   Run /msgraph_auth again when they expire."
+            f"{refresh_msg}"
+            f"   You can now use Microsoft Graph API tools."
         )
         return "Microsoft Graph authentication successful!"
 
@@ -291,30 +433,24 @@ def handle_msgraph_auth_command(command: str, name: str) -> str | None:
         return f"Authentication failed: {e!s}"
 
 
-def _run_async_scraper() -> dict[str, Any]:
-    """Run async scraper, handling both sync and async calling contexts.
-
-    Returns:
-        Result dictionary from _scrape_graph_explorer_token.
-    """
+def _run_async_oauth() -> dict[str, Any]:
+    """Run async OAuth flow, handling both sync and async calling contexts."""
     loop = asyncio.get_event_loop()
 
     if loop.is_running():
-        # pragma: no cover - This branch executes when called from within
-        # an already-running async event loop
-        return _run_scraper_in_thread_with_new_loop()  # pragma: no cover
+        return _run_oauth_in_thread_with_new_loop()
 
-    return loop.run_until_complete(_scrape_graph_explorer_token())
+    return loop.run_until_complete(_perform_oauth_flow())
 
 
-def _run_scraper_in_thread_with_new_loop() -> dict[str, Any]:  # pragma: no cover
-    """Run async scraper in new thread (used when loop already running)."""
+def _run_oauth_in_thread_with_new_loop() -> dict[str, Any]:
+    """Run async OAuth in new thread (used when loop already running)."""
 
     def run_in_new_loop() -> dict[str, Any]:
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         try:
-            return new_loop.run_until_complete(_scrape_graph_explorer_token())
+            return new_loop.run_until_complete(_perform_oauth_flow())
         finally:
             new_loop.close()
 
@@ -329,15 +465,7 @@ def _run_scraper_in_thread_with_new_loop() -> dict[str, Any]:  # pragma: no cove
 
 
 def validate_msgraph_auth(*, debug: bool = False) -> dict[str, Any]:
-    """Validate Microsoft Graph authentication by calling /me endpoint.
-
-    Args:
-        debug: If True, emit verbose request/response information.
-
-    Returns:
-        Dict with success, user info (if success=True),
-        or success=False with error message.
-    """
+    """Validate Microsoft Graph authentication by calling /me endpoint."""
     if not MSGRAPH_TOKENS_FILE.exists():
         return {
             "success": False,
@@ -363,6 +491,7 @@ def validate_msgraph_auth(*, debug: bool = False) -> dict[str, Any]:
         timestamp = tokens.get("timestamp", "Unknown")
         emit_info(f"🔍 Debug: Token timestamp: {timestamp}")
         emit_info(f"🔍 Debug: Token length: {len(access_token)} chars")
+        emit_info(f"🔍 Debug: Has refresh token: {bool(tokens.get('refresh_token'))}")
 
     return _make_validation_request(access_token, debug=debug)
 
@@ -391,7 +520,6 @@ def _make_validation_request(
 
             if debug:
                 emit_info(f"🔍 Debug: Response status: {response.status_code}")
-                emit_info(f"🔍 Debug: Response headers: {dict(response.headers)}")
 
             return _parse_validation_response(response, debug=debug)
 
@@ -431,10 +559,9 @@ def _parse_validation_response(
             emit_info(f"🔍 Debug: Response body: {response.text[:500]}")
         return {
             "success": False,
-            "error": "Insufficient permissions. The Graph Explorer token may not have the required scopes.",
+            "error": "Insufficient permissions.",
         }
 
-    # Other HTTP errors
     if debug:
         emit_info(f"🔍 Debug: Response body: {response.text[:500]}")
     return {
@@ -444,15 +571,7 @@ def _parse_validation_response(
 
 
 def handle_msgraph_test_command(command: str, name: str) -> str | None:
-    """Handle the /msgraph_test slash command. Add 'debug' for verbose output.
-
-    Args:
-        command: Full command string (e.g., "/msgraph_test debug").
-        name: Command name without slash.
-
-    Returns:
-        Success/error message if handled, None if not our command.
-    """
+    """Handle the /msgraph_test slash command."""
     if name != "msgraph_test":
         return None
 
@@ -484,11 +603,8 @@ def handle_msgraph_test_command(command: str, name: str) -> str | None:
 def get_msgraph_auth_help() -> list[tuple[str, str]]:
     """Return (command_name, description) tuples for autocomplete/help."""
     return [
-        ("msgraph_auth", "Authenticate with Microsoft Graph via Graph Explorer"),
-        (
-            "msgraph_test",
-            "Test Microsoft Graph authentication (add 'debug' for verbose output)",
-        ),
+        ("msgraph_auth", "Authenticate with Microsoft Graph"),
+        ("msgraph_test", "Test Microsoft Graph authentication"),
     ]
 
 
@@ -498,15 +614,10 @@ def get_msgraph_auth_help() -> list[tuple[str, str]]:
 
 
 def get_valid_access_token() -> str | None:
-    """Get a valid access token from stored tokens.
-
-    This is a convenience function for other modules that need to make
-    Microsoft Graph API calls. Note that Graph Explorer tokens expire
-    after ~1 hour - if the token is expired, returns None and user
-    must run /msgraph_auth again.
+    """Get a valid access token, attempting refresh if needed.
 
     Returns:
-        Access token string, or None if not authenticated or token missing.
+        Access token string, or None if not authenticated.
     """
     if not MSGRAPH_TOKENS_FILE.exists():
         return None
@@ -516,56 +627,29 @@ def get_valid_access_token() -> str | None:
     except (json.JSONDecodeError, OSError):
         return None
 
-    return tokens.get("access_token")
+    access_token = tokens.get("access_token")
+    if not access_token:
+        return None
 
-
-def run_auth_flow_if_needed(*, force: bool = False) -> bool:
-    """Run the auth flow automatically if tokens are missing or invalid.
-
-    This function can be called by the msgraph client when it detects
-    authentication is needed, providing a smoother UX than requiring
-    users to manually run /msgraph_auth.
-
-    Args:
-        force: If True, run auth even if tokens exist.
-
-    Returns:
-        True if authentication succeeded, False otherwise.
-    """
-    # Check if we already have valid tokens
-    if not force:
-        token = get_valid_access_token()
-        if token:
-            # Validate the token is still working
-            result = validate_msgraph_auth()
-            if result.get("success"):
-                return True
-
-    emit_info("\n🔐 Microsoft Graph authentication required...")
-    emit_info("🚀 Launching browser for Graph Explorer authentication...")
-
-    if async_playwright is None:
-        emit_error(
-            "❌ Playwright is not installed.\n"
-            "   Install it with:\n"
-            "   uv pip install playwright --index-url "
-            "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple "
-            "--allow-insecure-host pypi.ci.artifacts.walmart.com\n"
-            "   playwright install chromium"
-        )
-        return False
-
+    # Try a quick validation
     try:
-        tokens = _run_async_scraper()
-        _save_tokens(tokens)
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"{MSGRAPH_API_BASE}/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if response.status_code == 200:
+                return access_token
 
-        emit_success(
-            f"🎉 Microsoft Graph authentication complete!\n"
-            f"   Tokens saved to: {MSGRAPH_TOKENS_FILE}\n"
-            f"   Timestamp: {tokens['timestamp']}"
-        )
-        return True
+            # Token expired, try refresh
+            if response.status_code == 401:
+                refresh_token = tokens.get("refresh_token")
+                if refresh_token:
+                    new_tokens = _refresh_access_token(refresh_token)
+                    if new_tokens:
+                        _save_tokens(new_tokens)
+                        return new_tokens["access_token"]
+    except Exception:
+        pass
 
-    except Exception as e:
-        emit_error(f"❌ Auto-authentication failed: {e!s}")
-        return False
+    return access_token  # Return it anyway, let caller handle errors

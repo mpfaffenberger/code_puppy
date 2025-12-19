@@ -29,7 +29,6 @@ from code_puppy.messaging import emit_warning
 from code_puppy.plugins.walmart_specific.msgraph_auth import (
     MSGRAPH_TOKENS_FILE,
     get_valid_access_token,
-    run_auth_flow_if_needed,
 )
 from code_puppy.plugins.walmart_specific.rate_limiter import SharedRateLimiter
 
@@ -139,12 +138,8 @@ class MSGraphClient:
             time_window=60,
         )
 
-    def _ensure_valid_token(self, *, allow_auto_auth: bool = True) -> None:
+    def _ensure_valid_token(self) -> None:
         """Ensure we have a valid access token, refreshing if necessary.
-
-        Args:
-            allow_auto_auth: If True, attempt to run auth flow automatically
-                when tokens are missing. Defaults to True.
 
         Raises:
             MSGraphAuthError: If no valid token is available.
@@ -152,16 +147,6 @@ class MSGraphClient:
         token = get_valid_access_token()
 
         if not token:
-            if allow_auto_auth:
-                # Try to run auth flow automatically
-                if run_auth_flow_if_needed():
-                    # Auth succeeded, try to get token again
-                    token = get_valid_access_token()
-                    if token:
-                        self._access_token = token
-                        return
-
-            # Auth failed or wasn't attempted
             if not MSGRAPH_TOKENS_FILE.exists():
                 raise MSGraphAuthError(
                     f"No Microsoft Graph tokens found at {MSGRAPH_TOKENS_FILE}.\n"
