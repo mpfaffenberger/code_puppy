@@ -697,18 +697,21 @@ def register_msgraph_send_chat_message(agent: Any) -> Tool:
 # =============================================================================
 
 
-def _find_existing_chat_with_user(client: Any, user_email: str) -> str | None:
+def _find_existing_chat_with_user(
+    client: Any, user_email: str, current_user_id: str | None = None
+) -> tuple[str | None, str | None]:
     """Find an existing 1:1 chat with a user by searching recent chats.
 
-    Searches by email, userId, or partial name match to handle different
-    email formats (e.g., t0d00bh@homeoffice.wal-mart.com vs Trevor.Dodson@walmart.com).
+    Uses STRICT matching only to prevent sending messages to wrong recipients.
+    Only matches on exact email, exact userId, or exact username (before @).
 
     Args:
         client: MSGraphClient instance.
         user_email: The user's email, UPN, or userId to find a chat with.
+        current_user_id: Current user's ID to exclude from matching (optional).
 
     Returns:
-        Chat ID if found, None otherwise.
+        Tuple of (chat_id, matched_email) if found, (None, None) otherwise.
     """
     try:
         # Get recent chats and look for a 1:1 with this user
@@ -736,42 +739,47 @@ def _find_existing_chat_with_user(client: Any, user_email: str) -> str | None:
             for member in members:
                 member_email = (member.get("email") or "").lower()
                 member_id = (member.get("userId") or "").lower()
-                member_display = (member.get("displayName") or "").lower()
 
-                # Try multiple matching strategies:
-                # 1. Exact email match
+                # Skip matching against self (current user is in all their chats)
+                if current_user_id and member_id == current_user_id.lower():
+                    continue
+
+                # STRICT MATCHING - prevent wrong recipients while handling
+                # edge cases like truncated emails from MS Graph API
+
+                # 1. Exact email match (case-insensitive)
                 if search_lower == member_email:
-                    return chat.get("id")
+                    return chat.get("id"), member.get("email")
 
-                # 2. Email contains search term (handles partial matches)
-                if search_lower in member_email or member_email in search_lower:
-                    return chat.get("id")
+                # 2. Exact userId match
+                if search_lower == member_id:
+                    return chat.get("id"), member.get("email")
 
-                # 3. UserId match
-                if search_lower == member_id or search_username == member_id:
-                    return chat.get("id")
-
-                # 4. Username part matches (e.g., "michael.pfaffenberger" from email)
+                # 3. Exact username match (the part before @)
                 member_username = (
                     member_email.split("@")[0] if "@" in member_email else ""
                 )
-                if search_username and member_username:
-                    # Check if usernames are similar
-                    if (
-                        search_username in member_username
-                        or member_username in search_username
-                    ):
-                        return chat.get("id")
+                if search_username and member_username == search_username:
+                    return chat.get("id"), member.get("email")
 
-                # 5. Display name contains search term
-                if search_username in member_display:
-                    return chat.get("id")
+                # 4. Handle MS Graph truncated emails (API sometimes truncates)
+                #    Only match if one starts with the other AND they're very similar
+                if member_email and search_lower:
+                    # Check if search starts with member email (truncated case)
+                    if search_lower.startswith(member_email.rstrip("@walmart.com")):
+                        # Require at least 10 chars to avoid false positives
+                        if len(member_username) >= 10:
+                            return chat.get("id"), member.get("email")
+                    # Check if member email starts with search (partial input)
+                    if member_email.startswith(search_lower.rstrip("@walmart.com")):
+                        if len(search_username) >= 10:
+                            return chat.get("id"), member.get("email")
 
     except Exception:
         # If search fails, return None and let caller try to create
         pass
 
-    return None
+    return None, None
 
 
 def msgraph_send_direct_message(
@@ -804,14 +812,27 @@ def msgraph_send_direct_message(
         client = get_msgraph_client()
         chat_id = None
         chat_response = None
+        matched_recipient = None
+
+        # Get current user ID to exclude self from chat member matching
+        try:
+            me_response = client.get("/me", params={"$select": "id"})
+            current_user_id = me_response.get("id")
+        except Exception:
+            current_user_id = None
 
         # Step 1: Try to find an existing chat with this user first
-        existing_chat_id = _find_existing_chat_with_user(client, user_email)
+        existing_chat_id, matched_recipient = _find_existing_chat_with_user(
+            client, user_email, current_user_id
+        )
 
         if existing_chat_id:
             chat_id = existing_chat_id
+            # Show who was actually matched for transparency
             emit_info(
-                Text.from_markup(f"[dim]Found existing chat with {user_email}[/dim]")
+                Text.from_markup(
+                    f"[dim]Found existing chat with {matched_recipient or user_email}[/dim]"
+                )
             )
         else:
             # Step 2: No existing chat found, try to create one
@@ -872,14 +893,17 @@ def msgraph_send_direct_message(
         message = _format_message(message_response)
         chat = _format_chat(chat_response) if chat_response else {"id": chat_id}
 
-        emit_success(f"Direct message sent to {user_email}!")
+        # Show actual recipient for transparency (may differ from search term)
+        actual_recipient = matched_recipient or user_email
+        emit_success(f"Direct message sent to {actual_recipient}!")
 
         return {
             "success": True,
             "chat_id": chat_id,
             "chat": chat,
             "message": message,
-            "recipient": user_email,
+            "recipient": actual_recipient,
+            "requested_recipient": user_email,
         }
 
     except Exception as e:
