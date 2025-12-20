@@ -451,3 +451,65 @@ async def search_confluence(query: str, limit: int = 10) -> str:
         error_msg = f"Search failed: {str(e)}"
         emit_error(error_msg)
         return error_msg
+
+
+# =============================================================================
+# AUTHENTICATION TOOL
+# =============================================================================
+
+
+def confluence_authenticate(ctx: RunContext) -> dict[str, Any]:
+    """Launch Confluence authentication flow.
+
+    Opens a browser window for the user to sign in with their Walmart SSO.
+    Use this tool when you receive a 401 authentication error, or when the user
+    needs to authenticate/re-authenticate with Confluence.
+
+    Returns:
+        Dict with success=True if authentication completed, or error details.
+    """
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on orange1] CONFLUENCE [/bold white on orange1] "
+            "🔐 [bold cyan]Launching authentication flow...[/bold cyan]"
+        )
+    )
+
+    try:
+        from code_puppy.plugins.walmart_specific.confluence_auth import (
+            handle_confluence_auth_command,
+        )
+
+        result = handle_confluence_auth_command("/confluence_auth", "confluence_auth")
+
+        if result and "successful" in result.lower():
+            emit_success("Confluence authentication completed successfully!")
+            return {
+                "success": True,
+                "message": "Confluence authentication successful. You can now retry your previous request.",
+            }
+        else:
+            return {
+                "success": False,
+                "error": result or "Authentication did not complete",
+            }
+
+    except Exception as e:
+        error_msg = f"Authentication failed: {e!s}"
+        emit_error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg,
+        }
+
+
+def register_confluence_authenticate(agent: Any) -> Tool:
+    """Register the confluence_authenticate tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance.
+
+    Returns:
+        The registered Tool instance.
+    """
+    return agent.tool(confluence_authenticate)

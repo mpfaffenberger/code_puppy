@@ -125,7 +125,6 @@ from code_puppy.tools.msgraph.planner import (
     register_msgraph_delete_task,
 )
 
-# To Do (personal task management)
 from code_puppy.tools.msgraph.todo import (
     register_msgraph_list_todo_lists,
     register_msgraph_get_todo_list,
@@ -154,8 +153,11 @@ from code_puppy.tools.msgraph.meeting_health import (
     register_msgraph_suggest_reschedule,
 )
 
-# Common (generic API request)
-from code_puppy.tools.msgraph.common import register_msgraph_api_request
+# Common (generic API request and authentication)
+from code_puppy.tools.msgraph.common import (
+    register_msgraph_api_request,
+    register_msgraph_authenticate,
+)
 
 # Workflow tools (high-level composite operations)
 from code_puppy.tools.msgraph.workflows import (
@@ -437,4 +439,6 @@ MSGRAPH_TOOLS = {
     "msgraph_search_notes": register_msgraph_search_notes,
     # Batch Operations (universal - works with any MS Graph request)
     "msgraph_batch_request": register_msgraph_batch_request,
+    # Authentication tool (for handling 401 errors)
+    "msgraph_authenticate": register_msgraph_authenticate,
 }

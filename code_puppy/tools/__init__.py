@@ -72,6 +72,7 @@ from code_puppy.tools.confluence_tools import (
     register_confluence_search,
     register_confluence_read_page,
     register_confluence_search_by_space,
+    register_confluence_authenticate,
 )
 from code_puppy.tools.jira_tools import (
     register_jira_search,
@@ -81,6 +82,7 @@ from code_puppy.tools.jira_tools import (
     register_jira_update_issue,
     register_jira_transition_issue,
     register_jira_get_comments,
+    register_jira_authenticate,
 )
 from code_puppy.tools.msgraph import MSGRAPH_TOOLS
 from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
@@ -158,6 +160,7 @@ TOOL_REGISTRY = {
     "confluence_search": register_confluence_search,
     "confluence_read_page": register_confluence_read_page,
     "confluence_search_by_space": register_confluence_search_by_space,
+    "confluence_authenticate": register_confluence_authenticate,
     # Jira Tools
     "jira_search": register_jira_search,
     "jira_get_issue": register_jira_get_issue,
@@ -166,6 +169,7 @@ TOOL_REGISTRY = {
     "jira_update_issue": register_jira_update_issue,
     "jira_transition_issue": register_jira_transition_issue,
     "jira_get_comments": register_jira_get_comments,
+    "jira_authenticate": register_jira_authenticate,
     # BigQuery Tools
     "bigquery_get_default_project": register_bigquery_get_default_project,
     "bigquery_list_all_projects": register_bigquery_list_all_projects,

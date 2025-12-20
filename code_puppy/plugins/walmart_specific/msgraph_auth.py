@@ -148,6 +148,7 @@ async def _perform_oauth_flow() -> dict[str, Any]:
     state = _generate_state()
 
     # Build the authorization URL (mimicking Graph Explorer exactly)
+    # Note: We don't set prompt=select_account so it auto-completes if already logged in
     auth_params = {
         "client_id": GRAPH_EXPLORER_CLIENT_ID,
         "scope": GRAPH_EXPLORER_SCOPES,
@@ -157,7 +158,6 @@ async def _perform_oauth_flow() -> dict[str, Any]:
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
         "state": state,
-        "prompt": "select_account",  # Let user pick account
     }
     auth_url = f"{AZURE_AD_AUTHORIZE_URL}?{urlencode(auth_params)}"
 
@@ -213,17 +213,21 @@ async def _perform_oauth_flow() -> dict[str, Any]:
             await page.goto(auth_url, timeout=30000)
 
             emit_info(
-                "⏳ Please sign in with your Microsoft account...\n"
-                f"   Timeout: {AUTH_WAIT_TIMEOUT} seconds"
+                "⏳ Waiting for authentication...\n"
+                "   (If you're already logged in, this should auto-complete)"
             )
 
-            # Poll for the auth code in the URL
+            # Poll for the auth code in the URL - should be fast if already logged in
             start_time = time.time()
             while time.time() - start_time < AUTH_WAIT_TIMEOUT:
                 code = await check_for_auth_code()
                 if code:
                     captured_code = code
-                    emit_success("✅ Authorization code captured!")
+                    elapsed = time.time() - start_time
+                    if elapsed < 5:
+                        emit_success("✅ Authorization code captured automatically!")
+                    else:
+                        emit_success("✅ Authorization code captured!")
                     break
                 await asyncio.sleep(0.5)
 
@@ -434,13 +438,12 @@ def handle_msgraph_auth_command(command: str, name: str) -> str | None:
 
 
 def _run_async_oauth() -> dict[str, Any]:
-    """Run async OAuth flow, handling both sync and async calling contexts."""
-    loop = asyncio.get_event_loop()
+    """Run async OAuth flow in a new thread with its own event loop.
 
-    if loop.is_running():
-        return _run_oauth_in_thread_with_new_loop()
-
-    return loop.run_until_complete(_perform_oauth_flow())
+    Always runs in a new thread to avoid issues with AnyIO worker threads
+    and nested event loops.
+    """
+    return _run_oauth_in_thread_with_new_loop()
 
 
 def _run_oauth_in_thread_with_new_loop() -> dict[str, Any]:

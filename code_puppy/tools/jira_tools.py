@@ -894,3 +894,65 @@ def register_jira_get_comments(agent: Any) -> Tool:
         Tool: The registered Tool instance.
     """
     return agent.tool(jira_get_comments)
+
+
+# =============================================================================
+# AUTHENTICATION TOOL
+# =============================================================================
+
+
+def jira_authenticate(ctx: RunContext) -> dict[str, Any]:
+    """Launch Jira authentication flow.
+
+    Opens a browser window for the user to sign in with their Walmart SSO.
+    Use this tool when you receive a 401 authentication error, or when the user
+    needs to authenticate/re-authenticate with Jira.
+
+    Returns:
+        Dict with success=True if authentication completed, or error details.
+    """
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on green] JIRA [/bold white on green] "
+            "🔐 [bold cyan]Launching authentication flow...[/bold cyan]"
+        )
+    )
+
+    try:
+        from code_puppy.plugins.walmart_specific.jira_auth import (
+            handle_jira_auth_command,
+        )
+
+        result = handle_jira_auth_command("/jira_auth", "jira_auth")
+
+        if result and "successful" in result.lower():
+            emit_success("Jira authentication completed successfully!")
+            return {
+                "success": True,
+                "message": "Jira authentication successful. You can now retry your previous request.",
+            }
+        else:
+            return {
+                "success": False,
+                "error": result or "Authentication did not complete",
+            }
+
+    except Exception as e:
+        error_msg = f"Authentication failed: {e!s}"
+        emit_error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg,
+        }
+
+
+def register_jira_authenticate(agent: Any) -> Tool:
+    """Register the jira_authenticate tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance.
+
+    Returns:
+        The registered Tool instance.
+    """
+    return agent.tool(jira_authenticate)

@@ -190,11 +190,13 @@ class MSGraphAgent(BaseAgent):
             "msgraph_list_plans",
             "msgraph_list_tasks",
             "msgraph_create_task",
-            #
-            # === GENERIC FALLBACK ===
-            "msgraph_api_request",  # Any MS Graph endpoint not covered above
-            #
-            # === CORE ===
+            "msgraph_update_task",
+            "msgraph_delete_task",
+            # Generic API fallback
+            "msgraph_api_request",
+            # Authentication (use when you get a 401 error)
+            "msgraph_authenticate",
+            # Core tools
             "agent_share_your_reasoning",
             #
             # === AGENT ORCHESTRATION ===
@@ -225,49 +227,6 @@ You can invoke other specialized agents to enrich your analysis:
 - Email mentions a ticket number → Invoke Jira to get ticket details
 - User needs comprehensive context → Gather from MS Graph AND other systems
 - Always synthesize results from multiple agents into a coherent summary
-
-## ⚠️ Authentication
-
-Authentication happens automatically when you use any msgraph tool. If tokens are missing or expired,
-a browser will open for Microsoft login. You can also manually authenticate with `/msgraph_auth`.
-
----
-
-## 📱 EXTENSIBLE COMMUNICATION CHANNELS
-
-The EA pattern is designed to be **channel-agnostic**. While this agent focuses on
-Microsoft 365 (Teams, Outlook), work often originates from other communication platforms.
-
-### Slack Integration
-
-If your organization uses Slack alongside Microsoft 365, you can extend your EA capabilities:
-
-1. **Install Slack MCP**: `/mcp install slack`
-2. **Configure**: Set `SLACK_TOKEN` environment variable (get from https://api.slack.com/apps)
-3. **Start the server**: `/mcp start slack`
-
-Once installed and running, Slack MCP tools become available and you can:
-- Search Slack messages for context alongside Teams messages
-- Send Slack notifications as part of your workflows
-- Include Slack activity in your daily digest context
-
-**Example Cross-Platform Workflow:**
-When gathering context for a meeting or project, you can:
-1. Use MS Graph tools to search Teams and Outlook
-2. If Slack MCP is running, also search Slack for related threads
-3. Synthesize both sources into a comprehensive brief
-
-### Future Communication Channels
-
-This extensibility pattern works for any communication platform with an MCP server:
-- Search available MCPs: `/mcp search slack` or `/mcp search discord`
-- Install and configure as needed
-- The EA workflows automatically benefit from additional context sources
-
-**Note:** The user is responsible for installing and configuring additional MCP servers.
-Use `/mcp status` to check which servers are currently running.
-
----
 
 ## 🚀 WORKFLOW TOOLS (Start Here!)
 
@@ -366,6 +325,15 @@ Tasks are automatically classified into workstreams using:
 
 When organizing tasks, the EA creates/uses To Do lists that match the user's existing
 organization. New tasks are placed in the most appropriate existing list.
+=======
+## 🔐 Authentication
+
+If you receive a 401 authentication error or "Authentication failed" error, use the `msgraph_authenticate` tool to launch the browser-based login flow. After authentication completes, retry the failed request.
+
+**When to use `msgraph_authenticate`:**
+- When any API call returns a 401 error
+- When the error message says "token expired" or "authentication failed"
+- When the user explicitly asks to log in or re-authenticate
 
 ---
 
@@ -483,7 +451,7 @@ Interact with Teams, channels, and meetings.
 - `msgraph_create_online_meeting` - Create a Teams meeting
 - `msgraph_list_chats` - List your chats
 - `msgraph_send_chat_message` - Send a message to an existing chat
-- `msgraph_send_direct_message` - Send a DM to a user by email
+- `msgraph_send_direct_message` - Send a DM to a user by email (you can search for a users email by name using msgraph_search_users
 
 **Example Workflows:**
 - "What teams am I a member of?"
