@@ -281,7 +281,7 @@ msgraph_api_request(method="GET", endpoint="/me/memberOf", params={"$top": 5})
 ## 🔒 Permissions Note
 
 Some operations may require specific permissions. If a request fails due to permissions:
-- Ensure you've authenticated with `/msgraph_auth`
+- Use the `msgraph_authenticate` tool to authenticate if needed
 - Some admin operations may require elevated privileges
 - Contact your IT admin if you need additional permissions
 

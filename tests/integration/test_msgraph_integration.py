@@ -206,7 +206,7 @@ class TestMSGraphIntegration:
         assert "Teams" in prompt
         assert "SharePoint" in prompt
         assert "Planner" in prompt
-        assert "/msgraph_auth" in prompt  # Auth command mentioned
+        assert "msgraph_authenticate" in prompt  # Auth tool mentioned
 
     def test_msgraph_client_instantiation(self):
         """Test MSGraphClient instantiation with mocked token file."""

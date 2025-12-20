@@ -150,11 +150,11 @@ class MSGraphClient:
             if not MSGRAPH_TOKENS_FILE.exists():
                 raise MSGraphAuthError(
                     f"No Microsoft Graph tokens found at {MSGRAPH_TOKENS_FILE}.\n"
-                    "Please run '/msgraph_auth' to authenticate."
+                    "Microsoft Graph authentication required."
                 )
             raise MSGraphAuthError(
                 "Failed to get valid Microsoft Graph access token.\n"
-                "Token may have expired. Please run '/msgraph_auth' to re-authenticate."
+                "Token may have expired. Microsoft Graph re-authentication required."
             )
 
         self._access_token = token
@@ -254,7 +254,7 @@ class MSGraphClient:
                 if response.status_code == 401:
                     raise MSGraphAuthError(
                         "Authentication failed (HTTP 401). "
-                        "Please run '/msgraph_auth' to re-authenticate."
+                        "Microsoft Graph re-authentication required."
                     )
 
             if response.status_code == 403:

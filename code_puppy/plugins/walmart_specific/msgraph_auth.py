@@ -472,7 +472,7 @@ def validate_msgraph_auth(*, debug: bool = False) -> dict[str, Any]:
     if not MSGRAPH_TOKENS_FILE.exists():
         return {
             "success": False,
-            "error": "No Microsoft Graph tokens found. Run /msgraph_auth first.",
+            "error": "No Microsoft Graph tokens found. Microsoft Graph authentication required.",
         }
 
     try:
@@ -487,7 +487,7 @@ def validate_msgraph_auth(*, debug: bool = False) -> dict[str, Any]:
     if not access_token:
         return {
             "success": False,
-            "error": "No access token found. Run /msgraph_auth to authenticate.",
+            "error": "No access token found. Microsoft Graph authentication required.",
         }
 
     if debug:
@@ -554,7 +554,7 @@ def _parse_validation_response(
             emit_info(f"🔍 Debug: Response body: {response.text[:500]}")
         return {
             "success": False,
-            "error": "Access token expired or invalid. Run /msgraph_auth to re-authenticate.",
+            "error": "Access token expired or invalid. Microsoft Graph re-authentication required.",
         }
 
     if response.status_code == 403:

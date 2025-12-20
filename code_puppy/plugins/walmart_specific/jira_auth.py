@@ -368,7 +368,7 @@ def validate_jira_auth(*, debug: bool = False) -> dict[str, Any]:
     if not JIRA_COOKIES_FILE.exists():
         return {
             "success": False,
-            "error": "No Jira session found. Run /jira_auth first.",
+            "error": "No Jira session found. Jira authentication required.",
         }
 
     try:
@@ -455,7 +455,7 @@ def _parse_validation_response(
             "success": False,
             "error": (
                 f"Session expired or forbidden (HTTP {response.status_code}). "
-                "Run /jira_auth to re-authenticate."
+                "Jira re-authentication required."
             ),
         }
 

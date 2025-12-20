@@ -142,7 +142,7 @@ class ConfluenceClient:
         if not self.session_file_path.exists():
             raise ConfluenceError(
                 f"Session file not found: {self.session_file_path}\n"
-                "Please run '/confluence_auth' to create a session."
+                "Confluence authentication required."
             )
 
         try:
@@ -188,7 +188,7 @@ class ConfluenceClient:
                 hours_old = age.total_seconds() / 3600
                 emit_warning(
                     f"Confluence session is {hours_old:.1f} hours old. "
-                    "Consider running '/confluence_auth' to refresh."
+                    "Session may be stale, consider re-authenticating."
                 )
         except ValueError:
             emit_warning(f"Invalid timestamp format in session file: {timestamp_str}")
@@ -257,7 +257,7 @@ class ConfluenceClient:
             if response.status_code in (401, 403):
                 raise ConfluenceAuthError(
                     f"Authentication failed (HTTP {response.status_code}). "
-                    "Please run '/confluence_auth' to refresh your session."
+                    "Confluence re-authentication required."
                 )
 
             # Handle not found errors

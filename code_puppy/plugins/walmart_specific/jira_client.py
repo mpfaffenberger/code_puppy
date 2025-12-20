@@ -136,7 +136,7 @@ class JiraClient:
         if not self.session_file_path.exists():
             raise JiraError(
                 f"Session file not found: {self.session_file_path}\n"
-                "Please run '/jira_auth' to create a session."
+                "Jira authentication required."
             )
 
         try:
@@ -179,7 +179,7 @@ class JiraClient:
                 hours_old = age.total_seconds() / 3600
                 emit_warning(
                     f"Jira session is {hours_old:.1f} hours old. "
-                    "Consider running '/jira_auth' to refresh."
+                    "Session may be stale, consider re-authenticating."
                 )
         except ValueError:
             emit_warning(f"Invalid timestamp format in session file: {timestamp_str}")
@@ -237,7 +237,7 @@ class JiraClient:
             if response.status_code in (401, 403):
                 raise JiraAuthError(
                     f"Authentication failed (HTTP {response.status_code}). "
-                    "Please run '/jira_auth' to refresh your session."
+                    "Jira re-authentication required."
                 )
 
             if response.status_code == 404:

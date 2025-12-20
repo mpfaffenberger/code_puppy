@@ -72,7 +72,7 @@ def _handle_jira_error(e: Exception) -> dict[str, Any]:
             "success": False,
             "error": error_msg,
             "error_type": "authentication",
-            "suggestion": "Run /jira_auth to refresh your session.",
+            "suggestion": "Jira re-authentication required.",
         }
     elif isinstance(e, JiraNotFoundError):
         error_msg = f"Not found: {e}"
