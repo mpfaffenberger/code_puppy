@@ -365,6 +365,8 @@ Agent: [Creates a sharing link]
 | `msgraph_send_channel_message` | Post to a channel | `team_id`, `channel_id`, `content`, `content_type` ("text" or "html") |
 | `msgraph_create_online_meeting` | Create Teams meeting | `subject`, `start`, `end`, `attendees` (optional) |
 | `msgraph_list_chats` | List recent chats | `limit` (default 20) |
+| `msgraph_send_chat_message` | Send message to existing chat | `chat_id`, `content`, `content_type` (default "text") |
+| `msgraph_send_direct_message` | Send DM to user by email | `user_email`, `content`, `content_type` (default "text") |
 
 **Return Fields for Team:**
 - `id`, `display_name`, `description`, `visibility`, `web_url`
