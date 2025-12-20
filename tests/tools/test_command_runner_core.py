@@ -313,3 +313,44 @@ class TestKillAllRunningShellProcesses:
 
         # Verify PID was added to killed processes set
         assert alive_process.pid in command_runner_module._USER_KILLED_PROCESSES
+
+
+class TestBackgroundMode:
+    """Test background execution mode."""
+
+    def test_background_mode_returns_log_file_and_pid(self):
+        """Test that background=True returns log_file and pid."""
+        from code_puppy.tools.command_runner import ShellCommandOutput
+
+        output = ShellCommandOutput(
+            success=True,
+            command="sleep 10",
+            stdout=None,
+            stderr=None,
+            exit_code=None,
+            execution_time=0.0,
+            background=True,
+            log_file="/tmp/shell_bg_123.log",
+            pid=12345,
+        )
+
+        assert output.background is True
+        assert output.log_file == "/tmp/shell_bg_123.log"
+        assert output.pid == 12345
+
+    def test_background_mode_defaults_to_false(self):
+        """Test that background defaults to False."""
+        from code_puppy.tools.command_runner import ShellCommandOutput
+
+        output = ShellCommandOutput(
+            success=True,
+            command="echo hello",
+            stdout="hello",
+            stderr="",
+            exit_code=0,
+            execution_time=0.1,
+        )
+
+        assert output.background is False
+        assert output.log_file is None
+        assert output.pid is None

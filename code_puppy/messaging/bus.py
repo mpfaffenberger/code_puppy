@@ -159,6 +159,18 @@ class MessageBus:
         """Emit a DEBUG level text message."""
         self.emit_text(MessageLevel.DEBUG, text)
 
+    def emit_shell_line(self, line: str, stream: str = "stdout") -> None:
+        """Emit a shell output line with ANSI preservation.
+
+        Args:
+            line: The output line (may contain ANSI codes).
+            stream: Which stream this came from ("stdout" or "stderr").
+        """
+        from .messages import ShellLineMessage
+
+        message = ShellLineMessage(line=line, stream=stream)  # type: ignore[arg-type]
+        self.emit(message)
+
     # =========================================================================
     # Session Context (Multi-Agent Tracking)
     # =========================================================================
@@ -559,6 +571,11 @@ def emit_debug(text: str) -> None:
     get_message_bus().emit_debug(text)
 
 
+def emit_shell_line(line: str, stream: str = "stdout") -> None:
+    """Emit a shell output line with ANSI preservation."""
+    get_message_bus().emit_shell_line(line, stream)
+
+
 def set_session_context(session_id: Optional[str]) -> None:
     """Set the session context on the global bus."""
     get_message_bus().set_session_context(session_id)
@@ -586,6 +603,7 @@ __all__ = [
     "emit_error",
     "emit_success",
     "emit_debug",
+    "emit_shell_line",
     # Session context
     "set_session_context",
     "get_session_context",
