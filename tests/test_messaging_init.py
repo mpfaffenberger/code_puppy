@@ -163,6 +163,12 @@ class TestMessagingPackageExports:
             "RichConsoleRenderer",
             "DEFAULT_STYLES",
             "DIFF_STYLES",
+            # Session management
+            "set_session_context",
+            "get_session_context",
+            # Shell output rendering
+            "ShellLineMessage",
+            "emit_shell_line",
         }
 
         expected_exports = legacy_exports | new_api_exports

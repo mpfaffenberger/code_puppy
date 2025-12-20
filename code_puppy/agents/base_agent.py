@@ -1725,7 +1725,7 @@ class BaseAgent(ABC):
                         exc, (asyncio.CancelledError, UsageLimitExceeded)
                     ):
                         remaining_exceptions.append(exc)
-                        log_path = _log_error_to_file(exc)
+                        _log_error_to_file(exc)
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
                         emit_info(f"{str(exc.args)}", group_id=group_id)
                         # Log to file for debugging

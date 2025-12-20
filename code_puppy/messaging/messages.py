@@ -56,6 +56,10 @@ class BaseMessage(BaseModel):
     category: MessageCategory = Field(
         description="Category for routing and rendering decisions"
     )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session ID of the agent that emitted this message (for multi-agent tracking)",
+    )
 
     model_config = {"frozen": False, "extra": "forbid"}
 
@@ -205,6 +209,16 @@ class ShellStartMessage(BaseMessage):
         default=None, description="Working directory for the command"
     )
     timeout: int = Field(default=60, description="Timeout in seconds")
+
+
+class ShellLineMessage(BaseMessage):
+    """A single line of shell command output with ANSI preservation."""
+
+    category: MessageCategory = MessageCategory.TOOL_OUTPUT
+    line: str = Field(description="The output line (may contain ANSI codes)")
+    stream: Literal["stdout", "stderr"] = Field(
+        default="stdout", description="Which output stream this line came from"
+    )
 
 
 class ShellOutputMessage(BaseMessage):
@@ -394,6 +408,7 @@ AnyMessage = Union[
     GrepResultMessage,
     DiffMessage,
     ShellStartMessage,
+    ShellLineMessage,
     ShellOutputMessage,
     AgentReasoningMessage,
     AgentResponseMessage,
@@ -433,6 +448,7 @@ __all__ = [
     "DiffMessage",
     # Shell
     "ShellStartMessage",
+    "ShellLineMessage",
     "ShellOutputMessage",
     # Agent
     "AgentReasoningMessage",

@@ -460,7 +460,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.306"
+version = "0.0.311"
 source = { editable = "." }
 dependencies = [
     { name = "atomacos", marker = "sys_platform == 'darwin'" },
