@@ -38,6 +38,7 @@ from .messages import (
     GrepResultMessage,
     MessageLevel,
     SelectionRequest,
+    ShellLineMessage,
     ShellOutputMessage,
     ShellStartMessage,
     SpinnerControl,
@@ -236,6 +237,8 @@ class RichConsoleRenderer:
             self._render_diff(message)
         elif isinstance(message, ShellStartMessage):
             self._render_shell_start(message)
+        elif isinstance(message, ShellLineMessage):
+            self._render_shell_line(message)
         elif isinstance(message, ShellOutputMessage):
             self._render_shell_output(message)
         elif isinstance(message, AgentReasoningMessage):
@@ -518,6 +521,20 @@ class RichConsoleRenderer:
 
         # Show timeout
         self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
+
+    def _render_shell_line(self, msg: ShellLineMessage) -> None:
+        """Render shell output line preserving ANSI codes."""
+        from rich.text import Text
+
+        # Use Text.from_ansi() to parse ANSI codes into Rich styling
+        # This preserves colors while still being safe
+        text = Text.from_ansi(msg.line)
+
+        # Add prefix for stderr to distinguish it
+        if msg.stream == "stderr":
+            self._console.print(text, style="red")
+        else:
+            self._console.print(text)
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
         """Render shell command output - suppressed for clean output.

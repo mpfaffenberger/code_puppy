@@ -36,6 +36,11 @@ Example (new):
 # Message bus
 from .bus import (
     MessageBus,
+    emit_shell_line,
+    get_message_bus,
+    get_session_context,
+    reset_message_bus,
+    set_session_context,
 )
 from .bus import emit as bus_emit  # Convenience functions (new API versions)
 from .bus import emit_debug as bus_emit_debug
@@ -43,12 +48,6 @@ from .bus import emit_error as bus_emit_error
 from .bus import emit_info as bus_emit_info
 from .bus import emit_success as bus_emit_success
 from .bus import emit_warning as bus_emit_warning
-from .bus import (
-    get_message_bus,
-    get_session_context,
-    reset_message_bus,
-    set_session_context,
-)
 
 # Command types (UI -> Agent)
 from .commands import (  # Base; Agent control; User interaction responses; Union type
@@ -100,6 +99,7 @@ from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
     MessageCategory,
     MessageLevel,
     SelectionRequest,
+    ShellLineMessage,
     ShellOutputMessage,
     ShellStartMessage,
     SpinnerControl,
@@ -179,7 +179,9 @@ __all__ = [
     "DiffLine",
     "DiffMessage",
     "ShellStartMessage",
+    "ShellLineMessage",
     "ShellOutputMessage",
+    "emit_shell_line",
     "AgentReasoningMessage",
     "AgentResponseMessage",
     "SubAgentInvocationMessage",

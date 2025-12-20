@@ -211,6 +211,16 @@ class ShellStartMessage(BaseMessage):
     timeout: int = Field(default=60, description="Timeout in seconds")
 
 
+class ShellLineMessage(BaseMessage):
+    """A single line of shell command output with ANSI preservation."""
+
+    category: MessageCategory = MessageCategory.TOOL_OUTPUT
+    line: str = Field(description="The output line (may contain ANSI codes)")
+    stream: Literal["stdout", "stderr"] = Field(
+        default="stdout", description="Which output stream this line came from"
+    )
+
+
 class ShellOutputMessage(BaseMessage):
     """Output from a shell command execution with stdout, stderr, and timing."""
 
@@ -398,6 +408,7 @@ AnyMessage = Union[
     GrepResultMessage,
     DiffMessage,
     ShellStartMessage,
+    ShellLineMessage,
     ShellOutputMessage,
     AgentReasoningMessage,
     AgentResponseMessage,
@@ -437,6 +448,7 @@ __all__ = [
     "DiffMessage",
     # Shell
     "ShellStartMessage",
+    "ShellLineMessage",
     "ShellOutputMessage",
     # Agent
     "AgentReasoningMessage",
