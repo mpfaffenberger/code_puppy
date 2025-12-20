@@ -190,13 +190,13 @@ def msgraph_api_request(
         if method == "GET":
             response = client.get(endpoint, params=params)
         elif method == "POST":
-            response = client.post(endpoint, body=body, params=params)
+            response = client.post(endpoint, json=body, params=params)
         elif method == "PATCH":
-            response = client.patch(endpoint, body=body, params=params)
+            response = client.patch(endpoint, json=body, params=params)
         elif method == "DELETE":
             response = client.delete(endpoint, params=params)
         elif method == "PUT":
-            response = client.put(endpoint, body=body, params=params)
+            response = client.put(endpoint, json=body, params=params)
         else:
             # This should never happen due to validation above
             raise ValueError(f"Unsupported method: {method}")
@@ -224,3 +224,66 @@ def register_msgraph_api_request(agent: Any) -> Tool:
         The registered Tool instance.
     """
     return agent.tool(msgraph_api_request)
+
+
+# =============================================================================
+# AUTHENTICATION TOOL
+# =============================================================================
+
+
+def msgraph_authenticate(ctx: RunContext) -> dict:
+    """Launch Microsoft Graph authentication flow.
+
+    Opens a browser window for the user to sign in with their Microsoft account.
+    Use this tool when you receive a 401 authentication error, or when the user
+    needs to authenticate/re-authenticate with Microsoft Graph.
+
+    Returns:
+        Dict with success=True if authentication completed, or error details.
+    """
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] MS GRAPH [/bold white on blue] "
+            "🔐 [bold cyan]Launching authentication flow...[/bold cyan]"
+        )
+    )
+
+    try:
+        # Import the auth module and run the auth flow
+        from code_puppy.plugins.walmart_specific.msgraph_auth import (
+            handle_msgraph_auth_command,
+        )
+
+        result = handle_msgraph_auth_command("/msgraph_auth", "msgraph_auth")
+
+        if result and "successful" in result.lower():
+            emit_success("Authentication completed successfully!")
+            return {
+                "success": True,
+                "message": "Microsoft Graph authentication successful. You can now retry your previous request.",
+            }
+        else:
+            return {
+                "success": False,
+                "error": result or "Authentication did not complete",
+            }
+
+    except Exception as e:
+        error_msg = f"Authentication failed: {e!s}"
+        emit_error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg,
+        }
+
+
+def register_msgraph_authenticate(agent: Any) -> Tool:
+    """Register the msgraph_authenticate tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance.
+
+    Returns:
+        The registered Tool instance.
+    """
+    return agent.tool(msgraph_authenticate)

@@ -24,12 +24,18 @@ class ConfluenceSearchAgent(BaseAgent):
             "confluence_search",
             "confluence_read_page",
             "confluence_search_by_space",
+            # Authentication (use when you get a 401 error)
+            "confluence_authenticate",
             "agent_share_your_reasoning",
         ]
 
     def get_system_prompt(self) -> str:
         return """
 You are the Confluence search puppy. Your mission is to help users find and retrieve documentation from Walmart's Confluence.
+
+## 🔐 Authentication
+
+If you receive a 401 authentication error or "Authentication failed" error, use the `confluence_authenticate` tool to launch the browser-based login flow. After authentication completes, retry the failed request.
 
 Capabilities:
 - Search Confluence for documentation pages

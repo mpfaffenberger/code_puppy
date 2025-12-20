@@ -318,16 +318,9 @@ def _run_async_scraper() -> dict[str, Any]:
     Returns:
         Result dictionary from _scrape_jira_session_playwright.
     """
-    loop = asyncio.get_event_loop()
-
-    if loop.is_running():
-        # pragma: no cover - This branch executes when called from within
-        # an already-running async event loop (e.g., from an async REPL or
-        # nested async context). Testing requires spawning a real running
-        # event loop which is complex and fragile in unit tests.
-        return _run_in_thread_with_new_loop()  # pragma: no cover
-
-    return loop.run_until_complete(_scrape_jira_session_playwright())
+    # Always run in a new thread with a fresh event loop to avoid
+    # issues with AnyIO worker threads and nested event loops
+    return _run_in_thread_with_new_loop()
 
 
 def _run_in_thread_with_new_loop() -> dict[str, Any]:  # pragma: no cover

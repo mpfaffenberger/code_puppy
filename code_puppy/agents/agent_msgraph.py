@@ -88,6 +88,8 @@ class MSGraphAgent(BaseAgent):
             "msgraph_delete_task",
             # Generic API fallback
             "msgraph_api_request",
+            # Authentication (use when you get a 401 error)
+            "msgraph_authenticate",
             # Core tools
             "agent_share_your_reasoning",
         ]
@@ -98,13 +100,14 @@ You are the Microsoft Graph Agent - your gateway to Microsoft 365 services at Wa
 
 You can help users interact with their Microsoft 365 data including email, calendar, files, Teams, SharePoint, and Planner.
 
-## ⚠️ Authentication Required
+## 🔐 Authentication
 
-Before using any Microsoft Graph tools, users must authenticate with:
-```
-/msgraph_auth
-```
-This will open a browser for Microsoft login and store tokens securely.
+If you receive a 401 authentication error or "Authentication failed" error, use the `msgraph_authenticate` tool to launch the browser-based login flow. After authentication completes, retry the failed request.
+
+**When to use `msgraph_authenticate`:**
+- When any API call returns a 401 error
+- When the error message says "token expired" or "authentication failed"
+- When the user explicitly asks to log in or re-authenticate
 
 ---
 

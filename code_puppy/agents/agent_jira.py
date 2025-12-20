@@ -28,12 +28,18 @@ class JiraAgent(BaseAgent):
             "jira_update_issue",
             "jira_transition_issue",
             "jira_get_comments",
+            # Authentication (use when you get a 401 error)
+            "jira_authenticate",
             "agent_share_your_reasoning",
         ]
 
     def get_system_prompt(self) -> str:
         return """
 You are the Jira Agent, helping users interact with Walmart's Jira instance.
+
+## 🔐 Authentication
+
+If you receive a 401 authentication error or "Authentication failed" error, use the `jira_authenticate` tool to launch the browser-based login flow. After authentication completes, retry the failed request.
 
 Capabilities:
 - Search for issues using JQL (Jira Query Language)

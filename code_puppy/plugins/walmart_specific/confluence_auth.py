@@ -228,31 +228,25 @@ def handle_confluence_auth_command(command: str, name: str) -> Optional[str]:
         )
         return "Playwright is required for Confluence authentication."
 
-    # Run async scraper with proper event loop handling
-    import asyncio
+    # Run async scraper in a new thread with its own event loop
+    # This avoids issues with AnyIO worker threads and nested loops
     import concurrent.futures
 
     try:
-        # Check if we're already in an event loop
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're in an async context, run in a new thread with its own loop
-            def run_in_new_loop():
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-                try:
-                    return new_loop.run_until_complete(
-                        _scrape_confluence_session_playwright()
-                    )
-                finally:
-                    new_loop.close()
 
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(run_in_new_loop)
-                result = future.result()
-        else:
-            # No running loop, safe to use run_until_complete
-            result = loop.run_until_complete(_scrape_confluence_session_playwright())
+        def run_in_new_loop():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(
+                    _scrape_confluence_session_playwright()
+                )
+            finally:
+                new_loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_in_new_loop)
+            result = future.result()
 
         # Save the result to file
         emit_info(f"💾 Saving cookies to {CONFLUENCE_COOKIES_FILE}...")

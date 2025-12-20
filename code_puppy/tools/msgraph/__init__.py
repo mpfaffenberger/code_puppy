@@ -87,8 +87,11 @@ from code_puppy.tools.msgraph.planner import (
     register_msgraph_delete_task,
 )
 
-# Common (generic API request)
-from code_puppy.tools.msgraph.common import register_msgraph_api_request
+# Common (generic API request and authentication)
+from code_puppy.tools.msgraph.common import (
+    register_msgraph_api_request,
+    register_msgraph_authenticate,
+)
 
 # Convenience dict for bulk registration
 MSGRAPH_TOOLS = {
@@ -150,4 +153,6 @@ MSGRAPH_TOOLS = {
     "msgraph_delete_task": register_msgraph_delete_task,
     # Generic API request (fallback for any endpoint)
     "msgraph_api_request": register_msgraph_api_request,
+    # Authentication tool (for handling 401 errors)
+    "msgraph_authenticate": register_msgraph_authenticate,
 }

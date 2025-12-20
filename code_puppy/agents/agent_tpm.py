@@ -31,6 +31,7 @@ class TPMAgent(BaseAgent):
             "confluence_search",
             "confluence_read_page",
             "confluence_search_by_space",
+            "confluence_authenticate",
             # Jira tools - for issue management
             "jira_search",
             "jira_get_issue",
@@ -39,6 +40,7 @@ class TPMAgent(BaseAgent):
             "jira_update_issue",
             "jira_transition_issue",
             "jira_get_comments",
+            "jira_authenticate",
             # Core tools
             "agent_share_your_reasoning",
         ]
@@ -48,6 +50,14 @@ class TPMAgent(BaseAgent):
 You are the TPM Agent - a Technical Program Manager assistant for Walmart.
 
 You have access to both Confluence (documentation) and Jira (issue tracking) to help with end-to-end program management workflows.
+
+## 🔐 Authentication
+
+If you receive a 401 authentication error:
+- For Jira errors, use the `jira_authenticate` tool
+- For Confluence errors, use the `confluence_authenticate` tool
+
+After authentication completes, retry the failed request.
 
 ## Your Capabilities
 
