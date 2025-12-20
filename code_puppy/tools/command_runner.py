@@ -2,6 +2,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -17,7 +18,8 @@ from code_puppy.messaging import (  # Structured messaging types
     ShellOutputMessage,
     ShellStartMessage,
     emit_error,
-    emit_system_message,
+    emit_info,
+    emit_shell_line,
     emit_warning,
     get_message_bus,
 )
@@ -48,6 +50,9 @@ _USER_KILLED_PROCESSES = set()
 _SHELL_CTRL_X_STOP_EVENT: Optional[threading.Event] = None
 _SHELL_CTRL_X_THREAD: Optional[threading.Thread] = None
 _ORIGINAL_SIGINT_HANDLER = None
+
+# Stop event to signal reader threads to terminate
+_READER_STOP_EVENT: Optional[threading.Event] = None
 
 
 def _register_process(proc: subprocess.Popen) -> None:
@@ -128,16 +133,33 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
 
 
 def kill_all_running_shell_processes() -> int:
-    """Kill all currently tracked running shell processes.
+    """Kill all currently tracked running shell processes and stop reader threads.
 
     Returns the number of processes signaled.
     """
+    global _READER_STOP_EVENT
+
+    # Signal reader threads to stop
+    if _READER_STOP_EVENT:
+        _READER_STOP_EVENT.set()
+
     procs: list[subprocess.Popen]
     with _RUNNING_PROCESSES_LOCK:
         procs = list(_RUNNING_PROCESSES)
     count = 0
     for p in procs:
         try:
+            # Close pipes first to unblock readline()
+            try:
+                if p.stdout and not p.stdout.closed:
+                    p.stdout.close()
+                if p.stderr and not p.stderr.closed:
+                    p.stderr.close()
+                if p.stdin and not p.stdin.closed:
+                    p.stdin.close()
+            except (OSError, ValueError):
+                pass
+
             if p.poll() is None:
                 _kill_process_group(p)
                 count += 1
@@ -205,6 +227,9 @@ class ShellCommandOutput(BaseModel):
     timeout: bool | None = False
     user_interrupted: bool | None = False
     user_feedback: str | None = None  # User feedback when command is rejected
+    background: bool = False  # True if command was run in background mode
+    log_file: str | None = None  # Path to temp log file for background commands
+    pid: int | None = None  # Process ID for background commands
 
 
 class ShellSafetyAssessment(BaseModel):
@@ -414,6 +439,9 @@ def run_shell_command_streaming(
     command: str = "",
     group_id: str = None,
 ):
+    global _READER_STOP_EVENT
+    _READER_STOP_EVENT = threading.Event()
+
     start_time = time.time()
     last_output_time = [start_time]
 
@@ -428,26 +456,38 @@ def run_shell_command_streaming(
     def read_stdout():
         try:
             for line in iter(process.stdout.readline, ""):
+                if _READER_STOP_EVENT and _READER_STOP_EVENT.is_set():
+                    break
                 if line:
                     line = line.rstrip("\n\r")
                     # Limit line length to prevent massive token usage
                     line = _truncate_line(line)
                     stdout_lines.append(line)
-                    emit_system_message(line, message_group=group_id)
+                    # Use emit_shell_line to preserve ANSI escape codes
+                    emit_shell_line(line, stream="stdout")
                     last_output_time[0] = time.time()
+        except (ValueError, OSError):
+            # Pipe was closed - this is expected when stopping
+            pass
         except Exception:
             pass
 
     def read_stderr():
         try:
             for line in iter(process.stderr.readline, ""):
+                if _READER_STOP_EVENT and _READER_STOP_EVENT.is_set():
+                    break
                 if line:
                     line = line.rstrip("\n\r")
                     # Limit line length to prevent massive token usage
                     line = _truncate_line(line)
                     stderr_lines.append(line)
-                    emit_system_message(line, message_group=group_id)
+                    # Use emit_shell_line to preserve ANSI escape codes
+                    emit_shell_line(line, stream="stderr")
                     last_output_time[0] = time.time()
+        except (ValueError, OSError):
+            # Pipe was closed - this is expected when stopping
+            pass
         except Exception:
             pass
 
@@ -458,6 +498,10 @@ def run_shell_command_streaming(
             _kill_process_group(proc)
 
         try:
+            # Signal reader threads to stop first
+            if _READER_STOP_EVENT:
+                _READER_STOP_EVENT.set()
+
             if process.poll() is None:
                 nuclear_kill(process)
 
@@ -567,6 +611,9 @@ def run_shell_command_streaming(
         )
         get_message_bus().emit(shell_output_msg)
 
+        # Reset the stop event now that we're done
+        _READER_STOP_EVENT = None
+
         if exit_code != 0:
             time.sleep(1)
             return ShellCommandOutput(
@@ -593,6 +640,8 @@ def run_shell_command_streaming(
         )
 
     except Exception as e:
+        # Reset the stop event on exception too
+        _READER_STOP_EVENT = None
         return ShellCommandOutput(
             success=False,
             command=command,
@@ -605,7 +654,11 @@ def run_shell_command_streaming(
 
 
 async def run_shell_command(
-    context: RunContext, command: str, cwd: str = None, timeout: int = 60
+    context: RunContext,
+    command: str,
+    cwd: str = None,
+    timeout: int = 60,
+    background: bool = False,
 ) -> ShellCommandOutput:
     command_displayed = False
     start_time = time.time()
@@ -632,6 +685,86 @@ async def run_shell_command(
                 stderr=None,
                 exit_code=None,
                 execution_time=None,
+            )
+
+    # Handle background execution - runs command detached and returns immediately
+    # This happens BEFORE user confirmation since we don't wait for the command
+    if background:
+        # Create temp log file for output
+        log_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            prefix="shell_bg_",
+            suffix=".log",
+            delete=False,  # Keep file so agent can read it later
+        )
+
+        try:
+            # Platform-specific process detachment
+            if sys.platform.startswith("win"):
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    cwd=cwd,
+                    creationflags=creationflags,
+                )
+            else:
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    cwd=cwd,
+                    start_new_session=True,  # Fully detach on POSIX
+                )
+
+            log_file.close()  # Close our handle, process keeps writing
+
+            # Emit UI messages so user sees what happened
+            bus = get_message_bus()
+            bus.emit(
+                ShellStartMessage(
+                    command=command,
+                    cwd=cwd,
+                    timeout=0,  # No timeout for background processes
+                )
+            )
+
+            # Emit info about background execution
+            emit_info(
+                f"🚀 Background process started (PID: {process.pid}) - no timeout, runs until complete"
+            )
+            emit_info(f"📄 Output logging to: {log_file.name}")
+
+            # Return immediately - don't wait, don't block
+            return ShellCommandOutput(
+                success=True,
+                command=command,
+                stdout=None,
+                stderr=None,
+                exit_code=None,
+                execution_time=0.0,
+                background=True,
+                log_file=log_file.name,
+                pid=process.pid,
+            )
+        except Exception as e:
+            log_file.close()
+            # Emit error message so user sees what happened
+            emit_error(f"❌ Failed to start background process: {e}")
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error=f"Failed to start background process: {e}",
+                stdout=None,
+                stderr=None,
+                exit_code=None,
+                execution_time=None,
+                background=True,
             )
 
     # Rest of the existing function continues...
@@ -812,7 +945,11 @@ def register_agent_run_shell_command(agent):
 
     @agent.tool
     async def agent_run_shell_command(
-        context: RunContext, command: str = "", cwd: str = None, timeout: int = 60
+        context: RunContext,
+        command: str = "",
+        cwd: str = None,
+        timeout: int = 60,
+        background: bool = False,
     ) -> ShellCommandOutput:
         """Execute a shell command with comprehensive monitoring and safety features.
 
@@ -828,6 +965,14 @@ def register_agent_run_shell_command(agent):
             timeout: Inactivity timeout in seconds. If no output is
                 produced for this duration, the process will be terminated.
                 Defaults to 60 seconds.
+            background: If True, run the command in the background and return immediately.
+                The command output will be written to a temporary log file.
+                Use this for long-running processes like servers (npm run dev, python -m http.server),
+                or any command you don't need to wait for.
+                When background=True, the response includes:
+                - log_file: Path to temp file containing stdout/stderr (read with read_file tool)
+                - pid: Process ID of the background process
+                Defaults to False.
 
         Returns:
             ShellCommandOutput: A structured response containing:
@@ -840,6 +985,9 @@ def register_agent_run_shell_command(agent):
                 - execution_time (float | None): Total execution time in seconds
                 - timeout (bool | None): True if command was terminated due to timeout
                 - user_interrupted (bool | None): True if user killed the process
+                - background (bool): True if command was run in background mode
+                - log_file (str | None): Path to temp log file for background commands
+                - pid (int | None): Process ID for background commands
 
         Examples:
             >>> # Basic command execution
@@ -856,11 +1004,16 @@ def register_agent_run_shell_command(agent):
             >>> if result.timeout:
             ...     print("Command timed out")
 
+            >>> # Background command for long-running server
+            >>> result = agent_run_shell_command(ctx, "npm run dev", background=True)
+            >>> print(f"Server started with PID {result.pid}")
+            >>> print(f"Logs available at: {result.log_file}")
+
         Warning:
             This tool can execute arbitrary shell commands. Exercise caution when
             running untrusted commands, especially those that modify system state.
         """
-        return await run_shell_command(context, command, cwd, timeout)
+        return await run_shell_command(context, command, cwd, timeout, background)
 
 
 def register_agent_share_your_reasoning(agent):
