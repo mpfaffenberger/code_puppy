@@ -1,3 +1,4 @@
+import ctypes
 import os
 import select
 import signal
@@ -36,6 +37,60 @@ def _truncate_line(line: str) -> str:
     if len(line) > MAX_LINE_LENGTH:
         return line[:MAX_LINE_LENGTH] + "... [truncated]"
     return line
+
+
+# Windows-specific: Check if pipe has data available without blocking
+# This is needed because select() doesn't work on pipes on Windows
+if sys.platform.startswith("win"):
+    import msvcrt
+
+    # Load kernel32 for PeekNamedPipe
+    _kernel32 = ctypes.windll.kernel32
+
+    def _win32_pipe_has_data(pipe) -> bool:
+        """Check if a Windows pipe has data available without blocking.
+
+        Uses PeekNamedPipe from kernel32.dll to check if there's data
+        in the pipe buffer without actually reading it.
+
+        Args:
+            pipe: A file object with a fileno() method (e.g., process.stdout)
+
+        Returns:
+            True if data is available, False otherwise (including on error)
+        """
+        try:
+            # Get the Windows handle from the file descriptor
+            handle = msvcrt.get_osfhandle(pipe.fileno())
+
+            # PeekNamedPipe parameters:
+            # - hNamedPipe: handle to the pipe
+            # - lpBuffer: buffer to receive data (NULL = don't read)
+            # - nBufferSize: size of buffer (0 = don't read)
+            # - lpBytesRead: receives bytes read (NULL)
+            # - lpTotalBytesAvail: receives total bytes available
+            # - lpBytesLeftThisMessage: receives bytes left (NULL)
+            bytes_available = ctypes.c_ulong(0)
+
+            result = _kernel32.PeekNamedPipe(
+                handle,
+                None,  # Don't read data
+                0,  # Buffer size 0
+                None,  # Don't care about bytes read
+                ctypes.byref(bytes_available),  # Get bytes available
+                None,  # Don't care about bytes left in message
+            )
+
+            if result:
+                return bytes_available.value > 0
+            return False
+        except (ValueError, OSError, ctypes.ArgumentError):
+            # Handle closed, invalid, or other errors
+            return False
+else:
+    # POSIX stub - not used, but keeps the code clean
+    def _win32_pipe_has_data(pipe) -> bool:
+        return False
 
 
 _AWAITING_USER_INPUT = False
@@ -468,17 +523,35 @@ def run_shell_command_streaming(
 
                 # Use select to check if data is available (with timeout)
                 if sys.platform.startswith("win"):
-                    # Windows doesn't support select on pipes, use a different approach
-                    # Just try to read with a check on the stop event
+                    # Windows doesn't support select on pipes
+                    # Use PeekNamedPipe via _win32_pipe_has_data() to check
+                    # if data is available without blocking
                     try:
-                        line = process.stdout.readline()
-                        if not line:  # EOF
-                            break
-                        line = line.rstrip("\n\r")
-                        line = _truncate_line(line)
-                        stdout_lines.append(line)
-                        emit_shell_line(line, stream="stdout")
-                        last_output_time[0] = time.time()
+                        if _win32_pipe_has_data(process.stdout):
+                            line = process.stdout.readline()
+                            if not line:  # EOF
+                                break
+                            line = line.rstrip("\n\r")
+                            line = _truncate_line(line)
+                            stdout_lines.append(line)
+                            emit_shell_line(line, stream="stdout")
+                            last_output_time[0] = time.time()
+                        else:
+                            # No data available, check if process has exited
+                            if process.poll() is not None:
+                                # Process exited, do one final drain
+                                try:
+                                    remaining = process.stdout.read()
+                                    if remaining:
+                                        for line in remaining.splitlines():
+                                            line = _truncate_line(line)
+                                            stdout_lines.append(line)
+                                            emit_shell_line(line, stream="stdout")
+                                except (ValueError, OSError):
+                                    pass
+                                break
+                            # Sleep briefly to avoid busy-waiting (100ms like POSIX)
+                            time.sleep(0.1)
                     except (ValueError, OSError):
                         break
                 else:
@@ -516,15 +589,35 @@ def run_shell_command_streaming(
                     break
 
                 if sys.platform.startswith("win"):
+                    # Windows doesn't support select on pipes
+                    # Use PeekNamedPipe via _win32_pipe_has_data() to check
+                    # if data is available without blocking
                     try:
-                        line = process.stderr.readline()
-                        if not line:  # EOF
-                            break
-                        line = line.rstrip("\n\r")
-                        line = _truncate_line(line)
-                        stderr_lines.append(line)
-                        emit_shell_line(line, stream="stderr")
-                        last_output_time[0] = time.time()
+                        if _win32_pipe_has_data(process.stderr):
+                            line = process.stderr.readline()
+                            if not line:  # EOF
+                                break
+                            line = line.rstrip("\n\r")
+                            line = _truncate_line(line)
+                            stderr_lines.append(line)
+                            emit_shell_line(line, stream="stderr")
+                            last_output_time[0] = time.time()
+                        else:
+                            # No data available, check if process has exited
+                            if process.poll() is not None:
+                                # Process exited, do one final drain
+                                try:
+                                    remaining = process.stderr.read()
+                                    if remaining:
+                                        for line in remaining.splitlines():
+                                            line = _truncate_line(line)
+                                            stderr_lines.append(line)
+                                            emit_shell_line(line, stream="stderr")
+                                except (ValueError, OSError):
+                                    pass
+                                break
+                            # Sleep briefly to avoid busy-waiting (100ms like POSIX)
+                            time.sleep(0.1)
                     except (ValueError, OSError):
                         break
                 else:
