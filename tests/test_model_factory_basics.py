@@ -216,8 +216,8 @@ class TestModelFactoryBasics:
         """Test getting a model when API key is missing."""
         config = {"gpt-4": {"type": "openai", "name": "gpt-4"}}
 
-        # Remove OPENAI_API_KEY from environment
-        with patch.dict(os.environ, {}, clear=True):
+        # Mock get_api_key to return None (simulating missing API key)
+        with patch("code_puppy.model_factory.get_api_key", return_value=None):
             with patch("code_puppy.model_factory.emit_warning") as mock_warn:
                 model = ModelFactory.get_model("gpt-4", config)
                 assert model is None
