@@ -187,7 +187,6 @@ def msgraph_api_request(
         client = get_msgraph_client()
 
         # Call the appropriate client method based on HTTP method
-        # Note: The client expects `json=` not `body=` for JSON payloads
         if method == "GET":
             response = client.get(endpoint, params=params)
         elif method == "POST":

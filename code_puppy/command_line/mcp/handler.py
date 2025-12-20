@@ -110,12 +110,12 @@ class MCPCommandHandler(MCPCommandBase):
                 )
                 return True
 
-            if not args:
-                self._commands["list"].execute([], group_id=group_id)
-                return True
+                if not args:
+                    self._commands["list"].execute([], group_id=group_id)
+                    return True
 
-            subcommand = args[0].lower()
-            sub_args = args[1:] if len(args) > 1 else []
+                subcommand = args[0].lower()
+                sub_args = args[1:] if len(args) > 1 else []
 
             # Route to appropriate command handler
             command_handler = self._commands.get(subcommand)

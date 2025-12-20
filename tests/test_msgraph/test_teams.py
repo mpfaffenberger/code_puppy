@@ -846,7 +846,7 @@ class TestMSGraphListChats:
             call_args = mock_client.get.call_args
             assert call_args[0][0] == "/me/chats"
             assert call_args[1]["params"]["$top"] == 20
-            # Note: /me/chats doesn't support $orderby per Graph API docs
+            assert call_args[1]["params"]["$orderby"] == "lastUpdatedDateTime desc"
 
     def test_msgraph_list_chats_with_limit(self, mock_context, mock_chats_data):
         """Test listing chats with custom limit."""
