@@ -1,4 +1,5 @@
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -455,38 +456,93 @@ def run_shell_command_streaming(
 
     def read_stdout():
         try:
-            for line in iter(process.stdout.readline, ""):
+            fd = process.stdout.fileno()
+        except (ValueError, OSError):
+            return
+
+        try:
+            while True:
+                # Check stop event first
                 if _READER_STOP_EVENT and _READER_STOP_EVENT.is_set():
                     break
-                if line:
-                    line = line.rstrip("\n\r")
-                    # Limit line length to prevent massive token usage
-                    line = _truncate_line(line)
-                    stdout_lines.append(line)
-                    # Use emit_shell_line to preserve ANSI escape codes
-                    emit_shell_line(line, stream="stdout")
-                    last_output_time[0] = time.time()
+
+                # Use select to check if data is available (with timeout)
+                if sys.platform.startswith("win"):
+                    # Windows doesn't support select on pipes, use a different approach
+                    # Just try to read with a check on the stop event
+                    try:
+                        line = process.stdout.readline()
+                        if not line:  # EOF
+                            break
+                        line = line.rstrip("\n\r")
+                        line = _truncate_line(line)
+                        stdout_lines.append(line)
+                        emit_shell_line(line, stream="stdout")
+                        last_output_time[0] = time.time()
+                    except (ValueError, OSError):
+                        break
+                else:
+                    # POSIX: use select with timeout
+                    try:
+                        ready, _, _ = select.select([fd], [], [], 0.1)  # 100ms timeout
+                    except (ValueError, OSError, select.error):
+                        break
+
+                    if ready:
+                        line = process.stdout.readline()
+                        if not line:  # EOF
+                            break
+                        line = line.rstrip("\n\r")
+                        line = _truncate_line(line)
+                        stdout_lines.append(line)
+                        emit_shell_line(line, stream="stdout")
+                        last_output_time[0] = time.time()
+                    # If not ready, loop continues and checks stop event again
         except (ValueError, OSError):
-            # Pipe was closed - this is expected when stopping
             pass
         except Exception:
             pass
 
     def read_stderr():
         try:
-            for line in iter(process.stderr.readline, ""):
+            fd = process.stderr.fileno()
+        except (ValueError, OSError):
+            return
+
+        try:
+            while True:
+                # Check stop event first
                 if _READER_STOP_EVENT and _READER_STOP_EVENT.is_set():
                     break
-                if line:
-                    line = line.rstrip("\n\r")
-                    # Limit line length to prevent massive token usage
-                    line = _truncate_line(line)
-                    stderr_lines.append(line)
-                    # Use emit_shell_line to preserve ANSI escape codes
-                    emit_shell_line(line, stream="stderr")
-                    last_output_time[0] = time.time()
+
+                if sys.platform.startswith("win"):
+                    try:
+                        line = process.stderr.readline()
+                        if not line:  # EOF
+                            break
+                        line = line.rstrip("\n\r")
+                        line = _truncate_line(line)
+                        stderr_lines.append(line)
+                        emit_shell_line(line, stream="stderr")
+                        last_output_time[0] = time.time()
+                    except (ValueError, OSError):
+                        break
+                else:
+                    try:
+                        ready, _, _ = select.select([fd], [], [], 0.1)
+                    except (ValueError, OSError, select.error):
+                        break
+
+                    if ready:
+                        line = process.stderr.readline()
+                        if not line:  # EOF
+                            break
+                        line = line.rstrip("\n\r")
+                        line = _truncate_line(line)
+                        stderr_lines.append(line)
+                        emit_shell_line(line, stream="stderr")
+                        last_output_time[0] = time.time()
         except (ValueError, OSError):
-            # Pipe was closed - this is expected when stopping
             pass
         except Exception:
             pass
