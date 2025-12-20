@@ -255,22 +255,8 @@ class TestModelFactoryErrors:
 
     def test_model_instantiation_errors_missing_api_keys(self):
         """Test various model instantiation errors when API keys are missing."""
-
-        # Ensure no API keys are set
-        original_env = dict(os.environ)
-        test_env_vars = [
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GEMINI_API_KEY",
-            "ZAI_API_KEY",
-            "OPENROUTER_API_KEY",
-        ]
-
-        for var in test_env_vars:
-            if var in os.environ:
-                del os.environ[var]
-
-        try:
+        # Mock get_api_key to return None for all keys (simulating missing API keys)
+        with patch("code_puppy.model_factory.get_api_key", return_value=None):
             # Test OpenAI without API key
             config_openai = {"openai-test": {"type": "openai", "name": "gpt-4"}}
             with patch("code_puppy.model_factory.emit_warning") as mock_warn:
@@ -319,11 +305,6 @@ class TestModelFactoryErrors:
                 mock_warn.assert_called_with(
                     "OPENROUTER_API_KEY is not set (check config or environment); skipping OpenRouter model 'anthropic/claude-3'."
                 )
-
-        finally:
-            # Restore original environment
-            os.environ.clear()
-            os.environ.update(original_env)
 
     def test_load_config_file_permission_error(self):
         """Test load_config() when there's a file permission error."""
