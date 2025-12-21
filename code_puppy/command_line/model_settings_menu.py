@@ -58,7 +58,7 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Reasoning Effort",
         "description": "Controls how much effort GPT-5 models spend on reasoning. Higher = more thorough but slower.",
         "type": "choice",
-        "choices": ["low", "medium", "high"],
+        "choices": ["minimal", "low", "medium", "high", "xhigh"],
         "default": "medium",
     },
     "verbosity": {

@@ -9,7 +9,8 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     "issuer": "https://auth.openai.com",
     "auth_url": "https://auth.openai.com/oauth/authorize",
     "token_url": "https://auth.openai.com/oauth/token",
-    "api_base_url": "https://api.openai.com",
+    # API endpoints - Codex uses chatgpt.com backend, not api.openai.com
+    "api_base_url": "https://chatgpt.com/backend-api/codex",
     # OAuth client configuration for Code Puppy
     "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
     "scope": "openid profile email offline_access",
@@ -24,6 +25,9 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     "prefix": "chatgpt-",
     "default_context_length": 272000,
     "api_key_env_var": "CHATGPT_OAUTH_API_KEY",
+    # Codex CLI version info (for User-Agent header)
+    "client_version": "0.72.0",
+    "originator": "codex_cli_rs",
 }
 
 

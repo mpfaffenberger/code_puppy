@@ -1,4 +1,5 @@
 """Test Windows pipe non-blocking read functionality."""
+
 import subprocess
 import sys
 import threading
@@ -23,7 +24,7 @@ class TestWin32PipeHasData:
         )
         proc.wait()
         time.sleep(0.1)  # Give buffer time to fill
-        
+
         assert _win32_pipe_has_data(proc.stdout) is True
         proc.stdout.close()
 
@@ -36,12 +37,12 @@ class TestWin32PipeHasData:
             stdout=subprocess.PIPE,
             text=True,
         )
-        
+
         # Check immediately - should have no data
         result = _win32_pipe_has_data(proc.stdout)
         proc.kill()
         proc.wait()
-        
+
         # Should be False (no output yet)
         assert result is False
 
@@ -55,10 +56,10 @@ class TestWin32PipeHasData:
             stderr=subprocess.PIPE,
             text=True,
         )
-        
+
         stop_event = threading.Event()
         loop_exited = threading.Event()
-        
+
         def reader_loop():
             iterations = 0
             while not stop_event.is_set():
@@ -67,28 +68,30 @@ class TestWin32PipeHasData:
                     proc.stdout.readline()
                 else:
                     time.sleep(0.05)  # Brief sleep when no data
-                
+
                 if iterations > 100:  # Safety limit
                     break
             loop_exited.set()
-        
+
         # Start reader thread
         reader_thread = threading.Thread(target=reader_loop, daemon=True)
         reader_thread.start()
-        
+
         # Wait briefly, then signal stop
         time.sleep(0.2)
         stop_event.set()
-        
+
         # Thread should exit quickly
         reader_thread.join(timeout=1.0)
-        
+
         # Cleanup
         proc.kill()
         proc.wait()
-        
+
         # The key assertion: thread should have exited
-        assert loop_exited.is_set(), "Reader loop should have exited when stop event was set"
+        assert loop_exited.is_set(), (
+            "Reader loop should have exited when stop event was set"
+        )
         assert not reader_thread.is_alive(), "Reader thread should not be alive"
 
     def test_handles_closed_pipe(self):
@@ -101,7 +104,7 @@ class TestWin32PipeHasData:
         )
         proc.wait()
         proc.stdout.close()
-        
+
         # Should return False, not raise exception
         result = _win32_pipe_has_data(proc.stdout)
         assert result is False

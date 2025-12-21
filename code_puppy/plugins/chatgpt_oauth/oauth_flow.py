@@ -19,7 +19,6 @@ from .config import CHATGPT_OAUTH_CONFIG
 from .utils import (
     add_models_to_extra_config,
     assign_redirect_uri,
-    fetch_chatgpt_models,
     load_stored_tokens,
     parse_jwt_claims,
     prepare_oauth_context,
@@ -318,12 +317,12 @@ def run_oauth_flow() -> None:
         )
 
     if api_key:
-        emit_info("Fetching available ChatGPT models…")
-        models = fetch_chatgpt_models(api_key)
+        emit_info("Registering ChatGPT Codex models…")
+        from .utils import DEFAULT_CODEX_MODELS
+
+        models = DEFAULT_CODEX_MODELS
         if models:
-            if add_models_to_extra_config(models, api_key):
+            if add_models_to_extra_config(models):
                 emit_success(
                     "ChatGPT models registered. Use the `chatgpt-` prefix in /model."
                 )
-        else:
-            emit_warning("API key obtained, but model list could not be fetched.")
