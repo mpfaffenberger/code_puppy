@@ -88,7 +88,7 @@ def handle_show_command(command: str) -> bool:
 @register_command(
     name="reasoning",
     description="Set OpenAI reasoning effort for GPT-5 models (e.g., /reasoning high)",
-    usage="/reasoning <low|medium|high>",
+    usage="/reasoning <minimal|low|medium|high|xhigh>",
     category="config",
 )
 def handle_reasoning_command(command: str) -> bool:
@@ -97,7 +97,7 @@ def handle_reasoning_command(command: str) -> bool:
 
     tokens = command.split()
     if len(tokens) != 2:
-        emit_warning("Usage: /reasoning <low|medium|high>")
+        emit_warning("Usage: /reasoning <minimal|low|medium|high|xhigh>")
         return True
 
     effort = tokens[1]
