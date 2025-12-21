@@ -640,18 +640,13 @@ class TestRunOAuthFlow:
             mock_reload.return_value = mock_tokens
 
             with patch(
-                "code_puppy.plugins.chatgpt_oauth.oauth_flow.fetch_chatgpt_models"
-            ) as mock_models:
-                mock_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
+                "code_puppy.plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config"
+            ) as mock_add:
+                mock_add.return_value = True
 
-                with patch(
-                    "code_puppy.plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config"
-                ) as mock_add:
-                    mock_add.return_value = True
-
-                    with patch("threading.Thread"):
-                        with patch("time.sleep"):  # Skip timing loop
-                            run_oauth_flow()
+                with patch("threading.Thread"):
+                    with patch("time.sleep"):  # Skip timing loop
+                        run_oauth_flow()
 
         # Should emit auth URL
         info_calls = [call[0][0] for call in mock_info.call_args_list]
@@ -744,96 +739,6 @@ class TestRunOAuthFlow:
             "code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
         ) as mock_reload:
             mock_reload.return_value = mock_tokens
-
-            with patch("threading.Thread"):
-                with patch("time.sleep"):
-                    run_oauth_flow()
-
-        # The OAuth flow exits early due to mocking, but we verify the setup was correct
-        # Test passes as long as no exceptions are raised during the OAuth flow setup
-        assert True  # This test verifies the mock setup works without errors
-
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.fetch_chatgpt_models")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config")
-    @patch("code_puppy.messaging.emit_warning")
-    @patch("code_puppy.messaging.emit_info")
-    @patch("code_puppy.messaging.emit_success")
-    def test_model_fetching_flow(
-        self,
-        mock_success,
-        mock_info,
-        mock_warning,
-        mock_add,
-        mock_models,
-        mock_server_class,
-        mock_load_tokens,
-    ):
-        """Test model fetching and configuration flow."""
-        mock_load_tokens.return_value = None
-        mock_server_instance = Mock()
-        mock_server_instance.exit_code = 0
-        mock_server_instance.auth_url.return_value = "http://test.auth.url"
-        mock_server_instance.shutdown = Mock()
-        mock_server_class.return_value = mock_server_instance
-
-        mock_tokens = {"api_key": "test_api_key"}
-
-        # Test successful model fetching
-        with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
-        ) as mock_reload:
-            mock_reload.return_value = mock_tokens
-
-            mock_models.return_value = ["gpt-4", "gpt-3.5-turbo"]
-            mock_add.return_value = True
-
-            with patch("threading.Thread"):
-                with patch("time.sleep"):
-                    run_oauth_flow()
-
-        # Should attempt to fetch models
-        mock_models.assert_called_once_with("test_api_key")
-
-        # Should add models to config
-        mock_add.assert_called_once_with(["gpt-4", "gpt-3.5-turbo"], "test_api_key")
-
-        # The OAuth flow exits early due to mocking, but we verify the setup was correct
-        # Test passes as long as no exceptions are raised during the OAuth flow setup
-        assert True  # This test verifies the mock setup works without errors
-
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.fetch_chatgpt_models")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config")
-    @patch("code_puppy.messaging.emit_warning")
-    @patch("code_puppy.messaging.emit_info")
-    def test_model_fetching_failure(
-        self,
-        mock_info,
-        mock_warning,
-        mock_add,
-        mock_models,
-        mock_server_class,
-        mock_load_tokens,
-    ):
-        """Test model fetching failure handling."""
-        mock_load_tokens.return_value = None
-        mock_server_instance = Mock()
-        mock_server_instance.exit_code = 0
-        mock_server_instance.auth_url.return_value = "http://test.auth.url"
-        mock_server_instance.shutdown = Mock()
-        mock_server_class.return_value = mock_server_instance
-
-        mock_tokens = {"api_key": "test_api_key"}
-
-        with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
-        ) as mock_reload:
-            mock_reload.return_value = mock_tokens
-
-            mock_models.return_value = None  # Model fetch failed
 
             with patch("threading.Thread"):
                 with patch("time.sleep"):
