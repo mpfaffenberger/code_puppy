@@ -200,28 +200,31 @@ class TestOAuthFlowIntegration:
                     # 2. Save tokens
                     save_tokens(tokens)
 
-                    # 3. Fetch models with new API key
-                    models = fetch_chatgpt_models(tokens["access_token"])
-                    assert models == ["gpt-4", "gpt-3.5-turbo"]
+                    # 3. Use default Codex models (API fetch no longer used)
+                    from code_puppy.plugins.chatgpt_oauth.utils import (
+                        DEFAULT_CODEX_MODELS,
+                    )
+                    models = DEFAULT_CODEX_MODELS
+                    assert len(models) > 0
 
                     # 4. Register models in config
-                    success = add_models_to_extra_config(models, tokens["access_token"])
+                    success = add_models_to_extra_config(models)
                     assert success is True
 
                     # Verify models were saved
                     with open(mock_models_storage, "r") as f:
                         saved_models = json.load(f)
 
-                    assert "chatgpt-gpt-4" in saved_models
-                    assert "chatgpt-gpt-3.5-turbo" in saved_models
-                    assert (
-                        saved_models["chatgpt-gpt-4"]["oauth_source"]
-                        == "chatgpt-oauth-plugin"
-                    )
-                    assert (
-                        saved_models["chatgpt-gpt-4"]["custom_endpoint"]["api_key"]
-                        == "${CHATGPT_OAUTH_API_KEY}"
-                    )
+                    # Check that default Codex models were registered
+                    for model in DEFAULT_CODEX_MODELS:
+                        prefixed = f"chatgpt-{model}"
+                        assert prefixed in saved_models, f"Expected {prefixed} in saved models"
+                        assert (
+                            saved_models[prefixed]["oauth_source"]
+                            == "chatgpt-oauth-plugin"
+                        )
+                        # chatgpt_oauth type doesn't use api_key in custom_endpoint
+                        assert "api_key" not in saved_models[prefixed]["custom_endpoint"]
 
     @patch("requests.get")
     @patch("requests.post")
@@ -462,25 +465,27 @@ class TestOAuthSecurityScenarios:
 
         mock_get.side_effect = get_response
 
-        # Test ChatGPT models with OpenAI key
-        openai_models = fetch_chatgpt_models("openai_api_key")
-        assert openai_models == ["gpt-4"]
+        # Test ChatGPT models (now returns default models since API changed)
+        openai_models = fetch_chatgpt_models("openai_access_token", "test_account_id")
+        # Returns default models or fetched models
+        assert openai_models is not None
 
         # Test Claude models with Claude key
         claude_models = fetch_claude_code_models("claude_api_key")
         assert claude_models == ["claude-3-opus-20240229"]
 
-        # Verify different URLs were called
+        # Verify calls were made (ChatGPT now uses chatgpt.com/backend-api/codex)
         calls = mock_get.call_args_list
         assert len(calls) == 2
-        assert "api.openai.com" in str(calls[0])
+        # ChatGPT uses Codex API, Claude uses Anthropic API
+        assert "chatgpt.com" in str(calls[0]) or "codex" in str(calls[0])
         assert "api.anthropic.com" in str(calls[1])
 
         # Verify correct authorization headers were sent
         openai_headers = calls[0][1]["headers"]
         claude_headers = calls[1][1]["headers"]
 
-        assert openai_headers["Authorization"] == "Bearer openai_api_key"
+        assert openai_headers["Authorization"] == "Bearer openai_access_token"
         assert claude_headers["Authorization"] == "Bearer claude_api_key"
 
 
@@ -527,10 +532,12 @@ class TestOAuthErrorRecovery:
             mock_get.return_value = mock_response
 
             # Both model fetching functions should handle errors gracefully
-            openai_result = fetch_chatgpt_models("test_key")
+            openai_result = fetch_chatgpt_models("test_token", "test_account_id")
             claude_result = fetch_claude_code_models("test_key")
 
-            assert openai_result is None
+            # ChatGPT returns default models on error, Claude returns None
+            from code_puppy.plugins.chatgpt_oauth.utils import DEFAULT_CODEX_MODELS
+            assert openai_result == DEFAULT_CODEX_MODELS
             assert claude_result is None
 
     def test_partial_token_storage_recovery(self, mock_token_storage):
