@@ -639,6 +639,86 @@ class ModelFactory:
             )
             return model
 
+        elif model_type == "chatgpt_oauth":
+            # ChatGPT OAuth models use the Codex API at chatgpt.com
+            try:
+                try:
+                    from chatgpt_oauth.config import CHATGPT_OAUTH_CONFIG
+                    from chatgpt_oauth.utils import (
+                        get_valid_access_token,
+                        load_stored_tokens,
+                    )
+                except ImportError:
+                    from code_puppy.plugins.chatgpt_oauth.config import (
+                        CHATGPT_OAUTH_CONFIG,
+                    )
+                    from code_puppy.plugins.chatgpt_oauth.utils import (
+                        get_valid_access_token,
+                        load_stored_tokens,
+                    )
+            except ImportError as exc:
+                emit_warning(
+                    f"ChatGPT OAuth plugin not available; skipping model '{model_config.get('name')}'. "
+                    f"Error: {exc}"
+                )
+                return None
+
+            # Get a valid access token (refreshing if needed)
+            access_token = get_valid_access_token()
+            if not access_token:
+                emit_warning(
+                    f"Failed to get valid ChatGPT OAuth token; skipping model '{model_config.get('name')}'. "
+                    "Run /chatgpt-auth to authenticate."
+                )
+                return None
+
+            # Get account_id from stored tokens (required for ChatGPT-Account-Id header)
+            tokens = load_stored_tokens()
+            account_id = tokens.get("account_id", "") if tokens else ""
+            if not account_id:
+                emit_warning(
+                    f"No account_id found in ChatGPT OAuth tokens; skipping model '{model_config.get('name')}'. "
+                    "Run /chatgpt-auth to re-authenticate."
+                )
+                return None
+
+            # Build headers for ChatGPT Codex API
+            originator = CHATGPT_OAUTH_CONFIG.get("originator", "codex_cli_rs")
+            client_version = CHATGPT_OAUTH_CONFIG.get("client_version", "0.72.0")
+
+            headers = {
+                "ChatGPT-Account-Id": account_id,
+                "originator": originator,
+                "User-Agent": f"{originator}/{client_version}",
+            }
+            # Merge with any headers from model config
+            config_headers = model_config.get("custom_endpoint", {}).get("headers", {})
+            headers.update(config_headers)
+
+            # Get base URL - Codex API uses chatgpt.com, not api.openai.com
+            base_url = model_config.get("custom_endpoint", {}).get(
+                "url", CHATGPT_OAUTH_CONFIG["api_base_url"]
+            )
+
+            # Create HTTP client with Codex interceptor for store=false injection
+            from code_puppy.chatgpt_codex_client import create_codex_async_client
+
+            verify = get_cert_bundle_path()
+            client = create_codex_async_client(headers=headers, verify=verify)
+
+            provider = OpenAIProvider(
+                api_key=access_token,
+                base_url=base_url,
+                http_client=client,
+            )
+
+            # ChatGPT Codex API only supports Responses format
+            model = OpenAIResponsesModel(
+                model_name=model_config["name"], provider=provider
+            )
+            setattr(model, "provider", provider)
+            return model
+
         elif model_type == "round_robin":
             # Get the list of model names to use in the round-robin
             model_names = model_config.get("models")

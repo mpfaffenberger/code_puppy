@@ -149,6 +149,98 @@ def load_stored_tokens() -> Optional[Dict[str, Any]]:
     return None
 
 
+def get_valid_access_token() -> Optional[str]:
+    """Get a valid access token, refreshing if expired.
+
+    Returns:
+        Valid access token string, or None if not authenticated or refresh failed.
+    """
+    tokens = load_stored_tokens()
+    if not tokens:
+        logger.debug("No stored ChatGPT OAuth tokens found")
+        return None
+
+    access_token = tokens.get("access_token")
+    if not access_token:
+        logger.debug("No access_token in stored tokens")
+        return None
+
+    # Check if token is expired by parsing JWT claims
+    claims = parse_jwt_claims(access_token)
+    if claims:
+        exp = claims.get("exp")
+        if exp and isinstance(exp, (int, float)):
+            # Add 30 second buffer before expiry
+            if time.time() > exp - 30:
+                logger.info("ChatGPT OAuth token expired, attempting refresh")
+                refreshed = refresh_access_token()
+                if refreshed:
+                    return refreshed
+                logger.warning("Token refresh failed")
+                return None
+
+    return access_token
+
+
+def refresh_access_token() -> Optional[str]:
+    """Refresh the access token using the refresh token.
+
+    Returns:
+        New access token if refresh succeeded, None otherwise.
+    """
+    tokens = load_stored_tokens()
+    if not tokens:
+        return None
+
+    refresh_token = tokens.get("refresh_token")
+    if not refresh_token:
+        logger.debug("No refresh_token available")
+        return None
+
+    payload = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": CHATGPT_OAUTH_CONFIG["client_id"],
+    }
+
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+
+    try:
+        response = requests.post(
+            CHATGPT_OAUTH_CONFIG["token_url"],
+            data=payload,
+            headers=headers,
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            new_tokens = response.json()
+            # Merge with existing tokens (preserve account_id, etc.)
+            tokens.update(
+                {
+                    "access_token": new_tokens.get("access_token"),
+                    "refresh_token": new_tokens.get("refresh_token", refresh_token),
+                    "id_token": new_tokens.get("id_token", tokens.get("id_token")),
+                    "last_refresh": datetime.datetime.now(datetime.timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                }
+            )
+            if save_tokens(tokens):
+                logger.info("Successfully refreshed ChatGPT OAuth token")
+                return tokens["access_token"]
+        else:
+            logger.error(
+                "Token refresh failed: %s - %s", response.status_code, response.text
+            )
+    except Exception as exc:
+        logger.error("Token refresh error: %s", exc)
+
+    return None
+
+
 def save_tokens(tokens: Dict[str, Any]) -> bool:
     if tokens is None:
         raise TypeError("tokens cannot be None")
@@ -248,88 +340,100 @@ def exchange_code_for_tokens(
     return None
 
 
-def fetch_chatgpt_models(api_key: str) -> Optional[List[str]]:
-    """Fetch available models from OpenAI API.
+# Default models available via ChatGPT Codex API
+# These are the known models that work with ChatGPT OAuth tokens
+# Based on codex-rs CLI and shell-scripts/codex-call.sh
+DEFAULT_CODEX_MODELS = [
+    "gpt-5.2",
+    "gpt-5.2-codex",
+]
 
-    Makes a real HTTP GET request to OpenAI's models endpoint and filters
-    the results to include only GPT series models while preserving server order.
+
+def fetch_chatgpt_models(access_token: str, account_id: str) -> Optional[List[str]]:
+    """Fetch available models from ChatGPT Codex API.
+
+    Attempts to fetch models from the API, but falls back to a default list
+    of known Codex-compatible models if the API is unavailable.
 
     Args:
-        api_key: OpenAI API key for authentication
+        access_token: OAuth access token for authentication
+        account_id: ChatGPT account ID (required for the API)
 
     Returns:
-        List of filtered model IDs preserving server order, or None if request fails
+        List of model IDs, or default list if API fails
     """
-    # Build the models URL, ensuring it ends with /v1/models
-    base_url = CHATGPT_OAUTH_CONFIG["api_base_url"].rstrip("/")
-    models_url = f"{base_url}/v1/models"
+    import platform
 
-    # Blocklist of model IDs to exclude
-    blocklist = {"whisper-1"}
+    # Build the models URL with client version
+    client_version = CHATGPT_OAUTH_CONFIG.get("client_version", "0.72.0")
+    base_url = CHATGPT_OAUTH_CONFIG["api_base_url"].rstrip("/")
+    models_url = f"{base_url}/models"
+
+    # Build User-Agent to match codex-rs CLI format
+    originator = CHATGPT_OAUTH_CONFIG.get("originator", "codex_cli_rs")
+    os_name = platform.system()
+    if os_name == "Darwin":
+        os_name = "Mac OS"
+    os_version = platform.release()
+    arch = platform.machine()
+    user_agent = (
+        f"{originator}/{client_version} ({os_name} {os_version}; {arch}) "
+        "Terminal_Codex_CLI"
+    )
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {access_token}",
+        "ChatGPT-Account-Id": account_id,
+        "User-Agent": user_agent,
+        "originator": originator,
+        "Accept": "application/json",
     }
 
+    # Query params
+    params = {"client_version": client_version}
+
     try:
-        response = requests.get(models_url, headers=headers, timeout=30)
+        response = requests.get(models_url, headers=headers, params=params, timeout=30)
 
-        if response.status_code != 200:
-            logger.error(
-                "Failed to fetch models: HTTP %d - %s",
-                response.status_code,
-                response.text,
-            )
-            return None
+        if response.status_code == 200:
+            # Parse JSON response
+            try:
+                data = response.json()
+                # The response has a "models" key with list of model objects
+                if "models" in data and isinstance(data["models"], list):
+                    models = []
+                    for model in data["models"]:
+                        if model is None:
+                            continue
+                        model_id = (
+                            model.get("slug") or model.get("id") or model.get("name")
+                        )
+                        if model_id:
+                            models.append(model_id)
+                    if models:
+                        return models
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.warning("Failed to parse models response: %s", exc)
 
-        # Parse JSON response
-        try:
-            data = response.json()
-            if "data" not in data or not isinstance(data["data"], list):
-                logger.error("Invalid response format: missing 'data' list")
-                return None
-        except (json.JSONDecodeError, ValueError) as exc:
-            logger.error("Failed to parse JSON response: %s", exc)
-            return None
-
-        # Filter models: start with "gpt-" or "o1-" and not in blocklist
-        filtered_models = []
-        seen_models = set()  # For deduplication while preserving order
-
-        for model in data["data"]:
-            # Skip None entries
-            if model is None:
-                continue
-
-            model_id = model.get("id")
-            if not model_id:
-                continue
-
-            # Skip if already seen (deduplication)
-            if model_id in seen_models:
-                continue
-
-            # Check if model starts with allowed prefixes and not in blocklist
-            if (
-                model_id.startswith("gpt-") or model_id.startswith("o1-")
-            ) and model_id not in blocklist:
-                filtered_models.append(model_id)
-                seen_models.add(model_id)
-
-        return filtered_models
+        # API didn't return valid models, use default list
+        logger.info(
+            "Models endpoint returned %d, using default model list",
+            response.status_code,
+        )
 
     except requests.exceptions.Timeout:
-        logger.error("Timeout while fetching models after 30 seconds")
-        return None
+        logger.warning("Timeout fetching models, using default list")
     except requests.exceptions.RequestException as exc:
-        logger.error("Network error while fetching models: %s", exc)
-        return None
+        logger.warning("Network error fetching models: %s, using default list", exc)
     except Exception as exc:
-        logger.error("Unexpected error while fetching models: %s", exc)
-        return None
+        logger.warning("Error fetching models: %s, using default list", exc)
+
+    # Return default models when API fails
+    logger.info("Using default Codex models: %s", DEFAULT_CODEX_MODELS)
+    return DEFAULT_CODEX_MODELS
 
 
-def add_models_to_extra_config(models: List[str], api_key: str) -> bool:
+def add_models_to_extra_config(models: List[str]) -> bool:
     """Add ChatGPT models to chatgpt_models.json configuration."""
     try:
         chatgpt_models = load_chatgpt_models()
@@ -337,11 +441,11 @@ def add_models_to_extra_config(models: List[str], api_key: str) -> bool:
         for model_name in models:
             prefixed = f"{CHATGPT_OAUTH_CONFIG['prefix']}{model_name}"
             chatgpt_models[prefixed] = {
-                "type": "openai",
+                "type": "chatgpt_oauth",
                 "name": model_name,
                 "custom_endpoint": {
+                    # Codex API uses chatgpt.com/backend-api/codex, not api.openai.com
                     "url": CHATGPT_OAUTH_CONFIG["api_base_url"],
-                    "api_key": "${" + CHATGPT_OAUTH_CONFIG["api_key_env_var"] + "}",
                 },
                 "context_length": CHATGPT_OAUTH_CONFIG["default_context_length"],
                 "oauth_source": "chatgpt-oauth-plugin",

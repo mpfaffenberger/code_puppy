@@ -235,25 +235,41 @@ def test_exchange_code_for_tokens(mock_post):
 
 @patch("code_puppy.plugins.chatgpt_oauth.utils.requests.get")
 def test_fetch_chatgpt_models(mock_get):
-    """Test fetching models from OpenAI API."""
+    """Test fetching models from ChatGPT Codex API."""
     mock_response = MagicMock()
     mock_response.status_code = 200
+    # New response format uses "models" key with "slug" field
     mock_response.json.return_value = {
-        "data": [
-            {"id": "gpt-4o"},
-            {"id": "gpt-3.5-turbo"},
-            {"id": "whisper-1"},  # Should be filtered out
-            {"id": "o1-preview"},
+        "models": [
+            {"slug": "gpt-4o"},
+            {"slug": "gpt-3.5-turbo"},
+            {"slug": "o1-preview"},
+            {"slug": "codex-mini"},
         ]
     }
     mock_get.return_value = mock_response
 
-    models = utils.fetch_chatgpt_models("test_api_key")
+    models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
     assert models is not None
     assert "gpt-4o" in models
     assert "gpt-3.5-turbo" in models
     assert "o1-preview" in models
-    assert "whisper-1" not in models  # Should be filtered
+    assert "codex-mini" in models
+
+
+@patch("code_puppy.plugins.chatgpt_oauth.utils.requests.get")
+def test_fetch_chatgpt_models_fallback(mock_get):
+    """Test that fetch_chatgpt_models returns default list on API failure."""
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.text = '{"detail":"Not Found"}'
+    mock_get.return_value = mock_response
+
+    models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
+    assert models is not None
+    # Should return default models
+    assert "gpt-5.2" in models
+    assert "gpt-4o" in models
 
 
 def test_add_models_to_chatgpt_config(tmp_path):
@@ -262,14 +278,13 @@ def test_add_models_to_chatgpt_config(tmp_path):
         config, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
     ):
         models = ["gpt-4o", "gpt-3.5-turbo"]
-        api_key = "sk-test"
 
-        assert utils.add_models_to_extra_config(models, api_key)
+        assert utils.add_models_to_extra_config(models)
 
         loaded = utils.load_chatgpt_models()
         assert "chatgpt-gpt-4o" in loaded
         assert "chatgpt-gpt-3.5-turbo" in loaded
-        assert loaded["chatgpt-gpt-4o"]["type"] == "openai"
+        assert loaded["chatgpt-gpt-4o"]["type"] == "chatgpt_oauth"
         assert loaded["chatgpt-gpt-4o"]["name"] == "gpt-4o"
         assert loaded["chatgpt-gpt-4o"]["oauth_source"] == "chatgpt-oauth-plugin"
 

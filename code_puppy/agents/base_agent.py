@@ -365,7 +365,9 @@ class BaseAgent(ABC):
         # fixed instructions. For other models, count the full system prompt.
         try:
             from code_puppy.model_utils import (
+                get_chatgpt_codex_instructions,
                 get_claude_code_instructions,
+                is_chatgpt_codex_model,
                 is_claude_code_model,
             )
 
@@ -376,6 +378,11 @@ class BaseAgent(ABC):
                 # For Claude Code models, only count the short fixed instructions
                 # The full system prompt is already in the message history
                 instructions = get_claude_code_instructions()
+                total_tokens += self.estimate_token_count(instructions)
+            elif is_chatgpt_codex_model(model_name):
+                # For ChatGPT Codex models, only count the short fixed instructions
+                # The full system prompt is already in the message history
+                instructions = get_chatgpt_codex_instructions()
                 total_tokens += self.estimate_token_count(instructions)
             else:
                 # For other models, count the full system prompt
@@ -1447,10 +1454,12 @@ class BaseAgent(ABC):
         pydantic_agent = (
             self._code_generation_agent or self.reload_code_generation_agent()
         )
-        # Handle claude-code models: prepend system prompt to first user message
-        from code_puppy.model_utils import is_claude_code_model
+        # Handle claude-code and chatgpt-codex models: prepend system prompt to first user message
+        from code_puppy.model_utils import is_chatgpt_codex_model, is_claude_code_model
 
-        if is_claude_code_model(self.get_model_name()):
+        if is_claude_code_model(self.get_model_name()) or is_chatgpt_codex_model(
+            self.get_model_name()
+        ):
             if len(self.get_message_history()) == 0:
                 system_prompt = self.get_system_prompt()
                 puppy_rules = self.load_puppy_rules()
