@@ -33,21 +33,65 @@ def _get_session_file_path() -> Path:
     return Path(STATE_DIR) / "terminal_sessions.json"
 
 
+def _get_git_repo_name() -> str:
+    """Get the name of the current git repository, or current directory name.
+
+    Returns:
+        str: Repository name if in a git repo, otherwise current directory name
+    """
+    try:
+        import subprocess
+
+        # Get the root directory of the git repo
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            # Extract the directory name from the path
+            repo_path = result.stdout.strip()
+            repo_name = os.path.basename(repo_path)
+            return repo_name
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+    # Fallback to current working directory name
+    try:
+        cwd = os.getcwd()
+        dir_name = os.path.basename(cwd)
+        # Handle edge case of root directory or empty basename
+        if not dir_name or dir_name == "/":
+            return "root"
+        return dir_name
+    except OSError:
+        return "unknown"
+
+
+def _get_timestamp() -> str:
+    """Get current timestamp in YYYYMMDD.HHMMSS format.
+
+    Returns:
+        str: Timestamp like '20251211.140948'
+    """
+    import datetime
+
+    now = datetime.datetime.now()
+    return now.strftime("%Y%m%d.%H%M%S")
+
+
 def get_terminal_session_id() -> str:
     """Get a unique identifier for the current terminal session.
 
-    Uses parent process ID (PPID) as the session identifier.
-    This works across all platforms and provides session isolation.
+    Combines git repository name with timestamp for human-readable session IDs.
 
     Returns:
-        str: Unique session identifier (e.g., "session_12345")
+        str: Unique session identifier (e.g., "code_puppy.20251211.140948")
     """
-    try:
-        ppid = os.getppid()
-        return f"session_{ppid}"
-    except (OSError, AttributeError):
-        # Fallback to current process ID if PPID unavailable
-        return f"fallback_{os.getpid()}"
+    repo_name = _get_git_repo_name()
+    timestamp = _get_timestamp()
+    return f"{repo_name}.{timestamp}"
 
 
 def _is_process_alive(pid: int) -> bool:

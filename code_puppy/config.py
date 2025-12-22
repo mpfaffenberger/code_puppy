@@ -41,6 +41,7 @@ STATE_DIR = _get_xdg_dir("XDG_STATE_HOME", ".local/state")
 # Configuration files (XDG_CONFIG_HOME)
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
+SESSION_LOGGING_CONFIG_FILE = os.path.join(CONFIG_DIR, "session_logging.json")
 
 # Data files (XDG_DATA_HOME)
 MODELS_FILE = os.path.join(DATA_DIR, "models.json")
@@ -59,6 +60,7 @@ AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
 
 # State files (XDG_STATE_HOME)
 COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
+SESSION_LOGS_DIR = os.path.join(STATE_DIR, "sessions")
 DBOS_DATABASE_URL = os.environ.get(
     "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
 )
@@ -1495,3 +1497,111 @@ def set_default_agent(agent_name: str) -> None:
         agent_name: The name of the agent to set as default.
     """
     set_config_value("default_agent", agent_name)
+
+
+def _load_session_logging_json() -> dict | None:
+    """
+    Load session logging configuration from JSON file.
+
+    Returns:
+        dict: Configuration dict if file exists and is valid, None otherwise
+    """
+    if not os.path.exists(SESSION_LOGGING_CONFIG_FILE):
+        return None
+
+    try:
+        with open(SESSION_LOGGING_CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        # If file is corrupt or unreadable, return None and fall back
+        return None
+
+
+def _get_default_session_logging_config() -> dict:
+    """
+    Get default session logging configuration.
+
+    Returns:
+        dict: Default configuration values
+    """
+    return {
+        "enabled": False,
+        "log_file": f"{SESSION_LOGS_DIR}/{{session_id}}.md",
+        "format": "markdown",
+        "user_prompts": True,
+        "agent_reasoning": True,
+        "agent_responses": True,
+        "tool_calls": True,
+        "tool_outputs": True,
+        "timestamp_format": "ISO8601",
+    }
+
+
+def initialize_session_logging_config() -> None:
+    """
+    Create default session_logging.json if it doesn't exist.
+    """
+    if os.path.exists(SESSION_LOGGING_CONFIG_FILE):
+        return
+
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+
+    default_config = _get_default_session_logging_config()
+    try:
+        with open(SESSION_LOGGING_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(default_config, f, indent=2)
+    except OSError:
+        # If we can't write, just skip - fall back to defaults
+        pass
+
+
+def save_session_logging_config(config: dict) -> bool:
+    """
+    Save session logging configuration to JSON file.
+
+    Args:
+        config: Configuration dictionary to save
+
+    Returns:
+        bool: True if saved successfully, False otherwise
+    """
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+
+    try:
+        with open(SESSION_LOGGING_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+        return True
+    except OSError:
+        return False
+
+
+def get_session_logging_config() -> dict:
+    """
+    Get session logging configuration from JSON file.
+
+    Reads from ~/.code_puppy/session_logging.json.
+    If file doesn't exist, returns default configuration.
+
+    Returns:
+        dict: Session logging configuration with keys:
+            - enabled: bool (default False)
+            - log_file: str (default "~/.code_puppy/sessions/{session_id}.md")
+            - format: str (default "markdown")
+            - user_prompts: bool (default True)
+            - agent_reasoning: bool (default True)
+            - agent_responses: bool (default True)
+            - tool_calls: bool (default True)
+            - tool_outputs: bool (default True)
+            - timestamp_format: str (default "ISO8601")
+    """
+    json_config = _load_session_logging_json()
+    if json_config is not None:
+        # Ensure all required keys are present with defaults
+        default_config = _get_default_session_logging_config()
+        for key, default_value in default_config.items():
+            if key not in json_config:
+                json_config[key] = default_value
+        return json_config
+
+    # No JSON file exists, return defaults
+    return _get_default_session_logging_config()
