@@ -582,12 +582,31 @@ async def get_input_with_combined_completion(
     # Ctrl+X keybinding - exit with KeyboardInterrupt for shell command cancellation
     @bindings.add(Keys.ControlX)
     def _(event):
-        event.app.exit(exception=KeyboardInterrupt)
+        try:
+            event.app.exit(exception=KeyboardInterrupt)
+        except Exception:
+            # Ignore "Return value already set" errors when exit was already called
+            # This happens when user presses multiple exit keys in quick succession
+            pass
 
     # Escape keybinding - exit with KeyboardInterrupt
     @bindings.add(Keys.Escape)
     def _(event):
-        event.app.exit(exception=KeyboardInterrupt)
+        try:
+            event.app.exit(exception=KeyboardInterrupt)
+        except Exception:
+            # Ignore "Return value already set" errors when exit was already called
+            pass
+
+    # Ctrl+C keybinding - override prompt_toolkit's default to handle double-exit gracefully
+    # This prevents "Return value already set" errors when user presses Ctrl-X then Ctrl-C
+    @bindings.add(Keys.ControlC)
+    def _(event):
+        try:
+            event.app.exit(exception=KeyboardInterrupt)
+        except Exception:
+            # Ignore "Return value already set" errors when exit was already called
+            pass
 
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
