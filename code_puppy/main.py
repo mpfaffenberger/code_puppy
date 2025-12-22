@@ -195,8 +195,8 @@ async def main():
     # Handle agent selection from command line
     if args.agent:
         from code_puppy.agents.agent_manager import (
-            get_available_agents,
             set_current_agent,
+            get_available_agents,
         )
 
         agent_name = args.agent.lower()
@@ -204,7 +204,9 @@ async def main():
             # First check if the agent exists by getting available agents
             available_agents = get_available_agents()
             if agent_name not in available_agents:
-                emit_error(f"Agent '{agent_name}' not found")
+                emit_system_message(
+                    f"[bold red]Error:[/bold red] Agent '{agent_name}' not found"
+                )
                 emit_system_message(
                     f"Available agents: {', '.join(available_agents.keys())}"
                 )
@@ -297,7 +299,10 @@ async def main():
 
 # Add the file handling functionality for interactive mode
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
+    from pathlib import Path
+
     from code_puppy.command_line.command_handler import handle_command
+    from code_puppy.config import AUTOSAVE_DIR
 
     """Run the agent in interactive mode."""
 
@@ -328,6 +333,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
+
+    emit_info("[bold cyan]Initializing agent...[/bold cyan]")
 
     # Initialize the runtime agent manager
     if initial_command:
@@ -623,12 +630,30 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 get_message_bus().emit(response_msg)
 
-                # Update the agent's message history with the complete conversation
-                # including the final assistant response. The history_processors callback
-                # may not capture the final message, so we use result.all_messages()
-                # to ensure the autosave includes the complete conversation.
-                if hasattr(result, "all_messages"):
-                    current_agent.set_message_history(list(result.all_messages()))
+                # Generate session title after first successful response (if not command)
+                if not cleaned_for_commands.startswith("/"):
+                    try:
+                        from code_puppy.agents.session_title_agent import (
+                            maybe_generate_session_title,
+                        )
+                        from code_puppy.config import get_current_autosave_session_name
+
+                        session_name = get_current_autosave_session_name()
+                        autosave_dir = Path(AUTOSAVE_DIR)
+                        maybe_generate_session_title(
+                            session_name=session_name,
+                            first_prompt=task,
+                            autosave_dir=autosave_dir,
+                        )
+                    except Exception as title_exc:
+                        from code_puppy.messaging import emit_warning
+
+                        emit_warning(f"Session title generation failed: {title_exc}")
+
+                # Auto-save session if enabled
+                from code_puppy.config import auto_save_session_if_enabled
+
+                auto_save_session_if_enabled()
 
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
@@ -773,6 +798,83 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         from code_puppy.messaging import emit_error
 
         emit_error(f"Error executing prompt: {str(e)}")
+
+
+async def prompt_then_interactive_mode(message_renderer) -> None:
+    """Prompt user for input, execute it, then continue in interactive mode."""
+    from code_puppy.messaging import emit_info, emit_system_message
+
+    emit_info("[bold green]🐶 Code Puppy[/bold green] - Enter your request")
+    emit_system_message(
+        "After processing your request, you'll continue in interactive mode."
+    )
+
+    try:
+        # Get user input
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_input_with_combined_completion,
+            get_prompt_with_active_model,
+        )
+        from code_puppy.config import COMMAND_HISTORY_FILE
+
+        emit_info("[bold blue]What would you like me to help you with?[/bold blue]")
+
+        try:
+            # Use prompt_toolkit for enhanced input with path completion
+            user_prompt = await get_input_with_combined_completion(
+                get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+            )
+        except ImportError:
+            # Fall back to basic input if prompt_toolkit is not available
+            user_prompt = input(">>> ")
+
+        if user_prompt.strip():
+            # Generate session title based on the initial prompt
+            from code_puppy.agents.session_title_agent import (
+                maybe_generate_session_title,
+            )
+            from code_puppy.config import get_current_autosave_session_name
+
+            try:
+                autosave_dir = Path(AUTOSAVE_DIR)
+                maybe_generate_session_title(
+                    session_name=get_current_autosave_session_name(),
+                    first_prompt=user_prompt,
+                    autosave_dir=autosave_dir,
+                )
+            except Exception as title_exc:
+                from code_puppy.messaging import emit_warning
+
+                emit_warning(f"Session title generation failed: {title_exc}")
+
+            # Execute the prompt
+            await execute_single_prompt(user_prompt, message_renderer)
+
+            # Transition to interactive mode
+            emit_system_message("\n" + "=" * 50)
+            emit_info("[bold green]🐶 Continuing in Interactive Mode[/bold green]")
+            emit_system_message(
+                "Your request and response are preserved in the conversation history."
+            )
+            emit_system_message("=" * 50 + "\n")
+
+            # Continue in interactive mode with the initial command as history
+            await interactive_mode(message_renderer, initial_command=user_prompt)
+        else:
+            # No input provided, just go to interactive mode
+            await interactive_mode(message_renderer)
+
+    except (KeyboardInterrupt, EOFError):
+        from code_puppy.messaging import emit_warning
+
+        emit_warning("\nInput cancelled. Starting interactive mode...")
+        await interactive_mode(message_renderer)
+    except Exception as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(f"Error in prompt mode: {str(e)}")
+        emit_info("Falling back to interactive mode...")
+        await interactive_mode(message_renderer)
 
 
 def main_entry():

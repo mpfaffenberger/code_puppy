@@ -1313,6 +1313,8 @@ def auto_save_session_if_enabled() -> bool:
         session_name = get_current_autosave_session_name()
         autosave_dir = pathlib.Path(AUTOSAVE_DIR)
 
+        from code_puppy.agents.session_title_agent import get_cached_session_title
+
         metadata = save_session(
             history=history,
             session_name=session_name,
@@ -1320,6 +1322,7 @@ def auto_save_session_if_enabled() -> bool:
             timestamp=now.isoformat(),
             token_estimator=current_agent.estimate_tokens_for_message,
             auto_saved=True,
+            session_title=get_cached_session_title(session_name),
         )
 
         emit_info(
