@@ -23,6 +23,7 @@ from code_puppy.mcp_.captured_stdio_server import (
     StderrCapture,
     StderrCollector,
 )
+from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
 
 
 class TestStderrCapture:
@@ -835,3 +836,50 @@ class TestIntegration:
             assert all(
                 "Message" in line and f"server {i}" in line for line in server_output
             )
+
+
+class TestBlockingStartup:
+    """Tests for BlockingMCPServerStdio."""
+
+    @pytest.mark.asyncio
+    async def test_blocking_startup_exception_group_unwrapping(self):
+        """Test that ExceptionGroup is unwrapped to the first exception."""
+
+        # Create a dummy ExceptionGroup
+        primary_error = ValueError("The real error")
+        secondary_error = TypeError("Another error")
+        exc_group = ExceptionGroup("Group message", [primary_error, secondary_error])
+
+        # Mock the super().__aenter__ to raise this group
+        with (
+            patch(
+                "code_puppy.mcp_.blocking_startup.SimpleCapturedMCPServerStdio.__aenter__",
+                side_effect=exc_group,
+            ),
+            patch("code_puppy.mcp_.blocking_startup.emit_info") as mock_emit,
+        ):
+            server = BlockingMCPServerStdio(command="echo", args=["hello"])
+
+            # The __aenter__ should catch the group and re-raise
+            with pytest.raises(ExceptionGroup):  # It re-raises the original exception
+                async with server:
+                    pass
+
+            # BUT, it should have stored the UNWRAPPED exception in _init_error
+            assert server._init_error == primary_error
+            assert server._init_error != exc_group
+
+            # And when we call wait_until_ready, it should raise the UNWRAPPED exception
+            # We need to ensure _initialized is set (the code does this in the except block)
+            assert server._initialized.is_set()
+
+            with pytest.raises(ValueError) as excinfo:
+                await server.wait_until_ready()
+
+            assert "The real error" in str(excinfo.value)
+
+            # Verify logging message used the unwrapped detail
+            args, _ = mock_emit.call_args
+            message = args[0]
+            assert "The real error" in message
+            assert "Group message" not in message

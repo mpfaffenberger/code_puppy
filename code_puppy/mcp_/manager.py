@@ -88,12 +88,12 @@ class MCPManager:
 
     def sync_from_config(self) -> None:
         """Sync servers from mcp_servers.json into the registry.
-        
+
         This public method ensures that servers defined in the user's
         configuration file are automatically registered with the manager.
         It can be called during initialization or manually to reload
         server configurations.
-        
+
         This is the single source of truth for syncing mcp_servers.json
         into the registry, avoiding duplication with base_agent.py.
         """
@@ -121,7 +121,7 @@ class MCPManager:
 
                     # Check if server already exists by name
                     existing = self.registry.get_by_name(name)
-                    
+
                     if not existing:
                         # Register new server
                         self.registry.register(server_config)

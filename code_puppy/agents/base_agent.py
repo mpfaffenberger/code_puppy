@@ -987,7 +987,7 @@ class BaseAgent(ABC):
 
     def load_mcp_servers(self, extra_headers: Optional[Dict[str, str]] = None):
         """Load MCP servers through the manager and return pydantic-ai compatible servers.
-        
+
         Note: The manager automatically syncs from mcp_servers.json during initialization,
         so we don't need to sync here. Use reload_mcp_servers() to force a re-sync.
         """
@@ -1001,16 +1001,16 @@ class BaseAgent(ABC):
 
     def reload_mcp_servers(self):
         """Reload MCP servers and return updated servers.
-        
+
         Forces a re-sync from mcp_servers.json to pick up any configuration changes.
         """
         # Clear the MCP tool cache when servers are reloaded
         self._mcp_tool_definitions_cache = []
-        
+
         # Force re-sync from mcp_servers.json
         manager = get_mcp_manager()
         manager.sync_from_config()
-        
+
         return manager.get_servers_for_agent()
 
     def _load_model_with_fallback(
