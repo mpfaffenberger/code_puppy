@@ -9,6 +9,16 @@
     "context_length": 200000,
     "supported_settings": ["temperature", "seed"]
   },
+  "synthetic-GLM-4.7": {
+    "type": "custom_openai",
+    "name": "hf:zai-org/GLM-4.7",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 200000,
+    "supported_settings": ["temperature", "seed"]
+  },
   "synthetic-MiniMax-M2": {
     "type": "custom_openai",
     "name": "hf:MiniMaxAI/MiniMax-M2",
@@ -90,6 +100,18 @@
   "zai-glm-4.6-api": {
     "type": "zai_api",
     "name": "glm-4.6",
+    "context_length": 200000,
+    "supported_settings": ["temperature"]
+  },
+  "zai-glm-4.7-coding": {
+    "type": "zai_coding",
+    "name": "glm-4.7",
+    "context_length": 200000,
+    "supported_settings": ["temperature"]
+  },
+  "zai-glm-4.7-api": {
+    "type": "zai_api",
+    "name": "glm-4.7",
     "context_length": 200000,
     "supported_settings": ["temperature"]
   }
