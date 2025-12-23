@@ -133,6 +133,32 @@ class RichConsoleRenderer:
         """Get the Rich console."""
         return self._console
 
+    def _get_banner_color(self, banner_name: str) -> str:
+        """Get the configured color for a banner.
+
+        Args:
+            banner_name: The banner identifier (e.g., 'thinking', 'shell_command')
+
+        Returns:
+            Rich color name for the banner background
+        """
+        from code_puppy.config import get_banner_color
+
+        return get_banner_color(banner_name)
+
+    def _format_banner(self, banner_name: str, text: str) -> str:
+        """Format a banner with its configured color.
+
+        Args:
+            banner_name: The banner identifier
+            text: The banner text
+
+        Returns:
+            Rich markup string for the banner
+        """
+        color = self._get_banner_color(banner_name)
+        return f"[bold white on {color}] {text} [/bold white on {color}]"
+
     # =========================================================================
     # Lifecycle (Synchronous - for compatibility with main.py)
     # =========================================================================
@@ -325,8 +351,9 @@ class RichConsoleRenderer:
         """Render a directory listing matching the old Rich-formatted output."""
         # Header on single line
         rec_flag = f"(recursive={msg.recursive})"
+        banner = self._format_banner("directory_listing", "DIRECTORY LISTING")
         self._console.print(
-            f"\n[bold white on blue] DIRECTORY LISTING [/bold white on blue] "
+            f"\n{banner} "
             f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
 
@@ -376,19 +403,19 @@ class RichConsoleRenderer:
             line_info = f" [dim](lines {msg.start_line}-{end_line})[/dim]"
 
         # Just print the header - content is for LLM only
+        banner = self._format_banner("read_file", "READ FILE")
         self._console.print(
-            f"\n[bold white on blue] READ FILE [/bold white on blue] "
-            f"📂 [bold cyan]{msg.path}[/bold cyan]{line_info}"
+            f"\n{banner} 📂 [bold cyan]{msg.path}[/bold cyan]{line_info}"
         )
 
     def _render_grep_result(self, msg: GrepResultMessage) -> None:
         """Render grep results grouped by file matching old format."""
         import re
 
-        # Header - subtle style
+        # Header
+        banner = self._format_banner("grep", "GREP")
         self._console.print(
-            f"\n[dim][bold white on grey30] GREP [/bold white on grey30] "
-            f"📂 {msg.directory} for '{msg.search_term}'[/dim]"
+            f"\n{banner} 📂 [dim]{msg.directory} for '{msg.search_term}'[/dim]"
         )
 
         if not msg.matches:
@@ -470,8 +497,9 @@ class RichConsoleRenderer:
         op_color = op_colors.get(msg.operation, "white")
 
         # Header on single line
+        banner = self._format_banner("edit_file", "EDIT FILE")
         self._console.print(
-            f"\n[bold white on blue] EDIT FILE [/bold white on blue] "
+            f"\n{banner} "
             f"{icon} [{op_color}]{msg.operation.upper()}[/{op_color}] "
             f"[bold cyan]{msg.path}[/bold cyan]"
         )
@@ -509,10 +537,8 @@ class RichConsoleRenderer:
         # Escape command to prevent Rich markup injection
         safe_command = escape_rich_markup(msg.command)
         # Header showing command is starting
-        self._console.print(
-            f"\n[dim][bold white on grey30] SHELL COMMAND [/bold white on grey30] "
-            f"🚀 $ {safe_command}[/dim]"
-        )
+        banner = self._format_banner("shell_command", "SHELL COMMAND")
+        self._console.print(f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]")
 
         # Show working directory if specified
         if msg.cwd:
@@ -530,11 +556,8 @@ class RichConsoleRenderer:
         # This preserves colors while still being safe
         text = Text.from_ansi(msg.line)
 
-        # Add prefix for stderr to distinguish it (dim instead of red)
-        if msg.stream == "stderr":
-            self._console.print(text, style="dim")
-        else:
-            self._console.print(text)
+        # Make all shell output dim to reduce visual noise
+        self._console.print(text, style="dim")
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
         """Render shell command output - just a trailing newline for spinner separation.
@@ -552,9 +575,8 @@ class RichConsoleRenderer:
     def _render_agent_reasoning(self, msg: AgentReasoningMessage) -> None:
         """Render agent reasoning matching old format."""
         # Header matching old format
-        self._console.print(
-            "\n[bold white on purple] AGENT REASONING [/bold white on purple]"
-        )
+        banner = self._format_banner("agent_reasoning", "AGENT REASONING")
+        self._console.print(f"\n{banner}")
 
         # Current reasoning
         self._console.print("[bold cyan]Current reasoning:[/bold cyan]")
@@ -574,9 +596,8 @@ class RichConsoleRenderer:
     def _render_agent_response(self, msg: AgentResponseMessage) -> None:
         """Render agent response with header and markdown formatting."""
         # Header
-        self._console.print(
-            "\n[bold white on purple] AGENT RESPONSE [/bold white on purple]\n"
-        )
+        banner = self._format_banner("agent_response", "AGENT RESPONSE")
+        self._console.print(f"\n{banner}\n")
 
         # Content (markdown or plain)
         if msg.is_markdown:
@@ -593,8 +614,9 @@ class RichConsoleRenderer:
             if msg.is_new_session
             else f"Continuing ({msg.message_count} messages)"
         )
+        banner = self._format_banner("invoke_agent", "🤖 INVOKE AGENT")
         self._console.print(
-            f"\n[bold white on purple] 🤖 INVOKE AGENT [/bold white on purple] "
+            f"\n{banner} "
             f"[bold cyan]{msg.agent_name}[/bold cyan] "
             f"[dim]({session_type})[/dim]"
         )
@@ -613,10 +635,8 @@ class RichConsoleRenderer:
     def _render_subagent_response(self, msg: SubAgentResponseMessage) -> None:
         """Render sub-agent response with markdown formatting."""
         # Response header
-        self._console.print(
-            f"\n[bold white on green] ✓ AGENT RESPONSE [/bold white on green] "
-            f"[bold cyan]{msg.agent_name}[/bold cyan]"
-        )
+        banner = self._format_banner("subagent_response", "✓ AGENT RESPONSE")
+        self._console.print(f"\n{banner} [bold cyan]{msg.agent_name}[/bold cyan]")
 
         # Render response as markdown
         md = Markdown(msg.response)
