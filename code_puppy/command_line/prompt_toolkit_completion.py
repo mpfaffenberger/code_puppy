@@ -598,15 +598,10 @@ async def get_input_with_combined_completion(
             # Ignore "Return value already set" errors when exit was already called
             pass
 
-    # Ctrl+C keybinding - override prompt_toolkit's default to handle double-exit gracefully
-    # This prevents "Return value already set" errors when user presses Ctrl-X then Ctrl-C
-    @bindings.add(Keys.ControlC)
-    def _(event):
-        try:
-            event.app.exit(exception=KeyboardInterrupt)
-        except Exception:
-            # Ignore "Return value already set" errors when exit was already called
-            pass
+    # NOTE: We intentionally do NOT override Ctrl+C here.
+    # prompt_toolkit's default Ctrl+C handler properly resets the terminal state on Windows.
+    # Overriding it with event.app.exit(exception=KeyboardInterrupt) can leave the terminal
+    # in a bad state where characters cannot be typed. Let prompt_toolkit handle Ctrl+C natively.
 
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
