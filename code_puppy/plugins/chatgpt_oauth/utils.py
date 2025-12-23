@@ -440,6 +440,15 @@ def add_models_to_extra_config(models: List[str]) -> bool:
         added = 0
         for model_name in models:
             prefixed = f"{CHATGPT_OAUTH_CONFIG['prefix']}{model_name}"
+
+            # Determine supported settings based on model type
+            # All GPT-5.x models support reasoning_effort and verbosity
+            supported_settings = ["reasoning_effort", "verbosity"]
+
+            # Only codex models support xhigh reasoning effort
+            # Regular gpt-5.2 is capped at "high"
+            is_codex = "codex" in model_name.lower()
+
             chatgpt_models[prefixed] = {
                 "type": "chatgpt_oauth",
                 "name": model_name,
@@ -449,6 +458,8 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                 },
                 "context_length": CHATGPT_OAUTH_CONFIG["default_context_length"],
                 "oauth_source": "chatgpt-oauth-plugin",
+                "supported_settings": supported_settings,
+                "supports_xhigh_reasoning": is_codex,
             }
             added += 1
         if save_chatgpt_models(chatgpt_models):
