@@ -451,8 +451,8 @@ def register_invoke_agent(agent):
             from code_puppy import callbacks
             from code_puppy.model_utils import prepare_prompt_for_model
 
-            prompt_additions = callbacks.on_load_prompt()
-            if len(prompt_additions):
+            prompt_additions = [p for p in callbacks.on_load_prompt() if p]
+            if prompt_additions:
                 instructions += "\n" + "\n".join(prompt_additions)
 
             # Handle claude-code models: swap instructions, and prepend system prompt only on first message

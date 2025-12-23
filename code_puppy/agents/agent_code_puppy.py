@@ -150,7 +150,7 @@ Your solutions should be production-ready, maintainable, and follow best practic
 Return your final response as a string output
 """
 
-        prompt_additions = callbacks.on_load_prompt()
-        if len(prompt_additions):
+        prompt_additions = [p for p in callbacks.on_load_prompt() if p]
+        if prompt_additions:
             result += "\n".join(prompt_additions)
         return result

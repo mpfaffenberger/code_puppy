@@ -284,8 +284,11 @@ class TestKillAllRunningShellProcesses:
         for thread in threads:
             thread.join()
 
-        # All kill calls should be made (though race conditions mean some threads might see empty registry)
-        assert mock_kill.call_count <= len(processes)
+        # With concurrent access, multiple threads may each see and attempt to kill
+        # the same processes before they're unregistered, so call_count can exceed
+        # the number of processes (up to num_threads * num_processes in worst case)
+        num_threads = 3
+        assert mock_kill.call_count <= len(processes) * num_threads
 
         # Registry should be empty
         verify_processes_registered = len(list(_RUNNING_PROCESSES))

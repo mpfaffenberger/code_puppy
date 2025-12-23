@@ -1,1 +1,1 @@
-"""Test package for OAuth plugins."""
+"""Tests for Code Puppy plugins."""
