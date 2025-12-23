@@ -1279,6 +1279,7 @@ class BaseAgent(ABC):
             ctx: The run context.
             events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
         """
+        import os
         import time as time_module
 
         from pydantic_ai import PartDeltaEvent, PartStartEvent
@@ -1291,6 +1292,15 @@ class BaseAgent(ABC):
         from code_puppy.messaging.spinner import pause_all_spinners
 
         console = Console()
+
+        # Disable Live display in test mode or non-interactive environments
+        # This fixes issues with pexpect PTY where Live() hangs
+        use_live_display = (
+            console.is_terminal
+            and os.environ.get("CODE_PUPPY_TEST_FAST", "").lower() not in ("1", "true")
+            and os.environ.get("CI", "").lower() not in ("1", "true")
+        )
+
         # Track which part indices we're currently streaming (for Text/Thinking parts)
         streaming_parts: set[int] = set()
         thinking_parts: set[int] = (
@@ -1383,14 +1393,16 @@ class BaseAgent(ABC):
                                 if event.index not in banner_printed:
                                     _print_response_banner()
                                     banner_printed.add(event.index)
-                                    live = Live(
-                                        Markdown(""),
-                                        console=console,
-                                        refresh_per_second=10,
-                                        vertical_overflow="visible",  # Allow scrolling for long content
-                                    )
-                                    live.start()
-                                    live_displays[event.index] = live
+                                    # Only use Live display if enabled (disabled in test/CI)
+                                    if use_live_display:
+                                        live = Live(
+                                            Markdown(""),
+                                            console=console,
+                                            refresh_per_second=10,
+                                            vertical_overflow="visible",  # Allow scrolling for long content
+                                        )
+                                        live.start()
+                                        live_displays[event.index] = live
                                 # Accumulate text and throttle markdown rendering
                                 # (Markdown parsing is O(n), doing it on every token = O(n²) death)
                                 text_buffer[event.index].append(delta.content_delta)
@@ -1398,7 +1410,11 @@ class BaseAgent(ABC):
                                 last_render = last_render_time.get(event.index, 0)
 
                                 # Only re-render if enough time has passed (throttle)
-                                if now - last_render >= render_interval:
+                                # Skip Live updates when not using live display
+                                if (
+                                    use_live_display
+                                    and now - last_render >= render_interval
+                                ):
                                     content = "".join(text_buffer[event.index])
                                     if event.index in live_displays:
                                         try:
@@ -1437,6 +1453,14 @@ class BaseAgent(ABC):
                             except Exception:
                                 pass
                             del live_displays[event.index]
+                        # When not using Live display, print the final content as markdown
+                        elif event.index in text_buffer:
+                            try:
+                                final_content = "".join(text_buffer[event.index])
+                                if final_content.strip():
+                                    console.print(Markdown(final_content))
+                            except Exception:
+                                pass
                         if event.index in text_buffer:
                             del text_buffer[event.index]
                         # Clean up render time tracking

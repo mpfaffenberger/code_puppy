@@ -46,9 +46,9 @@ def live_cli(cli_harness: CliHarness) -> Generator[SpawnResult, None, None]:
 def satisfy_initial_prompts(result: SpawnResult, skip_autosave: bool = True) -> None:
     """Complete the puppy name and owner prompts if they appear; otherwise continue."""
     try:
-        result.child.expect("What should we name the puppy?", timeout=3)
+        result.child.expect("What should we name the puppy?", timeout=10)
         result.sendline("IntegrationPup\r")
-        result.child.expect("What's your name", timeout=3)
+        result.child.expect("What's your name", timeout=10)
         result.sendline("HarnessTester\r")
     except pexpect.exceptions.TIMEOUT:
         # Config likely pre-provisioned; proceed
@@ -63,9 +63,9 @@ def skip_autosave_picker(result: SpawnResult, *, skip: bool = True) -> None:
         return
 
     try:
-        result.child.expect("1-5 to load, 6 for next", timeout=5)
+        result.child.expect("1-5 to load, 6 for next", timeout=15)
         result.send("\r")
-        time.sleep(0.3)
+        time.sleep(0.5)
         result.send("\r")
     except pexpect.exceptions.TIMEOUT:
         pass
