@@ -140,9 +140,11 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
             modified = True
 
         # CRITICAL: ChatGPT Codex backend requires stream=true
+        # If stream is already true (e.g., pydantic-ai with event_stream_handler),
+        # don't force conversion - let streaming events flow through naturally
         if data.get("stream") is not True:
             data["stream"] = True
-            forced_stream = True
+            forced_stream = True  # Only convert if WE forced streaming
             modified = True
 
         # Add reasoning settings for reasoning models (gpt-5.2, o-series, etc.)

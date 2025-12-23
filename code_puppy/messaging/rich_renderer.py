@@ -244,7 +244,8 @@ class RichConsoleRenderer:
         elif isinstance(message, AgentReasoningMessage):
             self._render_agent_reasoning(message)
         elif isinstance(message, AgentResponseMessage):
-            self._render_agent_response(message)
+            # Skip rendering - we now stream agent responses via event_stream_handler
+            pass
         elif isinstance(message, SubAgentInvocationMessage):
             self._render_subagent_invocation(message)
         elif isinstance(message, SubAgentResponseMessage):

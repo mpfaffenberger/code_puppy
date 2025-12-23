@@ -256,9 +256,8 @@ def load_mcp_server_configs():
 def _default_model_from_models_json():
     """Load the default model name from models.json.
 
-    Prefers synthetic-GLM-4.6 as the default model.
-    Falls back to the first model in models.json if synthetic-GLM-4.6 is not available.
-    As a last resort, falls back to ``gpt-5`` if the file cannot be read.
+    Returns the first model in models.json as the default.
+    Falls back to ``gpt-5`` if the file cannot be read.
     """
     global _default_model_cache
 
@@ -270,11 +269,7 @@ def _default_model_from_models_json():
 
         models_config = ModelFactory.load_config()
         if models_config:
-            # Prefer synthetic-GLM-4.6 as default
-            if "synthetic-GLM-4.6" in models_config:
-                _default_model_cache = "synthetic-GLM-4.6"
-                return "synthetic-GLM-4.6"
-            # Fall back to first model if synthetic-GLM-4.6 is not available
+            # Use first model in models.json as default
             first_key = next(iter(models_config))
             _default_model_cache = first_key
             return first_key
@@ -658,10 +653,22 @@ def get_all_model_settings(model_name: str) -> dict:
         for key, val in config[DEFAULT_SECTION].items():
             if key.startswith(prefix) and val.strip():
                 setting_name = key[len(prefix) :]
-                try:
-                    settings[setting_name] = float(val)
-                except (ValueError, TypeError):
-                    pass
+                # Handle different value types
+                val_stripped = val.strip()
+                # Check for boolean values first
+                if val_stripped.lower() in ("true", "false"):
+                    settings[setting_name] = val_stripped.lower() == "true"
+                else:
+                    # Try to parse as number (int first, then float)
+                    try:
+                        # Try int first for cleaner values like budget_tokens
+                        if "." not in val_stripped:
+                            settings[setting_name] = int(val_stripped)
+                        else:
+                            settings[setting_name] = float(val_stripped)
+                    except (ValueError, TypeError):
+                        # Keep as string if not a number
+                        settings[setting_name] = val_stripped
 
     return settings
 
