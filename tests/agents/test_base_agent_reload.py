@@ -318,3 +318,16 @@ class TestBaseAgentReload:
             mock_register.assert_called()
 
             assert result is not None
+
+    def test_reload_mcp_servers_calls_sync(self, agent):
+        """Test that reload_mcp_servers calls manager.sync_from_config()."""
+        mock_manager = MagicMock()
+        mock_manager.get_servers_for_agent.return_value = ["server_obj"]
+
+        with patch(
+            "code_puppy.agents.base_agent.get_mcp_manager", return_value=mock_manager
+        ):
+            servers = agent.reload_mcp_servers()
+
+            assert mock_manager.sync_from_config.called
+            assert servers == ["server_obj"]
