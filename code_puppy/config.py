@@ -212,6 +212,9 @@ def get_config_keys():
     default_keys.append("enable_dbos")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
+    # Add banner color keys
+    for banner_name in DEFAULT_BANNER_COLORS:
+        default_keys.append(f"banner_color_{banner_name}")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -1262,6 +1265,84 @@ def set_diff_deletion_color(color: str):
         color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
     """
     set_config_value("highlight_deletion_color", color)
+
+
+# =============================================================================
+# Banner Color Configuration
+# =============================================================================
+
+# Default banner colors (Rich color names)
+# A beautiful jewel-tone palette with semantic meaning:
+#   - Blues/Teals: Reading & navigation (calm, informational)
+#   - Warm tones: Actions & changes (edits, shell commands)
+#   - Purples: AI thinking & reasoning (the "brain" colors)
+#   - Greens: Completions & success
+#   - Neutrals: Search & listings
+DEFAULT_BANNER_COLORS = {
+    "thinking": "deep_sky_blue4",  # Sapphire - contemplation
+    "agent_response": "medium_purple4",  # Amethyst - main AI output
+    "shell_command": "dark_orange3",  # Amber - system commands
+    "read_file": "steel_blue",  # Steel - reading files
+    "edit_file": "dark_goldenrod",  # Gold - modifications
+    "grep": "grey37",  # Silver - search results
+    "directory_listing": "dodger_blue2",  # Sky - navigation
+    "agent_reasoning": "dark_violet",  # Violet - deep thought
+    "invoke_agent": "deep_pink4",  # Ruby - agent invocation
+    "subagent_response": "sea_green3",  # Emerald - sub-agent success
+    "list_agents": "dark_slate_gray3",  # Slate - neutral listing
+}
+
+
+def get_banner_color(banner_name: str) -> str:
+    """Get the background color for a specific banner.
+
+    Args:
+        banner_name: The banner identifier (e.g., 'thinking', 'agent_response')
+
+    Returns:
+        Rich color name or hex code for the banner background
+    """
+    config_key = f"banner_color_{banner_name}"
+    val = get_value(config_key)
+    if val:
+        return val
+    return DEFAULT_BANNER_COLORS.get(banner_name, "blue")
+
+
+def set_banner_color(banner_name: str, color: str):
+    """Set the background color for a specific banner.
+
+    Args:
+        banner_name: The banner identifier (e.g., 'thinking', 'agent_response')
+        color: Rich color name or hex code
+    """
+    config_key = f"banner_color_{banner_name}"
+    set_config_value(config_key, color)
+
+
+def get_all_banner_colors() -> dict:
+    """Get all banner colors (configured or default).
+
+    Returns:
+        Dict mapping banner names to their colors
+    """
+    return {name: get_banner_color(name) for name in DEFAULT_BANNER_COLORS}
+
+
+def reset_banner_color(banner_name: str):
+    """Reset a banner color to its default.
+
+    Args:
+        banner_name: The banner identifier to reset
+    """
+    default_color = DEFAULT_BANNER_COLORS.get(banner_name, "blue")
+    set_banner_color(banner_name, default_color)
+
+
+def reset_all_banner_colors():
+    """Reset all banner colors to their defaults."""
+    for name, color in DEFAULT_BANNER_COLORS.items():
+        set_banner_color(name, color)
 
 
 def get_current_autosave_id() -> str:
