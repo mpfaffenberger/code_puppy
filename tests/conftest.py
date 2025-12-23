@@ -35,16 +35,52 @@ except (ImportError, AttributeError):
 
 
 @pytest.fixture(autouse=True)
-def clear_model_cache_between_tests():
-    """Clear the model cache before each test to prevent cache pollution.
+def isolate_config_between_tests(tmp_path_factory):
+    """Isolate config file changes between tests.
 
-    This is especially important for tests that depend on loading fresh
-    data from models.json without any cached values.
+    This prevents tests from modifying the user's real config file
+    (e.g., changing the selected model). Each test gets its own
+    temporary config file in a separate directory from tmp_path.
     """
+    import shutil
+    import tempfile
+
+    # Save original config path
+    original_config_file = cp_config.CONFIG_FILE
+    original_config_dir = cp_config.CONFIG_DIR
+
+    # Create a completely separate temp directory for config isolation
+    # (not using tmp_path which tests may use for their own purposes)
+    config_temp_dir = tempfile.mkdtemp(prefix="code_puppy_test_config_")
+    temp_config_dir = os.path.join(config_temp_dir, ".code_puppy")
+    os.makedirs(temp_config_dir, exist_ok=True)
+    temp_config_file = os.path.join(temp_config_dir, "puppy.cfg")
+
+    # Copy existing config if it exists (so tests start with real settings)
+    if os.path.exists(original_config_file):
+        shutil.copy(original_config_file, temp_config_file)
+
+    # Redirect config to temp location
+    cp_config.CONFIG_FILE = temp_config_file
+    cp_config.CONFIG_DIR = temp_config_dir
+
+    # Clear model cache to ensure fresh state
     cp_config.clear_model_cache()
+
     yield
-    # Optionally clear again after the test
+
+    # Restore original config paths
+    cp_config.CONFIG_FILE = original_config_file
+    cp_config.CONFIG_DIR = original_config_dir
+
+    # Clear cache again after test
     cp_config.clear_model_cache()
+
+    # Clean up the temp directory
+    try:
+        shutil.rmtree(config_temp_dir)
+    except Exception:
+        pass  # Best effort cleanup
 
 
 @pytest.fixture

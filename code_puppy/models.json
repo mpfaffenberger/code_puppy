@@ -1,14 +1,4 @@
 {
-  "synthetic-GLM-4.6": {
-    "type": "custom_openai",
-    "name": "hf:zai-org/GLM-4.6",
-    "custom_endpoint": {
-      "url": "https://api.synthetic.new/openai/v1/",
-      "api_key": "$SYN_API_KEY"
-    },
-    "context_length": 200000,
-    "supported_settings": ["temperature", "seed"]
-  },
   "synthetic-GLM-4.7": {
     "type": "custom_openai",
     "name": "hf:zai-org/GLM-4.7",

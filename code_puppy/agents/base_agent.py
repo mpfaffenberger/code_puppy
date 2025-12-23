@@ -7,6 +7,7 @@ import signal
 import threading
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterable
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import mcp
@@ -18,6 +19,7 @@ from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
     ImageUrl,
+    PartEndEvent,
     RunContext,
     UsageLimitExceeded,
     UsageLimits,
@@ -1265,6 +1267,162 @@ class BaseAgent(ABC):
             self.set_message_history(result_messages_filtered_empty_thinking)
         return self.get_message_history()
 
+    async def _event_stream_handler(
+        self, ctx: RunContext, events: AsyncIterable[Any]
+    ) -> None:
+        """Handle streaming events from the agent run.
+
+        This method processes streaming events and emits TextPart and ThinkingPart
+        content with styled banners as they stream in.
+
+        Args:
+            ctx: The run context.
+            events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
+        """
+        from pydantic_ai import PartDeltaEvent, PartStartEvent
+        from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
+        from rich.console import Console
+        from rich.live import Live
+        from rich.markdown import Markdown
+        from rich.markup import escape
+
+        from code_puppy.messaging.spinner import pause_all_spinners
+
+        console = Console()
+        # Track which part indices we're currently streaming (for Text/Thinking parts)
+        streaming_parts: set[int] = set()
+        thinking_parts: set[int] = (
+            set()
+        )  # Track which parts are thinking (for dim style)
+        text_parts: set[int] = set()  # Track which parts are text
+        banner_printed: set[int] = set()  # Track if banner was already printed
+        text_buffer: dict[int, list[str]] = {}  # Buffer text for markdown
+        live_displays: dict[int, Live] = {}  # Live displays for streaming markdown
+
+        def _print_thinking_banner() -> None:
+            """Print the THINKING banner with spinner pause and line clear."""
+            import sys
+            import time
+
+            pause_all_spinners()
+            time.sleep(0.1)  # Delay to let spinner fully clear
+            sys.stdout.write("\r\x1b[K")  # Clear line
+            sys.stdout.flush()
+            console.print()  # Newline before banner
+            # Bold dark teal banner with lightning bolt
+            console.print(
+                Text.from_markup(
+                    "[bold white on dark_cyan] THINKING [/bold white on dark_cyan] [dim]⚡ "
+                ),
+                end="",
+            )
+            sys.stdout.flush()
+
+        def _print_response_banner() -> None:
+            """Print the AGENT RESPONSE banner with spinner pause and line clear."""
+            import sys
+            import time
+
+            pause_all_spinners()
+            time.sleep(0.1)  # Delay to let spinner fully clear
+            sys.stdout.write("\r\x1b[K")  # Clear line
+            sys.stdout.flush()
+            console.print()  # Newline before banner
+            console.print(
+                Text.from_markup(
+                    "[bold white on purple] AGENT RESPONSE [/bold white on purple]"
+                )
+            )
+            sys.stdout.flush()
+
+        async for event in events:
+            # PartStartEvent - register the part but defer banner until content arrives
+            if isinstance(event, PartStartEvent):
+                part = event.part
+                if isinstance(part, ThinkingPart):
+                    streaming_parts.add(event.index)
+                    thinking_parts.add(event.index)
+                    # If there's initial content, print banner + content now
+                    if part.content and part.content.strip():
+                        _print_thinking_banner()
+                        escaped = escape(part.content)
+                        console.print(f"[dim]{escaped}[/dim]", end="")
+                        banner_printed.add(event.index)
+                elif isinstance(part, TextPart):
+                    streaming_parts.add(event.index)
+                    text_parts.add(event.index)
+                    text_buffer[event.index] = []  # Initialize buffer
+                    # Buffer initial content if present
+                    if part.content and part.content.strip():
+                        text_buffer[event.index].append(part.content)
+
+            # PartDeltaEvent - stream the content as it arrives
+            elif isinstance(event, PartDeltaEvent):
+                if event.index in streaming_parts:
+                    delta = event.delta
+                    if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
+                        if delta.content_delta:
+                            # For text parts, stream markdown with Live display
+                            if event.index in text_parts:
+                                # Print banner and start Live on first content
+                                if event.index not in banner_printed:
+                                    _print_response_banner()
+                                    banner_printed.add(event.index)
+                                    live = Live(
+                                        Markdown(""),
+                                        console=console,
+                                        refresh_per_second=10,
+                                    )
+                                    live.start()
+                                    live_displays[event.index] = live
+                                # Accumulate and update markdown
+                                text_buffer[event.index].append(delta.content_delta)
+                                content = "".join(text_buffer[event.index])
+                                if event.index in live_displays:
+                                    try:
+                                        live_displays[event.index].update(
+                                            Markdown(content)
+                                        )
+                                    except Exception:
+                                        pass
+                            else:
+                                # For thinking parts, stream immediately (dim)
+                                if event.index not in banner_printed:
+                                    _print_thinking_banner()
+                                    banner_printed.add(event.index)
+                                escaped = escape(delta.content_delta)
+                                console.print(f"[dim]{escaped}[/dim]", end="")
+
+            # PartEndEvent - finish the streaming with a newline
+            elif isinstance(event, PartEndEvent):
+                if event.index in streaming_parts:
+                    # For text parts, stop the Live display
+                    if event.index in text_parts:
+                        if event.index in live_displays:
+                            try:
+                                live_displays[event.index].stop()
+                            except Exception:
+                                pass
+                            del live_displays[event.index]
+                        if event.index in text_buffer:
+                            del text_buffer[event.index]
+                    # For thinking parts, just print newline
+                    elif event.index in banner_printed:
+                        console.print()  # Final newline after streaming
+                    # Clean up all tracking sets
+                    streaming_parts.discard(event.index)
+                    thinking_parts.discard(event.index)
+                    text_parts.discard(event.index)
+                    banner_printed.discard(event.index)
+                    # Don't resume spinner here - it causes race conditions
+                    # when TextPart immediately follows ThinkingPart.
+
+        # Resume spinner after streaming completes - tool output code will
+        # pause it immediately when needed, so any flash should be imperceptible
+        from code_puppy.messaging.spinner import resume_all_spinners
+
+        resume_all_spinners()
+
     def _spawn_ctrl_x_key_listener(
         self,
         stop_event: threading.Event,
@@ -1523,6 +1681,7 @@ class BaseAgent(ABC):
                                 prompt_payload,
                                 message_history=self.get_message_history(),
                                 usage_limits=usage_limits,
+                                event_stream_handler=self._event_stream_handler,
                                 **kwargs,
                             )
                     finally:
@@ -1535,6 +1694,7 @@ class BaseAgent(ABC):
                             prompt_payload,
                             message_history=self.get_message_history(),
                             usage_limits=usage_limits,
+                            event_stream_handler=self._event_stream_handler,
                             **kwargs,
                         )
                 else:
@@ -1543,6 +1703,7 @@ class BaseAgent(ABC):
                         prompt_payload,
                         message_history=self.get_message_history(),
                         usage_limits=usage_limits,
+                        event_stream_handler=self._event_stream_handler,
                         **kwargs,
                     )
                 return result_
