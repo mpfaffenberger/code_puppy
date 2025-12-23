@@ -744,6 +744,9 @@ class TestMCPManagerExtended:
             ),
             patch("code_puppy.mcp_.manager.ServerStatusTracker"),
         ):
+            # Actually instantiate the manager to trigger sync_from_config!
+            MCPManager()
+
             # Verify register was called
             assert mock_registry_instance.register.called
 
