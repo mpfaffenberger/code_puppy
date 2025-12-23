@@ -1279,6 +1279,8 @@ class BaseAgent(ABC):
             ctx: The run context.
             events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
         """
+        import time as time_module
+
         from pydantic_ai import PartDeltaEvent, PartStartEvent
         from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
         from rich.console import Console
@@ -1299,6 +1301,8 @@ class BaseAgent(ABC):
         text_buffer: dict[int, list[str]] = {}  # Buffer text for markdown
         live_displays: dict[int, Live] = {}  # Live displays for streaming markdown
         did_stream_anything = False  # Track if we streamed any content
+        last_render_time: dict[int, float] = {}  # Track last render time per part
+        render_interval = 0.1  # Only re-render markdown every 100ms (throttle)
 
         def _print_thinking_banner() -> None:
             """Print the THINKING banner with spinner pause and line clear."""
@@ -1383,19 +1387,27 @@ class BaseAgent(ABC):
                                         Markdown(""),
                                         console=console,
                                         refresh_per_second=10,
+                                        vertical_overflow="visible",  # Allow scrolling for long content
                                     )
                                     live.start()
                                     live_displays[event.index] = live
-                                # Accumulate and update markdown
+                                # Accumulate text and throttle markdown rendering
+                                # (Markdown parsing is O(n), doing it on every token = O(n²) death)
                                 text_buffer[event.index].append(delta.content_delta)
-                                content = "".join(text_buffer[event.index])
-                                if event.index in live_displays:
-                                    try:
-                                        live_displays[event.index].update(
-                                            Markdown(content)
-                                        )
-                                    except Exception:
-                                        pass
+                                now = time_module.monotonic()
+                                last_render = last_render_time.get(event.index, 0)
+
+                                # Only re-render if enough time has passed (throttle)
+                                if now - last_render >= render_interval:
+                                    content = "".join(text_buffer[event.index])
+                                    if event.index in live_displays:
+                                        try:
+                                            live_displays[event.index].update(
+                                                Markdown(content)
+                                            )
+                                            last_render_time[event.index] = now
+                                        except Exception:
+                                            pass
                             else:
                                 # For thinking parts, stream immediately (dim)
                                 if event.index not in banner_printed:
@@ -1407,8 +1419,18 @@ class BaseAgent(ABC):
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 if event.index in streaming_parts:
-                    # For text parts, stop the Live display
+                    # For text parts, do final render then stop the Live display
                     if event.index in text_parts:
+                        # Final render to ensure we show complete content
+                        # (throttling may have skipped the last few tokens)
+                        if event.index in live_displays and event.index in text_buffer:
+                            try:
+                                final_content = "".join(text_buffer[event.index])
+                                live_displays[event.index].update(
+                                    Markdown(final_content)
+                                )
+                            except Exception:
+                                pass
                         if event.index in live_displays:
                             try:
                                 live_displays[event.index].stop()
@@ -1417,6 +1439,8 @@ class BaseAgent(ABC):
                             del live_displays[event.index]
                         if event.index in text_buffer:
                             del text_buffer[event.index]
+                        # Clean up render time tracking
+                        last_render_time.pop(event.index, None)
                     # For thinking parts, just print newline
                     elif event.index in banner_printed:
                         console.print()  # Final newline after streaming
