@@ -246,9 +246,12 @@ def register_list_agents(agent):
 
         from rich.text import Text
 
+        from code_puppy.config import get_banner_color
+
+        list_agents_color = get_banner_color("list_agents")
         emit_info(
             Text.from_markup(
-                "\n[bold white on blue] LIST AGENTS [/bold white on blue]"
+                f"\n[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}]"
             ),
             message_group=group_id,
         )

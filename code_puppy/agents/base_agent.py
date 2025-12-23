@@ -1306,15 +1306,18 @@ class BaseAgent(ABC):
             import sys
             import time
 
+            from code_puppy.config import get_banner_color
+
             pause_all_spinners()
             time.sleep(0.1)  # Delay to let spinner fully clear
             sys.stdout.write("\r\x1b[K")  # Clear line
             sys.stdout.flush()
             console.print()  # Newline before banner
-            # Bold dark teal banner with lightning bolt
+            # Bold banner with configurable color and lightning bolt
+            thinking_color = get_banner_color("thinking")
             console.print(
                 Text.from_markup(
-                    "[bold white on dark_cyan] THINKING [/bold white on dark_cyan] [dim]⚡ "
+                    f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] [dim]⚡ "
                 ),
                 end="",
             )
@@ -1327,14 +1330,17 @@ class BaseAgent(ABC):
             import sys
             import time
 
+            from code_puppy.config import get_banner_color
+
             pause_all_spinners()
             time.sleep(0.1)  # Delay to let spinner fully clear
             sys.stdout.write("\r\x1b[K")  # Clear line
             sys.stdout.flush()
             console.print()  # Newline before banner
+            response_color = get_banner_color("agent_response")
             console.print(
                 Text.from_markup(
-                    "[bold white on purple] AGENT RESPONSE [/bold white on purple]"
+                    f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
                 )
             )
             sys.stdout.flush()
