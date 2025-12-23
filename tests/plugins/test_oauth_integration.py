@@ -204,6 +204,7 @@ class TestOAuthFlowIntegration:
                     from code_puppy.plugins.chatgpt_oauth.utils import (
                         DEFAULT_CODEX_MODELS,
                     )
+
                     models = DEFAULT_CODEX_MODELS
                     assert len(models) > 0
 
@@ -218,13 +219,17 @@ class TestOAuthFlowIntegration:
                     # Check that default Codex models were registered
                     for model in DEFAULT_CODEX_MODELS:
                         prefixed = f"chatgpt-{model}"
-                        assert prefixed in saved_models, f"Expected {prefixed} in saved models"
+                        assert prefixed in saved_models, (
+                            f"Expected {prefixed} in saved models"
+                        )
                         assert (
                             saved_models[prefixed]["oauth_source"]
                             == "chatgpt-oauth-plugin"
                         )
                         # chatgpt_oauth type doesn't use api_key in custom_endpoint
-                        assert "api_key" not in saved_models[prefixed]["custom_endpoint"]
+                        assert (
+                            "api_key" not in saved_models[prefixed]["custom_endpoint"]
+                        )
 
     @patch("requests.get")
     @patch("requests.post")
@@ -537,6 +542,7 @@ class TestOAuthErrorRecovery:
 
             # ChatGPT returns default models on error, Claude returns None
             from code_puppy.plugins.chatgpt_oauth.utils import DEFAULT_CODEX_MODELS
+
             assert openai_result == DEFAULT_CODEX_MODELS
             assert claude_result is None
 

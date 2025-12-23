@@ -45,13 +45,15 @@
     "type": "openai",
     "name": "gpt-5.1",
     "context_length": 272000,
-    "supported_settings": ["reasoning_effort", "verbosity"]
+    "supported_settings": ["reasoning_effort", "verbosity"],
+    "supports_xhigh_reasoning": false
   },
   "gpt-5.1-codex-api": {
     "type": "openai",
     "name": "gpt-5.1-codex",
     "context_length": 272000,
-    "supported_settings": ["reasoning_effort"]
+    "supported_settings": ["reasoning_effort", "verbosity"],
+    "supports_xhigh_reasoning": true
   },
   "Cerebras-GLM-4.6": {
     "type": "cerebras",
