@@ -93,6 +93,42 @@ def _load_all_model_names() -> List[str]:
     return list(models_config.keys())
 
 
+def _get_setting_choices(
+    setting_key: str, model_name: Optional[str] = None
+) -> List[str]:
+    """Get the available choices for a setting, filtered by model capabilities.
+
+    For reasoning_effort, only codex models support 'xhigh' - regular GPT-5.2
+    models are capped at 'high'.
+
+    Args:
+        setting_key: The setting name (e.g., 'reasoning_effort', 'verbosity')
+        model_name: Optional model name to filter choices for
+
+    Returns:
+        List of valid choices for this setting and model combination.
+    """
+    setting_def = SETTING_DEFINITIONS.get(setting_key, {})
+    if setting_def.get("type") != "choice":
+        return []
+
+    base_choices = setting_def.get("choices", [])
+
+    # For reasoning_effort, filter 'xhigh' based on model support
+    if setting_key == "reasoning_effort" and model_name:
+        models_config = ModelFactory.load_config()
+        model_config = models_config.get(model_name, {})
+
+        # Check if model supports xhigh reasoning
+        supports_xhigh = model_config.get("supports_xhigh_reasoning", False)
+
+        if not supports_xhigh:
+            # Remove xhigh from choices for non-codex models
+            return [c for c in base_choices if c != "xhigh"]
+
+    return base_choices
+
+
 class ModelSettingsMenu:
     """Interactive TUI for model settings configuration.
 
@@ -427,7 +463,8 @@ class ModelSettingsMenu:
             if setting_def.get("type") == "choice":
                 lines.append(("bold", "  Options:"))
                 lines.append(("", "\n"))
-                choices = setting_def.get("choices", [])
+                # Get filtered choices based on model capabilities
+                choices = _get_setting_choices(setting_key, self.selected_model)
                 lines.append(
                     (
                         "fg:ansibrightblack",
@@ -514,8 +551,11 @@ class ModelSettingsMenu:
         if current is not None:
             self.edit_value = current
         elif setting_def.get("type") == "choice":
-            # For choice settings, start with the default
-            self.edit_value = setting_def.get("default", setting_def["choices"][0])
+            # For choice settings, start with the default (using filtered choices)
+            choices = _get_setting_choices(setting_key, self.selected_model)
+            self.edit_value = setting_def.get(
+                "default", choices[0] if choices else None
+            )
         elif setting_def.get("type") == "boolean":
             # For boolean settings, start with the default
             self.edit_value = setting_def.get("default", False)
@@ -541,8 +581,8 @@ class ModelSettingsMenu:
         setting_def = SETTING_DEFINITIONS[setting_key]
 
         if setting_def.get("type") == "choice":
-            # Cycle through choices
-            choices = setting_def["choices"]
+            # Cycle through filtered choices based on model capabilities
+            choices = _get_setting_choices(setting_key, self.selected_model)
             current_idx = (
                 choices.index(self.edit_value) if self.edit_value in choices else 0
             )

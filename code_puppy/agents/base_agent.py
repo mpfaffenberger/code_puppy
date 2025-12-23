@@ -1298,9 +1298,11 @@ class BaseAgent(ABC):
         banner_printed: set[int] = set()  # Track if banner was already printed
         text_buffer: dict[int, list[str]] = {}  # Buffer text for markdown
         live_displays: dict[int, Live] = {}  # Live displays for streaming markdown
+        did_stream_anything = False  # Track if we streamed any content
 
         def _print_thinking_banner() -> None:
             """Print the THINKING banner with spinner pause and line clear."""
+            nonlocal did_stream_anything
             import sys
             import time
 
@@ -1317,9 +1319,11 @@ class BaseAgent(ABC):
                 end="",
             )
             sys.stdout.flush()
+            did_stream_anything = True
 
         def _print_response_banner() -> None:
             """Print the AGENT RESPONSE banner with spinner pause and line clear."""
+            nonlocal did_stream_anything
             import sys
             import time
 
@@ -1334,6 +1338,7 @@ class BaseAgent(ABC):
                 )
             )
             sys.stdout.flush()
+            did_stream_anything = True
 
         async for event in events:
             # PartStartEvent - register the part but defer banner until content arrives
@@ -1414,14 +1419,17 @@ class BaseAgent(ABC):
                     thinking_parts.discard(event.index)
                     text_parts.discard(event.index)
                     banner_printed.discard(event.index)
-                    # Don't resume spinner here - it causes race conditions
-                    # when TextPart immediately follows ThinkingPart.
 
-        # Resume spinner after streaming completes - tool output code will
-        # pause it immediately when needed, so any flash should be imperceptible
-        from code_puppy.messaging.spinner import resume_all_spinners
+                    # Resume spinner if next part is NOT text/thinking (avoid race condition)
+                    # If next part is a tool call or None, it's safe to resume
+                    # Note: spinner itself handles blank line before appearing
+                    from code_puppy.messaging.spinner import resume_all_spinners
 
-        resume_all_spinners()
+                    next_kind = getattr(event, "next_part_kind", None)
+                    if next_kind not in ("text", "thinking"):
+                        resume_all_spinners()
+
+        # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
 
     def _spawn_ctrl_x_key_listener(
         self,

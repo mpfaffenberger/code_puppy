@@ -385,17 +385,16 @@ class RichConsoleRenderer:
         """Render grep results grouped by file matching old format."""
         import re
 
-        # Header matching old format
+        # Header - subtle style
         self._console.print(
-            f"\n[bold white on blue] GREP [/bold white on blue] "
-            f"📂 [bold cyan]{msg.directory}[/bold cyan] "
-            f"[dim]for '{msg.search_term}'[/dim]"
+            f"\n[dim][bold white on grey30] GREP [/bold white on grey30] "
+            f"📂 {msg.directory} for '{msg.search_term}'[/dim]"
         )
 
         if not msg.matches:
             self._console.print(
-                f"[yellow]⚠ No matches found for '{msg.search_term}' "
-                f"in {msg.directory}[/yellow]"
+                f"[dim]No matches found for '{msg.search_term}' "
+                f"in {msg.directory}[/dim]"
             )
             return
 
@@ -411,8 +410,7 @@ class RichConsoleRenderer:
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"\n[bold white]📄 {file_path}[/bold white] "
-                    f"[dim]({len(file_matches)} {match_word})[/dim]"
+                    f"\n[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
                 )
 
                 # Show each match with line number and content
@@ -428,7 +426,7 @@ class RichConsoleRenderer:
                     if search_term and not search_term.startswith("-"):
                         highlighted_line = re.sub(
                             f"({re.escape(search_term)})",
-                            r"[bold yellow on black]\1[/bold yellow on black]",
+                            r"[bold yellow]\1[/bold yellow]",
                             line,
                             flags=re.IGNORECASE,
                         )
@@ -436,9 +434,7 @@ class RichConsoleRenderer:
                         highlighted_line = line
 
                     ln = match.line_number
-                    self._console.print(
-                        f"  [bold cyan]{ln:4d}[/bold cyan] │ {highlighted_line}"
-                    )
+                    self._console.print(f"  [dim]{ln:4d}[/dim] │ {highlighted_line}")
         else:
             # Concise mode (default): Show only file summaries
             self._console.print("")
@@ -449,14 +445,17 @@ class RichConsoleRenderer:
                     f"[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
                 )
 
-        # Summary
+        # Summary - subtle
         match_word = "match" if msg.total_matches == 1 else "matches"
         file_word = "file" if len(by_file) == 1 else "files"
         num_files = len(by_file)
         self._console.print(
-            f"[green]✓ Found [bold]{msg.total_matches}[/bold] {match_word} "
-            f"across [bold]{num_files}[/bold] {file_word}[/green]"
+            f"[dim]Found {msg.total_matches} {match_word} "
+            f"across {num_files} {file_word}[/dim]"
         )
+
+        # Trailing newline for spinner separation
+        self._console.print()
 
     # =========================================================================
     # Diff
@@ -511,8 +510,8 @@ class RichConsoleRenderer:
         safe_command = escape_rich_markup(msg.command)
         # Header showing command is starting
         self._console.print(
-            f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] "
-            f"🚀 [bold green]$ {safe_command}[/bold green]"
+            f"\n[dim][bold white on grey30] SHELL COMMAND [/bold white on grey30] "
+            f"🚀 $ {safe_command}[/dim]"
         )
 
         # Show working directory if specified
@@ -531,20 +530,20 @@ class RichConsoleRenderer:
         # This preserves colors while still being safe
         text = Text.from_ansi(msg.line)
 
-        # Add prefix for stderr to distinguish it
+        # Add prefix for stderr to distinguish it (dim instead of red)
         if msg.stream == "stderr":
-            self._console.print(text, style="red")
+            self._console.print(text, style="dim")
         else:
             self._console.print(text)
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
-        """Render shell command output - suppressed for clean output.
+        """Render shell command output - just a trailing newline for spinner separation.
 
         Shell command results are already returned to the LLM via tool responses,
         so we don't need to clutter the UI with redundant output.
         """
-        # Intentionally suppressed - output is shown in tool response
-        pass
+        # Just print trailing newline for spinner separation
+        self._console.print()
 
     # =========================================================================
     # Agent Messages
@@ -568,6 +567,9 @@ class RichConsoleRenderer:
             self._console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
             md_steps = Markdown(msg.next_steps)
             self._console.print(md_steps)
+
+        # Trailing newline for spinner separation
+        self._console.print()
 
     def _render_agent_response(self, msg: AgentResponseMessage) -> None:
         """Render agent response with header and markdown formatting."""
