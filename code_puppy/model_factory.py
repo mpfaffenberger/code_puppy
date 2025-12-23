@@ -108,8 +108,8 @@ def make_model_settings(
         # Handle Anthropic extended thinking settings
         # Remove top_p as Anthropic doesn't support it with extended thinking
         model_settings_dict.pop("top_p", None)
-        extended_thinking = effective_settings.get("extended_thinking", False)
-        budget_tokens = effective_settings.get("budget_tokens")
+        extended_thinking = effective_settings.get("extended_thinking", True)
+        budget_tokens = effective_settings.get("budget_tokens", 10000)
         if extended_thinking and budget_tokens:
             model_settings_dict["anthropic_thinking"] = {
                 "type": "enabled",

@@ -72,7 +72,7 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Extended Thinking",
         "description": "Enable Claude's extended thinking mode for complex reasoning tasks.",
         "type": "boolean",
-        "default": False,
+        "default": True,
     },
     "budget_tokens": {
         "name": "Thinking Budget (tokens)",
