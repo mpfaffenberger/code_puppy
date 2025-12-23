@@ -36,6 +36,7 @@ from code_puppy.command_line.model_picker_completion import (
     get_active_model,
 )
 from code_puppy.command_line.pin_command_completion import PinCompleter, UnpinCompleter
+from code_puppy.command_line.theme_completion import ThemeCompleter
 from code_puppy.command_line.utils import list_directory
 from code_puppy.config import (
     COMMAND_HISTORY_FILE,
@@ -507,6 +508,53 @@ class SlashCompleter(Completer):
             )
 
 
+def _get_prompt_style() -> Style:
+    """Get prompt styles from the current theme.
+
+    Returns:
+        Style object with theme-aware prompt colors.
+    """
+    try:
+        from code_puppy.theming import get_current_theme
+
+        theme = get_current_theme()
+        colors = theme.colors
+
+        # Convert Rich-style strings to prompt_toolkit format
+        # prompt_toolkit uses similar syntax but with 'ansi' prefix for ANSI colors
+        def convert_style(style_str: str) -> str:
+            """Convert Rich style to prompt_toolkit style."""
+            # Most styles work as-is, but we need to handle some edge cases
+            return style_str
+
+        return Style.from_dict(
+            {
+                # Keys must AVOID the 'class:' prefix – that prefix is used only when
+                # tagging tokens in `FormattedText`. See prompt_toolkit docs.
+                "puppy": convert_style(colors.prompt_puppy_style),
+                "owner": convert_style(colors.prompt_agent_style),
+                "agent": convert_style(colors.prompt_agent_style),
+                "model": convert_style(colors.prompt_model_style),
+                "cwd": convert_style(colors.prompt_cwd_style),
+                "arrow": convert_style(colors.prompt_arrow_style),
+                "attachment-placeholder": "italic ansicyan",
+            }
+        )
+    except Exception:
+        # Fallback to default styles if theming fails
+        return Style.from_dict(
+            {
+                "puppy": "bold ansibrightcyan",
+                "owner": "bold ansibrightblue",
+                "agent": "bold ansibrightblue",
+                "model": "bold ansibrightcyan",
+                "cwd": "bold ansibrightgreen",
+                "arrow": "bold ansibrightblue",
+                "attachment-placeholder": "italic ansicyan",
+            }
+        )
+
+
 def get_prompt_with_active_model(base: str = ">>> "):
     from code_puppy.agents.agent_manager import get_current_agent
 
@@ -570,6 +618,7 @@ async def get_input_with_combined_completion(
             AgentCompleter(trigger="/agent"),
             AgentCompleter(trigger="/a"),
             MCPCompleter(trigger="/mcp"),
+            ThemeCompleter(trigger="/theme"),
             SlashCompleter(),
         ]
     )
@@ -661,19 +710,8 @@ async def get_input_with_combined_completion(
         from prompt_toolkit.formatted_text import FormattedText
 
         prompt_str = FormattedText([(None, prompt_str)])
-    style = Style.from_dict(
-        {
-            # Keys must AVOID the 'class:' prefix – that prefix is used only when
-            # tagging tokens in `FormattedText`. See prompt_toolkit docs.
-            "puppy": "bold ansibrightcyan",
-            "owner": "bold ansibrightblue",
-            "agent": "bold ansibrightblue",
-            "model": "bold ansibrightcyan",
-            "cwd": "bold ansibrightgreen",
-            "arrow": "bold ansibrightblue",
-            "attachment-placeholder": "italic ansicyan",
-        }
-    )
+    # Get prompt styles from current theme
+    style = _get_prompt_style()
     text = await session.prompt_async(prompt_str, style=style)
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running

@@ -271,6 +271,52 @@ The `rotate_every` parameter controls how many requests are made to each model b
 
 Code Puppy features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The system supports both built-in Python agents and custom JSON agents that you can create yourself.
 
+## 🎨 Themes
+
+Code Puppy supports customizable color themes! Choose from 11 built-in themes or create your own.
+
+### Quick Theme Commands
+
+```bash
+/theme              # Open interactive theme picker
+/theme list         # List available themes
+/theme set <name>   # Set theme by name
+/theme current      # Show current theme
+/theme reset        # Reset to default
+```
+
+### Available Themes
+
+| Theme | Description |
+|-------|-------------|
+| 🐶 default | Classic Code Puppy colors |
+| 🌊 ocean-depths | Deep sea blues and teals |
+| 🌲 forest-night | Earthy greens and natural tones |
+| 🌆 synthwave | Retro neon cyberpunk |
+| 🎨 monokai-pro | Classic dark editor theme |
+| ☀️ solarized-dark | Precision-crafted Solarized |
+| 🧛 dracula | Dark with vivid accents |
+| ❄️ nord | Arctic-inspired cool tones |
+| 🍂 gruvbox | Retro warm earth tones |
+| 🗼 tokyo-night | Modern purple/blue aesthetic |
+| 🐱 catppuccin-mocha | Soothing pastel palette |
+
+Your theme preference is saved automatically and persists across sessions.
+
+### Interactive Theme Picker
+
+Launch the interactive TUI theme picker with live color previews:
+
+```bash
+/theme
+```
+
+The theme picker shows a split-screen interface with:
+- **Left panel**: Theme list with visual markers (current/selected)
+- **Right panel**: Live preview showing actual colors with sample content
+
+Use arrow keys to navigate, Enter to select a theme, or Escape to cancel. Tab completion is also supported for theme names and subcommands.
+
 ## Quick Start
 
 ### Check Current Agent

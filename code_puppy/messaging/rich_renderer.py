@@ -18,6 +18,7 @@ from rich.rule import Rule
 # Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
+from code_puppy.theming import get_current_theme
 from code_puppy.tools.common import format_diff_with_colors
 
 from .bus import MessageBus
@@ -79,6 +80,8 @@ class RendererProtocol(Protocol):
 # Default Styles
 # =============================================================================
 
+# Legacy DEFAULT_STYLES for backward compatibility
+# Use get_theme_styles() for new code to get live theme updates
 DEFAULT_STYLES: Dict[MessageLevel, str] = {
     MessageLevel.ERROR: "bold red",
     MessageLevel.WARNING: "yellow",
@@ -87,11 +90,29 @@ DEFAULT_STYLES: Dict[MessageLevel, str] = {
     MessageLevel.DEBUG: "dim",
 }
 
+# Note: DIFF_STYLES remains unchanged - diff colors are managed separately
 DIFF_STYLES = {
     "add": "green",
     "remove": "red",
     "context": "dim",
 }
+
+
+def get_theme_styles() -> Dict[MessageLevel, str]:
+    """Get message level styles from the current theme.
+
+    Returns:
+        Dict mapping MessageLevel to style strings from the current theme
+    """
+    theme = get_current_theme()
+    c = theme.colors  # Shorthand
+    return {
+        MessageLevel.ERROR: c.error_style,
+        MessageLevel.WARNING: c.warning_style,
+        MessageLevel.SUCCESS: c.success_style,
+        MessageLevel.INFO: c.info_style,
+        MessageLevel.DEBUG: c.debug_style,
+    }
 
 
 # =============================================================================
@@ -123,7 +144,7 @@ class RichConsoleRenderer:
 
         self._bus = bus
         self._console = console or Console()
-        self._styles = styles or DEFAULT_STYLES.copy()
+        self._styles = styles or get_theme_styles()
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._spinners: Dict[str, object] = {}  # spinner_id -> status context
@@ -294,11 +315,14 @@ class RichConsoleRenderer:
         the renderer if malformed tags are present in shell output or other
         user-provided content.
         """
-        style = self._styles.get(msg.level, "white")
+        # Get fresh theme styles for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+        style = self._styles.get(msg.level, c.info_style)
 
         # Make version messages dim
         if "Current version:" in msg.text or "Latest version:" in msg.text:
-            style = "dim"
+            style = c.debug_style
 
         prefix = self._get_level_prefix(msg.level)
         # Escape Rich markup to prevent crashes from malformed tags
@@ -322,16 +346,25 @@ class RichConsoleRenderer:
 
     def _render_file_listing(self, msg: FileListingMessage) -> None:
         """Render a directory listing matching the old Rich-formatted output."""
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+        c = theme.colors  # Shorthand for cleaner formatting
+
         # Header on single line
         rec_flag = f"(recursive={msg.recursive})"
-        self._console.print(
-            f"\n[bold white on blue] DIRECTORY LISTING [/bold white on blue] "
-            f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
+        header_left = (
+            f"[{c.file_header_style}] DIRECTORY LISTING [/{c.file_header_style}]"
         )
+        header_middle = f"📂 [{c.file_path_style}]{msg.directory}[/{c.file_path_style}]"
+        header_right = f"[{c.muted_style}]{rec_flag}[/{c.muted_style}]\n"
+        self._console.print(f"\n{header_left} {header_middle} {header_right}")
 
         # Directory header
         dir_name = msg.directory.rstrip("/").split("/")[-1] or msg.directory
-        self._console.print(f"📁 [bold blue]{dir_name}[/bold blue]")
+        self._console.print(
+            f"📁 [{c.panel_border_style}]{dir_name}[/{c.panel_border_style}]"
+        )
 
         # Build tree structure from flat list
         for entry in msg.files:
@@ -344,58 +377,64 @@ class RichConsoleRenderer:
                     prefix += "    "
 
             if entry.type == "dir":
-                self._console.print(f"{prefix}📁 [bold blue]{entry.path}/[/bold blue]")
+                self._console.print(
+                    f"{prefix}📁 [{c.panel_border_style}]{entry.path}/[/{c.panel_border_style}]"
+                )
             else:
                 icon = self._get_file_icon(entry.path)
                 if entry.size > 0:
-                    size_str = f" [dim]({self._format_size(entry.size)})[/dim]"
+                    size_str = f" [{c.muted_style}]({self._format_size(entry.size)})[/{c.muted_style}]"
                 else:
                     size_str = ""
                 self._console.print(
-                    f"{prefix}{icon} [green]{entry.path}[/green]{size_str}"
+                    f"{prefix}{icon} [{c.success_style}]{entry.path}[/{c.success_style}]{size_str}"
                 )
 
         # Summary
-        self._console.print("\n[bold cyan]Summary:[/bold cyan]")
-        self._console.print(
-            f"📁 [blue]{msg.dir_count} directories[/blue], "
-            f"📄 [green]{msg.file_count} files[/green] "
-            f"[dim]({self._format_size(msg.total_size)} total)[/dim]"
-        )
+        summary_header = f"[{c.accent_style}]Summary:[/{c.accent_style}]"
+        self._console.print(f"\n{summary_header}")
+        dir_info = f"📁 [{c.panel_border_style}]{msg.dir_count} directories[/{c.panel_border_style}]"
+        file_info = f"📄 [{c.success_style}]{msg.file_count} files[/{c.success_style}]"
+        size_info = f"[{c.muted_style}]({self._format_size(msg.total_size)} total)[/{c.muted_style}]"
+        self._console.print(f"{dir_info}, {file_info} {size_info}")
 
     def _render_file_content(self, msg: FileContentMessage) -> None:
         """Render a file read - just show the header, not the content.
 
         The file content is for the LLM only, not for display in the UI.
         """
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         # Build line info
         line_info = ""
         if msg.start_line is not None and msg.num_lines is not None:
             end_line = msg.start_line + msg.num_lines - 1
-            line_info = f" [dim](lines {msg.start_line}-{end_line})[/dim]"
+            line_info = f" [{c.muted_style}](lines {msg.start_line}-{end_line})[/{c.muted_style}]"
 
         # Just print the header - content is for LLM only
-        self._console.print(
-            f"\n[bold white on blue] READ FILE [/bold white on blue] "
-            f"📂 [bold cyan]{msg.path}[/bold cyan]{line_info}"
-        )
+        header_start = f"[{c.file_header_style}] READ FILE [/{c.file_header_style}]"
+        file_path = f"📂 [{c.file_path_style}]{msg.path}[/{c.file_path_style}]"
+        self._console.print(f"\n{header_start} {file_path}{line_info}")
 
     def _render_grep_result(self, msg: GrepResultMessage) -> None:
         """Render grep results grouped by file matching old format."""
         import re
 
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         # Header matching old format
-        self._console.print(
-            f"\n[bold white on blue] GREP [/bold white on blue] "
-            f"📂 [bold cyan]{msg.directory}[/bold cyan] "
-            f"[dim]for '{msg.search_term}'[/dim]"
-        )
+        header_start = f"[{c.grep_header_style}] GREP [/{c.grep_header_style}]"
+        dir_path = f"📂 [{c.file_path_style}]{msg.directory}[/{c.file_path_style}]"
+        search_text = f"[{c.muted_style}]for '{msg.search_term}'[/{c.muted_style}]"
+        self._console.print(f"\n{header_start} {dir_path} {search_text}")
 
         if not msg.matches:
-            self._console.print(
-                f"[yellow]⚠ No matches found for '{msg.search_term}' "
-                f"in {msg.directory}[/yellow]"
-            )
+            warning_text = f"[{c.warning_style}]⚠ No matches found for '{msg.search_term}' in {msg.directory}[/{c.warning_style}]"
+            self._console.print(warning_text)
             return
 
         # Group by file
@@ -409,10 +448,9 @@ class RichConsoleRenderer:
             for file_path in sorted(by_file.keys()):
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
-                self._console.print(
-                    f"\n[bold white]📄 {file_path}[/bold white] "
-                    f"[dim]({len(file_matches)} {match_word})[/dim]"
-                )
+                file_header = f"[{c.command_style}]📄 {file_path}[/{c.command_style}]"
+                match_count = f"[{c.muted_style}]({len(file_matches)} {match_word})[/{c.muted_style}]"
+                self._console.print(f"\n{file_header} {match_count}")
 
                 # Show each match with line number and content
                 for match in file_matches:
@@ -423,11 +461,14 @@ class RichConsoleRenderer:
                         parts = msg.search_term.split()
                         search_term = parts[0] if parts else msg.search_term
 
-                    # Case-insensitive highlighting
+                    # Case-insensitive highlighting with theme highlight style
                     if search_term and not search_term.startswith("-"):
+                        tag_start = f"[{c.highlight_style}]"
+                        tag_end = f"[/{c.highlight_style}]"
+                        pattern = f"{tag_start}({re.escape(search_term)}){tag_end}"
                         highlighted_line = re.sub(
-                            f"({re.escape(search_term)})",
-                            r"[bold yellow on black]\1[/bold yellow on black]",
+                            pattern,
+                            r"\1",
                             line,
                             flags=re.IGNORECASE,
                         )
@@ -435,27 +476,26 @@ class RichConsoleRenderer:
                         highlighted_line = line
 
                     ln = match.line_number
-                    self._console.print(
-                        f"  [bold cyan]{ln:4d}[/bold cyan] │ {highlighted_line}"
+                    line_num_style = (
+                        f"[{c.line_number_style}]{ln:4d}[/{c.line_number_style}]"
                     )
+                    self._console.print(f"  {line_num_style} │ {highlighted_line}")
         else:
             # Concise mode (default): Show only file summaries
             self._console.print("")
             for file_path in sorted(by_file.keys()):
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
-                self._console.print(
-                    f"[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
-                )
+                file_info = f"[{c.muted_style}]📄 {file_path} ({len(file_matches)} {match_word})[/{c.muted_style}]"
+                self._console.print(file_info)
 
         # Summary
         match_word = "match" if msg.total_matches == 1 else "matches"
         file_word = "file" if len(by_file) == 1 else "files"
         num_files = len(by_file)
-        self._console.print(
-            f"[green]✓ Found [bold]{msg.total_matches}[/bold] {match_word} "
-            f"across [bold]{num_files}[/bold] {file_word}[/green]"
-        )
+        total_style = f"[{c.success_style}]✓ Found [{c.highlight_style}]{msg.total_matches}[/{c.highlight_style}] {match_word}"
+        across_text = f"across [{c.highlight_style}]{num_files}[/{c.highlight_style}] {file_word}[/{c.success_style}]"
+        self._console.print(f"{total_style} {across_text}")
 
     # =========================================================================
     # Diff
@@ -506,21 +546,28 @@ class RichConsoleRenderer:
 
     def _render_shell_start(self, msg: ShellStartMessage) -> None:
         """Render shell command start notification."""
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         # Escape command to prevent Rich markup injection
         safe_command = escape_rich_markup(msg.command)
         # Header showing command is starting
-        self._console.print(
-            f"\n[bold white on blue] SHELL COMMAND [/bold white on blue] "
-            f"🚀 [bold green]$ {safe_command}[/bold green]"
-        )
+        header = f"[{c.shell_header_style}] SHELL COMMAND [/{c.shell_header_style}]"
+        cmd = f"🚀 [{c.command_style}]$ {safe_command}[/{c.command_style}]"
+        self._console.print(f"\n{header} {cmd}")
 
         # Show working directory if specified
         if msg.cwd:
             safe_cwd = escape_rich_markup(msg.cwd)
-            self._console.print(f"[dim]📂 Working directory: {safe_cwd}[/dim]")
+            cwd_text = (
+                f"[{c.muted_style}]📂 Working directory: {safe_cwd}[/{c.muted_style}]"
+            )
+            self._console.print(cwd_text)
 
         # Show timeout
-        self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
+        timeout_text = f"[{c.muted_style}]⏱ Timeout: {msg.timeout}s[/{c.muted_style}]"
+        self._console.print(timeout_text)
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
         """Render shell output line preserving ANSI codes."""
@@ -551,29 +598,39 @@ class RichConsoleRenderer:
 
     def _render_agent_reasoning(self, msg: AgentReasoningMessage) -> None:
         """Render agent reasoning matching old format."""
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         # Header matching old format
-        self._console.print(
-            "\n[bold white on purple] AGENT REASONING [/bold white on purple]"
-        )
+        header = f"[{c.reasoning_header_style}] AGENT REASONING [/{c.reasoning_header_style}]"
+        self._console.print(f"\n{header}")
 
         # Current reasoning
-        self._console.print("[bold cyan]Current reasoning:[/bold cyan]")
+        reasoning_header = f"[{c.accent_style}]Current reasoning:[/{c.accent_style}]"
+        self._console.print(reasoning_header)
         # Render reasoning as markdown
         md = Markdown(msg.reasoning)
         self._console.print(md)
 
         # Next steps (if any)
         if msg.next_steps and msg.next_steps.strip():
-            self._console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
+            steps_header = f"\n[{c.accent_style}]Planned next steps:[/{c.accent_style}]"
+            self._console.print(steps_header)
             md_steps = Markdown(msg.next_steps)
             self._console.print(md_steps)
 
     def _render_agent_response(self, msg: AgentResponseMessage) -> None:
         """Render agent response with header and markdown formatting."""
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         # Header
-        self._console.print(
-            "\n[bold white on purple] AGENT RESPONSE [/bold white on purple]\n"
+        header = (
+            f"[{c.response_header_style}] AGENT RESPONSE [/{c.response_header_style}]\n"
         )
+        self._console.print(f"\n{header}")
 
         # Content (markdown or plain)
         if msg.is_markdown:
@@ -584,46 +641,54 @@ class RichConsoleRenderer:
 
     def _render_subagent_invocation(self, msg: SubAgentInvocationMessage) -> None:
         """Render sub-agent invocation header with nice formatting."""
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         # Header with agent name and session
         session_type = (
             "New session"
             if msg.is_new_session
             else f"Continuing ({msg.message_count} messages)"
         )
-        self._console.print(
-            f"\n[bold white on purple] 🤖 INVOKE AGENT [/bold white on purple] "
-            f"[bold cyan]{msg.agent_name}[/bold cyan] "
-            f"[dim]({session_type})[/dim]"
+        header_start = (
+            f"[{c.subagent_header_style}] 🤖 INVOKE AGENT [/{c.subagent_header_style}]"
         )
+        agent_name = f"[{c.accent_style}]{msg.agent_name}[/{c.accent_style}]"
+        session_info = f"[{c.muted_style}]({session_type})[/{c.muted_style}]"
+        self._console.print(f"\n{header_start} {agent_name} {session_info}")
 
         # Session ID
-        self._console.print(f"[dim]Session:[/dim] [bold]{msg.session_id}[/bold]")
+        session_text = f"[{c.muted_style}]Session:[/{c.muted_style}] [{c.highlight_style}]{msg.session_id}[/{c.highlight_style}]"
+        self._console.print(session_text)
 
         # Prompt (truncated if too long, rendered as markdown)
         prompt_display = (
             msg.prompt[:200] + "..." if len(msg.prompt) > 200 else msg.prompt
         )
-        self._console.print("[dim]Prompt:[/dim]")
+        prompt_header = f"[{c.muted_style}]Prompt:[/{c.muted_style}]"
+        self._console.print(prompt_header)
         md_prompt = Markdown(prompt_display)
         self._console.print(md_prompt)
 
     def _render_subagent_response(self, msg: SubAgentResponseMessage) -> None:
         """Render sub-agent response with markdown formatting."""
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         # Response header
-        self._console.print(
-            f"\n[bold white on green] ✓ AGENT RESPONSE [/bold white on green] "
-            f"[bold cyan]{msg.agent_name}[/bold cyan]"
-        )
+        header_start = f"[{c.subagent_response_header_style}] ✓ AGENT RESPONSE [/{c.subagent_response_header_style}]"
+        agent_name = f"[{c.accent_style}]{msg.agent_name}[/{c.accent_style}]"
+        self._console.print(f"\n{header_start} {agent_name}")
 
         # Render response as markdown
         md = Markdown(msg.response)
         self._console.print(md)
 
         # Footer with session info
-        self._console.print(
-            f"\n[dim]Session [bold]{msg.session_id}[/bold] saved "
-            f"({msg.message_count} messages)[/dim]"
-        )
+        session_text = f"[{c.muted_style}]Session [{c.highlight_style}]{msg.session_id}[/{c.highlight_style}] saved ({msg.message_count} messages)[/{c.muted_style}]"
+        self._console.print(f"\n{session_text}")
 
     # =========================================================================
     # User Interaction
@@ -736,11 +801,16 @@ class RichConsoleRenderer:
         """Handle spinner control messages."""
         # Note: Rich's spinner/status is typically used as a context manager.
         # For full spinner support, we'd need a more complex implementation.
-        # For now, we just print the status text.
+        # For now, we just print the status text with theme colors.
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         if msg.action == "start" and msg.text:
-            self._console.print(f"[dim]⠋ {msg.text}[/dim]")
+            spinner_text = f"[{c.muted_style}]⠋ {msg.text}[/{c.muted_style}]"
+            self._console.print(spinner_text)
         elif msg.action == "update" and msg.text:
-            self._console.print(f"[dim]⠋ {msg.text}[/dim]")
+            spinner_text = f"[{c.muted_style}]⠋ {msg.text}[/{c.muted_style}]"
+            self._console.print(spinner_text)
         elif msg.action == "stop":
             pass  # Spinner stopped
 
@@ -757,14 +827,19 @@ class RichConsoleRenderer:
 
     def _render_status_panel(self, msg: StatusPanelMessage) -> None:
         """Render a status panel with key-value fields."""
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+        c = theme.colors  # Shorthand
+
         table = Table(show_header=False, box=None, padding=(0, 1))
-        table.add_column("Key", style="bold cyan")
+        table.add_column("Key", style=c.panel_title_style)
         table.add_column("Value")
 
         for key, value in msg.fields.items():
             table.add_row(key, value)
 
-        panel = Panel(table, title=f"[bold]{msg.title}[/bold]", border_style="blue")
+        title_text = f"[{c.panel_title_style}]{msg.title}[/{c.panel_title_style}]"
+        panel = Panel(table, title=title_text, border_style=c.panel_border_style)
         self._console.print(panel)
 
     def _render_version_check(self, msg: VersionCheckMessage) -> None:

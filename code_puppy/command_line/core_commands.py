@@ -9,9 +9,16 @@ import os
 from code_puppy.command_line.command_registry import register_command
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
+from code_puppy.command_line.theme_menu import run_theme_menu
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
-from code_puppy.messaging import emit_error, emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_success
+from code_puppy.theming import (
+    get_available_themes,
+    get_current_theme,
+    get_theme_by_name,
+    set_current_theme,
+)
 from code_puppy.tools.tools_content import tools_content
 
 
@@ -671,6 +678,132 @@ def handle_model_settings_command(command: str) -> bool:
         return False
     finally:
         set_awaiting_user_input(False)
+
+
+@register_command(
+    name="theme",
+    description="Manage and select Code Puppy themes",
+    usage="/theme [list|set|current|reset]",
+    category="core",
+)
+def handle_theme_command(command: str) -> bool:
+    """Handle theme management commands.
+
+    Usage:
+        /theme           - Open interactive theme picker TUI
+        /theme list      - List all available themes
+        /theme set <name> - Set theme by name directly
+        /theme current   - Show current theme
+        /theme reset     - Reset to default theme
+    """
+    import shlex
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+
+    # No arguments - open interactive theme picker
+    if len(tokens) == 1:
+        try:
+            result = run_theme_menu()
+            if result:
+                if result == "custom":
+                    # Custom theme selected - need to create/edit it
+                    emit_info(
+                        "Custom theme editor coming soon! For now, use /theme set <name>"
+                    )
+                else:
+                    theme = get_theme_by_name(result)
+                    if theme:
+                        emit_success(f"Theme changed to: {theme.display_name}")
+                    else:
+                        emit_error(f"Theme '{result}' not found")
+            return True
+        except KeyboardInterrupt:
+            # User cancelled - expected behavior
+            return True
+        except Exception as e:
+            emit_error(f"Failed to launch theme picker: {e}")
+            return False
+
+    # Subcommands
+    subcommand = tokens[1] if len(tokens) > 1 else None
+
+    if subcommand == "list":
+        # List all available themes
+        available_themes = get_available_themes()
+        list_lines = ["Available themes:"]
+
+        for theme_name in sorted(available_themes):
+            theme = get_theme_by_name(theme_name)
+            if theme is None:
+                continue  # Skip invalid themes
+            current_theme = get_current_theme()
+            current_marker = " ← current" if theme_name == current_theme.name else ""
+            list_lines.append(
+                f"  {theme_name:20} - {theme.display_name}{current_marker}"
+            )
+
+        emit_info("\n".join(list_lines))
+        return True
+
+    elif subcommand == "set":
+        # Set theme by name
+        if len(tokens) < 3:
+            emit_error("Usage: /theme set <theme_name>")
+            return True
+
+        theme_name = tokens[2]
+        available_themes = get_available_themes()
+
+        if theme_name not in available_themes:
+            emit_error(f"Unknown theme: {theme_name}")
+            emit_info(f"Available themes: {', '.join(available_themes)}")
+            return True
+
+        if set_current_theme(theme_name):
+            theme = get_theme_by_name(theme_name)
+            emit_success(f"✓ Theme changed to: {theme.display_name}")
+            return True
+        else:
+            emit_error(f"Failed to set theme: {theme_name}")
+            return False
+
+    elif subcommand == "current":
+        # Show current theme
+        theme = get_current_theme()
+        lines = [f"Current theme: {theme.display_name}"]
+        lines.append(f"  Description: {theme.description}")
+        lines.append("  Colors:")
+        lines.append(f"    Error: {theme.colors.error_style}")
+        lines.append(f"    Warning: {theme.colors.warning_style}")
+        lines.append(f"    Success: {theme.colors.success_style}")
+        lines.append(f"    Info: {theme.colors.info_style}")
+        lines.append(f"    Debug: {theme.colors.debug_style}")
+        lines.append(f"    Spinner: {theme.colors.spinner_style}")
+
+        emit_info("\n".join(lines))
+        return True
+
+    elif subcommand == "reset":
+        # Reset to default theme
+        if set_current_theme("default"):
+            theme = get_current_theme()
+            emit_success(f"✓ Theme reset to {theme.display_name}")
+            return True
+        else:
+            emit_error("Failed to reset theme")
+            return False
+
+    else:
+        emit_error("Unknown subcommand. Usage: /theme [list|set|current|reset]")
+        emit_info("  /theme           - Open interactive theme picker")
+        emit_info("  /theme list      - List all available themes")
+        emit_info("  /theme set <name> - Set theme by name")
+        emit_info("  /theme current   - Show current theme")
+        emit_info("  /theme reset     - Reset to default theme")
+        return True
 
 
 @register_command(

@@ -14,6 +14,8 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape as escape_rich_markup
 
+from code_puppy.theming import get_current_theme
+
 from .message_queue import MessageQueue, MessageType, UIMessage
 
 
@@ -89,26 +91,29 @@ class InteractiveRenderer(MessageRenderer):
             await self._handle_human_input_request(message)
             return
 
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+
         # Convert message type to appropriate Rich styling
         if message.type == MessageType.ERROR:
-            style = "bold red"
+            style = theme.colors.error_style
         elif message.type == MessageType.WARNING:
-            style = "yellow"
+            style = theme.colors.warning_style
         elif message.type == MessageType.SUCCESS:
-            style = "green"
+            style = theme.colors.success_style
         elif message.type == MessageType.TOOL_OUTPUT:
-            style = "blue"
+            style = theme.colors.info_style  # Use info style for tool output
         elif message.type == MessageType.AGENT_REASONING:
-            style = None
+            style = theme.colors.reasoning_header_style
         elif message.type == MessageType.PLANNED_NEXT_STEPS:
-            style = None
+            style = theme.colors.accent_style
         elif message.type == MessageType.AGENT_RESPONSE:
             # Special handling for agent responses - they'll be rendered as markdown
-            style = None
+            style = theme.colors.response_header_style
         elif message.type == MessageType.SYSTEM:
-            style = "dim"
+            style = theme.colors.debug_style
         else:
-            style = None
+            style = theme.colors.info_style
 
         # Make version messages dim regardless of message type
         if isinstance(message.content, str):
@@ -116,7 +121,7 @@ class InteractiveRenderer(MessageRenderer):
                 "Current version:" in message.content
                 or "Latest version:" in message.content
             ):
-                style = "dim"
+                style = theme.colors.debug_style
 
         # Render the content
         if isinstance(message.content, str):
@@ -223,24 +228,27 @@ class SynchronousInteractiveRenderer:
             self._handle_human_input_request(message)
             return
 
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+
         # Convert message type to appropriate Rich styling
         if message.type == MessageType.ERROR:
-            style = "bold red"
+            style = theme.colors.error_style
         elif message.type == MessageType.WARNING:
-            style = "yellow"
+            style = theme.colors.warning_style
         elif message.type == MessageType.SUCCESS:
-            style = "green"
+            style = theme.colors.success_style
         elif message.type == MessageType.TOOL_OUTPUT:
-            style = "blue"
+            style = theme.colors.info_style  # Use info style for tool output
         elif message.type == MessageType.AGENT_REASONING:
-            style = None
+            style = theme.colors.reasoning_header_style
         elif message.type == MessageType.AGENT_RESPONSE:
             # Special handling for agent responses - they'll be rendered as markdown
-            style = None
+            style = theme.colors.response_header_style
         elif message.type == MessageType.SYSTEM:
-            style = "dim"
+            style = theme.colors.debug_style
         else:
-            style = None
+            style = theme.colors.info_style
 
         # Make version messages dim regardless of message type
         if isinstance(message.content, str):
@@ -248,7 +256,7 @@ class SynchronousInteractiveRenderer:
                 "Current version:" in message.content
                 or "Latest version:" in message.content
             ):
-                style = "dim"
+                style = theme.colors.debug_style
 
         # Render the content
         if isinstance(message.content, str):

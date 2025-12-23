@@ -13,6 +13,8 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
+from code_puppy.theming import get_current_theme
+
 from .message_queue import MessageQueue, MessageType, get_global_queue
 
 
@@ -229,7 +231,9 @@ class QueueConsole:
 
         # Clear any spinner artifacts and position cursor properly
         if prompt:
-            input_console.print(prompt, end="", style="bold cyan")
+            # Use theme colors for the input prompt
+            theme = get_current_theme()
+            input_console.print(prompt, end="", style=theme.colors.prompt_style)
 
         # Use regular input() which will read from stdin
         # Since we printed the prompt to stderr, this should work cleanly

@@ -10,6 +10,8 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
+from code_puppy.theming import get_current_theme
+
 from .spinner_base import SpinnerBase
 
 
@@ -120,16 +122,19 @@ class ConsoleSpinner(SpinnerBase):
         if self._paused or is_awaiting_user_input():
             return Text("")
 
+        # Get fresh theme for live updates
+        theme = get_current_theme()
+
         text = Text()
 
-        # Show thinking message during normal processing
-        text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
-        text.append(self.current_frame, style="bold cyan")
+        # Show thinking message during normal processing with theme colors
+        text.append(SpinnerBase.THINKING_MESSAGE, style=theme.colors.spinner_text_style)
+        text.append(self.current_frame, style=theme.colors.spinner_style)
 
         context_info = SpinnerBase.get_context_info()
         if context_info:
             text.append(" ")
-            text.append(context_info, style="bold white")
+            text.append(context_info, style=theme.colors.command_style)
 
         # Return a simple Text object instead of a Panel for a cleaner look
         return text
