@@ -301,6 +301,7 @@ class TestGetConfigKeys:
                 "openai_verbosity",
                 "protected_token_count",
                 "temperature",
+                "theme",
                 "yolo_mode",
             ]
         )
@@ -333,6 +334,7 @@ class TestGetConfigKeys:
                 "openai_verbosity",
                 "protected_token_count",
                 "temperature",
+                "theme",
                 "yolo_mode",
             ]
         )
@@ -858,3 +860,39 @@ class TestModelSupportsSetting:
         """Should default to True for unknown models."""
         mock_load_config.return_value = {}
         assert cp_config.model_supports_setting("unknown-model", "temperature") is True
+
+
+class TestThemeConfig:
+    """Tests for theme configuration functions."""
+
+    @patch("code_puppy.config.get_value")
+    def test_get_theme_returns_value_when_set(self, mock_get_value):
+        """Should return the theme name when it's set in config."""
+        mock_get_value.return_value = "midnight"
+        assert cp_config.get_theme() == "midnight"
+        mock_get_value.assert_called_once_with("theme")
+
+    @patch("code_puppy.config.get_value")
+    def test_get_theme_returns_none_when_not_set(self, mock_get_value):
+        """Should return None when theme is not set in config."""
+        mock_get_value.return_value = None
+        assert cp_config.get_theme() is None
+        mock_get_value.assert_called_once_with("theme")
+
+    @patch("code_puppy.config.set_config_value")
+    def test_set_theme_saves_to_config(self, mock_set_config_value):
+        """Should save the theme name to config."""
+        cp_config.set_theme("ocean")
+        mock_set_config_value.assert_called_once_with("theme", "ocean")
+
+    @patch("code_puppy.config.set_config_value")
+    def test_set_theme_with_default(self, mock_set_config_value):
+        """Should save 'default' theme name to config."""
+        cp_config.set_theme("default")
+        mock_set_config_value.assert_called_once_with("theme", "default")
+
+    @patch("code_puppy.config.set_config_value")
+    def test_set_theme_with_custom_name(self, mock_set_config_value):
+        """Should save custom theme name to config."""
+        cp_config.set_theme("my_custom_theme")
+        mock_set_config_value.assert_called_once_with("theme", "my_custom_theme")

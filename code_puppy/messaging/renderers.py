@@ -14,6 +14,8 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape as escape_rich_markup
 
+from code_puppy.themes import Theme, get_theme_manager
+
 from .message_queue import MessageQueue, MessageType, UIMessage
 
 
@@ -81,6 +83,7 @@ class InteractiveRenderer(MessageRenderer):
     def __init__(self, queue: MessageQueue, console: Optional[Console] = None):
         super().__init__(queue)
         self.console = console or Console()
+        self._cached_theme: Optional[Theme] = None
 
     async def render_message(self, message: UIMessage):
         """Render a message using Rich console."""
@@ -89,24 +92,31 @@ class InteractiveRenderer(MessageRenderer):
             await self._handle_human_input_request(message)
             return
 
-        # Convert message type to appropriate Rich styling
+        # Get current theme for color mapping
+        theme = self._get_theme()
+
+        # Convert message type to appropriate Rich styling using theme colors
         if message.type == MessageType.ERROR:
-            style = "bold red"
+            style = theme.error_color
         elif message.type == MessageType.WARNING:
-            style = "yellow"
+            style = theme.warning_color
         elif message.type == MessageType.SUCCESS:
-            style = "green"
+            style = theme.success_color
+        elif message.type == MessageType.INFO:
+            style = theme.info_color
         elif message.type == MessageType.TOOL_OUTPUT:
-            style = "blue"
+            style = theme.tool_output_color
         elif message.type == MessageType.AGENT_REASONING:
-            style = None
+            style = theme.agent_reasoning_color
         elif message.type == MessageType.PLANNED_NEXT_STEPS:
             style = None
         elif message.type == MessageType.AGENT_RESPONSE:
             # Special handling for agent responses - they'll be rendered as markdown
             style = None
         elif message.type == MessageType.SYSTEM:
-            style = "dim"
+            style = theme.system_color
+        elif message.type == MessageType.DEBUG:
+            style = theme.debug_color
         else:
             style = None
 
@@ -155,6 +165,26 @@ class InteractiveRenderer(MessageRenderer):
         if hasattr(self.console.file, "flush"):
             self.console.file.flush()
 
+    def _get_theme(self) -> Theme:
+        """Get the current theme with caching.
+
+        Returns:
+            The current Theme instance (defaults to fallback if loading fails)
+        """
+        if self._cached_theme is not None:
+            return self._cached_theme
+
+        try:
+            manager = get_theme_manager()
+            self._cached_theme = manager.get_current_theme()
+        except Exception:
+            # Fallback to default colors if theme loading fails
+            from code_puppy.themes import DEFAULT_THEME
+
+            self._cached_theme = DEFAULT_THEME
+
+        return self._cached_theme
+
 
 class SynchronousInteractiveRenderer:
     """
@@ -180,6 +210,7 @@ class SynchronousInteractiveRenderer:
         self.console = console or Console()
         self._running = False
         self._thread = None
+        self._cached_theme: Optional[Theme] = None
 
     def start(self):
         """Start the synchronous renderer in a background thread."""
@@ -216,6 +247,26 @@ class SynchronousInteractiveRenderer:
 
                 time.sleep(0.01)
 
+    def _get_theme(self) -> Theme:
+        """Get the current theme with caching.
+
+        Returns:
+            The current Theme instance (defaults to fallback if loading fails)
+        """
+        if self._cached_theme is not None:
+            return self._cached_theme
+
+        try:
+            manager = get_theme_manager()
+            self._cached_theme = manager.get_current_theme()
+        except Exception:
+            # Fallback to default colors if theme loading fails
+            from code_puppy.themes import DEFAULT_THEME
+
+            self._cached_theme = DEFAULT_THEME
+
+        return self._cached_theme
+
     def _render_message(self, message: UIMessage):
         """Render a message using Rich console."""
         # Handle human input requests
@@ -223,22 +274,29 @@ class SynchronousInteractiveRenderer:
             self._handle_human_input_request(message)
             return
 
-        # Convert message type to appropriate Rich styling
+        # Get current theme for color mapping
+        theme = self._get_theme()
+
+        # Convert message type to appropriate Rich styling using theme colors
         if message.type == MessageType.ERROR:
-            style = "bold red"
+            style = theme.error_color
         elif message.type == MessageType.WARNING:
-            style = "yellow"
+            style = theme.warning_color
         elif message.type == MessageType.SUCCESS:
-            style = "green"
+            style = theme.success_color
+        elif message.type == MessageType.INFO:
+            style = theme.info_color
         elif message.type == MessageType.TOOL_OUTPUT:
-            style = "blue"
+            style = theme.tool_output_color
         elif message.type == MessageType.AGENT_REASONING:
-            style = None
+            style = theme.agent_reasoning_color
         elif message.type == MessageType.AGENT_RESPONSE:
             # Special handling for agent responses - they'll be rendered as markdown
             style = None
         elif message.type == MessageType.SYSTEM:
-            style = "dim"
+            style = theme.system_color
+        elif message.type == MessageType.DEBUG:
+            style = theme.debug_color
         else:
             style = None
 

@@ -48,6 +48,21 @@ plugins.load_plugin_callbacks()
 
 
 async def main():
+    # Set up signal handlers for graceful Ctrl+C handling on Windows
+    if platform.system() == "Windows":
+        import signal
+        
+        def windows_ctrl_c_handler(signum, frame):
+            """Handle Ctrl+C on Windows by raising KeyboardInterrupt."""
+            raise KeyboardInterrupt()
+        
+        try:
+            # Set up signal handler for SIGINT (Ctrl+C)
+            signal.signal(signal.SIGINT, windows_ctrl_c_handler)
+        except (ValueError, AttributeError):
+            # Signal handling might not be available in all contexts
+            pass
+    
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
         "--version",
@@ -416,191 +431,20 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     current_agent_task = None
 
     while True:
-        from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.messaging import emit_info
-
-        # Get the custom prompt from the current agent, or use default
-        current_agent = get_current_agent()
-        user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
-
-        emit_info(f"{user_prompt}\n")
-
         try:
-            # Use prompt_toolkit for enhanced input with path completion
+            from code_puppy.agents.agent_manager import get_current_agent
+            from code_puppy.messaging import emit_info
+
+            # Get the custom prompt from the current agent, or use default
+            current_agent = get_current_agent()
+            user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
+
+            emit_info(f"{user_prompt}\n")
+
             try:
-                # Windows-specific: Reset terminal state before prompting
-                if platform.system() == "Windows":
-                    try:
-                        sys.stdout.write("\x1b[0m")  # Reset ANSI formatting
-                        sys.stdout.flush()
-                    except Exception:
-                        pass
-
-                # Use the async version of get_input_with_combined_completion
-                task = await get_input_with_combined_completion(
-                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
-                )
-            except ImportError:
-                # Fall back to basic input if prompt_toolkit is not available
-                task = input(">>> ")
-
-        except (KeyboardInterrupt, EOFError):
-            # Handle Ctrl+C or Ctrl+D
-            from code_puppy.messaging import emit_warning
-
-            emit_warning("\nInput cancelled")
-            continue
-
-        # Check for exit commands (plain text or command form)
-        if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
-            "/exit",
-            "/quit",
-        ]:
-            import asyncio
-
-            from code_puppy.messaging import emit_success
-
-            emit_success("Goodbye!")
-
-            # Cancel any running agent task for clean shutdown
-            if current_agent_task and not current_agent_task.done():
-                emit_info("Cancelling running agent task...")
-                current_agent_task.cancel()
+                # Use prompt_toolkit for enhanced input with path completion
                 try:
-                    await current_agent_task
-                except asyncio.CancelledError:
-                    pass  # Expected when cancelling
-
-            # The renderer is stopped in the finally block of main().
-            break
-
-        # Check for clear command (supports both `clear` and `/clear`)
-        if task.strip().lower() in ("clear", "/clear"):
-            from code_puppy.messaging import (
-                emit_info,
-                emit_system_message,
-                emit_warning,
-            )
-
-            agent = get_current_agent()
-            new_session_id = finalize_autosave_session()
-            agent.clear_message_history()
-            emit_warning("Conversation history cleared!")
-            emit_system_message("The agent will not remember previous interactions.")
-            emit_info(f"Auto-save session rotated to: {new_session_id}")
-            continue
-
-        # Parse attachments first so leading paths aren't misread as commands
-        processed_for_commands = parse_prompt_attachments(task)
-        cleaned_for_commands = (processed_for_commands.prompt or "").strip()
-
-        # Handle / commands based on cleaned prompt (after stripping attachments)
-        if cleaned_for_commands.startswith("/"):
-            try:
-                command_result = handle_command(cleaned_for_commands)
-            except Exception as e:
-                from code_puppy.messaging import emit_error
-
-                emit_error(f"Command error: {e}")
-                # Continue interactive loop instead of exiting
-                continue
-            if command_result is True:
-                continue
-            elif isinstance(command_result, str):
-                if command_result == "__AUTOSAVE_LOAD__":
-                    # Handle async autosave loading
-                    try:
-                        # Check if we're in a real interactive terminal
-                        # (not pexpect/tests) - interactive picker requires proper TTY
-                        use_interactive_picker = (
-                            sys.stdin.isatty() and sys.stdout.isatty()
-                        )
-
-                        # Allow environment variable override for tests
-                        if os.getenv("CODE_PUPPY_NO_TUI") == "1":
-                            use_interactive_picker = False
-
-                        if use_interactive_picker:
-                            # Use interactive picker for terminal sessions
-                            from code_puppy.agents.agent_manager import (
-                                get_current_agent,
-                            )
-                            from code_puppy.command_line.autosave_menu import (
-                                interactive_autosave_picker,
-                            )
-                            from code_puppy.config import (
-                                set_current_autosave_from_session_name,
-                            )
-                            from code_puppy.messaging import (
-                                emit_error,
-                                emit_success,
-                                emit_warning,
-                            )
-                            from code_puppy.session_storage import (
-                                load_session,
-                                restore_autosave_interactively,
-                            )
-
-                            chosen_session = await interactive_autosave_picker()
-
-                            if not chosen_session:
-                                emit_warning("Autosave load cancelled")
-                                continue
-
-                            # Load the session
-                            base_dir = Path(AUTOSAVE_DIR)
-                            history = load_session(chosen_session, base_dir)
-
-                            agent = get_current_agent()
-                            agent.set_message_history(history)
-
-                            # Set current autosave session
-                            set_current_autosave_from_session_name(chosen_session)
-
-                            total_tokens = sum(
-                                agent.estimate_tokens_for_message(msg)
-                                for msg in history
-                            )
-                            session_path = base_dir / f"{chosen_session}.pkl"
-
-                            emit_success(
-                                f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
-                                f"📁 From: {session_path}"
-                            )
-                        else:
-                            # Fall back to old text-based picker for tests/non-TTY environments
-                            await restore_autosave_interactively(Path(AUTOSAVE_DIR))
-
-                    except Exception as e:
-                        from code_puppy.messaging import emit_error
-
-                        emit_error(f"Failed to load autosave: {e}")
-                    continue
-                else:
-                    # Command returned a prompt to execute
-                    task = command_result
-            elif command_result is False:
-                # Command not recognized, continue with normal processing
-                pass
-
-        if task.strip():
-            # Write to the secret file for permanent history with timestamp
-            save_command_to_history(task)
-
-            try:
-                prettier_code_blocks()
-
-                # No need to get agent directly - use manager's run methods
-
-                # Use our custom helper to enable attachment handling with spinner support
-                result, current_agent_task = await run_prompt_with_attachments(
-                    current_agent,
-                    task,
-                    spinner_console=message_renderer.console,
-                )
-                # Check if the task was cancelled (but don't show message if we just killed processes)
-                if result is None:
-                    # Windows-specific: Reset terminal state after cancellation
+                    # Windows-specific: Reset terminal state before prompting
                     if platform.system() == "Windows":
                         try:
                             sys.stdout.write("\x1b[0m")  # Reset ANSI formatting
@@ -609,45 +453,257 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             sys.stderr.flush()
                         except Exception:
                             pass
-                    continue
-                # Get the structured response
-                agent_response = result.output
 
-                # Emit structured message for proper markdown rendering
-                from code_puppy.messaging import get_message_bus
-                from code_puppy.messaging.messages import AgentResponseMessage
+                    # Use the async version of get_input_with_combined_completion
+                    task = await get_input_with_combined_completion(
+                        get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+                    )
+                except ImportError:
+                    # Fall back to basic input if prompt_toolkit is not available
+                    task = input(">>> ")
 
-                response_msg = AgentResponseMessage(
-                    content=agent_response,
-                    is_markdown=True,
+            except (KeyboardInterrupt, EOFError):
+                # Handle Ctrl+C or Ctrl+D
+                from code_puppy.messaging import emit_warning
+
+                # Windows-specific: Reset terminal state after Ctrl+C
+                if platform.system() == "Windows":
+                    try:
+                        # Clear any partial input and reset terminal
+                        sys.stdout.write("\r\n")
+                        sys.stdout.write("\x1b[0m")  # Reset ANSI formatting
+                        sys.stdout.flush()
+                        sys.stderr.write("\x1b[0m")
+                        sys.stderr.flush()
+                    except Exception:
+                        pass
+
+                emit_warning("\nInput cancelled")
+                continue
+
+            # Check for exit commands (plain text or command form)
+            if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
+                "/exit",
+                "/quit",
+            ]:
+                import asyncio
+
+                from code_puppy.messaging import emit_success
+
+                emit_success("Goodbye!")
+
+                # Cancel any running agent task for clean shutdown
+                if current_agent_task and not current_agent_task.done():
+                    emit_info("Cancelling running agent task...")
+                    current_agent_task.cancel()
+                    try:
+                        await current_agent_task
+                    except asyncio.CancelledError:
+                        pass  # Expected when cancelling
+
+                # The renderer is stopped in the finally block of main().
+                break
+
+            # Check for clear command (supports both `clear` and `/clear`)
+            if task.strip().lower() in ("clear", "/clear"):
+                from code_puppy.messaging import (
+                    emit_info,
+                    emit_system_message,
+                    emit_warning,
                 )
-                get_message_bus().emit(response_msg)
 
-                # Update the agent's message history with the complete conversation
-                # including the final assistant response. The history_processors callback
-                # may not capture the final message, so we use result.all_messages()
-                # to ensure the autosave includes the complete conversation.
-                if hasattr(result, "all_messages"):
-                    current_agent.set_message_history(list(result.all_messages()))
+                agent = get_current_agent()
+                new_session_id = finalize_autosave_session()
+                agent.clear_message_history()
+                emit_warning("Conversation history cleared!")
+                emit_system_message("The agent will not remember previous interactions.")
+                emit_info(f"Auto-save session rotated to: {new_session_id}")
+                continue
 
-                # Ensure console output is flushed before next prompt
-                # This fixes the issue where prompt doesn't appear after agent response
-                display_console.file.flush() if hasattr(
-                    display_console.file, "flush"
-                ) else None
-                import time
+            # Parse attachments first so leading paths aren't misread as commands
+            processed_for_commands = parse_prompt_attachments(task)
+            cleaned_for_commands = (processed_for_commands.prompt or "").strip()
 
-                time.sleep(0.1)  # Brief pause to ensure all messages are rendered
+            # Handle / commands based on cleaned prompt (after stripping attachments)
+            if cleaned_for_commands.startswith("/"):
+                try:
+                    command_result = handle_command(cleaned_for_commands)
+                except Exception as e:
+                    from code_puppy.messaging import emit_error
 
-            except Exception:
-                from code_puppy.messaging.queue_console import get_queue_console
+                    emit_error(f"Command error: {e}")
+                    # Continue interactive loop instead of exiting
+                    continue
+                if command_result is True:
+                    continue
+                elif isinstance(command_result, str):
+                    if command_result == "__AUTOSAVE_LOAD__":
+                        # Handle async autosave loading
+                        try:
+                            # Check if we're in a real interactive terminal
+                            # (not pexpect/tests) - interactive picker requires proper TTY
+                            use_interactive_picker = (
+                                sys.stdin.isatty() and sys.stdout.isatty()
+                            )
 
-                get_queue_console().print_exception()
+                            # Allow environment variable override for tests
+                            if os.getenv("CODE_PUPPY_NO_TUI") == "1":
+                                use_interactive_picker = False
 
-            # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
-            from code_puppy.config import auto_save_session_if_enabled
+                            if use_interactive_picker:
+                                # Use interactive picker for terminal sessions
+                                from code_puppy.agents.agent_manager import (
+                                    get_current_agent,
+                                )
+                                from code_puppy.command_line.autosave_menu import (
+                                    interactive_autosave_picker,
+                                )
+                                from code_puppy.config import (
+                                    set_current_autosave_from_session_name,
+                                )
+                                from code_puppy.messaging import (
+                                    emit_error,
+                                    emit_success,
+                                    emit_warning,
+                                )
+                                from code_puppy.session_storage import (
+                                    load_session,
+                                    restore_autosave_interactively,
+                                )
 
-            auto_save_session_if_enabled()
+                                chosen_session = await interactive_autosave_picker()
+
+                                if not chosen_session:
+                                    emit_warning("Autosave load cancelled")
+                                    continue
+
+                                # Load the session
+                                base_dir = Path(AUTOSAVE_DIR)
+                                history = load_session(chosen_session, base_dir)
+
+                                agent = get_current_agent()
+                                agent.set_message_history(history)
+
+                                # Set current autosave session
+                                set_current_autosave_from_session_name(chosen_session)
+
+                                total_tokens = sum(
+                                    agent.estimate_tokens_for_message(msg)
+                                    for msg in history
+                                )
+                                session_path = base_dir / f"{chosen_session}.pkl"
+
+                                emit_success(
+                                    f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
+                                    f"📁 From: {session_path}"
+                                )
+                            else:
+                                # Fall back to old text-based picker for tests/non-TTY environments
+                                await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+
+                        except Exception as e:
+                            from code_puppy.messaging import emit_error
+
+                            emit_error(f"Failed to load autosave: {e}")
+                        continue
+                    else:
+                        # Command returned a prompt to execute
+                        task = command_result
+                elif command_result is False:
+                    # Command not recognized, continue with normal processing
+                    pass
+
+            if task.strip():
+                # Write to the secret file for permanent history with timestamp
+                save_command_to_history(task)
+
+                try:
+                    prettier_code_blocks()
+
+                    # No need to get agent directly - use manager's run methods
+
+                    # Use our custom helper to enable attachment handling with spinner support
+                    result, current_agent_task = await run_prompt_with_attachments(
+                        current_agent,
+                        task,
+                        spinner_console=message_renderer.console,
+                    )
+                    # Check if the task was cancelled (but don't show message if we just killed processes)
+                    if result is None:
+                        # Windows-specific: Reset terminal state after cancellation
+                        if platform.system() == "Windows":
+                            try:
+                                sys.stdout.write("\x1b[0m")  # Reset ANSI formatting
+                                sys.stdout.flush()
+                                sys.stderr.write("\x1b[0m")
+                                sys.stderr.flush()
+                            except Exception:
+                                pass
+                        continue
+                    # Get the structured response
+                    agent_response = result.output
+
+                    # Emit structured message for proper markdown rendering
+                    from code_puppy.messaging import get_message_bus
+                    from code_puppy.messaging.messages import AgentResponseMessage
+
+                    response_msg = AgentResponseMessage(
+                        content=agent_response,
+                        is_markdown=True,
+                    )
+                    get_message_bus().emit(response_msg)
+
+                    # Update the agent's message history with the complete conversation
+                    # including the final assistant response. The history_processors callback
+                    # may not capture the final message, so we use result.all_messages()
+                    # to ensure the autosave includes the complete conversation.
+                    if hasattr(result, "all_messages"):
+                        current_agent.set_message_history(list(result.all_messages()))
+
+                    # Ensure console output is flushed before next prompt
+                    # This fixes the issue where prompt doesn't appear after agent response
+                    display_console.file.flush() if hasattr(
+                        display_console.file, "flush"
+                    ) else None
+                    import time
+
+                    time.sleep(0.1)  # Brief pause to ensure all messages are rendered
+
+                except Exception:
+                    from code_puppy.messaging.queue_console import get_queue_console
+
+                    get_queue_console().print_exception()
+
+                # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
+                from code_puppy.config import auto_save_session_if_enabled
+
+                auto_save_session_if_enabled()
+
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            # Handle Ctrl+C or task cancellation gracefully
+            from code_puppy.messaging import emit_warning
+            
+            # Windows-specific: Reset terminal state after Ctrl+C
+            if platform.system() == "Windows":
+                try:
+                    sys.stdout.write("\r\n")
+                    sys.stdout.write("\x1b[0m")  # Reset ANSI formatting
+                    sys.stdout.flush()
+                    sys.stderr.write("\x1b[0m")
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+            
+            emit_warning("\nOperation cancelled")
+            continue
+            
+        except Exception as e:
+            # Catch any other unexpected errors and continue
+            from code_puppy.messaging import emit_error
+            
+            emit_error(f"Unexpected error: {str(e)}")
+            # Continue the loop instead of crashing
+            continue
 
 
 def prettier_code_blocks():
@@ -780,8 +836,21 @@ def main_entry():
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
+        # Handle Ctrl+C gracefully
+        # On Windows, reset terminal state before exiting
+        if platform.system() == "Windows":
+            try:
+                sys.stdout.write("\r\n")
+                sys.stdout.write("\x1b[0m")  # Reset ANSI formatting
+                sys.stdout.flush()
+                sys.stderr.write("\x1b[0m")
+                sys.stderr.flush()
+            except Exception:
+                pass
+        
         # Note: Using sys.stderr for crash output - messaging system may not be available
-        sys.stderr.write(traceback.format_exc())
+        sys.stderr.write("\n\nInterrupted by user\n")
+        
         if get_use_dbos():
             DBOS.destroy()
         return 0

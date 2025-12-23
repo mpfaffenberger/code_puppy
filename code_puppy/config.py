@@ -207,6 +207,7 @@ def get_config_keys():
         "diff_context_lines",
         "default_agent",
         "temperature",
+        "theme",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -1255,6 +1256,42 @@ def set_diff_deletion_color(color: str):
         color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
     """
     set_config_value("highlight_deletion_color", color)
+
+
+def get_theme() -> Optional[str]:
+    """Get the current theme name from puppy.cfg config.
+
+    The theme controls the color scheme for all message types in the
+    messaging system (error, warning, success, info, debug, tool_output,
+    agent_reasoning, agent_response, system). Note that diff colors and
+    syntax highlighting are controlled separately.
+
+    Returns:
+        The theme name if set, None otherwise (system will use "default" theme)
+
+    Example:
+        >>> from code_puppy.config import get_theme
+        >>> theme_name = get_theme()
+        >>> print(theme_name)
+        'midnight'
+    """
+    return get_value("theme")
+
+
+def set_theme(theme_name: str) -> None:
+    """Set the theme name in puppy.cfg config.
+
+    The theme controls the color scheme for all message types in the
+    messaging system. This will take effect on the next message display.
+
+    Args:
+        theme_name: Name of the theme to set (e.g., 'default', 'midnight', 'ocean')
+
+    Example:
+        >>> from code_puppy.config import set_theme
+        >>> set_theme("midnight")
+    """
+    set_config_value("theme", theme_name)
 
 
 def get_current_autosave_id() -> str:

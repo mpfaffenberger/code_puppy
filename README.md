@@ -267,6 +267,346 @@ The `rotate_every` parameter controls how many requests are made to each model b
 
 ---
 
+## Theme System 🎨
+
+Code Puppy features a powerful theming system that lets you customize the appearance of all message colors in the terminal interface. Themes control the colors of user messages, agent responses, system messages, warnings, errors, info messages, and more.
+
+### Theme System Overview
+
+**What are themes?**
+
+Themes are color palettes that define how different types of messages are displayed in your Code Puppy terminal. Each theme consists of a collection of color settings that control:
+
+- **User messages** - The color of your input text
+- **Agent responses** - The color of the agent's output
+- **System messages** - Notifications and system information
+- **Warnings** - Cautionary messages
+- **Errors** - Error messages
+- **Info messages** - Informational messages
+- **Success messages** - Success confirmations
+- **Tool outputs** - Shell command and tool execution results
+- **Reasoning** - Agent's thought process explanations
+- **Code blocks** - Code snippet backgrounds
+
+**What themes DON'T control:**
+
+- **Syntax highlighting** - Code syntax colors (handled by Pygments)
+- **Diffs** - Git diff colors (red/green additions/removals)
+- **UI elements** - Menu borders, buttons, and other UI components
+
+**How themes work:**
+
+Themes are stored as JSON files in your `~/.code_puppy/themes/` directory. Each theme file contains color definitions using ANSI color codes (0-255 for 256-color support). The theme system uses terminal color capabilities to render beautiful, consistent output across different terminal emulators.
+
+### Using the Theme Menu
+
+The theme menu provides an interactive interface for browsing, selecting, and creating themes.
+
+**Opening the Theme Menu:**
+
+```bash
+/theme
+```
+
+This opens an interactive terminal UI (TUI) with the following options:
+
+```
+┌─────────────────────────────────────────┐
+│         🎨 Code Puppy Themes           │
+├─────────────────────────────────────────┤
+│  • Browse Preset Themes                │
+│  • Create Custom Theme                 │
+│  • Manage Custom Themes                │
+│  • Export/Import Themes                │
+│  • View Current Theme                  │
+└─────────────────────────────────────────┘
+```
+
+**Navigating the Menu:**
+
+- **Arrow keys** (↑/↓) - Navigate between options
+- **Enter** - Select an option or theme
+- **Esc** - Go back or exit
+- **Tab** - Move between color selection fields
+
+**Selecting and Applying a Theme:**
+
+1. Open the theme menu with `/theme`
+2. Select "Browse Preset Themes"
+3. Use arrow keys to highlight a theme
+4. Press Enter to preview the theme
+5. Press Enter again to apply it to your current session
+
+**Keyboard Shortcuts:**
+
+- `q` - Quit/exit the menu
+- `r` - Reset to default theme
+- `s` - Save current theme selection
+- `?` - Show help
+
+### Available Preset Themes
+
+Code Puppy includes 10 beautiful preset themes, each with a unique aesthetic:
+
+| Theme | Description | Aesthetic |
+|-------|-------------|-----------|
+| **Default** 🐶 | Classic Code Puppy look | Balanced colors, high contrast, puppy-friendly |
+| **Ocean** 🌊 | Calming blue tones | Deep blues and teals, easy on the eyes |
+| **Forest** 🌲 | Nature-inspired greens | Rich greens and earth tones, organic feel |
+| **Sunset** 🌅 | Warm sunset gradients | Oranges, pinks, and purples, vibrant |
+| **Midnight** 🌙 | Dark mode optimized | Deep purples and dark blues, low-light friendly |
+| **Cyberpunk** 🤖 | Neon futuristic style | Bright neons on dark backgrounds, sci-fi |
+| **Retro** 📟 | Vintage terminal look | Amber/green on black, nostalgic |
+| **Pastel** 🎀 | Soft pastel colors | Gentle pinks, blues, lavenders, calming |
+| **Hacker** 💻 | Matrix-inspired green | Bright green on black, classic hacker |
+| **Minimal** ⬜ | Clean monochrome | Grayscale only, distraction-free |
+
+**Previewing Themes:**
+
+When you select a theme from the menu, you'll see a live preview showing how different message types will appear:
+
+```
+[USER] This is how your messages look
+[AGENT] This is how agent responses appear
+[SYSTEM] System notifications use this color
+[WARNING] ⚠️  Warnings use caution colors
+[ERROR] ❌ Errors stand out clearly
+[INFO] ℹ️  Info messages are subtle
+[SUCCESS] ✓ Success messages are positive
+```
+
+### Creating Custom Themes
+
+You can create your own themes with custom color combinations using the built-in theme builder.
+
+**Using the Custom Theme Builder:**
+
+1. Open the theme menu with `/theme`
+2. Select "Create Custom Theme"
+3. Enter a name for your theme (e.g., "my-awesome-theme")
+4. For each color category, use the color picker:
+   - **Arrow keys** to navigate the color palette
+   - **Enter** to select a color
+   - **Tab** to move to the next color category
+5. Add optional metadata:
+   - **Author**: Your name or handle
+   - **Version**: Theme version (e.g., "1.0.0")
+   - **Tags**: Comma-separated tags (e.g., "dark,blue,calm")
+   - **Description**: Brief description of your theme
+6. Press `s` to save your theme
+
+**Color Selection Interface:**
+
+The color picker displays a 16x16 grid of available colors (256-color palette):
+
+```
+┌─────────────────────────────────────┐
+│  Select User Message Color          │
+├─────────────────────────────────────┤
+│  ████  ████  ████  ████  ████ ...  │
+│  ████  ████  ████  ████  ████ ...  │
+│  ████  ████  ████  ████  ████ ...  │
+│  ████  ████  ████  ████  ████ ...  │
+│                                     │
+│  Selected: #FF6B6B (Red)           │
+│  Press Enter to confirm             │
+└─────────────────────────────────────┘
+```
+
+**Example Custom Theme JSON:**
+
+```json
+{
+  "name": "my-awesome-theme",
+  "author": "Your Name",
+  "version": "1.0.0",
+  "tags": ["dark", "blue", "calm"],
+  "description": "A calming dark theme with blue accents",
+  "colors": {
+    "user_message": 39,      // Dodger Blue
+    "agent_response": 45,    // Turquoise
+    "system_message": 240,   // Dark Gray
+    "warning": 208,          // Orange
+    "error": 196,            // Red
+    "info": 244,             // Light Gray
+    "success": 46,           // Green
+    "tool_output": 243,      // Gray
+    "reasoning": 241,        // Light Gray
+    "code_block": 236        // Dark Background
+  }
+}
+```
+
+**Color Numbers:**
+
+Color numbers are ANSI 256-color codes:
+- **0-15**: Standard 16 colors (black, red, green, yellow, blue, magenta, cyan, white, and bright variants)
+- **16-231**: 216 colors (6x6x6 RGB cube)
+- **232-255**: 24 grayscale colors
+
+### Theme Configuration
+
+Themes are stored in your Code Puppy configuration file and persist across sessions.
+
+**Theme Storage in puppy.cfg:**
+
+```ini
+[theme]
+name = ocean
+author = Code Puppy Team
+version = 1.0.0
+```
+
+**Setting Theme via Config:**
+
+You can set your theme directly in the configuration file:
+
+```bash
+# Edit your config file
+nano ~/.code_puppy/puppy.cfg
+
+# Add or modify the theme section
+[theme]
+name = cyberpunk
+```
+
+Or use the `/set` command:
+
+```bash
+/set theme ocean
+```
+
+**Theme Persistence:**
+
+- Your selected theme is automatically saved to `puppy.cfg`
+- The theme is loaded automatically when you start Code Puppy
+- Changes to the theme take effect immediately
+- Custom themes are saved to `~/.code_puppy/themes/` as JSON files
+
+**Theme File Locations:**
+
+- **Preset themes**: `code_puppy/themes/` (built-in, read-only)
+- **Custom themes**: `~/.code_puppy/themes/` (user-created, editable)
+- **Current theme**: `~/.code_puppy/puppy.cfg` (configuration)
+
+### Advanced Features
+
+**Exporting Themes:**
+
+Share your custom themes with others by exporting them:
+
+1. Open the theme menu with `/theme`
+2. Select "Export/Import Themes"
+3. Choose "Export Theme"
+4. Select the theme to export
+5. Choose export location (default: `~/.code_puppy/themes/exports/`)
+6. The theme is saved as a `.json` file
+
+```bash
+# Exported theme file example
+~/.code_puppy/themes/exports/my-awesome-theme.json
+```
+
+**Importing Themes:**
+
+Import themes shared by others:
+
+1. Open the theme menu with `/theme`
+2. Select "Export/Import Themes"
+3. Choose "Import Theme"
+4. Navigate to the theme JSON file
+5. Press Enter to import
+6. The theme is added to your custom themes
+
+```bash
+# Import a theme file
+/theme
+# → Export/Import Themes
+# → Import Theme
+# → Select: /path/to/shared-theme.json
+```
+
+**Deleting Custom Themes:**
+
+Remove themes you no longer need:
+
+1. Open the theme menu with `/theme`
+2. Select "Manage Custom Themes"
+3. Highlight the theme to delete
+4. Press `d` to delete
+5. Confirm with `y`
+
+```bash
+# Or delete manually
+rm ~/.code_puppy/themes/your-theme.json
+```
+
+**Theme Metadata:**
+
+Each theme can include metadata to help organize and describe it:
+
+```json
+{
+  "name": "theme-name",
+  "author": "Author Name",
+  "version": "1.0.0",
+  "tags": ["dark", "blue", "calm"],
+  "description": "A brief description of the theme",
+  "created_at": "2025-01-15T10:30:00Z",
+  "updated_at": "2025-01-20T14:22:00Z"
+}
+```
+
+**Metadata Fields:**
+
+- **name** (required): Unique theme identifier (kebab-case)
+- **author** (optional): Theme creator's name
+- **version** (optional): Semantic version (e.g., "1.0.0")
+- **tags** (optional): Array of descriptive tags for filtering
+- **description** (optional): Brief description of the theme's aesthetic
+- **created_at** (auto): ISO 8601 timestamp of creation
+- **updated_at** (auto): ISO 8601 timestamp of last update
+
+**Viewing Current Theme:**
+
+Check which theme is currently active:
+
+```bash
+/theme
+# → View Current Theme
+```
+
+This displays:
+- Theme name and version
+- Author information
+- Color palette preview
+- All color definitions
+
+**Resetting to Default:**
+
+Reset to the default theme:
+
+```bash
+/theme
+# Press `r` to reset
+```
+
+Or via config:
+
+```bash
+/set theme default
+```
+
+**Theme Best Practices:**
+
+1. **Contrast**: Ensure good contrast between text and background
+2. **Accessibility**: Consider colorblind users (avoid relying on color alone)
+3. **Consistency**: Use a coherent color scheme throughout
+4. **Testing**: Test your theme in different terminal emulators
+5. **Documentation**: Include clear descriptions and tags for sharing
+
+---
+
 ## Create your own Agent!!!
 
 Code Puppy features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The system supports both built-in Python agents and custom JSON agents that you can create yourself.

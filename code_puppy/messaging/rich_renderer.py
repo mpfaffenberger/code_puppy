@@ -18,6 +18,7 @@ from rich.rule import Rule
 # Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
+from code_puppy.themes import Theme, get_theme_manager
 from code_puppy.tools.common import format_diff_with_colors
 
 from .bus import MessageBus
@@ -79,7 +80,8 @@ class RendererProtocol(Protocol):
 # Default Styles
 # =============================================================================
 
-DEFAULT_STYLES: Dict[MessageLevel, str] = {
+# Default fallback styles (used when theme loading fails)
+_DEFAULT_STYLES_FALLBACK: Dict[MessageLevel, str] = {
     MessageLevel.ERROR: "bold red",
     MessageLevel.WARNING: "yellow",
     MessageLevel.SUCCESS: "green",
@@ -87,11 +89,39 @@ DEFAULT_STYLES: Dict[MessageLevel, str] = {
     MessageLevel.DEBUG: "dim",
 }
 
+# Diff styles - kept unchanged as per requirements
 DIFF_STYLES = {
     "add": "green",
     "remove": "red",
     "context": "dim",
 }
+
+
+def get_theme_styles(theme: Optional[Theme] = None) -> Dict[MessageLevel, str]:
+    """Get style mappings from the current theme.
+
+    Args:
+        theme: Optional Theme instance. If None, loads the current theme.
+
+    Returns:
+        Dictionary mapping MessageLevel to Rich style strings
+    """
+    if theme is None:
+        try:
+            manager = get_theme_manager()
+            theme = manager.get_current_theme()
+        except Exception:
+            # Fallback to default styles if theme loading fails
+            return _DEFAULT_STYLES_FALLBACK.copy()
+
+    # Map theme colors to message levels
+    return {
+        MessageLevel.ERROR: theme.error_color,
+        MessageLevel.WARNING: theme.warning_color,
+        MessageLevel.SUCCESS: theme.success_color,
+        MessageLevel.INFO: theme.info_color,
+        MessageLevel.DEBUG: theme.debug_color,
+    }
 
 
 # =============================================================================
@@ -111,27 +141,64 @@ class RichConsoleRenderer:
         bus: MessageBus,
         console: Optional[Console] = None,
         styles: Optional[Dict[MessageLevel, str]] = None,
+        theme: Optional[Theme] = None,
     ) -> None:
         """Initialize the renderer.
 
         Args:
             bus: The MessageBus to consume messages from.
             console: Rich Console instance (creates default if None).
-            styles: Custom style mappings (uses DEFAULT_STYLES if None).
+            styles: Custom style mappings (uses theme colors if None).
+            theme: Optional Theme instance (loads current theme if None).
         """
         import threading
 
         self._bus = bus
         self._console = console or Console()
-        self._styles = styles or DEFAULT_STYLES.copy()
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._spinners: Dict[str, object] = {}  # spinner_id -> status context
+        self._cached_theme: Optional[Theme] = theme
+
+        # Use provided styles or get from theme
+        if styles is not None:
+            self._styles = styles
+        else:
+            self._styles = self._get_theme_styles()
 
     @property
     def console(self) -> Console:
         """Get the Rich console."""
         return self._console
+
+    def _get_theme(self) -> Theme:
+        """Get the current theme with caching.
+
+        Returns:
+            The current Theme instance (defaults to fallback if loading fails)
+        """
+        if self._cached_theme is not None:
+            return self._cached_theme
+
+        try:
+            manager = get_theme_manager()
+            self._cached_theme = manager.get_current_theme()
+        except Exception:
+            # Fallback to default theme if loading fails
+            from code_puppy.themes import DEFAULT_THEME
+
+            self._cached_theme = DEFAULT_THEME
+
+        return self._cached_theme
+
+    def _get_theme_styles(self) -> Dict[MessageLevel, str]:
+        """Get style mappings from the current theme.
+
+        Returns:
+            Dictionary mapping MessageLevel to Rich style strings
+        """
+        theme = self._get_theme()
+        return get_theme_styles(theme)
 
     # =========================================================================
     # Lifecycle (Synchronous - for compatibility with main.py)
@@ -869,9 +936,15 @@ class RichConsoleRenderer:
 # Export all public symbols
 # =============================================================================
 
+# For backward compatibility, export DEFAULT_STYLES as a function that returns
+# the current theme's styles (this matches the old API of accessing DEFAULT_STYLES)
+# Note: This is now a function, not a constant, to support dynamic theme switching
+DEFAULT_STYLES = get_theme_styles
+
 __all__ = [
     "RendererProtocol",
     "RichConsoleRenderer",
     "DEFAULT_STYLES",
     "DIFF_STYLES",
+    "get_theme_styles",
 ]
