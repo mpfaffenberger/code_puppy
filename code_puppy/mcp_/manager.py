@@ -78,10 +78,75 @@ class MCPManager:
         # Active managed servers (server_id -> ManagedMCPServer)
         self._managed_servers: Dict[str, ManagedMCPServer] = {}
 
+        # Sync servers from mcp_servers.json into registry
+        self.sync_from_config()
+
         # Load existing servers from registry
         self._initialize_servers()
 
         logger.info("MCPManager initialized with core components")
+
+    def sync_from_config(self) -> None:
+        """Sync servers from mcp_servers.json into the registry.
+
+        This public method ensures that servers defined in the user's
+        configuration file are automatically registered with the manager.
+        It can be called during initialization or manually to reload
+        server configurations.
+
+        This is the single source of truth for syncing mcp_servers.json
+        into the registry, avoiding duplication with base_agent.py.
+        """
+        try:
+            from code_puppy.config import load_mcp_server_configs
+
+            configs = load_mcp_server_configs()
+            if not configs:
+                logger.debug("No servers found in mcp_servers.json")
+                return
+
+            synced_count = 0
+            updated_count = 0
+
+            for name, conf in configs.items():
+                try:
+                    # Create ServerConfig from the loaded configuration
+                    server_config = ServerConfig(
+                        id=conf.get("id", ""),  # Empty ID will be auto-generated
+                        name=name,
+                        type=conf.get("type", "sse"),
+                        enabled=conf.get("enabled", True),
+                        config=conf,
+                    )
+
+                    # Check if server already exists by name
+                    existing = self.registry.get_by_name(name)
+
+                    if not existing:
+                        # Register new server
+                        self.registry.register(server_config)
+                        synced_count += 1
+                        logger.debug(f"Synced new server from config: {name}")
+                    else:
+                        # Update existing server if config has changed
+                        if existing.config != server_config.config:
+                            server_config.id = existing.id  # Keep existing ID
+                            self.registry.update(existing.id, server_config)
+                            updated_count += 1
+                            logger.debug(f"Updated server from config: {name}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to sync server '{name}' from config: {e}")
+                    continue
+
+            if synced_count > 0 or updated_count > 0:
+                logger.info(
+                    f"Synced {synced_count} new and updated {updated_count} servers from mcp_servers.json"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to sync from mcp_servers.json: {e}")
+            # Don't fail initialization if sync fails
 
     def _initialize_servers(self) -> None:
         """Initialize managed servers from registry configurations."""

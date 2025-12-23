@@ -47,11 +47,10 @@ from code_puppy.config import (
     get_protected_token_count,
     get_use_dbos,
     get_value,
-    load_mcp_server_configs,
 )
 from code_puppy.error_logging import log_error
 from code_puppy.keymap import cancel_agent_uses_signal, get_cancel_agent_char_code
-from code_puppy.mcp_ import ServerConfig, get_mcp_manager
+from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
     emit_info,
@@ -989,45 +988,31 @@ class BaseAgent(ABC):
         return self._puppy_rules
 
     def load_mcp_servers(self, extra_headers: Optional[Dict[str, str]] = None):
-        """Load MCP servers through the manager and return pydantic-ai compatible servers."""
+        """Load MCP servers through the manager and return pydantic-ai compatible servers.
+
+        Note: The manager automatically syncs from mcp_servers.json during initialization,
+        so we don't need to sync here. Use reload_mcp_servers() to force a re-sync.
+        """
 
         mcp_disabled = get_value("disable_mcp_servers")
         if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
             return []
 
         manager = get_mcp_manager()
-        configs = load_mcp_server_configs()
-        if not configs:
-            existing_servers = manager.list_servers()
-            if not existing_servers:
-                return []
-        else:
-            for name, conf in configs.items():
-                try:
-                    server_config = ServerConfig(
-                        id=conf.get("id", f"{name}_{hash(name)}"),
-                        name=name,
-                        type=conf.get("type", "sse"),
-                        enabled=conf.get("enabled", True),
-                        config=conf,
-                    )
-                    existing = manager.get_server_by_name(name)
-                    if not existing:
-                        manager.register_server(server_config)
-                    else:
-                        if existing.config != server_config.config:
-                            manager.update_server(existing.id, server_config)
-                except Exception:
-                    continue
-
         return manager.get_servers_for_agent()
 
     def reload_mcp_servers(self):
-        """Reload MCP servers and return updated servers."""
+        """Reload MCP servers and return updated servers.
+
+        Forces a re-sync from mcp_servers.json to pick up any configuration changes.
+        """
         # Clear the MCP tool cache when servers are reloaded
         self._mcp_tool_definitions_cache = []
-        self.load_mcp_servers()
+
+        # Force re-sync from mcp_servers.json
         manager = get_mcp_manager()
+        manager.sync_from_config()
+
         return manager.get_servers_for_agent()
 
     def _load_model_with_fallback(

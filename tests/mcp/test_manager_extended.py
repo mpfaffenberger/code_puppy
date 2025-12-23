@@ -721,3 +721,35 @@ class TestMCPManagerExtended:
                 assert call_args[0][0] == "bad-server"  # server_id
                 assert call_args[0][1] == "initialization_error"  # event_type
                 assert "Creation failed" in call_args[0][2]["error"]  # error message
+
+    def test_sync_from_config_registers_new_servers(self):
+        """Test that sync_from_config loads servers from config."""
+
+        mock_configs = {"server1": {"type": "stdio", "command": "ls", "enabled": True}}
+
+        # We need to mock the registry instance specifically
+        mock_registry_instance = Mock()
+        # Important: get_by_name must return None for the manager to consider it "new"
+        mock_registry_instance.get_by_name.return_value = None
+        # Important: list_all must return a list for _initialize_servers to iterate
+        mock_registry_instance.list_all.return_value = []
+
+        with (
+            patch(
+                "code_puppy.config.load_mcp_server_configs", return_value=mock_configs
+            ),
+            patch(
+                "code_puppy.mcp_.manager.ServerRegistry",
+                return_value=mock_registry_instance,
+            ),
+            patch("code_puppy.mcp_.manager.ServerStatusTracker"),
+        ):
+            # Verify register was called
+            assert mock_registry_instance.register.called
+
+            call_args = mock_registry_instance.register.call_args
+            assert call_args is not None
+            server_config = call_args[0][0]
+
+            assert server_config.name == "server1"
+            assert server_config.type == "stdio"

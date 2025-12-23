@@ -6,6 +6,7 @@ that adds management capabilities while maintaining 100% compatibility.
 """
 
 import json
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -222,7 +223,16 @@ class ManagedMCPServer:
                 if "read_timeout" in config:
                     http_kwargs["read_timeout"] = config["read_timeout"]
                 if "headers" in config:
-                    http_kwargs["headers"] = config.get("headers")
+                    # Expand environment variables in headers
+                    headers = config.get("headers")
+                    resolved_headers = {}
+                    if isinstance(headers, dict):
+                        for k, v in headers.items():
+                            if isinstance(v, str):
+                                resolved_headers[k] = os.path.expandvars(v)
+                            else:
+                                resolved_headers[k] = v
+                    http_kwargs["headers"] = resolved_headers
                     # Create HTTP client if headers are provided but no client specified
 
                 self._pydantic_server = MCPServerStreamableHTTP(
@@ -243,8 +253,18 @@ class ManagedMCPServer:
             Configured async HTTP client with custom headers
         """
         headers = self.config.config.get("headers", {})
+
+        # Expand environment variables in headers
+        resolved_headers = {}
+        if isinstance(headers, dict):
+            for k, v in headers.items():
+                if isinstance(v, str):
+                    resolved_headers[k] = os.path.expandvars(v)
+                else:
+                    resolved_headers[k] = v
+
         timeout = self.config.config.get("timeout", 30)
-        client = create_async_client(headers=headers, timeout=timeout)
+        client = create_async_client(headers=resolved_headers, timeout=timeout)
         return client
 
     def enable(self) -> None:
