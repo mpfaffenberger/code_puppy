@@ -57,6 +57,8 @@ jobs:
 
       - name: Run tests
         env:
+          CI: '1'
+          CODE_PUPPY_TEST_FAST: '1'
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
           CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
