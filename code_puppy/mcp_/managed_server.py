@@ -204,7 +204,7 @@ class ManagedMCPServer:
                     **stdio_kwargs,
                     process_tool_call=process_tool_call,
                     tool_prefix=self.config.name,
-                    emit_stderr=True,  # Always emit stderr for now
+                    emit_stderr=False,  # Logs go to file, not console (use /mcp logs to view)
                     message_group=message_group,
                 )
 
