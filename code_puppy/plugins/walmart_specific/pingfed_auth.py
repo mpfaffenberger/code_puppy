@@ -2,17 +2,23 @@
 
 This module provides browser automation to fetch PingFed tokens from the
 ping-token-util service and save them to the local config.
+It also updates any MCP servers that use PINGFED_TOKEN env vars.
 """
 
 import json
+import logging
+import os
 import time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from rich.text import Text
 
-from code_puppy.config import CONFIG_DIR
-from code_puppy.messaging import emit_error, emit_info, emit_success
+from code_puppy.config import CONFIG_DIR, MCP_SERVERS_FILE
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 def _get_code_puppy_chrome_profile_path() -> str:
@@ -225,9 +231,182 @@ def handle_pingfed_auth_command(command: str, name: str) -> Optional[bool]:
         emit_error(f"Failed to save tokens: {e}")
         return True
 
+    # Update MCP servers that have PINGFED_TOKEN env vars
+    emit_info("\n🔍 Scanning MCP servers for PINGFED_TOKEN env vars...")
+    updated_servers = _update_mcp_servers_with_token(pingfed_token)
+
+    if updated_servers:
+        emit_success(
+            f"📝 Updated PINGFED_TOKEN in {len(updated_servers)} MCP server(s): "
+            f"{', '.join(updated_servers)}"
+        )
+
+        # Restart the affected servers
+        emit_info("\n🔄 Restarting affected MCP servers...")
+        _restart_mcp_servers(updated_servers)
+    else:
+        emit_info(
+            Text.from_markup(
+                "[dim]No MCP servers found with PINGFED_TOKEN env var[/dim]"
+            )
+        )
+
     return True
+
+
+def _update_mcp_servers_with_token(token: str) -> List[str]:
+    """Update any MCP servers that have PINGFED_TOKEN env vars.
+
+    Scans the mcp_servers.json file for servers with PINGFED_TOKEN in their
+    env configuration and updates them with the new token value.
+
+    Args:
+        token: The new PingFed token value
+
+    Returns:
+        List of server names that were updated
+    """
+    updated_servers: List[str] = []
+
+    try:
+        if not os.path.exists(MCP_SERVERS_FILE):
+            logger.debug("No MCP servers file found, skipping token update")
+            return updated_servers
+
+        with open(MCP_SERVERS_FILE, "r") as f:
+            content = f.read().strip()
+            if not content:
+                return updated_servers
+            config = json.loads(content)
+
+        # Handle both formats: {"mcp_servers": {...}} and legacy {...}
+        if "mcp_servers" in config:
+            servers = config["mcp_servers"]
+        else:
+            servers = config
+
+        if not isinstance(servers, dict):
+            return updated_servers
+
+        # Scan for servers with PINGFED_TOKEN env var
+        modified = False
+        for server_name, server_config in servers.items():
+            if not isinstance(server_config, dict):
+                continue
+
+            env = server_config.get("env", {})
+            if not isinstance(env, dict):
+                continue
+
+            # Check for PINGFED_TOKEN (case-sensitive)
+            if "PINGFED_TOKEN" in env:
+                old_value = env["PINGFED_TOKEN"]
+                env["PINGFED_TOKEN"] = token
+                server_config["env"] = env
+                updated_servers.append(server_name)
+                modified = True
+                logger.info(
+                    f"Updated PINGFED_TOKEN for server '{server_name}' "
+                    f"(was: {old_value[:20] if old_value else 'empty'}...)"
+                )
+
+        # Save if modified
+        if modified:
+            # Preserve format
+            if "mcp_servers" in config:
+                config["mcp_servers"] = servers
+            else:
+                config = servers
+
+            with open(MCP_SERVERS_FILE, "w") as f:
+                json.dump(
+                    config if "mcp_servers" not in config else {"mcp_servers": servers},
+                    f,
+                    indent=2,
+                )
+            logger.info(
+                f"Saved updated MCP server configs for {len(updated_servers)} servers"
+            )
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse MCP servers JSON: {e}")
+    except Exception as e:
+        logger.error(f"Failed to update MCP servers with token: {e}")
+
+    return updated_servers
+
+
+def _restart_mcp_servers(server_names: List[str]) -> None:
+    """Restart the specified MCP servers.
+
+    This reloads the configuration and restarts the servers so they
+    pick up the new PINGFED_TOKEN value.
+
+    Args:
+        server_names: List of server names to restart
+    """
+    if not server_names:
+        return
+
+    try:
+        from code_puppy.mcp_.manager import get_mcp_manager
+
+        manager = get_mcp_manager()
+
+        for server_name in server_names:
+            try:
+                # Find server by name
+                server_config = manager.get_server_by_name(server_name)
+                if not server_config:
+                    emit_warning(
+                        f"Could not find MCP server '{server_name}' to restart"
+                    )
+                    continue
+
+                server_id = server_config.id
+
+                # Stop the server
+                emit_info(f"🔄 Stopping MCP server: {server_name}")
+                manager.stop_server_sync(server_id)
+
+                # Reload from config to pick up new env vars
+                emit_info(f"📥 Reloading configuration for: {server_name}")
+                manager.sync_from_config()
+                manager.reload_server(server_id)
+
+                # Start the server again
+                emit_info(f"🚀 Starting MCP server: {server_name}")
+                manager.start_server_sync(server_id)
+
+                emit_success(f"✅ Restarted MCP server: {server_name}")
+
+            except Exception as e:
+                emit_error(f"Failed to restart server '{server_name}': {e}")
+                logger.error(f"Error restarting server '{server_name}': {e}")
+
+        # Reload the agent to pick up the server changes
+        try:
+            from code_puppy.agents import get_current_agent
+
+            agent = get_current_agent()
+            agent.reload_code_generation_agent()
+            agent.update_mcp_tool_cache_sync()
+            emit_info(
+                Text.from_markup("[dim]Agent reloaded with updated MCP servers[/dim]")
+            )
+        except Exception as e:
+            logger.warning(f"Could not reload agent: {e}")
+
+    except Exception as e:
+        emit_error(f"Failed to restart MCP servers: {e}")
+        logger.error(f"Failed to restart MCP servers: {e}")
 
 
 def get_pingfed_auth_help() -> list:
     """Return help information for the pingfed_auth command."""
-    return [("pingfed_auth", "Fetch and save PingFed tokens from ping-token-util")]
+    return [
+        (
+            "pingfed_auth",
+            "Fetch PingFed tokens and update MCP servers with PINGFED_TOKEN env vars",
+        )
+    ]
