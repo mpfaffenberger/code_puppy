@@ -2,14 +2,13 @@
 MCP Server with blocking startup capability and stderr capture.
 
 This module provides MCP servers that:
-1. Capture stderr output from stdio servers
+1. Capture stderr output from stdio servers to persistent log files
 2. Block until fully initialized before allowing operations
-3. Emit stderr to users via emit_info with message groups
+3. Optionally emit stderr to users (disabled by default to reduce console noise)
 """
 
 import asyncio
 import os
-import tempfile
 import threading
 import uuid
 from contextlib import asynccontextmanager
@@ -18,56 +17,73 @@ from typing import List, Optional
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from pydantic_ai.mcp import MCPServerStdio
 
+from code_puppy.mcp_.mcp_logs import get_log_file_path, rotate_log_if_needed, write_log
 from code_puppy.messaging import emit_info
 
 
 class StderrFileCapture:
-    """Captures stderr to a file and monitors it in a background thread."""
+    """
+    Captures stderr to a persistent log file and optionally monitors it.
+
+    Logs are written to ~/.code_puppy/mcp_logs/<server_name>.log
+    """
 
     def __init__(
         self,
         server_name: str,
-        emit_to_user: bool = True,
+        emit_to_user: bool = False,  # Disabled by default to reduce console noise
         message_group: Optional[uuid.UUID] = None,
     ):
         self.server_name = server_name
         self.emit_to_user = emit_to_user
         self.message_group = message_group or uuid.uuid4()
-        self.temp_file = None
-        self.temp_path = None
+        self.log_file = None
+        self.log_path = None
         self.monitor_thread = None
         self.stop_monitoring = threading.Event()
         self.captured_lines = []
+        self._last_read_pos = 0
 
     def start(self):
-        """Start capture by creating temp file and monitor thread."""
-        # Create temp file
-        self.temp_file = tempfile.NamedTemporaryFile(
-            mode="w+", delete=False, suffix=".err"
-        )
-        self.temp_path = self.temp_file.name
+        """Start capture by opening persistent log file and monitor thread."""
+        # Rotate log if needed
+        rotate_log_if_needed(self.server_name)
 
-        # Start monitoring thread
+        # Get persistent log path
+        self.log_path = get_log_file_path(self.server_name)
+
+        # Write startup marker
+        write_log(self.server_name, "--- Server starting ---", "INFO")
+
+        # Open log file for appending stderr
+        self.log_file = open(self.log_path, "a", encoding="utf-8")
+
+        # Start monitoring thread only if we need to emit to user or capture lines
         self.stop_monitoring.clear()
         self.monitor_thread = threading.Thread(target=self._monitor_file)
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
 
-        return self.temp_file
+        return self.log_file
 
     def _monitor_file(self):
-        """Monitor the temp file for new content."""
-        if not self.temp_path:
+        """Monitor the log file for new content."""
+        if not self.log_path:
             return
 
-        last_pos = 0
+        # Start reading from current position (end of file before we started)
+        try:
+            self._last_read_pos = os.path.getsize(self.log_path)
+        except OSError:
+            self._last_read_pos = 0
+
         while not self.stop_monitoring.is_set():
             try:
-                with open(self.temp_path, "r") as f:
-                    f.seek(last_pos)
+                with open(self.log_path, "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(self._last_read_pos)
                     new_content = f.read()
                     if new_content:
-                        last_pos = f.tell()
+                        self._last_read_pos = f.tell()
                         # Process new lines
                         for line in new_content.splitlines():
                             if line.strip():
@@ -89,16 +105,21 @@ class StderrFileCapture:
         if self.monitor_thread:
             self.monitor_thread.join(timeout=1)
 
-        if self.temp_file:
+        if self.log_file:
             try:
-                self.temp_file.close()
+                self.log_file.flush()
+                self.log_file.close()
             except Exception:
                 pass
 
-        if self.temp_path and os.path.exists(self.temp_path):
+        # Write shutdown marker
+        write_log(self.server_name, "--- Server stopped ---", "INFO")
+
+        # Read any remaining content for in-memory capture
+        if self.log_path and os.path.exists(self.log_path):
             try:
-                # Read any remaining content
-                with open(self.temp_path, "r") as f:
+                with open(self.log_path, "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(self._last_read_pos)
                     content = f.read()
                     for line in content.splitlines():
                         if line.strip() and line not in self.captured_lines:
@@ -108,13 +129,13 @@ class StderrFileCapture:
                                     f"MCP {self.server_name}: {line}",
                                     message_group=self.message_group,
                                 )
-
-                os.unlink(self.temp_path)
             except Exception:
                 pass
 
+        # Note: We do NOT delete the log file - it's persistent now!
+
     def get_captured_lines(self) -> List[str]:
-        """Get all captured lines."""
+        """Get all captured lines from this session."""
         return self.captured_lines.copy()
 
 
