@@ -1936,9 +1936,7 @@ class BaseAgent(ABC):
                                 ).lower() in ("1", "true")
                                 if disable_gemini_stream:
                                     use_streaming = False
-                                    emit_warning(
-                                        "[dim]Using non-streaming mode for Gemini (proxy compatibility)[/dim]"
-                                    )
+
 
                             if use_streaming:
                                 result_ = await pydantic_agent.run(
