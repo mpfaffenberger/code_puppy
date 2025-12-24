@@ -108,6 +108,12 @@ def make_model_settings(
         # Handle Anthropic extended thinking settings
         # Remove top_p as Anthropic doesn't support it with extended thinking
         model_settings_dict.pop("top_p", None)
+
+        # Claude extended thinking requires temperature=1.0 (API restriction)
+        # Default to 1.0 if not explicitly set by user
+        if model_settings_dict.get("temperature") is None:
+            model_settings_dict["temperature"] = 1.0
+
         extended_thinking = effective_settings.get("extended_thinking", True)
         budget_tokens = effective_settings.get("budget_tokens", 10000)
         if extended_thinking and budget_tokens:

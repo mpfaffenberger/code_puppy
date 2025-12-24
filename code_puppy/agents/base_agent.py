@@ -89,6 +89,9 @@ class BaseAgent(ABC):
         # Cache for MCP tool definitions (for token estimation)
         # This is populated after the first successful run when MCP tools are retrieved
         self._mcp_tool_definitions_cache: List[Dict[str, Any]] = []
+        # Shared console for streaming output - should be set by cli_runner
+        # to avoid conflicts between spinner's Live display and response streaming
+        self._console: Optional[Any] = None
 
     @property
     @abstractmethod
@@ -1276,7 +1279,14 @@ class BaseAgent(ABC):
 
         from code_puppy.messaging.spinner import pause_all_spinners
 
-        console = Console()
+        # IMPORTANT: Use the shared console (set by cli_runner) to avoid conflicts
+        # with the spinner's Live display. Multiple Console instances with separate
+        # Live displays cause cursor positioning chaos and line duplication.
+        if self._console is not None:
+            console = self._console
+        else:
+            # Fallback if console not set (shouldn't happen in normal use)
+            console = Console()
 
         # Disable Live display in test mode or non-interactive environments
         # This fixes issues with pexpect PTY where Live() hangs
