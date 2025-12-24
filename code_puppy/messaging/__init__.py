@@ -30,6 +30,13 @@ Example (new):
 """
 
 # =============================================================================
+# Apply Rich Markdown patches (left-justified headers)
+# =============================================================================
+from .markdown_patches import patch_markdown_headings
+
+patch_markdown_headings()
+
+# =============================================================================
 # Legacy API (backward compatible)
 # =============================================================================
 
@@ -220,4 +227,6 @@ __all__ = [
     "RichConsoleRenderer",
     "DEFAULT_STYLES",
     "DIFF_STYLES",
+    # Markdown patches
+    "patch_markdown_headings",
 ]
