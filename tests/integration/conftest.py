@@ -5,7 +5,6 @@ hanging issues with Rich's Live() display in pexpect PTY environments.
 """
 
 import os
-import sys
 
 import pytest
 
@@ -16,54 +15,41 @@ REQUIRED_ENV_VARS = {
 }
 
 
-def pytest_configure(config):
-    """Check for required environment variables before running integration tests.
+def _check_integration_env_vars() -> tuple[bool, list[tuple[str, str]]]:
+    """Check if required environment variables are set.
 
-    This hook runs early in pytest startup and will abort the test run
-    if the required environment variables are not set.
+    Returns:
+        Tuple of (all_set, missing_vars) where missing_vars is a list of
+        (var_name, description) tuples.
     """
     missing_vars = []
-
     for var, description in REQUIRED_ENV_VARS.items():
         value = os.environ.get(var, "").lower()
         if value not in ("1", "true", "yes"):
             missing_vars.append((var, description))
+    return len(missing_vars) == 0, missing_vars
 
-    if missing_vars:
-        error_msg = [
-            "",
-            "=" * 70,
-            "ERROR: Integration tests require specific environment variables!",
-            "=" * 70,
-            "",
-            "The following environment variables must be set to '1' or 'true':",
-            "",
-        ]
 
-        for var, description in missing_vars:
-            error_msg.append(f"  • {var}")
-            error_msg.append(f"    Purpose: {description}")
-            error_msg.append("")
+def _format_skip_reason(missing_vars: list[tuple[str, str]]) -> str:
+    """Format a skip reason message for missing env vars."""
+    var_list = ", ".join(var for var, _ in missing_vars)
+    return (
+        f"Integration tests require env vars: {var_list}. "
+        f"Run with: CI=1 CODE_PUPPY_TEST_FAST=1 uv run pytest tests/integration/"
+    )
 
-        error_msg.extend(
-            [
-                "To run integration tests, use:",
-                "",
-                "  CI=1 CODE_PUPPY_TEST_FAST=1 uv run pytest tests/integration/",
-                "",
-                "Or set these in your shell:",
-                "",
-                "  export CI=1",
-                "  export CODE_PUPPY_TEST_FAST=1",
-                "",
-                "These variables prevent Rich's Live() display from hanging in",
-                "pexpect PTY environments used by integration tests.",
-                "=" * 70,
-            ]
-        )
 
-        # Print error and exit
-        print("\n".join(error_msg), file=sys.stderr)
-        pytest.exit(
-            "Missing required environment variables for integration tests", returncode=1
-        )
+# Check once at module load time
+_ENV_VARS_OK, _MISSING_VARS = _check_integration_env_vars()
+_SKIP_REASON = _format_skip_reason(_MISSING_VARS) if _MISSING_VARS else ""
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _require_integration_env_vars():
+    """Skip integration tests if required environment variables are not set.
+
+    This fixture runs automatically for every test in the integration directory.
+    It gracefully skips tests instead of bombing the entire test suite.
+    """
+    if not _ENV_VARS_OK:
+        pytest.skip(_SKIP_REASON)

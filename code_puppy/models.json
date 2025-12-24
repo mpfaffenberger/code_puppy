@@ -81,7 +81,7 @@
     "type": "anthropic",
     "name": "claude-opus-4-5",
     "context_length": 200000,
-    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
+    "supported_settings": ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
   },
   "zai-glm-4.6-coding": {
     "type": "zai_coding",
