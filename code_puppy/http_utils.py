@@ -68,14 +68,49 @@ def create_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
     retry_status_codes: tuple = (429, 502, 503, 504),
+    debug_responses: bool = False,
 ) -> httpx.AsyncClient:
     if verify is None:
         verify = get_cert_bundle_path()
 
     # Simple client without retry logic
     http2_enabled = get_http2()
+
+    # Debug hooks for troubleshooting
+    event_hooks = {}
+    if debug_responses:
+        import logging
+
+        logger = logging.getLogger("code_puppy.http_debug")
+
+        async def log_request(request: httpx.Request):
+            try:
+                emit_info(f"[dim]HTTP Request: {request.method} {request.url}[/dim]")
+                logger.warning(f"HTTP Request: {request.method} {request.url}")
+            except Exception:
+                pass
+
+        async def log_response(response: httpx.Response):
+            try:
+                content_type = response.headers.get("content-type", "")
+                logger.warning(
+                    f"HTTP Response: {response.status_code} {response.url} ({content_type})"
+                )
+                emit_info(
+                    f"[dim]HTTP Response: {response.status_code} ({content_type})[/dim]"
+                )
+            except Exception:
+                pass
+
+        event_hooks["request"] = [log_request]
+        event_hooks["response"] = [log_response]
+
     return httpx.AsyncClient(
-        verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
+        verify=verify,
+        headers=headers or {},
+        timeout=timeout,
+        http2=http2_enabled,
+        event_hooks=event_hooks if event_hooks else None,
     )
 
 

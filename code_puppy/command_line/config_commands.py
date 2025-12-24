@@ -88,7 +88,7 @@ def handle_show_command(command: str) -> bool:
 @register_command(
     name="reasoning",
     description="Set OpenAI reasoning effort for GPT-5 models (e.g., /reasoning high)",
-    usage="/reasoning <low|medium|high>",
+    usage="/reasoning <minimal|low|medium|high|xhigh>",
     category="config",
 )
 def handle_reasoning_command(command: str) -> bool:
@@ -97,7 +97,7 @@ def handle_reasoning_command(command: str) -> bool:
 
     tokens = command.split()
     if len(tokens) != 2:
-        emit_warning("Usage: /reasoning <low|medium|high>")
+        emit_warning("Usage: /reasoning <minimal|low|medium|high|xhigh>")
         return True
 
     effort = tokens[1]
@@ -544,6 +544,37 @@ def handle_diff_command(command: str) -> bool:
             set_diff_deletion_color(result["del_color"])
         except Exception as e:
             emit_error(f"Failed to apply diff settings: {e}")
+    return True
+
+
+@register_command(
+    name="colors",
+    description="Configure banner colors for tool outputs (THINKING, SHELL COMMAND, etc.)",
+    usage="/colors",
+    category="config",
+)
+def handle_colors_command(command: str) -> bool:
+    """Configure banner colors via interactive TUI."""
+    import asyncio
+    import concurrent.futures
+
+    from code_puppy.command_line.colors_menu import interactive_colors_picker
+    from code_puppy.config import set_banner_color
+    from code_puppy.messaging import emit_error, emit_success
+
+    # Show interactive picker for banner color configuration
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(lambda: asyncio.run(interactive_colors_picker()))
+        result = future.result(timeout=300)  # 5 min timeout
+
+    if result:
+        # Apply the changes
+        try:
+            for banner_name, color in result.items():
+                set_banner_color(banner_name, color)
+            emit_success("Banner colors saved! 🎨")
+        except Exception as e:
+            emit_error(f"Failed to apply banner color settings: {e}")
     return True
 
 

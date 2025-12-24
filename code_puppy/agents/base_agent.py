@@ -9,6 +9,7 @@ import time
 import traceback
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterable
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
@@ -21,6 +22,7 @@ from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
     ImageUrl,
+    PartEndEvent,
     RunContext,
     UsageLimitExceeded,
     UsageLimits,
@@ -50,11 +52,10 @@ from code_puppy.config import (
     get_protected_token_count,
     get_use_dbos,
     get_value,
-    load_mcp_server_configs,
 )
 from code_puppy.error_logging import log_error
 from code_puppy.keymap import cancel_agent_uses_signal, get_cancel_agent_char_code
-from code_puppy.mcp_ import ServerConfig, get_mcp_manager
+from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
     emit_info,
@@ -470,7 +471,9 @@ class BaseAgent(ABC):
         # fixed instructions. For other models, count the full system prompt.
         try:
             from code_puppy.model_utils import (
+                get_chatgpt_codex_instructions,
                 get_claude_code_instructions,
+                is_chatgpt_codex_model,
                 is_claude_code_model,
             )
 
@@ -481,6 +484,11 @@ class BaseAgent(ABC):
                 # For Claude Code models, only count the short fixed instructions
                 # The full system prompt is already in the message history
                 instructions = get_claude_code_instructions()
+                total_tokens += self.estimate_token_count(instructions)
+            elif is_chatgpt_codex_model(model_name):
+                # For ChatGPT Codex models, only count the short fixed instructions
+                # The full system prompt is already in the message history
+                instructions = get_chatgpt_codex_instructions()
                 total_tokens += self.estimate_token_count(instructions)
             else:
                 # For other models, count the full system prompt
@@ -1085,45 +1093,31 @@ class BaseAgent(ABC):
         return self._puppy_rules
 
     def load_mcp_servers(self, extra_headers: Optional[Dict[str, str]] = None):
-        """Load MCP servers through the manager and return pydantic-ai compatible servers."""
+        """Load MCP servers through the manager and return pydantic-ai compatible servers.
+
+        Note: The manager automatically syncs from mcp_servers.json during initialization,
+        so we don't need to sync here. Use reload_mcp_servers() to force a re-sync.
+        """
 
         mcp_disabled = get_value("disable_mcp_servers")
         if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
             return []
 
         manager = get_mcp_manager()
-        configs = load_mcp_server_configs()
-        if not configs:
-            existing_servers = manager.list_servers()
-            if not existing_servers:
-                return []
-        else:
-            for name, conf in configs.items():
-                try:
-                    server_config = ServerConfig(
-                        id=conf.get("id", f"{name}_{hash(name)}"),
-                        name=name,
-                        type=conf.get("type", "sse"),
-                        enabled=conf.get("enabled", True),
-                        config=conf,
-                    )
-                    existing = manager.get_server_by_name(name)
-                    if not existing:
-                        manager.register_server(server_config)
-                    else:
-                        if existing.config != server_config.config:
-                            manager.update_server(existing.id, server_config)
-                except Exception:
-                    continue
-
         return manager.get_servers_for_agent()
 
     def reload_mcp_servers(self):
-        """Reload MCP servers and return updated servers."""
+        """Reload MCP servers and return updated servers.
+
+        Forces a re-sync from mcp_servers.json to pick up any configuration changes.
+        """
         # Clear the MCP tool cache when servers are reloaded
         self._mcp_tool_definitions_cache = []
-        self.load_mcp_servers()
+
+        # Force re-sync from mcp_servers.json
         manager = get_mcp_manager()
+        manager.sync_from_config()
+
         return manager.get_servers_for_agent()
 
     def _load_model_with_fallback(
@@ -1373,6 +1367,278 @@ class BaseAgent(ABC):
 
         return self.get_message_history()
 
+    async def _display_non_streamed_response(self, result) -> None:
+        """Display response when not using streaming mode.
+
+        This is used for models like Gemini where the proxy doesn't support SSE streaming.
+        We extract the text/thinking content from the result and display it.
+        """
+        from rich.console import Console
+        from rich.markdown import Markdown
+
+        from code_puppy.config import get_banner_color
+        from code_puppy.messaging.spinner import pause_all_spinners
+
+        console = Console()
+
+        # Pause spinners before output
+        pause_all_spinners()
+
+        # Get the last model response from the result's messages
+        messages = result.all_messages()
+        for message in reversed(messages):
+            if isinstance(message, ModelResponse):
+                # Extract text and thinking parts
+                text_content = ""
+                thinking_content = ""
+
+                for part in message.parts:
+                    if isinstance(part, TextPart):
+                        text_content += part.content
+                    elif isinstance(part, ThinkingPart):
+                        thinking_content += part.content
+
+                # Display thinking content if present
+                if thinking_content.strip():
+                    thinking_color = get_banner_color("thinking")
+                    console.print()
+                    console.print(
+                        f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}]"
+                    )
+                    console.print(f"[dim]{thinking_content}[/dim]")
+
+                # Display text response if present
+                if text_content.strip():
+                    response_color = get_banner_color("agent_response")
+                    console.print()
+                    console.print(
+                        f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
+                    )
+                    console.print(Markdown(text_content))
+                    console.print()  # Final newline
+
+                # Only display the most recent model response
+                break
+
+    async def _event_stream_handler(
+        self, ctx: RunContext, events: AsyncIterable[Any]
+    ) -> None:
+        """Handle streaming events from the agent run.
+
+        This method processes streaming events and emits TextPart and ThinkingPart
+        content with styled banners as they stream in.
+
+        Args:
+            ctx: The run context.
+            events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
+        """
+        import logging
+        import os
+        import time as time_module
+
+        from pydantic_ai import PartDeltaEvent, PartStartEvent
+        from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
+        from rich.console import Console
+        from rich.live import Live
+        from rich.markdown import Markdown
+        from rich.markup import escape
+
+        from code_puppy.messaging.spinner import pause_all_spinners
+
+        console = Console()
+
+        # Disable Live display in test mode or non-interactive environments
+        # This fixes issues with pexpect PTY where Live() hangs
+        use_live_display = (
+            console.is_terminal
+            and os.environ.get("CODE_PUPPY_TEST_FAST", "").lower() not in ("1", "true")
+            and os.environ.get("CI", "").lower() not in ("1", "true")
+        )
+
+        # Track which part indices we're currently streaming (for Text/Thinking parts)
+        streaming_parts: set[int] = set()
+        thinking_parts: set[int] = (
+            set()
+        )  # Track which parts are thinking (for dim style)
+        text_parts: set[int] = set()  # Track which parts are text
+        banner_printed: set[int] = set()  # Track if banner was already printed
+        text_buffer: dict[int, list[str]] = {}  # Buffer text for markdown
+        live_displays: dict[int, Live] = {}  # Live displays for streaming markdown
+        did_stream_anything = False  # Track if we streamed any content
+        last_render_time: dict[int, float] = {}  # Track last render time per part
+        render_interval = 0.1  # Only re-render markdown every 100ms (throttle)
+
+        def _print_thinking_banner() -> None:
+            """Print the THINKING banner with spinner pause and line clear."""
+            nonlocal did_stream_anything
+            import sys
+            import time
+
+            from code_puppy.config import get_banner_color
+
+            pause_all_spinners()
+            time.sleep(0.1)  # Delay to let spinner fully clear
+            sys.stdout.write("\r\x1b[K")  # Clear line
+            sys.stdout.flush()
+            console.print()  # Newline before banner
+            # Bold banner with configurable color and lightning bolt
+            thinking_color = get_banner_color("thinking")
+            console.print(
+                Text.from_markup(
+                    f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] [dim]⚡ "
+                ),
+                end="",
+            )
+            sys.stdout.flush()
+            did_stream_anything = True
+
+        def _print_response_banner() -> None:
+            """Print the AGENT RESPONSE banner with spinner pause and line clear."""
+            nonlocal did_stream_anything
+            import sys
+            import time
+
+            from code_puppy.config import get_banner_color
+
+            pause_all_spinners()
+            time.sleep(0.1)  # Delay to let spinner fully clear
+            sys.stdout.write("\r\x1b[K")  # Clear line
+            sys.stdout.flush()
+            console.print()  # Newline before banner
+            response_color = get_banner_color("agent_response")
+            console.print(
+                Text.from_markup(
+                    f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
+                )
+            )
+            sys.stdout.flush()
+            did_stream_anything = True
+
+        async for event in events:
+            # PartStartEvent - register the part but defer banner until content arrives
+            if isinstance(event, PartStartEvent):
+                part = event.part
+                if isinstance(part, ThinkingPart):
+                    streaming_parts.add(event.index)
+                    thinking_parts.add(event.index)
+                    # If there's initial content, print banner + content now
+                    if part.content and part.content.strip():
+                        _print_thinking_banner()
+                        escaped = escape(part.content)
+                        console.print(f"[dim]{escaped}[/dim]", end="")
+                        banner_printed.add(event.index)
+                elif isinstance(part, TextPart):
+                    streaming_parts.add(event.index)
+                    text_parts.add(event.index)
+                    text_buffer[event.index] = []  # Initialize buffer
+                    # Buffer initial content if present
+                    if part.content and part.content.strip():
+                        text_buffer[event.index].append(part.content)
+
+            # PartDeltaEvent - stream the content as it arrives
+            elif isinstance(event, PartDeltaEvent):
+                if event.index in streaming_parts:
+                    delta = event.delta
+                    if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
+                        if delta.content_delta:
+                            # For text parts, stream markdown with Live display
+                            if event.index in text_parts:
+                                # Print banner and start Live on first content
+                                if event.index not in banner_printed:
+                                    _print_response_banner()
+                                    banner_printed.add(event.index)
+                                    # Only use Live display if enabled (disabled in test/CI)
+                                    if use_live_display:
+                                        live = Live(
+                                            Markdown(""),
+                                            console=console,
+                                            refresh_per_second=10,
+                                            vertical_overflow="visible",  # Allow scrolling for long content
+                                        )
+                                        live.start()
+                                        live_displays[event.index] = live
+                                # Accumulate text and throttle markdown rendering
+                                # (Markdown parsing is O(n), doing it on every token = O(n²) death)
+                                text_buffer[event.index].append(delta.content_delta)
+                                now = time_module.monotonic()
+                                last_render = last_render_time.get(event.index, 0)
+
+                                # Only re-render if enough time has passed (throttle)
+                                # Skip Live updates when not using live display
+                                if (
+                                    use_live_display
+                                    and now - last_render >= render_interval
+                                ):
+                                    content = "".join(text_buffer[event.index])
+                                    if event.index in live_displays:
+                                        try:
+                                            live_displays[event.index].update(
+                                                Markdown(content)
+                                            )
+                                            last_render_time[event.index] = now
+                                        except Exception:
+                                            pass
+                            else:
+                                # For thinking parts, stream immediately (dim)
+                                if event.index not in banner_printed:
+                                    _print_thinking_banner()
+                                    banner_printed.add(event.index)
+                                escaped = escape(delta.content_delta)
+                                console.print(f"[dim]{escaped}[/dim]", end="")
+
+            # PartEndEvent - finish the streaming with a newline
+            elif isinstance(event, PartEndEvent):
+                if event.index in streaming_parts:
+                    # For text parts, do final render then stop the Live display
+                    if event.index in text_parts:
+                        # Final render to ensure we show complete content
+                        # (throttling may have skipped the last few tokens)
+                        if event.index in live_displays and event.index in text_buffer:
+                            try:
+                                final_content = "".join(text_buffer[event.index])
+                                live_displays[event.index].update(
+                                    Markdown(final_content)
+                                )
+                            except Exception:
+                                pass
+                        if event.index in live_displays:
+                            try:
+                                live_displays[event.index].stop()
+                            except Exception:
+                                pass
+                            del live_displays[event.index]
+                        # When not using Live display, print the final content as markdown
+                        elif event.index in text_buffer:
+                            try:
+                                final_content = "".join(text_buffer[event.index])
+                                if final_content.strip():
+                                    console.print(Markdown(final_content))
+                            except Exception:
+                                pass
+                        if event.index in text_buffer:
+                            del text_buffer[event.index]
+                        # Clean up render time tracking
+                        last_render_time.pop(event.index, None)
+                    # For thinking parts, just print newline
+                    elif event.index in banner_printed:
+                        console.print()  # Final newline after streaming
+                    # Clean up all tracking sets
+                    streaming_parts.discard(event.index)
+                    thinking_parts.discard(event.index)
+                    text_parts.discard(event.index)
+                    banner_printed.discard(event.index)
+
+                    # Resume spinner if next part is NOT text/thinking (avoid race condition)
+                    # If next part is a tool call or None, it's safe to resume
+                    # Note: spinner itself handles blank line before appearing
+                    from code_puppy.messaging.spinner import resume_all_spinners
+
+                    next_kind = getattr(event, "next_part_kind", None)
+                    if next_kind not in ("text", "thinking"):
+                        resume_all_spinners()
+
+        # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
+
     def _spawn_ctrl_x_key_listener(
         self,
         stop_event: threading.Event,
@@ -1562,10 +1828,12 @@ class BaseAgent(ABC):
         pydantic_agent = (
             self._code_generation_agent or self.reload_code_generation_agent()
         )
-        # Handle claude-code models: prepend system prompt to first user message
-        from code_puppy.model_utils import is_claude_code_model
+        # Handle claude-code and chatgpt-codex models: prepend system prompt to first user message
+        from code_puppy.model_utils import is_chatgpt_codex_model, is_claude_code_model
 
-        if is_claude_code_model(self.get_model_name()):
+        if is_claude_code_model(self.get_model_name()) or is_chatgpt_codex_model(
+            self.get_model_name()
+        ):
             if len(self.get_message_history()) == 0:
                 system_prompt = self.get_system_prompt()
                 puppy_rules = self.load_puppy_rules()
@@ -1615,6 +1883,10 @@ class BaseAgent(ABC):
                 max_retries = 3
                 retry_count = 0
 
+                model_name = self.get_model_name()
+                import logging
+                gemini_logger = logging.getLogger("code_puppy.gemini_debug")
+
                 while True:
                     try:
                         # Handle MCP servers - add them temporarily when using DBOS
@@ -1652,12 +1924,42 @@ class BaseAgent(ABC):
                                 )
                         else:
                             # Non-DBOS path (MCP servers are already included)
-                            result_ = await pydantic_agent.run(
-                                prompt_payload,
-                                message_history=self.get_message_history(),
-                                usage_limits=usage_limits,
-                                **kwargs,
-                            )
+                            # Check if we should disable streaming for custom_gemini
+                            # (Walmart proxy returns JSON instead of SSE)
+                            use_streaming = True
+                            if "gemini" in model_name.lower():
+                                # Check if it's a custom_gemini model (proxy doesn't support SSE)
+                                import os as os_check
+
+                                disable_gemini_stream = os_check.environ.get(
+                                    "CODE_PUPPY_DISABLE_GEMINI_STREAM", "true"
+                                ).lower() in ("1", "true")
+                                if disable_gemini_stream:
+                                    use_streaming = False
+                                    emit_warning(
+                                        "[dim]Using non-streaming mode for Gemini (proxy compatibility)[/dim]"
+                                    )
+
+                            if use_streaming:
+                                result_ = await pydantic_agent.run(
+                                    prompt_payload,
+                                    message_history=self.get_message_history(),
+                                    usage_limits=usage_limits,
+                                    event_stream_handler=self._event_stream_handler,
+                                    **kwargs,
+                                )
+                            else:
+                                # Non-streaming mode for Gemini
+                                result_ = await pydantic_agent.run(
+                                    prompt_payload,
+                                    message_history=self.get_message_history(),
+                                    usage_limits=usage_limits,
+                                    # No event_stream_handler = non-streaming
+                                    **kwargs,
+                                )
+                                # Display the response since we bypassed the stream handler
+                                await self._display_non_streamed_response(result_)
+
                         self.set_message_history(result_.all_messages())
                         return result_
 
@@ -1665,23 +1967,9 @@ class BaseAgent(ABC):
                         # Handle Gemini's specific error: "Expected at least one candidate in Gemini response"
                         # This typically happens when Safety Filters trigger or due to transient API issues.
                         error_str = str(e)
+
                         if "Expected at least one candidate" in error_str:
                             emit_warning("(Model returned an empty response.)")
-
-                            # detailed debugging logging
-                            try:
-                                import logging
-
-                                logger = logging.getLogger("code_puppy.gemini_debug")
-                                logger.warning(
-                                    f"Gemini UnexpectedModelBehavior Details: {repr(e)}"
-                                )
-                                if hasattr(e, "cause"):
-                                    logger.warning(f"Caused by: {repr(e.cause)}")
-                                if hasattr(e, "response"):
-                                    logger.warning(f"Raw Response: {e.response}")
-                            except Exception:
-                                pass
 
                             if retry_count < max_retries:
                                 retry_count += 1
@@ -1728,6 +2016,108 @@ class BaseAgent(ABC):
                         _log_error_to_file(exc)
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
                         emit_info(f"{str(exc.args)}", group_id=group_id)
+
+                        # Enhanced logging for output validation / retry errors
+                        error_str = str(exc).lower()
+                        if "output validation" in error_str or "retries" in error_str:
+                            from code_puppy.error_logging import get_log_file_path
+
+                            emit_info(
+                                "[yellow]Output validation retry error detected. Debug info:[/yellow]",
+                                group_id=group_id,
+                            )
+                            # Log exception type and full repr
+                            emit_info(
+                                f"[dim]  Exception type: {type(exc).__name__}[/dim]",
+                                group_id=group_id,
+                            )
+                            emit_info(
+                                f"[dim]  Exception repr: {repr(exc)}[/dim]",
+                                group_id=group_id,
+                            )
+                            # Check for __cause__ (chained exception)
+                            if exc.__cause__:
+                                emit_info(
+                                    f"[yellow]  Caused by: {type(exc.__cause__).__name__}: {exc.__cause__}[/yellow]",
+                                    group_id=group_id,
+                                )
+                                # Try to extract more from the cause
+                                cause = exc.__cause__
+                                for attr in [
+                                    "response",
+                                    "body",
+                                    "message",
+                                    "detail",
+                                    "errors",
+                                ]:
+                                    if hasattr(cause, attr):
+                                        val = getattr(cause, attr)
+                                        if val:
+                                            emit_info(
+                                                f"[dim]    cause.{attr}: {val}[/dim]",
+                                                group_id=group_id,
+                                            )
+                            # Check for __context__ (implicit chaining)
+                            if exc.__context__ and exc.__context__ != exc.__cause__:
+                                emit_info(
+                                    f"[dim]  Context: {type(exc.__context__).__name__}: {exc.__context__}[/dim]",
+                                    group_id=group_id,
+                                )
+                                # Dig into ExceptionGroup contexts
+                                if isinstance(exc.__context__, ExceptionGroup):
+                                    for i, sub_exc in enumerate(
+                                        exc.__context__.exceptions
+                                    ):
+                                        emit_info(
+                                            f"[yellow]    Sub-exception {i + 1}: {type(sub_exc).__name__}: {sub_exc}[/yellow]",
+                                            group_id=group_id,
+                                        )
+                                        # Log sub-exception attributes
+                                        for attr in [
+                                            "errors",
+                                            "message",
+                                            "body",
+                                            "response",
+                                        ]:
+                                            if hasattr(sub_exc, attr):
+                                                val = getattr(sub_exc, attr)
+                                                if val:
+                                                    emit_info(
+                                                        f"[dim]      {attr}: {val}[/dim]",
+                                                        group_id=group_id,
+                                                    )
+                                        # Check sub-exception's cause
+                                        if sub_exc.__cause__:
+                                            emit_info(
+                                                f"[yellow]      __cause__: {type(sub_exc.__cause__).__name__}: {sub_exc.__cause__}[/yellow]",
+                                                group_id=group_id,
+                                            )
+                                        if sub_exc.__context__:
+                                            emit_info(
+                                                f"[dim]      __context__: {type(sub_exc.__context__).__name__}: {sub_exc.__context__}[/dim]",
+                                                group_id=group_id,
+                                            )
+                            # Log any pydantic-ai specific attributes
+                            for attr in [
+                                "response",
+                                "body",
+                                "message",
+                                "detail",
+                                "errors",
+                            ]:
+                                if hasattr(exc, attr):
+                                    val = getattr(exc, attr)
+                                    if val:
+                                        emit_info(
+                                            f"[dim]  {attr}: {val}[/dim]",
+                                            group_id=group_id,
+                                        )
+                            # Tell user where to find full logs
+                            emit_info(
+                                f"[dim]  Full traceback logged to: {get_log_file_path()}[/dim]",
+                                group_id=group_id,
+                            )
+
                         # Log to file for debugging
                         log_error(
                             exc,

@@ -201,15 +201,23 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
 
             return result
 
-        except Exception as e:
+        except BaseException as e:
             # Store error and mark as initialized (with error)
-            self._init_error = e
+            # Unwrap ExceptionGroup if present (Python 3.11+)
+            if type(e).__name__ == "ExceptionGroup" and hasattr(e, "exceptions"):
+                # Use the first exception as the primary cause
+                self._init_error = e.exceptions[0]
+                error_details = f"{e.exceptions[0]}"
+            else:
+                self._init_error = e
+                error_details = str(e)
+
             self._initialized.set()
 
             # Emit error message
             server_name = getattr(self, "tool_prefix", self.command)
             emit_info(
-                f"❌ MCP Server '{server_name}' failed to initialize: {e}",
+                f"❌ MCP Server '{server_name}' failed to initialize: {error_details}",
                 style="red",
                 message_group=self.message_group,
             )

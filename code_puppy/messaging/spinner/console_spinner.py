@@ -44,6 +44,9 @@ class ConsoleSpinner(SpinnerBase):
         if self._thread and self._thread.is_alive():
             return
 
+        # Print blank line before spinner for visual separation from content
+        self.console.print()
+
         # Create a Live display for the spinner
         self._live = Live(
             self._generate_spinner_panel(),
@@ -198,6 +201,9 @@ class ConsoleSpinner(SpinnerBase):
                     sys.stdout.write("\r")  # Return to start of line
                     sys.stdout.write("\x1b[K")  # Clear to end of line
                     sys.stdout.flush()
+
+                    # Print blank line before spinner for visual separation
+                    self.console.print()
 
                     self._live = Live(
                         self._generate_spinner_panel(),

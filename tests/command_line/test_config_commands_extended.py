@@ -113,7 +113,9 @@ class TestReasoningCommand:
             result = handle_reasoning_command("/reasoning")
             assert result is True
 
-            mock_warning.assert_called_once_with("Usage: /reasoning <low|medium|high>")
+            mock_warning.assert_called_once_with(
+                "Usage: /reasoning <minimal|low|medium|high|xhigh>"
+            )
 
     def test_reasoning_command_current_none(self):
         """Test reasoning command when current effort is None."""
@@ -121,7 +123,9 @@ class TestReasoningCommand:
             result = handle_reasoning_command("/reasoning")
             assert result is True
 
-            mock_warning.assert_called_once_with("Usage: /reasoning <low|medium|high>")
+            mock_warning.assert_called_once_with(
+                "Usage: /reasoning <minimal|low|medium|high|xhigh>"
+            )
 
     def test_reasoning_command_wrong_argument_count(self):
         """Test reasoning command with incorrect number of arguments."""
@@ -139,7 +143,7 @@ class TestReasoningCommand:
             # Check warning message
             args, kwargs = mock_warning.call_args_list[0]
             assert "Usage:" in args[0]
-            assert "<low|medium|high>" in args[0]
+            assert "<minimal|low|medium|high|xhigh>" in args[0]
 
     def test_reasoning_command_agent_reload_failure(self):
         """Test reasoning command handles agent reload failures gracefully."""

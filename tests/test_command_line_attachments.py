@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic_ai import BinaryContent
 
+from code_puppy.cli_runner import run_prompt_with_attachments
 from code_puppy.command_line.attachments import (
     DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
     parse_prompt_attachments,
 )
-from code_puppy.main import run_prompt_with_attachments
 
 
 @pytest.mark.parametrize("extension", sorted(DEFAULT_ACCEPTED_IMAGE_EXTENSIONS))

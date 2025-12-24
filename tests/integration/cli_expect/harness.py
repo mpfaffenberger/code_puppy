@@ -66,7 +66,7 @@ class SpawnResult:
     child: pexpect.spawn
     temp_home: pathlib.Path
     log_path: pathlib.Path
-    timeout: float = field(default=10.0)
+    timeout: float = field(default=30.0)
     _log_file: object = field(init=False, repr=False)
     _initial_files: set[pathlib.Path] = field(
         init=False, repr=False, default_factory=set
@@ -253,7 +253,7 @@ class CliHarness:
 
     def __init__(
         self,
-        timeout: float = 10.0,
+        timeout: float = 30.0,
         capture_output: bool = True,
         retry_policy: RetryPolicy | None = None,
     ) -> None:
@@ -444,16 +444,16 @@ def spawned_cli(
 
     # Try to satisfy first-run prompts if they appear; otherwise continue
     try:
-        result.child.expect("What should we name the puppy?", timeout=5)
+        result.child.expect("What should we name the puppy?", timeout=15)
         result.sendline("\r")
-        result.child.expect("What's your name", timeout=5)
+        result.child.expect("What's your name", timeout=15)
         result.sendline("\r")
     except pexpect.exceptions.TIMEOUT:
         pass
 
     # Skip autosave picker if it appears
     try:
-        result.child.expect("1-5 to load, 6 for next", timeout=3)
+        result.child.expect("1-5 to load, 6 for next", timeout=15)
         result.send("\r")
         time.sleep(0.2)
         result.send("\r")

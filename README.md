@@ -66,6 +66,8 @@ Code Puppy Walmart Edition is an AI-powered code generation agent, designed to u
   - `/session id` shows the current autosave ID and file prefix
   - `/session new` rotates the autosave ID
 
+### Banner Customization
+Use `/colors` to configure banner colors and personalize your Code Puppy experience! This opens an interactive color picker that lets you customize the startup banner theme.
 
 - **Multi-language support**: Capable of generating code in various programming languages.
 - **Interactive CLI**: A command-line interface for interactive use.

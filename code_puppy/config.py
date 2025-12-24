@@ -212,6 +212,9 @@ def get_config_keys():
     default_keys.append("enable_dbos")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
+    # Add banner color keys
+    for banner_name in DEFAULT_BANNER_COLORS:
+        default_keys.append(f"banner_color_{banner_name}")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -307,9 +310,8 @@ def load_mcp_server_configs():
 def _default_model_from_models_json():
     """Load the default model name from models.json.
 
-    Prefers synthetic-GLM-4.6 as the default model.
-    Falls back to the first model in models.json if synthetic-GLM-4.6 is not available.
-    As a last resort, falls back to ``gpt-5`` if the file cannot be read.
+    Returns the first model in models.json as the default.
+    Falls back to ``gpt-5`` if the file cannot be read.
     """
     global _default_model_cache
 
@@ -321,11 +323,7 @@ def _default_model_from_models_json():
 
         models_config = ModelFactory.load_config()
         if models_config:
-            # Prefer synthetic-GLM-4.6 as default
-            if "synthetic-GLM-4.6" in models_config:
-                _default_model_cache = "synthetic-GLM-4.6"
-                return "synthetic-GLM-4.6"
-            # Fall back to first model if synthetic-GLM-4.6 is not available
+            # Use first model in models.json as default
             first_key = next(iter(models_config))
             _default_model_cache = first_key
             return first_key
@@ -548,8 +546,8 @@ def set_puppy_token(token: str):
 
 
 def get_openai_reasoning_effort() -> str:
-    """Return the configured OpenAI reasoning effort (low, medium, high)."""
-    allowed_values = {"low", "medium", "high"}
+    """Return the configured OpenAI reasoning effort (minimal, low, medium, high, xhigh)."""
+    allowed_values = {"minimal", "low", "medium", "high", "xhigh"}
     configured = (get_value("openai_reasoning_effort") or "medium").strip().lower()
     if configured not in allowed_values:
         return "medium"
@@ -558,7 +556,7 @@ def get_openai_reasoning_effort() -> str:
 
 def set_openai_reasoning_effort(value: str) -> None:
     """Persist the OpenAI reasoning effort ensuring it remains within allowed values."""
-    allowed_values = {"low", "medium", "high"}
+    allowed_values = {"minimal", "low", "medium", "high", "xhigh"}
     normalized = (value or "").strip().lower()
     if normalized not in allowed_values:
         raise ValueError(
@@ -709,10 +707,22 @@ def get_all_model_settings(model_name: str) -> dict:
         for key, val in config[DEFAULT_SECTION].items():
             if key.startswith(prefix) and val.strip():
                 setting_name = key[len(prefix) :]
-                try:
-                    settings[setting_name] = float(val)
-                except (ValueError, TypeError):
-                    pass
+                # Handle different value types
+                val_stripped = val.strip()
+                # Check for boolean values first
+                if val_stripped.lower() in ("true", "false"):
+                    settings[setting_name] = val_stripped.lower() == "true"
+                else:
+                    # Try to parse as number (int first, then float)
+                    try:
+                        # Try int first for cleaner values like budget_tokens
+                        if "." not in val_stripped:
+                            settings[setting_name] = int(val_stripped)
+                        else:
+                            settings[setting_name] = float(val_stripped)
+                    except (ValueError, TypeError):
+                        # Keep as string if not a number
+                        settings[setting_name] = val_stripped
 
     return settings
 
@@ -1325,6 +1335,84 @@ def set_diff_deletion_color(color: str):
         color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
     """
     set_config_value("highlight_deletion_color", color)
+
+
+# =============================================================================
+# Banner Color Configuration
+# =============================================================================
+
+# Default banner colors (Rich color names)
+# A beautiful jewel-tone palette with semantic meaning:
+#   - Blues/Teals: Reading & navigation (calm, informational)
+#   - Warm tones: Actions & changes (edits, shell commands)
+#   - Purples: AI thinking & reasoning (the "brain" colors)
+#   - Greens: Completions & success
+#   - Neutrals: Search & listings
+DEFAULT_BANNER_COLORS = {
+    "thinking": "deep_sky_blue4",  # Sapphire - contemplation
+    "agent_response": "medium_purple4",  # Amethyst - main AI output
+    "shell_command": "dark_orange3",  # Amber - system commands
+    "read_file": "steel_blue",  # Steel - reading files
+    "edit_file": "dark_goldenrod",  # Gold - modifications
+    "grep": "grey37",  # Silver - search results
+    "directory_listing": "dodger_blue2",  # Sky - navigation
+    "agent_reasoning": "dark_violet",  # Violet - deep thought
+    "invoke_agent": "deep_pink4",  # Ruby - agent invocation
+    "subagent_response": "sea_green3",  # Emerald - sub-agent success
+    "list_agents": "dark_slate_gray3",  # Slate - neutral listing
+}
+
+
+def get_banner_color(banner_name: str) -> str:
+    """Get the background color for a specific banner.
+
+    Args:
+        banner_name: The banner identifier (e.g., 'thinking', 'agent_response')
+
+    Returns:
+        Rich color name or hex code for the banner background
+    """
+    config_key = f"banner_color_{banner_name}"
+    val = get_value(config_key)
+    if val:
+        return val
+    return DEFAULT_BANNER_COLORS.get(banner_name, "blue")
+
+
+def set_banner_color(banner_name: str, color: str):
+    """Set the background color for a specific banner.
+
+    Args:
+        banner_name: The banner identifier (e.g., 'thinking', 'agent_response')
+        color: Rich color name or hex code
+    """
+    config_key = f"banner_color_{banner_name}"
+    set_config_value(config_key, color)
+
+
+def get_all_banner_colors() -> dict:
+    """Get all banner colors (configured or default).
+
+    Returns:
+        Dict mapping banner names to their colors
+    """
+    return {name: get_banner_color(name) for name in DEFAULT_BANNER_COLORS}
+
+
+def reset_banner_color(banner_name: str):
+    """Reset a banner color to its default.
+
+    Args:
+        banner_name: The banner identifier to reset
+    """
+    default_color = DEFAULT_BANNER_COLORS.get(banner_name, "blue")
+    set_banner_color(banner_name, default_color)
+
+
+def reset_all_banner_colors():
+    """Reset all banner colors to their defaults."""
+    for name, color in DEFAULT_BANNER_COLORS.items():
+        set_banner_color(name, color)
 
 
 def get_current_autosave_id() -> str:
