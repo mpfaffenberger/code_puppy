@@ -415,13 +415,13 @@ class RichConsoleRenderer:
         # Header
         banner = self._format_banner("grep", "GREP")
         self._console.print(
-            f"\n{banner} 📂 [dim]{msg.directory} for '{msg.search_term}'[/dim]"
+            f"\n{banner} 📂 [dim grey70]{msg.directory} for '{msg.search_term}'[/dim grey70]"
         )
 
         if not msg.matches:
             self._console.print(
-                f"[dim]No matches found for '{msg.search_term}' "
-                f"in {msg.directory}[/dim]"
+                f"[dim grey70]No matches found for '{msg.search_term}' "
+                f"in {msg.directory}[/dim grey70]"
             )
             return
 
@@ -437,7 +437,7 @@ class RichConsoleRenderer:
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"\n[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                    f"\n[dim grey70]📄 {file_path} ({len(file_matches)} {match_word})[/dim grey70]"
                 )
 
                 # Show each match with line number and content
@@ -461,7 +461,7 @@ class RichConsoleRenderer:
                         highlighted_line = line
 
                     ln = match.line_number
-                    self._console.print(f"  [dim]{ln:4d}[/dim] │ {highlighted_line}")
+                    self._console.print(f"  [dim grey70]{ln:4d}[/dim grey70] │ {highlighted_line}")
         else:
             # Concise mode (default): Show only file summaries
             self._console.print("")
@@ -469,7 +469,7 @@ class RichConsoleRenderer:
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                    f"[dim grey70]📄 {file_path} ({len(file_matches)} {match_word})[/dim grey70]"
                 )
 
         # Summary - subtle
@@ -477,8 +477,8 @@ class RichConsoleRenderer:
         file_word = "file" if len(by_file) == 1 else "files"
         num_files = len(by_file)
         self._console.print(
-            f"[dim]Found {msg.total_matches} {match_word} "
-            f"across {num_files} {file_word}[/dim]"
+            f"[dim grey70]Found {msg.total_matches} {match_word} "
+            f"across {num_files} {file_word}[/dim grey70]"
         )
 
         # Trailing newline for spinner separation
