@@ -391,7 +391,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.316"
+version = "0.0.317"
 source = { editable = "." }
 dependencies = [
     { name = "camoufox" },
