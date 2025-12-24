@@ -318,12 +318,9 @@ class ModelFactory:
                 http2=http2_enabled,
             )
 
-            # Check if interleaved thinking is enabled for this model
-            # Only applies to Claude 4 models (Opus 4.5, Opus 4.1, Opus 4, Sonnet 4)
-            from code_puppy.config import get_effective_model_settings
-
-            effective_settings = get_effective_model_settings(model_name)
-            interleaved_thinking = effective_settings.get("interleaved_thinking", False)
+            # ALWAYS enable interleaved thinking for Claude models
+            # This is forced on and cannot be overridden via /model_settings
+            interleaved_thinking = True
 
             default_headers = {}
             if interleaved_thinking:
@@ -362,11 +359,9 @@ class ModelFactory:
                 http2=http2_enabled,
             )
 
-            # Check if interleaved thinking is enabled for this model
-            from code_puppy.config import get_effective_model_settings
-
-            effective_settings = get_effective_model_settings(model_name)
-            interleaved_thinking = effective_settings.get("interleaved_thinking", False)
+            # ALWAYS enable interleaved thinking for Claude models
+            # This is forced on and cannot be overridden via /model_settings
+            interleaved_thinking = True
 
             default_headers = {}
             if interleaved_thinking:
@@ -392,11 +387,9 @@ class ModelFactory:
                 )
                 return None
 
-            # Check if interleaved thinking is enabled (defaults to True for OAuth models)
-            from code_puppy.config import get_effective_model_settings
-
-            effective_settings = get_effective_model_settings(model_name)
-            interleaved_thinking = effective_settings.get("interleaved_thinking", True)
+            # ALWAYS enable interleaved thinking for Claude Code (OAuth) models
+            # This is forced on and cannot be overridden via /model_settings
+            interleaved_thinking = True
 
             # Handle anthropic-beta header based on interleaved_thinking setting
             if "anthropic-beta" in headers:
