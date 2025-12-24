@@ -163,6 +163,8 @@ class TestMessagingPackageExports:
             "RichConsoleRenderer",
             "DEFAULT_STYLES",
             "DIFF_STYLES",
+            # Markdown patches
+            "patch_markdown_headings",
             # Session management
             "set_session_context",
             "get_session_context",
