@@ -79,6 +79,7 @@ path = "code_puppy/models_dev_api.json"
 [tool.ruff.lint.per-file-ignores]
 "code_puppy/main.py" = ["E402"]
 "code_puppy/cli_runner.py" = ["E402"]
+"code_puppy/messaging/__init__.py" = ["E402"]
 
 [tool.pytest.ini_options]
 addopts = "--cov=code_puppy --cov-report=term-missing"
