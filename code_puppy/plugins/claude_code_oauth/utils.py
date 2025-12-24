@@ -368,6 +368,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                     "temperature",
                     "extended_thinking",
                     "budget_tokens",
+                    "interleaved_thinking",
                 ],
             }
             added += 1
