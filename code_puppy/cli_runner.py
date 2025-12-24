@@ -706,6 +706,12 @@ async def run_prompt_with_attachments(
     attachments = [attachment.content for attachment in processed_prompt.attachments]
     link_attachments = [link.url_part for link in processed_prompt.link_attachments]
 
+    # IMPORTANT: Set the shared console on the agent so that streaming output
+    # uses the same console as the spinner. This prevents Live display conflicts
+    # that cause line duplication during markdown streaming.
+    if spinner_console is not None:
+        agent._console = spinner_console
+
     # Create the agent task first so we can track and cancel it
     agent_task = asyncio.create_task(
         agent.run_with_mcp(
