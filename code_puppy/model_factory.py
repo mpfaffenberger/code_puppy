@@ -319,9 +319,21 @@ class ModelFactory:
                 http2=http2_enabled,
             )
 
+            # Check if interleaved thinking is enabled for this model
+            # Only applies to Claude 4 models (Opus 4.5, Opus 4.1, Opus 4, Sonnet 4)
+            from code_puppy.config import get_effective_model_settings
+
+            effective_settings = get_effective_model_settings(model_name)
+            interleaved_thinking = effective_settings.get("interleaved_thinking", False)
+
+            default_headers = {}
+            if interleaved_thinking:
+                default_headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+
             anthropic_client = AsyncAnthropic(
                 api_key=api_key,
                 http_client=client,
+                default_headers=default_headers if default_headers else None,
             )
 
             # Ensure cache_control is injected at the Anthropic SDK layer
@@ -351,10 +363,21 @@ class ModelFactory:
                 http2=http2_enabled,
             )
 
+            # Check if interleaved thinking is enabled for this model
+            from code_puppy.config import get_effective_model_settings
+
+            effective_settings = get_effective_model_settings(model_name)
+            interleaved_thinking = effective_settings.get("interleaved_thinking", False)
+
+            default_headers = {}
+            if interleaved_thinking:
+                default_headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+
             anthropic_client = AsyncAnthropic(
                 base_url=url,
                 http_client=client,
                 api_key=api_key,
+                default_headers=default_headers if default_headers else None,
             )
 
             # Ensure cache_control is injected at the Anthropic SDK layer
@@ -369,6 +392,31 @@ class ModelFactory:
                     f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
                 )
                 return None
+
+            # Check if interleaved thinking is enabled (defaults to True for OAuth models)
+            from code_puppy.config import get_effective_model_settings
+
+            effective_settings = get_effective_model_settings(model_name)
+            interleaved_thinking = effective_settings.get("interleaved_thinking", True)
+
+            # Handle anthropic-beta header based on interleaved_thinking setting
+            if "anthropic-beta" in headers:
+                beta_parts = [p.strip() for p in headers["anthropic-beta"].split(",")]
+                if interleaved_thinking:
+                    # Ensure interleaved-thinking is in the header
+                    if "interleaved-thinking-2025-05-14" not in beta_parts:
+                        beta_parts.append("interleaved-thinking-2025-05-14")
+                else:
+                    # Remove interleaved-thinking from the header
+                    beta_parts = [
+                        p for p in beta_parts if "interleaved-thinking" not in p
+                    ]
+                headers["anthropic-beta"] = ",".join(beta_parts) if beta_parts else None
+                if headers.get("anthropic-beta") is None:
+                    del headers["anthropic-beta"]
+            elif interleaved_thinking:
+                # No existing beta header, add one for interleaved thinking
+                headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
 
             # Use a dedicated client wrapper that injects cache_control on /v1/messages
             if verify is None:
