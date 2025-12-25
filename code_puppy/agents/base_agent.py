@@ -1267,13 +1267,9 @@ class BaseAgent(ABC):
             ctx: The run context.
             events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
         """
-        import os
-        import time as time_module
-
         from pydantic_ai import PartDeltaEvent, PartStartEvent
         from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
         from rich.console import Console
-        from rich.live import Live
         from rich.markdown import Markdown
         from rich.markup import escape
 
@@ -1288,14 +1284,6 @@ class BaseAgent(ABC):
             # Fallback if console not set (shouldn't happen in normal use)
             console = Console()
 
-        # Disable Live display in test mode or non-interactive environments
-        # This fixes issues with pexpect PTY where Live() hangs
-        use_live_display = (
-            console.is_terminal
-            and os.environ.get("CODE_PUPPY_TEST_FAST", "").lower() not in ("1", "true")
-            and os.environ.get("CI", "").lower() not in ("1", "true")
-        )
-
         # Track which part indices we're currently streaming (for Text/Thinking parts)
         streaming_parts: set[int] = set()
         thinking_parts: set[int] = (
@@ -1303,11 +1291,9 @@ class BaseAgent(ABC):
         )  # Track which parts are thinking (for dim style)
         text_parts: set[int] = set()  # Track which parts are text
         banner_printed: set[int] = set()  # Track if banner was already printed
-        text_buffer: dict[int, list[str]] = {}  # Buffer text for markdown
-        live_displays: dict[int, Live] = {}  # Live displays for streaming markdown
+        text_buffer: dict[int, list[str]] = {}  # Buffer text for final markdown render
+        token_count: dict[int, int] = {}  # Track token count per text part
         did_stream_anything = False  # Track if we streamed any content
-        last_render_time: dict[int, float] = {}  # Track last render time per part
-        render_interval = 0.1  # Only re-render markdown every 100ms (throttle)
 
         def _print_thinking_banner() -> None:
             """Print the THINKING banner with spinner pause and line clear."""
@@ -1372,9 +1358,11 @@ class BaseAgent(ABC):
                     streaming_parts.add(event.index)
                     text_parts.add(event.index)
                     text_buffer[event.index] = []  # Initialize buffer
+                    token_count[event.index] = 0  # Initialize token counter
                     # Buffer initial content if present
                     if part.content and part.content.strip():
                         text_buffer[event.index].append(part.content)
+                        token_count[event.index] += 1
 
             # PartDeltaEvent - stream the content as it arrives
             elif isinstance(event, PartDeltaEvent):
@@ -1382,43 +1370,23 @@ class BaseAgent(ABC):
                     delta = event.delta
                     if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
                         if delta.content_delta:
-                            # For text parts, stream markdown with Live display
+                            # For text parts, show token counter then render at end
                             if event.index in text_parts:
-                                # Print banner and start Live on first content
+                                import sys
+
+                                # Print banner on first content
                                 if event.index not in banner_printed:
                                     _print_response_banner()
                                     banner_printed.add(event.index)
-                                    # Only use Live display if enabled (disabled in test/CI)
-                                    if use_live_display:
-                                        live = Live(
-                                            Markdown(""),
-                                            console=console,
-                                            refresh_per_second=10,
-                                            vertical_overflow="visible",  # Allow scrolling for long content
-                                        )
-                                        live.start()
-                                        live_displays[event.index] = live
-                                # Accumulate text and throttle markdown rendering
-                                # (Markdown parsing is O(n), doing it on every token = O(n²) death)
+                                # Accumulate text for final markdown render
                                 text_buffer[event.index].append(delta.content_delta)
-                                now = time_module.monotonic()
-                                last_render = last_render_time.get(event.index, 0)
-
-                                # Only re-render if enough time has passed (throttle)
-                                # Skip Live updates when not using live display
-                                if (
-                                    use_live_display
-                                    and now - last_render >= render_interval
-                                ):
-                                    content = "".join(text_buffer[event.index])
-                                    if event.index in live_displays:
-                                        try:
-                                            live_displays[event.index].update(
-                                                Markdown(content)
-                                            )
-                                            last_render_time[event.index] = now
-                                        except Exception:
-                                            pass
+                                token_count[event.index] += 1
+                                # Update token counter in place (single line)
+                                count = token_count[event.index]
+                                sys.stdout.write(
+                                    f"\r\x1b[K  ⏳ Receiving... {count} tokens"
+                                )
+                                sys.stdout.flush()
                             else:
                                 # For thinking parts, stream immediately (dim)
                                 if event.index not in banner_printed:
@@ -1430,36 +1398,24 @@ class BaseAgent(ABC):
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 if event.index in streaming_parts:
-                    # For text parts, do final render then stop the Live display
+                    # For text parts, clear counter line and render markdown
                     if event.index in text_parts:
-                        # Final render to ensure we show complete content
-                        # (throttling may have skipped the last few tokens)
-                        if event.index in live_displays and event.index in text_buffer:
-                            try:
-                                final_content = "".join(text_buffer[event.index])
-                                live_displays[event.index].update(
-                                    Markdown(final_content)
-                                )
-                            except Exception:
-                                pass
-                        if event.index in live_displays:
-                            try:
-                                live_displays[event.index].stop()
-                            except Exception:
-                                pass
-                            del live_displays[event.index]
-                        # When not using Live display, print the final content as markdown
-                        elif event.index in text_buffer:
+                        import sys
+
+                        # Clear the token counter line
+                        sys.stdout.write("\r\x1b[K")
+                        sys.stdout.flush()
+                        # Render the final markdown nicely
+                        if event.index in text_buffer:
                             try:
                                 final_content = "".join(text_buffer[event.index])
                                 if final_content.strip():
                                     console.print(Markdown(final_content))
                             except Exception:
                                 pass
-                        if event.index in text_buffer:
                             del text_buffer[event.index]
-                        # Clean up render time tracking
-                        last_render_time.pop(event.index, None)
+                        # Clean up token count
+                        token_count.pop(event.index, None)
                     # For thinking parts, just print newline
                     elif event.index in banner_printed:
                         console.print()  # Final newline after streaming
