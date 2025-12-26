@@ -86,9 +86,15 @@ def cancel_agent_uses_signal() -> bool:
     """Check if the cancel agent key uses SIGINT (Ctrl+C).
 
     Returns:
-        True if the cancel key is ctrl+c (uses SIGINT handler),
-        False if it uses keyboard listener approach.
+        True if the cancel key is ctrl+c AND we're not on Windows
+        (uses SIGINT handler), False if it uses keyboard listener approach.
     """
+    import sys
+
+    # On Windows, always use keyboard listener - SIGINT is unreliable
+    if sys.platform == "win32":
+        return False
+
     return get_cancel_agent_key() == "ctrl+c"
 
 
