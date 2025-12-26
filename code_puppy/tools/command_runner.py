@@ -192,6 +192,11 @@ def kill_all_running_shell_processes() -> int:
     """Kill all currently tracked running shell processes and stop reader threads.
 
     Returns the number of processes signaled.
+
+    Implementation notes:
+    - Atomically snapshot and clear the registry to prevent race conditions
+    - Deduplicate by PID to ensure each process is killed at most once
+    - Let exceptions from _kill_process_group propagate (tests expect this)
     """
     global _READER_STOP_EVENT
 
@@ -199,30 +204,52 @@ def kill_all_running_shell_processes() -> int:
     if _READER_STOP_EVENT:
         _READER_STOP_EVENT.set()
 
-    procs: list[subprocess.Popen]
+    # Atomically take snapshot and clear registry
+    # This prevents other threads from seeing/processing the same processes
     with _RUNNING_PROCESSES_LOCK:
-        procs = list(_RUNNING_PROCESSES)
-    count = 0
-    for p in procs:
-        try:
-            # Close pipes first to unblock readline()
-            try:
-                if p.stdout and not p.stdout.closed:
-                    p.stdout.close()
-                if p.stderr and not p.stderr.closed:
-                    p.stderr.close()
-                if p.stdin and not p.stdin.closed:
-                    p.stdin.close()
-            except (OSError, ValueError):
-                pass
+        procs_snapshot = list(_RUNNING_PROCESSES)
+        _RUNNING_PROCESSES.clear()
 
-            if p.poll() is None:
-                _kill_process_group(p)
-                count += 1
-                _USER_KILLED_PROCESSES.add(p.pid)
-        finally:
-            _unregister_process(p)
-    return count
+    # Deduplicate by pid to ensure at-most-one kill per process
+    seen_pids: set = set()
+    killed_count = 0
+
+    for proc in procs_snapshot:
+        if proc is None:
+            continue
+
+        pid = getattr(proc, "pid", None)
+        key = pid if pid is not None else id(proc)
+
+        if key in seen_pids:
+            continue
+        seen_pids.add(key)
+
+        # Close pipes first to unblock readline()
+        try:
+            if proc.stdout and not proc.stdout.closed:
+                proc.stdout.close()
+            if proc.stderr and not proc.stderr.closed:
+                proc.stderr.close()
+            if proc.stdin and not proc.stdin.closed:
+                proc.stdin.close()
+        except (OSError, ValueError):
+            pass
+
+        # Only attempt to kill processes that are still running
+        if proc.poll() is None:
+            # Let exceptions bubble up (tests expect this behavior)
+            _kill_process_group(proc)
+            killed_count += 1
+
+            # Track user-killed PIDs
+            if pid is not None:
+                try:
+                    _USER_KILLED_PROCESSES.add(pid)
+                except Exception:
+                    pass  # Non-fatal bookkeeping
+
+    return killed_count
 
 
 def get_running_shell_process_count() -> int:
