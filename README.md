@@ -210,6 +210,55 @@ Use the `/mcp` command to manage MCP (list, start, stop, status, etc.)
 Watch this video for examples! https://www.youtube.com/watch?v=1t1zEetOqlo
 
 
+## Skills Plugin 📚
+
+Code Puppy supports **Claude Code-compatible skills** - modular knowledge packages that extend the LLM with specialized expertise.
+
+### Quick Start
+
+```bash
+/skill list              # List installed skills
+/skill add ~/my-skill    # Install a skill
+/skill info <name>       # View skill details
+/skill show <name>       # Show full documentation
+/skill remove <name>     # Uninstall skill
+/skill refresh           # Rescan skills directory
+```
+
+### Skills Directory
+
+```
+~/.code_puppy/skills/
+├── pdf/
+│   └── SKILL.md
+└── docx/
+    └── SKILL.md
+```
+
+### SKILL.md Format
+
+```yaml
+---
+name: my-skill              # kebab-case, required
+description: "What it does" # required
+license: "MIT"              # optional
+---
+
+# Skill Documentation
+
+Full instructions go here...
+```
+
+### How It Works
+
+1. **Startup** → Plugin scans `~/.code_puppy/skills/` for valid skills
+2. **Prompts** → Skill catalog is injected into system prompts
+3. **Usage** → LLM sees available skills and can request full docs
+
+See [Skills Plugin README](code_puppy/plugins/skills/README.md) for full documentation.
+
+---
+
 ## Round Robin Model Distribution
 
 Code Puppy supports **Round Robin model distribution** to help you overcome rate limits and distribute load across multiple AI models. This feature automatically cycles through configured models with each request, maximizing your API usage while staying within rate limits.
