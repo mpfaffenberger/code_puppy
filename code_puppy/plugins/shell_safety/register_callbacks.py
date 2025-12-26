@@ -17,6 +17,7 @@ from code_puppy.plugins.shell_safety.command_cache import (
     cache_assessment,
     get_cached_assessment,
 )
+from code_puppy.tools.command_runner import ShellSafetyAssessment
 
 # OAuth model prefixes - these models have their own safety mechanisms
 OAUTH_MODEL_PREFIXES = (
@@ -142,8 +143,14 @@ async def shell_safety_callback(
         # Create agent and assess command
         agent = ShellSafetyAgent()
 
-        # Run async assessment (we're in an async callback now!)
-        assessment = await agent.run_with_mcp(command)
+        # Build the assessment prompt with optional cwd context
+        prompt = f"Assess this shell command:\n\nCommand: {command}"
+        if cwd:
+            prompt += f"\nWorking directory: {cwd}"
+
+        # Run async assessment with structured output type
+        result = await agent.run_with_mcp(prompt, output_type=ShellSafetyAssessment)
+        assessment = result.output
 
         # Cache the result for future use, but only if it's not a fallback assessment
         if not getattr(assessment, "is_fallback", False):
