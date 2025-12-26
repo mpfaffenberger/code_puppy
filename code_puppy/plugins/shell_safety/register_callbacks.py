@@ -7,12 +7,41 @@ and assesses their safety risk before execution.
 from typing import Any, Dict, Optional
 
 from code_puppy.callbacks import register_callback
-from code_puppy.config import get_safety_permission_level, get_yolo_mode
+from code_puppy.config import (
+    get_global_model_name,
+    get_safety_permission_level,
+    get_yolo_mode,
+)
 from code_puppy.messaging import emit_info
 from code_puppy.plugins.shell_safety.command_cache import (
     cache_assessment,
     get_cached_assessment,
 )
+
+# OAuth model prefixes - these models have their own safety mechanisms
+OAUTH_MODEL_PREFIXES = (
+    "claude-code-",  # Anthropic OAuth
+    "chatgpt-",  # OpenAI OAuth
+    "gemini-oauth",  # Google OAuth
+)
+
+
+def is_oauth_model(model_name: str | None) -> bool:
+    """Check if the model is an OAuth model that should skip safety checks.
+
+    OAuth models have their own built-in safety mechanisms, so we skip
+    the shell safety callback to avoid redundant checks and potential bugs.
+
+    Args:
+        model_name: The name of the current model
+
+    Returns:
+        True if the model is an OAuth model, False otherwise
+    """
+    if not model_name:
+        return False
+    return model_name.startswith(OAUTH_MODEL_PREFIXES)
+
 
 # Risk level hierarchy for numeric comparison
 # Lower numbers = safer commands, higher numbers = more dangerous
@@ -68,6 +97,11 @@ async def shell_safety_callback(
         None if command is safe to proceed
         Dict with rejection info if command should be blocked
     """
+    # Skip safety checks for OAuth models - they have their own safety mechanisms
+    current_model = get_global_model_name()
+    if is_oauth_model(current_model):
+        return None
+
     # Only check safety in yolo_mode - otherwise user is reviewing manually
     yolo_mode = get_yolo_mode()
     if not yolo_mode:
@@ -109,7 +143,7 @@ async def shell_safety_callback(
         agent = ShellSafetyAgent()
 
         # Run async assessment (we're in an async callback now!)
-        assessment = await agent.assess_command(command, cwd)
+        assessment = await agent.run_with_mcp(command)
 
         # Cache the result for future use, but only if it's not a fallback assessment
         if not getattr(assessment, "is_fallback", False):

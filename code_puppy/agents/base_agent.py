@@ -8,7 +8,18 @@ import threading
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+    Union,
+)
 
 import mcp
 import pydantic
@@ -1230,6 +1241,74 @@ class BaseAgent(ABC):
             self._mcp_servers = mcp_servers
         return self._code_generation_agent
 
+    def _create_agent_with_output_type(self, output_type: Type[Any]) -> PydanticAgent:
+        """Create a temporary agent configured with a custom output_type.
+
+        This is used when structured output is requested via run_with_mcp.
+        The agent is created fresh with the same configuration as the main agent
+        but with the specified output_type instead of str.
+
+        Args:
+            output_type: The Pydantic model or type for structured output.
+
+        Returns:
+            A configured PydanticAgent (or DBOSAgent wrapper) with the custom output_type.
+        """
+        from code_puppy.model_utils import prepare_prompt_for_model
+        from code_puppy.tools import register_tools_for_agent
+
+        model_name = self.get_model_name()
+        models_config = ModelFactory.load_config()
+        model, resolved_model_name = self._load_model_with_fallback(
+            model_name, models_config, str(uuid.uuid4())
+        )
+
+        instructions = self.get_system_prompt()
+        puppy_rules = self.load_puppy_rules()
+        if puppy_rules:
+            instructions += f"\n{puppy_rules}"
+
+        mcp_servers = getattr(self, "_mcp_servers", []) or []
+        model_settings = make_model_settings(resolved_model_name)
+
+        prepared = prepare_prompt_for_model(
+            model_name, instructions, "", prepend_system_to_user=False
+        )
+        instructions = prepared.instructions
+
+        global _reload_count
+        _reload_count += 1
+
+        if get_use_dbos():
+            temp_agent = PydanticAgent(
+                model=model,
+                instructions=instructions,
+                output_type=output_type,
+                retries=3,
+                toolsets=[],
+                history_processors=[self.message_history_accumulator],
+                model_settings=model_settings,
+            )
+            agent_tools = self.get_available_tools()
+            register_tools_for_agent(temp_agent, agent_tools)
+            dbos_agent = DBOSAgent(
+                temp_agent, name=f"{self.name}-structured-{_reload_count}"
+            )
+            return dbos_agent
+        else:
+            temp_agent = PydanticAgent(
+                model=model,
+                instructions=instructions,
+                output_type=output_type,
+                retries=3,
+                toolsets=mcp_servers,
+                history_processors=[self.message_history_accumulator],
+                model_settings=model_settings,
+            )
+            agent_tools = self.get_available_tools()
+            register_tools_for_agent(temp_agent, agent_tools)
+            return temp_agent
+
     # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
     @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
@@ -1590,6 +1669,7 @@ class BaseAgent(ABC):
         *,
         attachments: Optional[Sequence[BinaryContent]] = None,
         link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+        output_type: Optional[Type[Any]] = None,
         **kwargs,
     ) -> Any:
         """Run the agent with MCP servers, attachments, and full cancellation support.
@@ -1598,10 +1678,13 @@ class BaseAgent(ABC):
             prompt: Primary user prompt text (may be empty when attachments present).
             attachments: Local binary payloads (e.g., dragged images) to include.
             link_attachments: Remote assets (image/document URLs) to include.
+            output_type: Optional Pydantic model or type for structured output.
+                When provided, creates a temporary agent configured to return
+                this type instead of the default string output.
             **kwargs: Additional arguments forwarded to `pydantic_ai.Agent.run`.
 
         Returns:
-            The agent's response.
+            The agent's response (typed according to output_type if specified).
 
         Raises:
             asyncio.CancelledError: When execution is cancelled by user.
@@ -1625,6 +1708,11 @@ class BaseAgent(ABC):
         pydantic_agent = (
             self._code_generation_agent or self.reload_code_generation_agent()
         )
+
+        # If a custom output_type is specified, create a temporary agent with that type
+        if output_type is not None:
+            pydantic_agent = self._create_agent_with_output_type(output_type)
+
         # Handle claude-code and chatgpt-codex models: prepend system prompt to first user message
         from code_puppy.model_utils import is_chatgpt_codex_model, is_claude_code_model
 
