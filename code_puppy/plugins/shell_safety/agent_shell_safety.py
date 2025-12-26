@@ -5,13 +5,12 @@ It's designed to be ultra-lightweight with a concise prompt (<200 tokens) and
 uses structured output for reliable parsing.
 """
 
-import asyncio
 from typing import TYPE_CHECKING, List
 
 from code_puppy.agents.base_agent import BaseAgent
 
 if TYPE_CHECKING:
-    from code_puppy.tools.command_runner import ShellSafetyAssessment
+    pass
 
 
 class ShellSafetyAgent(BaseAgent):
@@ -68,119 +67,3 @@ class ShellSafetyAgent(BaseAgent):
     def get_available_tools(self) -> List[str]:
         """This agent uses no tools - pure reasoning only."""
         return []
-
-    async def assess_command(
-        self, command: str, cwd: str | None = None
-    ) -> "ShellSafetyAssessment":
-        """Assess the safety risk of a shell command.
-
-        Args:
-            command: The shell command to assess
-            cwd: Optional working directory context
-
-        Returns:
-            ShellSafetyAssessment with risk level and reasoning
-
-        Note:
-            On timeout or error, defaults to 'high' risk with error reasoning
-            to fail safe. Optionally uses DBOS for durable execution tracking.
-        """
-        import uuid
-
-        from pydantic_ai import Agent, UsageLimits
-
-        from code_puppy.config import get_use_dbos
-        from code_puppy.model_factory import ModelFactory
-        from code_puppy.tools.command_runner import ShellSafetyAssessment
-
-        try:
-            # Build the assessment prompt
-            prompt = f"Assess this shell command:\n\nCommand: {command}"
-            if cwd:
-                prompt += f"\nWorking directory: {cwd}"
-
-            # Get the current model
-            model_name = self.get_model_name()
-            models_config = ModelFactory.load_config()
-
-            if model_name not in models_config:
-                # Fall back to high risk if model config fails
-                return ShellSafetyAssessment(
-                    risk="high",
-                    reasoning="Model configuration unavailable - failing safe",
-                    is_fallback=True,
-                )
-
-            model = ModelFactory.get_model(model_name, models_config)
-
-            # Handle claude-code models: swap instructions and prepend system prompt
-            from code_puppy.model_utils import prepare_prompt_for_model
-
-            instructions = self.get_system_prompt()
-            prepared = prepare_prompt_for_model(model_name, instructions, prompt)
-            instructions = prepared.instructions
-            prompt = prepared.user_prompt
-
-            from code_puppy.model_factory import make_model_settings
-
-            model_settings = make_model_settings(model_name)
-
-            temp_agent = Agent(
-                model=model,
-                system_prompt=instructions,
-                retries=2,  # Increase from 1 to 2 for better reliability
-                output_type=ShellSafetyAssessment,
-                model_settings=model_settings,
-            )
-
-            # Generate unique agent name and workflow ID for DBOS (if enabled)
-            agent_name = f"shell-safety-{uuid.uuid4().hex[:8]}"
-            workflow_id = f"shell-safety-{uuid.uuid4().hex[:8]}"
-
-            # Wrap with DBOS if enabled (same pattern as agent_tools.py)
-            if get_use_dbos():
-                from pydantic_ai.durable_exec.dbos import DBOSAgent
-
-                dbos_agent = DBOSAgent(temp_agent, name=agent_name)
-                temp_agent = dbos_agent
-
-            # Run the agent as a cancellable task
-            # Import the shared task registry for cancellation support
-            from code_puppy.tools.agent_tools import _active_subagent_tasks
-
-            if get_use_dbos():
-                from dbos import DBOS, SetWorkflowID
-
-                with SetWorkflowID(workflow_id):
-                    task = asyncio.create_task(
-                        temp_agent.run(
-                            prompt,
-                            usage_limits=UsageLimits(request_limit=3),
-                        )
-                    )
-                    _active_subagent_tasks.add(task)
-            else:
-                task = asyncio.create_task(
-                    temp_agent.run(
-                        prompt,
-                        usage_limits=UsageLimits(request_limit=3),
-                    )
-                )
-                _active_subagent_tasks.add(task)
-
-            try:
-                result = await task
-            finally:
-                _active_subagent_tasks.discard(task)
-                if task.cancelled():
-                    if get_use_dbos():
-                        DBOS.cancel_workflow(workflow_id)
-
-            return result.output
-
-        except Exception as e:
-            return ShellSafetyAssessment(
-                risk="high",
-                reasoning=f"Safety assessment failed: {str(e)[:200]} - failing safe",
-                is_fallback=True,
-            )
