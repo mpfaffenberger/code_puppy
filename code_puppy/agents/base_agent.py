@@ -2032,3 +2032,9 @@ class BaseAgent(ABC):
                 original_handler is not None
             ):  # Explicit None check - SIG_DFL can be 0/falsy!
                 signal.signal(signal.SIGINT, original_handler)
+            # Windows-specific: Reset terminal after Ctrl+C to prevent corruption
+            # This fixes the issue where Enter key shows as 'm' after interrupting with uvx
+            if is_windows:
+                from code_puppy.terminal_utils import reset_windows_terminal_full
+
+                reset_windows_terminal_full()
