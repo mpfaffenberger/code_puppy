@@ -1340,15 +1340,19 @@ class BaseAgent(ABC):
     ) -> None:
         """Handle streaming events from the agent run.
 
-        This method processes streaming events and emits TextPart and ThinkingPart
-        content with styled banners as they stream in.
+        This method processes streaming events and emits TextPart, ThinkingPart,
+        and ToolCallPart content with styled banners/tokens as they stream in.
 
         Args:
             ctx: The run context.
             events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
         """
         from pydantic_ai import PartDeltaEvent, PartStartEvent
-        from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
+        from pydantic_ai.messages import (
+            TextPartDelta,
+            ThinkingPartDelta,
+            ToolCallPartDelta,
+        )
         from rich.console import Console
         from rich.markdown import Markdown
         from rich.markup import escape
@@ -1364,15 +1368,16 @@ class BaseAgent(ABC):
             # Fallback if console not set (shouldn't happen in normal use)
             console = Console()
 
-        # Track which part indices we're currently streaming (for Text/Thinking parts)
+        # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
         streaming_parts: set[int] = set()
         thinking_parts: set[int] = (
             set()
         )  # Track which parts are thinking (for dim style)
         text_parts: set[int] = set()  # Track which parts are text
+        tool_parts: set[int] = set()  # Track which parts are tool calls
         banner_printed: set[int] = set()  # Track if banner was already printed
         text_buffer: dict[int, list[str]] = {}  # Buffer text for final markdown render
-        token_count: dict[int, int] = {}  # Track token count per text part
+        token_count: dict[int, int] = {}  # Track token count per text/tool part
         did_stream_anything = False  # Track if we streamed any content
 
         def _print_thinking_banner() -> None:
@@ -1442,7 +1447,16 @@ class BaseAgent(ABC):
                     # Buffer initial content if present
                     if part.content and part.content.strip():
                         text_buffer[event.index].append(part.content)
-                        token_count[event.index] += 1
+                        # Use len(content) / 3 for token estimation (more accurate than chunk counting)
+                        token_count[event.index] += len(part.content) // 3
+                elif isinstance(part, ToolCallPart):
+                    streaming_parts.add(event.index)
+                    tool_parts.add(event.index)
+                    token_count[event.index] = 0  # Initialize token counter
+                    # Track tool name for display
+                    banner_printed.add(
+                        event.index
+                    )  # Use banner_printed to track if we've shown tool info
 
             # PartDeltaEvent - stream the content as it arrives
             elif isinstance(event, PartDeltaEvent):
@@ -1460,7 +1474,10 @@ class BaseAgent(ABC):
                                     banner_printed.add(event.index)
                                 # Accumulate text for final markdown render
                                 text_buffer[event.index].append(delta.content_delta)
-                                token_count[event.index] += 1
+                                # Use len(content) / 3 for token estimation
+                                token_count[event.index] += (
+                                    len(delta.content_delta) // 3
+                                )
                                 # Update token counter in place (single line)
                                 count = token_count[event.index]
                                 sys.stdout.write(
@@ -1474,14 +1491,32 @@ class BaseAgent(ABC):
                                     banner_printed.add(event.index)
                                 escaped = escape(delta.content_delta)
                                 console.print(f"[dim]{escaped}[/dim]", end="")
+                    elif isinstance(delta, ToolCallPartDelta):
+                        import sys
+
+                        # For tool calls, show token counter (use string repr for estimation)
+                        token_count[event.index] += len(str(delta)) // 3
+                        # Get tool name if available
+                        tool_name = getattr(delta, "tool_name_delta", "")
+                        count = token_count[event.index]
+                        # Display with tool wrench icon and tool name
+                        if tool_name:
+                            sys.stdout.write(
+                                f"\r\x1b[K  🔧 Calling {tool_name}... {count} tokens"
+                            )
+                        else:
+                            sys.stdout.write(
+                                f"\r\x1b[K  🔧 Calling tool... {count} tokens"
+                            )
+                        sys.stdout.flush()
 
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 if event.index in streaming_parts:
+                    import sys
+
                     # For text parts, clear counter line and render markdown
                     if event.index in text_parts:
-                        import sys
-
                         # Clear the token counter line
                         sys.stdout.write("\r\x1b[K")
                         sys.stdout.flush()
@@ -1494,24 +1529,31 @@ class BaseAgent(ABC):
                             except Exception:
                                 pass
                             del text_buffer[event.index]
-                        # Clean up token count
-                        token_count.pop(event.index, None)
+                    # For tool parts, clear the token counter line
+                    elif event.index in tool_parts:
+                        # Clear the token counter line
+                        sys.stdout.write("\r\x1b[K")
+                        sys.stdout.flush()
                     # For thinking parts, just print newline
                     elif event.index in banner_printed:
                         console.print()  # Final newline after streaming
+
+                    # Clean up token count
+                    token_count.pop(event.index, None)
                     # Clean up all tracking sets
                     streaming_parts.discard(event.index)
                     thinking_parts.discard(event.index)
                     text_parts.discard(event.index)
+                    tool_parts.discard(event.index)
                     banner_printed.discard(event.index)
 
-                    # Resume spinner if next part is NOT text/thinking (avoid race condition)
-                    # If next part is a tool call or None, it's safe to resume
+                    # Resume spinner if next part is NOT text/thinking/tool (avoid race condition)
+                    # If next part is None or handled differently, it's safe to resume
                     # Note: spinner itself handles blank line before appearing
                     from code_puppy.messaging.spinner import resume_all_spinners
 
                     next_kind = getattr(event, "next_part_kind", None)
-                    if next_kind not in ("text", "thinking"):
+                    if next_kind not in ("text", "thinking", "tool-call"):
                         resume_all_spinners()
 
         # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
@@ -1910,8 +1952,9 @@ class BaseAgent(ABC):
         def graceful_sigint_handler(_sig, _frame):
             # When using keyboard-based cancel, SIGINT should be a no-op
             # (just show a hint to user about the configured cancel key)
-            from code_puppy.keymap import get_cancel_agent_display_name
             import sys
+
+            from code_puppy.keymap import get_cancel_agent_display_name
 
             cancel_key = get_cancel_agent_display_name()
             if sys.platform == "win32":
