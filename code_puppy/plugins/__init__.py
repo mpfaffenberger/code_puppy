@@ -18,6 +18,9 @@ def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
 
     Returns list of successfully loaded plugin names.
     """
+    # Import safety permission check for shell_safety plugin
+    from code_puppy.config import get_safety_permission_level
+
     loaded = []
 
     for item in plugins_dir.iterdir():
@@ -26,6 +29,15 @@ def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
             callbacks_file = item / "register_callbacks.py"
 
             if callbacks_file.exists():
+                # Skip shell_safety plugin unless safety_permission_level is "low" or "none"
+                if plugin_name == "shell_safety":
+                    safety_level = get_safety_permission_level()
+                    if safety_level not in ("none", "low"):
+                        logger.debug(
+                            f"Skipping shell_safety plugin - safety_permission_level is '{safety_level}' (needs 'low' or 'none')"
+                        )
+                        continue
+
                 try:
                     module_name = f"code_puppy.plugins.{plugin_name}.register_callbacks"
                     importlib.import_module(module_name)

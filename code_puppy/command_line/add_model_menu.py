@@ -571,6 +571,7 @@ class AddModelMenu:
             "cerebras": "cerebras",
             "cohere": "custom_openai",
             "perplexity": "custom_openai",
+            "minimax": "custom_anthropic",
         }
 
         # Determine the model type
@@ -599,6 +600,16 @@ class AddModelMenu:
                 # Determine the API key environment variable
                 api_key_env = f"${provider.env[0]}" if provider.env else "$API_KEY"
                 config["custom_endpoint"] = {"url": api_url, "api_key": api_key_env}
+
+        # Special handling for minimax: uses custom_anthropic but needs custom_endpoint
+        # and the URL needs /v1 stripped (comes as https://api.minimax.io/anthropic/v1)
+        if provider.id == "minimax" and provider.api:
+            api_url = provider.api
+            # Strip /v1 suffix if present
+            if api_url.endswith("/v1"):
+                api_url = api_url[:-3]
+            api_key_env = f"${provider.env[0]}" if provider.env else "$API_KEY"
+            config["custom_endpoint"] = {"url": api_url, "api_key": api_key_env}
 
         # Add context length if available
         if model.context_length and model.context_length > 0:
