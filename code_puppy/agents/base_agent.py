@@ -75,6 +75,8 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
+    _add_windows_ctrl_handler,
+    _remove_windows_ctrl_handler,
     is_awaiting_user_input,
 )
 
@@ -1951,8 +1953,6 @@ class BaseAgent(ABC):
         def graceful_sigint_handler(_sig, _frame):
             # When using keyboard-based cancel, SIGINT should be a no-op
             # (just show a hint to user about the configured cancel key)
-            import sys
-
             from code_puppy.keymap import get_cancel_agent_display_name
 
             cancel_key = get_cancel_agent_display_name()
@@ -1961,6 +1961,12 @@ class BaseAgent(ABC):
         original_handler = None
         key_listener_stop_event = None
         _key_listener_thread = None
+        windows_ctrl_handler = None
+
+        # Check if we're on Windows
+        import sys
+
+        is_windows = sys.platform.startswith("win")
 
         try:
             if cancel_agent_uses_signal():
@@ -1968,10 +1974,27 @@ class BaseAgent(ABC):
                 original_handler = signal.signal(
                     signal.SIGINT, keyboard_interrupt_handler
                 )
+                # On Windows, also use SetConsoleCtrlHandler for reliable Ctrl+C with uvx
+                if is_windows:
+                    windows_ctrl_handler = _add_windows_ctrl_handler(
+                        schedule_agent_cancel
+                    )
             else:
                 # Use keyboard listener for agent cancellation
                 # Set a graceful SIGINT handler that shows a hint
                 original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
+                # On Windows, SetConsoleCtrlHandler should also show the hint
+                if is_windows:
+
+                    def graceful_ctrl_handler():
+                        from code_puppy.keymap import get_cancel_agent_display_name
+
+                        cancel_key = get_cancel_agent_display_name()
+                        emit_info(f"Use {cancel_key} to cancel the agent task.")
+
+                    windows_ctrl_handler = _add_windows_ctrl_handler(
+                        graceful_ctrl_handler
+                    )
                 # Spawn keyboard listener with the cancel agent callback
                 key_listener_stop_event = threading.Event()
                 _key_listener_thread = self._spawn_ctrl_x_key_listener(
@@ -2001,6 +2024,9 @@ class BaseAgent(ABC):
             # Stop keyboard listener if it was started
             if key_listener_stop_event is not None:
                 key_listener_stop_event.set()
+            # Remove Windows console handler
+            if windows_ctrl_handler is not None:
+                _remove_windows_ctrl_handler(windows_ctrl_handler)
             # Restore original signal handler
             if (
                 original_handler is not None

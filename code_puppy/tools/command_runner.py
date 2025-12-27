@@ -44,8 +44,69 @@ def _truncate_line(line: str) -> str:
 if sys.platform.startswith("win"):
     import msvcrt
 
-    # Load kernel32 for PeekNamedPipe
+    # Load kernel32 for PeekNamedPipe and SetConsoleCtrlHandler
     _kernel32 = ctypes.windll.kernel32
+
+    # SetConsoleCtrlHandler types for Ctrl+C handling on Windows
+    # This is more reliable than signal.SIGINT when running under uvx
+    _CTRL_C_EVENT = 0
+    _CTRL_BREAK_EVENT = 1
+    _HANDLER_ROUTINE = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_ulong)
+
+    # Track registered handlers to prevent garbage collection
+    _registered_console_handlers: list = []
+
+    def _add_windows_ctrl_handler(callback: Callable[[], None]) -> Optional[Callable]:
+        """Register a Windows console control handler for Ctrl+C/Ctrl+Break.
+
+        Args:
+            callback: Function to call when Ctrl+C or Ctrl+Break is pressed.
+                      Should take no arguments.
+
+        Returns:
+            The wrapped handler function (needed for removal), or None if failed.
+        """
+
+        def handler(ctrl_type: int) -> int:
+            if ctrl_type in (_CTRL_C_EVENT, _CTRL_BREAK_EVENT):
+                try:
+                    callback()
+                except Exception:
+                    pass
+                return 1  # TRUE = we handled it, don't pass to next handler
+            return 0  # FALSE = let next handler deal with it
+
+        # Wrap in WINFUNCTYPE to make it callable from C
+        wrapped = _HANDLER_ROUTINE(handler)
+        # Keep reference to prevent GC
+        _registered_console_handlers.append(wrapped)
+
+        try:
+            if _kernel32.SetConsoleCtrlHandler(wrapped, True):
+                return wrapped
+        except Exception:
+            pass
+        return None
+
+    def _remove_windows_ctrl_handler(handler: Callable) -> bool:
+        """Remove a previously registered Windows console control handler.
+
+        Args:
+            handler: The handler returned by _add_windows_ctrl_handler.
+
+        Returns:
+            True if successfully removed, False otherwise.
+        """
+        if handler is None:
+            return False
+        try:
+            result = _kernel32.SetConsoleCtrlHandler(handler, False)
+            # Clean up our reference
+            if handler in _registered_console_handlers:
+                _registered_console_handlers.remove(handler)
+            return bool(result)
+        except Exception:
+            return False
 
     def _win32_pipe_has_data(pipe) -> bool:
         """Check if a Windows pipe has data available without blocking.
@@ -87,8 +148,15 @@ if sys.platform.startswith("win"):
         except (ValueError, OSError, ctypes.ArgumentError):
             # Handle closed, invalid, or other errors
             return False
+
 else:
-    # POSIX stub - not used, but keeps the code clean
+    # Non-Windows: provide no-op stubs
+    def _add_windows_ctrl_handler(callback: Callable[[], None]) -> Optional[Callable]:
+        return None
+
+    def _remove_windows_ctrl_handler(handler: Callable) -> bool:
+        return False
+
     def _win32_pipe_has_data(pipe) -> bool:
         return False
 
@@ -106,6 +174,7 @@ _USER_KILLED_PROCESSES = set()
 _SHELL_CTRL_X_STOP_EVENT: Optional[threading.Event] = None
 _SHELL_CTRL_X_THREAD: Optional[threading.Thread] = None
 _ORIGINAL_SIGINT_HANDLER = None
+_WINDOWS_CTRL_HANDLER = None  # For SetConsoleCtrlHandler on Windows
 
 # Stop event to signal reader threads to terminate
 _READER_STOP_EVENT: Optional[threading.Event] = None
@@ -435,8 +504,10 @@ def _shell_command_keyboard_context():
     1. Disables the agent's Ctrl-C handler (so it doesn't cancel the agent)
     2. Enables a Ctrl-X listener to kill the running shell process
     3. Restores the original Ctrl-C handler when done
+    4. On Windows, uses SetConsoleCtrlHandler for reliable Ctrl+C with uvx
     """
     global _SHELL_CTRL_X_STOP_EVENT, _SHELL_CTRL_X_THREAD, _ORIGINAL_SIGINT_HANDLER
+    global _WINDOWS_CTRL_HANDLER
 
     # Handler for Ctrl-X: kill all running shell processes
     def handle_ctrl_x_press() -> None:
@@ -444,10 +515,14 @@ def _shell_command_keyboard_context():
         kill_all_running_shell_processes()
 
     # Handler for Ctrl-C during shell execution: just kill the shell process, don't cancel agent
-    def shell_sigint_handler(_sig, _frame):
+    def shell_ctrl_c_callback():
         """During shell execution, Ctrl-C kills the shell but doesn't cancel the agent."""
         emit_warning("\n🛑 Ctrl-C detected! Interrupting shell command...")
         kill_all_running_shell_processes()
+
+    def shell_sigint_handler(_sig, _frame):
+        """Signal handler wrapper for SIGINT."""
+        shell_ctrl_c_callback()
 
     # Set up Ctrl-X listener
     _SHELL_CTRL_X_STOP_EVENT = threading.Event()
@@ -456,7 +531,12 @@ def _shell_command_keyboard_context():
         handle_ctrl_x_press,
     )
 
-    # Replace SIGINT handler temporarily
+    # On Windows, use SetConsoleCtrlHandler for reliable Ctrl+C handling
+    # This works even when running under uvx where SIGINT doesn't propagate properly
+    if sys.platform.startswith("win"):
+        _WINDOWS_CTRL_HANDLER = _add_windows_ctrl_handler(shell_ctrl_c_callback)
+
+    # Also set SIGINT handler (works on POSIX, may work on some Windows setups)
     try:
         _ORIGINAL_SIGINT_HANDLER = signal.signal(signal.SIGINT, shell_sigint_handler)
     except (ValueError, OSError):
@@ -476,6 +556,10 @@ def _shell_command_keyboard_context():
             except Exception:
                 pass
 
+        # Remove Windows console handler
+        if _WINDOWS_CTRL_HANDLER is not None:
+            _remove_windows_ctrl_handler(_WINDOWS_CTRL_HANDLER)
+
         # Restore original SIGINT handler
         if _ORIGINAL_SIGINT_HANDLER is not None:
             try:
@@ -487,6 +571,7 @@ def _shell_command_keyboard_context():
         _SHELL_CTRL_X_STOP_EVENT = None
         _SHELL_CTRL_X_THREAD = None
         _ORIGINAL_SIGINT_HANDLER = None
+        _WINDOWS_CTRL_HANDLER = None
 
 
 def run_shell_command_streaming(
