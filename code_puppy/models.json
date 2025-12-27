@@ -9,9 +9,9 @@
     "context_length": 200000,
     "supported_settings": ["temperature", "seed"]
   },
-  "synthetic-MiniMax-M2": {
+  "synthetic-MiniMax-M2.1": {
     "type": "custom_openai",
-    "name": "hf:MiniMaxAI/MiniMax-M2",
+    "name": "hf:MiniMaxAI/MiniMax-M2.1",
     "custom_endpoint": {
       "url": "https://api.synthetic.new/openai/v1/",
       "api_key": "$SYN_API_KEY"
