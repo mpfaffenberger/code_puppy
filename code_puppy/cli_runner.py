@@ -790,6 +790,5 @@ def main_entry():
             DBOS.destroy()
         return 0
     finally:
-        # Reset terminal on all platforms for clean state
-        reset_windows_terminal_full()  # Safe no-op on non-Windows
+        # Reset terminal on Unix-like systems (not Windows)
         reset_unix_terminal()

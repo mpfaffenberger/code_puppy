@@ -4,7 +4,6 @@ import asyncio
 import json
 import math
 import signal
-import sys
 import threading
 import uuid
 from abc import ABC, abstractmethod
@@ -1957,69 +1956,27 @@ class BaseAgent(ABC):
             from code_puppy.keymap import get_cancel_agent_display_name
 
             cancel_key = get_cancel_agent_display_name()
-            if sys.platform == "win32":
-                # On Windows, we use keyboard listener, so SIGINT might still fire
-                # but we handle cancellation via the key listener
-                pass  # Silent on Windows - the key listener handles it
-            else:
-                emit_info(f"Use {cancel_key} to cancel the agent task.")
+            emit_info(f"Use {cancel_key} to cancel the agent task.")
 
         original_handler = None
         key_listener_stop_event = None
         _key_listener_thread = None
-        _windows_ctrl_handler = None  # Store reference to prevent garbage collection
 
         try:
-            if sys.platform == "win32":
-                # Windows: Use SetConsoleCtrlHandler for reliable Ctrl+C handling
-                import ctypes
-
-                # Define the handler function type
-                HANDLER_ROUTINE = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_ulong)
-
-                def windows_ctrl_handler(ctrl_type):
-                    """Handle Windows console control events."""
-                    CTRL_C_EVENT = 0
-                    CTRL_BREAK_EVENT = 1
-
-                    if ctrl_type in (CTRL_C_EVENT, CTRL_BREAK_EVENT):
-                        # Check if we're awaiting user input
-                        if is_awaiting_user_input():
-                            return False  # Let default handler run
-
-                        # Schedule agent cancellation
-                        schedule_agent_cancel()
-                        return True  # We handled it, don't terminate
-
-                    return False  # Let other handlers process it
-
-                # Create the callback - must keep reference alive!
-                _windows_ctrl_handler = HANDLER_ROUTINE(windows_ctrl_handler)
-
-                # Register the handler
-                kernel32 = ctypes.windll.kernel32
-                if not kernel32.SetConsoleCtrlHandler(_windows_ctrl_handler, True):
-                    emit_warning("Failed to set Windows Ctrl+C handler")
-
-                # Also spawn keyboard listener for Ctrl+X (shell cancel) and other keys
-                key_listener_stop_event = threading.Event()
-                _key_listener_thread = self._spawn_ctrl_x_key_listener(
-                    key_listener_stop_event,
-                    on_escape=lambda: None,  # Ctrl+X handled by command_runner
-                    on_cancel_agent=None,  # Ctrl+C handled by SetConsoleCtrlHandler above
-                )
-            elif cancel_agent_uses_signal():
-                # Unix with Ctrl+C: Use SIGINT-based cancellation
+            if cancel_agent_uses_signal():
+                # Use SIGINT-based cancellation (default Ctrl+C behavior)
                 original_handler = signal.signal(
                     signal.SIGINT, keyboard_interrupt_handler
                 )
             else:
-                # Unix with different cancel key: Use keyboard listener
+                # Use keyboard listener for agent cancellation
+                # Set a graceful SIGINT handler that shows a hint
                 original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
+                # Spawn keyboard listener with the cancel agent callback
                 key_listener_stop_event = threading.Event()
                 _key_listener_thread = self._spawn_ctrl_x_key_listener(
                     key_listener_stop_event,
-                    on_escape=lambda: None,
+                    on_escape=lambda: None,  # Ctrl+X handled by command_runner
                     on_cancel_agent=schedule_agent_cancel,
                 )
 
@@ -2044,17 +2001,8 @@ class BaseAgent(ABC):
             # Stop keyboard listener if it was started
             if key_listener_stop_event is not None:
                 key_listener_stop_event.set()
-
-            # Unregister Windows Ctrl handler
-            if sys.platform == "win32" and _windows_ctrl_handler is not None:
-                try:
-                    import ctypes
-
-                    kernel32 = ctypes.windll.kernel32
-                    kernel32.SetConsoleCtrlHandler(_windows_ctrl_handler, False)
-                except Exception:
-                    pass  # Best effort cleanup
-
-            # Restore original signal handler (Unix)
-            if original_handler is not None:
+            # Restore original signal handler
+            if (
+                original_handler is not None
+            ):  # Explicit None check - SIG_DFL can be 0/falsy!
                 signal.signal(signal.SIGINT, original_handler)
