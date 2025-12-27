@@ -87,16 +87,20 @@ def reset_windows_console_mode() -> None:
 
 
 def reset_windows_terminal_full() -> None:
-    """Perform a full Windows terminal reset (ANSI + console mode).
+    """Perform a full Windows terminal reset (console mode + ANSI).
 
-    Combines both ANSI reset and console mode reset for complete
+    Combines both console mode reset and ANSI reset for complete
     terminal state restoration after interrupts.
+
+    IMPORTANT: Console mode must be reset FIRST to re-enable
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING, otherwise the ANSI escape
+    sequences will be printed as literal text (e.g., '[0m').
     """
     if platform.system() != "Windows":
         return
 
-    reset_windows_terminal_ansi()
-    reset_windows_console_mode()
+    reset_windows_console_mode()  # Must be first! Enables ANSI processing
+    reset_windows_terminal_ansi()  # Now ANSI escapes will be interpreted
 
 
 def reset_unix_terminal() -> None:

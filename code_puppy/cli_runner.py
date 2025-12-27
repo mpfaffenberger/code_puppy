@@ -421,6 +421,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     current_agent_task = None
 
     while True:
+        # Windows-specific: Aggressively reset terminal at the start of every loop
+        # This fixes terminal corruption after Ctrl+C, especially when running via uvx
+        reset_windows_terminal_full()
+
         from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.messaging import emit_info
 
