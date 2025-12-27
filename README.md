@@ -61,6 +61,8 @@ uvx code-puppy -i
 
 ### UV (Recommended)
 
+#### macOS / Linux
+
 ```bash
 # Install UV if you don't have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -71,6 +73,33 @@ source ~/.zshrc  # or ~/.bashrc
 
 # Install and run code-puppy
 uvx code-puppy -i
+```
+
+#### Windows
+
+On Windows, we recommend installing code-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
+
+```powershell
+# Install UV if you don't have it (run in PowerShell as Admin)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Install code-puppy as a global tool
+uv tool install code-puppy
+
+# Run code-puppy
+code-puppy -i
+```
+
+**Why `uv tool install` on Windows?** Running with `uvx` creates an extra process layer that can interfere with keyboard signal handling (Ctrl+C, Ctrl+X). Installing as a tool runs code-puppy directly for reliable cancellation.
+
+#### Upgrading
+
+```bash
+# Upgrade code-puppy to the latest version
+uv tool upgrade code-puppy
+
+# Or upgrade all installed tools
+uv tool upgrade --all
 ```
 
 UV will automatically download the latest compatible Python version (3.11+) if your system doesn't have one.

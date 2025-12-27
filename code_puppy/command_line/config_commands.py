@@ -46,6 +46,7 @@ def handle_show_command(command: str) -> bool:
         get_use_dbos,
         get_yolo_mode,
     )
+    from code_puppy.keymap import get_cancel_agent_key, get_cancel_agent_display_name
     from code_puppy.messaging import emit_info
 
     puppy_name = get_puppy_name()
@@ -79,6 +80,7 @@ def handle_show_command(command: str) -> bool:
 [bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
 [bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
 [bold]temperature:[/bold]           [cyan]{effective_temperature if effective_temperature is not None else "(model default)"}[/cyan]{" (per-model)" if effective_temperature != global_temperature and effective_temperature is not None else ""}
+[bold]cancel_agent_key:[/bold]      [cyan]{get_cancel_agent_display_name()}[/cyan] (options: ctrl+c, ctrl+k, ctrl+q)
 
 """
     emit_info(Text.from_markup(status_msg))
@@ -200,9 +202,13 @@ def handle_set_command(command: str) -> bool:
             "\n[yellow]Session Management[/yellow]"
             "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
         )
+        keymap_help = (
+            "\n[yellow]Keyboard Shortcuts[/yellow]"
+            "\n  [cyan]cancel_agent_key[/cyan]     Key to cancel agent tasks (ctrl+c, ctrl+k, or ctrl+q)"
+        )
         emit_warning(
             Text.from_markup(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}"
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}{keymap_help}"
             )
         )
         return True
@@ -212,6 +218,23 @@ def handle_set_command(command: str) -> bool:
             emit_info(
                 Text.from_markup(
                     "[yellow]⚠️ DBOS configuration changed. Please restart Code Puppy for this change to take effect.[/yellow]"
+                )
+            )
+
+        # Validate cancel_agent_key before setting
+        if key == "cancel_agent_key":
+            from code_puppy.keymap import VALID_CANCEL_KEYS
+
+            normalized_value = value.strip().lower()
+            if normalized_value not in VALID_CANCEL_KEYS:
+                emit_error(
+                    f"Invalid cancel_agent_key '{value}'. Valid options: {', '.join(sorted(VALID_CANCEL_KEYS))}"
+                )
+                return True
+            value = normalized_value  # Use normalized value
+            emit_info(
+                Text.from_markup(
+                    "[yellow]⚠️ cancel_agent_key changed. Please restart Code Puppy for this change to take effect.[/yellow]"
                 )
             )
 
