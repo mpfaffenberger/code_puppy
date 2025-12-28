@@ -711,6 +711,9 @@ async def run_prompt_with_attachments(
     attachments = [attachment.content for attachment in processed_prompt.attachments]
     link_attachments = [link.url_part for link in processed_prompt.link_attachments]
 
+    # Trigger invoke_agent callbacks (e.g., Claude Code OAuth token refresh)
+    await callbacks.on_invoke_agent()
+
     # IMPORTANT: Set the shared console on the agent so that streaming output
     # uses the same console as the spinner. This prevents Live display conflicts
     # that cause line duplication during markdown streaming.
