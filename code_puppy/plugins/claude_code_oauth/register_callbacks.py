@@ -25,7 +25,6 @@ from .utils import (
     fetch_claude_code_models,
     load_claude_models_filtered,
     load_stored_tokens,
-    maybe_refresh_token,
     prepare_oauth_context,
     remove_claude_code_models,
     save_tokens,
@@ -303,19 +302,5 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     return None
 
 
-def _on_invoke_agent(*args, **kwargs) -> None:
-    """Called before each agent invocation.
-
-    Checks if 30 minutes have passed since last token refresh and
-    refreshes the Claude Code OAuth token if needed.
-    """
-    try:
-        if maybe_refresh_token():
-            logger.debug("Token refresh check completed")
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Token refresh check failed: %s", exc)
-
-
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
-register_callback("invoke_agent", _on_invoke_agent)
