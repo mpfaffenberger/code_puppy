@@ -23,6 +23,10 @@ from .config import (
 
 logger = logging.getLogger(__name__)
 
+# Token refresh tracking
+_last_refresh_time: float = 0.0
+REFRESH_INTERVAL_SECONDS: float = 30 * 60  # 30 minutes
+
 
 @dataclass
 class OAuthContext:
@@ -397,3 +401,201 @@ def remove_claude_code_models() -> int:
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Error removing Claude Code models: %s", exc)
     return 0
+
+
+def _update_model_tokens(new_access_token: str) -> bool:
+    """Update all Claude Code models with the new access token.
+
+    Args:
+        new_access_token: The new access token to set
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        claude_models = load_claude_models()
+        if not claude_models:
+            logger.debug("No models to update")
+            return True
+
+        updated = 0
+        for _model_name, config in claude_models.items():
+            if config.get("oauth_source") == "claude-code-plugin":
+                if (
+                    "custom_endpoint" in config
+                    and "api_key" in config["custom_endpoint"]
+                ):
+                    config["custom_endpoint"]["api_key"] = new_access_token
+                    updated += 1
+
+        if updated > 0:
+            if save_claude_models(claude_models):
+                logger.info("Updated %s model configurations with new token", updated)
+                return True
+            else:
+                logger.error("Failed to save updated model configurations")
+                return False
+
+        return True
+
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Error updating model tokens: %s", exc)
+        return False
+
+
+def refresh_access_token() -> Optional[str]:
+    """Refresh the access token using the refresh token.
+
+    Returns:
+        New access token if successful, None otherwise
+    """
+    try:
+        tokens = load_stored_tokens()
+        if not tokens:
+            logger.debug("No stored tokens found for refresh")
+            return None
+
+        if "refresh_token" not in tokens:
+            logger.debug("No refresh token available")
+            return None
+
+        refresh_token = tokens["refresh_token"]
+
+        # Prepare refresh request
+        payload = {
+            "grant_type": "refresh_token",
+            "client_id": CLAUDE_CODE_OAUTH_CONFIG["client_id"],
+            "refresh_token": refresh_token,
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "anthropic-beta": "oauth-2025-04-20",
+        }
+
+        logger.info("Refreshing Claude Code access token...")
+        response = requests.post(
+            CLAUDE_CODE_OAUTH_CONFIG["token_url"],
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            token_data = response.json()
+
+            # Update tokens with new access token and expiry
+            new_access_token = token_data.get("access_token")
+            if not new_access_token:
+                logger.error("No access_token in refresh response")
+                return None
+
+            # Update stored tokens
+            tokens["access_token"] = new_access_token
+
+            # Update expiry if provided
+            if "expires_in" in token_data:
+                tokens["expires_at"] = time.time() + token_data["expires_in"]
+
+            # Update refresh token if a new one was provided
+            if "refresh_token" in token_data:
+                tokens["refresh_token"] = token_data["refresh_token"]
+
+            # Save updated tokens
+            if save_tokens(tokens):
+                logger.info("Claude Code access token refreshed successfully")
+
+                # Update model configurations with new token
+                _update_model_tokens(new_access_token)
+
+                return new_access_token
+            else:
+                logger.error("Failed to save refreshed tokens")
+                return None
+        else:
+            logger.warning(
+                "Token refresh failed: %s - %s",
+                response.status_code,
+                response.text,
+            )
+            return None
+
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Error refreshing access token: %s", exc)
+        return None
+
+
+def _is_using_claude_code_model() -> bool:
+    """Check if the current agent is using a Claude Code OAuth model.
+
+    Returns:
+        True if currently using a claude-code-* model, False otherwise
+    """
+    try:
+        from code_puppy.agents import get_current_agent
+        from code_puppy.model_utils import is_claude_code_model
+
+        agent = get_current_agent()
+        if agent is None:
+            return False
+
+        model_name = agent.get_model_name()
+        if not model_name:
+            return False
+
+        return is_claude_code_model(model_name)
+    except Exception as exc:
+        logger.debug("Could not determine current model: %s", exc)
+        return False
+
+
+def maybe_refresh_token() -> bool:
+    """Refresh the token if 30 minutes have passed since last refresh.
+
+    This function is designed to be called on every prompt, but will only
+    actually refresh the token if:
+    1. The current model is a Claude Code OAuth model (starts with 'claude-code-')
+    2. REFRESH_INTERVAL_SECONDS (30 min) has passed since last refresh
+
+    Returns:
+        True if refresh was attempted (regardless of success), False if skipped
+    """
+    global _last_refresh_time
+
+    # Only refresh if we're actually using a Claude Code model
+    if not _is_using_claude_code_model():
+        return False
+
+    # Check if we have tokens at all
+    tokens = load_stored_tokens()
+    if not tokens or "refresh_token" not in tokens:
+        return False
+
+    current_time = time.time()
+    time_since_last = current_time - _last_refresh_time
+
+    if time_since_last < REFRESH_INTERVAL_SECONDS:
+        logger.debug(
+            "Skipping token refresh, %.1f minutes until next refresh",
+            (REFRESH_INTERVAL_SECONDS - time_since_last) / 60,
+        )
+        return False
+
+    logger.info(
+        "Token refresh interval reached (%.1f min since last refresh)",
+        time_since_last / 60,
+    )
+
+    # Attempt refresh
+    result = refresh_access_token()
+    if result:
+        _last_refresh_time = current_time
+        logger.info("Token refresh successful, next refresh in 30 minutes")
+    else:
+        # Even on failure, update the timestamp to avoid hammering the API
+        # We'll retry on the next 30-min interval
+        _last_refresh_time = current_time
+        logger.warning("Token refresh failed, will retry in 30 minutes")
+
+    return True
