@@ -91,7 +91,8 @@ def handle_compact_command(command: str) -> bool:
         compaction_strategy = get_compaction_strategy()
         protected_tokens = get_protected_token_count()
         emit_info(
-            f"🤔 Compacting {len(history)} messages using {compaction_strategy} strategy... (~{before_tokens} tokens)"
+            f"📦 Starting manual compaction of {len(history)} messages...",
+            message_group="token_context_status",
         )
 
         current_agent = get_current_agent()
@@ -108,7 +109,19 @@ def handle_compact_command(command: str) -> bool:
             emit_error("Compaction failed. History unchanged.")
             return True
 
+        # Reset delayed compaction flag if it was set
+        if agent._delayed_compaction_requested:
+            agent._delayed_compaction_requested = False
+            emit_info(
+                "🔄 Delayed compaction flag reset after manual /compact",
+                message_group="token_context_status",
+            )
+
         agent.set_message_history(compacted)
+        emit_info(
+            "✅ Manual compaction completed",
+            message_group="token_context_status",
+        )
 
         current_agent = get_current_agent()
         after_tokens = sum(
