@@ -283,9 +283,7 @@ class DatabricksClient:
                     "No schema specified. Please provide schema_name or set default schema."
                 )
 
-            tables = self._client.tables.list(
-                catalog_name=catalog, schema_name=schema
-            )
+            tables = self._client.tables.list(catalog_name=catalog, schema_name=schema)
             return [
                 {
                     "name": table.name,
@@ -537,9 +535,7 @@ class DatabricksClient:
                     rows.append(row_dict)
 
             total_rows = (
-                response.manifest.total_row_count
-                if response.manifest
-                else len(rows)
+                response.manifest.total_row_count if response.manifest else len(rows)
             )
 
             return {

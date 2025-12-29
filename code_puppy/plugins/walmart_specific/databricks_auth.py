@@ -9,10 +9,8 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 from typing import Optional
 
-from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.walmart_specific.databricks_client import (
     get_databricks_config_path,
@@ -94,9 +92,7 @@ def _get_user_input(prompt: str, default: Optional[str] = None) -> str:
         return default or ""
 
 
-def _test_databricks_connection(
-    host: str, warehouse_id: Optional[str] = None
-) -> bool:
+def _test_databricks_connection(host: str, warehouse_id: Optional[str] = None) -> bool:
     """Test Databricks connection with OAuth U2M (external browser).
 
     Args:
@@ -284,5 +280,8 @@ def get_databricks_auth_help() -> list[tuple[str, str]]:
         List of (command_name, description) tuples
     """
     return [
-        ("databricks_auth", "Authenticate with Databricks using OAuth (user credentials)"),
+        (
+            "databricks_auth",
+            "Authenticate with Databricks using OAuth (user credentials)",
+        ),
     ]

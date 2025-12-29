@@ -164,9 +164,7 @@ def _write_results_to_file(
     if output_format == "csv":
         derived_fieldnames = fieldnames or (sorted(rows[0].keys()) if rows else [])
         if not derived_fieldnames:
-            raise DatabricksAPIError(
-                "Unable to determine field names for CSV export."
-            )
+            raise DatabricksAPIError("Unable to determine field names for CSV export.")
         with output_file.open("w", encoding="utf-8", newline="") as csv_file:
             writer = csv.DictWriter(
                 csv_file,
@@ -326,9 +324,7 @@ def databricks_list_tables(
 
     try:
         client = DatabricksClient()
-        tables = client.list_tables(
-            catalog_name=catalog_name, schema_name=schema_name
-        )
+        tables = client.list_tables(catalog_name=catalog_name, schema_name=schema_name)
 
         emit_success(f"Found {len(tables)} table(s)")
 

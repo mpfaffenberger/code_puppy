@@ -86,7 +86,9 @@ class DataAnalyticsAgent(BaseAgent):
     def clear_knowledge_base_path() -> None:
         """Clear the custom knowledge base path configuration."""
         set_config_value(KNOWLEDGE_BASE_PATH_CONFIG_KEY, "")
-        emit_info("Knowledge base path configuration cleared. Using default search paths.")
+        emit_info(
+            "Knowledge base path configuration cleared. Using default search paths."
+        )
 
     def _load_knowledge_base(self) -> Optional[str]:
         """Load the data analytics knowledge base from markdown files.
@@ -116,22 +118,24 @@ class DataAnalyticsAgent(BaseAgent):
             search_paths.append(Path(configured_path).expanduser().resolve())
 
         # 2. Add default search paths
-        search_paths.extend([
-            # Current directory (where user runs code-puppy from)
-            Path.cwd() / self.KNOWLEDGE_BASE_FILENAME,
-            Path.cwd() / "data_analytics_knowledge.md",
-            # Project-specific directory
-            Path.cwd() / ".data_analytics" / "knowledge.md",
-            Path.cwd() / ".data_analytics" / "data_knowledge.md",
-            # Hidden file in current directory
-            Path.cwd() / ".data_analytics_knowledge.md",
-            # Code-puppy package directory (where the repo/package is installed)
-            package_dir / self.KNOWLEDGE_BASE_FILENAME,
-            package_dir / "data_analytics_knowledge.md",
-            # Global config directory
-            Path.home() / ".code_puppy" / self.KNOWLEDGE_BASE_FILENAME,
-            Path.home() / ".code_puppy" / "data_analytics" / "knowledge.md",
-        ])
+        search_paths.extend(
+            [
+                # Current directory (where user runs code-puppy from)
+                Path.cwd() / self.KNOWLEDGE_BASE_FILENAME,
+                Path.cwd() / "data_analytics_knowledge.md",
+                # Project-specific directory
+                Path.cwd() / ".data_analytics" / "knowledge.md",
+                Path.cwd() / ".data_analytics" / "data_knowledge.md",
+                # Hidden file in current directory
+                Path.cwd() / ".data_analytics_knowledge.md",
+                # Code-puppy package directory (where the repo/package is installed)
+                package_dir / self.KNOWLEDGE_BASE_FILENAME,
+                package_dir / "data_analytics_knowledge.md",
+                # Global config directory
+                Path.home() / ".code_puppy" / self.KNOWLEDGE_BASE_FILENAME,
+                Path.home() / ".code_puppy" / "data_analytics" / "knowledge.md",
+            ]
+        )
 
         for path in search_paths:
             if path.exists() and path.is_file():
