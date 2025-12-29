@@ -1936,7 +1936,7 @@ class BaseAgent(ABC):
                             # Non-DBOS path (MCP servers are already included)
                             # Check if we should disable streaming for custom_gemini
                             # (Walmart proxy returns JSON instead of SSE)
-                            use_streaming = True
+                            use_streaming = False
                             if "gemini" in model_name.lower():
                                 # Check if it's a custom_gemini model (proxy doesn't support SSE)
                                 import os as os_check
