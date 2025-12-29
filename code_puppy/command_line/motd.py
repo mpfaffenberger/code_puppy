@@ -8,13 +8,15 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-11-27"
+MOTD_VERSION = "2025-12-29"
 MOTD_MESSAGE = """🐕‍🦺
 🐾```
-# 🐶🦃🐕 November 27th, 2025 - Happy Thanksgiving! 🦃🐶
-122k Downloads! 🎉
-Thank you for all the support!
--Mike
+# 🐶 Version 0.0.320 - Hotfix 🔧
+Disabled extended thinking on the background security agent
+to make sure it runs fast! 🚀
+
+Speed is a feature, not a luxury! 🐕‍🦺
+```
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 

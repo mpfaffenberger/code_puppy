@@ -93,44 +93,31 @@ class ShellSafetyAgent(BaseAgent):
         from code_puppy.model_factory import ModelFactory
         from code_puppy.tools.command_runner import ShellSafetyAssessment
 
+        # Hardcoded model for shell safety - fast and cheap!
+        SHELL_SAFETY_MODEL = "claude-4-5-haiku"
+
         try:
             # Build the assessment prompt
             prompt = f"Assess this shell command:\n\nCommand: {command}"
             if cwd:
                 prompt += f"\nWorking directory: {cwd}"
 
-            # Get the current model
-            model_name = self.get_model_name()
+            # Load config and get the Haiku model (or fall back to default)
             models_config = ModelFactory.load_config()
 
-            if model_name not in models_config:
-                # Fall back to high risk if model config fails
-                return ShellSafetyAssessment(
-                    risk="high",
-                    reasoning="Model configuration unavailable - failing safe",
-                    is_fallback=True,
-                )
+            if SHELL_SAFETY_MODEL in models_config:
+                model_name = SHELL_SAFETY_MODEL
+            else:
+                # Fall back to whatever model the user has configured
+                model_name = self.get_model_name()
 
             model = ModelFactory.get_model(model_name, models_config)
 
-            # Handle claude-code models: swap instructions and prepend system prompt
-            from code_puppy.model_utils import prepare_prompt_for_model
-
-            instructions = self.get_system_prompt()
-            prepared = prepare_prompt_for_model(model_name, instructions, prompt)
-            instructions = prepared.instructions
-            prompt = prepared.user_prompt
-
-            from code_puppy.model_factory import make_model_settings
-
-            model_settings = make_model_settings(model_name)
-
             temp_agent = Agent(
                 model=model,
-                system_prompt=instructions,
-                retries=2,  # Increase from 1 to 2 for better reliability
+                system_prompt=self.get_system_prompt(),
+                retries=2,
                 output_type=ShellSafetyAssessment,
-                model_settings=model_settings,
             )
 
             # Generate unique agent name and workflow ID for DBOS (if enabled)
