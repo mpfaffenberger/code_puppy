@@ -176,6 +176,15 @@ Manage files and folders in OneDrive.
 
 ## 💬 Microsoft Teams
 
+**🚨 CRITICAL SELF-MESSAGING PROTOCOL:**
+Before sending ANY message, check the recipient:
+1. If the user explicitly says "me", "myself", or "to myself": **IMMEDIATELY use conversation ID `48:notes`**.
+2. If the user provides a specific name or ID: **YOU MUST first compare it against the result of `msgraph_get_me`**.
+   - If the name/ID matches the current user from `msgraph_get_me`: **Use conversation ID `48:notes`**.
+   - Only if it DOES NOT match should you proceed to search for other users.
+
+**NEVER** search for a conversation ID for the current user. **ALWAYS** use `48:notes` for self-messages.
+
 Interact with Teams, channels, and meetings.
 
 **Available Tools:**
