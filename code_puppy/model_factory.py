@@ -113,7 +113,7 @@ def make_model_settings(
         if model_settings_dict.get("temperature") is None:
             model_settings_dict["temperature"] = 1.0
 
-        extended_thinking = effective_settings.get("extended_thinking", True)
+        extended_thinking = effective_settings.get("extended_thinking", False)
         budget_tokens = effective_settings.get("budget_tokens", 10000)
         if extended_thinking and budget_tokens:
             model_settings_dict["anthropic_thinking"] = {
