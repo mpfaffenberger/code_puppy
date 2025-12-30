@@ -364,6 +364,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "Use /diff to configure diff highlighting colors for file changes."
     )
+    emit_system_message("To re-run the tutorial, use /tutorial.")
     try:
         from code_puppy.command_line.motd import print_motd
 

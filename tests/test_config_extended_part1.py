@@ -191,7 +191,7 @@ class TestConfigExtendedPart1:
         # Test default when not set
         set_config_value("message_limit", "")
         result = get_message_limit()
-        assert result == 100  # Default should be 100
+        assert result == 1000  # Default should be 1000
 
     def test_integer_conversion_protected_token_count(self, mock_config_file):
         """Test integer conversion for protected_token_count"""
@@ -327,7 +327,7 @@ class TestConfigExtendedPart1:
         # Test integer conversion with invalid values
         set_config_value("message_limit", "invalid")
         result = get_message_limit()
-        assert result == 100  # Should fall back to default
+        assert result == 1000  # Should fall back to default
 
         # Test float conversion with invalid values
         set_config_value("compaction_threshold", "invalid")

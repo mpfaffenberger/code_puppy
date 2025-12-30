@@ -1055,7 +1055,7 @@ def get_message_limit(default: int = 1000) -> int:
     """
     Returns the user-configured message/request limit for the agent.
     This controls how many steps/requests the agent can take.
-    Defaults to 100 if unset or misconfigured.
+    Defaults to 1000 if unset or misconfigured.
     Configurable by 'message_limit' key.
     """
     val = get_value("message_limit")

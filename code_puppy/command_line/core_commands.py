@@ -116,6 +116,57 @@ def handle_motd_command(command: str) -> bool:
 
 
 @register_command(
+    name="tutorial",
+    description="Run the interactive tutorial wizard",
+    usage="/tutorial",
+    category="core",
+)
+def handle_tutorial_command(command: str) -> bool:
+    """Run the interactive tutorial wizard.
+
+    Usage:
+        /tutorial  - Run the tutorial (can be run anytime)
+    """
+    import asyncio
+    import concurrent.futures
+
+    from code_puppy.command_line.onboarding_wizard import (
+        reset_onboarding,
+        run_onboarding_wizard,
+    )
+    from code_puppy.config import set_model_name
+
+    # Always reset so user can re-run the tutorial anytime
+    reset_onboarding()
+
+    # Run the async wizard in a thread pool (same pattern as agent picker)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(lambda: asyncio.run(run_onboarding_wizard()))
+        result = future.result(timeout=300)  # 5 min timeout
+
+    if result == "chatgpt":
+        emit_info("🔐 Starting ChatGPT OAuth flow...")
+        from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
+
+        run_oauth_flow()
+        set_model_name("chatgpt-gpt-5.2-codex")
+    elif result == "claude":
+        emit_info("🔐 Starting Claude Code OAuth flow...")
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _perform_authentication,
+        )
+
+        _perform_authentication()
+        set_model_name("claude-code-claude-opus-4-5-20251101")
+    elif result == "completed":
+        emit_info("🎉 Tutorial complete! Happy coding!")
+    elif result == "skipped":
+        emit_info("⏭️ Tutorial skipped. Run /tutorial anytime!")
+
+    return True
+
+
+@register_command(
     name="exit",
     description="Exit interactive mode",
     usage="/exit, /quit",
