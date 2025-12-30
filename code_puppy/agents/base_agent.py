@@ -1382,15 +1382,14 @@ class BaseAgent(ABC):
         def _print_thinking_banner() -> None:
             """Print the THINKING banner with spinner pause and line clear."""
             nonlocal did_stream_anything
-            import sys
             import time
 
             from code_puppy.config import get_banner_color
 
             pause_all_spinners()
             time.sleep(0.1)  # Delay to let spinner fully clear
-            sys.stdout.write("\r\x1b[K")  # Clear line
-            sys.stdout.flush()
+            # Clear line and print newline before banner
+            console.print(" " * 50, end="\r")
             console.print()  # Newline before banner
             # Bold banner with configurable color and lightning bolt
             thinking_color = get_banner_color("thinking")
@@ -1400,21 +1399,19 @@ class BaseAgent(ABC):
                 ),
                 end="",
             )
-            sys.stdout.flush()
             did_stream_anything = True
 
         def _print_response_banner() -> None:
             """Print the AGENT RESPONSE banner with spinner pause and line clear."""
             nonlocal did_stream_anything
-            import sys
             import time
 
             from code_puppy.config import get_banner_color
 
             pause_all_spinners()
             time.sleep(0.1)  # Delay to let spinner fully clear
-            sys.stdout.write("\r\x1b[K")  # Clear line
-            sys.stdout.flush()
+            # Clear line and print newline before banner
+            console.print(" " * 50, end="\r")
             console.print()  # Newline before banner
             response_color = get_banner_color("agent_response")
             console.print(
@@ -1422,7 +1419,6 @@ class BaseAgent(ABC):
                     f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
                 )
             )
-            sys.stdout.flush()
             did_stream_anything = True
 
         async for event in events:
@@ -1446,8 +1442,8 @@ class BaseAgent(ABC):
                     # Buffer initial content if present
                     if part.content and part.content.strip():
                         text_buffer[event.index].append(part.content)
-                        # Use len(content) / 3 for token estimation (more accurate than chunk counting)
-                        token_count[event.index] += len(part.content) // 3
+                        # Count chunks (each part counts as 1)
+                        token_count[event.index] += 1
                 elif isinstance(part, ToolCallPart):
                     streaming_parts.add(event.index)
                     tool_parts.add(event.index)
@@ -1465,24 +1461,20 @@ class BaseAgent(ABC):
                         if delta.content_delta:
                             # For text parts, show token counter then render at end
                             if event.index in text_parts:
-                                import sys
-
                                 # Print banner on first content
                                 if event.index not in banner_printed:
                                     _print_response_banner()
                                     banner_printed.add(event.index)
                                 # Accumulate text for final markdown render
                                 text_buffer[event.index].append(delta.content_delta)
-                                # Use len(content) / 3 for token estimation
-                                token_count[event.index] += (
-                                    len(delta.content_delta) // 3
-                                )
-                                # Update token counter in place (single line)
+                                # Count chunks received
+                                token_count[event.index] += 1
+                                # Update chunk counter in place (single line)
                                 count = token_count[event.index]
-                                sys.stdout.write(
-                                    f"\r\x1b[K  ⏳ Receiving... {count} tokens"
+                                console.print(
+                                    f"  ⏳ Receiving... {count} chunks   ",
+                                    end="\r",
                                 )
-                                sys.stdout.flush()
                             else:
                                 # For thinking parts, stream immediately (dim)
                                 if event.index not in banner_printed:
@@ -1491,34 +1483,30 @@ class BaseAgent(ABC):
                                 escaped = escape(delta.content_delta)
                                 console.print(f"[dim]{escaped}[/dim]", end="")
                     elif isinstance(delta, ToolCallPartDelta):
-                        import sys
-
-                        # For tool calls, show token counter (use string repr for estimation)
-                        token_count[event.index] += len(str(delta)) // 3
+                        # For tool calls, count chunks received
+                        token_count[event.index] += 1
                         # Get tool name if available
                         tool_name = getattr(delta, "tool_name_delta", "")
                         count = token_count[event.index]
                         # Display with tool wrench icon and tool name
                         if tool_name:
-                            sys.stdout.write(
-                                f"\r\x1b[K  🔧 Calling {tool_name}... {count} tokens"
+                            console.print(
+                                f"  🔧 Calling {tool_name}... {count} chunks   ",
+                                end="\r",
                             )
                         else:
-                            sys.stdout.write(
-                                f"\r\x1b[K  🔧 Calling tool... {count} tokens"
+                            console.print(
+                                f"  🔧 Calling tool... {count} chunks   ",
+                                end="\r",
                             )
-                        sys.stdout.flush()
 
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 if event.index in streaming_parts:
-                    import sys
-
                     # For text parts, clear counter line and render markdown
                     if event.index in text_parts:
-                        # Clear the token counter line
-                        sys.stdout.write("\r\x1b[K")
-                        sys.stdout.flush()
+                        # Clear the chunk counter line by printing spaces and returning
+                        console.print(" " * 50, end="\r")
                         # Render the final markdown nicely
                         if event.index in text_buffer:
                             try:
@@ -1528,11 +1516,10 @@ class BaseAgent(ABC):
                             except Exception:
                                 pass
                             del text_buffer[event.index]
-                    # For tool parts, clear the token counter line
+                    # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
-                        # Clear the token counter line
-                        sys.stdout.write("\r\x1b[K")
-                        sys.stdout.flush()
+                        # Clear the chunk counter line by printing spaces and returning
+                        console.print(" " * 50, end="\r")
                     # For thinking parts, just print newline
                     elif event.index in banner_printed:
                         console.print()  # Final newline after streaming
@@ -1951,8 +1938,6 @@ class BaseAgent(ABC):
         def graceful_sigint_handler(_sig, _frame):
             # When using keyboard-based cancel, SIGINT should be a no-op
             # (just show a hint to user about the configured cancel key)
-            import sys
-
             from code_puppy.keymap import get_cancel_agent_display_name
 
             cancel_key = get_cancel_agent_display_name()
