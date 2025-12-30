@@ -55,11 +55,19 @@ class KeymapError(Exception):
 def get_cancel_agent_key() -> str:
     """Get the configured cancel agent key from config.
 
+    On Windows when launched via uvx, this automatically returns "ctrl+k"
+    to work around uvx capturing Ctrl+C before it reaches Python.
+
     Returns:
         The key name (e.g., "ctrl+c", "ctrl+k") from config,
         or the default if not configured.
     """
     from code_puppy.config import get_value
+    from code_puppy.uvx_detection import should_use_alternate_cancel_key
+
+    # On Windows + uvx, force ctrl+k to bypass uvx's SIGINT capture
+    if should_use_alternate_cancel_key():
+        return "ctrl+k"
 
     key = get_value("cancel_agent_key")
     if key is None or key.strip() == "":

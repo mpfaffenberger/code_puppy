@@ -1938,7 +1938,12 @@ class BaseAgent(ABC):
         def graceful_sigint_handler(_sig, _frame):
             # When using keyboard-based cancel, SIGINT should be a no-op
             # (just show a hint to user about the configured cancel key)
+            # Also reset terminal to prevent bricking on Windows+uvx
             from code_puppy.keymap import get_cancel_agent_display_name
+            from code_puppy.terminal_utils import reset_windows_terminal_full
+
+            # Reset terminal state first to prevent bricking
+            reset_windows_terminal_full()
 
             cancel_key = get_cancel_agent_display_name()
             emit_info(f"Use {cancel_key} to cancel the agent task.")
