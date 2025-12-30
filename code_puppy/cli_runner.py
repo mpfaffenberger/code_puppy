@@ -604,8 +604,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
                     # Windows-specific: Reset terminal state after cancellation
-                    # Use full reset (ANSI + console mode) to fix stdin after Ctrl+C
-                    reset_windows_terminal_full()
+                    reset_windows_terminal_ansi()
                     continue
                 # Get the structured response
                 agent_response = result.output
