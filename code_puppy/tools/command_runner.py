@@ -27,6 +27,16 @@ from code_puppy.messaging import (  # Structured messaging types
 )
 from code_puppy.tools.common import generate_group_id, get_user_approval_async
 
+# Import sandboxing components
+try:
+    from code_puppy.sandbox import SandboxCommandWrapper, SandboxConfig
+
+    _SANDBOX_AVAILABLE = True
+except ImportError:
+    _SANDBOX_AVAILABLE = False
+    SandboxCommandWrapper = None
+    SandboxConfig = None
+
 # Maximum line length for shell command output to prevent massive token usage
 # This helps avoid exceeding model context limits when commands produce very long lines
 MAX_LINE_LENGTH = 256
@@ -178,6 +188,23 @@ _WINDOWS_CTRL_HANDLER = None  # For SetConsoleCtrlHandler on Windows
 
 # Stop event to signal reader threads to terminate
 _READER_STOP_EVENT: Optional[threading.Event] = None
+
+# Global sandbox wrapper (lazy initialization)
+_SANDBOX_WRAPPER: Optional[SandboxCommandWrapper] = None
+
+
+def _get_sandbox_wrapper() -> Optional[SandboxCommandWrapper]:
+    """Get or create the global sandbox wrapper."""
+    global _SANDBOX_WRAPPER
+    if not _SANDBOX_AVAILABLE:
+        return None
+    if _SANDBOX_WRAPPER is None:
+        try:
+            _SANDBOX_WRAPPER = SandboxCommandWrapper()
+        except Exception as e:
+            emit_warning(f"Failed to initialize sandbox: {e}")
+            return None
+    return _SANDBOX_WRAPPER
 
 
 def _register_process(proc: subprocess.Popen) -> None:
@@ -1094,6 +1121,32 @@ async def run_shell_command(
         )
 
         try:
+            # Wrap command with sandboxing if enabled
+            wrapped_command = command
+            sandbox_env = None
+            was_excluded = False
+            sandbox = _get_sandbox_wrapper()
+
+            if sandbox and sandbox.config.enabled:
+                try:
+                    wrapped_command, sandbox_env, was_excluded = sandbox.wrap_command(
+                        command, cwd=cwd, env=os.environ.copy()
+                    )
+                    if was_excluded:
+                        emit_info(
+                            "[dim cyan]ℹ️  Command excluded from sandbox (in exclusion list)[/dim cyan]",
+                            message_group=group_id,
+                        )
+                    elif wrapped_command != command:
+                        emit_info(
+                            "[dim yellow]🔒 Running command in sandbox[/dim yellow]",
+                            message_group=group_id,
+                        )
+                except Exception as e:
+                    emit_warning(
+                        f"Failed to wrap command with sandbox: {e}", message_group=group_id
+                    )
+
             creationflags = 0
             preexec_fn = None
             if sys.platform.startswith("win"):
@@ -1105,7 +1158,7 @@ async def run_shell_command(
                 preexec_fn = os.setsid if hasattr(os, "setsid") else None
 
             process = subprocess.Popen(
-                command,
+                wrapped_command,
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1115,6 +1168,7 @@ async def run_shell_command(
                 universal_newlines=True,
                 preexec_fn=preexec_fn,
                 creationflags=creationflags,
+                env=sandbox_env if sandbox_env else None,
             )
             _register_process(process)
             try:
