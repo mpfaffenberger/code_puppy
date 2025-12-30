@@ -305,6 +305,16 @@ async def run_onboarding_wizard() -> Optional[str]:
         sys.stdout.write("\033[?1049l")
         sys.stdout.flush()
 
+    # Clear exit message
+    from code_puppy.messaging import emit_info
+
+    if wizard.result == "skipped":
+        emit_info("✓ Tutorial skipped")
+    elif wizard.result == "completed":
+        emit_info("✓ Tutorial completed! Welcome to Code Puppy! 🐶")
+    else:
+        emit_info("✓ Exited tutorial")
+
     if wizard.result in ("completed", "skipped"):
         mark_onboarding_complete()
 

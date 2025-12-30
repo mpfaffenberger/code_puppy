@@ -995,6 +995,10 @@ class AddModelMenu:
             # Reset awaiting input flag
             set_awaiting_user_input(False)
 
+        # Clear exit message (unless we're about to prompt for more input)
+        if self.result not in ("pending_credentials", "pending_custom_model"):
+            emit_info("✓ Exited model browser")
+
         # Handle unsupported provider
         if self.result == "unsupported" and self.current_provider:
             reason = UNSUPPORTED_PROVIDERS.get(

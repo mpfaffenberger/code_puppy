@@ -603,4 +603,9 @@ async def interactive_autosave_picker() -> Optional[str]:
         # Reset awaiting input flag
         set_awaiting_user_input(False)
 
+    # Clear exit message
+    from code_puppy.messaging import emit_info
+
+    emit_info("✓ Exited session browser")
+
     return result[0]

@@ -604,6 +604,10 @@ class CustomServerForm:
             sys.stdout.flush()
             set_awaiting_user_input(False)
 
+        # Clear exit message if not installing
+        if self.result != "installed":
+            emit_info("✓ Exited custom server form")
+
         # Handle result
         if self.result == "installed":
             if self.edit_mode:

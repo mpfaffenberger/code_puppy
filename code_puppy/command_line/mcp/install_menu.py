@@ -16,7 +16,7 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.messaging import emit_error, emit_warning
+from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 from .catalog_server_installer import (
@@ -634,6 +634,10 @@ class MCPInstallMenu:
             sys.stdout.write("\033[?1049l")
             sys.stdout.flush()
             set_awaiting_user_input(False)
+
+        # Clear exit message (unless we're about to prompt for more input)
+        if self.result not in ("pending_custom", "pending_install"):
+            emit_info("✓ Exited MCP server browser")
 
         # Handle custom server after TUI exits
         if self.result == "pending_custom":
