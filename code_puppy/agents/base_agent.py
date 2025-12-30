@@ -1920,6 +1920,8 @@ class BaseAgent(ABC):
                                         usage_limits=usage_limits,
                                         **kwargs,
                                     )
+                                # Display the response since DBOS doesn't use streaming
+                                await self._display_non_streamed_response(result_)
                             finally:
                                 # Always restore original toolsets
                                 pydantic_agent._toolsets = original_toolsets
@@ -1932,6 +1934,8 @@ class BaseAgent(ABC):
                                     usage_limits=usage_limits,
                                     **kwargs,
                                 )
+                            # Display the response since DBOS doesn't use streaming
+                            await self._display_non_streamed_response(result_)
                         else:
                             # Non-DBOS path (MCP servers are already included)
                             # Check if we should disable streaming for custom_gemini
