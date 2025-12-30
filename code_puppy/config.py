@@ -1051,7 +1051,7 @@ def set_enable_dbos(enabled: bool) -> None:
     set_config_value("enable_dbos", "true" if enabled else "false")
 
 
-def get_message_limit(default: int = 100) -> int:
+def get_message_limit(default: int = 1000) -> int:
     """
     Returns the user-configured message/request limit for the agent.
     This controls how many steps/requests the agent can take.

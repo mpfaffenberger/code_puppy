@@ -46,7 +46,7 @@ class TestUvxDetection:
     def test_is_uvx_in_chain_with_uv_exe_only(self):
         """Test _is_uvx_in_chain does NOT detect uv.exe alone (only uvx.exe)."""
         from code_puppy.uvx_detection import _is_uvx_in_chain
-        
+
         # uv.exe alone should NOT trigger detection - only uvx.exe has SIGINT issues
         chain = ["python.exe", "uv.exe", "powershell.exe"]
         assert _is_uvx_in_chain(chain) is False
@@ -84,6 +84,7 @@ class TestUvxDetection:
 
             # Re-import with mocks active
             import importlib
+
             import code_puppy.uvx_detection
 
             importlib.reload(code_puppy.uvx_detection)
@@ -101,6 +102,7 @@ class TestUvxDetection:
     def test_should_use_alternate_cancel_key_windows_no_uvx(self):
         """Test should_use_alternate_cancel_key returns False on Windows without uvx."""
         import importlib
+
         import code_puppy.uvx_detection
 
         importlib.reload(code_puppy.uvx_detection)
@@ -116,6 +118,7 @@ class TestUvxDetection:
     def test_should_use_alternate_cancel_key_linux_uvx(self):
         """Test should_use_alternate_cancel_key returns False on Linux even with uvx."""
         import importlib
+
         import code_puppy.uvx_detection
 
         importlib.reload(code_puppy.uvx_detection)
@@ -131,6 +134,7 @@ class TestUvxDetection:
     def test_should_use_alternate_cancel_key_macos_uvx(self):
         """Test should_use_alternate_cancel_key returns False on macOS even with uvx."""
         import importlib
+
         import code_puppy.uvx_detection
 
         importlib.reload(code_puppy.uvx_detection)
@@ -180,6 +184,7 @@ class TestParentProcessChainPsutil:
         # This test runs with actual psutil if installed
         try:
             import psutil  # noqa: F401
+
             from code_puppy.uvx_detection import _get_parent_process_chain_psutil
 
             chain = _get_parent_process_chain_psutil()
@@ -241,6 +246,7 @@ class TestKeymapIntegration:
         ):
             # Import fresh to pick up the mock
             import importlib
+
             import code_puppy.keymap
 
             importlib.reload(code_puppy.keymap)
@@ -258,6 +264,7 @@ class TestKeymapIntegration:
             patch("code_puppy.config.get_value", return_value="ctrl+q"),
         ):
             import importlib
+
             import code_puppy.keymap
 
             importlib.reload(code_puppy.keymap)
@@ -275,6 +282,7 @@ class TestKeymapIntegration:
             patch("code_puppy.config.get_value", return_value=None),
         ):
             import importlib
+
             import code_puppy.keymap
 
             importlib.reload(code_puppy.keymap)
@@ -289,6 +297,7 @@ class TestMockedProcessChain:
     def test_uvx_detection_with_mocked_chain(self):
         """Test uvx detection with a simulated uvx process chain."""
         import importlib
+
         import code_puppy.uvx_detection
 
         importlib.reload(code_puppy.uvx_detection)
@@ -309,6 +318,7 @@ class TestMockedProcessChain:
     def test_no_uvx_detection_with_mocked_chain(self):
         """Test no uvx detection with a non-uvx process chain."""
         import importlib
+
         import code_puppy.uvx_detection
 
         importlib.reload(code_puppy.uvx_detection)
@@ -329,6 +339,7 @@ class TestMockedProcessChain:
     def test_uvx_detection_caching(self):
         """Test that uvx detection result is cached."""
         import importlib
+
         import code_puppy.uvx_detection
 
         importlib.reload(code_puppy.uvx_detection)
