@@ -4,29 +4,19 @@ HTTP utilities module for code-puppy.
 This module provides functions for creating properly configured HTTP clients.
 """
 
+import asyncio
+import logging
 import os
 import socket
-from typing import Dict, Optional, Union
+import time
+from typing import Any, Dict, Optional, Union
 
 import httpx
 import requests
-from tenacity import stop_after_attempt, wait_exponential
 
 from code_puppy.config import get_http2
 
-try:
-    from pydantic_ai.retries import (
-        AsyncTenacityTransport,
-        RetryConfig,
-        TenacityTransport,
-        wait_retry_after,
-    )
-except ImportError:
-    # Fallback if pydantic_ai.retries is not available
-    AsyncTenacityTransport = None
-    RetryConfig = None
-    TenacityTransport = None
-    wait_retry_after = None
+logger = logging.getLogger(__name__)
 
 try:
     from .reopenable_async_client import ReopenableAsyncClient
@@ -34,11 +24,108 @@ except ImportError:
     ReopenableAsyncClient = None
 
 try:
-    from .messaging import emit_info
+    from .messaging import emit_info, emit_warning
 except ImportError:
     # Fallback if messaging system is not available
     def emit_info(content: str, **metadata):
         pass  # No-op if messaging system is not available
+
+    def emit_warning(content: str, **metadata):
+        pass
+
+
+class RetryingAsyncClient(httpx.AsyncClient):
+    """AsyncClient with built-in rate limit handling (429) and retries.
+
+    This replaces the Tenacity transport with a more direct subclass implementation,
+    which plays nicer with proxies and custom transports (like Antigravity).
+    """
+
+    def __init__(
+        self,
+        retry_status_codes: tuple = (429, 502, 503, 504),
+        max_retries: int = 5,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.retry_status_codes = retry_status_codes
+        self.max_retries = max_retries
+
+    async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+        """Send request with automatic retries for rate limits and server errors."""
+        last_response = None
+        last_exception = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                # Clone request for retry (streams might be consumed)
+                # But only if it's not the first attempt
+                req_to_send = request
+                if attempt > 0:
+                    # httpx requests are reusable, but we need to be careful with streams
+                    pass
+
+                response = await super().send(req_to_send, **kwargs)
+                last_response = response
+
+                # Check for retryable status
+                if response.status_code not in self.retry_status_codes:
+                    return response
+
+                # Close response if we're going to retry
+                await response.aclose()
+
+                # Determine wait time
+                wait_time = 1.0 * (
+                    2**attempt
+                )  # Default exponential backoff: 1s, 2s, 4s...
+
+                # Check Retry-After header
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait_time = float(retry_after)
+                    except ValueError:
+                        # Try parsing http-date
+                        from email.utils import parsedate_to_datetime
+
+                        try:
+                            date = parsedate_to_datetime(retry_after)
+                            wait_time = date.timestamp() - time.time()
+                        except Exception:
+                            pass
+
+                # Cap wait time
+                wait_time = max(0.5, min(wait_time, 60.0))
+
+                if attempt < self.max_retries:
+                    emit_info(
+                        f"HTTP retry: {response.status_code} received. Waiting {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})"
+                    )
+                    await asyncio.sleep(wait_time)
+
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as e:
+                last_exception = e
+                wait_time = 1.0 * (2**attempt)
+                if attempt < self.max_retries:
+                    emit_warning(
+                        f"HTTP connection error: {e}. Retrying in {wait_time}s..."
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise
+            except Exception:
+                raise
+
+        # Return last response (even if it's an error status)
+        if last_response:
+            return last_response
+
+        # Should catch this in loop, but just in case
+        if last_exception:
+            raise last_exception
+
+        return last_response
 
 
 def get_cert_bundle_path() -> str:
@@ -60,53 +147,15 @@ def create_client(
     # Check if HTTP/2 is enabled in config
     http2_enabled = get_http2()
 
-    # Check if custom retry transport should be disabled (e.g., for integration tests with proxies)
-    disable_retry_transport = os.environ.get(
-        "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
-    ).lower() in ("1", "true", "yes")
-
     # If retry components are available, create a client with retry transport
-    if (
-        TenacityTransport
-        and RetryConfig
-        and wait_retry_after
-        and not disable_retry_transport
-    ):
-
-        def should_retry_status(response):
-            """Raise exceptions for retryable HTTP status codes."""
-            if response.status_code in retry_status_codes:
-                emit_info(
-                    f"HTTP retry: Retrying request due to status code {response.status_code}"
-                )
-                return True
-
-        transport = TenacityTransport(
-            config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
-                and e.response.status_code in retry_status_codes,
-                wait=wait_retry_after(
-                    fallback_strategy=wait_exponential(multiplier=1, max=60),
-                    max_wait=300,
-                ),
-                stop=stop_after_attempt(10),
-                reraise=True,
-            ),
-            validate_response=should_retry_status,
-        )
-
-        return httpx.Client(
-            transport=transport,
-            verify=verify,
-            headers=headers or {},
-            timeout=timeout,
-            http2=http2_enabled,
-        )
-    else:
-        # Fallback to regular client if retry components are not available
-        return httpx.Client(
-            verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
-        )
+    # Note: TenacityTransport was removed. For now we just return a standard client.
+    # Future TODO: Implement RetryingClient(httpx.Client) if needed.
+    return httpx.Client(
+        verify=verify,
+        headers=headers or {},
+        timeout=timeout,
+        http2=http2_enabled,
+    )
 
 
 def create_async_client(
@@ -145,52 +194,21 @@ def create_async_client(
     else:
         trust_env = False
 
-    # If retry components are available, create a client with retry transport
-    # BUT: disable retry transport when proxies are detected because custom transports
-    # don't play nicely with proxy configuration
-    if (
-        AsyncTenacityTransport
-        and RetryConfig
-        and wait_retry_after
-        and not disable_retry_transport
-        and not has_proxy
-    ):
-
-        def should_retry_status(response):
-            """Raise exceptions for retryable HTTP status codes."""
-            if response.status_code in retry_status_codes:
-                emit_info(
-                    f"HTTP retry: Retrying request due to status code {response.status_code}"
-                )
-                return True
-
-        # Create transport (with or without proxy base)
-        if has_proxy:
-            # Extract proxy URL from environment
-            proxy_url = (
-                os.environ.get("HTTPS_PROXY")
-                or os.environ.get("https_proxy")
-                or os.environ.get("HTTP_PROXY")
-                or os.environ.get("http_proxy")
-            )
-        else:
-            proxy_url = None
-
-        # Create retry transport wrapper
-        transport = AsyncTenacityTransport(
-            config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
-                and e.response.status_code in retry_status_codes,
-                wait=wait_retry_after(10),
-                stop=stop_after_attempt(10),
-                reraise=True,
-            ),
-            validate_response=should_retry_status,
+    # Extract proxy URL if needed
+    proxy_url = None
+    if has_proxy:
+        proxy_url = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
         )
 
-        return httpx.AsyncClient(
-            transport=transport,
-            proxy=proxy_url,  # Pass proxy to client, not transport
+    # Use RetryingAsyncClient if retries are enabled
+    if not disable_retry_transport:
+        return RetryingAsyncClient(
+            retry_status_codes=retry_status_codes,
+            proxy=proxy_url,
             verify=verify,
             headers=headers or {},
             timeout=timeout,
@@ -198,19 +216,7 @@ def create_async_client(
             trust_env=trust_env,
         )
     else:
-        # Fallback to regular client if retry components are not available,
-        # when retry transport is explicitly disabled, or when proxies are detected
-        # Extract proxy URL if needed
-        if has_proxy:
-            proxy_url = (
-                os.environ.get("HTTPS_PROXY")
-                or os.environ.get("https_proxy")
-                or os.environ.get("HTTP_PROXY")
-                or os.environ.get("http_proxy")
-            )
-        else:
-            proxy_url = None
-
+        # Regular client for testing
         return httpx.AsyncClient(
             proxy=proxy_url,
             verify=verify,
@@ -295,87 +301,41 @@ def create_reopenable_async_client(
     else:
         trust_env = False
 
-    # If retry components are available, create a client with retry transport
-    # BUT: disable retry transport when proxies are detected because custom transports
-    # don't play nicely with proxy configuration
-    if (
-        AsyncTenacityTransport
-        and RetryConfig
-        and wait_retry_after
-        and not disable_retry_transport
-        and not has_proxy
-    ):
-
-        def should_retry_status(response):
-            """Raise exceptions for retryable HTTP status codes."""
-            if response.status_code in retry_status_codes:
-                emit_info(
-                    f"HTTP retry: Retrying request due to status code {response.status_code}"
-                )
-                return True
-
-        transport = AsyncTenacityTransport(
-            config=RetryConfig(
-                retry=lambda e: isinstance(e, httpx.HTTPStatusError)
-                and e.response.status_code in retry_status_codes,
-                wait=wait_retry_after(
-                    fallback_strategy=wait_exponential(multiplier=1, max=60),
-                    max_wait=300,
-                ),
-                stop=stop_after_attempt(10),
-                reraise=True,
-            ),
-            validate_response=should_retry_status,
+    # Extract proxy URL if needed
+    proxy_url = None
+    if has_proxy:
+        proxy_url = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
         )
 
-        # Extract proxy URL if needed
-        if has_proxy:
-            proxy_url = (
-                os.environ.get("HTTPS_PROXY")
-                or os.environ.get("https_proxy")
-                or os.environ.get("HTTP_PROXY")
-                or os.environ.get("http_proxy")
-            )
-        else:
-            proxy_url = None
+    if ReopenableAsyncClient is not None:
+        # Use RetryingAsyncClient if retries are enabled
+        client_class = (
+            RetryingAsyncClient if not disable_retry_transport else httpx.AsyncClient
+        )
 
-        if ReopenableAsyncClient is not None:
-            return ReopenableAsyncClient(
-                transport=transport,
-                proxy=proxy_url,
-                verify=verify,
-                headers=headers or {},
-                timeout=timeout,
-                http2=http2_enabled,
-                trust_env=trust_env,
-            )
-        else:
-            # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
-            return httpx.AsyncClient(
-                transport=transport,
-                proxy=proxy_url,
-                verify=verify,
-                headers=headers or {},
-                timeout=timeout,
-                http2=http2_enabled,
-                trust_env=trust_env,
-            )
+        # Pass retry config only if using RetryingAsyncClient
+        kwargs = {
+            "proxy": proxy_url,
+            "verify": verify,
+            "headers": headers or {},
+            "timeout": timeout,
+            "http2": http2_enabled,
+            "trust_env": trust_env,
+        }
+
+        if not disable_retry_transport:
+            kwargs["retry_status_codes"] = retry_status_codes
+
+        return ReopenableAsyncClient(client_class=client_class, **kwargs)
     else:
-        # Fallback to regular clients if retry components are not available
-        # or when proxies are detected
-        # Extract proxy URL if needed
-        if has_proxy:
-            proxy_url = (
-                os.environ.get("HTTPS_PROXY")
-                or os.environ.get("https_proxy")
-                or os.environ.get("HTTP_PROXY")
-                or os.environ.get("http_proxy")
-            )
-        else:
-            proxy_url = None
-
-        if ReopenableAsyncClient is not None:
-            return ReopenableAsyncClient(
+        # Fallback to RetryingAsyncClient
+        if not disable_retry_transport:
+            return RetryingAsyncClient(
+                retry_status_codes=retry_status_codes,
                 proxy=proxy_url,
                 verify=verify,
                 headers=headers or {},
@@ -384,7 +344,6 @@ def create_reopenable_async_client(
                 trust_env=trust_env,
             )
         else:
-            # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
             return httpx.AsyncClient(
                 proxy=proxy_url,
                 verify=verify,

@@ -4,7 +4,6 @@ import os
 import pathlib
 from typing import Any, Dict
 
-import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -212,6 +211,7 @@ class ModelFactory:
 
         # Import OAuth model file paths from main config
         from code_puppy.config import (
+            ANTIGRAVITY_MODELS_FILE,
             CHATGPT_MODELS_FILE,
             CLAUDE_MODELS_FILE,
             GEMINI_MODELS_FILE,
@@ -223,6 +223,7 @@ class ModelFactory:
             (pathlib.Path(CHATGPT_MODELS_FILE), "ChatGPT OAuth models", False),
             (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
             (pathlib.Path(GEMINI_MODELS_FILE), "Gemini OAuth models", False),
+            (pathlib.Path(ANTIGRAVITY_MODELS_FILE), "Antigravity OAuth models", False),
         ]
 
         for source_path, label, use_filtered in extra_sources:
@@ -556,24 +557,69 @@ class ModelFactory:
                     f"API key is not set for custom Gemini endpoint; skipping model '{model_config.get('name')}'."
                 )
                 return None
-            os.environ["GEMINI_API_KEY"] = api_key
 
-            class CustomGoogleGLAProvider(GoogleProvider):
-                def __init__(self, *args, **kwargs):
-                    super().__init__(*args, **kwargs)
+            # Check if this is an Antigravity model
+            if model_config.get("antigravity"):
+                try:
+                    from code_puppy.plugins.antigravity_oauth.token import (
+                        is_token_expired,
+                        refresh_access_token,
+                    )
+                    from code_puppy.plugins.antigravity_oauth.transport import (
+                        create_antigravity_client,
+                    )
+                    from code_puppy.plugins.antigravity_oauth.utils import (
+                        load_stored_tokens,
+                        save_tokens,
+                    )
 
-                @property
-                def base_url(self):
-                    return url
+                    # Get fresh access token (refresh if needed)
+                    tokens = load_stored_tokens()
+                    if not tokens:
+                        emit_warning(
+                            "Antigravity tokens not found; run /antigravity-auth first."
+                        )
+                        return None
 
-                @property
-                def client(self) -> httpx.AsyncClient:
-                    _client = create_async_client(headers=headers, verify=verify)
-                    _client.base_url = self.base_url
-                    return _client
+                    access_token = tokens.get("access_token", "")
+                    refresh_token = tokens.get("refresh_token", "")
+                    expires_at = tokens.get("expires_at")
 
-            google_gla = CustomGoogleGLAProvider(api_key=api_key)
-            model = GoogleModel(model_name=model_config["name"], provider=google_gla)
+                    # Refresh if expired or about to expire
+                    if is_token_expired(expires_at):
+                        new_tokens = refresh_access_token(refresh_token)
+                        if new_tokens:
+                            access_token = new_tokens.access_token
+                            tokens["access_token"] = new_tokens.access_token
+                            tokens["refresh_token"] = new_tokens.refresh_token
+                            tokens["expires_at"] = new_tokens.expires_at
+                            save_tokens(tokens)
+                        else:
+                            emit_warning(
+                                "Failed to refresh Antigravity token; run /antigravity-auth again."
+                            )
+                            return None
+
+                    project_id = tokens.get(
+                        "project_id", model_config.get("project_id", "")
+                    )
+                    client = create_antigravity_client(
+                        access_token=access_token,
+                        project_id=project_id,
+                        model_name=model_config["name"],
+                        base_url=url,
+                        headers=headers,
+                    )
+                except ImportError:
+                    emit_warning(
+                        f"Antigravity transport not available; skipping model '{model_config.get('name')}'."
+                    )
+                    return None
+            else:
+                client = create_async_client(headers=headers, verify=verify)
+
+            provider = GoogleProvider(api_key=api_key, base_url=url, http_client=client)
+            model = GoogleModel(model_name=model_config["name"], provider=provider)
             return model
         elif model_type == "cerebras":
 
