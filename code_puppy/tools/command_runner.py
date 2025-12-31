@@ -9,7 +9,7 @@ import threading
 import time
 import traceback
 from contextlib import contextmanager
-from typing import Callable, Literal, Optional, Set
+from typing import Callable, List, Literal, Optional, Set
 
 from pydantic import BaseModel
 from pydantic_ai import RunContext
@@ -1077,12 +1077,21 @@ class ReasoningOutput(BaseModel):
 
 
 def share_your_reasoning(
-    context: RunContext, reasoning: str, next_steps: str | None = None
+    context: RunContext, reasoning: str, next_steps: str | List[str] | None = None
 ) -> ReasoningOutput:
+    # Handle list of next steps by formatting them
+    formatted_next_steps = next_steps
+    if isinstance(next_steps, list):
+        formatted_next_steps = "\n".join(
+            [f"{i + 1}. {step}" for i, step in enumerate(next_steps)]
+        )
+
     # Emit structured AgentReasoningMessage for the UI
     reasoning_msg = AgentReasoningMessage(
         reasoning=reasoning,
-        next_steps=next_steps if next_steps and next_steps.strip() else None,
+        next_steps=formatted_next_steps
+        if formatted_next_steps and formatted_next_steps.strip()
+        else None,
     )
     get_message_bus().emit(reasoning_msg)
 
@@ -1170,7 +1179,9 @@ def register_agent_share_your_reasoning(agent):
 
     @agent.tool
     def agent_share_your_reasoning(
-        context: RunContext, reasoning: str = "", next_steps: str | None = None
+        context: RunContext,
+        reasoning: str = "",
+        next_steps: str | List[str] | None = None,
     ) -> ReasoningOutput:
         """Share the agent's current reasoning and planned next steps with the user.
 
@@ -1184,8 +1195,8 @@ def register_agent_share_your_reasoning(agent):
                 reasoning for the current situation. This should be clear,
                 comprehensive, and explain the 'why' behind decisions.
             next_steps: Planned upcoming actions or steps
-                the agent intends to take. Can be None if no specific next steps
-                are determined. Defaults to None.
+                the agent intends to take. Can be a string or a list of strings.
+                Can be None if no specific next steps are determined. Defaults to None.
 
         Returns:
             ReasoningOutput: A simple response object containing:
@@ -1195,6 +1206,10 @@ def register_agent_share_your_reasoning(agent):
             >>> reasoning = "I need to analyze the codebase structure first"
             >>> next_steps = "First, I'll list the directory contents, then read key files"
             >>> result = agent_share_your_reasoning(ctx, reasoning, next_steps)
+
+            >>> # Using a list for next steps
+            >>> next_steps_list = ["List files", "Read README.md", "Run tests"]
+            >>> result = agent_share_your_reasoning(ctx, reasoning, next_steps_list)
 
         Best Practice:
             Use this tool frequently to maintain transparency. Call it:

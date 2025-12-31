@@ -28,10 +28,8 @@ from .oauth import (
     exchange_code_for_tokens,
     fetch_antigravity_status,
     prepare_oauth_context,
-    upgrade_to_standard_tier,
 )
 from .storage import clear_accounts
-from .token import refresh_access_token
 from .utils import (
     add_models_to_config,
     load_antigravity_models,
@@ -241,10 +239,6 @@ def _custom_help() -> List[Tuple[str, str]]:
             "Authenticate with Google/Antigravity for Gemini & Claude models",
         ),
         (
-            "antigravity-upgrade",
-            "Upgrade to standard tier for Gemini 3 + Claude access",
-        ),
-        (
             "antigravity-add",
             "Add another Google account for load balancing",
         ),
@@ -306,15 +300,6 @@ def _handle_status() -> None:
             available = ", ".join(status.allowed_tiers)
             emit_info(f"   Available tiers: {available}")
 
-        # Show upgrade hint if on free tier
-        if (
-            status.current_tier == "free-tier"
-            and "standard-tier" in status.allowed_tiers
-        ):
-            emit_info(
-                "\n   💡 Tip: Run /antigravity-upgrade for Gemini 3 & Claude access"
-            )
-
     # Show account pool
     manager = AccountManager.load_from_disk()
     if manager.account_count > 1:
@@ -356,80 +341,6 @@ def _handle_status() -> None:
             emit_info(f"   Other: {', '.join(sorted(other))}")
     else:
         emit_warning("No Antigravity models configured")
-
-
-def _handle_upgrade() -> None:
-    """Handle /antigravity-upgrade command to switch to standard tier."""
-    tokens = load_stored_tokens()
-
-    if not tokens or not tokens.get("access_token"):
-        emit_error("❌ Not authenticated. Run /antigravity-auth first.")
-        return
-
-    emit_info("🚀 Upgrade to Standard Tier")
-    emit_info("")
-    emit_info("The standard tier gives access to:")
-    emit_info("  • Gemini 3 Pro (Low/High)")
-    emit_info("  • Gemini 3 Flash")
-    emit_info("  • Claude Sonnet 4.5")
-    emit_info("  • Claude Opus 4.5 (with thinking)")
-    emit_info("")
-    emit_info("Requirements:")
-    emit_info("  • A Google Cloud project with billing enabled")
-    emit_info("  • Gemini Code Assist subscription")
-    emit_info("")
-
-    # Prompt for GCP project ID
-    try:
-        gcp_project_id = input(
-            "Enter your GCP project ID (e.g., my-project-123): "
-        ).strip()
-    except (KeyboardInterrupt, EOFError):
-        emit_info("\n❌ Upgrade cancelled.")
-        return
-
-    if not gcp_project_id:
-        emit_error("❌ GCP project ID is required for standard tier.")
-        return
-
-    emit_info(f"📦 Upgrading with project: {gcp_project_id}...")
-
-    # Get a fresh access token
-    access_token = tokens.get("access_token", "")
-    refresh_token = tokens.get("refresh_token", "")
-    expires_at = tokens.get("expires_at", 0)
-
-    # Refresh if expired
-    if expires_at and time.time() >= expires_at - 60:
-        emit_info("🔄 Refreshing access token...")
-        new_tokens = refresh_access_token(refresh_token)
-        if new_tokens:
-            access_token = new_tokens.get("access_token", access_token)
-            tokens.update(new_tokens)
-            save_tokens(tokens)
-
-    # Attempt upgrade
-    project_id = upgrade_to_standard_tier(access_token, gcp_project_id)
-
-    if project_id:
-        # Update stored tokens with new project ID
-        tokens["project_id"] = project_id
-        save_tokens(tokens)
-
-        emit_success("🎉 Upgraded to standard tier!")
-        emit_info(f"   Antigravity project: {project_id}")
-        emit_info("")
-        emit_info("You now have access to all premium models!")
-        emit_info("Try: /model antigravity-gemini-3-pro-high")
-        emit_info("     /model antigravity-claude-sonnet-4-5")
-
-        # Reload to pick up new project
-        reload_current_agent()
-    else:
-        emit_error("❌ Upgrade failed. Make sure:")
-        emit_error("   • Your GCP project ID is correct")
-        emit_error("   • Billing is enabled on the project")
-        emit_error("   • You have a Gemini Code Assist subscription")
 
 
 def _handle_logout() -> None:
@@ -485,10 +396,6 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
     if name == "antigravity-logout":
         _handle_logout()
-        return True
-
-    if name == "antigravity-upgrade":
-        _handle_upgrade()
         return True
 
     return None

@@ -408,25 +408,6 @@ def _fetch_project_id(access_token: str) -> str:
     return ""
 
 
-def upgrade_to_standard_tier(access_token: str, gcp_project_id: str) -> str:
-    """Upgrade to standard tier with a user-provided GCP project.
-
-    Args:
-        access_token: Valid OAuth access token
-        gcp_project_id: User's GCP project ID (e.g., "my-project-123")
-
-    Returns:
-        The Antigravity project ID if successful, empty string otherwise.
-    """
-    project_id = _onboard_user(
-        access_token=access_token,
-        tier_id="standard-tier",
-        gcp_project_id=gcp_project_id,
-    )
-
-    return project_id
-
-
 def exchange_code_for_tokens(
     code: str,
     state: str,
