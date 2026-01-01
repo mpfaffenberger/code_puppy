@@ -6,6 +6,10 @@ Handles Windows console mode resets and Unix terminal sanity restoration.
 import platform
 import subprocess
 import sys
+from typing import Callable, Optional
+
+# Store the original console ctrl handler so we can restore it if needed
+_original_ctrl_handler: Optional[Callable] = None
 
 
 def reset_windows_terminal_ansi() -> None:
@@ -86,17 +90,36 @@ def reset_windows_console_mode() -> None:
         pass  # Silently ignore errors - best effort reset
 
 
-def reset_windows_terminal_full() -> None:
-    """Perform a full Windows terminal reset (ANSI + console mode).
+def flush_windows_keyboard_buffer() -> None:
+    """Flush the Windows keyboard buffer.
 
-    Combines both ANSI reset and console mode reset for complete
-    terminal state restoration after interrupts.
+    Clears any pending keyboard input that could interfere with
+    subsequent input operations after an interrupt.
+    """
+    if platform.system() != "Windows":
+        return
+
+    try:
+        import msvcrt
+
+        while msvcrt.kbhit():
+            msvcrt.getch()
+    except Exception:
+        pass  # Silently ignore errors - best effort flush
+
+
+def reset_windows_terminal_full() -> None:
+    """Perform a full Windows terminal reset (ANSI + console mode + keyboard buffer).
+
+    Combines ANSI reset, console mode reset, and keyboard buffer flush
+    for complete terminal state restoration after interrupts.
     """
     if platform.system() != "Windows":
         return
 
     reset_windows_terminal_ansi()
     reset_windows_console_mode()
+    flush_windows_keyboard_buffer()
 
 
 def reset_unix_terminal() -> None:
@@ -124,3 +147,145 @@ def reset_terminal() -> None:
         reset_windows_terminal_full()
     else:
         reset_unix_terminal()
+
+
+def disable_windows_ctrl_c() -> bool:
+    """Disable Ctrl+C processing at the Windows console input level.
+
+    This removes ENABLE_PROCESSED_INPUT from stdin, which prevents
+    Ctrl+C from being interpreted as a signal at all. Instead, it
+    becomes just a regular character (^C) that gets ignored.
+
+    This is more reliable than SetConsoleCtrlHandler because it
+    prevents Ctrl+C from being processed before it reaches any handler.
+
+    Returns:
+        True if successfully disabled, False otherwise.
+    """
+    global _original_ctrl_handler
+
+    if platform.system() != "Windows":
+        return False
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+
+        # Get stdin handle
+        STD_INPUT_HANDLE = -10
+        stdin_handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+
+        # Get current console mode
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
+            return False
+
+        # Save original mode for potential restoration
+        _original_ctrl_handler = mode.value
+
+        # Console mode flags
+        ENABLE_PROCESSED_INPUT = 0x0001  # This makes Ctrl+C generate signals
+
+        # Remove ENABLE_PROCESSED_INPUT to disable Ctrl+C signal generation
+        new_mode = mode.value & ~ENABLE_PROCESSED_INPUT
+
+        if kernel32.SetConsoleMode(stdin_handle, new_mode):
+            return True
+        return False
+
+    except Exception:
+        return False
+
+
+def enable_windows_ctrl_c() -> bool:
+    """Re-enable Ctrl+C at the Windows console level.
+
+    Restores the original console mode saved by disable_windows_ctrl_c().
+
+    Returns:
+        True if successfully re-enabled, False otherwise.
+    """
+    global _original_ctrl_handler
+
+    if platform.system() != "Windows":
+        return False
+
+    if _original_ctrl_handler is None:
+        return True  # Nothing to restore
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+
+        # Get stdin handle
+        STD_INPUT_HANDLE = -10
+        stdin_handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+
+        # Restore original mode
+        if kernel32.SetConsoleMode(stdin_handle, _original_ctrl_handler):
+            _original_ctrl_handler = None
+            return True
+        return False
+
+    except Exception:
+        return False
+
+
+# Flag to track if we should keep Ctrl+C disabled
+_keep_ctrl_c_disabled: bool = False
+
+
+def set_keep_ctrl_c_disabled(value: bool) -> None:
+    """Set whether Ctrl+C should be kept disabled.
+
+    When True, ensure_ctrl_c_disabled() will re-disable Ctrl+C
+    even if something else (like prompt_toolkit) re-enables it.
+    """
+    global _keep_ctrl_c_disabled
+    _keep_ctrl_c_disabled = value
+
+
+def ensure_ctrl_c_disabled() -> bool:
+    """Ensure Ctrl+C is disabled if it should be.
+
+    Call this after operations that might restore console mode
+    (like prompt_toolkit input).
+
+    Returns:
+        True if Ctrl+C is now disabled (or wasn't needed), False on error.
+    """
+    if not _keep_ctrl_c_disabled:
+        return True
+
+    if platform.system() != "Windows":
+        return True
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+
+        # Get stdin handle
+        STD_INPUT_HANDLE = -10
+        stdin_handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+
+        # Get current console mode
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
+            return False
+
+        # Console mode flags
+        ENABLE_PROCESSED_INPUT = 0x0001
+
+        # Check if Ctrl+C processing is enabled
+        if mode.value & ENABLE_PROCESSED_INPUT:
+            # Disable it
+            new_mode = mode.value & ~ENABLE_PROCESSED_INPUT
+            return bool(kernel32.SetConsoleMode(stdin_handle, new_mode))
+
+        return True  # Already disabled
+
+    except Exception:
+        return False

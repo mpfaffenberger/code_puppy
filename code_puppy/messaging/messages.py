@@ -209,6 +209,9 @@ class ShellStartMessage(BaseMessage):
         default=None, description="Working directory for the command"
     )
     timeout: int = Field(default=60, description="Timeout in seconds")
+    background: bool = Field(
+        default=False, description="Whether command runs in background mode"
+    )
 
 
 class ShellLineMessage(BaseMessage):

@@ -10,8 +10,18 @@ import traceback
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+    Union,
+)
 
 import mcp
 import pydantic
@@ -1335,6 +1345,74 @@ class BaseAgent(ABC):
             self._mcp_servers = mcp_servers
         return self._code_generation_agent
 
+    def _create_agent_with_output_type(self, output_type: Type[Any]) -> PydanticAgent:
+        """Create a temporary agent configured with a custom output_type.
+
+        This is used when structured output is requested via run_with_mcp.
+        The agent is created fresh with the same configuration as the main agent
+        but with the specified output_type instead of str.
+
+        Args:
+            output_type: The Pydantic model or type for structured output.
+
+        Returns:
+            A configured PydanticAgent (or DBOSAgent wrapper) with the custom output_type.
+        """
+        from code_puppy.model_utils import prepare_prompt_for_model
+        from code_puppy.tools import register_tools_for_agent
+
+        model_name = self.get_model_name()
+        models_config = ModelFactory.load_config()
+        model, resolved_model_name = self._load_model_with_fallback(
+            model_name, models_config, str(uuid.uuid4())
+        )
+
+        instructions = self.get_system_prompt()
+        puppy_rules = self.load_puppy_rules()
+        if puppy_rules:
+            instructions += f"\n{puppy_rules}"
+
+        mcp_servers = getattr(self, "_mcp_servers", []) or []
+        model_settings = make_model_settings(resolved_model_name)
+
+        prepared = prepare_prompt_for_model(
+            model_name, instructions, "", prepend_system_to_user=False
+        )
+        instructions = prepared.instructions
+
+        global _reload_count
+        _reload_count += 1
+
+        if get_use_dbos():
+            temp_agent = PydanticAgent(
+                model=model,
+                instructions=instructions,
+                output_type=output_type,
+                retries=3,
+                toolsets=[],
+                history_processors=[self.message_history_accumulator],
+                model_settings=model_settings,
+            )
+            agent_tools = self.get_available_tools()
+            register_tools_for_agent(temp_agent, agent_tools)
+            dbos_agent = DBOSAgent(
+                temp_agent, name=f"{self.name}-structured-{_reload_count}"
+            )
+            return dbos_agent
+        else:
+            temp_agent = PydanticAgent(
+                model=model,
+                instructions=instructions,
+                output_type=output_type,
+                retries=3,
+                toolsets=mcp_servers,
+                history_processors=[self.message_history_accumulator],
+                model_settings=model_settings,
+            )
+            agent_tools = self.get_available_tools()
+            register_tools_for_agent(temp_agent, agent_tools)
+            return temp_agent
+
     # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
     @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
@@ -1440,8 +1518,8 @@ class BaseAgent(ABC):
     ) -> None:
         """Handle streaming events from the agent run.
 
-        This method processes streaming events and emits TextPart and ThinkingPart
-        content with styled banners as they stream in.
+        This method processes streaming events and emits TextPart, ThinkingPart,
+        and ToolCallPart content with styled banners/tokens as they stream in.
 
         Args:
             ctx: The run context.
@@ -1452,9 +1530,12 @@ class BaseAgent(ABC):
         import time as time_module
 
         from pydantic_ai import PartDeltaEvent, PartStartEvent
-        from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
+        from pydantic_ai.messages import (
+            TextPartDelta,
+            ThinkingPartDelta,
+            ToolCallPartDelta,
+        )
         from rich.console import Console
-        from rich.live import Live
         from rich.markdown import Markdown
         from rich.markup import escape
 
@@ -1469,39 +1550,29 @@ class BaseAgent(ABC):
             # Fallback if console not set (shouldn't happen in normal use)
             console = Console()
 
-        # Disable Live display in test mode or non-interactive environments
-        # This fixes issues with pexpect PTY where Live() hangs
-        use_live_display = (
-            console.is_terminal
-            and os.environ.get("CODE_PUPPY_TEST_FAST", "").lower() not in ("1", "true")
-            and os.environ.get("CI", "").lower() not in ("1", "true")
-        )
-
-        # Track which part indices we're currently streaming (for Text/Thinking parts)
+        # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
         streaming_parts: set[int] = set()
         thinking_parts: set[int] = (
             set()
         )  # Track which parts are thinking (for dim style)
         text_parts: set[int] = set()  # Track which parts are text
+        tool_parts: set[int] = set()  # Track which parts are tool calls
         banner_printed: set[int] = set()  # Track if banner was already printed
-        text_buffer: dict[int, list[str]] = {}  # Buffer text for markdown
-        live_displays: dict[int, Live] = {}  # Live displays for streaming markdown
+        text_buffer: dict[int, list[str]] = {}  # Buffer text for final markdown render
+        token_count: dict[int, int] = {}  # Track token count per text/tool part
         did_stream_anything = False  # Track if we streamed any content
-        last_render_time: dict[int, float] = {}  # Track last render time per part
-        render_interval = 0.1  # Only re-render markdown every 100ms (throttle)
 
         def _print_thinking_banner() -> None:
             """Print the THINKING banner with spinner pause and line clear."""
             nonlocal did_stream_anything
-            import sys
             import time
 
             from code_puppy.config import get_banner_color
 
             pause_all_spinners()
             time.sleep(0.1)  # Delay to let spinner fully clear
-            sys.stdout.write("\r\x1b[K")  # Clear line
-            sys.stdout.flush()
+            # Clear line and print newline before banner
+            console.print(" " * 50, end="\r")
             console.print()  # Newline before banner
             # Bold banner with configurable color and lightning bolt
             thinking_color = get_banner_color("thinking")
@@ -1511,21 +1582,19 @@ class BaseAgent(ABC):
                 ),
                 end="",
             )
-            sys.stdout.flush()
             did_stream_anything = True
 
         def _print_response_banner() -> None:
             """Print the AGENT RESPONSE banner with spinner pause and line clear."""
             nonlocal did_stream_anything
-            import sys
             import time
 
             from code_puppy.config import get_banner_color
 
             pause_all_spinners()
             time.sleep(0.1)  # Delay to let spinner fully clear
-            sys.stdout.write("\r\x1b[K")  # Clear line
-            sys.stdout.flush()
+            # Clear line and print newline before banner
+            console.print(" " * 50, end="\r")
             console.print()  # Newline before banner
             response_color = get_banner_color("agent_response")
             console.print(
@@ -1533,7 +1602,6 @@ class BaseAgent(ABC):
                     f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
                 )
             )
-            sys.stdout.flush()
             did_stream_anything = True
 
         async for event in events:
@@ -1553,9 +1621,20 @@ class BaseAgent(ABC):
                     streaming_parts.add(event.index)
                     text_parts.add(event.index)
                     text_buffer[event.index] = []  # Initialize buffer
+                    token_count[event.index] = 0  # Initialize token counter
                     # Buffer initial content if present
                     if part.content and part.content.strip():
                         text_buffer[event.index].append(part.content)
+                        # Count chunks (each part counts as 1)
+                        token_count[event.index] += 1
+                elif isinstance(part, ToolCallPart):
+                    streaming_parts.add(event.index)
+                    tool_parts.add(event.index)
+                    token_count[event.index] = 0  # Initialize token counter
+                    # Track tool name for display
+                    banner_printed.add(
+                        event.index
+                    )  # Use banner_printed to track if we've shown tool info
 
             # PartDeltaEvent - stream the content as it arrives
             elif isinstance(event, PartDeltaEvent):
@@ -1563,43 +1642,22 @@ class BaseAgent(ABC):
                     delta = event.delta
                     if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
                         if delta.content_delta:
-                            # For text parts, stream markdown with Live display
+                            # For text parts, show token counter then render at end
                             if event.index in text_parts:
-                                # Print banner and start Live on first content
+                                # Print banner on first content
                                 if event.index not in banner_printed:
                                     _print_response_banner()
                                     banner_printed.add(event.index)
-                                    # Only use Live display if enabled (disabled in test/CI)
-                                    if use_live_display:
-                                        live = Live(
-                                            Markdown(""),
-                                            console=console,
-                                            refresh_per_second=10,
-                                            vertical_overflow="visible",  # Allow scrolling for long content
-                                        )
-                                        live.start()
-                                        live_displays[event.index] = live
-                                # Accumulate text and throttle markdown rendering
-                                # (Markdown parsing is O(n), doing it on every token = O(n²) death)
+                                # Accumulate text for final markdown render
                                 text_buffer[event.index].append(delta.content_delta)
-                                now = time_module.monotonic()
-                                last_render = last_render_time.get(event.index, 0)
-
-                                # Only re-render if enough time has passed (throttle)
-                                # Skip Live updates when not using live display
-                                if (
-                                    use_live_display
-                                    and now - last_render >= render_interval
-                                ):
-                                    content = "".join(text_buffer[event.index])
-                                    if event.index in live_displays:
-                                        try:
-                                            live_displays[event.index].update(
-                                                Markdown(content)
-                                            )
-                                            last_render_time[event.index] = now
-                                        except Exception:
-                                            pass
+                                # Count chunks received
+                                token_count[event.index] += 1
+                                # Update chunk counter in place (single line)
+                                count = token_count[event.index]
+                                console.print(
+                                    f"  ⏳ Receiving... {count} chunks   ",
+                                    end="\r",
+                                )
                             else:
                                 # For thinking parts, stream immediately (dim)
                                 if event.index not in banner_printed:
@@ -1607,56 +1665,64 @@ class BaseAgent(ABC):
                                     banner_printed.add(event.index)
                                 escaped = escape(delta.content_delta)
                                 console.print(f"[dim]{escaped}[/dim]", end="")
+                    elif isinstance(delta, ToolCallPartDelta):
+                        # For tool calls, count chunks received
+                        token_count[event.index] += 1
+                        # Get tool name if available
+                        tool_name = getattr(delta, "tool_name_delta", "")
+                        count = token_count[event.index]
+                        # Display with tool wrench icon and tool name
+                        if tool_name:
+                            console.print(
+                                f"  🔧 Calling {tool_name}... {count} chunks   ",
+                                end="\r",
+                            )
+                        else:
+                            console.print(
+                                f"  🔧 Calling tool... {count} chunks   ",
+                                end="\r",
+                            )
 
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 if event.index in streaming_parts:
-                    # For text parts, do final render then stop the Live display
+                    # For text parts, clear counter line and render markdown
                     if event.index in text_parts:
-                        # Final render to ensure we show complete content
-                        # (throttling may have skipped the last few tokens)
-                        if event.index in live_displays and event.index in text_buffer:
-                            try:
-                                final_content = "".join(text_buffer[event.index])
-                                live_displays[event.index].update(
-                                    Markdown(final_content)
-                                )
-                            except Exception:
-                                pass
-                        if event.index in live_displays:
-                            try:
-                                live_displays[event.index].stop()
-                            except Exception:
-                                pass
-                            del live_displays[event.index]
-                        # When not using Live display, print the final content as markdown
-                        elif event.index in text_buffer:
+                        # Clear the chunk counter line by printing spaces and returning
+                        console.print(" " * 50, end="\r")
+                        # Render the final markdown nicely
+                        if event.index in text_buffer:
                             try:
                                 final_content = "".join(text_buffer[event.index])
                                 if final_content.strip():
                                     console.print(Markdown(final_content))
                             except Exception:
                                 pass
-                        if event.index in text_buffer:
                             del text_buffer[event.index]
-                        # Clean up render time tracking
-                        last_render_time.pop(event.index, None)
+                    # For tool parts, clear the chunk counter line
+                    elif event.index in tool_parts:
+                        # Clear the chunk counter line by printing spaces and returning
+                        console.print(" " * 50, end="\r")
                     # For thinking parts, just print newline
                     elif event.index in banner_printed:
                         console.print()  # Final newline after streaming
+
+                    # Clean up token count
+                    token_count.pop(event.index, None)
                     # Clean up all tracking sets
                     streaming_parts.discard(event.index)
                     thinking_parts.discard(event.index)
                     text_parts.discard(event.index)
+                    tool_parts.discard(event.index)
                     banner_printed.discard(event.index)
 
-                    # Resume spinner if next part is NOT text/thinking (avoid race condition)
-                    # If next part is a tool call or None, it's safe to resume
+                    # Resume spinner if next part is NOT text/thinking/tool (avoid race condition)
+                    # If next part is None or handled differently, it's safe to resume
                     # Note: spinner itself handles blank line before appearing
                     from code_puppy.messaging.spinner import resume_all_spinners
 
                     next_kind = getattr(event, "next_part_kind", None)
-                    if next_kind not in ("text", "thinking"):
+                    if next_kind not in ("text", "thinking", "tool-call"):
                         resume_all_spinners()
 
         # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
@@ -1815,6 +1881,7 @@ class BaseAgent(ABC):
         *,
         attachments: Optional[Sequence[BinaryContent]] = None,
         link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+        output_type: Optional[Type[Any]] = None,
         **kwargs,
     ) -> Any:
         """Run the agent with MCP servers, attachments, and full cancellation support.
@@ -1823,10 +1890,13 @@ class BaseAgent(ABC):
             prompt: Primary user prompt text (may be empty when attachments present).
             attachments: Local binary payloads (e.g., dragged images) to include.
             link_attachments: Remote assets (image/document URLs) to include.
+            output_type: Optional Pydantic model or type for structured output.
+                When provided, creates a temporary agent configured to return
+                this type instead of the default string output.
             **kwargs: Additional arguments forwarded to `pydantic_ai.Agent.run`.
 
         Returns:
-            The agent's response.
+            The agent's response (typed according to output_type if specified).
 
         Raises:
             asyncio.CancelledError: When execution is cancelled by user.
@@ -1850,6 +1920,11 @@ class BaseAgent(ABC):
         pydantic_agent = (
             self._code_generation_agent or self.reload_code_generation_agent()
         )
+
+        # If a custom output_type is specified, create a temporary agent with that type
+        if output_type is not None:
+            pydantic_agent = self._create_agent_with_output_type(output_type)
+
         # Handle claude-code and chatgpt-codex models: prepend system prompt to first user message
         from code_puppy.model_utils import is_chatgpt_codex_model, is_claude_code_model
 
@@ -2209,7 +2284,12 @@ class BaseAgent(ABC):
         def graceful_sigint_handler(_sig, _frame):
             # When using keyboard-based cancel, SIGINT should be a no-op
             # (just show a hint to user about the configured cancel key)
+            # Also reset terminal to prevent bricking on Windows+uvx
             from code_puppy.keymap import get_cancel_agent_display_name
+            from code_puppy.terminal_utils import reset_windows_terminal_full
+
+            # Reset terminal state first to prevent bricking
+            reset_windows_terminal_full()
 
             cancel_key = get_cancel_agent_display_name()
             emit_info(f"Use {cancel_key} to cancel the agent task.")

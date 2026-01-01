@@ -222,6 +222,45 @@ async def main():
         emit_error(str(e))
         sys.exit(1)
 
+    # Show uvx detection notice if we're on Windows + uvx
+    # Also disable Ctrl+C at the console level to prevent terminal bricking
+    try:
+        from code_puppy.uvx_detection import should_use_alternate_cancel_key
+
+        if should_use_alternate_cancel_key():
+            from code_puppy.terminal_utils import (
+                disable_windows_ctrl_c,
+                set_keep_ctrl_c_disabled,
+            )
+
+            # Disable Ctrl+C at the console input level
+            # This prevents Ctrl+C from being processed as a signal at all
+            disable_windows_ctrl_c()
+
+            # Set flag to keep it disabled (prompt_toolkit may re-enable it)
+            set_keep_ctrl_c_disabled(True)
+
+            # Use print directly - emit_system_message can get cleared by ANSI codes
+            print(
+                "🔧 Detected uvx launch on Windows - using Ctrl+K for cancellation "
+                "(Ctrl+C is disabled to prevent terminal issues)"
+            )
+
+            # Also install a SIGINT handler as backup
+            import signal
+
+            from code_puppy.terminal_utils import reset_windows_terminal_full
+
+            def _uvx_protective_sigint_handler(_sig, _frame):
+                """Protective SIGINT handler for Windows+uvx."""
+                reset_windows_terminal_full()
+                # Re-disable Ctrl+C in case something re-enabled it
+                disable_windows_ctrl_c()
+
+            signal.signal(signal.SIGINT, _uvx_protective_sigint_handler)
+    except ImportError:
+        pass  # uvx_detection module not available, ignore
+
     # Load API keys from puppy.cfg into environment variables
     from code_puppy.config import load_api_keys_to_environment
 
@@ -393,6 +432,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         "Use /diff to configure diff highlighting colors for file changes.",
         dim=True,
     )
+    emit_system_message("To re-run the tutorial, use /tutorial.")
     try:
         from code_puppy.command_line.motd import print_motd
 
@@ -485,6 +525,45 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Autosave loading is now manual - use /autosave_load command
 
+    # Auto-run tutorial on first startup
+    try:
+        from code_puppy.command_line.onboarding_wizard import should_show_onboarding
+
+        if should_show_onboarding():
+            import asyncio
+            import concurrent.futures
+
+            from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
+            from code_puppy.config import set_model_name
+            from code_puppy.messaging import emit_info
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(lambda: asyncio.run(run_onboarding_wizard()))
+                result = future.result(timeout=300)
+
+            if result == "chatgpt":
+                emit_info("🔐 Starting ChatGPT OAuth flow...")
+                from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
+
+                run_oauth_flow()
+                set_model_name("chatgpt-gpt-5.2-codex")
+            elif result == "claude":
+                emit_info("🔐 Starting Claude Code OAuth flow...")
+                from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+                    _perform_authentication,
+                )
+
+                _perform_authentication()
+                set_model_name("claude-code-claude-opus-4-5-20251101")
+            elif result == "completed":
+                emit_info("🎉 Tutorial complete! Happy coding!")
+            elif result == "skipped":
+                emit_info("⏭️ Tutorial skipped. Run /tutorial anytime!")
+    except Exception as e:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(f"Tutorial auto-start failed: {e}")
+
     # Track the current agent task for cancellation on quit
     current_agent_task = None
 
@@ -508,6 +587,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 task = await get_input_with_combined_completion(
                     get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
                 )
+
+                # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
+                # (prompt_toolkit restores console mode which re-enables Ctrl+C)
+                try:
+                    from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+
+                    ensure_ctrl_c_disabled()
+                except ImportError:
+                    pass
             except ImportError:
                 # Fall back to basic input if prompt_toolkit is not available
                 task = input(">>> ")
@@ -673,6 +761,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if result is None:
                     # Windows-specific: Reset terminal state after cancellation
                     reset_windows_terminal_ansi()
+                    # Re-disable Ctrl+C if needed (uvx mode)
+                    try:
+                        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+
+                        ensure_ctrl_c_disabled()
+                    except ImportError:
+                        pass
                     continue
                 # Get the structured response
                 agent_response = result.output
@@ -712,6 +807,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.config import auto_save_session_if_enabled
 
             auto_save_session_if_enabled()
+
+            # Re-disable Ctrl+C if needed (uvx mode) - must be done after
+            # each iteration as various operations may restore console mode
+            try:
+                from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+
+                ensure_ctrl_c_disabled()
+            except ImportError:
+                pass
 
 
 def prettier_code_blocks():

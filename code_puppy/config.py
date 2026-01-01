@@ -53,6 +53,7 @@ _DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
 CHATGPT_MODELS_FILE = os.path.join(DATA_DIR, "chatgpt_models.json")
 CLAUDE_MODELS_FILE = os.path.join(DATA_DIR, "claude_models.json")
+ANTIGRAVITY_MODELS_FILE = os.path.join(DATA_DIR, "antigravity_models.json")
 
 # Cache files (XDG_CACHE_HOME)
 AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
@@ -1102,11 +1103,11 @@ def set_enable_dbos(enabled: bool) -> None:
     set_config_value("enable_dbos", "true" if enabled else "false")
 
 
-def get_message_limit(default: int = 100) -> int:
+def get_message_limit(default: int = 1000) -> int:
     """
     Returns the user-configured message/request limit for the agent.
     This controls how many steps/requests the agent can take.
-    Defaults to 100 if unset or misconfigured.
+    Defaults to 1000 if unset or misconfigured.
     Configurable by 'message_limit' key.
     """
     val = get_value("message_limit")

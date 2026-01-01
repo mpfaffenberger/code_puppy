@@ -456,6 +456,11 @@ async def interactive_diff_picker() -> Optional[dict]:
         sys.stdout.write("\033[?1049l")  # Exit alternate buffer
         sys.stdout.flush()
 
+    # Clear exit message
+    from code_puppy.messaging import emit_info
+
+    emit_info("✓ Exited diff color configuration")
+
     # Return changes if any
     if config.has_changes():
         return {

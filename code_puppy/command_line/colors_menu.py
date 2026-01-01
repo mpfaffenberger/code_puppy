@@ -230,6 +230,11 @@ async def interactive_colors_picker() -> Optional[dict]:
         sys.stdout.write("\033[?1049l")  # Exit alternate buffer
         sys.stdout.flush()
 
+    # Clear exit message
+    from code_puppy.messaging import emit_info
+
+    emit_info("✓ Exited banner color configuration")
+
     # Return changes if any
     if config.has_changes():
         return config.current_colors

@@ -835,6 +835,11 @@ class ModelSettingsMenu:
             sys.stdout.flush()
             set_awaiting_user_input(False)
 
+        # Clear exit message
+        from code_puppy.messaging import emit_info
+
+        emit_info("✓ Exited model settings")
+
         return self.result_changed
 
 

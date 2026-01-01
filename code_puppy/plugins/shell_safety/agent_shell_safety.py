@@ -5,13 +5,12 @@ It's designed to be ultra-lightweight with a concise prompt (<200 tokens) and
 uses structured output for reliable parsing.
 """
 
-import asyncio
 from typing import TYPE_CHECKING, List
 
 from code_puppy.agents.base_agent import BaseAgent
 
 if TYPE_CHECKING:
-    from code_puppy.tools.command_runner import ShellSafetyAssessment
+    pass
 
 
 class ShellSafetyAgent(BaseAgent):

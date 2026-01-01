@@ -54,13 +54,15 @@ class ReopenableAsyncClient:
             if self._stream_context:
                 return await self._stream_context.__aexit__(exc_type, exc_val, exc_tb)
 
-    def __init__(self, **kwargs):
+    def __init__(self, client_class=None, **kwargs):
         """
         Initialize the ReopenableAsyncClient.
 
         Args:
-            **kwargs: All arguments that would be passed to httpx.AsyncClient()
+            client_class: Class to use for creating the internal client (defaults to httpx.AsyncClient)
+            **kwargs: All arguments that would be passed to the client constructor
         """
+        self._client_class = client_class or httpx.AsyncClient
         self._client_kwargs = kwargs.copy()
         self._client: Optional[httpx.AsyncClient] = None
         self._is_closed = True
@@ -70,7 +72,7 @@ class ReopenableAsyncClient:
         Ensure the underlying client is open and ready to use.
 
         Returns:
-            The active httpx.AsyncClient instance
+            The active client instance
 
         Raises:
             RuntimeError: If client cannot be opened
@@ -80,12 +82,12 @@ class ReopenableAsyncClient:
         return self._client
 
     async def _create_client(self) -> None:
-        """Create a new httpx.AsyncClient with the stored configuration."""
+        """Create a new client with the stored configuration."""
         if self._client is not None and not self._is_closed:
             # Close existing client first
             await self._client.aclose()
 
-        self._client = httpx.AsyncClient(**self._client_kwargs)
+        self._client = self._client_class(**self._client_kwargs)
         self._is_closed = False
 
     async def reopen(self) -> None:
@@ -171,14 +173,12 @@ class ReopenableAsyncClient:
         """
         if self._client is None or self._is_closed:
             # Create a temporary client just for building the request
-            temp_client = httpx.AsyncClient(**self._client_kwargs)
+            temp_client = self._client_class(**self._client_kwargs)
             try:
                 request = temp_client.build_request(method, url, **kwargs)
                 return request
             finally:
                 # Clean up the temporary client synchronously if possible
-                # Note: This might leave a connection open, but it's better than
-                # making this method async just for building requests
                 pass
         return self._client.build_request(method, url, **kwargs)
 

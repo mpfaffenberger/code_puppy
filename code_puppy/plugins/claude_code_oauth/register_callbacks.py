@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from code_puppy.callbacks import register_callback
+from code_puppy.config import set_model_name
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
@@ -260,6 +261,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
         _perform_authentication()
+        set_model_name("claude-code-claude-opus-4-5-20251101")
         return True
 
     if name == "claude-code-status":
