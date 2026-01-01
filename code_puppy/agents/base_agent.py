@@ -2025,19 +2025,17 @@ class BaseAgent(ABC):
                             await self._display_non_streamed_response(result_)
                         else:
                             # Non-DBOS path (MCP servers are already included)
-                            # Streaming is ON by default for OpenAI models
-                            # Disable for custom_gemini (Walmart proxy returns JSON instead of SSE)
+                            # Streaming is ON by default for all models
                             use_streaming = True
+                            # Gemini streaming can be disabled via env var
+                            # Set CODE_PUPPY_DISABLE_GEMINI_STREAM=true to disable
                             if "gemini" in model_name.lower():
-                                # Check if it's a custom_gemini model (proxy doesn't support SSE)
                                 import os as os_check
-
                                 disable_gemini_stream = os_check.environ.get(
-                                    "CODE_PUPPY_DISABLE_GEMINI_STREAM", "true"
+                                    "CODE_PUPPY_DISABLE_GEMINI_STREAM", "false"
                                 ).lower() in ("1", "true")
                                 if disable_gemini_stream:
                                     use_streaming = False
-
 
                             if use_streaming:
                                 result_ = await pydantic_agent.run(
