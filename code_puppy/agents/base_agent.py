@@ -78,9 +78,6 @@ from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
 )
 
-# Global flag to track delayed compaction requests
-_delayed_compaction_requested = False
-
 _reload_count = 0
 
 
@@ -91,6 +88,8 @@ class BaseAgent(ABC):
         self.id = str(uuid.uuid4())
         self._message_history: List[Any] = []
         self._compacted_message_hashes: Set[str] = set()
+        # Instance flag to track delayed compaction requests (thread-safe)
+        self._delayed_compaction_requested: bool = False
         # Agent construction cache
         self._code_generation_agent = None
         self._last_model_name: Optional[str] = None
@@ -737,11 +736,11 @@ class BaseAgent(ABC):
         """
         Request that compaction be attempted after the current tool calls complete.
 
-        This sets a global flag that will be checked during the next message
+        This sets an instance flag that will be checked during the next message
         processing cycle to trigger compaction when it's safe to do so.
         """
-        global _delayed_compaction_requested
-        _delayed_compaction_requested = True
+
+        self._delayed_compaction_requested = True
         emit_info(
             "🔄 Delayed compaction requested - will attempt after tool calls complete",
             message_group="token_context_status",
@@ -754,14 +753,14 @@ class BaseAgent(ABC):
         Returns:
             True if delayed compaction was requested and no tool calls are pending
         """
-        global _delayed_compaction_requested
-        if not _delayed_compaction_requested:
+
+        if not self._delayed_compaction_requested:
             return False
 
         # Check if it's now safe to compact
         messages = self.get_message_history()
         if not self.has_pending_tool_calls(messages):
-            _delayed_compaction_requested = False  # Reset the flag
+            self._delayed_compaction_requested = False  # Reset the flag
             return True
 
         return False
@@ -1783,7 +1782,7 @@ class BaseAgent(ABC):
                         message_group="token_context_status",
                     )
                     current_messages = self.get_message_history()
-                    compacted_messages, _ = self.compact_messages(current_messages)
+                    compacted_messages, _ = self.summarize_messages(current_messages)
                     if compacted_messages != current_messages:
                         self.set_message_history(compacted_messages)
                         emit_info(
