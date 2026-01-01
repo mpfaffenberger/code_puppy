@@ -57,7 +57,16 @@ def mark_onboarding_complete() -> None:
 
 
 def should_show_onboarding() -> bool:
-    """Determine if the onboarding wizard should be shown."""
+    """Determine if the onboarding wizard should be shown.
+
+    Returns False if:
+    - User has already completed onboarding
+    - CODE_PUPPY_SKIP_TUTORIAL env var is set to '1' or 'true'
+    """
+    # Allow skipping tutorial via environment variable (useful for testing)
+    skip_env = os.environ.get("CODE_PUPPY_SKIP_TUTORIAL", "").lower()
+    if skip_env in ("1", "true", "yes"):
+        return False
     return not has_completed_onboarding()
 
 

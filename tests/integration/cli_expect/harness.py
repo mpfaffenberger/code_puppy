@@ -297,6 +297,8 @@ class CliHarness:
         dbos_sqlite = code_puppy_dir / "dbos_store.sqlite"
         spawn_env["DBOS_SYSTEM_DATABASE_URL"] = f"sqlite:///{dbos_sqlite}"
         spawn_env.setdefault("DBOS_LOG_LEVEL", "ERROR")
+        # Skip the interactive tutorial wizard in tests
+        spawn_env["CODE_PUPPY_SKIP_TUTORIAL"] = "1"
 
         child = pexpect.spawn(
             cmd_args[0],
