@@ -54,7 +54,7 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 
 Code Puppy Walmart Edition is an AI-powered code generation agent, designed to understand enterprise programming tasks, generate high-quality production code, and explain its reasoning while seamlessly integrating with Walmart's global technology infrastructure.
 
-## Features
+Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor.
 
 ### Session Autosave & Contexts
 - Autosaves live in `~/.code_puppy/autosaves` and include a `.pkl` and `_meta.json` per session.
@@ -73,9 +73,11 @@ Use `/colors` to configure banner colors and personalize your Code Puppy experie
 - **Interactive CLI**: A command-line interface for interactive use.
 - **Detailed explanations**: Provides insights into generated code to understand its logic and structure.
 
-## Command Line Animation
+## Quick start
 
-![Code Puppy](code_puppy.gif)
+```bash
+uvx code-puppy -i
+````
 
 ## Installation
 
@@ -163,7 +165,7 @@ The `/add_model` command fetches the latest model data from models.dev in real-t
 📦 Using bundled models database              # Offline fallback
 ```
 
-Run specific tasks or engage in interactive mode:
+Then just use /model and tab to select your round-robin model!
 
 #### Smart Warnings
 
@@ -192,7 +194,11 @@ The following environment variables control DBOS behavior:
 - `DBOS_APP_VERSION`: If set, Code Puppy uses it as the [DBOS application version](https://docs.dbos.dev/architecture#application-and-workflow-versions) and automatically tries to recover pending workflows for this version. Default: Code Puppy version + Unix timestamp in millisecond (disable automatic recovery).
 
 
-## Requirements
+#### Required Fields
+- **`name`**: Unique identifier (kebab-case, no spaces)
+- **`description`**: What the agent does
+- **`system_prompt`**: Agent instructions (string or array)
+- **`tools`**: Array of available tool names
 
 - Python 3.11+
 - OpenAI API key (for GPT models)
