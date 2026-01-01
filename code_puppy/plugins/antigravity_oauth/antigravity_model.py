@@ -54,7 +54,15 @@ class AntigravityModel(GoogleModel):
         messages: list[ModelMessage],
         model_request_parameters: ModelRequestParameters,
     ) -> tuple[ContentDict | None, list[dict]]:
-        """Map messages to Google GenAI format, preserving thinking signatures."""
+        """Map messages to Google GenAI format, preserving thinking signatures.
+
+        IMPORTANT: For Gemini with parallel function calls, the API expects:
+        - Model message: [FC1 + signature, FC2, ...] (all function calls together)
+        - User message: [FR1, FR2, ...] (all function responses together)
+
+        If messages are interleaved (FC1, FR1, FC2, FR2), the API returns 400.
+        This method merges consecutive same-role messages to fix this.
+        """
         contents: list[dict] = []
         system_parts: list[PartDict] = []
 
@@ -95,7 +103,12 @@ class AntigravityModel(GoogleModel):
                         assert_never(part)
 
                 if message_parts:
-                    contents.append({"role": "user", "parts": message_parts})
+                    # Merge with previous user message if exists (for parallel function responses)
+                    if contents and contents[-1].get("role") == "user":
+                        contents[-1]["parts"].extend(message_parts)
+                    else:
+                        contents.append({"role": "user", "parts": message_parts})
+
             elif isinstance(m, ModelResponse):
                 # USE CUSTOM HELPER HERE
                 # Pass model name so we can handle Claude vs Gemini signature placement
@@ -103,7 +116,11 @@ class AntigravityModel(GoogleModel):
                     m, self.system, self._model_name
                 )
                 if maybe_content:
-                    contents.append(maybe_content)
+                    # Merge with previous model message if exists (for parallel function calls)
+                    if contents and contents[-1].get("role") == "model":
+                        contents[-1]["parts"].extend(maybe_content["parts"])
+                    else:
+                        contents.append(maybe_content)
             else:
                 assert_never(m)
 
@@ -435,6 +452,13 @@ class AntigravityStreamingResponse(StreamedResponse):
         return self._timestamp_val
 
 
+# Bypass signature for when no real thought signature is available.
+# Gemini API requires EVERY function call to have a thoughtSignature field.
+# When there's no thinking block or no signature was captured, we use this bypass.
+# This specific key is the official bypass token for Gemini 3 Pro.
+BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
+
+
 def _antigravity_content_model_response(
     m: ModelResponse, provider_name: str, model_name: str = ""
 ) -> ContentDict | None:
@@ -443,6 +467,10 @@ def _antigravity_content_model_response(
     Handles different signature protocols:
     - Claude models: signature goes ON the thinking block itself
     - Gemini models: signature goes on the NEXT part (function_call or text) after thinking
+
+    IMPORTANT: For Gemini, EVERY function call MUST have a thoughtSignature field.
+    If no real signature is available (no preceding ThinkingPart, or ThinkingPart
+    had no signature), we use BYPASS_THOUGHT_SIGNATURE as a fallback.
     """
     parts: list[PartDict] = []
 
@@ -451,6 +479,7 @@ def _antigravity_content_model_response(
     is_gemini = "gemini" in model_name.lower()
 
     # For Gemini: save signature from ThinkingPart to attach to next part
+    # Initialize to None - we'll use BYPASS_THOUGHT_SIGNATURE if still None when needed
     pending_signature: str | None = None
 
     for item in m.parts:
@@ -462,16 +491,24 @@ def _antigravity_content_model_response(
             )
             part["function_call"] = function_call
 
-            # For Gemini: attach pending signature to function call
-            if is_gemini and pending_signature:
-                part["thoughtSignature"] = pending_signature
-                pending_signature = None
+            # For Gemini: ALWAYS attach a thoughtSignature to function calls.
+            # Use the real signature if available, otherwise use bypass.
+            # NOTE: Do NOT clear pending_signature here! Multiple tool calls
+            # in a row (e.g., parallel function calls) all need the same
+            # signature from the preceding ThinkingPart.
+            if is_gemini:
+                part["thoughtSignature"] = (
+                    pending_signature
+                    if pending_signature is not None
+                    else BYPASS_THOUGHT_SIGNATURE
+                )
 
         elif isinstance(item, TextPart):
             part["text"] = item.content
 
-            # For Gemini: attach pending signature to text part
-            if is_gemini and pending_signature:
+            # For Gemini: attach pending signature to text part if available
+            # Clear signature after text since text typically ends a response
+            if is_gemini and pending_signature is not None:
                 part["thoughtSignature"] = pending_signature
                 pending_signature = None
 
@@ -490,6 +527,10 @@ def _antigravity_content_model_response(
                     else:
                         # Default: try both (put on thinking block)
                         part["thoughtSignature"] = item.signature
+                elif is_gemini:
+                    # ThinkingPart exists but has no signature - use bypass
+                    # This ensures subsequent tool calls still get a signature
+                    pending_signature = BYPASS_THOUGHT_SIGNATURE
 
         elif isinstance(item, BuiltinToolCallPart):
             # Skip code execution for now

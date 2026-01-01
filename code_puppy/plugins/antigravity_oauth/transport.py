@@ -422,6 +422,8 @@ class AntigravityClient(httpx.AsyncClient):
 
     async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
         """Override send to intercept at the lowest level with endpoint fallback."""
+        import asyncio
+
         # Transform POST requests to Antigravity format
         if request.method == "POST" and request.content:
             new_content, new_path, new_query, is_claude_thinking = self._wrap_request(
@@ -467,25 +469,21 @@ class AntigravityClient(httpx.AsyncClient):
                     else:
                         new_headers["anthropic-beta"] = interleaved_header
 
-                # Try each endpoint in fallback order
+                # Try each endpoint with rate limit retry logic
                 last_response = None
+                max_rate_limit_retries = 5  # Max retries for 429s per endpoint
 
-                # Check for rate limit
-                import asyncio
+                for endpoint in ANTIGRAVITY_ENDPOINT_FALLBACKS:
+                    # Build URL with current endpoint
+                    new_url = httpx.URL(
+                        scheme="https",
+                        host=endpoint.replace("https://", ""),
+                        path=new_path,
+                        query=new_query.encode() if new_query else b"",
+                    )
 
-                # Try endpoints logic...
-                max_retries = 3
-
-                for attempt in range(max_retries):
-                    for endpoint in ANTIGRAVITY_ENDPOINT_FALLBACKS:
-                        # Build URL with current endpoint
-                        new_url = httpx.URL(
-                            scheme="https",
-                            host=endpoint.replace("https://", ""),
-                            path=new_path,
-                            query=new_query.encode() if new_query else b"",
-                        )
-
+                    # Retry loop for rate limits on this endpoint
+                    for rate_limit_attempt in range(max_rate_limit_retries):
                         req = httpx.Request(
                             method=request.method,
                             url=new_url,
@@ -498,45 +496,35 @@ class AntigravityClient(httpx.AsyncClient):
 
                         # Handle rate limit (429)
                         if response.status_code == 429:
-                            try:
-                                # Need to read response to get reset time
-                                await response.aread()
-                                error_data = json.loads(response.content)
+                            wait_time = await self._extract_rate_limit_delay(response)
 
-                                # Extract reset delay from metadata
-                                reset_delay = 2.0  # Default fallback
-                                if isinstance(error_data, dict):
-                                    error_info = error_data.get("error", {})
-                                    if isinstance(error_info, dict):
-                                        details = error_info.get("details", [])
-                                        for detail in details:
-                                            metadata = detail.get("metadata", {})
-                                            if "quotaResetDelay" in metadata:
-                                                delay_str = metadata["quotaResetDelay"]
-                                                if delay_str.endswith("s"):
-                                                    reset_delay = float(delay_str[:-1])
-                                                break
-
-                                # Only retry if delay is reasonable (< 60s)
-                                if reset_delay < 60:
-                                    # Add small buffer
-                                    wait_time = reset_delay + 0.5
+                            if wait_time is not None and wait_time < 60:
+                                # Add small buffer to wait time
+                                wait_time = wait_time + 0.1
+                                try:
                                     from code_puppy.messaging import emit_warning
 
                                     emit_warning(
-                                        f"⏳ Rate limited on {endpoint}. Waiting {wait_time:.1f}s..."
+                                        f"⏳ Rate limited (attempt {rate_limit_attempt + 1}/{max_rate_limit_retries}). "
+                                        f"Waiting {wait_time:.2f}s..."
                                     )
-                                    await asyncio.sleep(wait_time)
-                                    continue  # Retry same endpoint
-                                else:
-                                    emit_warning(
-                                        f"❌ Rate limit reset too long ({reset_delay}s). Aborting."
+                                except ImportError:
+                                    logger.warning(
+                                        "Rate limited, waiting %.2fs...", wait_time
                                     )
-                                    return UnwrappedResponse(response)
-                            except Exception:
-                                pass  # Failed to parse error, treat as normal error
 
-                        # Retry on 403, 404, 5xx errors
+                                await asyncio.sleep(wait_time)
+                                continue  # Retry same endpoint
+                            else:
+                                # Wait time too long or couldn't parse, try next endpoint
+                                logger.debug(
+                                    "Rate limit wait too long (%.1fs) on %s, trying next endpoint...",
+                                    wait_time or 0,
+                                    endpoint,
+                                )
+                                break  # Break inner loop, try next endpoint
+
+                        # Retry on 403, 404, 5xx errors - try next endpoint
                         if (
                             response.status_code in (403, 404)
                             or response.status_code >= 500
@@ -546,9 +534,9 @@ class AntigravityClient(httpx.AsyncClient):
                                 endpoint,
                                 response.status_code,
                             )
-                            continue
+                            break  # Try next endpoint
 
-                        # Success or non-retriable error
+                        # Success or non-retriable error (4xx except 429)
                         # Wrap response to unwrap Antigravity format
                         if "alt=sse" in new_query:
                             return UnwrappedSSEResponse(response)
@@ -558,14 +546,95 @@ class AntigravityClient(httpx.AsyncClient):
                         await response.aread()
                         return UnwrappedResponse(response)
 
-                # All endpoints failed, return last response
-                if last_response and last_response.status_code == 429:
-                    await last_response.aread()
+                # All endpoints/retries exhausted, return last response
+                if last_response:
+                    # Ensure response is read for proper error handling
+                    if not last_response.is_stream_consumed:
+                        try:
+                            await last_response.aread()
+                        except Exception:
+                            pass
                     return UnwrappedResponse(last_response)
 
-                return last_response
-
         return await super().send(request, **kwargs)
+
+    async def _extract_rate_limit_delay(self, response: httpx.Response) -> float | None:
+        """Extract the retry delay from a 429 rate limit response.
+
+        Parses the Antigravity/Google API error format to find:
+        - retryDelay from RetryInfo (e.g., "0.088325827s")
+        - quotaResetDelay from ErrorInfo metadata (e.g., "88.325827ms")
+
+        Returns the delay in seconds, or None if parsing fails.
+        """
+        try:
+            # Read response body if not already read
+            if not response.is_stream_consumed:
+                await response.aread()
+
+            error_data = json.loads(response.content)
+
+            if not isinstance(error_data, dict):
+                return 2.0  # Default fallback
+
+            error_info = error_data.get("error", {})
+            if not isinstance(error_info, dict):
+                return 2.0
+
+            details = error_info.get("details", [])
+            if not isinstance(details, list):
+                return 2.0
+
+            # Look for RetryInfo first (most precise)
+            for detail in details:
+                if not isinstance(detail, dict):
+                    continue
+
+                detail_type = detail.get("@type", "")
+
+                # Check for RetryInfo (e.g., "0.088325827s")
+                if "RetryInfo" in detail_type:
+                    retry_delay = detail.get("retryDelay", "")
+                    parsed = self._parse_duration(retry_delay)
+                    if parsed is not None:
+                        return parsed
+
+                # Check for ErrorInfo with quotaResetDelay in metadata
+                if "ErrorInfo" in detail_type:
+                    metadata = detail.get("metadata", {})
+                    if isinstance(metadata, dict):
+                        quota_delay = metadata.get("quotaResetDelay", "")
+                        parsed = self._parse_duration(quota_delay)
+                        if parsed is not None:
+                            return parsed
+
+            return 2.0  # Default if no delay found
+
+        except (json.JSONDecodeError, Exception) as e:
+            logger.debug("Failed to parse rate limit response: %s", e)
+            return 2.0  # Default fallback
+
+    def _parse_duration(self, duration_str: str) -> float | None:
+        """Parse a duration string like '0.088s' or '88.325827ms' to seconds."""
+        if not duration_str or not isinstance(duration_str, str):
+            return None
+
+        duration_str = duration_str.strip()
+
+        try:
+            # Handle milliseconds (e.g., "88.325827ms")
+            if duration_str.endswith("ms"):
+                return float(duration_str[:-2]) / 1000.0
+
+            # Handle seconds (e.g., "0.088325827s")
+            if duration_str.endswith("s"):
+                return float(duration_str[:-1])
+
+            # Try parsing as raw number (assume seconds)
+            return float(duration_str)
+
+        except ValueError:
+            return None
 
 
 def create_antigravity_client(

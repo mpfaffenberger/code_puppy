@@ -348,7 +348,17 @@ class RichConsoleRenderer:
     # =========================================================================
 
     def _render_file_listing(self, msg: FileListingMessage) -> None:
-        """Render a directory listing matching the old Rich-formatted output."""
+        """Render a compact directory listing with directory summaries.
+
+        Instead of listing every file, we group by directory and show:
+        - Directory name
+        - Number of files
+        - Total size
+        - Number of subdirectories
+        """
+        import os
+        from collections import defaultdict
+
         # Header on single line
         rec_flag = f"(recursive={msg.recursive})"
         banner = self._format_banner("directory_listing", "DIRECTORY LISTING")
@@ -357,31 +367,103 @@ class RichConsoleRenderer:
             f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
 
-        # Directory header
-        dir_name = msg.directory.rstrip("/").split("/")[-1] or msg.directory
-        self._console.print(f"📁 [bold blue]{dir_name}[/bold blue]")
+        # Build a tree structure: {parent_path: {files: [], dirs: set(), size: int}}
+        # Each key is a directory path, value contains direct children stats
+        dir_stats: dict = defaultdict(
+            lambda: {"files": [], "subdirs": set(), "total_size": 0}
+        )
 
-        # Build tree structure from flat list
+        # Root directory is represented as ""
+        root_key = ""
+
         for entry in msg.files:
-            # Calculate indentation based on depth
-            prefix = ""
-            for d in range(entry.depth + 1):
-                if d == entry.depth:
-                    prefix += "└── "
-                else:
-                    prefix += "    "
+            path = entry.path
+            parent = os.path.dirname(path) if os.path.dirname(path) else root_key
 
             if entry.type == "dir":
-                self._console.print(f"{prefix}📁 [bold blue]{entry.path}/[/bold blue]")
+                # Register this dir as a subdir of its parent
+                dir_stats[parent]["subdirs"].add(path)
+                # Ensure the dir itself exists in stats (even if empty)
+                _ = dir_stats[path]
             else:
-                icon = self._get_file_icon(entry.path)
-                if entry.size > 0:
-                    size_str = f" [dim]({self._format_size(entry.size)})[/dim]"
-                else:
-                    size_str = ""
+                # It's a file - add to parent's stats
+                dir_stats[parent]["files"].append(entry)
+                dir_stats[parent]["total_size"] += entry.size
+
+        def render_dir_tree(dir_path: str, depth: int = 0) -> None:
+            """Recursively render directory with compact summary."""
+            stats = dir_stats.get(
+                dir_path, {"files": [], "subdirs": set(), "total_size": 0}
+            )
+            files = stats["files"]
+            subdirs = sorted(stats["subdirs"])
+
+            # Calculate total size including subdirectories (recursive)
+            def get_recursive_size(d: str) -> int:
+                s = dir_stats.get(d, {"files": [], "subdirs": set(), "total_size": 0})
+                size = s["total_size"]
+                for sub in s["subdirs"]:
+                    size += get_recursive_size(sub)
+                return size
+
+            def get_recursive_file_count(d: str) -> int:
+                s = dir_stats.get(d, {"files": [], "subdirs": set(), "total_size": 0})
+                count = len(s["files"])
+                for sub in s["subdirs"]:
+                    count += get_recursive_file_count(sub)
+                return count
+
+            indent = "    " * depth
+
+            # For root level, just show contents
+            if dir_path == root_key:
+                # Show files at root level (depth 0)
+                for f in sorted(files, key=lambda x: x.path):
+                    icon = self._get_file_icon(f.path)
+                    name = os.path.basename(f.path)
+                    size_str = (
+                        f" [dim]({self._format_size(f.size)})[/dim]"
+                        if f.size > 0
+                        else ""
+                    )
+                    self._console.print(
+                        f"{indent}{icon} [green]{name}[/green]{size_str}"
+                    )
+
+                # Show subdirs at root level
+                for subdir in subdirs:
+                    render_dir_tree(subdir, depth)
+            else:
+                # Show directory with summary
+                dir_name = os.path.basename(dir_path)
+                rec_size = get_recursive_size(dir_path)
+                rec_file_count = get_recursive_file_count(dir_path)
+                subdir_count = len(subdirs)
+
+                # Build summary parts
+                parts = []
+                if rec_file_count > 0:
+                    parts.append(
+                        f"{rec_file_count} file{'s' if rec_file_count != 1 else ''}"
+                    )
+                if subdir_count > 0:
+                    parts.append(
+                        f"{subdir_count} subdir{'s' if subdir_count != 1 else ''}"
+                    )
+                if rec_size > 0:
+                    parts.append(self._format_size(rec_size))
+
+                summary = f" [dim]({', '.join(parts)})[/dim]" if parts else ""
                 self._console.print(
-                    f"{prefix}{icon} [green]{entry.path}[/green]{size_str}"
+                    f"{indent}📁 [bold blue]{dir_name}/[/bold blue]{summary}"
                 )
+
+                # Recursively show subdirectories
+                for subdir in subdirs:
+                    render_dir_tree(subdir, depth + 1)
+
+        # Render the tree starting from root
+        render_dir_tree(root_key, 0)
 
         # Summary
         self._console.print("\n[bold cyan]Summary:[/bold cyan]")
