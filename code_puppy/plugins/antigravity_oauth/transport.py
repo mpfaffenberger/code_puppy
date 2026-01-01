@@ -276,10 +276,10 @@ class AntigravityClient(httpx.AsyncClient):
         self.project_id = project_id
         self.model_name = model_name
 
-    def _wrap_request(self, content: bytes, url: str) -> tuple[bytes, str, str]:
+    def _wrap_request(self, content: bytes, url: str) -> tuple[bytes, str, str, bool]:
         """Wrap request body in Antigravity envelope and transform URL.
 
-        Returns: (wrapped_content, new_path, new_query)
+        Returns: (wrapped_content, new_path, new_query, is_claude_thinking)
         """
         try:
             original_body = json.loads(content)
@@ -404,17 +404,27 @@ class AntigravityClient(httpx.AsyncClient):
             elif ":generateContent" in url:
                 new_path = "/v1internal:generateContent"
 
-            return json.dumps(wrapped_body).encode(), new_path, new_query
+            # Determine if this is a Claude thinking model (for interleaved thinking header)
+            is_claude_thinking = (
+                "claude" in model.lower() and "thinking" in model.lower()
+            )
+
+            return (
+                json.dumps(wrapped_body).encode(),
+                new_path,
+                new_query,
+                is_claude_thinking,
+            )
 
         except (json.JSONDecodeError, Exception) as e:
             logger.warning("Failed to wrap request: %s", e)
-            return content, url, ""
+            return content, url, "", False
 
     async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
         """Override send to intercept at the lowest level with endpoint fallback."""
         # Transform POST requests to Antigravity format
         if request.method == "POST" and request.content:
-            new_content, new_path, new_query = self._wrap_request(
+            new_content, new_path, new_query, is_claude_thinking = self._wrap_request(
                 request.content, str(request.url.path)
             )
             if new_path != str(request.url.path):
@@ -443,6 +453,19 @@ class AntigravityClient(httpx.AsyncClient):
                 )
                 new_headers["x-goog-api-key"] = ""  # Must be present but empty!
                 new_headers["accept"] = "text/event-stream"
+
+                # Add anthropic-beta header for Claude thinking models (interleaved thinking)
+                # This enables real-time streaming of thinking tokens between tool calls
+                if is_claude_thinking:
+                    interleaved_header = "interleaved-thinking-2025-05-14"
+                    existing = new_headers.get("anthropic-beta", "")
+                    if existing:
+                        if interleaved_header not in existing:
+                            new_headers["anthropic-beta"] = (
+                                f"{existing},{interleaved_header}"
+                            )
+                    else:
+                        new_headers["anthropic-beta"] = interleaved_header
 
                 # Try each endpoint in fallback order
                 last_response = None
