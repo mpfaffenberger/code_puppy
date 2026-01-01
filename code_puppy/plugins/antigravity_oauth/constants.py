@@ -83,37 +83,6 @@ ANTIGRAVITY_MODELS: Dict[str, Dict[str, Any]] = {
         "context_length": 1048576,
         "max_output": 65536,
     },
-    # Older Gemini models (might work on free tier)
-    "gemini-2.5-flash": {
-        "name": "Gemini 2.5 Flash (Antigravity)",
-        "family": "gemini",
-        "context_length": 1048576,
-        "max_output": 65536,
-    },
-    "gemini-2.5-pro": {
-        "name": "Gemini 2.5 Pro (Antigravity)",
-        "family": "gemini",
-        "context_length": 1048576,
-        "max_output": 65536,
-    },
-    "gemini-2.0-flash": {
-        "name": "Gemini 2.0 Flash (Antigravity)",
-        "family": "gemini",
-        "context_length": 1048576,
-        "max_output": 8192,
-    },
-    "gemini-1.5-flash": {
-        "name": "Gemini 1.5 Flash (Antigravity)",
-        "family": "gemini",
-        "context_length": 1048576,
-        "max_output": 8192,
-    },
-    "gemini-1.5-pro": {
-        "name": "Gemini 1.5 Pro (Antigravity)",
-        "family": "gemini",
-        "context_length": 2097152,
-        "max_output": 8192,
-    },
     # Claude models (non-thinking)
     "claude-sonnet-4-5": {
         "name": "Claude Sonnet 4.5 (Antigravity)",
@@ -163,12 +132,5 @@ ANTIGRAVITY_MODELS: Dict[str, Dict[str, Any]] = {
         "context_length": 200000,
         "max_output": 64000,
         "thinking_budget": 32768,
-    },
-    # Other models
-    "gpt-oss-120b-medium": {
-        "name": "GPT-OSS 120B Medium (Antigravity)",
-        "family": "other",
-        "context_length": 131072,
-        "max_output": 32768,
     },
 }

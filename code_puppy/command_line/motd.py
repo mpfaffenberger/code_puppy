@@ -8,13 +8,19 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-11-27"
-MOTD_MESSAGE = """🐕‍🦺
-🐾```
-# 🐶🦃🐕 November 27th, 2025 - Happy Thanksgiving! 🦃🐶
-122k Downloads! 🎉
-Thank you for all the support!
--Mike
+MOTD_VERSION = "2026-01-01"
+MOTD_MESSAGE = """
+# 🐶 Happy New Year! January 1st, 2026 🎉
+Reminder that Code Puppy supports three different OAuth subscriptions:
+
+### Claude Code - `/claude-code-auth`
+- Opus / Haiku / Sonnet
+
+### ChatGPT Pro/Plus - `/chatgpt-auth`
+- gpt-5.2 and gpt-5.2 codex
+
+### Google Antigravity - `/antigravity-auth`
+- Gemini 3 Pro, Flash, and Anthropic models including Opus and Sonnet.
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
 
