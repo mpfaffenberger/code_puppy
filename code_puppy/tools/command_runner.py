@@ -880,6 +880,7 @@ async def run_shell_command(
                     command=command,
                     cwd=cwd,
                     timeout=0,  # No timeout for background processes
+                    background=True,
                 )
             )
 

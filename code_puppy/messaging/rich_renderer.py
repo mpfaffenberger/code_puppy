@@ -620,15 +620,25 @@ class RichConsoleRenderer:
         safe_command = escape_rich_markup(msg.command)
         # Header showing command is starting
         banner = self._format_banner("shell_command", "SHELL COMMAND")
-        self._console.print(f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]")
+
+        # Add background indicator if running in background mode
+        if msg.background:
+            self._console.print(
+                f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]  [bold magenta][BACKGROUND 🌙][/bold magenta]"
+            )
+        else:
+            self._console.print(f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]")
 
         # Show working directory if specified
         if msg.cwd:
             safe_cwd = escape_rich_markup(msg.cwd)
             self._console.print(f"[dim]📂 Working directory: {safe_cwd}[/dim]")
 
-        # Show timeout
-        self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
+        # Show timeout or background status
+        if msg.background:
+            self._console.print("[dim]⏱ Runs detached (no timeout)[/dim]")
+        else:
+            self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
         """Render shell output line preserving ANSI codes."""

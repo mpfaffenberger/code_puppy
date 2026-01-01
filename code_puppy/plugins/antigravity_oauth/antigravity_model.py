@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -75,7 +76,16 @@ class AntigravityModel(GoogleModel):
                         system_parts.append({"text": part.content})
                     elif isinstance(part, UserPromptPart):
                         # Use parent's _map_user_prompt
-                        message_parts.extend(await self._map_user_prompt(part))
+                        mapped_parts = await self._map_user_prompt(part)
+                        # Sanitize bytes to base64 for JSON serialization
+                        for mp in mapped_parts:
+                            if "inline_data" in mp and "data" in mp["inline_data"]:
+                                data = mp["inline_data"]["data"]
+                                if isinstance(data, bytes):
+                                    mp["inline_data"]["data"] = base64.b64encode(
+                                        data
+                                    ).decode("utf-8")
+                        message_parts.extend(mapped_parts)
                     elif isinstance(part, ToolReturnPart):
                         message_parts.append(
                             {
@@ -542,8 +552,13 @@ def _antigravity_content_model_response(
 
         elif isinstance(item, FilePart):
             content = item.content
+            # Ensure data is base64 string, not bytes
+            data_val = content.data
+            if isinstance(data_val, bytes):
+                data_val = base64.b64encode(data_val).decode("utf-8")
+
             inline_data_dict: BlobDict = {
-                "data": content.data,
+                "data": data_val,
                 "mime_type": content.media_type,
             }
             part["inline_data"] = inline_data_dict
