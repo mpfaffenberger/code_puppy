@@ -1375,6 +1375,10 @@ class BaseAgent(ABC):
 
         This is used for models like Gemini where the proxy doesn't support SSE streaming.
         We extract the text/thinking content from the result and display it.
+
+        For thinking content, we collect from ALL ModelResponses (since thinking
+        happens at each step, including tool calls). For text content, we only
+        show the final response.
         """
         from rich.console import Console
         from rich.markdown import Markdown
@@ -1387,28 +1391,36 @@ class BaseAgent(ABC):
         # Pause spinners before output
         pause_all_spinners()
 
-        # Get the last model response from the result's messages
         messages = result.all_messages()
+
+        # Collect ALL thinking content from all ModelResponses
+        # (thinking happens at each step, including intermediate tool calls)
+        all_thinking_content = []
+        for message in messages:
+            if isinstance(message, ModelResponse):
+                for part in message.parts:
+                    if isinstance(part, ThinkingPart) and part.content and part.content.strip():
+                        all_thinking_content.append(part.content)
+
+        # Display all thinking content if present
+        if all_thinking_content:
+            thinking_color = get_banner_color("thinking")
+            console.print()
+            console.print(
+                f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}]"
+            )
+            # Join thinking parts with a separator for readability
+            for thinking in all_thinking_content:
+                console.print(f"[dim]{thinking}[/dim]")
+                console.print()  # Blank line between thinking blocks
+
+        # Get the LAST model response for the final text output
         for message in reversed(messages):
             if isinstance(message, ModelResponse):
-                # Extract text and thinking parts
                 text_content = ""
-                thinking_content = ""
-
                 for part in message.parts:
                     if isinstance(part, TextPart):
                         text_content += part.content
-                    elif isinstance(part, ThinkingPart):
-                        thinking_content += part.content
-
-                # Display thinking content if present
-                if thinking_content.strip():
-                    thinking_color = get_banner_color("thinking")
-                    console.print()
-                    console.print(
-                        f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}]"
-                    )
-                    console.print(f"[dim]{thinking_content}[/dim]")
 
                 # Display text response if present
                 if text_content.strip():
@@ -1420,7 +1432,7 @@ class BaseAgent(ABC):
                     console.print(Markdown(text_content))
                     console.print()  # Final newline
 
-                # Only display the most recent model response
+                # Only display the most recent model response's text
                 break
 
     async def _event_stream_handler(
@@ -1938,9 +1950,9 @@ class BaseAgent(ABC):
                             await self._display_non_streamed_response(result_)
                         else:
                             # Non-DBOS path (MCP servers are already included)
-                            # Check if we should disable streaming for custom_gemini
-                            # (Walmart proxy returns JSON instead of SSE)
-                            use_streaming = False
+                            # Streaming is ON by default for OpenAI models
+                            # Disable for custom_gemini (Walmart proxy returns JSON instead of SSE)
+                            use_streaming = True
                             if "gemini" in model_name.lower():
                                 # Check if it's a custom_gemini model (proxy doesn't support SSE)
                                 import os as os_check

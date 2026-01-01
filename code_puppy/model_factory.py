@@ -122,6 +122,16 @@ def make_model_settings(
             }
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
+    elif model_config.get("type") == "custom_gemini":
+        # Enable thinking for custom Gemini models with includeThoughts=True
+        # so we can see the actual thinking content, not just the signature
+        from pydantic_ai.models.google import GoogleModelSettings
+
+        model_settings_dict["google_thinking_config"] = {
+            "includeThoughts": True,
+        }
+        model_settings = GoogleModelSettings(**model_settings_dict)
+
     return model_settings
 
 
