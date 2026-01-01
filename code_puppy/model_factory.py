@@ -573,6 +573,14 @@ class ModelFactory:
                         save_tokens,
                     )
 
+                    # Try to import custom model for thinking signatures
+                    try:
+                        from code_puppy.plugins.antigravity_oauth.antigravity_model import (
+                            AntigravityModel,
+                        )
+                    except ImportError:
+                        AntigravityModel = None
+
                     # Get fresh access token (refresh if needed)
                     tokens = load_stored_tokens()
                     if not tokens:
@@ -610,6 +618,23 @@ class ModelFactory:
                         base_url=url,
                         headers=headers,
                     )
+
+                    provider = GoogleProvider(
+                        api_key=api_key, base_url=url, http_client=client
+                    )
+
+                    # Use custom model if available to preserve thinking signatures
+                    if AntigravityModel:
+                        model = AntigravityModel(
+                            model_name=model_config["name"], provider=provider
+                        )
+                    else:
+                        model = GoogleModel(
+                            model_name=model_config["name"], provider=provider
+                        )
+
+                    return model
+
                 except ImportError:
                     emit_warning(
                         f"Antigravity transport not available; skipping model '{model_config.get('name')}'."
