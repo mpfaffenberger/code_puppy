@@ -10,7 +10,7 @@ serialization, avoiding httpx/Pydantic internals.
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import Any, Callable, MutableMapping
 
 import httpx
 
@@ -56,7 +56,28 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         except Exception:
             # Swallow wrapper errors; do not break real calls.
             pass
-        return await super().send(request, *args, **kwargs)
+        response = await super().send(request, *args, **kwargs)
+        try:
+            if response.status_code == 401 and not request.extensions.get(
+                "claude_oauth_refresh_attempted"
+            ):
+                refreshed_token = self._refresh_claude_oauth_token()
+                if refreshed_token:
+                    await response.aclose()
+                    body_bytes = self._extract_body_bytes(request)
+                    headers = dict(request.headers)
+                    self._update_auth_headers(headers, refreshed_token)
+                    retry_request = self.build_request(
+                        method=request.method,
+                        url=request.url,
+                        headers=headers,
+                        content=body_bytes,
+                    )
+                    retry_request.extensions["claude_oauth_refresh_attempted"] = True
+                    return await super().send(retry_request, *args, **kwargs)
+        except Exception:
+            pass
+        return response
 
     @staticmethod
     def _extract_body_bytes(request: httpx.Request) -> bytes | None:
@@ -77,6 +98,29 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             pass
 
         return None
+
+    @staticmethod
+    def _update_auth_headers(
+        headers: MutableMapping[str, str], access_token: str
+    ) -> None:
+        bearer_value = f"Bearer {access_token}"
+        if "Authorization" in headers or "authorization" in headers:
+            headers["Authorization"] = bearer_value
+        elif "x-api-key" in headers or "X-API-Key" in headers:
+            headers["x-api-key"] = access_token
+        else:
+            headers["Authorization"] = bearer_value
+
+    def _refresh_claude_oauth_token(self) -> str | None:
+        try:
+            from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
+
+            refreshed_token = refresh_access_token(force=True)
+            if refreshed_token:
+                self._update_auth_headers(self.headers, refreshed_token)
+            return refreshed_token
+        except Exception:
+            return None
 
     @staticmethod
     def _inject_cache_control(body: bytes) -> bytes | None:

@@ -27,11 +27,14 @@ from code_puppy.plugins.claude_code_oauth.utils import (
     fetch_claude_code_models,
     filter_latest_claude_models,
     get_oauth_context,
+    get_valid_access_token,
+    is_token_expired,
     load_claude_models,
     load_claude_models_filtered,
     load_stored_tokens,
     parse_authorization_code,
     prepare_oauth_context,
+    refresh_access_token,
     remove_claude_code_models,
     save_claude_models,
     save_tokens,
@@ -451,6 +454,72 @@ class TestTokenStorage:
             assert result is False
 
 
+class TestTokenValidity:
+    """Test token expiry and refresh helpers."""
+
+    def test_is_token_expired_true(self):
+        tokens = {"expires_at": time.time() - 5}
+        assert is_token_expired(tokens) is True
+
+    def test_is_token_expired_false(self):
+        tokens = {"expires_at": time.time() + 3600}
+        assert is_token_expired(tokens) is False
+
+    def test_get_valid_access_token_refreshes(self):
+        tokens = {
+            "access_token": "expired_token",
+            "refresh_token": "refresh_token",
+            "expires_at": time.time() - 1,
+        }
+        with patch(
+            "code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens",
+            return_value=tokens,
+        ):
+            with patch(
+                "code_puppy.plugins.claude_code_oauth.utils.refresh_access_token",
+                return_value="new_token",
+            ) as mock_refresh:
+                assert get_valid_access_token() == "new_token"
+                mock_refresh.assert_called_once()
+
+    def test_get_valid_access_token_uses_existing(self):
+        tokens = {"access_token": "current_token", "expires_at": time.time() + 3600}
+        with patch(
+            "code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens",
+            return_value=tokens,
+        ):
+            assert get_valid_access_token() == "current_token"
+
+    @patch("requests.post")
+    def test_refresh_access_token_success(self, mock_post):
+        tokens = {"access_token": "old_token", "refresh_token": "refresh_token"}
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": "new_token",
+            "refresh_token": "new_refresh",
+            "expires_in": 3600,
+        }
+        mock_post.return_value = mock_response
+
+        with patch(
+            "code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens",
+            return_value=tokens,
+        ):
+            with patch(
+                "code_puppy.plugins.claude_code_oauth.utils.save_tokens",
+                return_value=True,
+            ) as mock_save:
+                with patch(
+                    "code_puppy.plugins.claude_code_oauth.utils.update_claude_code_model_tokens",
+                    return_value=True,
+                ):
+                    refreshed = refresh_access_token(force=True)
+
+        assert refreshed == "new_token"
+        mock_save.assert_called_once()
+
+
 class TestModelStorage:
     """Test model configuration storage for Claude OAuth."""
 
@@ -567,6 +636,7 @@ class TestTokenExchange:
         assert result is not None
         assert result["access_token"] == "claude_access_token"
         assert result["refresh_token"] == "claude_refresh_token"
+        assert result["expires_at"] > time.time()
 
         # Verify request was made correctly
         mock_post.assert_called_once()
@@ -836,10 +906,10 @@ class TestAddModelsToConfig:
     """Test adding Claude models to configuration."""
 
     @patch("code_puppy.plugins.claude_code_oauth.utils.save_claude_models")
-    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
-    def test_add_models_to_extra_config_success(self, mock_load_tokens, mock_save):
+    @patch("code_puppy.plugins.claude_code_oauth.utils.get_valid_access_token")
+    def test_add_models_to_extra_config_success(self, mock_get_token, mock_save):
         """Test successful addition of models to configuration."""
-        mock_load_tokens.return_value = {"access_token": "test_access_token"}
+        mock_get_token.return_value = "test_access_token"
         mock_save.return_value = True
 
         models = [
@@ -892,10 +962,10 @@ class TestAddModelsToConfig:
         assert haiku_config["oauth_source"] == "claude-code-plugin"
 
     @patch("code_puppy.plugins.claude_code_oauth.utils.save_claude_models")
-    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
-    def test_add_models_to_extra_config_no_tokens(self, mock_load_tokens, mock_save):
+    @patch("code_puppy.plugins.claude_code_oauth.utils.get_valid_access_token")
+    def test_add_models_to_extra_config_no_tokens(self, mock_get_token, mock_save):
         """Test model addition when no tokens are available."""
-        mock_load_tokens.return_value = {}
+        mock_get_token.return_value = None
         mock_save.return_value = True
 
         result = add_models_to_extra_config(["claude-sonnet-3-5-20241022"])
@@ -910,10 +980,10 @@ class TestAddModelsToConfig:
         assert api_key == ""  # or None depending on implementation
 
     @patch("code_puppy.plugins.claude_code_oauth.utils.save_claude_models")
-    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
-    def test_add_models_to_extra_config_save_failure(self, mock_load_tokens, mock_save):
+    @patch("code_puppy.plugins.claude_code_oauth.utils.get_valid_access_token")
+    def test_add_models_to_extra_config_save_failure(self, mock_get_token, mock_save):
         """Test model addition fails when save fails."""
-        mock_load_tokens.return_value = {"access_token": "test_token"}
+        mock_get_token.return_value = "test_token"
         mock_save.return_value = False
 
         result = add_models_to_extra_config(["claude-sonnet-3-5-20241022"])
@@ -921,12 +991,12 @@ class TestAddModelsToConfig:
         assert result is False
 
     @patch("code_puppy.plugins.claude_code_oauth.utils.save_claude_models")
-    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
+    @patch("code_puppy.plugins.claude_code_oauth.utils.get_valid_access_token")
     def test_add_models_to_extra_config_load_token_failure(
-        self, mock_load_tokens, mock_save
+        self, mock_get_token, mock_save
     ):
         """Test model addition handles token loading failure."""
-        mock_load_tokens.return_value = None  # Returns None on failure
+        mock_get_token.return_value = None
         mock_save.return_value = True
 
         result = add_models_to_extra_config(["claude-sonnet-3-5-20241022"])

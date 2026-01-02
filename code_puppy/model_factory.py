@@ -388,6 +388,20 @@ class ModelFactory:
             return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "claude_code":
             url, headers, verify, api_key = get_custom_config(model_config)
+            if model_config.get("oauth_source") == "claude-code-plugin":
+                try:
+                    from code_puppy.plugins.claude_code_oauth.utils import (
+                        get_valid_access_token,
+                    )
+
+                    refreshed_token = get_valid_access_token()
+                    if refreshed_token:
+                        api_key = refreshed_token
+                        custom_endpoint = model_config.get("custom_endpoint")
+                        if isinstance(custom_endpoint, dict):
+                            custom_endpoint["api_key"] = refreshed_token
+                except ImportError:
+                    pass
             if not api_key:
                 emit_warning(
                     f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."

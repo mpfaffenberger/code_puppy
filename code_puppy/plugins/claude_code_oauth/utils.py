@@ -21,6 +21,8 @@ from .config import (
     get_token_storage_path,
 )
 
+TOKEN_REFRESH_BUFFER_SECONDS = 60
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,6 +132,124 @@ def load_stored_tokens() -> Optional[Dict[str, Any]]:
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Failed to load tokens: %s", exc)
     return None
+
+
+def _calculate_expires_at(expires_in: Optional[float]) -> Optional[float]:
+    if expires_in is None:
+        return None
+    try:
+        return time.time() + float(expires_in)
+    except (TypeError, ValueError):
+        return None
+
+
+def is_token_expired(tokens: Dict[str, Any]) -> bool:
+    expires_at = tokens.get("expires_at")
+    if expires_at is None:
+        return False
+    try:
+        expires_at_value = float(expires_at)
+    except (TypeError, ValueError):
+        return False
+    return time.time() >= expires_at_value - TOKEN_REFRESH_BUFFER_SECONDS
+
+
+def update_claude_code_model_tokens(access_token: str) -> bool:
+    try:
+        claude_models = load_claude_models()
+        if not claude_models:
+            return False
+
+        updated = False
+        for config in claude_models.values():
+            if config.get("oauth_source") != "claude-code-plugin":
+                continue
+            custom_endpoint = config.get("custom_endpoint")
+            if not isinstance(custom_endpoint, dict):
+                continue
+            custom_endpoint["api_key"] = access_token
+            updated = True
+
+        if updated:
+            return save_claude_models(claude_models)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Failed to update Claude model tokens: %s", exc)
+    return False
+
+
+def refresh_access_token(force: bool = False) -> Optional[str]:
+    tokens = load_stored_tokens()
+    if not tokens:
+        return None
+
+    if not force and not is_token_expired(tokens):
+        return tokens.get("access_token")
+
+    refresh_token = tokens.get("refresh_token")
+    if not refresh_token:
+        logger.debug("No refresh_token available")
+        return None
+
+    payload = {
+        "grant_type": "refresh_token",
+        "client_id": CLAUDE_CODE_OAUTH_CONFIG["client_id"],
+        "refresh_token": refresh_token,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "anthropic-beta": "oauth-2025-04-20",
+    }
+
+    try:
+        response = requests.post(
+            CLAUDE_CODE_OAUTH_CONFIG["token_url"],
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+        if response.status_code == 200:
+            new_tokens = response.json()
+            tokens["access_token"] = new_tokens.get("access_token")
+            tokens["refresh_token"] = new_tokens.get("refresh_token", refresh_token)
+            if "expires_in" in new_tokens:
+                tokens["expires_in"] = new_tokens["expires_in"]
+                tokens["expires_at"] = _calculate_expires_at(
+                    new_tokens.get("expires_in")
+                )
+            if save_tokens(tokens):
+                update_claude_code_model_tokens(tokens["access_token"])
+                return tokens["access_token"]
+        else:
+            logger.error(
+                "Token refresh failed: %s - %s", response.status_code, response.text
+            )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Token refresh error: %s", exc)
+    return None
+
+
+def get_valid_access_token() -> Optional[str]:
+    tokens = load_stored_tokens()
+    if not tokens:
+        logger.debug("No stored Claude Code OAuth tokens found")
+        return None
+
+    access_token = tokens.get("access_token")
+    if not access_token:
+        logger.debug("No access_token in stored tokens")
+        return None
+
+    if is_token_expired(tokens):
+        logger.info("Claude Code OAuth token expired, attempting refresh")
+        refreshed = refresh_access_token()
+        if refreshed:
+            return refreshed
+        logger.warning("Claude Code token refresh failed")
+        return None
+
+    return access_token
 
 
 def save_tokens(tokens: Dict[str, Any]) -> bool:
@@ -243,7 +363,11 @@ def exchange_code_for_tokens(
         logger.info("Token exchange response: %s", response.status_code)
         logger.debug("Response body: %s", response.text)
         if response.status_code == 200:
-            return response.json()
+            token_data = response.json()
+            token_data["expires_at"] = _calculate_expires_at(
+                token_data.get("expires_in")
+            )
+            return token_data
         logger.error(
             "Token exchange failed: %s - %s",
             response.status_code,
@@ -341,12 +465,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
         # Start fresh - overwrite the file on every auth instead of loading existing
         claude_models = {}
         added = 0
-        tokens = load_stored_tokens()
-
-        # Handle case where tokens are None or empty
-        access_token = ""
-        if tokens and "access_token" in tokens:
-            access_token = tokens["access_token"]
+        access_token = get_valid_access_token() or ""
 
         for model_name in filtered_models:
             prefixed = f"{CLAUDE_CODE_OAUTH_CONFIG['prefix']}{model_name}"
