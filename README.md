@@ -83,13 +83,7 @@ uvx code-puppy
 
 ## Changelog (By Kittylog!)
 
-<div id="kittylog-changelog"></div>
-<script
-  src="https://kittylog.app/embed.js"
-  data-repo="mpfaffenberger/code_puppy"
-  data-limit="10"
-  data-height="600">
-</script>
+[📋 View the full changelog on Kittylog](https://kittylog.app/mpfaffenberger/code_puppy)
 
 ## Usage
 
