@@ -67,12 +67,7 @@ uvx code-puppy -i
 # Install UV if you don't have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Set UV to always use managed Python (one-time setup)
-echo 'export UV_MANAGED_PYTHON=1' >> ~/.zshrc  # or ~/.bashrc
-source ~/.zshrc  # or ~/.bashrc
-
-# Install and run code-puppy
-uvx code-puppy -i
+uvx code-puppy
 ```
 
 #### Windows
@@ -83,72 +78,20 @@ On Windows, we recommend installing code-puppy as a global tool for the best exp
 # Install UV if you don't have it (run in PowerShell as Admin)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Install code-puppy as a global tool
-uv tool install code-puppy
-
-# Run code-puppy
-code-puppy -i
+uvx code-puppy
 ```
 
-**Why `uv tool install` on Windows?** Running with `uvx` creates an extra process layer that can interfere with keyboard signal handling (Ctrl+C, Ctrl+X). Installing as a tool runs code-puppy directly for reliable cancellation.
+## Changelog (By Kittylog!)
 
-#### Upgrading
-
-```bash
-# Upgrade code-puppy to the latest version
-uv tool upgrade code-puppy
-
-# Or upgrade all installed tools
-uv tool upgrade --all
-```
-
-UV will automatically download the latest compatible Python version (3.11+) if your system doesn't have one.
-
-### pip (Alternative)
-
-```bash
-pip install code-puppy
-```
-
-*Note: pip installation requires your system Python to be 3.11 or newer.*
-
-### Permanent Python Management
-
-To make UV always use managed Python versions (recommended):
-
-```bash
-# Set environment variable permanently
-echo 'export UV_MANAGED_PYTHON=1' >> ~/.zshrc  # or ~/.bashrc
-source ~/.zshrc  # or ~/.bashrc
-
-# Now all UV commands will prefer managed Python installations
-uvx code-puppy  # No need for --managed-python flag anymore
-```
-
-### Verifying Python Version
-
-```bash
-# Check which Python UV will use
-uv python find
-
-# Or check the current project's Python
-uv run python --version
-```
+<div id="kittylog-changelog"></div>
+<script
+  src="https://kittylog.app/embed.js"
+  data-repo="mpfaffenberger/code_puppy"
+  data-limit="10"
+  data-height="600">
+</script>
 
 ## Usage
-
-### Custom Commands
-Create markdown files in `.claude/commands/`, `.github/prompts/`, or `.agents/commands/` to define custom slash commands. The filename becomes the command name and the content runs as a prompt.
-
-```bash
-# Create a custom command
-echo "# Code Review
-
-Please review this code for security issues." > .claude/commands/review.md
-
-# Use it in Code Puppy
-/review with focus on authentication
-```
 
 ### Adding Models from models.dev 🆕
 
@@ -217,6 +160,18 @@ The following environment variables control DBOS behavior:
 - `DBOS_SYSTEM_DATABASE_URL`: Database URL used by DBOS. Can point to a local SQLite file or a Postgres instance. Example: `postgresql://postgres:dbos@localhost:5432/postgres`. Default: `dbos_store.sqlite` file in the config directory.
 - `DBOS_APP_VERSION`: If set, Code Puppy uses it as the [DBOS application version](https://docs.dbos.dev/architecture#application-and-workflow-versions) and automatically tries to recover pending workflows for this version. Default: Code Puppy version + Unix timestamp in millisecond (disable automatic recovery).
 
+### Custom Commands
+Create markdown files in `.claude/commands/`, `.github/prompts/`, or `.agents/commands/` to define custom slash commands. The filename becomes the command name and the content runs as a prompt.
+
+```bash
+# Create a custom command
+echo "# Code Review
+
+Please review this code for security issues." > .claude/commands/review.md
+
+# Use it in Code Puppy
+/review with focus on authentication
+```
 
 ## Requirements
 
@@ -235,9 +190,6 @@ For examples and more information about agent rules, visit [https://agent.md](ht
 ## Using MCP Servers for External Tools
 
 Use the `/mcp` command to manage MCP (list, start, stop, status, etc.)
-
-Watch this video for examples! https://www.youtube.com/watch?v=1t1zEetOqlo
-
 
 ## Round Robin Model Distribution
 
