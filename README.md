@@ -83,7 +83,7 @@ uvx code-puppy
 
 ## Changelog (By Kittylog!)
 
-[📋 View the full changelog on Kittylog](https://kittylog.app/mpfaffenberger/code_puppy)
+[📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)
 
 ## Usage
 
