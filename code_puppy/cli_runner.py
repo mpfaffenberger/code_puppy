@@ -17,14 +17,12 @@ import traceback
 from pathlib import Path
 
 from dbos import DBOS, DBOSConfig
-from rich.console import Console, ConsoleOptions, RenderResult
-from rich.markdown import CodeBlock, Markdown
-from rich.syntax import Syntax
-from rich.text import Text
+from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.command_line.attachments import parse_prompt_attachments
+from code_puppy.command_line.clipboard import get_clipboard_manager
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
@@ -43,6 +41,7 @@ from code_puppy.keymap import (
 )
 from code_puppy.messaging import emit_info
 from code_puppy.terminal_utils import (
+    print_truecolor_warning,
     reset_unix_terminal,
     reset_windows_terminal_ansi,
     reset_windows_terminal_full,
@@ -142,7 +141,6 @@ async def main():
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
-    from rich.console import Console
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
@@ -196,6 +194,9 @@ async def main():
             display_console.print("\n".join(lines))
         except ImportError:
             emit_system_message("🐶 Code Puppy is Loading...")
+
+        # Check for truecolor support and warn if not available
+        print_truecolor_warning(display_console)
 
     available_port = find_available_port()
     if available_port is None:
@@ -419,6 +420,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Ctrl+J.",
         dim=True,
     )
+    emit_system_message("Paste images: Ctrl+V (even on Mac!), F3, or /paste command.")
+    import platform
+
+    if platform.system() == "Darwin":
+        emit_system_message(
+            "💡 macOS tip: Use Ctrl+V (not Cmd+V) to paste images in terminal."
+        )
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
         f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands.",
@@ -635,6 +643,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Check for clear command (supports both `clear` and `/clear`)
         if task.strip().lower() in ("clear", "/clear"):
+            from code_puppy.command_line.clipboard import get_clipboard_manager
             from code_puppy.messaging import (
                 emit_info,
                 emit_system_message,
@@ -647,6 +656,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_warning("Conversation history cleared!")
             emit_system_message("The agent will not remember previous interactions.")
             emit_info(f"Auto-save session rotated to: {new_session_id}")
+
+            # Also clear pending clipboard images
+            clipboard_manager = get_clipboard_manager()
+            clipboard_count = clipboard_manager.get_pending_count()
+            clipboard_manager.clear_pending()
+            if clipboard_count > 0:
+                emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
             continue
 
         # Parse attachments first so leading paths aren't misread as commands
@@ -747,8 +763,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             save_command_to_history(task)
 
             try:
-                prettier_code_blocks()
-
                 # No need to get agent directly - use manager's run methods
 
                 # Use our custom helper to enable attachment handling with spinner support
@@ -818,28 +832,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 pass
 
 
-def prettier_code_blocks():
-    """Configure Rich to use prettier code block rendering."""
-
-    class SimpleCodeBlock(CodeBlock):
-        def __rich_console__(
-            self, console: Console, options: ConsoleOptions
-        ) -> RenderResult:
-            code = str(self.text).rstrip()
-            yield Text(self.lexer_name, style="dim")
-            syntax = Syntax(
-                code,
-                self.lexer_name,
-                theme=self.theme,
-                background_color="default",
-                line_numbers=True,
-            )
-            yield syntax
-            yield Text(f"/{self.lexer_name}", style="dim")
-
-    Markdown.elements["fence"] = SimpleCodeBlock
-
-
 async def run_prompt_with_attachments(
     agent,
     raw_prompt: str,
@@ -853,6 +845,7 @@ async def run_prompt_with_attachments(
         tuple: (result, task) where result is the agent response and task is the asyncio task
     """
     import asyncio
+    import re
 
     from code_puppy.messaging import emit_system_message, emit_warning
 
@@ -861,21 +854,41 @@ async def run_prompt_with_attachments(
     for warning in processed_prompt.warnings:
         emit_warning(warning)
 
+    # Get clipboard images and merge with file attachments
+    clipboard_manager = get_clipboard_manager()
+    clipboard_images = clipboard_manager.get_pending_images()
+
+    # Clear pending clipboard images after retrieval
+    clipboard_manager.clear_pending()
+
+    # Build summary of all attachments
     summary_parts = []
     if processed_prompt.attachments:
-        summary_parts.append(f"binary files: {len(processed_prompt.attachments)}")
+        summary_parts.append(f"files: {len(processed_prompt.attachments)}")
+    if clipboard_images:
+        summary_parts.append(f"clipboard images: {len(clipboard_images)}")
     if processed_prompt.link_attachments:
         summary_parts.append(f"urls: {len(processed_prompt.link_attachments)}")
     if summary_parts:
         emit_system_message("Attachments detected -> " + ", ".join(summary_parts))
 
-    if not processed_prompt.prompt:
+    # Clean up clipboard placeholders from the prompt text
+    cleaned_prompt = processed_prompt.prompt
+    if clipboard_images and cleaned_prompt:
+        cleaned_prompt = re.sub(
+            r"\[📋 clipboard image \d+\]\s*", "", cleaned_prompt
+        ).strip()
+
+    if not cleaned_prompt:
         emit_warning(
             "Prompt is empty after removing attachments; add instructions and retry."
         )
         return None, None
 
+    # Combine file attachments with clipboard images
     attachments = [attachment.content for attachment in processed_prompt.attachments]
+    attachments.extend(clipboard_images)  # Add clipboard images
+
     link_attachments = [link.url_part for link in processed_prompt.link_attachments]
 
     # IMPORTANT: Set the shared console on the agent so that streaming output
@@ -887,7 +900,7 @@ async def run_prompt_with_attachments(
     # Create the agent task first so we can track and cancel it
     agent_task = asyncio.create_task(
         agent.run_with_mcp(
-            processed_prompt.prompt,
+            cleaned_prompt,  # Use cleaned prompt (clipboard placeholders removed)
             attachments=attachments,
             link_attachments=link_attachments,
         )

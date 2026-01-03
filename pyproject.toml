@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.337"
+version = "0.0.339"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -50,6 +50,8 @@ dependencies = [
     "winrt-windows-graphics-imaging>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
     "winrt-windows-media-ocr>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
     "winrt-windows-storage-streams>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "termflow-md>=0.1.6",
+    "Pillow>=10.0.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",

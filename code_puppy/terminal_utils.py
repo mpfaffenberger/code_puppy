@@ -3,10 +3,14 @@
 Handles Windows console mode resets and Unix terminal sanity restoration.
 """
 
+import os
 import platform
 import subprocess
 import sys
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 # Store the original console ctrl handler so we can restore it if needed
 _original_ctrl_handler: Optional[Callable] = None
@@ -289,3 +293,126 @@ def ensure_ctrl_c_disabled() -> bool:
 
     except Exception:
         return False
+
+
+def detect_truecolor_support() -> bool:
+    """Detect if the terminal supports truecolor (24-bit color).
+
+    Checks multiple indicators:
+    1. COLORTERM environment variable (most reliable)
+    2. TERM environment variable patterns
+    3. Rich's Console color_system detection as fallback
+
+    Returns:
+        True if truecolor is supported, False otherwise.
+    """
+    # Check COLORTERM - this is the most reliable indicator
+    colorterm = os.environ.get("COLORTERM", "").lower()
+    if colorterm in ("truecolor", "24bit"):
+        return True
+
+    # Check TERM for known truecolor-capable terminals
+    term = os.environ.get("TERM", "").lower()
+    truecolor_terms = (
+        "xterm-direct",
+        "xterm-truecolor",
+        "iterm2",
+        "vte-256color",  # Many modern terminals set this
+    )
+    if any(t in term for t in truecolor_terms):
+        return True
+
+    # Some terminals like iTerm2, Kitty, Alacritty set specific env vars
+    if os.environ.get("ITERM_SESSION_ID"):
+        return True
+    if os.environ.get("KITTY_WINDOW_ID"):
+        return True
+    if os.environ.get("ALACRITTY_SOCKET"):
+        return True
+    if os.environ.get("WT_SESSION"):  # Windows Terminal
+        return True
+
+    # Use Rich's detection as a fallback
+    try:
+        from rich.console import Console
+
+        console = Console(force_terminal=True)
+        color_system = console.color_system
+        return color_system == "truecolor"
+    except Exception:
+        pass
+
+    return False
+
+
+def print_truecolor_warning(console: Optional["Console"] = None) -> None:
+    """Print a big fat red warning if truecolor is not supported.
+
+    Args:
+        console: Optional Rich Console instance. If None, creates a new one.
+    """
+    if detect_truecolor_support():
+        return  # All good, no warning needed
+
+    if console is None:
+        try:
+            from rich.console import Console
+
+            console = Console()
+        except ImportError:
+            # Rich not available, fall back to plain print
+            print("\n" + "=" * 70)
+            print("⚠️  WARNING: TERMINAL DOES NOT SUPPORT TRUECOLOR (24-BIT COLOR)")
+            print("=" * 70)
+            print("Code Puppy looks best with truecolor support.")
+            print("Consider using a modern terminal like:")
+            print("  • iTerm2 (macOS)")
+            print("  • Windows Terminal (Windows)")
+            print("  • Kitty, Alacritty, or any modern terminal emulator")
+            print("")
+            print("You can also try setting: export COLORTERM=truecolor")
+            print("")
+            print("Note: The built-in macOS Terminal.app does not support truecolor")
+            print("(Sequoia and earlier). You'll need a different terminal app.")
+            print("=" * 70 + "\n")
+            return
+
+    # Get detected color system for diagnostic info
+    color_system = console.color_system or "unknown"
+
+    # Build the warning box
+    warning_lines = [
+        "",
+        "[bold bright_red on red]" + "━" * 72 + "[/]",
+        "[bold bright_red on red]┃[/][bold bright_white on red]"
+        + " " * 70
+        + "[/][bold bright_red on red]┃[/]",
+        "[bold bright_red on red]┃[/][bold bright_white on red]  ⚠️   WARNING: TERMINAL DOES NOT SUPPORT TRUECOLOR (24-BIT COLOR)  ⚠️   [/][bold bright_red on red]┃[/]",
+        "[bold bright_red on red]┃[/][bold bright_white on red]"
+        + " " * 70
+        + "[/][bold bright_red on red]┃[/]",
+        "[bold bright_red on red]" + "━" * 72 + "[/]",
+        "",
+        f"[yellow]Detected color system:[/] [bold]{color_system}[/]",
+        "",
+        "[bold white]Code Puppy uses rich colors and will look degraded without truecolor.[/]",
+        "",
+        "[cyan]Consider using a modern terminal emulator:[/]",
+        "  [green]•[/] [bold]iTerm2[/] (macOS) - https://iterm2.com",
+        "  [green]•[/] [bold]Windows Terminal[/] (Windows) - Built into Windows 11",
+        "  [green]•[/] [bold]Kitty[/] - https://sw.kovidgoyal.net/kitty",
+        "  [green]•[/] [bold]Alacritty[/] - https://alacritty.org",
+        "  [green]•[/] [bold]Warp[/] (macOS) - https://warp.dev",
+        "",
+        "[cyan]Or try setting the COLORTERM environment variable:[/]",
+        "  [dim]export COLORTERM=truecolor[/]",
+        "",
+        "[dim italic]Note: The built-in macOS Terminal.app does not support truecolor (Sequoia and earlier).[/]",
+        "[dim italic]Setting COLORTERM=truecolor won't help - you'll need a different terminal app.[/]",
+        "",
+        "[bold bright_red]" + "─" * 72 + "[/]",
+        "",
+    ]
+
+    for line in warning_lines:
+        console.print(line)

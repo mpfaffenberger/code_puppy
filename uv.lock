@@ -460,7 +460,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.337"
+version = "0.0.339"
 source = { editable = "." }
 dependencies = [
     { name = "atomacos", marker = "sys_platform == 'darwin'" },
@@ -493,6 +493,7 @@ dependencies = [
     { name = "ruff" },
     { name = "sqlparse" },
     { name = "tenacity" },
+    { name = "termflow-md" },
     { name = "uvicorn" },
     { name = "winrt-runtime", marker = "sys_platform == 'win32'" },
     { name = "winrt-windows-foundation", marker = "sys_platform == 'win32'" },
@@ -543,6 +544,7 @@ requires-dist = [
     { name = "ruff", specifier = ">=0.11.11" },
     { name = "sqlparse", specifier = ">=0.4.0" },
     { name = "tenacity", specifier = ">=8.2.0" },
+    { name = "termflow-md", specifier = ">=0.1.6" },
     { name = "uvicorn", specifier = ">=0.30.0" },
     { name = "winrt-runtime", marker = "sys_platform == 'win32'", specifier = ">=3.2.1" },
     { name = "winrt-windows-foundation", marker = "sys_platform == 'win32'", specifier = ">=3.2.1" },
@@ -3723,6 +3725,19 @@ source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pyp
 sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/0a/d4/2b0cd0fe285e14b36db076e78c93766ff1d529d70408bd1d2a5a84f1d929/tenacity-9.1.2.tar.gz", hash = "sha256:1169d376c297e7de388d18b4481760d478b0e99a777cad3a9c86e556f4b697cb" }
 wheels = [
     { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/e5/30/643397144bfbfec6f6ef821f36f33e57d35946c44a2352d3c9f0ae847619/tenacity-9.1.2-py3-none-any.whl", hash = "sha256:f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138" },
+]
+
+[[package]]
+name = "termflow-md"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pygments" },
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/eb/ea/fb1cfcba06bace24cf17b326e99f595621369eae072e303a15b0934e6bc0/termflow_md-0.1.6.tar.gz", hash = "sha256:5b77818c2e64e3f113c0c81cfc40feb4f039d8528336386483963b31b84a6ead", size = 115069, upload-time = "2026-01-03T02:41:47.574Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/6a/9e13117b7cd41b0a9caa80bd0aed3f4a0dd4a64e4fe30a0615da74642a3c/termflow_md-0.1.6-py3-none-any.whl", hash = "sha256:0e45784436509f96f0c085678f6763c1f015bf758379ceeb8816dfcaa5e81fc7", size = 57422, upload-time = "2026-01-03T02:41:46.12Z" },
 ]
 
 [[package]]
