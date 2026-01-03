@@ -1353,7 +1353,6 @@ class BaseAgent(ABC):
             ToolCallPartDelta,
         )
         from rich.console import Console
-        from rich.markdown import Markdown
         from rich.markup import escape
 
         from code_puppy.messaging.spinner import pause_all_spinners
@@ -1375,9 +1374,16 @@ class BaseAgent(ABC):
         text_parts: set[int] = set()  # Track which parts are text
         tool_parts: set[int] = set()  # Track which parts are tool calls
         banner_printed: set[int] = set()  # Track if banner was already printed
-        text_buffer: dict[int, list[str]] = {}  # Buffer text for final markdown render
         token_count: dict[int, int] = {}  # Track token count per text/tool part
         did_stream_anything = False  # Track if we streamed any content
+
+        # Termflow streaming state for text parts
+        from termflow import Parser as TermflowParser
+        from termflow import Renderer as TermflowRenderer
+
+        termflow_parsers: dict[int, TermflowParser] = {}
+        termflow_renderers: dict[int, TermflowRenderer] = {}
+        termflow_line_buffers: dict[int, str] = {}  # Buffer incomplete lines
 
         def _print_thinking_banner() -> None:
             """Print the THINKING banner with spinner pause and line clear."""
@@ -1437,13 +1443,17 @@ class BaseAgent(ABC):
                 elif isinstance(part, TextPart):
                     streaming_parts.add(event.index)
                     text_parts.add(event.index)
-                    text_buffer[event.index] = []  # Initialize buffer
-                    token_count[event.index] = 0  # Initialize token counter
-                    # Buffer initial content if present
+                    # Initialize termflow streaming for this text part
+                    termflow_parsers[event.index] = TermflowParser()
+                    termflow_renderers[event.index] = TermflowRenderer(
+                        output=console.file, width=console.width
+                    )
+                    termflow_line_buffers[event.index] = ""
+                    # Handle initial content if present
                     if part.content and part.content.strip():
-                        text_buffer[event.index].append(part.content)
-                        # Count chunks (each part counts as 1)
-                        token_count[event.index] += 1
+                        _print_response_banner()
+                        banner_printed.add(event.index)
+                        termflow_line_buffers[event.index] = part.content
                 elif isinstance(part, ToolCallPart):
                     streaming_parts.add(event.index)
                     tool_parts.add(event.index)
@@ -1459,22 +1469,29 @@ class BaseAgent(ABC):
                     delta = event.delta
                     if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
                         if delta.content_delta:
-                            # For text parts, show token counter then render at end
+                            # For text parts, stream markdown with termflow
                             if event.index in text_parts:
                                 # Print banner on first content
                                 if event.index not in banner_printed:
                                     _print_response_banner()
                                     banner_printed.add(event.index)
-                                # Accumulate text for final markdown render
-                                text_buffer[event.index].append(delta.content_delta)
-                                # Count chunks received
-                                token_count[event.index] += 1
-                                # Update chunk counter in place (single line)
-                                count = token_count[event.index]
-                                console.print(
-                                    f"  ⏳ Receiving... {count} chunks   ",
-                                    end="\r",
+
+                                # Add content to line buffer
+                                termflow_line_buffers[event.index] += (
+                                    delta.content_delta
                                 )
+
+                                # Process complete lines
+                                parser = termflow_parsers[event.index]
+                                renderer = termflow_renderers[event.index]
+                                buffer = termflow_line_buffers[event.index]
+
+                                while "\n" in buffer:
+                                    line, buffer = buffer.split("\n", 1)
+                                    events_to_render = parser.parse_line(line)
+                                    renderer.render_all(events_to_render)
+
+                                termflow_line_buffers[event.index] = buffer
                             else:
                                 # For thinking parts, stream immediately (dim)
                                 if event.index not in banner_printed:
@@ -1503,19 +1520,27 @@ class BaseAgent(ABC):
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 if event.index in streaming_parts:
-                    # For text parts, clear counter line and render markdown
+                    # For text parts, finalize termflow rendering
                     if event.index in text_parts:
-                        # Clear the chunk counter line by printing spaces and returning
-                        console.print(" " * 50, end="\r")
-                        # Render the final markdown nicely
-                        if event.index in text_buffer:
-                            try:
-                                final_content = "".join(text_buffer[event.index])
-                                if final_content.strip():
-                                    console.print(Markdown(final_content))
-                            except Exception:
-                                pass
-                            del text_buffer[event.index]
+                        # Render any remaining buffered content
+                        if event.index in termflow_parsers:
+                            parser = termflow_parsers[event.index]
+                            renderer = termflow_renderers[event.index]
+                            remaining = termflow_line_buffers.get(event.index, "")
+
+                            # Parse and render any remaining partial line
+                            if remaining.strip():
+                                events_to_render = parser.parse_line(remaining)
+                                renderer.render_all(events_to_render)
+
+                            # Finalize the parser to close any open blocks
+                            final_events = parser.finalize()
+                            renderer.render_all(final_events)
+
+                            # Clean up termflow state
+                            del termflow_parsers[event.index]
+                            del termflow_renderers[event.index]
+                            del termflow_line_buffers[event.index]
                     # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
                         # Clear the chunk counter line by printing spaces and returning
