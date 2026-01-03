@@ -17,10 +17,7 @@ import traceback
 from pathlib import Path
 
 from dbos import DBOS, DBOSConfig
-from rich.console import Console, ConsoleOptions, RenderResult
-from rich.markdown import CodeBlock, Markdown
-from rich.syntax import Syntax
-from rich.text import Text
+from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
@@ -43,6 +40,7 @@ from code_puppy.keymap import (
 )
 from code_puppy.messaging import emit_info
 from code_puppy.terminal_utils import (
+    print_truecolor_warning,
     reset_unix_terminal,
     reset_windows_terminal_ansi,
     reset_windows_terminal_full,
@@ -91,7 +89,6 @@ async def main():
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
-    from rich.console import Console
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
@@ -145,6 +142,9 @@ async def main():
             display_console.print("\n".join(lines))
         except ImportError:
             emit_system_message("🐶 Code Puppy is Loading...")
+
+        # Check for truecolor support and warn if not available
+        print_truecolor_warning(display_console)
 
     available_port = find_available_port()
     if available_port is None:
@@ -679,8 +679,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             save_command_to_history(task)
 
             try:
-                prettier_code_blocks()
-
                 # No need to get agent directly - use manager's run methods
 
                 # Use our custom helper to enable attachment handling with spinner support
@@ -748,28 +746,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 ensure_ctrl_c_disabled()
             except ImportError:
                 pass
-
-
-def prettier_code_blocks():
-    """Configure Rich to use prettier code block rendering."""
-
-    class SimpleCodeBlock(CodeBlock):
-        def __rich_console__(
-            self, console: Console, options: ConsoleOptions
-        ) -> RenderResult:
-            code = str(self.text).rstrip()
-            yield Text(self.lexer_name, style="dim")
-            syntax = Syntax(
-                code,
-                self.lexer_name,
-                theme=self.theme,
-                background_color="default",
-                line_numbers=True,
-            )
-            yield syntax
-            yield Text(f"/{self.lexer_name}", style="dim")
-
-    Markdown.elements["fence"] = SimpleCodeBlock
 
 
 async def run_prompt_with_attachments(

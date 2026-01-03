@@ -677,6 +677,8 @@ class ModelFactory:
                     f"API key is not set for Cerebras endpoint; skipping model '{model_config.get('name')}'."
                 )
                 return None
+            # Add Cerebras 3rd party integration header
+            headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
             client = create_async_client(headers=headers, verify=verify)
             provider_args = dict(
                 api_key=api_key,

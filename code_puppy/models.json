@@ -55,9 +55,9 @@
     "supported_settings": ["reasoning_effort", "verbosity"],
     "supports_xhigh_reasoning": true
   },
-  "Cerebras-GLM-4.6": {
+  "Cerebras-GLM-4.7": {
     "type": "cerebras",
-    "name": "zai-glm-4.6",
+    "name": "zai-glm-4.7",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
       "api_key": "$CEREBRAS_API_KEY"
