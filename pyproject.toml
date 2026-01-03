@@ -30,6 +30,7 @@ dependencies = [
     "uvicorn>=0.30.0",
     "fastapi>=0.111.0",
     "termflow-md>=0.1.6",
+    "Pillow>=10.0.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",

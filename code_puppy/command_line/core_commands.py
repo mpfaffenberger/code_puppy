@@ -116,6 +116,40 @@ def handle_motd_command(command: str) -> bool:
 
 
 @register_command(
+    name="paste",
+    description="Paste image from clipboard (same as F3, or Ctrl+V with image)",
+    usage="/paste, /clipboard, /cb",
+    aliases=["clipboard", "cb"],
+    category="core",
+)
+def handle_paste_command(command: str) -> bool:
+    """Paste an image from the clipboard into the pending attachments."""
+    from code_puppy.command_line.clipboard import (
+        capture_clipboard_image_to_pending,
+        get_clipboard_manager,
+        has_image_in_clipboard,
+    )
+    from code_puppy.messaging import emit_info, emit_success, emit_warning
+
+    if not has_image_in_clipboard():
+        emit_warning("No image found in clipboard")
+        emit_info("Copy an image (screenshot, from browser, etc.) and try again")
+        return True
+
+    placeholder = capture_clipboard_image_to_pending()
+    if placeholder:
+        manager = get_clipboard_manager()
+        count = manager.get_pending_count()
+        emit_success(f"📋 {placeholder}")
+        emit_info(f"Total pending clipboard images: {count}")
+        emit_info("Type your prompt and press Enter to send with the image(s)")
+    else:
+        emit_warning("Failed to capture clipboard image")
+
+    return True
+
+
+@register_command(
     name="tutorial",
     description="Run the interactive tutorial wizard",
     usage="/tutorial",

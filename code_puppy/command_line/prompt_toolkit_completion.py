@@ -27,6 +27,11 @@ from code_puppy.command_line.attachments import (
     _detect_path_tokens,
     _tokenise,
 )
+from code_puppy.command_line.clipboard import (
+    capture_clipboard_image_to_pending,
+    get_clipboard_manager,
+    has_image_in_clipboard,
+)
 from code_puppy.command_line.command_registry import get_unique_commands
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 from code_puppy.command_line.load_context_completion import LoadContextCompleter
@@ -643,6 +648,113 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text("\n")
         else:
             event.current_buffer.validate_and_handle()
+
+    # Handle bracketed paste (triggered by most terminal Cmd+V / Ctrl+V)
+    # This is the PRIMARY paste handler - works with Cmd+V on macOS terminals
+    @bindings.add(Keys.BracketedPaste)
+    def handle_bracketed_paste(event):
+        """Handle bracketed paste - works with Cmd+V on macOS terminals."""
+        # The pasted data is in event.data
+        pasted_data = event.data
+
+        # Check if clipboard has an image (the pasted text might just be empty or a file path)
+        try:
+            if has_image_in_clipboard():
+                placeholder = capture_clipboard_image_to_pending()
+                if placeholder:
+                    event.app.current_buffer.insert_text(placeholder + " ")
+                    count = get_clipboard_manager().get_pending_count()
+                    sys.stdout.write(f"\033[36m📋 +image ({count})\033[0m ")
+                    sys.stdout.flush()
+                    return  # Don't also paste the text data
+        except Exception:
+            pass
+
+        # No image - insert the pasted text as normal
+        if pasted_data:
+            event.app.current_buffer.insert_text(pasted_data)
+
+    # Fallback Ctrl+V for terminals without bracketed paste support
+    @bindings.add("c-v", eager=True)
+    def handle_smart_paste(event):
+        """Handle Ctrl+V - auto-detect image vs text in clipboard."""
+        try:
+            # Check for image first
+            if has_image_in_clipboard():
+                placeholder = capture_clipboard_image_to_pending()
+                if placeholder:
+                    event.app.current_buffer.insert_text(placeholder + " ")
+                    count = get_clipboard_manager().get_pending_count()
+                    sys.stdout.write(f"\033[36m📋 +image ({count})\033[0m ")
+                    sys.stdout.flush()
+                    return  # Don't also paste text
+        except Exception:
+            pass  # Fall through to text paste on any error
+
+        # No image (or error) - do normal text paste
+        # prompt_toolkit doesn't have built-in paste, so we handle it manually
+        try:
+            import platform
+            import subprocess
+
+            text = None
+            system = platform.system()
+
+            if system == "Darwin":  # macOS
+                result = subprocess.run(
+                    ["pbpaste"], capture_output=True, text=True, timeout=2
+                )
+                if result.returncode == 0:
+                    text = result.stdout
+            elif system == "Windows":
+                # Windows - use powershell
+                result = subprocess.run(
+                    ["powershell", "-command", "Get-Clipboard"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if result.returncode == 0:
+                    text = result.stdout.rstrip("\r\n")
+            else:  # Linux
+                # Try xclip first, then xsel
+                for cmd in [
+                    ["xclip", "-selection", "clipboard", "-o"],
+                    ["xsel", "--clipboard", "--output"],
+                ]:
+                    try:
+                        result = subprocess.run(
+                            cmd, capture_output=True, text=True, timeout=2
+                        )
+                        if result.returncode == 0:
+                            text = result.stdout
+                            break
+                    except FileNotFoundError:
+                        continue
+
+            if text:
+                event.app.current_buffer.insert_text(text)
+        except Exception:
+            pass  # Silently fail if text paste doesn't work
+
+    # F3 - dedicated image paste (shows error if no image)
+    @bindings.add("f3")
+    def handle_image_paste_f3(event):
+        """Handle F3 - paste image from clipboard (image-only, shows error if none)."""
+        try:
+            if has_image_in_clipboard():
+                placeholder = capture_clipboard_image_to_pending()
+                if placeholder:
+                    event.app.current_buffer.insert_text(placeholder + " ")
+                    count = get_clipboard_manager().get_pending_count()
+                    sys.stdout.write(f"\033[36m📋 +image ({count})\033[0m ")
+                    sys.stdout.flush()
+            else:
+                sys.stdout.write("\033[33m⚠️ no image\033[0m ")
+                sys.stdout.flush()
+        except Exception:
+            sys.stdout.write("\033[31m❌ clipboard error\033[0m ")
+            sys.stdout.flush()
 
     session = PromptSession(
         completer=completer,
