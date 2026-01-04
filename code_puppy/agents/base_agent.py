@@ -913,6 +913,11 @@ class BaseAgent(ABC):
         """
         Truncate message history to manage token usage.
 
+        Protects:
+        - The first message (system prompt) - always kept
+        - The second message if it contains a ThinkingPart (extended thinking context)
+        - The most recent messages up to protected_tokens
+
         Args:
             messages: List of messages to truncate
             protected_tokens: Number of tokens to protect
@@ -924,12 +929,30 @@ class BaseAgent(ABC):
 
         emit_info("Truncating message history to manage token usage")
         result = [messages[0]]  # Always keep the first message (system prompt)
+
+        # Check if second message exists and contains a ThinkingPart
+        # If so, protect it (extended thinking context shouldn't be lost)
+        skip_second = False
+        if len(messages) > 1:
+            second_msg = messages[1]
+            has_thinking = any(
+                isinstance(part, ThinkingPart) for part in second_msg.parts
+            )
+            if has_thinking:
+                result.append(second_msg)
+                skip_second = True
+
         num_tokens = 0
         stack = queue.LifoQueue()
 
+        # Determine which messages to consider for the recent-tokens window
+        # Skip first message (already added), and skip second if it has thinking
+        start_idx = 2 if skip_second else 1
+        messages_to_scan = messages[start_idx:]
+
         # Put messages in reverse order (most recent first) into the stack
         # but break when we exceed protected_tokens
-        for idx, msg in enumerate(reversed(messages[1:])):  # Skip the first message
+        for msg in reversed(messages_to_scan):
             num_tokens += self.estimate_tokens_for_message(msg)
             if num_tokens > protected_tokens:
                 break
