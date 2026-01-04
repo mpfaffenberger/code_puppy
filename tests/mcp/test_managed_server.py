@@ -3,8 +3,10 @@ Tests for ManagedMCPServer.
 """
 
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from code_puppy.mcp_.managed_server import ManagedMCPServer, ServerConfig
 
 
@@ -24,17 +26,24 @@ async def test_managed_server_header_env_expansion_mocked():
         id="test-id", name="test-server", type="http", config=config_dict
     )
 
+    captured_headers = {}
+
+    def mock_create_async_client(headers=None, **kwargs):
+        # Capture the headers passed to create_async_client
+        if headers:
+            captured_headers.update(headers)
+        return None  # Return value doesn't matter for this test
+
     with (
         patch.dict(os.environ, {"TEST_API_KEY": "secret-123"}),
-        patch("code_puppy.mcp_.managed_server.MCPServerStreamableHTTP") as MockHTTP,
+        patch("code_puppy.mcp_.managed_server.MCPServerStreamableHTTP"),
+        patch(
+            "code_puppy.mcp_.managed_server.create_async_client",
+            side_effect=mock_create_async_client,
+        ),
     ):
         ManagedMCPServer(server_config)
 
-        # Verify call args
-        call_args = MockHTTP.call_args
-        assert call_args is not None
-        _, kwargs = call_args
-
-        headers = kwargs.get("headers", {})
-        assert headers["Authorization"] == "Bearer secret-123"
-        assert headers["X-Custom"] == "FixedValue"
+        # Verify headers were expanded correctly
+        assert captured_headers["Authorization"] == "Bearer secret-123"
+        assert captured_headers["X-Custom"] == "FixedValue"

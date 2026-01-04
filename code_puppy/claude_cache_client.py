@@ -10,9 +10,12 @@ serialization, avoiding httpx/Pydantic internals.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Callable, MutableMapping
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 try:
     from anthropic import AsyncAnthropic
@@ -58,25 +61,44 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             pass
         response = await super().send(request, *args, **kwargs)
         try:
-            if response.status_code == 401 and not request.extensions.get(
+            # Check for both 401 and 400 - Anthropic/Cloudflare may return 400 for auth errors
+            # Also check if it's a Cloudflare HTML error response
+            if response.status_code in (400, 401) and not request.extensions.get(
                 "claude_oauth_refresh_attempted"
             ):
-                refreshed_token = self._refresh_claude_oauth_token()
-                if refreshed_token:
-                    await response.aclose()
-                    body_bytes = self._extract_body_bytes(request)
-                    headers = dict(request.headers)
-                    self._update_auth_headers(headers, refreshed_token)
-                    retry_request = self.build_request(
-                        method=request.method,
-                        url=request.url,
-                        headers=headers,
-                        content=body_bytes,
-                    )
-                    retry_request.extensions["claude_oauth_refresh_attempted"] = True
-                    return await super().send(retry_request, *args, **kwargs)
-        except Exception:
-            pass
+                # Determine if this is an auth error (including Cloudflare HTML errors)
+                is_auth_error = response.status_code == 401
+
+                if response.status_code == 400:
+                    # Check if this is a Cloudflare HTML error
+                    is_auth_error = self._is_cloudflare_html_error(response)
+                    if is_auth_error:
+                        logger.info(
+                            "Detected Cloudflare 400 error (likely auth-related), attempting token refresh"
+                        )
+
+                if is_auth_error:
+                    refreshed_token = self._refresh_claude_oauth_token()
+                    if refreshed_token:
+                        logger.info("Token refreshed successfully, retrying request")
+                        await response.aclose()
+                        body_bytes = self._extract_body_bytes(request)
+                        headers = dict(request.headers)
+                        self._update_auth_headers(headers, refreshed_token)
+                        retry_request = self.build_request(
+                            method=request.method,
+                            url=request.url,
+                            headers=headers,
+                            content=body_bytes,
+                        )
+                        retry_request.extensions["claude_oauth_refresh_attempted"] = (
+                            True
+                        )
+                        return await super().send(retry_request, *args, **kwargs)
+                    else:
+                        logger.warning("Token refresh failed, returning original error")
+        except Exception as exc:
+            logger.debug("Error during token refresh attempt: %s", exc)
         return response
 
     @staticmethod
@@ -111,15 +133,51 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         else:
             headers["Authorization"] = bearer_value
 
+    @staticmethod
+    def _is_cloudflare_html_error(response: httpx.Response) -> bool:
+        """Check if this is a Cloudflare HTML error response.
+
+        Cloudflare often returns HTML error pages with status 400 when
+        there are authentication issues.
+        """
+        # Check content type
+        content_type = response.headers.get("content-type", "")
+        if "text/html" not in content_type.lower():
+            return False
+
+        # Check if body contains Cloudflare markers
+        try:
+            # Read response body if not already consumed
+            if hasattr(response, "_content") and response._content:
+                body = response._content.decode("utf-8", errors="ignore")
+            else:
+                # Try to read the text (this might be already consumed)
+                try:
+                    body = response.text
+                except Exception:
+                    return False
+
+            # Look for Cloudflare and 400 Bad Request markers
+            body_lower = body.lower()
+            return "cloudflare" in body_lower and "400 bad request" in body_lower
+        except Exception as exc:
+            logger.debug("Error checking for Cloudflare error: %s", exc)
+            return False
+
     def _refresh_claude_oauth_token(self) -> str | None:
         try:
             from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
 
+            logger.info("Attempting to refresh Claude Code OAuth token...")
             refreshed_token = refresh_access_token(force=True)
             if refreshed_token:
                 self._update_auth_headers(self.headers, refreshed_token)
+                logger.info("Successfully refreshed Claude Code OAuth token")
+            else:
+                logger.warning("Token refresh returned None")
             return refreshed_token
-        except Exception:
+        except Exception as exc:
+            logger.error("Exception during token refresh: %s", exc)
             return None
 
     @staticmethod
