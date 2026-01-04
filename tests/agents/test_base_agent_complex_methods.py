@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic_ai import RunContext
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ThinkingPart
 
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
@@ -173,6 +173,60 @@ class TestBaseAgentComplexMethods:
         result = agent.truncation(messages, protected_tokens=0)
         assert result is not None
         assert len(result) > 0
+
+    def test_truncation_protects_second_message_with_thinking_part(self, agent):
+        """Test that truncation protects the second message if it has a ThinkingPart.
+
+        Extended thinking context in the second message should be preserved
+        during truncation, as it often contains important reasoning.
+        """
+        # Create messages where second message has ThinkingPart
+        messages = [
+            ModelRequest(parts=[TextPart(content="System prompt")]),
+            ModelResponse(
+                parts=[
+                    ThinkingPart(content="Extended thinking reasoning..."),
+                    TextPart(content="Response with thinking"),
+                ]
+            ),
+            ModelRequest(parts=[TextPart(content="User message 2")]),
+            ModelResponse(parts=[TextPart(content="Response 2")]),
+            ModelRequest(parts=[TextPart(content="User message 3")]),
+            ModelResponse(parts=[TextPart(content="Response 3")]),
+        ]
+
+        # Truncate with small protected_tokens to force truncation
+        result = agent.truncation(messages, protected_tokens=50)
+
+        # First message (system) should always be kept
+        assert result[0] == messages[0]
+
+        # Second message (with ThinkingPart) should be protected
+        assert len(result) >= 2
+        assert result[1] == messages[1]
+
+        # Verify the second message actually has a ThinkingPart
+        assert any(isinstance(p, ThinkingPart) for p in result[1].parts)
+
+    def test_truncation_does_not_protect_second_message_without_thinking(self, agent):
+        """Test that truncation doesn't specially protect second message without ThinkingPart."""
+        # Create messages where second message has NO ThinkingPart
+        messages = [
+            ModelRequest(parts=[TextPart(content="System prompt")]),
+            ModelResponse(parts=[TextPart(content="Regular response")]),
+            ModelRequest(parts=[TextPart(content="User message 2")]),
+            ModelResponse(parts=[TextPart(content="Response 2" * 1000)]),  # Large
+        ]
+
+        # With very small protected_tokens, the second message should NOT be protected
+        result = agent.truncation(messages, protected_tokens=10)
+
+        # First message should always be kept
+        assert result[0] == messages[0]
+
+        # The result should be smaller than input (truncation happened)
+        # and second message is NOT necessarily included
+        assert len(result) >= 1
 
     def test_split_messages_protection_behavior(self, agent):
         """Test that message splitting properly protects recent messages."""

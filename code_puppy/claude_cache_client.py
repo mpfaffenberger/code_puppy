@@ -14,6 +14,8 @@ from typing import Any, Callable
 
 import httpx
 
+logger = logging.getLogger(__name__)
+
 try:
     from anthropic import AsyncAnthropic
 except ImportError:  # pragma: no cover - optional dep

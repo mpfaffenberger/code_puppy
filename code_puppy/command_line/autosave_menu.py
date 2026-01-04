@@ -69,22 +69,21 @@ def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
 
 
 def _extract_last_user_message(history: list) -> str:
-    """Extract the most recent user message from history."""
-    # First pass: Look for the most recent string/text content (skipping dicts/objects)
-    for msg in reversed(history):
-        if hasattr(msg, "parts"):
-            # Check parts in reverse order to find the absolute last text chunk
-            for part in reversed(msg.parts):
-                if hasattr(part, "content") and isinstance(part.content, str):
-                    return part.content
+    """Extract the most recent user message from history.
 
-    # Second pass: Fallback to stringifying the last content found
+    Joins all content parts from the message since messages can have
+    multiple parts (e.g., text + attachments, multi-part prompts).
+    """
+    # Walk backwards through history to find last user message
     for msg in reversed(history):
-        if hasattr(msg, "parts"):
-            for part in reversed(msg.parts):
-                if hasattr(part, "content"):
-                    return str(part.content)
-
+        content_parts = []
+        for part in msg.parts:
+            if hasattr(part, "content"):
+                content = part.content
+                if isinstance(content, str) and content.strip():
+                    content_parts.append(content)
+        if content_parts:
+            return "\n\n".join(content_parts)
     return "[No messages found]"
 
 
@@ -308,17 +307,11 @@ def _render_message_browser_panel(
             # Don't override Rich's ANSI styling - use empty style
             text_color = ""
 
-        # Truncate if too long (max 35 lines)
-        message_lines = rendered.split("\n")[:35]
-        is_truncated = len(rendered.split("\n")) > 35
+        # Show full message without truncation
+        message_lines = rendered.split("\n")
 
         for line in message_lines:
             lines.append((text_color, f"  {line}"))
-            lines.append(("", "\n"))
-
-        if is_truncated:
-            lines.append(("", "\n"))
-            lines.append(("fg:yellow", "  ... truncated (message too long)"))
             lines.append(("", "\n"))
 
     except Exception as e:
@@ -369,7 +362,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     lines.append(("", "\n\n"))
 
     lines.append(("bold", "  Last Message:"))
-    lines.append(("fg:ansibrightblack", "  (press 'e' to browse all)"))
+    lines.append(("fg:ansibrightblack", "  (press 'e' to browse full history)"))
     lines.append(("", "\n"))
 
     # Try to load and preview the last message
@@ -377,15 +370,11 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
         history = load_session(session_name, base_dir)
         last_message = _extract_last_user_message(history)
 
-        # Check if original message is long (before Rich processing)
-        original_lines = last_message.split("\n") if last_message else []
-        is_long = len(original_lines) > 30
-
-        # Render markdown with rich but strip ANSI codes
+        # Render markdown with rich
         console = Console(
             file=StringIO(),
             legacy_windows=False,
-            no_color=False,  # Disable ANSI color codes
+            no_color=False,
             force_terminal=False,
             width=76,
         )
@@ -393,17 +382,12 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
         console.print(md)
         rendered = console.file.getvalue()
 
-        # Truncate if too long (max 30 lines for bigger preview)
-        message_lines = rendered.split("\n")[:30]
+        # Show full message without truncation
+        message_lines = rendered.split("\n")
 
         for line in message_lines:
             # Rich already rendered the markdown, just display it dimmed
             lines.append(("fg:ansibrightblack", f"  {line}"))
-            lines.append(("", "\n"))
-
-        if is_long:
-            lines.append(("", "\n"))
-            lines.append(("fg:yellow", "  ... truncated"))
             lines.append(("", "\n"))
 
     except Exception as e:
