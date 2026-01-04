@@ -727,15 +727,9 @@ def _format_diff_with_syntax_highlighting(
                 result.append("\n")
             continue
 
-        # Handle diff headers specially
-        if line.startswith("---"):
-            result.append(line, style="yellow")
-        elif line.startswith("+++"):
-            result.append(line, style="yellow")
-        elif line.startswith("@@"):
-            result.append(line, style="cyan")
-        elif line.startswith(("diff ", "index ")):
-            result.append(line, style="dim")
+        # Skip diff headers - they're redundant noise since we show the filename in the banner
+        if line.startswith(("---", "+++", "@@", "diff ", "index ")):
+            continue
         else:
             # Determine line type and extract code content
             if line.startswith("-"):

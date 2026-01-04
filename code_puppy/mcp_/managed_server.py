@@ -222,18 +222,14 @@ class ManagedMCPServer:
                     http_kwargs["timeout"] = config["timeout"]
                 if "read_timeout" in config:
                     http_kwargs["read_timeout"] = config["read_timeout"]
-                if "headers" in config:
-                    # Expand environment variables in headers
-                    headers = config.get("headers")
-                    resolved_headers = {}
-                    if isinstance(headers, dict):
-                        for k, v in headers.items():
-                            if isinstance(v, str):
-                                resolved_headers[k] = os.path.expandvars(v)
-                            else:
-                                resolved_headers[k] = v
-                    http_kwargs["headers"] = resolved_headers
+
+                # Handle http_client vs headers (mutually exclusive)
+                if "http_client" in config:
+                    # Use provided http_client
+                    http_kwargs["http_client"] = config["http_client"]
+                elif config.get("headers"):
                     # Create HTTP client if headers are provided but no client specified
+                    http_kwargs["http_client"] = self._get_http_client()
 
                 self._pydantic_server = MCPServerStreamableHTTP(
                     **http_kwargs, process_tool_call=process_tool_call

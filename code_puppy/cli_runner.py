@@ -144,8 +144,8 @@ async def main():
         except ImportError:
             emit_system_message("🐶 Code Puppy is Loading...")
 
-        # Check for truecolor support and warn if not available
-        print_truecolor_warning(display_console)
+        # Truecolor warning moved to interactive_mode() so it prints LAST
+        # after all the help stuff - max visibility for the ugly red box!
 
     available_port = find_available_port()
     if available_port is None:
@@ -381,6 +381,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_warning
 
         emit_warning(f"MOTD error: {e}")
+
+    # Print truecolor warning LAST so it's the most visible thing on startup
+    # Big ugly red box should be impossible to miss! 🔴
+    print_truecolor_warning(display_console)
 
     # Initialize the runtime agent manager
     if initial_command:
