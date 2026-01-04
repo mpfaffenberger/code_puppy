@@ -90,6 +90,19 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "type": "boolean",
         "default": False,
     },
+    "thinkingEnabled": {
+        "name": "Thinking Enabled",
+        "description": "Enable thinking for Google Gemini models.",
+        "type": "boolean",
+        "default": True,
+    },
+    "thinkingLevel": {
+        "name": "Thinking Level",
+        "description": "Controls the verbosity of thinking for Google Gemini models.",
+        "type": "choice",
+        "choices": ["low", "high"],
+        "default": "low",
+    },
 }
 
 
