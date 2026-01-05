@@ -219,8 +219,9 @@ class ManagedMCPServer:
                     stdio_kwargs["env"] = _expand_env_vars(config["env"])
                 if "cwd" in config:
                     stdio_kwargs["cwd"] = _expand_env_vars(config["cwd"])
-                if "timeout" in config:
-                    stdio_kwargs["timeout"] = config["timeout"]
+                # Default timeout of 60s for stdio servers - some servers like Serena take a while to start
+                # Users can override this in their config
+                stdio_kwargs["timeout"] = config.get("timeout", 60)
                 if "read_timeout" in config:
                     stdio_kwargs["read_timeout"] = config["read_timeout"]
 

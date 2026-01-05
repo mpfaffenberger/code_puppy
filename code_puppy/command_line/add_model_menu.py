@@ -17,6 +17,7 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy.command_line.utils import safe_input
 from code_puppy.config import EXTRA_MODELS_FILE, set_config_value
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry, ProviderInfo
@@ -724,8 +725,8 @@ class AddModelMenu:
                 emit_info(f"  {hint}")
 
             try:
-                # Use regular input - simpler and works in threaded context
-                value = input(f"  Enter {env_var} (or press Enter to skip): ").strip()
+                # Use safe_input for cross-platform compatibility (Windows fix)
+                value = safe_input(f"  Enter {env_var} (or press Enter to skip): ")
 
                 if not value:
                     emit_warning(
@@ -785,7 +786,7 @@ class AddModelMenu:
         )
 
         try:
-            model_name = input("  Model ID: ").strip()
+            model_name = safe_input("  Model ID: ")
 
             if not model_name:
                 emit_warning("No model name provided, cancelled.")
@@ -795,7 +796,7 @@ class AddModelMenu:
             emit_info("\n  Enter the context window size (in tokens).")
             emit_info("  Common sizes: 8192, 32768, 128000, 200000, 1000000\n")
 
-            context_input = input("  Context size [128000]: ").strip()
+            context_input = safe_input("  Context size [128000]: ")
 
             if not context_input:
                 context_length = 128000  # Default
@@ -1045,11 +1046,9 @@ class AddModelMenu:
                     f"   It will be very limited for coding tasks."
                 )
                 try:
-                    confirm = (
-                        input("\n  Are you sure you want to add this model? (y/N): ")
-                        .strip()
-                        .lower()
-                    )
+                    confirm = safe_input(
+                        "\n  Are you sure you want to add this model? (y/N): "
+                    ).lower()
                     if confirm not in ("y", "yes"):
                         emit_info("Model addition cancelled.")
                         return False

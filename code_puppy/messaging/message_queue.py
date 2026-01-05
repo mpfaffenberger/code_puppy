@@ -329,31 +329,19 @@ def emit_divider(content: str = "─" * 100 + "\n", **metadata):
 
 
 def emit_prompt(prompt_text: str, timeout: float = None) -> str:
-    """Emit a human input request and wait for response."""
-    # TUI mode has been removed, always use interactive mode input
-    if True:
-        # Emit the prompt as a message for display
-        from code_puppy.messaging import emit_info
+    """Emit a human input request and wait for response.
 
-        emit_info(prompt_text)
+    Uses safe_input for cross-platform compatibility, especially on Windows
+    where raw input() can fail after prompt_toolkit Applications.
+    """
+    from code_puppy.command_line.utils import safe_input
+    from code_puppy.messaging import emit_info
 
-        # Get input directly
-        try:
-            # Try to use rich console for better formatting
-            from rich.console import Console
+    emit_info(prompt_text)
 
-            console = Console()
-            response = console.input("[cyan]>>> [/cyan]")
-            return response
-        except Exception:
-            # Fallback to basic input
-            response = input(">>> ")
-            return response
-
-    # In TUI mode, use the queue system
-    queue = get_global_queue()
-    prompt_id = queue.create_prompt_request(prompt_text)
-    return queue.wait_for_prompt_response(prompt_id, timeout)
+    # Use safe_input which resets Windows console state before reading
+    response = safe_input(">>> ")
+    return response
 
 
 def provide_prompt_response(prompt_id: str, response: str):

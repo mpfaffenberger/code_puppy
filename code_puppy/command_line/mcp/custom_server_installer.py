@@ -7,6 +7,7 @@ custom MCP servers with JSON configuration.
 import json
 import os
 
+from code_puppy.command_line.utils import safe_input
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
 # Example configurations for each server type
@@ -58,7 +59,7 @@ def prompt_and_install_custom_server(manager) -> bool:
 
     # Get server name
     try:
-        server_name = input("  Server name: ").strip()
+        server_name = safe_input("  Server name: ")
         if not server_name:
             emit_warning("Server name is required")
             return False
@@ -71,9 +72,7 @@ def prompt_and_install_custom_server(manager) -> bool:
     existing = find_server_id_by_name(manager, server_name)
     if existing:
         try:
-            override = input(
-                f"  Server '{server_name}' exists. Override? [y/N]: "
-            ).strip()
+            override = safe_input(f"  Server '{server_name}' exists. Override? [y/N]: ")
             if not override.lower().startswith("y"):
                 emit_warning("Cancelled")
                 return False
@@ -89,7 +88,7 @@ def prompt_and_install_custom_server(manager) -> bool:
     emit_info("    3. 📡 sse    - Server-Sent Events\n")
 
     try:
-        type_choice = input("  Enter choice [1-3]: ").strip()
+        type_choice = safe_input("  Enter choice [1-3]: ")
     except (KeyboardInterrupt, EOFError):
         emit_info("")
         emit_warning("Cancelled")
@@ -115,8 +114,8 @@ def prompt_and_install_custom_server(manager) -> bool:
     empty_count = 0
     try:
         while True:
-            line = input()
-            if line.strip() == "":
+            line = safe_input("")
+            if line == "":
                 empty_count += 1
                 if empty_count >= 2:
                     break
