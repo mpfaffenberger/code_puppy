@@ -1,0 +1,37 @@
+{
+  "azureClientId": "fdb9ae76-addf-4cc8-a664-f55ab570e791",
+  "tenants": [
+    {
+      "name": "HTT Brands",
+      "tenantId": "your-htt-brands-tenant-id",
+      "subscriptions": [
+        "subscription-id-1",
+        "subscription-id-2"
+      ],
+      "githubOrg": "HTT-BRANDS"
+    },
+    {
+      "name": "Bishops",
+      "tenantId": "your-bishops-tenant-id",
+      "subscriptions": [
+        "subscription-id-3"
+      ]
+    },
+    {
+      "name": "Frenchies",
+      "tenantId": "your-frenchies-tenant-id",
+      "subscriptions": [
+        "subscription-id-4"
+      ]
+    },
+    {
+      "name": "The Lash Lounge",
+      "tenantId": "your-lashlou
+
+nge-tenant-id",
+      "subscriptions": [
+        "subscription-id-5"
+      ]
+    }
+  ]
+}

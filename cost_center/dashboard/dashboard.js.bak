@@ -1,0 +1,560 @@
+(() => {
+  const defaultConfig = {
+    dataUrl: "./data/sample-report.json",
+    refreshWorkflowUrl: "",
+  };
+
+  const cfg = { ...defaultConfig, ...(window.DASHBOARD_CONFIG || {}) };
+
+  const qs = new URLSearchParams(window.location.search);
+  if (qs.get("dataUrl")) {
+    cfg.dataUrl = qs.get("dataUrl");
+  }
+
+  const dom = {
+    period: document.getElementById("period-select"),
+    from: document.getElementById("from-date"),
+    to: document.getElementById("to-date"),
+    tenant: document.getElementById("tenant-select"),
+    subscription: document.getElementById("subscription-select"),
+    datasetMeta: document.getElementById("dataset-meta"),
+    dataUrl: document.getElementById("data-url"),
+    refreshBtn: document.getElementById("refresh-btn"),
+    triggerBtn: document.getElementById("trigger-btn"),
+    kpis: document.getElementById("kpi-cards"),
+    subsTable: document.querySelector("#subscriptions-table tbody"),
+    resourcesTable: document.querySelector("#resources-table tbody"),
+    licensesTable: document.querySelector("#licenses-table tbody"),
+  };
+
+  let rawData = null;
+  let dailyChart = null;
+  let servicesChart = null;
+
+  function formatCurrency(v) {
+    if (Number.isNaN(v)) return "-";
+    return `$${v.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+
+  function parseDate(str) {
+    if (!str) return null;
+    const d = new Date(str);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function startOfMonth(d) {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+  }
+
+  function endOfMonth(d) {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
+  }
+
+  function dateInRange(date, from, to) {
+    if (!date) return false;
+    const time = date.getTime();
+    return time >= from.getTime() && time <= to.getTime();
+  }
+
+  function computeFilterRange(period) {
+    const today = new Date();
+    const utcToday = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+    );
+
+    switch (period) {
+      case "mtd": {
+        const from = startOfMonth(utcToday);
+        return { from, to: utcToday };
+      }
+      case "prev-month": {
+        const prev = new Date(
+          Date.UTC(utcToday.getUTCFullYear(), utcToday.getUTCMonth() - 1, 15)
+        );
+        const from = startOfMonth(prev);
+        const to = endOfMonth(prev);
+        return { from, to };
+      }
+      case "6m": {
+        const from = new Date(
+          Date.UTC(utcToday.getUTCFullYear(), utcToday.getUTCMonth() - 5, 1)
+        );
+        return { from, to: utcToday };
+      }
+      case "12m": {
+        const from = new Date(
+          Date.UTC(utcToday.getUTCFullYear() - 1, utcToday.getUTCMonth(), 1)
+        );
+        return { from, to: utcToday };
+      }
+      case "custom": {
+        const fromVal = dom.from.value ? parseDate(dom.from.value) : null;
+        const toVal = dom.to.value ? parseDate(dom.to.value) : null;
+        if (fromVal && toVal) {
+          return { from: fromVal, to: toVal };
+        }
+        return null;
+      }
+      default:
+        return { from: utcToday, to: utcToday };
+    }
+  }
+
+  function buildSelections(data) {
+    const tenantOptions = [{ value: "", label: "All tenants" }];
+    const tenantIds = new Set();
+    data.tenants?.forEach((t) => {
+      tenantIds.add(t.tenantId);
+      tenantOptions.push({ value: t.tenantId, label: t.tenantName });
+    });
+
+    dom.tenant.innerHTML = tenantOptions
+      .map((t) => `<option value="${t.value}">${t.label}</option>`)
+      .join("");
+
+    const subscriptionOptions = [{ value: "", label: "All subscriptions" }];
+    data.costRows?.forEach((row) => {
+      const key = row.subscriptionId;
+      const label = row.subscriptionName || row.subscriptionId;
+      subscriptionOptions.push({ value: key, label });
+    });
+    dom.subscription.innerHTML = subscriptionOptions
+      .filter(
+        (opt, idx, arr) =>
+          arr.findIndex((o) => o.value === opt.value) === idx
+      )
+      .map((s) => `<option value="${s.value}">${s.label}</option>`)
+      .join("");
+  }
+
+  function filterRows(data, selection) {
+    const range = computeFilterRange(selection.period);
+    if (!range) return { costs: [], licenses: [] };
+
+    const costs = (data.costRows || []).filter((row) => {
+      if (selection.tenant && row.tenantId !== selection.tenant) return false;
+      if (
+        selection.subscription &&
+        row.subscriptionId !== selection.subscription
+      )
+        return false;
+
+      // Daily rows with date
+      if (row.date) {
+        const d = parseDate(row.date);
+        return d ? dateInRange(d, range.from, range.to) : false;
+      }
+
+      // MTD-only rows without date: include if the window overlaps current month.
+      if (row.mtdCost !== undefined) {
+        const now = new Date();
+        const currentMonthStart = startOfMonth(now);
+        const currentMonthEnd = endOfMonth(now);
+        const overlaps =
+          range.from <= currentMonthEnd && range.to >= currentMonthStart;
+        return overlaps;
+      }
+
+      return false;
+    });
+
+    const licenses = (data.license || []).filter((lic) => {
+      if (selection.tenant && lic.tenantId !== selection.tenant) return false;
+      return true;
+    });
+
+    return { costs, licenses, range };
+  }
+
+  function sumCosts(rows) {
+    return rows.reduce((sum, row) => {
+      const value =
+        row.dailyCost !== undefined
+          ? row.dailyCost
+          : row.mtdCost !== undefined
+          ? row.mtdCost
+          : 0;
+      return sum + (typeof value === "number" ? value : Number(value || 0));
+    }, 0);
+  }
+
+  function renderKpis(filtered, prevFiltered, data) {
+    const total = sumCosts(filtered.costs);
+    const prev = prevFiltered ? sumCosts(prevFiltered.costs) : null;
+    const delta =
+      prev !== null && prev !== 0 ? ((total - prev) / prev) * 100 : null;
+
+    // Count from costRows if available, otherwise from tenants array
+    const selection = getSelection();
+    let tenantList = data?.tenants || [];
+    if (selection.tenant) {
+      tenantList = tenantList.filter(t => t.tenantId === selection.tenant);
+    }
+    const tenants = tenantList.length;
+    const subs = tenantList.reduce((sum, t) => sum + (t.subscriptions?.length || 0), 0);
+
+    const topService = [...filtered.costs].sort(
+      (a, b) =>
+        (b.dailyCost ?? b.mtdCost ?? 0) - (a.dailyCost ?? a.mtdCost ?? 0)
+    )[0];
+
+    dom.kpis.innerHTML = `
+      <div class="kpi">
+        <div class="label">Total spend</div>
+        <div class="value">${formatCurrency(total)}</div>
+        <div class="delta">${
+          delta === null ? "n/a" : `${delta >= 0 ? "▲" : "▼"} ${delta.toFixed(1)}% vs prior`
+        }</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Tenants</div>
+        <div class="value">${tenants || "0"}</div>
+        <div class="delta muted">Active in filter</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Subscriptions</div>
+        <div class="value">${subs || "0"}</div>
+        <div class="delta muted">Active in filter</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Top service</div>
+        <div class="value">${
+          topService?.serviceName || topService?.meterCategory || "n/a"
+        }</div>
+        <div class="delta muted">${
+          topService ? formatCurrency(topService.dailyCost ?? topService.mtdCost ?? 0) : ""
+        }</div>
+      </div>
+    `;
+  }
+
+  function renderCharts(filtered) {
+    const byDate = new Map();
+    filtered.costs.forEach((row) => {
+      if (!row.date || row.dailyCost === undefined) return;
+      const d = row.date;
+      const val = typeof row.dailyCost === "number" ? row.dailyCost : 0;
+      byDate.set(d, (byDate.get(d) || 0) + val);
+    });
+
+    const dateLabels = Array.from(byDate.keys()).sort();
+    const dateData = dateLabels.map((d) => byDate.get(d));
+
+    const ctxDaily = document.getElementById("daily-chart");
+    if (dailyChart) {
+      dailyChart.destroy();
+    }
+    dailyChart = new Chart(ctxDaily, {
+      type: "line",
+      data: {
+        labels: dateLabels,
+        datasets: [
+          {
+            label: "Daily cost",
+            data: dateData,
+            borderColor: "#5bd2f0",
+            backgroundColor: "rgba(91, 210, 240, 0.15)",
+            tension: 0.3,
+          },
+        ],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { grid: { color: "#222" } }, x: { grid: { display: false } } },
+      },
+    });
+
+    const byService = new Map();
+    filtered.costs.forEach((row) => {
+      const key = row.serviceName || row.meterCategory || "Unspecified";
+      const val =
+        row.dailyCost !== undefined
+          ? row.dailyCost
+          : row.mtdCost !== undefined
+          ? row.mtdCost
+          : 0;
+      byService.set(key, (byService.get(key) || 0) + Number(val || 0));
+    });
+
+    const topServices = Array.from(byService.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+
+    const ctxServices = document.getElementById("services-chart");
+    if (servicesChart) servicesChart.destroy();
+    servicesChart = new Chart(ctxServices, {
+      type: "bar",
+      data: {
+        labels: topServices.map((t) => t[0]),
+        datasets: [
+          {
+            data: topServices.map((t) => t[1]),
+            backgroundColor: "#f28f3b",
+          },
+        ],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { grid: { color: "#222" } }, x: { grid: { display: false } } },
+      },
+    });
+  }
+
+  function renderSubscriptions(filtered, data) {
+    const map = new Map();
+    
+    // First, populate from tenants array (baseline data)
+    const selection = getSelection();
+    (data?.tenants || []).forEach((tenant) => {
+      if (selection.tenant && tenant.tenantId !== selection.tenant) return;
+      (tenant.subscriptions || []).forEach((sub) => {
+        const key = `${sub.subscriptionId}|${tenant.tenantId}`;
+        map.set(key, {
+          tenantId: tenant.tenantId,
+          tenantName: tenant.tenantName,
+          subscriptionId: sub.subscriptionId,
+          subscriptionName: sub.displayName || sub.subscriptionId,
+          cost: 0,
+          tags: sub.tags,
+          owners: sub.owners,
+          state: sub.state,
+        });
+      });
+    });
+    
+    // Then, overlay with cost data if available
+    filtered.costs.forEach((row) => {
+      const key = `${row.subscriptionId}|${row.tenantId}`;
+      const current = map.get(key) || {
+        tenantId: row.tenantId,
+        tenantName: row.tenantName,
+        subscriptionId: row.subscriptionId,
+        subscriptionName: row.subscriptionName || row.subscriptionId,
+        cost: 0,
+        tags: row.subscriptionTags,
+        owners: row.subscriptionOwners,
+      };
+      const value =
+        row.dailyCost !== undefined
+          ? row.dailyCost
+          : row.mtdCost !== undefined
+          ? row.mtdCost
+          : 0;
+      current.cost += Number(value || 0);
+      map.set(key, current);
+    });
+
+    const rows = Array.from(map.values()).sort((a, b) => b.cost - a.cost);
+    dom.subsTable.innerHTML = rows
+      .map(
+        (r) => `<tr>
+          <td>${r.tenantName}</td>
+          <td>${r.subscriptionName}</td>
+          <td>${renderTags(r.tags)}</td>
+          <td>${renderOwners(r.owners)}</td>
+          <td class="num">${formatCurrency(r.cost)}</td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  function renderTags(tags) {
+    if (!tags) return "";
+    return Object.entries(tags)
+      .map(([k, v]) => `<span class="chip">${k}: ${v}</span>`)
+      .join(" ");
+  }
+
+  function renderOwners(owners) {
+    if (!owners || owners.length === 0) return "";
+    return owners
+      .map((o) => `<span class="chip">${o.principalType || "Owner"} ${o.principalId}</span>`)
+      .join(" ");
+  }
+
+  function renderResources(filtered) {
+    const grouped = new Map();
+    filtered.costs.forEach((row) => {
+      const key = `${row.tenantId}|${row.subscriptionId}|${row.resourceGroup}|${row.resourceId}|${row.serviceName}|${row.meterCategory}`;
+      const current = grouped.get(key) || {
+        tenantName: row.tenantName,
+        subscriptionName: row.subscriptionName || row.subscriptionId,
+        resourceGroup: row.resourceGroup || "",
+        resourceId: row.resourceId || "",
+        meterCategory: row.meterCategory || "",
+        serviceName: row.serviceName || "",
+        cost: 0,
+      };
+      const value =
+        row.dailyCost !== undefined
+          ? row.dailyCost
+          : row.mtdCost !== undefined
+          ? row.mtdCost
+          : 0;
+      current.cost += Number(value || 0);
+      grouped.set(key, current);
+    });
+
+    const rows = Array.from(grouped.values())
+      .sort((a, b) => b.cost - a.cost)
+      .slice(0, 200);
+
+    dom.resourcesTable.innerHTML = rows
+      .map(
+        (r) => `<tr>
+          <td>${r.tenantName}</td>
+          <td>${r.subscriptionName}</td>
+          <td>${r.resourceGroup || "-"}</td>
+          <td>${r.resourceId || "-"}</td>
+          <td>${r.meterCategory || "-"}</td>
+          <td>${r.serviceName || "-"}</td>
+          <td class="num">${formatCurrency(r.cost)}</td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  function renderLicenses(filtered) {
+    const rows = [];
+    filtered.licenses.forEach((lic) => {
+      lic.skuAssignments?.forEach((sku) => {
+        rows.push({
+          tenantName: lic.tenantName,
+          sku: sku.skuPartNumber || sku.skuId,
+          status: sku.capabilityStatus || "n/a",
+          prepaid: sku.totalPrepaidUnits ?? null,
+          consumed: sku.consumedUnits ?? null,
+          available: sku.availableUnits ?? null,
+          assigned: sku.assignedUserIds?.length || 0,
+        });
+      });
+    });
+
+    dom.licensesTable.innerHTML = rows
+      .map(
+        (r) => `<tr>
+        <td>${r.tenantName}</td>
+        <td>${r.sku}</td>
+        <td>${r.status}</td>
+        <td>${r.prepaid ?? "-"}</td>
+        <td>${r.consumed ?? "-"}</td>
+        <td>${r.available ?? "-"}</td>
+        <td>${r.assigned}</td>
+      </tr>`
+      )
+      .join("");
+  }
+
+  function renderMeta(data) {
+    const generated = parseDate(data.generatedAt);
+    const dateStr = generated
+      ? generated.toISOString().replace("T", " ").replace("Z", " UTC")
+      : "n/a";
+    dom.datasetMeta.innerHTML = `
+      <div>Generated: ${dateStr}</div>
+      <div>Env: ${data.environment || "n/a"}</div>
+      <div>Granularity: ${data.costGranularity || "n/a"}</div>
+    `;
+    dom.dataUrl.textContent = `Data URL: ${cfg.dataUrl}`;
+  }
+
+  function onPeriodChange() {
+    const showCustom = dom.period.value === "custom";
+    if (showCustom) {
+      dom.from.parentElement.classList.add("show");
+      dom.to.parentElement.classList.add("show");
+    } else {
+      dom.from.parentElement.classList.remove("show");
+      dom.to.parentElement.classList.remove("show");
+    }
+    render();
+  }
+
+  function getSelection() {
+    return {
+      period: dom.period.value,
+      tenant: dom.tenant.value || null,
+      subscription: dom.subscription.value || null,
+    };
+  }
+
+  async function fetchData() {
+    const res = await fetch(cfg.dataUrl, { cache: "no-cache" });
+    if (!res.ok) {
+      throw new Error(`Failed to load data: ${res.status} ${res.statusText}`);
+    }
+    const json = await res.json();
+    return json;
+  }
+
+  function computePrevWindow(selection) {
+    if (selection.period === "mtd") return "prev-month";
+    if (selection.period === "prev-month") return null;
+    return null;
+  }
+
+  async function render() {
+    if (!rawData) return;
+    const selection = getSelection();
+    const filtered = filterRows(rawData, selection);
+
+    const prevPeriod = computePrevWindow(selection);
+    const prevFiltered =
+      prevPeriod && prevPeriod !== selection.period
+        ? filterRows(rawData, { ...selection, period: prevPeriod })
+        : null;
+
+    renderKpis(filtered, prevFiltered, rawData);
+    renderCharts(filtered);
+    renderSubscriptions(filtered, rawData);
+    renderResources(filtered);
+    renderLicenses(filtered);
+    renderMeta(rawData);
+  }
+
+  function bindControls() {
+    dom.period.addEventListener("change", onPeriodChange);
+    dom.from.addEventListener("change", render);
+    dom.to.addEventListener("change", render);
+    dom.tenant.addEventListener("change", render);
+    dom.subscription.addEventListener("change", render);
+    dom.refreshBtn.addEventListener("click", async () => {
+      dom.refreshBtn.disabled = true;
+      dom.refreshBtn.textContent = "Refreshing...";
+      try {
+        rawData = await fetchData();
+        buildSelections(rawData);
+        render();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        dom.refreshBtn.disabled = false;
+        dom.refreshBtn.textContent = "Refresh data";
+      }
+    });
+
+    dom.triggerBtn.addEventListener("click", () => {
+      if (cfg.refreshWorkflowUrl) {
+        window.open(cfg.refreshWorkflowUrl, "_blank");
+      } else {
+        alert("Set refreshWorkflowUrl in docs/config.js to enable.");
+      }
+    });
+  }
+
+  async function init() {
+    bindControls();
+    try {
+      rawData = await fetchData();
+      buildSelections(rawData);
+      render();
+    } catch (err) {
+      dom.kpis.innerHTML = `<div class="kpi"><div class="label">Error</div><div class="value">Failed to load data</div><div class="delta">${err.message}</div></div>`;
+    }
+  }
+
+  init();
+})();

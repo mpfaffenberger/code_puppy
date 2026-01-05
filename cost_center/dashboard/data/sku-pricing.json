@@ -1,0 +1,269 @@
+{
+  "metadata": {
+    "lastUpdated": "2025-12-03",
+    "source": "Microsoft MSRP (December 2025)",
+    "notes": "Prices are monthly per-user unless otherwise noted. CSP pricing may vary by partner."
+  },
+  "skus": {
+    "O365_BUSINESS_ESSENTIALS": {
+      "displayName": "Microsoft 365 Business Basic",
+      "monthlyPrice": 6.00,
+      "annualPrice": 72.00,
+      "type": "paid",
+      "category": "Microsoft 365"
+    },
+    "O365_BUSINESS_PREMIUM": {
+      "displayName": "Microsoft 365 Business Premium",
+      "monthlyPrice": 22.00,
+      "annualPrice": 264.00,
+      "type": "paid",
+      "category": "Microsoft 365"
+    },
+    "SPE_E3": {
+      "displayName": "Microsoft 365 E3",
+      "monthlyPrice": 36.00,
+      "annualPrice": 432.00,
+      "type": "paid",
+      "category": "Microsoft 365"
+    },
+    "SPE_E5": {
+      "displayName": "Microsoft 365 E5",
+      "monthlyPrice": 57.00,
+      "annualPrice": 684.00,
+      "type": "paid",
+      "category": "Microsoft 365"
+    },
+    "ENTERPRISEPACK": {
+      "displayName": "Office 365 E3",
+      "monthlyPrice": 23.00,
+      "annualPrice": 276.00,
+      "type": "paid",
+      "category": "Office 365"
+    },
+    "ENTERPRISEPREMIUM": {
+      "displayName": "Office 365 E5",
+      "monthlyPrice": 38.00,
+      "annualPrice": 456.00,
+      "type": "paid",
+      "category": "Office 365"
+    },
+    "EXCHANGESTANDARD": {
+      "displayName": "Exchange Online (Plan 1)",
+      "monthlyPrice": 4.00,
+      "annualPrice": 48.00,
+      "type": "paid",
+      "category": "Exchange"
+    },
+    "EXCHANGEENTERPRISE": {
+      "displayName": "Exchange Online (Plan 2)",
+      "monthlyPrice": 8.00,
+      "annualPrice": 96.00,
+      "type": "paid",
+      "category": "Exchange"
+    },
+    "EMS": {
+      "displayName": "Enterprise Mobility + Security E3",
+      "monthlyPrice": 10.60,
+      "annualPrice": 127.20,
+      "type": "paid",
+      "category": "Security"
+    },
+    "EMSPREMIUM": {
+      "displayName": "Enterprise Mobility + Security E5",
+      "monthlyPrice": 16.40,
+      "annualPrice": 196.80,
+      "type": "paid",
+      "category": "Security"
+    },
+    "AAD_PREMIUM": {
+      "displayName": "Azure AD Premium P1",
+      "monthlyPrice": 6.00,
+      "annualPrice": 72.00,
+      "type": "paid",
+      "category": "Identity"
+    },
+    "AAD_PREMIUM_P2": {
+      "displayName": "Azure AD Premium P2",
+      "monthlyPrice": 9.00,
+      "annualPrice": 108.00,
+      "type": "paid",
+      "category": "Identity"
+    },
+    "POWER_BI_PRO": {
+      "displayName": "Power BI Pro",
+      "monthlyPrice": 10.00,
+      "annualPrice": 120.00,
+      "type": "paid",
+      "category": "Power Platform"
+    },
+    "POWER_BI_PREMIUM_PER_USER": {
+      "displayName": "Power BI Premium Per User",
+      "monthlyPrice": 20.00,
+      "annualPrice": 240.00,
+      "type": "paid",
+      "category": "Power Platform"
+    },
+    "PROJECTPREMIUM": {
+      "displayName": "Project Plan 5",
+      "monthlyPrice": 55.00,
+      "annualPrice": 660.00,
+      "type": "paid",
+      "category": "Project"
+    },
+    "PROJECTPROFESSIONAL": {
+      "displayName": "Project Plan 3",
+      "monthlyPrice": 30.00,
+      "annualPrice": 360.00,
+      "type": "paid",
+      "category": "Project"
+    },
+    "VISIOCLIENT": {
+      "displayName": "Visio Plan 2",
+      "monthlyPrice": 15.00,
+      "annualPrice": 180.00,
+      "type": "paid",
+      "category": "Visio"
+    },
+    "VISIO_PLAN1_DEPT": {
+      "displayName": "Visio Plan 1",
+      "monthlyPrice": 5.00,
+      "annualPrice": 60.00,
+      "type": "paid",
+      "category": "Visio"
+    },
+    "TEAMS_EXPLORATORY": {
+      "displayName": "Microsoft Teams Exploratory",
+      "monthlyPrice": 0,
+      "annualPrice": 0,
+      "type": "free",
+      "category": "Teams"
+    },
+    "FLOW_FREE": {
+      "displayName": "Power Automate Free",
+      "monthlyPrice": 0,
+      "annualPrice": 0,
+      "type": "free",
+      "category": "Power Platform"
+    },
+    "POWERAPPS_VIRAL": {
+      "displayName": "Power Apps for Office 365",
+      "monthlyPrice": 0,
+      "annualPrice": 0,
+      "type": "free",
+      "category": "Power Platform"
+    },
+    "POWER_BI_STANDARD": {
+      "displayName": "Power BI (Free)",
+      "monthlyPrice": 0,
+      "annualPrice": 0,
+      "type": "free",
+      "category": "Power Platform"
+    },
+    "STREAM": {
+      "displayName": "Microsoft Stream",
+      "monthlyPrice": 0,
+      "annualPrice": 0,
+      "type": "free",
+      "category": "Collaboration"
+    },
+    "RIGHTSMANAGEMENT_ADHOC": {
+      "displayName": "Rights Management Adhoc",
+      "monthlyPrice": 0,
+      "annualPrice": 0,
+      "type": "free",
+      "category": "Security"
+    },
+    "ATP_ENTERPRISE": {
+      "displayName": "Microsoft Defender for Office 365 (Plan 1)",
+      "monthlyPrice": 2.00,
+      "annualPrice": 24.00,
+      "type": "paid",
+      "category": "Security"
+    },
+    "THREAT_INTELLIGENCE": {
+      "displayName": "Microsoft Defender for Office 365 (Plan 2)",
+      "monthlyPrice": 5.00,
+      "annualPrice": 60.00,
+      "type": "paid",
+      "category": "Security"
+    },
+    "INTUNE_A": {
+      "displayName": "Microsoft Intune Plan 1",
+      "monthlyPrice": 8.00,
+      "annualPrice": 96.00,
+      "type": "paid",
+      "category": "Endpoint Management"
+    },
+    "WINDOWS_STORE": {
+      "displayName": "Windows Store for Business",
+      "monthlyPrice": 0,
+      "annualPrice": 0,
+      "type": "free",
+      "category": "Windows"
+    },
+    "MICROSOFT_BUSINESS_CENTER": {
+      "displayName": "Microsoft Business Center",
+      "monthlyPrice": 0,
+      "annualPrice": 0,
+      "type": "free",
+      "category": "Business"
+    },
+    "SHAREPOINTSTORAGE": {
+      "displayName": "Office 365 Extra File Storage",
+      "monthlyPrice": 0.20,
+      "annualPrice": 2.40,
+      "pricePerUnit": "per GB/month",
+      "type": "addon",
+      "category": "Storage"
+    },
+    "DYN365_ENTERPRISE_SALES": {
+      "displayName": "Dynamics 365 Sales Enterprise",
+      "monthlyPrice": 95.00,
+      "annualPrice": 1140.00,
+      "type": "paid",
+      "category": "Dynamics 365"
+    },
+    "DYN365_ENTERPRISE_CUSTOMER_SERVICE": {
+      "displayName": "Dynamics 365 Customer Service Enterprise",
+      "monthlyPrice": 95.00,
+      "annualPrice": 1140.00,
+      "type": "paid",
+      "category": "Dynamics 365"
+    },
+    "COPILOT_M365": {
+      "displayName": "Microsoft 365 Copilot",
+      "monthlyPrice": 30.00,
+      "annualPrice": 360.00,
+      "type": "paid",
+      "category": "AI"
+    }
+  },
+  "cspMarkupEstimates": {
+    "Logically MSP": {
+      "markup": 0.15,
+      "notes": "Estimated 15% markup on MSRP for HTT Brands"
+    },
+    "Sui Generis": {
+      "markup": 0.10,
+      "notes": "Estimated 10% markup for TLL"
+    },
+    "FTG": {
+      "markup": 0.12,
+      "notes": "Estimated 12% markup for Frenchies"
+    },
+    "Direct Microsoft": {
+      "markup": 0,
+      "notes": "No markup - billed directly by Microsoft (BCC)"
+    }
+  },
+  "azureCapacity": {
+    "FABRIC_F64": {
+      "displayName": "Microsoft Fabric F64 Reserved",
+      "monthlyPrice": 3152.64,
+      "annualPrice": 37831.68,
+      "type": "reserved",
+      "category": "Analytics",
+      "notes": "64 CU @ $80.51/CU/month (US East 2)"
+    }
+  }
+}

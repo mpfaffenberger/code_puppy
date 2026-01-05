@@ -29,6 +29,12 @@ dependencies = [
     "dbos>=2.5.0",
     "uvicorn>=0.30.0",
     "fastapi>=0.111.0",
+    "azure-identity>=1.19.0",
+    "azure-mgmt-costmanagement>=4.0.1",
+    "azure-storage-blob>=12.19.0",
+    "msgraph-sdk>=1.6.0",
+    "azure-mgmt-resource>=23.1.0",
+    "azure-mgmt-advisor>=9.0.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",

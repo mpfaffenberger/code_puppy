@@ -1,93 +1,86 @@
-name: Quality Checks
+name: CI
 
 on:
+  push:
+    branches: [main, feat/**]
   pull_request:
-    branches:
-      - '**'
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ['3.13']
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Setup uv virtual environment
-        run: uv venv
-
-      - name: Install dependencies
-        run: uv pip install -e .
-
-      - name: Install pexpect for integration tests
-        run: uv pip install pexpect>=4.9.0
-
-      - name: Debug environment variables
-        env:
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
-          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
-          SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
-        run: |
-          echo "=== DEBUG: Environment Variables ==="
-          echo "CEREBRAS_API_KEY is set: ${{ secrets.CEREBRAS_API_KEY != '' }}"
-          echo "CONTEXT7_API_KEY is set: ${{ secrets.CONTEXT7_API_KEY != '' }}"
-          echo "OPENAI_API_KEY is set: ${{ secrets.OPENAI_API_KEY != '' }}"
-          echo "ANTHROPIC_API_KEY is set: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
-          echo "SYN_API_KEY is set: ${{ secrets.SYN_API_KEY != '' }}"
-          echo "CEREBRAS_API_KEY length: ${#CEREBRAS_API_KEY}"
-          echo "CONTEXT7_API_KEY length: ${#CONTEXT7_API_KEY}"
-          echo "OPENAI_API_KEY length: ${#OPENAI_API_KEY}"
-          echo "ANTHROPIC_API_KEY length: ${#ANTHROPIC_API_KEY}"
-          echo "SYN_API_KEY length: ${#SYN_API_KEY}"
-          echo "=== END DEBUG ==="
-
-      - name: Run tests
-        env:
-          CI: '1'
-          CODE_PUPPY_TEST_FAST: '1'
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
-          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
-          SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
-        run: |
-          echo "Running unit tests (skipping integration tests) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
-          echo "Required environment variables are set (using CI fallbacks if secrets not available)"
-          uv run pytest tests/ --ignore tests/integration -v --cov=code_puppy --cov-report=term-missing
-
-  quality:
+  lint-and-test:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Python 3.13
+      
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.12'
+      
+      - name: Install UV
+        uses: astral-sh/setup-uv@v4
+      
+      - name: Install dependencies
+        run: |
+          uv sync
+      
+      - name: Run ruff format check
+        run: |
+          uv run ruff format --check .
+      
+      - name: Run ruff lint
+        run: |
+          uv run ruff check .
+      
+      - name: Run mypy type checking
+        run: |
+          uv run pip install mypy types-requests
+          uv run mypy cost_center/ --ignore-missing-imports
+        continue-on-error: true
+      
+      - name: Run pytest with coverage
+        run: |
+          uv run pytest tests/ --cov=cost_center --cov=code_puppy --cov-report=term-missing --cov-report=xml
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+        continue-on-error: true
+      
+      - name: Comment PR with coverage
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+        continue-on-error: true
 
-      - name: Install dev dependencies (ruff)
-        run: pip install ruff
-
-      - name: Install code_puppy
-        run: pip install .
-
-      - name: Lint with ruff
-        run: ruff check .
-
-      - name: Check formatting with ruff
-        run: ruff format --check .
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'

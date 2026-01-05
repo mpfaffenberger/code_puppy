@@ -1,0 +1,20 @@
+# Code Puppy HTT INFRA Owners
+
+# Global owners (default)
+* @tygranlund
+
+# Cost Center module
+/cost_center/ @tygranlund
+/cost_center/collectors/ @tygranlund
+/cost_center/dashboard/ @tygranlund
+
+# CI/CD workflows
+/.github/workflows/ @tygranlund
+
+# Documentation
+/docs/ @tygranlund
+README.md @tygranlund
+
+# Configuration
+pyproject.toml @tygranlund
+.env.example @tygranlund

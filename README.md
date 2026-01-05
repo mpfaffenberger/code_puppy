@@ -242,6 +242,54 @@ The `rotate_every` parameter controls how many requests are made to each model b
 
 ---
 
+## Azure Cost Center Dashboard 💰
+
+Code Puppy includes an **enterprise-grade Azure Cost Center Dashboard** for multi-tenant cost tracking, compliance monitoring, and resource optimization across Azure subscriptions.
+
+### Features
+- 📊 **Multi-Tenant Cost Tracking**: Monitor costs across multiple Azure tenants and subscriptions
+- 💰 **Cost Management**: Daily cost collection, month-to-date tracking, and historical trends
+- 👥 **License Analytics**: Microsoft 365 license usage, assignment tracking, and optimization opportunities
+- 🔒 **Security & Compliance**: Azure Advisor recommendations, service principal auditing, stale resource detection
+- 📈 **Interactive Dashboard**: Real-time visualization with Chart.js, drill-down capabilities, and custom date ranges
+- ⚙️ **Automated Collection**: GitHub Actions scheduled workflow with Azure OIDC authentication
+
+### Quick Start
+
+```bash
+# Install dependencies
+uv sync
+
+# Configure tenants (see docs/cost-center/configuration.md)
+cp cost_center/config/tenants.example.json cost_center/config/tenants.json
+vim cost_center/config/tenants.json  # Add your tenant details
+
+# Run data collection locally
+python -m cost_center.collectors.main
+
+# Deploy dashboard to Azure Static Web Apps (via GitHub Actions)
+git push  # Triggers .github/workflows/cost-center-audit.yml
+```
+
+### Documentation
+- 📖 **[Configuration Guide](docs/cost-center/configuration.md)** - Tenant setup, authentication, permissions
+- 🚀 **[Deployment Guide](docs/cost-center/deployment.md)** - GitHub Actions, Azure Static Web Apps, OIDC setup
+- 📊 **[Dashboard Guide](docs/cost-center/dashboard.md)** - Using the web interface, custom queries, reports
+- 🏗️ **[Architecture](docs/cost-center/architecture.md)** - System design, data flow, API integrations
+- 🔧 **[Development Guide](docs/cost-center/development.md)** - Local setup, testing, contributing
+
+### Migration from TypeScript
+This Cost Center module is a complete Python rewrite of the original TypeScript implementation, optimized for:
+- Better async performance with `asyncio`
+- Type safety with Pydantic models
+- Modern Azure SDK for Python
+- Enhanced error handling and logging
+- Comprehensive test coverage
+
+See [MIGRATION_PLAN.md](MIGRATION_PLAN.md) for the full migration strategy and [SUNSET_NOTES.md](SUNSET_NOTES.md) for archival information.
+
+---
+
 ## Create your own Agent!!!
 
 Code Puppy features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The system supports both built-in Python agents and custom JSON agents that you can create yourself.

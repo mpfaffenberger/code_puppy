@@ -1,0 +1,1842 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <meta name="description" content="Multi-tenant Azure cost and license management dashboard for HTT Brands" />
+    <title>Azure Cost Center | HTT Brands</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="./config.js"></script>
+    <!-- CRITICAL LOADING ORDER:
+         1. Services (PricingService, BudgetService, DataService) - Pure logic, no dependencies
+         2. DashboardInit (initialization coordinator) - Uses services
+         3. Utils (data model + normalization) - Uses services
+         4. Billing (invoice processing) - Uses PricingService
+         5. UI Modules (budget-ui, freshness-ui) - Uses services
+         6. Charts, Insights (visualization) - Uses data model
+         7. Dashboard (orchestrator) - Uses everything
+    -->
+    <script src="./services/PricingService.js?v=12" defer></script>
+    <script src="./services/BudgetService.js?v=12" defer></script>
+    <script src="./services/DataService.js?v=12" defer></script>
+    <script src="./services/FilterService.js?v=12" defer></script>
+    <script src="./services/QueryService.js?v=12" defer></script>
+    <script src="./utils.js?v=12" defer></script>
+    <script src="./dashboardInit.js?v=12" defer></script>
+    <script src="./billing.js?v=12" defer></script>
+    <script src="./budget-ui.js?v=12" defer></script>
+    <script src="./freshness-ui.js?v=12" defer></script>
+    <script src="./charts.js?v=12" defer></script>
+    <script src="./insights.js?v=12" defer></script>
+    <script src="./topology.js?v=12" defer></script>
+    <script src="./dashboard.js?v=12" defer></script>
+  </head>
+  <body>
+    <!-- Skip Link for Accessibility -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" id="sidebar" role="complementary" aria-label="Main navigation">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">◈</span>
+          <span class="logo-text">HTT Brands</span>
+        </div>
+        <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle navigation menu" aria-expanded="false">☰</button>
+      </div>
+      
+      <nav class="sidebar-nav" aria-label="Dashboard sections">
+        <!-- SIMPLIFIED 4-VIEW NAVIGATION -->
+        
+        <div class="nav-section">
+          <a href="#overview" class="nav-item active" data-section="overview" data-role="all">
+            <span class="nav-icon" aria-hidden="true">📊</span>
+            <span class="nav-label">Overview</span>
+            <span class="nav-description">Executive summary & KPIs</span>
+          </a>
+          
+          <a href="#cost-licenses" class="nav-item" data-section="cost-licenses" data-role="finance,admin">
+            <span class="nav-icon" aria-hidden="true">💰</span>
+            <span class="nav-label">Cost & Licenses</span>
+            <span class="nav-description">Spend analysis & optimization</span>
+            <span class="nav-badge alert" id="cost-alerts-count">0</span>
+          </a>
+          
+          <a href="#brands" class="nav-item" data-section="brands" data-role="executive,admin">
+            <span class="nav-icon" aria-hidden="true">🏢</span>
+            <span class="nav-label">Brand Operations</span>
+            <span class="nav-description">HTT • Bishops • Lash • Frenchies</span>
+          </a>
+          
+          <a href="#it-operations" class="nav-item" data-section="it-operations" data-role="it,admin">
+            <span class="nav-icon" aria-hidden="true">⚙️</span>
+            <span class="nav-label">IT Operations</span>
+            <span class="nav-description">Resources • Identity • Topology</span>
+            <span class="nav-badge" id="it-alerts-count">0</span>
+          </a>
+        </div>
+        
+        <div class="nav-section">
+          <div class="nav-section-title">Tools</div>
+          <a href="#data-explorer" class="nav-item" data-section="data-explorer" data-role="admin">
+            <span class="nav-icon" aria-hidden="true">🔍</span>
+            <span class="nav-label">Data Explorer</span>
+          </a>
+        </div>
+      </nav>
+      
+      <div class="sidebar-footer">
+        <div class="data-freshness" id="data-freshness">
+          <span class="freshness-dot"></span>
+          <span class="freshness-text">Loading...</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="main-content" role="main">
+      <!-- Header -->
+      <header class="top-header" role="banner">
+        <div class="header-left">
+          <h1 id="page-title">Dashboard</h1>
+          <p class="page-subtitle" id="page-subtitle">Multi-tenant Azure cost and license oversight</p>
+        </div>
+        <div class="header-right">
+          <div class="header-actions">
+            <select id="role-selector" class="role-selector" aria-label="Select role view">
+              <option value="admin">👤 All Access</option>
+              <option value="finance">💰 Finance</option>
+              <option value="it">⚙️ IT Admin</option>
+              <option value="executive">📊 Executive</option>
+            </select>
+            <button id="bookmark-btn" class="btn ghost" aria-label="Bookmark current view" title="Bookmark this view">
+              <span class="btn-icon" aria-hidden="true">🔖</span>
+              Save View
+            </button>
+            <button id="views-btn" class="btn ghost" aria-label="Saved views" title="View bookmarks">
+              <span class="btn-icon" aria-hidden="true">⭐</span>
+              Views
+            </button>
+            <button id="email-digest-btn" class="btn ghost" aria-label="Email digest settings" title="Configure email digest">
+              <span class="btn-icon" aria-hidden="true">📧</span>
+              Digest
+            </button>
+            <button id="refresh-btn" class="btn primary" aria-label="Refresh dashboard data">
+              <span class="btn-icon" aria-hidden="true">↻</span>
+              Refresh
+            </button>
+            <button id="trigger-btn" class="btn ghost" aria-label="Trigger full data synchronization">
+              <span class="btn-icon" aria-hidden="true">⚡</span>
+              Full Sync
+            </button>
+          </div>
+          <div class="badge" id="dataset-meta"></div>
+        </div>
+      </header>
+
+      <!-- Data Health Banner -->
+      <section id="data-health" class="data-health" role="status" aria-live="polite" aria-label="Data quality status"></section>
+
+      <!-- Budget Alert Banner -->
+      <div class="alert-banner warning hidden" id="budget-alert">
+        <div class="alert-content">
+          <span class="alert-icon">⚠️</span>
+          <div class="alert-text">
+            <strong id="budget-alert-title">Budget Alert</strong>
+            <p id="budget-alert-message">You are approaching your monthly budget limit.</p>
+          </div>
+          <button class="btn primary" id="budget-alert-action">Review Costs</button>
+        </div>
+      </div>
+
+      <!-- Saved Views Modal -->
+      <div class="modal hidden" id="views-modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Saved Views</h2>
+            <button class="modal-close" id="views-modal-close" aria-label="Close modal">×</button>
+          </div>
+          <div class="modal-body" id="views-list"></div>
+        </div>
+      </div>
+
+      <!-- Report Builder Modal -->
+      <div class="modal hidden" id="report-builder-modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content modal-wide">
+          <div class="modal-header">
+            <h2>📊 Custom Report Builder</h2>
+            <button class="modal-close" id="report-builder-modal-close" aria-label="Close modal">×</button>
+          </div>
+          <div class="modal-body">
+            <form id="report-builder-form">
+              <div class="form-group">
+                <label for="report-name">Report Name</label>
+                <input type="text" id="report-name" placeholder="Q4 Cost Analysis" required />
+              </div>
+              
+              <div class="form-group">
+                <label for="report-type">Report Type</label>
+                <select id="report-type">
+                  <option value="cost-summary">Cost Summary</option>
+                  <option value="license-audit">License Audit</option>
+                  <option value="waste-report">Waste & Optimization</option>
+                  <option value="trend-analysis">Trend Analysis</option>
+                  <option value="tenant-comparison">Tenant Comparison</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label>Include Sections</label>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" class="report-section" value="kpis" checked /> KPIs & Metrics</label>
+                  <label><input type="checkbox" class="report-section" value="charts" checked /> Charts & Visualizations</label>
+                  <label><input type="checkbox" class="report-section" value="tables" checked /> Detailed Tables</label>
+                  <label><input type="checkbox" class="report-section" value="recommendations" checked /> Recommendations</label>
+                  <label><input type="checkbox" class="report-section" value="forecast" /> Forecasting</label>
+                  <label><input type="checkbox" class="report-section" value="raw-data" /> Raw Data Export</label>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label for="report-format">Export Format</label>
+                <select id="report-format">
+                  <option value="pdf">PDF Report</option>
+                  <option value="excel">Excel Workbook</option>
+                  <option value="csv">CSV Data</option>
+                  <option value="html">HTML Document</option>
+                  <option value="json">JSON Data</option>
+                </select>
+              </div>
+              
+              <div class="form-actions">
+                <button type="submit" class="btn primary">Generate Report</button>
+                <button type="button" class="btn ghost" id="report-preview-btn">Preview</button>
+                <button type="button" class="btn ghost" id="save-report-template-btn">Save as Template</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create Ticket Modal -->
+      <div class="modal hidden" id="create-ticket-modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>🎫 Create Optimization Task</h2>
+            <button class="modal-close" id="create-ticket-modal-close" aria-label="Close modal">×</button>
+          </div>
+          <div class="modal-body">
+            <form id="create-ticket-form">
+              <input type="hidden" id="ticket-recommendation-id" />
+              
+              <div class="form-group">
+                <label for="ticket-system">Ticketing System</label>
+                <select id="ticket-system">
+                  <option value="jira">Jira</option>
+                  <option value="azdo">Azure DevOps</option>
+                  <option value="github">GitHub Issues</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label for="ticket-title">Title</label>
+                <input type="text" id="ticket-title" required />
+              </div>
+              
+              <div class="form-group">
+                <label for="ticket-description">Description</label>
+                <textarea id="ticket-description" rows="6" required></textarea>
+              </div>
+              
+              <div class="form-group">
+                <label for="ticket-priority">Priority</label>
+                <select id="ticket-priority">
+                  <option value="critical">🔴 Critical</option>
+                  <option value="high">🟠 High</option>
+                  <option value="medium" selected>🟡 Medium</option>
+                  <option value="low">🟢 Low</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label for="ticket-assignee">Assignee (optional)</label>
+                <input type="text" id="ticket-assignee" placeholder="user@httbrands.com" />
+              </div>
+              
+              <div class="form-actions">
+                <button type="submit" class="btn primary">Create Task</button>
+                <button type="button" class="btn ghost" id="ticket-cancel-btn">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Email Digest Preferences Modal -->
+      <div class="modal hidden" id="email-modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>📧 Email Digest Preferences</h2>
+            <button class="modal-close" id="email-modal-close" aria-label="Close modal">×</button>
+          </div>
+          <div class="modal-body">
+            <form id="email-preferences-form">
+              <div class="form-group">
+                <label for="email-address">Email Address</label>
+                <input type="email" id="email-address" placeholder="you@example.com" required />
+              </div>
+              
+              <div class="form-group">
+                <label for="email-frequency">Digest Frequency</label>
+                <select id="email-frequency">
+                  <option value="daily">Daily (8 AM)</option>
+                  <option value="weekly" selected>Weekly (Monday 8 AM)</option>
+                  <option value="monthly">Monthly (1st of month)</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label>Include in Digest</label>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="digest-budget" checked /> Budget status</label>
+                  <label><input type="checkbox" id="digest-recommendations" checked /> Top 5 recommendations</label>
+                  <label><input type="checkbox" id="digest-costs" checked /> Cost summary</label>
+                  <label><input type="checkbox" id="digest-licenses" checked /> License waste alerts</label>
+                  <label><input type="checkbox" id="digest-trends" /> Month-over-month trends</label>
+                </div>
+              </div>
+              
+              <div class="form-actions">
+                <button type="submit" class="btn primary">Save Preferences</button>
+                <button type="button" class="btn ghost" id="email-preview-btn">Preview Digest</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <section class="filter-bar" role="search" aria-label="Dashboard filters">
+        <div class="filter-group">
+          <label>
+            <span class="filter-label">Period</span>
+            <select id="period-select">
+              <option value="mtd">Month to date</option>
+              <option value="prev-month">Previous month</option>
+              <option value="6m">Last 6 months</option>
+              <option value="12m">Last 12 months</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </label>
+          <label class="date-range">
+            <span class="filter-label">From</span>
+            <input type="date" id="from-date" />
+          </label>
+          <label class="date-range">
+            <span class="filter-label">To</span>
+            <input type="date" id="to-date" />
+          </label>
+        </div>
+        <div class="filter-group">
+          <label>
+            <span class="filter-label">Brand</span>
+            <select id="tenant-select"></select>
+          </label>
+          <label>
+            <span class="filter-label">Subscription</span>
+            <select id="subscription-select"></select>
+          </label>
+        </div>
+      </section>
+
+      <!-- Overview Section -->
+      <section id="section-overview" class="content-section active">
+        <!-- Hero Budget Banner -->
+        <div class="hero-banner" id="budget-hero">
+          <div class="hero-content">
+            <div class="hero-header">
+              <div class="hero-title">
+                <h2 id="budget-hero-title">Budget Health</h2>
+                <span class="hero-badge" id="budget-hero-badge">Loading...</span>
+              </div>
+              <p class="hero-subtitle" id="budget-hero-subtitle">Monthly budget tracking across all brands</p>
+            </div>
+            <div class="hero-metrics">
+              <div class="hero-metric">
+                <span class="metric-label">Budget</span>
+                <span class="metric-value" id="hero-budget">$0</span>
+              </div>
+              <div class="hero-metric">
+                <span class="metric-label">YTD Spend</span>
+                <span class="metric-value" id="hero-ytd-spend">$0</span>
+                <span class="metric-change" id="hero-ytd-change">0%</span>
+              </div>
+              <div class="hero-metric">
+                <span class="metric-label">Remaining</span>
+                <span class="metric-value" id="hero-remaining">$0</span>
+              </div>
+              <div class="hero-metric">
+                <span class="metric-label">Projected</span>
+                <span class="metric-value" id="hero-projected">$0</span>
+                <span class="metric-change" id="hero-projection-change">0%</span>
+              </div>
+            </div>
+            <div class="hero-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" id="budget-progress-fill"></div>
+              </div>
+              <div class="progress-labels">
+                <span id="budget-progress-text">0% utilized</span>
+                <span id="budget-days-text">0 days left in period</span>
+              </div>
+            </div>
+          </div>
+          <div class="hero-actions">
+            <button class="btn ghost" id="budget-details-btn">View Details</button>
+            <button class="btn ghost" id="budget-forecast-btn">See Forecast</button>
+          </div>
+        </div>
+
+        <div class="section-grid kpis" id="kpi-cards"></div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>Daily Burn Rate</h3>
+              <p class="muted">Cost trend over selected period</p>
+            </div>
+            <div class="card-body">
+              <canvas id="daily-chart" height="180"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Top Services</h3>
+              <p class="muted">Spend by Azure service</p>
+            </div>
+            <div class="card-body">
+              <canvas id="services-chart" height="180"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Hub-Spoke Tenant Overview</h3>
+            <p class="muted">Quick summary of all managed tenants</p>
+          </div>
+          <div class="card-body">
+            <div class="tenant-cards" id="tenant-summary"></div>
+          </div>
+        </div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>Azure Optimization Insights</h3>
+              <p class="muted">Idle/low-value resources, concentrated services, and anomalies</p>
+            </div>
+            <div class="card-body">
+              <ul class="insights-list" id="azure-insights"></ul>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>License Optimization</h3>
+              <p class="muted">Underused SKUs, redundant assignments, inactive paid users</p>
+            </div>
+            <div class="card-body">
+              <ul class="insights-list" id="license-insights"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Phase 3: Forecasting & Analytics -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🔮 Predictive Forecasting</h3>
+            <p class="muted">ML-powered cost predictions with confidence intervals</p>
+          </div>
+          <div class="card-body">
+            <div class="section-grid kpis" id="forecast-kpis"></div>
+            <canvas id="forecast-chart" height="200"></canvas>
+          </div>
+        </div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>🤖 Automated Actions</h3>
+              <p class="muted">AI-powered recommendations with one-click execution</p>
+            </div>
+            <div class="card-body">
+              <div id="automated-actions-list"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>📊 Custom Reports</h3>
+              <p class="muted">Build and export custom analytical reports</p>
+            </div>
+            <div class="card-body">
+              <button class="btn primary" id="report-builder-btn">🛠️ Open Report Builder</button>
+              <div id="saved-reports-list" class="saved-items-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Recommendations Section -->
+      <section id="section-recommendations" class="content-section">
+        <div class="alert-banner critical hidden" id="waste-alert">
+          <div class="alert-content">
+            <span class="alert-icon">⚠️</span>
+            <div class="alert-text">
+              <strong id="waste-alert-title">Cost Optimization Opportunities Detected</strong>
+              <p id="waste-alert-message">Review recommendations below to reduce waste and optimize spending.</p>
+            </div>
+            <button class="btn primary" id="take-action-btn">Take Action</button>
+          </div>
+        </div>
+
+        <div class="section-grid kpis" id="recommendations-kpis"></div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>🔥 Critical Actions</h3>
+              <p class="muted">High-priority items requiring immediate attention</p>
+            </div>
+            <div class="card-body">
+              <ul class="recommendations-list critical" id="critical-recommendations"></ul>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>📈 High-Value Optimizations</h3>
+              <p class="muted">Significant savings with moderate effort</p>
+            </div>
+            <div class="card-body">
+              <ul class="recommendations-list high-value" id="high-value-recommendations"></ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>💰 Quick Wins</h3>
+            <p class="muted">Easy optimizations with immediate impact</p>
+          </div>
+          <div class="card-body">
+            <ul class="recommendations-list quick-wins" id="quick-wins-recommendations"></ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>📊 All Recommendations</h3>
+            <p class="muted">Complete list of optimization opportunities</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="recommendations-table" role="grid" aria-label="All recommendations">
+                <thead>
+                  <tr>
+                    <th>Priority</th>
+                    <th>Category</th>
+                    <th>Recommendation</th>
+                    <th>Impact</th>
+                    <th class="num">Potential Savings</th>
+                    <th>Effort</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== NEW TASK-CENTRIC SECTIONS ========== -->
+      
+      <!-- Cost & License Operations (Combined) -->
+      <section id="section-cost-licenses" class="content-section">
+        <div class="alert-banner warning hidden" id="cost-budget-alert">
+          <div class="alert-content">
+            <span class="alert-icon">⚠️</span>
+            <div class="alert-text">
+              <strong>Budget Alert</strong>
+              <p id="budget-alert-message">You're tracking above budget this month</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-grid kpis" id="cost-mgmt-kpis"></div>
+
+        <div class="section-grid three-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>💸 Where the Money Goes</h3>
+              <p class="muted">Spending breakdown by brand and service</p>
+            </div>
+            <div class="card-body">
+              <canvas id="cost-by-brand-chart" height="180"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>📊 Monthly Trend</h3>
+              <p class="muted">12-month cost journey</p>
+            </div>
+            <div class="card-body">
+              <canvas id="cost-trend-chart" height="200"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>🔮 Forecast</h3>
+              <p class="muted">Next 3 months projection</p>
+            </div>
+            <div class="card-body">
+              <div id="cost-forecast-summary"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>💰 Waste & Optimization Opportunities</h3>
+            <p class="muted">Actionable cost reduction recommendations</p>
+          </div>
+          <div class="card-body">
+            <div id="cost-waste-list"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>📄 Invoice Reconciliation</h3>
+            <p class="muted">CSP vs Microsoft direct cost comparison</p>
+          </div>
+          <div class="card-body">
+            <div class="section-grid kpis" id="invoice-recon-kpis"></div>
+            <div class="table-wrapper">
+              <table id="invoice-recon-table-recommendations" role="grid" aria-label="Invoice reconciliation">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Billing Source</th>
+                    <th class="num">Invoice Amount</th>
+                    <th class="num">Azure Actual</th>
+                    <th class="num">Variance</th>
+                    <th class="num">Markup %</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>📈 Cost Breakdown</h3>
+              <p class="muted">Detailed cost analysis</p>
+            </div>
+            <div class="card-body">
+              <div class="table-wrapper">
+                <table id="cost-breakdown-table-recommendations" role="grid" aria-label="Cost breakdown by service">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>Service</th>
+                      <th>SKU</th>
+                      <th class="num">MTD Cost</th>
+                      <th class="num">YTD Cost</th>
+                      <th>Trend</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>🏷️ Untagged Resources</h3>
+              <p class="muted">Resources without cost center tags</p>
+            </div>
+            <div class="card-body">
+              <div id="untagged-resources-list"></div>
+            </div>
+          </div>
+        </div>
+        <!-- License Optimization Subsection -->
+        <div class="subsection" id="section-license-optimization">
+        <div class="alert-banner critical hidden" id="license-waste-alert">
+          <div class="alert-content">
+            <span class="alert-icon">🔥</span>
+            <div class="alert-text">
+              <strong>License Waste Detected</strong>
+              <p id="license-waste-message">Paid licenses assigned to inactive users</p>
+            </div>
+            <button class="btn primary" id="fix-waste-btn">Review & Fix</button>
+          </div>
+        </div>
+
+        <div class="section-grid kpis" id="license-opt-kpis"></div>
+
+        <div class="section-grid three-col">
+          <div class="card critical">
+            <div class="card-header">
+              <h3>🔥 Critical Waste</h3>
+              <p class="muted">Inactive 90+ days, paid SKUs</p>
+            </div>
+            <div class="card-body">
+              <div id="critical-waste-list"></div>
+            </div>
+          </div>
+          <div class="card warning">
+            <div class="card-header">
+              <h3>⚠️ High Waste</h3>
+              <p class="muted">Inactive 60-89 days, paid SKUs</p>
+            </div>
+            <div class="card-body">
+              <div id="high-waste-list"></div>
+            </div>
+          </div>
+          <div class="card info">
+            <div class="card-header">
+              <h3>💡 Medium Waste</h3>
+              <p class="muted">Inactive 30-59 days, paid SKUs</p>
+            </div>
+            <div class="card-body">
+              <div id="medium-waste-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>📊 License Utilization by Brand</h3>
+            <p class="muted">Paid licenses only - invoice-backed SKUs</p>
+          </div>
+          <div class="card-body">
+            <canvas id="license-util-chart" height="180"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>👥 User License Assignments</h3>
+            <p class="muted">Per-user breakdown with waste detection (paid licenses only)</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="user-licenses-table-optimization" role="grid" aria-label="User license assignments">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>User</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Status</th>
+                    <th>Licenses</th>
+                    <th>Last Sign-In</th>
+                    <th>Waste Status</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>💰 Cost by Brand</h3>
+              <p class="muted">License spend attribution</p>
+            </div>
+            <div class="card-body">
+              <div class="table-wrapper">
+                <table id="license-cost-table-optimization" role="grid" aria-label="License cost by brand">
+                  <thead>
+                    <tr>
+                      <th>Brand/Tenant</th>
+                      <th class="num">Paid Licenses</th>
+                      <th class="num">Total Users</th>
+                      <th class="num">Est. Monthly</th>
+                      <th class="num">Est. Annual</th>
+                      <th>CSP / Billing Source</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>🔑 License Summary</h3>
+              <p class="muted">SKU breakdown by tenant</p>
+            </div>
+            <div class="card-body">
+              <div class="table-wrapper">
+                <table id="license-summary-table-optimization" role="grid" aria-label="License summary">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>SKU</th>
+                      <th class="num">Assigned</th>
+                      <th class="num">Available</th>
+                      <th class="num">Prepaid</th>
+                      <th>Utilization</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <!-- Brand Operations (Combined) -->
+      <section id="section-brands" class="content-section">
+        <div class="brand-panel" id="section-brand-htt">
+          <div class="brand-summary" id="brand-htt-summary"></div>
+          <div class="section-grid kpis" id="brand-htt-kpis"></div>
+          <div class="section-grid two-col">
+            <div class="card">
+              <div class="card-header">
+                <h3>💰 Cost Breakdown</h3>
+              </div>
+              <div class="card-body">
+                <canvas id="brand-htt-costs-chart" height="200"></canvas>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h3>🔑 License Status</h3>
+              </div>
+              <div class="card-body">
+                <div id="brand-htt-licenses"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brand-panel" id="section-brand-bishops">
+          <div class="brand-summary" id="brand-bishops-summary"></div>
+          <div class="section-grid kpis" id="brand-bishops-kpis"></div>
+          <div class="section-grid two-col">
+            <div class="card">
+              <div class="card-header">
+                <h3>💰 Cost Breakdown</h3>
+              </div>
+              <div class="card-body">
+                <canvas id="brand-bishops-costs-chart" height="200"></canvas>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h3>🔑 License Status</h3>
+              </div>
+              <div class="card-body">
+                <div id="brand-bishops-licenses"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brand-panel" id="section-brand-lash">
+          <div class="brand-summary" id="brand-lash-summary"></div>
+          <div class="section-grid kpis" id="brand-lash-kpis"></div>
+          <div class="section-grid two-col">
+            <div class="card">
+              <div class="card-header">
+                <h3>💰 Cost Breakdown</h3>
+              </div>
+              <div class="card-body">
+                <canvas id="brand-lash-costs-chart" height="200"></canvas>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h3>🔑 License Status</h3>
+              </div>
+              <div class="card-body">
+                <div id="brand-lash-licenses"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brand-panel" id="section-brand-frenchies">
+          <div class="brand-summary" id="brand-frenchies-summary"></div>
+          <div class="section-grid kpis" id="brand-frenchies-kpis"></div>
+          <div class="section-grid two-col">
+            <div class="card">
+              <div class="card-header">
+                <h3>💰 Cost Breakdown</h3>
+              </div>
+              <div class="card-body">
+                <canvas id="brand-frenchies-costs-chart" height="200"></canvas>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h3>🔑 License Status</h3>
+              </div>
+              <div class="card-body">
+                <div id="brand-frenchies-licenses"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- IT Operations (Combined) -->
+      <section id="section-it-operations" class="content-section">
+        <div class="section-grid kpis" id="resources-kpis"></div>
+        <div class="card">
+          <div class="card-header">
+            <h3>⚡ All Resources</h3>
+            <p class="muted">Complete Azure resource inventory with cost and purpose</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="resources-table-core" role="grid" aria-label="Azure resources inventory">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Resource Name</th>
+                    <th>Type</th>
+                    <th>Purpose / Initiative</th>
+                    <th>Business Function</th>
+                    <th class="num">Period Cost</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <!-- Identity & Access Subsection -->
+        <div class="subsection" id="section-it-identity">
+        <div class="section-grid four-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>👤 Users</h3>
+            </div>
+            <div class="card-body">
+              <div class="section-grid kpis" id="identity-users-kpis"></div>
+              <div class="table-wrapper">
+                <table id="identity-users-table-core" role="grid" aria-label="Entra ID users">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>Display Name</th>
+                      <th>Email</th>
+                      <th>Last Sign-In</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>📱 Enterprise Apps</h3>
+            </div>
+            <div class="card-body">
+              <div class="section-grid kpis" id="identity-apps-kpis"></div>
+              <div class="table-wrapper">
+                <table id="identity-apps-table-core" role="grid" aria-label="Enterprise applications">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>Display Name</th>
+                      <th>App ID</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>🔧 App Registrations</h3>
+            </div>
+            <div class="card-body">
+              <div class="section-grid kpis" id="identity-appregs-kpis"></div>
+              <div class="table-wrapper">
+                <table id="identity-appregs-table-core" role="grid" aria-label="App registrations">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>Display Name</th>
+                      <th>App ID</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>🔒 Conditional Access</h3>
+            </div>
+            <div class="card-body">
+              <div class="section-grid kpis" id="identity-cap-kpis"></div>
+              <div class="table-wrapper">
+                <table id="identity-cap-table-core" role="grid" aria-label="Conditional access policies">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>Policy Name</th>
+                      <th>State</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <!-- Data Explorer (Advanced) -->
+      <section id="section-data-explorer" class="content-section">
+        <div class="card">
+          <div class="card-header">
+            <h3>🔍 Data Explorer</h3>
+            <p class="muted">Access raw data tables and advanced filtering</p>
+          </div>
+          <div class="card-body">
+            <div class="explorer-tabs">
+              <button class="tab-btn active" data-tab="subscriptions">Subscriptions</button>
+              <button class="tab-btn" data-tab="resource-groups">Resource Groups</button>
+              <button class="tab-btn" data-tab="licenses">Licenses (SKUs)</button>
+              <button class="tab-btn" data-tab="github">GitHub Billing</button>
+            </div>
+            <div class="tab-content active" id="explorer-subscriptions">
+              <div class="table-wrapper">
+                <table id="subscriptions-table-explorer" role="grid" aria-label="Azure subscriptions">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>Subscription Name</th>
+                      <th>Subscription ID</th>
+                      <th>State</th>
+                      <th>Owners</th>
+                      <th class="num">MTD Spend</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="tab-content" id="explorer-resource-groups">
+              <div class="table-wrapper">
+                <table id="rg-table-explorer" role="grid" aria-label="Resource groups">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>Resource Group</th>
+                      <th>Location</th>
+                      <th>Subscription</th>
+                      <th class="num">Resource Count</th>
+                      <th class="num">Period Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="tab-content" id="explorer-licenses">
+              <div class="table-wrapper">
+                <table id="licenses-table-explorer" role="grid" aria-label="License SKUs">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>SKU</th>
+                      <th>Product</th>
+                      <th class="num">Assigned</th>
+                      <th class="num">Available</th>
+                      <th class="num">Prepaid</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="tab-content" id="explorer-github">
+              <div class="section-grid kpis" id="github-billing-kpis"></div>
+              <div class="table-wrapper">
+                <table id="github-billing-table-core" role="grid" aria-label="GitHub billing">
+                  <thead>
+                    <tr>
+                      <th>Organization</th>
+                      <th>Plan</th>
+                      <th class="num">Users</th>
+                      <th class="num">Monthly Cost</th>
+                      <th class="num">Annual Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== LEGACY SECTIONS (Hidden by default, kept for backward compat) ========== -->
+
+      <!-- Tenants Section -->
+      <section id="section-tenants" class="content-section" role="region" aria-labelledby="tenants-heading">
+        <div class="card">
+          <div class="card-header">
+            <h3 id="tenants-heading">Brand Directory</h3>
+            <p class="muted">All managed Entra ID tenants (Brands)</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="tenants-table" role="grid" aria-label="Tenant directory">
+                <thead>
+                  <tr>
+                    <th>Brand Name</th>
+                    <th>Organization</th>
+                    <th>Default Domain</th>
+                    <th>Tenant ID</th>
+                    <th class="num">Subscriptions</th>
+                    <th class="num">License Users</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Management Groups Section -->
+      <section id="section-management-groups" class="content-section">
+        <div class="card">
+          <div class="card-header">
+            <h3>Management Group Hierarchy</h3>
+            <p class="muted">Azure management group structure across tenants</p>
+          </div>
+          <div class="card-body">
+            <div class="hierarchy-tree" id="mg-tree">
+              <div class="empty-state">
+                <span class="empty-icon">📁</span>
+                <p>No management groups found or data not yet collected.</p>
+                <p class="muted">Management group collection requires additional permissions.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Subscriptions Section -->
+      <section id="section-subscriptions" class="content-section">
+        <div class="card">
+          <div class="card-header">
+            <h3>Azure Subscriptions</h3>
+            <p class="muted">All subscriptions across brands</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="subscriptions-table-section" role="grid" aria-label="Azure subscriptions">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Subscription Name</th>
+                    <th>Subscription ID</th>
+                    <th>State</th>
+                    <th>Owners</th>
+                    <th class="num">MTD Spend</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Resource Groups Section -->
+      <section id="section-resource-groups" class="content-section">
+        <div class="card">
+          <div class="card-header">
+            <h3>Resource Groups</h3>
+            <p class="muted">Logical containers for Azure resources</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="rg-table-section" role="grid" aria-label="Resource groups">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Subscription</th>
+                    <th>Resource Group</th>
+                    <th>Location</th>
+                    <th class="num">Resources</th>
+                    <th class="num">MTD Cost</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Resources Section -->
+      <section id="section-resources" class="content-section">
+        <div class="section-grid kpis" id="resources-kpis"></div>
+        
+        <!-- YTD Monthly Trend Chart - Full Width -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Year-to-Date Spend by Brand</h3>
+            <p class="muted">Monthly Azure spend breakdown across all tenants</p>
+          </div>
+          <div class="card-body">
+            <canvas id="resource-ytd-chart" height="200"></canvas>
+          </div>
+        </div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>Resource Cost by Brand</h3>
+              <p class="muted">Azure spend distribution across tenants</p>
+            </div>
+            <div class="card-body">
+              <canvas id="resource-brand-chart" height="180"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Cost by Business Function</h3>
+              <p class="muted">Spend by initiative and purpose</p>
+            </div>
+            <div class="card-body">
+              <canvas id="resource-function-chart" height="180"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>All Resources</h3>
+            <p class="muted">Complete Azure resource inventory with cost and purpose</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="resources-table-explorer" role="grid" aria-label="Azure resources inventory">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Resource Name</th>
+                    <th>Type</th>
+                    <th>Purpose / Initiative</th>
+                    <th>Business Function</th>
+                    <th class="num">Period Cost</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Costs Section -->
+      <section id="section-costs" class="content-section">
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>Cost by Tenant</h3>
+              <p class="muted">Spend distribution across tenants</p>
+            </div>
+            <div class="card-body">
+              <canvas id="tenant-cost-chart" height="180"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Cost by Service</h3>
+              <p class="muted">Top Azure services by spend</p>
+            </div>
+            <div class="card-body">
+              <canvas id="service-cost-chart" height="180"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Detailed Cost Breakdown</h3>
+            <p class="muted">Granular cost analysis by resource</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="cost-breakdown-table-section" role="grid" aria-label="Detailed cost breakdown">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Subscription</th>
+                    <th>Resource Group</th>
+                    <th>Service</th>
+                    <th>Meter</th>
+                    <th class="num">Daily Cost</th>
+                    <th class="num">MTD Cost</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Trends Section -->
+      <section id="section-trends" class="content-section">
+        <div class="card">
+          <div class="card-header">
+            <h3>Cost Trends</h3>
+            <p class="muted">Historical spend analysis over time</p>
+          </div>
+          <div class="card-body">
+            <canvas id="trend-chart" height="200"></canvas>
+          </div>
+        </div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>Month-over-Month Change</h3>
+              <p class="muted">Comparison with previous period</p>
+            </div>
+            <div class="card-body" id="mom-comparison">
+              <div class="comparison-grid"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Forecast</h3>
+              <p class="muted">Projected end-of-month spend</p>
+            </div>
+            <div class="card-body" id="forecast-card">
+              <div class="forecast-display"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Top Movers</h3>
+              <p class="muted">Largest month-over-month shifts by tenant/service</p>
+            </div>
+            <div class="card-body" id="top-movers">
+              <div class="insights-group">
+                <div class="insights-label">Tenants</div>
+                <ul class="insights-list" id="top-movers-tenants"></ul>
+              </div>
+              <div class="insights-group">
+                <div class="insights-label">Services</div>
+                <ul class="insights-list" id="top-movers-services"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Invoice Reconciliation Section -->
+      <section id="section-invoice-recon" class="content-section">
+        <div class="section-grid kpis" id="invoice-recon-kpis"></div>
+
+        <!-- CSP Billing Source Summary -->
+        <div class="card">
+          <div class="card-header">
+            <h3>CSP Billing Sources by Tenant</h3>
+            <p class="muted">Each brand is billed through a different Cloud Solution Provider</p>
+          </div>
+          <div class="card-body">
+            <div class="csp-grid">
+              <div class="csp-card logically">
+                <strong>HTT Brands (anchor)</strong>
+                <div class="csp-details">
+                  <span class="status-badge info">Logically MSP</span>
+                  <p>Azure + M365 Licenses</p>
+                </div>
+              </div>
+              <div class="csp-card sui-generis">
+                <strong>The Lash Lounge</strong>
+                <div class="csp-details">
+                  <span class="status-badge success">Sui Generis (SG)</span>
+                  <p>M365 Only</p>
+                </div>
+              </div>
+              <div class="csp-card ftg">
+                <strong>Frenchies</strong>
+                <div class="csp-details">
+                  <span class="status-badge warning">FTG (Franchise Technology Group)</span>
+                  <p>M365 Only</p>
+                </div>
+              </div>
+              <div class="csp-card unknown">
+                <strong>Bishops</strong>
+                <div class="csp-details">
+                  <span class="status-badge muted">Unknown/TBD</span>
+                  <p>Needs verification</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fabric Capacity Alert -->
+        <div class="card fabric-alert">
+          <div class="card-header">
+            <h3>⚡ Microsoft Fabric Capacity (F64)</h3>
+            <p class="muted">Reserved Instance - added October 2025</p>
+          </div>
+          <div class="card-body">
+            <div class="fabric-info">
+              <div class="fabric-detail">
+                <span class="label">Capacity Units</span>
+                <span class="value">64 CU</span>
+              </div>
+              <div class="fabric-detail">
+                <span class="label">Monthly Cost</span>
+                <span class="value">$3,152.64</span>
+              </div>
+              <div class="fabric-detail">
+                <span class="label">Annual Commitment</span>
+                <span class="value">~$37,832/year</span>
+              </div>
+              <div class="fabric-detail">
+                <span class="label">Region</span>
+                <span class="value">US East 2</span>
+              </div>
+            </div>
+            <div class="fabric-note">
+              <strong>⚠️ Note:</strong> Transitioned from consumption-based to reserved instance in October 2025. 
+              October invoice shows prorated $5,152.64 (partial month). 
+              Full month rate is $3,152.64 ($80.51/CU × 64 CU × ~0.61 month proration factor).
+              <strong>Action needed:</strong> Verify actual Fabric usage to ensure 64 CUs are being utilized.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>Azure: Invoice vs Actual</h3>
+              <p class="muted">Logically MSP invoice comparison with Microsoft direct costs</p>
+            </div>
+            <div class="card-body">
+              <canvas id="invoice-comparison-chart" height="180"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>M365 License Costs by Brand</h3>
+              <p class="muted">Estimated monthly license costs based on MSRP</p>
+            </div>
+            <div class="card-body">
+              <canvas id="license-cost-chart" height="180"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Monthly Reconciliation - All Brands</h3>
+            <p class="muted">Comprehensive billing across Logically, SG, FTG, and Direct Microsoft</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="invoice-recon-table-section" role="grid" aria-label="Monthly invoice reconciliation">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th class="num">HTT (Logically)</th>
+                    <th class="num">BCC (Direct)</th>
+                    <th class="num">TLL (SG + Direct)</th>
+                    <th class="num">FN (FTG)</th>
+                    <th class="num">Grand Total</th>
+                    <th class="num">API Check</th>
+                    <th class="num">Δ%</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>License Cost by Brand & CSP</h3>
+            <p class="muted">Paid license costs with CSP billing source attribution</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="license-cost-table-details" role="grid" aria-label="License cost by brand">
+                <thead>
+                  <tr>
+                    <th>Brand/Tenant</th>
+                    <th class="num">Paid Licenses</th>
+                    <th class="num">Total Users</th>
+                    <th class="num">Est. Monthly</th>
+                    <th class="num">Est. Annual</th>
+                    <th>CSP / Billing Source</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Licenses Overview Section -->
+      <section id="section-licenses" class="content-section">
+        <div class="section-grid kpis" id="license-kpis"></div>
+
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>License Utilization</h3>
+              <p class="muted">Assigned vs available across all tenants</p>
+            </div>
+            <div class="card-body">
+              <canvas id="license-util-chart" height="250"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Top License SKUs</h3>
+              <p class="muted">Most consumed licenses</p>
+            </div>
+            <div class="card-body">
+              <canvas id="license-sku-chart" height="250"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>License Summary by Brand</h3>
+            <p class="muted">Paid license distribution across managed tenants</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="license-summary-table-details" role="grid" aria-label="License summary by brand">
+                <thead>
+                  <tr>
+                    <th>Brand/Tenant</th>
+                    <th class="num">SKUs (Paid/Free)</th>
+                    <th class="num">Users</th>
+                    <th class="num">Paid Consumed/Prepaid</th>
+                    <th>Paid Utilization</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- License Details Section -->
+      <section id="section-license-details" class="content-section">
+        <div class="card">
+          <div class="card-header">
+            <h3>All License SKUs</h3>
+            <p class="muted">Complete license inventory across all brands</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="licenses-table-details" role="grid" aria-label="All license SKUs">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>SKU Part Number</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th class="num">Prepaid</th>
+                    <th class="num">Consumed</th>
+                    <th class="num">Available</th>
+                    <th>Utilization</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- User License Assignments Section -->
+      <section id="section-user-licenses" class="content-section">
+        <div class="card">
+          <div class="card-header">
+            <h3>User License Assignments</h3>
+            <p class="muted">Per-user license breakdown with activity and waste detection (30+ days inactive = waste)</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="user-licenses-table-details" role="grid" aria-label="User license assignments">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>User</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Status</th>
+                    <th>Licenses</th>
+                    <th>Last Sign-In</th>
+                    <th>Waste Status</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Identity Users Section -->
+      <section id="section-identity-users" class="content-section">
+        <div class="section-grid kpis" id="identity-users-kpis"></div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h3>User Accounts</h3>
+            <p class="muted">All user identities across brands (sorted by recent activity)</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="identity-users-table-details" role="grid" aria-label="User accounts">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Display Name</th>
+                    <th>User Principal Name</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Account Status</th>
+                    <th>License Count</th>
+                    <th>Last Sign-In</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Identity Enterprise Apps Section -->
+      <section id="section-identity-apps" class="content-section">
+        <div class="section-grid kpis" id="identity-apps-kpis"></div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h3>Enterprise Applications (Service Principals)</h3>
+            <p class="muted">Service principals with credential expiry tracking</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="identity-apps-table-details" role="grid" aria-label="Enterprise applications">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Display Name</th>
+                    <th>App ID</th>
+                    <th>Status</th>
+                    <th>Password Credentials</th>
+                    <th>Certificate Credentials</th>
+                    <th>Expiring Soon</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Identity App Registrations Section -->
+      <section id="section-identity-appregs" class="content-section">
+        <div class="section-grid kpis" id="identity-appregs-kpis"></div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h3>App Registrations</h3>
+            <p class="muted">Application registrations with owner mapping</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="identity-appregs-table-details" role="grid" aria-label="App registrations">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Display Name</th>
+                    <th>Application ID</th>
+                    <th>Sign-In Audience</th>
+                    <th>Owners</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Identity Conditional Access Section -->
+      <section id="section-identity-cap" class="content-section">
+        <div class="section-grid kpis" id="identity-cap-kpis"></div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h3>Conditional Access Policies</h3>
+            <p class="muted">CAP policy inventory with enabled/disabled state</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="identity-cap-table-details" role="grid" aria-label="Conditional access policies">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Display Name</th>
+                    <th>Policy ID</th>
+                    <th>State</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- GitHub Billing Section -->
+      <section id="section-github-billing" class="content-section">
+        <div class="section-grid kpis" id="github-billing-kpis"></div>
+        
+        <div class="section-grid two-col">
+          <div class="card">
+            <div class="card-header">
+              <h3>GitHub Billing Trend</h3>
+              <p class="muted">Last 12 months of GitHub costs</p>
+            </div>
+            <div class="card-body">
+              <canvas id="github-billing-chart" height="250"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>GitHub Cost Breakdown</h3>
+              <p class="muted">Seats, Actions, Storage costs</p>
+            </div>
+            <div class="card-body">
+              <canvas id="github-cost-chart" height="250"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>GitHub Billing Details</h3>
+            <p class="muted">Monthly billing breakdown</p>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table id="github-billing-table-details" role="grid" aria-label="GitHub billing details">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th class="num">Seats</th>
+                    <th class="num">Seats Price</th>
+                    <th class="num">Actions Minutes</th>
+                    <th class="num">Storage GB</th>
+                    <th class="num">Total Amount</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Cloud Topology Section -->
+      <section id="section-topology" class="content-section" role="region" aria-labelledby="topology-heading">
+        <div class="card-header">
+          <h2 id="topology-heading">Cloud Architecture</h2>
+        </div>
+        <div id="topology-container">
+          <!-- DashboardTopology.renderTopologyView() renders here -->
+          <div class="topology-loading">
+            <div class="loading-spinner"></div>
+            <p>Loading cloud topology...</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Mobile Bottom Navigation -->
+    <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
+      <div class="mobile-nav-items">
+        <a href="#overview" class="mobile-nav-item active" data-section="overview">
+          <span class="mobile-nav-icon" aria-hidden="true">🏠</span>
+          <span>Summary</span>
+        </a>
+        <a href="#cost-management" class="mobile-nav-item" data-section="cost-management">
+          <span class="mobile-nav-icon" aria-hidden="true">💰</span>
+          <span>Costs</span>
+          <span class="mobile-nav-badge" id="mobile-cost-badge">0</span>
+        </a>
+        <a href="#license-optimization" class="mobile-nav-item" data-section="license-optimization">
+          <span class="mobile-nav-icon" aria-hidden="true">🔑</span>
+          <span>Licenses</span>
+          <span class="mobile-nav-badge" id="mobile-license-badge">0</span>
+        </a>
+        <button class="mobile-nav-item" id="mobile-menu-toggle">
+          <span class="mobile-nav-icon" aria-hidden="true">☰</span>
+          <span>More</span>
+        </button>
+      </div>
+    </nav>
+
+  </body>
+</html>

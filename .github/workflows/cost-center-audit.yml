@@ -1,0 +1,79 @@
+name: Cost Center Audit
+
+on:
+  schedule:
+    - cron: '0 10 * * *'  # Daily at 10:00 UTC
+  workflow_dispatch:
+    inputs:
+      upload_to_blob:
+        description: 'Upload report to Azure Blob Storage'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  collect-data:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install UV
+        uses: astral-sh/setup-uv@v4
+      
+      - name: Install dependencies
+        run: |
+          uv sync
+      
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_OIDC_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Copy tenant configuration
+        run: |
+          # Use the actual tenants.json from secrets or environment
+          echo "${{ secrets.TENANTS_CONFIG }}" > cost_center/config/tenants.json
+      
+      - name: Run cost center data collection
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_OIDC_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AUTH_MODE: app
+          UPLOAD_TO_BLOB: ${{ inputs.upload_to_blob || 'true' }}
+        run: |
+          uv run python -m cost_center.collectors.main
+      
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-report
+          path: out/latest-report.json
+          retention-days: 30
+      
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          app_location: '/cost_center/dashboard'
+          skip_app_build: true

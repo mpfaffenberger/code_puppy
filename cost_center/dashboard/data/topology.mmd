@@ -1,0 +1,116 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#2563eb', 'primaryTextColor': '#fff', 'primaryBorderColor': '#1e40af', 'lineColor': '#64748b', 'secondaryColor': '#f8fafc', 'tertiaryColor': '#e2e8f0'}}}%%
+flowchart TB
+    subgraph LEGEND["Legend"]
+        direction LR
+        L1[🏢 Tenant]
+        L2[📦 Subscription]
+        L3[🗂️ Resource Group]
+        L4[🔗 Identity Flow]
+        L5[📊 Data Flow]
+        L6[🌐 Network Flow]
+    end
+
+    subgraph HTT["🏢 HTT Brands (Anchor Tenant)"]
+        direction TB
+        subgraph HTT_CORE["📦 HTT-CORE ($186/mo)"]
+            direction TB
+            NC["🗂️ network-core"]
+            NC --> FW["🔥 Azure Firewall"]
+            NC --> VNET["🌐 VNet Hub"]
+            
+            MON["🗂️ htt-monitoring"]
+            MON --> LOGS["📝 Network Logs"]
+            
+            DEF["🗂️ hhtdefaultgroup"]
+            DEF --> SYNTEX["🧠 Syntex ($110)"]
+        end
+        
+        subgraph HTT_DEV["📦 Dev/Test ($83/mo)"]
+            direction TB
+            BIDEV["🗂️ htt-bi-dev"]
+            BIDEV --> VM["💻 SQL Import VM"]
+            BIDEV --> ADF["⚙️ Data Factory"]
+            BIDEV --> STORAGE["💾 Data Lake"]
+            BIDEV --> DNS["🔒 Private DNS"]
+            
+            IDDEV["🗂️ htt-identity-dev"]
+            IDDEV --> B2B["👥 B2B External ID"]
+        end
+        
+        subgraph HTT_FABRIC["📦 HTT-FABRIC-PROD"]
+            direction TB
+            FABRIC["📊 Power BI / Fabric"]
+        end
+        
+        subgraph HTT_WEB["📦 HTT-Web-Integrations"]
+            direction TB
+            SWA["🌐 Static Web Apps"]
+        end
+    end
+    
+    subgraph BCC["🏢 Bishops (Spoke)"]
+        direction TB
+        subgraph BCC_CORE["📦 BCC-CORE"]
+            BCC_RES["🗂️ Resources"]
+        end
+    end
+    
+    subgraph FN["🏢 Frenchies (Spoke)"]
+        direction TB
+        subgraph FN_CORE["📦 FN-CORE"]
+            FN_TENANT["🗂️ htt-tenant"]
+            FN_TENANT --> FN_GUEST["👤 Guest Usage"]
+        end
+    end
+    
+    subgraph TLL["🏢 The Lash Lounge (Spoke)"]
+        direction TB
+        subgraph TLL_CORE["📦 TLL-CORE"]
+            TLL_RES["🗂️ Resources"]
+        end
+    end
+    
+    subgraph GITHUB["🐙 GitHub"]
+        direction TB
+        GH_HTT["HTT-BRANDS"]
+        GH_BCC["BishopsCutBarbershop"]
+        GH_FN["FrenchiestheBrand"]
+        GH_TLL["TLL-CORP"]
+    end
+
+    %% Identity Flows (Blue dashed)
+    B2B -.->|"🔗 B2B Guest"| BCC
+    B2B -.->|"🔗 B2B Guest"| FN
+    B2B -.->|"🔗 B2B Guest"| TLL
+    
+    %% Data Flows (Green solid)
+    BCC_RES -->|"📊 ETL"| ADF
+    FN_GUEST -->|"📊 ETL"| ADF
+    TLL_RES -->|"📊 ETL"| ADF
+    ADF -->|"📊 Transform"| STORAGE
+    STORAGE -->|"📊 Analytics"| FABRIC
+    
+    %% Network Flows (Orange)
+    FW ===|"🌐 Hub-Spoke"| BCC
+    FW ===|"🌐 Hub-Spoke"| FN
+    FW ===|"🌐 Hub-Spoke"| TLL
+    
+    %% GitHub CI/CD (Purple)
+    GH_HTT -->|"🚀 Deploy"| SWA
+    GH_HTT -->|"🚀 CI/CD"| HTT
+    GH_BCC -->|"🚀 CI/CD"| BCC
+    GH_FN -->|"🚀 CI/CD"| FN
+    GH_TLL -->|"🚀 CI/CD"| TLL
+
+    %% Styling
+    classDef anchor fill:#2563eb,stroke:#1e40af,color:#fff
+    classDef spoke fill:#64748b,stroke:#475569,color:#fff
+    classDef rg fill:#f1f5f9,stroke:#cbd5e1,color:#334155
+    classDef resource fill:#fff,stroke:#e2e8f0,color:#334155
+    classDef github fill:#24292f,stroke:#1b1f23,color:#fff
+    
+    class HTT anchor
+    class BCC,FN,TLL spoke
+    class NC,MON,DEF,BIDEV,IDDEV,BCC_RES,FN_TENANT,TLL_RES rg
+    class FW,VNET,LOGS,SYNTEX,VM,ADF,STORAGE,DNS,B2B,FABRIC,SWA,FN_GUEST resource
+    class GITHUB,GH_HTT,GH_BCC,GH_FN,GH_TLL github

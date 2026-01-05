@@ -1,0 +1,186 @@
+{
+  "metadata": {
+    "lastUpdated": "2025-12-03",
+    "sources": [
+      "Logically MSP invoices (2025_Azure_M365_LineItems_CORRECTED.csv)",
+      "Direct Microsoft invoices (extracted via scripts/extract-invoice-amounts.py)",
+      "CSP estimates based on Graph API license counts"
+    ]
+  },
+  "cspBillingSources": {
+    "Head to Toe Brands (anchor)": {
+      "csp": "Logically MSP",
+      "type": "Azure + M365",
+      "billingId": "logically",
+      "contact": "Logically Support",
+      "notes": "Primary anchor tenant - Azure consumption + M365 licenses via CSP"
+    },
+    "The Lash Lounge": {
+      "csp": "Sui Generis (SG)",
+      "type": "M365 Only",
+      "billingId": "sg",
+      "contact": "SG CSP Support",
+      "notes": "M365 licenses only via CSP; Azure direct to Microsoft"
+    },
+    "Frenchies": {
+      "csp": "FTG (Franchise Technology Group)",
+      "type": "M365 Only",
+      "billingId": "ftg",
+      "contact": "FTG Support",
+      "notes": "M365 licenses only via CSP; Azure direct to Microsoft"
+    },
+    "Bishops": {
+      "csp": "Direct to Microsoft",
+      "type": "Direct MCA",
+      "billingId": "direct-bcc",
+      "contact": "Microsoft Billing",
+      "notes": "Direct Microsoft Customer Agreement - no CSP"
+    }
+  },
+  "logicallyInvoices": {
+    "2025-03": {
+      "azure": 7834.88,
+      "m365": 1003.60,
+      "fabric": 0,
+      "invoiceDate": "2025-04-15",
+      "invoiceNum": "1167103",
+      "managedServices": 3785.25,
+      "totalInvoice": 12623.73,
+      "notes": "March baseline - NCE usage-based billing"
+    },
+    "2025-04": {
+      "azure": 0,
+      "m365": 1003.60,
+      "fabric": 0,
+      "managedServices": 3785.25,
+      "notes": "No Azure line item - likely reconciled later"
+    },
+    "2025-05": {
+      "azure": 0,
+      "m365": 0,
+      "fabric": 0,
+      "credit": 3395.91,
+      "invoiceDate": "2025-10-15",
+      "invoiceNum": "1181728",
+      "notes": "NCE Sync Credit - reconciliation adjustment"
+    },
+    "2025-06": {
+      "azure": 0,
+      "m365": 1003.60,
+      "fabric": 0,
+      "managedServices": 3785.25,
+      "notes": "Standard M365 month"
+    },
+    "2025-07": {
+      "azure": 0,
+      "m365": 1003.60,
+      "fabric": 0,
+      "managedServices": 3785.25,
+      "notes": "Standard M365 month"
+    },
+    "2025-08": {
+      "azure": 9613.05,
+      "m365": 1003.60,
+      "fabric": 0,
+      "invoiceDate": "2025-09-17",
+      "invoiceNum": "1179516",
+      "managedServices": 3785.25,
+      "totalInvoice": 14196.55,
+      "notes": "Up 22.7% from March - investigate spike"
+    },
+    "2025-09": {
+      "azure": 7848.86,
+      "m365": 1003.60,
+      "fabric": 0,
+      "invoiceDate": "2025-11-17",
+      "invoiceNum": "1183536",
+      "managedServices": 3785.25,
+      "notes": "Back to baseline after August spike"
+    },
+    "2025-10": {
+      "azure": 9613.05,
+      "m365": 1003.60,
+      "fabric": 5152.64,
+      "invoiceDate": "2025-10-15",
+      "invoiceNum": "1181728",
+      "managedServices": 3785.25,
+      "totalInvoice": 15953.28,
+      "notes": "Fabric F64 added - prorated $5,152.64"
+    },
+    "2025-11": {
+      "azure": 0,
+      "m365": 1003.60,
+      "fabric": 3152.64,
+      "invoiceDate": "2025-11-17",
+      "invoiceNum": "1183536",
+      "managedServices": 3785.25,
+      "totalInvoice": 7941.49,
+      "notes": "Fabric F64 full month = $3,152.64 (64 CU)"
+    }
+  },
+  "httDirectInvoices": {
+    "2025-01": { "invoices": 2, "total": 1036.50, "notes": "G071889929 ($436.50), G072799354 ($600.00)" },
+    "2025-02": { "invoices": 2, "total": 1036.50, "notes": "G075998976 ($436.50), G076826031 ($600.00)" },
+    "2025-03": { "invoices": 2, "total": 1036.50, "notes": "G080379855 ($436.50), G081080344 ($600.00)" },
+    "2025-04": { "invoices": 3, "total": 1080.94, "notes": "G084942109 ($436.50), G085175952 ($44.44), G085597019 ($600.00)" },
+    "2025-05": { "invoices": 4, "total": 1036.50, "notes": "G089523960 ($0), G089757937 ($436.50), G090208648 ($600.00), G094174126 ($0)" },
+    "2025-06": { "invoices": 2, "total": 1036.50, "notes": "G094637608 ($436.50), G095044383 ($600.00)" },
+    "2025-07": { "invoices": 3, "total": 1043.70, "notes": "G099705579 ($436.50), G100080945 ($600.00), G101665169 ($7.20)" },
+    "2025-08": { "invoices": 5, "total": 1329.40, "notes": "G104928601 ($604.50), G105019156 ($21.70), G105245626 ($600.00), G106934484 ($7.20), G109955429 ($96.00)" },
+    "2025-09": { "invoices": 3, "total": 1379.70, "notes": "G110619321 ($772.50), G110876801 ($600.00), G112765398 ($7.20)" },
+    "2025-10": { "invoices": 4, "total": 1227.30, "notes": "G116328204 ($616.50), G116510093 ($3.60), G116661347 ($600.00), G118310922 ($7.20)" },
+    "2025-11": { "invoices": 4, "total": 1204.48, "notes": "G121625342 ($590.70), G121803798 ($6.58), G122058596 ($600.00), G123701725 ($7.20)" }
+  },
+  "bccDirectInvoices": {
+    "2025-01": { "invoices": 1, "total": 65.70, "notes": "G075497271 ($65.70)" },
+    "2025-02": { "invoices": 1, "total": 65.70, "notes": "G079878471 ($65.70)" },
+    "2025-03": { "invoices": 1, "total": 65.70, "notes": "G084356112 ($65.70)" },
+    "2025-04": { "invoices": 1, "total": 65.70, "notes": "G089046540 ($65.70)" },
+    "2025-05": { "invoices": 1, "total": 65.70, "notes": "G093881362 ($65.70)" },
+    "2025-06": { "invoices": 2, "total": 108.90, "notes": "G096803009 ($43.20), G098986733 ($65.70)" },
+    "2025-07": { "invoices": 2, "total": 108.90, "notes": "G101741459 ($43.20), G104041937 ($65.70)" },
+    "2025-08": { "invoices": 1, "total": 36.00, "notes": "G107040056 ($36.00)" },
+    "2025-09": { "invoices": 1, "total": 21.60, "notes": "G112918119 ($21.60)" },
+    "2025-10": { "invoices": 1, "total": 21.60, "notes": "G118519555 ($21.60)" },
+    "2025-11": { "invoices": 2, "total": 121.60, "notes": "G123806729 ($21.60), G125802198 ($100.00)" }
+  },
+  "tllDirectInvoices": {
+    "2025-06": { "invoices": 1, "total": 100.00, "notes": "G098782301 - Azure RI only" },
+    "2025-08": { "invoices": 1, "total": 100.00, "notes": "G106437954 - Azure RI" },
+    "2025-09": { "invoices": 1, "total": 100.00, "notes": "G111567502 - Azure RI" },
+    "2025-10": { "invoices": 1, "total": 100.00, "notes": "G117193365 - Azure RI" },
+    "2025-11": { "invoices": 1, "total": 100.00, "notes": "G123234792 - Azure RI" }
+  },
+  "fnDirectInvoices": {
+    "2025-08": { "invoices": 1, "total": 0.00, "notes": "G106231033 - $0 (free tier)" },
+    "2025-09": { "invoices": 1, "total": 0.00, "notes": "G112231900 - $0" },
+    "2025-10": { "invoices": 1, "total": 0.00, "notes": "G117864387 - $0" },
+    "2025-11": { "invoices": 1, "total": 0.00, "notes": "G122846648 - $0" }
+  },
+  "sgCspInvoices": {
+    "2025-01": { "m365Est": 350.00, "notes": "Est. ~16 users @ $22 - pending CSP invoice" },
+    "2025-02": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-03": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-04": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-05": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-06": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-07": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-08": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-09": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-10": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" },
+    "2025-11": { "m365Est": 350.00, "notes": "Est. - pending CSP invoice" }
+  },
+  "ftgCspInvoices": {
+    "2025-01": { "m365Est": 200.00, "notes": "Est. ~9 users @ $22 - pending CSP invoice" },
+    "2025-02": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-03": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-04": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-05": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-06": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-07": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-08": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-09": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-10": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" },
+    "2025-11": { "m365Est": 200.00, "notes": "Est. - pending CSP invoice" }
+  }
+}

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cost & License Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="./config.js"></script>
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Head to Toe Brands</p>
+        <h1>Cost & License Oversight</h1>
+        <p class="subhead">
+          Multi-tenant spend, resource breakdowns, and license utilization with executive-friendly filters.
+        </p>
+        <div class="hero-actions">
+          <button id="refresh-btn" class="btn primary">Refresh data</button>
+          <button id="trigger-btn" class="btn ghost">Trigger full refresh</button>
+        </div>
+      </div>
+      <div class="badge" id="dataset-meta"></div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Filters</h2>
+          <p class="muted">Switch timeframes or focus on a single tenant or subscription.</p>
+        </div>
+      </div>
+      <div class="filters">
+        <label>
+          Period
+          <select id="period-select">
+            <option value="mtd">Month to date</option>
+            <option value="prev-month">Previous month</option>
+            <option value="6m">Last 6 months</option>
+            <option value="12m">Last 12 months</option>
+            <option value="custom">Custom range</option>
+          </select>
+        </label>
+        <label class="date-range">
+          From
+          <input type="date" id="from-date" />
+        </label>
+        <label class="date-range">
+          To
+          <input type="date" id="to-date" />
+        </label>
+        <label>
+          Tenant
+          <select id="tenant-select"></select>
+        </label>
+        <label>
+          Subscription
+          <select id="subscription-select"></select>
+        </label>
+      </div>
+    </section>
+
+    <section class="grid kpis" id="kpi-cards"></section>
+
+    <section class="grid two-col">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h3>Daily burn</h3>
+            <p class="muted">Trend over the selected window</p>
+          </div>
+        </div>
+        <canvas id="daily-chart" height="220"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h3>Top services</h3>
+            <p class="muted">Cost by service name</p>
+          </div>
+        </div>
+        <canvas id="services-chart" height="220"></canvas>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Subscriptions</h3>
+          <p class="muted">MTD spend and owners</p>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table id="subscriptions-table">
+          <thead>
+            <tr>
+              <th>Tenant</th>
+              <th>Subscription</th>
+              <th>Tags</th>
+              <th>Owners</th>
+              <th class="num">Spend</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Resource groups & resources</h3>
+          <p class="muted">Breakdown by RG, resource, service</p>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table id="resources-table">
+          <thead>
+            <tr>
+              <th>Tenant</th>
+              <th>Subscription</th>
+              <th>Resource group</th>
+              <th>Resource</th>
+              <th>Meter category</th>
+              <th>Service</th>
+              <th class="num">Cost</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Licenses</h3>
+          <p class="muted">Subscribed SKUs and assigned users</p>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table id="licenses-table">
+          <thead>
+            <tr>
+              <th>Tenant</th>
+              <th>SKU</th>
+              <th>Status</th>
+              <th>Prepaid</th>
+              <th>Consumed</th>
+              <th>Available</th>
+              <th>Assigned users</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>
+        Data source: Azure Cost Management + Microsoft Graph.
+        <span id="data-url"></span>
+      </p>
+    </footer>
+
+    <script src="./dashboard.js"></script>
+  </body>
+</html>
