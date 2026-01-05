@@ -648,16 +648,36 @@ async def get_input_with_combined_completion(
         else:
             event.current_buffer.validate_and_handle()
 
-    # Handle bracketed paste - TEXT ONLY, never check clipboard for images.
-    # Drag-and-drop sends file paths through this handler (as text), and paste
-    # operations send text through here too. We should NOT conflate this with
-    # clipboard image capture - those are separate operations (Ctrl+V / F3).
+    # Handle bracketed paste - smart detection for text vs images.
+    # Most terminals (Windows included!) send Ctrl+V through bracketed paste.
+    # - If there's meaningful text content → paste as text (drag-and-drop file paths, copied text)
+    # - If text is empty/whitespace → check for clipboard image (image paste on Windows)
     @bindings.add(Keys.BracketedPaste)
     def handle_bracketed_paste(event):
-        """Handle bracketed paste - insert text data only."""
+        """Handle bracketed paste - smart text vs image detection."""
         pasted_data = event.data
-        if pasted_data:
+
+        # If we have meaningful text content, paste it (don't check for images)
+        # This handles drag-and-drop file paths and normal text paste
+        if pasted_data and pasted_data.strip():
             # Normalize Windows line endings to Unix style
+            sanitized_data = pasted_data.replace("\r\n", "\n").replace("\r", "\n")
+            event.app.current_buffer.insert_text(sanitized_data)
+            return
+
+        # No meaningful text - check if clipboard has an image (Windows image paste!)
+        try:
+            if has_image_in_clipboard():
+                placeholder = capture_clipboard_image_to_pending()
+                if placeholder:
+                    event.app.current_buffer.insert_text(placeholder + " ")
+                    event.app.output.bell()
+                    return
+        except Exception:
+            pass
+
+        # Fallback: if there was whitespace-only data, paste it
+        if pasted_data:
             sanitized_data = pasted_data.replace("\r\n", "\n").replace("\r", "\n")
             event.app.current_buffer.insert_text(sanitized_data)
 
