@@ -122,7 +122,6 @@ def slide_mcp() -> str:
     content += "[white]Supercharge with external tools![/white]\n\n"
     content += "[green]Commands:[/green]\n"
     content += "  [cyan]/mcp install[/cyan]  Browse catalog\n"
-    content += "  [cyan]/mcp add[/cyan]      Add custom server\n"
     content += "  [cyan]/mcp list[/cyan]     See your servers\n\n"
     content += "[yellow]🌟 Popular picks:[/yellow]\n"
     content += "  • GitHub integration\n"

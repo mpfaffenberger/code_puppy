@@ -28,6 +28,31 @@ from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
 from code_puppy.messaging import emit_info
 
 
+def _expand_env_vars(value: Any) -> Any:
+    """
+    Recursively expand environment variables in config values.
+
+    Supports $VAR and ${VAR} syntax. Works with:
+    - Strings: expands env vars
+    - Dicts: recursively expands all string values
+    - Lists: recursively expands all string elements
+    - Other types: returned as-is
+
+    Args:
+        value: The value to expand env vars in
+
+    Returns:
+        The value with env vars expanded
+    """
+    if isinstance(value, str):
+        return os.path.expandvars(value)
+    elif isinstance(value, dict):
+        return {k: _expand_env_vars(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [_expand_env_vars(item) for item in value]
+    return value
+
+
 class ServerState(Enum):
     """Enumeration of possible server states."""
 
@@ -153,9 +178,9 @@ class ManagedMCPServer:
                 if "url" not in config:
                     raise ValueError("SSE server requires 'url' in config")
 
-                # Prepare arguments for MCPServerSSE
+                # Prepare arguments for MCPServerSSE (expand env vars in URL)
                 sse_kwargs = {
-                    "url": config["url"],
+                    "url": _expand_env_vars(config["url"]),
                 }
 
                 # Add optional parameters if provided
@@ -177,21 +202,23 @@ class ManagedMCPServer:
                 if "command" not in config:
                     raise ValueError("Stdio server requires 'command' in config")
 
-                # Handle command and arguments
-                command = config["command"]
+                # Handle command and arguments (expand env vars)
+                command = _expand_env_vars(config["command"])
                 args = config.get("args", [])
                 if isinstance(args, str):
-                    # If args is a string, split it
-                    args = args.split()
+                    # If args is a string, split it then expand
+                    args = [_expand_env_vars(a) for a in args.split()]
+                else:
+                    args = _expand_env_vars(args)
 
                 # Prepare arguments for MCPServerStdio
                 stdio_kwargs = {"command": command, "args": list(args) if args else []}
 
-                # Add optional parameters if provided
+                # Add optional parameters if provided (expand env vars in env and cwd)
                 if "env" in config:
-                    stdio_kwargs["env"] = config["env"]
+                    stdio_kwargs["env"] = _expand_env_vars(config["env"])
                 if "cwd" in config:
-                    stdio_kwargs["cwd"] = config["cwd"]
+                    stdio_kwargs["cwd"] = _expand_env_vars(config["cwd"])
                 if "timeout" in config:
                     stdio_kwargs["timeout"] = config["timeout"]
                 if "read_timeout" in config:
@@ -212,9 +239,9 @@ class ManagedMCPServer:
                 if "url" not in config:
                     raise ValueError("HTTP server requires 'url' in config")
 
-                # Prepare arguments for MCPServerStreamableHTTP
+                # Prepare arguments for MCPServerStreamableHTTP (expand env vars in URL)
                 http_kwargs = {
-                    "url": config["url"],
+                    "url": _expand_env_vars(config["url"]),
                 }
 
                 # Add optional parameters if provided
@@ -223,13 +250,14 @@ class ManagedMCPServer:
                 if "read_timeout" in config:
                     http_kwargs["read_timeout"] = config["read_timeout"]
 
-                # Handle http_client vs headers (mutually exclusive)
-                if "http_client" in config:
-                    # Use provided http_client
-                    http_kwargs["http_client"] = config["http_client"]
-                elif config.get("headers"):
-                    # Create HTTP client if headers are provided but no client specified
-                    http_kwargs["http_client"] = self._get_http_client()
+                # Pass headers directly instead of creating http_client
+                # Note: There's a bug in MCP 1.25.0 where passing http_client
+                # causes "'_AsyncGeneratorContextManager' object has no attribute 'stream'"
+                # The workaround is to pass headers directly and let pydantic-ai
+                # create the http_client internally.
+                if config.get("headers"):
+                    # Expand environment variables in headers
+                    http_kwargs["headers"] = _expand_env_vars(config["headers"])
 
                 self._pydantic_server = MCPServerStreamableHTTP(
                     **http_kwargs, process_tool_call=process_tool_call

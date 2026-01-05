@@ -43,7 +43,7 @@ CUSTOM_SERVER_EXAMPLES = {
   "type": "http",
   "url": "http://localhost:8080/mcp",
   "headers": {
-    "Authorization": "Bearer YOUR_API_KEY",
+    "Authorization": "Bearer $MY_API_KEY",
     "Content-Type": "application/json"
   },
   "timeout": 30
@@ -52,7 +52,7 @@ CUSTOM_SERVER_EXAMPLES = {
   "type": "sse",
   "url": "http://localhost:8080/sse",
   "headers": {
-    "Authorization": "Bearer YOUR_API_KEY"
+    "Authorization": "Bearer $MY_API_KEY"
   }
 }""",
 }
@@ -367,24 +367,59 @@ class CustomServerForm:
         config_dict = json.loads(self.json_config)
 
         try:
-            server_config = ServerConfig(
-                id=server_name,
-                name=server_name,
-                type=server_type,
-                enabled=True,
-                config=config_dict,
-            )
+            # In edit mode, find the existing server and update it
+            if self.edit_mode and self.original_name:
+                existing_config = self.manager.get_server_by_name(self.original_name)
+                if existing_config:
+                    # Use the existing server's ID for the update
+                    server_config = ServerConfig(
+                        id=existing_config.id,
+                        name=server_name,
+                        type=server_type,
+                        enabled=True,
+                        config=config_dict,
+                    )
 
-            # Register with manager
-            server_id = self.manager.register_server(server_config)
+                    # Update the server in the manager
+                    success = self.manager.update_server(
+                        existing_config.id, server_config
+                    )
 
-            if not server_id:
-                self.validation_error = "Failed to register server"
-                self.status_message = (
-                    "Save failed: Could not register server (name may already exist)"
+                    if not success:
+                        self.validation_error = "Failed to update server"
+                        self.status_message = "Save failed: Could not update server"
+                        self.status_is_error = True
+                        return False
+
+                    server_id = existing_config.id
+                else:
+                    # Original server not found, treat as new registration
+                    server_config = ServerConfig(
+                        id=server_name,
+                        name=server_name,
+                        type=server_type,
+                        enabled=True,
+                        config=config_dict,
+                    )
+                    server_id = self.manager.register_server(server_config)
+            else:
+                # New server - register it
+                server_config = ServerConfig(
+                    id=server_name,
+                    name=server_name,
+                    type=server_type,
+                    enabled=True,
+                    config=config_dict,
                 )
-                self.status_is_error = True
-                return False
+
+                # Register with manager
+                server_id = self.manager.register_server(server_config)
+
+                if not server_id:
+                    self.validation_error = "Failed to register server"
+                    self.status_message = "Save failed: Could not register server (name may already exist)"
+                    self.status_is_error = True
+                    return False
 
             # Save to mcp_servers.json for persistence
             if os.path.exists(MCP_SERVERS_FILE):

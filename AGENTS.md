@@ -295,7 +295,6 @@ Code Puppy supports MCP servers for extended functionality:
 /mcp list              # List configured servers
 /mcp search <query>    # Search MCP registry
 /mcp install <name>    # Install from registry
-/mcp add               # Add custom server
 /mcp start <name>      # Start a server
 /mcp stop <name>       # Stop a server
 /mcp status            # Check server status

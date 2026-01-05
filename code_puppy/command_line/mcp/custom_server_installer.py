@@ -24,7 +24,7 @@ CUSTOM_SERVER_EXAMPLES = {
   "type": "http",
   "url": "http://localhost:8080/mcp",
   "headers": {
-    "Authorization": "Bearer YOUR_API_KEY",
+    "Authorization": "Bearer $MY_API_KEY",
     "Content-Type": "application/json"
   },
   "timeout": 30
@@ -33,7 +33,7 @@ CUSTOM_SERVER_EXAMPLES = {
   "type": "sse",
   "url": "http://localhost:8080/sse",
   "headers": {
-    "Authorization": "Bearer YOUR_API_KEY"
+    "Authorization": "Bearer $MY_API_KEY"
   }
 }""",
 }
