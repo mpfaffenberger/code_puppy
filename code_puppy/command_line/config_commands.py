@@ -43,6 +43,7 @@ def handle_show_command(command: str) -> bool:
         get_protected_token_count,
         get_puppy_name,
         get_temperature,
+        get_use_dbos,
         get_yolo_mode,
     )
     from code_puppy.keymap import get_cancel_agent_display_name
@@ -71,6 +72,7 @@ def handle_show_command(command: str) -> bool:
 [bold]default_agent:[/bold]        [cyan]{default_agent}[/cyan]
 [bold]model:[/bold]                 [green]{model}[/green]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
+[bold]DBOS:[/bold]                  {"[green]enabled[/green]" if get_use_dbos() else "[yellow]disabled[/yellow]"} (toggle: /set enable_dbos true|false)
 [bold]auto_save_session:[/bold]     {"[green]enabled[/green]" if auto_save else "[yellow]disabled[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
@@ -211,6 +213,14 @@ def handle_set_command(command: str) -> bool:
         )
         return True
     if key:
+        # Check if we're toggling DBOS enablement
+        if key == "enable_dbos":
+            emit_info(
+                Text.from_markup(
+                    "[yellow]⚠️ DBOS configuration changed. Please restart Code Puppy for this change to take effect.[/yellow]"
+                )
+            )
+
         # Validate cancel_agent_key before setting
         if key == "cancel_agent_key":
             from code_puppy.keymap import VALID_CANCEL_KEYS

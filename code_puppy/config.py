@@ -47,6 +47,7 @@ MODELS_FILE = os.path.join(DATA_DIR, "models.json")
 EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
+_DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
 # OAuth plugin model files (XDG_DATA_HOME)
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
@@ -59,6 +60,21 @@ AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
 
 # State files (XDG_STATE_HOME)
 COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
+DBOS_DATABASE_URL = os.environ.get(
+    "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
+)
+# DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
+# Default: False (DBOS disabled) unless explicitly enabled.
+
+
+def get_use_dbos() -> bool:
+    """Return True if DBOS should be used based on 'enable_dbos' (default False)."""
+    cfg_val = get_value("enable_dbos")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
@@ -193,6 +209,8 @@ def get_config_keys():
         "default_agent",
         "temperature",
     ]
+    # Add DBOS control key
+    default_keys.append("enable_dbos")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
     # Add banner color keys
@@ -1027,6 +1045,11 @@ def set_http2(enabled: bool) -> None:
         enabled: Whether to enable HTTP/2 for httpx clients
     """
     set_config_value("http2", "true" if enabled else "false")
+
+
+def set_enable_dbos(enabled: bool) -> None:
+    """Enable DBOS via config (true enables, default false)."""
+    set_config_value("enable_dbos", "true" if enabled else "false")
 
 
 def get_message_limit(default: int = 1000) -> int:

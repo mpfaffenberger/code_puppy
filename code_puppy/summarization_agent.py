@@ -4,7 +4,10 @@ from typing import List
 
 from pydantic_ai import Agent
 
-from code_puppy.config import get_global_model_name
+from code_puppy.config import (
+    get_global_model_name,
+    get_use_dbos,
+)
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
 # Keep a module-level agent reference to avoid rebuilding per call
@@ -103,6 +106,13 @@ def reload_summarization_agent():
         retries=1,  # Fewer retries for summarization
         model_settings=model_settings,
     )
+    if get_use_dbos():
+        from pydantic_ai.durable_exec.dbos import DBOSAgent
+
+        global _reload_count
+        _reload_count += 1
+        dbos_agent = DBOSAgent(agent, name=f"summarization-agent-{_reload_count}")
+        return dbos_agent
     return agent
 
 
