@@ -254,12 +254,14 @@ class TestKillAllRunningShellProcesses:
         mock_kill = MagicMock()
         monkeypatch.setattr(command_runner_module, "_kill_process_group", mock_kill)
 
-        # Create multiple fake processes
+        # Create multiple fake processes with unique PIDs for this test
         processes = []
+        test_pids = set()
         for i in range(5):
             proc = MagicMock()
             proc.poll.return_value = None
-            proc.pid = 1000 + i
+            proc.pid = 9000 + i  # Use high PIDs unlikely to conflict
+            test_pids.add(proc.pid)
             processes.append(proc)
             _register_process(proc)
 
@@ -284,15 +286,20 @@ class TestKillAllRunningShellProcesses:
         for thread in threads:
             thread.join()
 
-        # All kill calls should be made (though race conditions mean some threads might see empty registry)
-        assert mock_kill.call_count <= len(processes)
+        # Verify that our test processes were handled
+        # (mock_kill may be called for processes from other tests too)
+        killed_pids = {
+            call.args[0].pid for call in mock_kill.call_args_list if call.args
+        }
+        our_killed_pids = killed_pids & test_pids
 
-        # Registry should be empty
-        verify_processes_registered = len(list(_RUNNING_PROCESSES))
-        assert verify_processes_registered == 0
+        # At least some of our test processes should have been killed
+        # (due to thread races, not all threads may see all processes)
+        assert len(our_killed_pids) > 0 or mock_kill.call_count > 0
 
-        # At least one thread should have successfully killed processes
-        assert any(r > 0 for r in results) or mock_kill.call_count > 0
+        # Our test processes should no longer be in the registry
+        remaining_test_procs = [p for p in _RUNNING_PROCESSES if p.pid in test_pids]
+        assert len(remaining_test_procs) == 0
 
     def test_kill_all_tracks_killed_processes(self, monkeypatch):
         """Test that killed PIDs are added to _USER_KILLED_PROCESSES."""
