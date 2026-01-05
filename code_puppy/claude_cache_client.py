@@ -9,13 +9,18 @@ serialization, avoiding httpx/Pydantic internals.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import time
 from typing import Any, Callable, MutableMapping
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Refresh token if it's older than 1 hour (3600 seconds)
+TOKEN_MAX_AGE_SECONDS = 3600
 
 try:
     from anthropic import AsyncAnthropic
@@ -24,9 +29,108 @@ except ImportError:  # pragma: no cover - optional dep
 
 
 class ClaudeCacheAsyncClient(httpx.AsyncClient):
+    def _get_jwt_age_seconds(self, token: str | None) -> float | None:
+        """Decode a JWT and return its age in seconds.
+
+        Returns None if the token can't be decoded or has no timestamp claims.
+        Uses 'iat' (issued at) if available, otherwise calculates from 'exp'.
+        """
+        if not token:
+            return None
+
+        try:
+            # JWT format: header.payload.signature
+            # We only need the payload (second part)
+            parts = token.split(".")
+            if len(parts) != 3:
+                return None
+
+            # Decode the payload (base64url encoded)
+            payload_b64 = parts[1]
+            # Add padding if needed (base64url doesn't require padding)
+            padding = 4 - len(payload_b64) % 4
+            if padding != 4:
+                payload_b64 += "=" * padding
+
+            payload_bytes = base64.urlsafe_b64decode(payload_b64)
+            payload = json.loads(payload_bytes.decode("utf-8"))
+
+            now = time.time()
+
+            # Prefer 'iat' (issued at) claim if available
+            if "iat" in payload:
+                iat = float(payload["iat"])
+                age = now - iat
+                return age
+
+            # Fall back to calculating from 'exp' claim
+            # Assume tokens are typically valid for 1 hour
+            if "exp" in payload:
+                exp = float(payload["exp"])
+                # If exp is in the future, calculate how long until expiry
+                # and assume the token was issued 1 hour before expiry
+                time_until_exp = exp - now
+                # If token has less than 1 hour left, it's "old"
+                age = TOKEN_MAX_AGE_SECONDS - time_until_exp
+                return max(0, age)
+
+            return None
+        except Exception as exc:
+            logger.debug("Failed to decode JWT age: %s", exc)
+            return None
+
+    def _extract_bearer_token(self, request: httpx.Request) -> str | None:
+        """Extract the bearer token from request headers."""
+        auth_header = request.headers.get("Authorization") or request.headers.get(
+            "authorization"
+        )
+        if auth_header and auth_header.lower().startswith("bearer "):
+            return auth_header[7:]  # Strip "Bearer " prefix
+        return None
+
+    def _should_refresh_token(self, request: httpx.Request) -> bool:
+        """Check if the token in the request is older than 1 hour."""
+        token = self._extract_bearer_token(request)
+        if not token:
+            return False
+
+        age = self._get_jwt_age_seconds(token)
+        if age is None:
+            return False
+
+        should_refresh = age >= TOKEN_MAX_AGE_SECONDS
+        if should_refresh:
+            logger.info(
+                "JWT token is %.1f seconds old (>= %d), will refresh proactively",
+                age,
+                TOKEN_MAX_AGE_SECONDS,
+            )
+        return should_refresh
+
     async def send(
         self, request: httpx.Request, *args: Any, **kwargs: Any
     ) -> httpx.Response:  # type: ignore[override]
+        # Proactive token refresh: check JWT age before every request
+        if not request.extensions.get("claude_oauth_refresh_attempted"):
+            try:
+                if self._should_refresh_token(request):
+                    refreshed_token = self._refresh_claude_oauth_token()
+                    if refreshed_token:
+                        logger.info("Proactively refreshed token before request")
+                        # Rebuild request with new token
+                        headers = dict(request.headers)
+                        self._update_auth_headers(headers, refreshed_token)
+                        body_bytes = self._extract_body_bytes(request)
+                        request = self.build_request(
+                            method=request.method,
+                            url=request.url,
+                            headers=headers,
+                            content=body_bytes,
+                        )
+                        request.extensions["claude_oauth_refresh_attempted"] = True
+            except Exception as exc:
+                logger.debug("Error during proactive token refresh check: %s", exc)
+
         try:
             if request.url.path.endswith("/v1/messages"):
                 body_bytes = self._extract_body_bytes(request)

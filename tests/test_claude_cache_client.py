@@ -1,11 +1,249 @@
 """Tests for Claude cache client with token refresh on Cloudflare errors."""
 
+import base64
+import json
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
 
-from code_puppy.claude_cache_client import ClaudeCacheAsyncClient
+from code_puppy.claude_cache_client import TOKEN_MAX_AGE_SECONDS, ClaudeCacheAsyncClient
+
+
+def _create_jwt(iat: float | None = None, exp: float | None = None) -> str:
+    """Create a test JWT with specified claims."""
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {}
+    if iat is not None:
+        payload["iat"] = iat
+    if exp is not None:
+        payload["exp"] = exp
+
+    header_b64 = (
+        base64.urlsafe_b64encode(json.dumps(header).encode()).rstrip(b"=").decode()
+    )
+    payload_b64 = (
+        base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    )
+    signature = "fake_signature"
+
+    return f"{header_b64}.{payload_b64}.{signature}"
+
+
+class TestJWTAgeDetection:
+    """Test JWT age detection for proactive token refresh."""
+
+    def test_get_jwt_age_with_iat(self):
+        """Test that JWT age is calculated from iat claim."""
+        # Token issued 30 minutes ago
+        iat = time.time() - 1800
+        token = _create_jwt(iat=iat)
+
+        client = ClaudeCacheAsyncClient()
+        age = client._get_jwt_age_seconds(token)
+
+        assert age is not None
+        assert 1790 <= age <= 1810  # Allow for timing variance
+
+    def test_get_jwt_age_with_exp_only(self):
+        """Test that JWT age is calculated from exp claim when iat is missing."""
+        # Token expires in 30 minutes (so it's about 30 mins old if 1hr lifetime)
+        exp = time.time() + 1800
+        token = _create_jwt(exp=exp)
+
+        client = ClaudeCacheAsyncClient()
+        age = client._get_jwt_age_seconds(token)
+
+        assert age is not None
+        # Age should be TOKEN_MAX_AGE_SECONDS - time_until_exp = 3600 - 1800 = 1800
+        assert 1790 <= age <= 1810
+
+    def test_get_jwt_age_prefers_iat(self):
+        """Test that iat claim is preferred over exp for age calculation."""
+        iat = time.time() - 600  # 10 minutes ago
+        exp = time.time() + 3000  # expires in 50 minutes
+        token = _create_jwt(iat=iat, exp=exp)
+
+        client = ClaudeCacheAsyncClient()
+        age = client._get_jwt_age_seconds(token)
+
+        # Should use iat (10 mins = 600 secs) not exp
+        assert age is not None
+        assert 590 <= age <= 610
+
+    def test_get_jwt_age_invalid_token(self):
+        """Test that invalid tokens return None."""
+        client = ClaudeCacheAsyncClient()
+
+        assert client._get_jwt_age_seconds(None) is None
+        assert client._get_jwt_age_seconds("") is None
+        assert client._get_jwt_age_seconds("not.a.valid.jwt") is None
+        assert client._get_jwt_age_seconds("invalid") is None
+
+    def test_get_jwt_age_no_timestamp_claims(self):
+        """Test that JWT without timestamp claims returns None."""
+        token = _create_jwt()  # No iat or exp
+
+        client = ClaudeCacheAsyncClient()
+        age = client._get_jwt_age_seconds(token)
+
+        assert age is None
+
+    def test_should_refresh_token_old(self):
+        """Test that old tokens (>1 hour) trigger refresh."""
+        # Token issued 2 hours ago
+        iat = time.time() - 7200
+        token = _create_jwt(iat=iat)
+
+        request = httpx.Request(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        client = ClaudeCacheAsyncClient()
+        assert client._should_refresh_token(request) is True
+
+    def test_should_refresh_token_fresh(self):
+        """Test that fresh tokens (<1 hour) don't trigger refresh."""
+        # Token issued 30 minutes ago
+        iat = time.time() - 1800
+        token = _create_jwt(iat=iat)
+
+        request = httpx.Request(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        client = ClaudeCacheAsyncClient()
+        assert client._should_refresh_token(request) is False
+
+    def test_should_refresh_token_exactly_1_hour(self):
+        """Test that token exactly 1 hour old triggers refresh."""
+        # Token issued exactly 1 hour ago
+        iat = time.time() - TOKEN_MAX_AGE_SECONDS
+        token = _create_jwt(iat=iat)
+
+        request = httpx.Request(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        client = ClaudeCacheAsyncClient()
+        assert client._should_refresh_token(request) is True
+
+    def test_extract_bearer_token(self):
+        """Test bearer token extraction from headers."""
+        client = ClaudeCacheAsyncClient()
+
+        request = httpx.Request(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+            headers={"Authorization": "Bearer my_token_123"},
+        )
+
+        token = client._extract_bearer_token(request)
+        assert token == "my_token_123"
+
+    def test_extract_bearer_token_missing(self):
+        """Test bearer token extraction when header is missing."""
+        client = ClaudeCacheAsyncClient()
+
+        request = httpx.Request(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+        )
+
+        token = client._extract_bearer_token(request)
+        assert token is None
+
+
+class TestProactiveTokenRefresh:
+    """Test proactive token refresh before requests."""
+
+    @pytest.mark.asyncio
+    async def test_proactive_refresh_on_old_token(self):
+        """Test that old tokens are refreshed proactively before the request."""
+        # Token issued 2 hours ago
+        iat = time.time() - 7200
+        old_token = _create_jwt(iat=iat)
+
+        success_response = Mock(spec=httpx.Response)
+        success_response.status_code = 200
+        success_response.headers = {"content-type": "application/json"}
+
+        with patch.object(
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=success_response,
+        ) as mock_send:
+            with patch.object(
+                ClaudeCacheAsyncClient,
+                "_refresh_claude_oauth_token",
+                return_value="new_fresh_token",
+            ) as mock_refresh:
+                client = ClaudeCacheAsyncClient(
+                    headers={"Authorization": f"Bearer {old_token}"}
+                )
+
+                request = httpx.Request(
+                    "POST",
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"Authorization": f"Bearer {old_token}"},
+                    content=b'{"model": "claude-3-opus"}',
+                )
+
+                response = await client.send(request)
+
+                # Refresh should have been called proactively
+                mock_refresh.assert_called_once()
+
+                # Request should succeed
+                assert response.status_code == 200
+
+                # Only one request should be made (no retry needed)
+                assert mock_send.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_proactive_refresh_on_fresh_token(self):
+        """Test that fresh tokens don't trigger proactive refresh."""
+        # Token issued 30 minutes ago
+        iat = time.time() - 1800
+        fresh_token = _create_jwt(iat=iat)
+
+        success_response = Mock(spec=httpx.Response)
+        success_response.status_code = 200
+        success_response.headers = {"content-type": "application/json"}
+
+        with patch.object(
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=success_response,
+        ):
+            with patch.object(
+                ClaudeCacheAsyncClient,
+                "_refresh_claude_oauth_token",
+            ) as mock_refresh:
+                client = ClaudeCacheAsyncClient(
+                    headers={"Authorization": f"Bearer {fresh_token}"}
+                )
+
+                request = httpx.Request(
+                    "POST",
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"Authorization": f"Bearer {fresh_token}"},
+                    content=b'{"model": "claude-3-opus"}',
+                )
+
+                await client.send(request)
+
+                # Refresh should NOT be called
+                mock_refresh.assert_not_called()
 
 
 class TestCloudflareErrorDetection:

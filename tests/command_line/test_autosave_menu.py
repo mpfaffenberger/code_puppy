@@ -325,8 +325,8 @@ class TestRenderPreviewPanel:
 
     @patch("code_puppy.command_line.autosave_menu.load_session")
     @patch("code_puppy.command_line.autosave_menu._extract_last_user_message")
-    def test_truncates_long_messages(self, mock_extract, mock_load):
-        """Test truncation of overly long messages."""
+    def test_renders_long_messages_in_full(self, mock_extract, mock_load):
+        """Test that long messages are rendered in full without truncation."""
         # Create a very long message (simulated through console output)
         history = []
         mock_load.return_value = history
@@ -339,8 +339,11 @@ class TestRenderPreviewPanel:
         result = _render_preview_panel(Path("/fake"), entry)
         lines_str = str(result)
 
-        # Should indicate truncation
-        assert "truncated" in lines_str or "(truncated)" in lines_str
+        # Should contain all lines without truncation indicator
+        # The implementation deliberately shows full messages without truncation
+        assert "Line 0" in lines_str
+        assert "Line 49" in lines_str  # Last line should be present
+        assert "truncated" not in lines_str.lower()
 
 
 class TestInteractiveAutosavePicker:

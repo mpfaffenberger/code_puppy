@@ -29,7 +29,6 @@ from code_puppy.command_line.attachments import (
 )
 from code_puppy.command_line.clipboard import (
     capture_clipboard_image_to_pending,
-    get_clipboard_manager,
     has_image_in_clipboard,
 )
 from code_puppy.command_line.command_registry import get_unique_commands
@@ -663,16 +662,18 @@ async def get_input_with_combined_completion(
                 placeholder = capture_clipboard_image_to_pending()
                 if placeholder:
                     event.app.current_buffer.insert_text(placeholder + " ")
-                    count = get_clipboard_manager().get_pending_count()
-                    sys.stdout.write(f"\033[36m📋 +image ({count})\033[0m ")
-                    sys.stdout.flush()
+                    # The placeholder itself is visible feedback - no need for extra output
+                    # Use bell for audible feedback (works in most terminals)
+                    event.app.output.bell()
                     return  # Don't also paste the text data
         except Exception:
             pass
 
-        # No image - insert the pasted text as normal
+        # No image - insert the pasted text as normal, sanitizing Windows newlines
         if pasted_data:
-            event.app.current_buffer.insert_text(pasted_data)
+            # Normalize Windows line endings to Unix style
+            sanitized_data = pasted_data.replace("\r\n", "\n").replace("\r", "\n")
+            event.app.current_buffer.insert_text(sanitized_data)
 
     # Fallback Ctrl+V for terminals without bracketed paste support
     @bindings.add("c-v", eager=True)
@@ -684,9 +685,9 @@ async def get_input_with_combined_completion(
                 placeholder = capture_clipboard_image_to_pending()
                 if placeholder:
                     event.app.current_buffer.insert_text(placeholder + " ")
-                    count = get_clipboard_manager().get_pending_count()
-                    sys.stdout.write(f"\033[36m📋 +image ({count})\033[0m ")
-                    sys.stdout.flush()
+                    # The placeholder itself is visible feedback - no need for extra output
+                    # Use bell for audible feedback (works in most terminals)
+                    event.app.output.bell()
                     return  # Don't also paste text
         except Exception:
             pass  # Fall through to text paste on any error
@@ -715,7 +716,7 @@ async def get_input_with_combined_completion(
                     timeout=2,
                 )
                 if result.returncode == 0:
-                    text = result.stdout.rstrip("\r\n")
+                    text = result.stdout
             else:  # Linux
                 # Try xclip first, then xsel
                 for cmd in [
@@ -733,6 +734,10 @@ async def get_input_with_combined_completion(
                         continue
 
             if text:
+                # Normalize Windows line endings to Unix style
+                text = text.replace("\r\n", "\n").replace("\r", "\n")
+                # Strip trailing newline that clipboard tools often add
+                text = text.rstrip("\n")
                 event.app.current_buffer.insert_text(text)
         except Exception:
             pass  # Silently fail if text paste doesn't work
@@ -746,15 +751,16 @@ async def get_input_with_combined_completion(
                 placeholder = capture_clipboard_image_to_pending()
                 if placeholder:
                     event.app.current_buffer.insert_text(placeholder + " ")
-                    count = get_clipboard_manager().get_pending_count()
-                    sys.stdout.write(f"\033[36m📋 +image ({count})\033[0m ")
-                    sys.stdout.flush()
+                    # The placeholder itself is visible feedback
+                    # Use bell for audible feedback (works in most terminals)
+                    event.app.output.bell()
             else:
-                sys.stdout.write("\033[33m⚠️ no image\033[0m ")
-                sys.stdout.flush()
+                # Insert a transient message that user can delete
+                event.app.current_buffer.insert_text("[⚠️ no image in clipboard] ")
+                event.app.output.bell()
         except Exception:
-            sys.stdout.write("\033[31m❌ clipboard error\033[0m ")
-            sys.stdout.flush()
+            event.app.current_buffer.insert_text("[❌ clipboard error] ")
+            event.app.output.bell()
 
     session = PromptSession(
         completer=completer,
