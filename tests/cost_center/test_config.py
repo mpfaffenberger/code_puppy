@@ -10,7 +10,7 @@ from cost_center.config.loader import load_config
 from cost_center.collectors.types import AppConfig, TenantDefinition
 
 
-def test_load_config_success():
+def test_load_config_success(tmp_path):
     """Test loading valid configuration."""
     config_data = {
         "azureClientId": "test-client-id",
@@ -23,9 +23,10 @@ def test_load_config_success():
         ],
     }
 
-    with patch("builtins.open", mock_open(read_data=json.dumps(config_data))):
-        with patch("pathlib.Path.exists", return_value=True):
-            config = load_config("test.json")
+    config_file = tmp_path / "test.json"
+    config_file.write_text(json.dumps(config_data))
+
+    config = load_config(str(config_file))
 
     assert config.azure_client_id == "test-client-id"
     assert len(config.tenants) == 1
@@ -40,7 +41,7 @@ def test_load_config_file_not_found():
             load_config("nonexistent.json")
 
 
-def test_load_config_multiple_tenants():
+def test_load_config_multiple_tenants(tmp_path):
     """Test loading configuration with multiple tenants."""
     config_data = {
         "azureClientId": "test-client-id",
@@ -59,9 +60,10 @@ def test_load_config_multiple_tenants():
         ],
     }
 
-    with patch("builtins.open", mock_open(read_data=json.dumps(config_data))):
-        with patch("pathlib.Path.exists", return_value=True):
-            config = load_config("test.json")
+    config_file = tmp_path / "test.json"
+    config_file.write_text(json.dumps(config_data))
+
+    config = load_config(str(config_file))
 
     assert len(config.tenants) == 2
     assert config.tenants[1].github_org == "test-org"

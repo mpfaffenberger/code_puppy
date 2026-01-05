@@ -3,24 +3,28 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TenantDefinition(BaseModel):
     """Configuration for a single tenant."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
-    tenant_id: str
+    tenant_id: str = Field(alias="tenantId")
     subscriptions: list[str] = Field(default_factory=list)
-    github_org: str | None = None
+    github_org: str | None = Field(None, alias="githubOrg")
 
 
 class AppConfig(BaseModel):
     """Application configuration."""
 
-    azure_client_id: str
-    authority_host: str | None = None
-    admin_consent_redirect_uri: str | None = None
+    model_config = ConfigDict(populate_by_name=True)
+
+    azure_client_id: str = Field(alias="azureClientId")
+    authority_host: str | None = Field(None, alias="authorityHost")
+    admin_consent_redirect_uri: str | None = Field(None, alias="adminConsentRedirectUri")
     tenants: list[TenantDefinition]
 
 
