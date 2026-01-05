@@ -144,13 +144,3 @@ def pytest_sessionfinish(session, exitstatus):
     except subprocess.CalledProcessError:
         # Not a git repo or git not available: ignore silently
         pass
-
-    # After cleanup, print DBOS consolidated report if available
-    try:
-        from tests.integration.cli_expect.harness import get_dbos_reports
-
-        report = get_dbos_reports()
-        if report.strip():
-            print("\n[DBOS Report]\n" + report)
-    except Exception:
-        pass

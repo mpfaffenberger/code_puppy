@@ -5,12 +5,10 @@ with the quirks we learned (\r line endings, tiny delays, optional stdout
 capture). Includes fixtures for pytest.
 """
 
-import json
 import os
 import pathlib
 import random
 import shutil
-import sqlite3
 import sys
 import tempfile
 import time
@@ -27,7 +25,6 @@ owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
 model = synthetic-GLM-4.7
-enable_dbos = true
 """
 
 MOTD_TEMPLATE: Final[str] = """2025-08-24
@@ -90,20 +87,6 @@ class SpawnResult:
     def close_log(self) -> None:
         if hasattr(self, "_log_file") and self._log_file:
             self._log_file.close()
-
-
-# ---------------------------------------------------------------------------
-# DBOS report collection
-# ---------------------------------------------------------------------------
-_dbos_reports: list[str] = []
-
-
-def _safe_json(val):
-    try:
-        json.dumps(val)
-        return val
-    except Exception:
-        return str(val)
 
 
 def _capture_initial_files(temp_home: pathlib.Path) -> set[pathlib.Path]:
@@ -187,57 +170,6 @@ def _cleanup_empty_directories(
         pass
 
 
-def dump_dbos_report(temp_home: pathlib.Path) -> None:
-    """Collect a summary of DBOS SQLite contents for this temp HOME.
-
-    - Lists tables and row counts
-    - Samples up to 2 rows per table
-    Appends human-readable text to a global report buffer.
-    """
-    try:
-        db_path = temp_home / ".code_puppy" / "dbos_store.sqlite"
-        if not db_path.exists():
-            return
-        conn = sqlite3.connect(str(db_path))
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-            )
-            tables = [r[0] for r in cur.fetchall()]
-            lines: list[str] = []
-            lines.append(f"DBOS Report for: {db_path}")
-            if not tables:
-                lines.append("- No user tables found")
-            for t in tables:
-                try:
-                    cur.execute(f"SELECT COUNT(*) FROM {t}")
-                    count = cur.fetchone()[0]
-                    lines.append(f"- {t}: {count} rows")
-                    # Sample up to 2 rows for context
-                    cur.execute(f"SELECT * FROM {t} LIMIT 2")
-                    rows = cur.fetchall()
-                    colnames = (
-                        [d[0] for d in cur.description] if cur.description else []
-                    )
-                    for row in rows:
-                        obj = {colnames[i]: _safe_json(row[i]) for i in range(len(row))}
-                        lines.append(f"  • sample: {obj}")
-                except Exception as te:
-                    lines.append(f"- {t}: error reading table: {te}")
-            lines.append("")
-            _dbos_reports.append("\n".join(lines))
-        finally:
-            conn.close()
-    except Exception:
-        # Silent: reporting should never fail tests
-        pass
-
-
-def get_dbos_reports() -> str:
-    return "\n".join(_dbos_reports)
-
-
 class CliHarness:
     """Manages a temporary CLI environment and pexpect child."""
 
@@ -293,10 +225,6 @@ class CliHarness:
         spawn_env.pop("XDG_DATA_HOME", None)
         spawn_env.pop("XDG_CACHE_HOME", None)
         spawn_env.pop("XDG_STATE_HOME", None)
-        # Ensure DBOS uses a temp sqlite under this HOME
-        dbos_sqlite = code_puppy_dir / "dbos_store.sqlite"
-        spawn_env["DBOS_SYSTEM_DATABASE_URL"] = f"sqlite:///{dbos_sqlite}"
-        spawn_env.setdefault("DBOS_LOG_LEVEL", "ERROR")
         # Skip the interactive tutorial wizard in tests
         spawn_env["CODE_PUPPY_SKIP_TUTORIAL"] = "1"
 
@@ -344,7 +272,7 @@ class CliHarness:
         )
 
     def cleanup(self, result: SpawnResult) -> None:
-        """Terminate the child, dump DBOS report, then remove test-created files unless kept."""
+        """Terminate the child and remove test-created files unless kept."""
         keep_home = os.getenv("CODE_PUPPY_KEEP_TEMP_HOME") in {
             "1",
             "true",
@@ -359,8 +287,6 @@ class CliHarness:
             if result.child.isalive():
                 result.child.terminate(force=True)
         finally:
-            # Dump DBOS report before cleanup
-            dump_dbos_report(result.temp_home)
             if not keep_home:
                 # Use selective cleanup - only delete files created during test
                 use_selective_cleanup = os.getenv(

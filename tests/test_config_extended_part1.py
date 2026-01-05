@@ -16,7 +16,6 @@ from code_puppy.config import (
     get_owner_name,
     get_protected_token_count,
     get_puppy_name,
-    get_use_dbos,
     get_value,
     get_yolo_mode,
     set_config_value,
@@ -44,7 +43,6 @@ class TestConfigExtendedPart1:
                 "protected_token_count": "25000",
                 "compaction_threshold": "0.8",
                 "diff_context_lines": "10",
-                "enable_dbos": "true",
                 "auto_save_session": "false",
             }
             with open(config_file, "w") as f:
@@ -168,20 +166,6 @@ class TestConfigExtendedPart1:
         with patch("code_puppy.config.CONFIG_FILE", config_file):
             result = get_auto_save_session()
             assert result is True  # Default should be True
-
-    def test_get_use_dbos_default(self, temp_config_dir):
-        """Test get_use_dbos returns False when not set"""
-        temp_dir, config_file = temp_config_dir
-
-        # Create config without enable_dbos key
-        config = configparser.ConfigParser()
-        config[DEFAULT_SECTION] = {"puppy_name": "Test"}
-        with open(config_file, "w") as f:
-            config.write(f)
-
-        with patch("code_puppy.config.CONFIG_FILE", config_file):
-            result = get_use_dbos()
-            assert result is False  # Default should be False
 
     def test_integer_conversion_message_limit(self, mock_config_file):
         """Test integer conversion for message_limit"""

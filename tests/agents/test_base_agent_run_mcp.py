@@ -127,54 +127,6 @@ class TestBaseAgentRunMCP:
             assert attachment in call_args
 
     @pytest.mark.asyncio
-    @patch("code_puppy.agents.base_agent.get_use_dbos", return_value=True)
-    @patch("code_puppy.agents.base_agent.SetWorkflowID")
-    async def test_run_with_mcp_with_dbos(
-        self, mock_set_workflow_id, mock_use_dbos, agent
-    ):
-        """Test run_with_mcp with DBOS enabled."""
-        with patch.object(agent, "_code_generation_agent") as mock_agent:
-            mock_run = AsyncMock(return_value=MagicMock(data="dbos response"))
-            mock_agent.run = mock_run
-
-            result = await agent.run_with_mcp("DBOS test")
-
-            assert mock_run.called
-            assert result.data == "dbos response"
-            # Verify DBOS context was used
-            mock_set_workflow_id.assert_called_once()
-            # Verify the call was made with correct parameters
-            call_kwargs = mock_run.call_args[1]
-            assert "message_history" in call_kwargs
-            assert "usage_limits" in call_kwargs
-
-    @pytest.mark.asyncio
-    @patch("code_puppy.agents.base_agent.get_use_dbos", return_value=True)
-    @patch("code_puppy.agents.base_agent.SetWorkflowID")
-    async def test_run_with_mcp_with_dbos_and_mcp_servers(
-        self, mock_set_workflow_id, mock_use_dbos, agent
-    ):
-        """Test run_with_mcp with DBOS and MCP servers."""
-        from mcp import Tool
-
-        # Mock MCP servers
-        mock_server = MagicMock(spec=Tool)
-        agent._mcp_servers = [mock_server]
-
-        with patch.object(agent, "_code_generation_agent") as mock_agent:
-            mock_run = AsyncMock(return_value=MagicMock(data="dbos mcp response"))
-            mock_agent.run = mock_run
-            mock_agent._toolsets = []  # Mock original toolsets
-
-            result = await agent.run_with_mcp("DBOS + MCP test")
-
-            assert mock_run.called
-            assert result.data == "dbos mcp response"
-            # Verify toolsets were temporarily modified
-            assert mock_agent._toolsets == []  # Should be restored
-            mock_set_workflow_id.assert_called_once()
-
-    @pytest.mark.asyncio
     @patch("code_puppy.agents.base_agent.get_message_limit", return_value=1000)
     async def test_run_with_mcp_with_usage_limits(self, mock_get_limit, agent):
         """Test run_with_mcp includes usage limits."""

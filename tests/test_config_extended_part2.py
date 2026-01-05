@@ -7,7 +7,6 @@ from code_puppy.config import (
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
-    get_use_dbos,
     load_mcp_server_configs,
     set_agent_pinned_model,
 )
@@ -108,31 +107,6 @@ class TestConfigExtendedPart2:
             mock_get.return_value = "invalid"
             result = get_compaction_threshold()
             assert result == 0.85  # Default fallback
-
-    def test_get_use_dbos(self, mock_config_file):
-        """Test getting DBOS usage flag"""
-        # Test default (False)
-        with patch("code_puppy.config.get_value") as mock_get:
-            mock_get.return_value = None
-            result = get_use_dbos()
-            assert result is False
-            mock_get.assert_called_once_with("enable_dbos")
-
-        # Test various true values
-        true_values = ["1", "true", "yes", "on", "TRUE", "Yes"]
-        for val in true_values:
-            with patch("code_puppy.config.get_value") as mock_get:
-                mock_get.return_value = val
-                result = get_use_dbos()
-                assert result is True
-
-        # Test various false values
-        false_values = ["0", "false", "no", "off", "", "random"]
-        for val in false_values:
-            with patch("code_puppy.config.get_value") as mock_get:
-                mock_get.return_value = val
-                result = get_use_dbos()
-                assert result is False
 
     def test_load_mcp_server_configs(self):
         """Test loading MCP server configurations"""
