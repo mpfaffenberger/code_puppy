@@ -469,41 +469,57 @@ class MCPManager:
     def start_server_sync(self, server_id: str) -> bool:
         """
         Synchronous wrapper for start_server.
+
+        IMPORTANT: This schedules the server start as a background task.
+        The server subprocess will start asynchronously - it may not be
+        immediately ready when this function returns.
         """
         try:
-            asyncio.get_running_loop()
-            # We're in an async context, but we need to wait for completion
-            # Create a future and schedule the coroutine
+            loop = asyncio.get_running_loop()
+            # We're in an async context - schedule the server start as a background task
+            # DO NOT use blocking time.sleep() here as it freezes the event loop!
 
-            # Use run_in_executor to run the async function synchronously
-            async def run_async():
-                return await self.start_server(server_id)
-
-            # Schedule the task and wait briefly for it to complete
-            task = asyncio.create_task(run_async())
-
-            # Give it a moment to complete - this fixes the race condition
-            import time
-
-            time.sleep(0.1)  # Small delay to let async tasks progress
-
-            # Check if task completed, if not, fall back to sync enable
-            if task.done():
-                try:
-                    result = task.result()
-                    return result
-                except Exception:
-                    pass
-
-            # If async didn't complete, enable synchronously
+            # First, enable the server immediately so it's recognized as "starting"
             managed_server = self._managed_servers.get(server_id)
             if managed_server:
                 managed_server.enable()
-                self.status_tracker.set_status(server_id, ServerState.RUNNING)
+                self.status_tracker.set_status(server_id, ServerState.STARTING)
                 self.status_tracker.record_start_time(server_id)
-                logger.info(f"Enabled server synchronously: {server_id}")
-                return True
-            return False
+
+            # Schedule the async start_server to run in the background
+            # This will properly start the subprocess and lifecycle task
+            async def start_server_background():
+                try:
+                    result = await self.start_server(server_id)
+                    if result:
+                        logger.info(f"Background server start completed: {server_id}")
+                    else:
+                        logger.warning(f"Background server start failed: {server_id}")
+                    return result
+                except Exception as e:
+                    logger.error(f"Background server start error for {server_id}: {e}")
+                    self.status_tracker.set_status(server_id, ServerState.ERROR)
+                    return False
+
+            # Create the task - it will run when the event loop gets control
+            task = loop.create_task(
+                start_server_background(), name=f"start_server_{server_id}"
+            )
+
+            # Store task reference to prevent garbage collection
+            if not hasattr(self, "_pending_start_tasks"):
+                self._pending_start_tasks = {}
+            self._pending_start_tasks[server_id] = task
+
+            # Add callback to clean up task reference when done
+            def cleanup_task(t):
+                if hasattr(self, "_pending_start_tasks"):
+                    self._pending_start_tasks.pop(server_id, None)
+
+            task.add_done_callback(cleanup_task)
+
+            logger.info(f"Scheduled background start for server: {server_id}")
+            return True  # Return immediately - server will start in background
 
         except RuntimeError:
             # No async loop, just enable the server
@@ -582,39 +598,52 @@ class MCPManager:
     def stop_server_sync(self, server_id: str) -> bool:
         """
         Synchronous wrapper for stop_server.
+
+        IMPORTANT: This schedules the server stop as a background task.
+        The server subprocess will stop asynchronously.
         """
         try:
-            asyncio.get_running_loop()
+            loop = asyncio.get_running_loop()
+            # We're in an async context - schedule the server stop as a background task
+            # DO NOT use blocking time.sleep() here as it freezes the event loop!
 
-            # We're in an async context, but we need to wait for completion
-            async def run_async():
-                return await self.stop_server(server_id)
-
-            # Schedule the task and wait briefly for it to complete
-            task = asyncio.create_task(run_async())
-
-            # Give it a moment to complete - this fixes the race condition
-            import time
-
-            time.sleep(0.1)  # Small delay to let async tasks progress
-
-            # Check if task completed, if not, fall back to sync disable
-            if task.done():
-                try:
-                    result = task.result()
-                    return result
-                except Exception:
-                    pass
-
-            # If async didn't complete, disable synchronously
+            # First, disable the server immediately
             managed_server = self._managed_servers.get(server_id)
             if managed_server:
                 managed_server.disable()
-                self.status_tracker.set_status(server_id, ServerState.STOPPED)
+                self.status_tracker.set_status(server_id, ServerState.STOPPING)
                 self.status_tracker.record_stop_time(server_id)
-                logger.info(f"Disabled server synchronously: {server_id}")
-                return True
-            return False
+
+            # Schedule the async stop_server to run in the background
+            async def stop_server_background():
+                try:
+                    result = await self.stop_server(server_id)
+                    if result:
+                        logger.info(f"Background server stop completed: {server_id}")
+                    return result
+                except Exception as e:
+                    logger.error(f"Background server stop error for {server_id}: {e}")
+                    return False
+
+            # Create the task - it will run when the event loop gets control
+            task = loop.create_task(
+                stop_server_background(), name=f"stop_server_{server_id}"
+            )
+
+            # Store task reference to prevent garbage collection
+            if not hasattr(self, "_pending_stop_tasks"):
+                self._pending_stop_tasks = {}
+            self._pending_stop_tasks[server_id] = task
+
+            # Add callback to clean up task reference when done
+            def cleanup_task(t):
+                if hasattr(self, "_pending_stop_tasks"):
+                    self._pending_stop_tasks.pop(server_id, None)
+
+            task.add_done_callback(cleanup_task)
+
+            logger.info(f"Scheduled background stop for server: {server_id}")
+            return True  # Return immediately - server will stop in background
 
         except RuntimeError:
             # No async loop, just disable the server

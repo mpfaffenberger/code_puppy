@@ -3,7 +3,6 @@ MCP Start Command - Starts a specific MCP server.
 """
 
 import logging
-import time
 from typing import List, Optional
 
 from rich.text import Text
@@ -23,6 +22,7 @@ class StartCommand(MCPCommandBase):
     Command handler for starting MCP servers.
 
     Starts a specific MCP server by name and reloads the agent.
+    The server subprocess starts asynchronously in the background.
     """
 
     def execute(self, args: List[str], group_id: Optional[str] = None) -> None:
@@ -56,31 +56,49 @@ class StartCommand(MCPCommandBase):
                 suggest_similar_servers(self.manager, server_name, group_id=group_id)
                 return
 
-            # Start the server (enable and start process)
+            # Get server info for better messaging (safely handle missing method)
+            server_type = "unknown"
+            try:
+                if hasattr(self.manager, "get_server_by_name"):
+                    server_config = self.manager.get_server_by_name(server_name)
+                    server_type = (
+                        getattr(server_config, "type", "unknown")
+                        if server_config
+                        else "unknown"
+                    )
+            except Exception:
+                pass  # Default to unknown type if we can't determine it
+
+            # Start the server (schedules async start in background)
             success = self.manager.start_server_sync(server_id)
 
             if success:
-                # This and subsequent messages will auto-group with the first message
-                emit_success(
-                    f"Started server: {server_name}",
-                    message_group=group_id,
-                )
-
-                # Give async tasks a moment to complete
-                try:
-                    import asyncio
-
-                    asyncio.get_running_loop()  # Check if in async context
-                    # If we're in async context, wait a bit for server to start
-                    time.sleep(0.5)  # Small delay to let async tasks progress
-                except RuntimeError:
-                    pass  # No async loop, server will start when agent uses it
+                if server_type == "stdio":
+                    # Stdio servers start subprocess asynchronously
+                    emit_success(
+                        f"🚀 Starting server: {server_name} (subprocess starting in background)",
+                        message_group=group_id,
+                    )
+                    emit_info(
+                        Text.from_markup(
+                            "[dim]Tip: Use /mcp status to check if the server is fully initialized[/dim]"
+                        ),
+                        message_group=group_id,
+                    )
+                else:
+                    # SSE/HTTP servers connect on first use
+                    emit_success(
+                        f"✅ Enabled server: {server_name}",
+                        message_group=group_id,
+                    )
 
                 # Reload the agent to pick up the newly enabled server
+                # NOTE: We don't block or wait - the server will be ready
+                # when the next prompt runs (pydantic-ai handles connection)
                 try:
                     agent = get_current_agent()
                     agent.reload_code_generation_agent()
-                    # Update MCP tool cache immediately so token counts reflect the change
+                    # Clear MCP tool cache - it will be repopulated on next run
                     agent.update_mcp_tool_cache_sync()
                     emit_info(
                         "Agent reloaded with updated servers",
