@@ -108,9 +108,16 @@ class AsyncServerLifecycleManager:
 
         try:
             logger.info(f"Starting server lifecycle for {server_id}")
+            logger.info(
+                f"Server {server_id} _running_count before enter: {getattr(server, '_running_count', 'N/A')}"
+            )
 
             # Enter the server's context
             await exit_stack.enter_async_context(server)
+
+            logger.info(
+                f"Server {server_id} _running_count after enter: {getattr(server, '_running_count', 'N/A')}"
+            )
 
             # Store the managed context
             async with self._lock:
@@ -122,25 +129,49 @@ class AsyncServerLifecycleManager:
                     task=asyncio.current_task(),
                 )
 
-            logger.info(f"Server {server_id} started successfully")
+            logger.info(
+                f"Server {server_id} started successfully and stored in _servers"
+            )
 
             # Keep the task alive until cancelled
+            loop_count = 0
             while True:
                 await asyncio.sleep(1)
+                loop_count += 1
 
                 # Check if server is still running
-                if not server.is_running:
-                    logger.warning(f"Server {server_id} stopped unexpectedly")
+                running_count = getattr(server, "_running_count", "N/A")
+                is_running = server.is_running
+                logger.debug(
+                    f"Server {server_id} heartbeat #{loop_count}: "
+                    f"is_running={is_running}, _running_count={running_count}"
+                )
+
+                if not is_running:
+                    logger.warning(
+                        f"Server {server_id} stopped unexpectedly! "
+                        f"_running_count={running_count}"
+                    )
                     break
 
         except asyncio.CancelledError:
             logger.info(f"Server {server_id} lifecycle task cancelled")
             raise
         except Exception as e:
-            logger.error(f"Error in server {server_id} lifecycle: {e}")
+            logger.error(f"Error in server {server_id} lifecycle: {e}", exc_info=True)
         finally:
+            running_count = getattr(server, "_running_count", "N/A")
+            logger.info(
+                f"Server {server_id} lifecycle ending, _running_count={running_count}"
+            )
+
             # Clean up the context
             await exit_stack.aclose()
+
+            running_count_after = getattr(server, "_running_count", "N/A")
+            logger.info(
+                f"Server {server_id} context closed, _running_count={running_count_after}"
+            )
 
             # Remove from managed servers
             async with self._lock:

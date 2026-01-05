@@ -102,10 +102,6 @@ class HelpCommand(MCPCommandBase):
                 + Text(" <name> [limit] Show recent events (default limit: 10)")
             )
             help_lines.append(
-                Text("/mcp add", style="cyan")
-                + Text(" [json]         Add new server (JSON or wizard)")
-            )
-            help_lines.append(
                 Text("/mcp edit", style="cyan")
                 + Text(" <name>        Edit existing server config")
             )
@@ -134,7 +130,7 @@ class HelpCommand(MCPCommandBase):
 /mcp start-all           # Start all servers at once
 /mcp stop-all            # Stop all running servers
 /mcp edit filesystem     # Edit an existing server config
-/mcp add {"name": "test", "type": "stdio", "command": "echo"}"""
+/mcp remove filesystem # Remove a server"""
             help_lines.append(Text(examples_text, style="dim"))
 
             # Combine all lines

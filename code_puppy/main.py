@@ -4,6 +4,8 @@ This module re-exports the main_entry function from cli_runner for backwards com
 All the actual logic lives in cli_runner.py.
 """
 
+print("Code Puppy is loading! 🐶")
+
 from code_puppy.cli_runner import main_entry
 
 if __name__ == "__main__":

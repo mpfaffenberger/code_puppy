@@ -115,6 +115,13 @@ class MockMCPManager:
         self.call_history.append("register_server")
         return config.id
 
+    def get_server_by_name(self, name: str) -> Optional[MockServerInfo]:
+        """Mock get server by name."""
+        for server_id, server_info in self.servers.items():
+            if server_info.name == name:
+                return server_info
+        return None
+
 
 @pytest.fixture
 def mock_mcp_manager():
