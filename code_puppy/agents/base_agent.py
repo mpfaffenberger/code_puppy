@@ -280,11 +280,6 @@ class BaseAgent(ABC):
 
         # History ends with ModelResponse - trim trailing responses
         # This can happen when swapping models mid-conversation
-        emit_warning(
-            "History ends with ModelResponse - trimming for model compatibility. "
-            "This is expected when swapping models mid-conversation."
-        )
-
         # Remove trailing ModelResponse messages
         trimmed = list(messages)
         while trimmed and isinstance(trimmed[-1], ModelResponse):
@@ -2076,11 +2071,12 @@ class BaseAgent(ABC):
                             # Streaming is ON by default for all models
                             use_streaming = True
                             # Gemini streaming can be disabled via env var
-                            # Set CODE_PUPPY_DISABLE_GEMINI_STREAM=true to disable
+                            # Defaults to true (disabled) because Gemini streaming is often broken
+                            # Set CODE_PUPPY_DISABLE_GEMINI_STREAM=false to enable
                             if "gemini" in model_name.lower():
                                 import os as os_check
                                 disable_gemini_stream = os_check.environ.get(
-                                    "CODE_PUPPY_DISABLE_GEMINI_STREAM", "false"
+                                    "CODE_PUPPY_DISABLE_GEMINI_STREAM", "true"
                                 ).lower() in ("1", "true")
                                 if disable_gemini_stream:
                                     use_streaming = False

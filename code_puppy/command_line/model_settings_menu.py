@@ -412,8 +412,13 @@ class ModelSettingsMenu:
                 for setting_key, value in model_settings.items():
                     setting_def = SETTING_DEFINITIONS.get(setting_key, {})
                     name = setting_def.get("name", setting_key)
-                    fmt = setting_def.get("format", "{:.2f}")
-                    lines.append(("fg:ansicyan", f"    {name}: {fmt.format(value)}"))
+                    # Only use numeric format for actual numbers
+                    if isinstance(value, (int, float)) and "format" in setting_def:
+                        fmt = setting_def["format"]
+                        formatted_value = fmt.format(value)
+                    else:
+                        formatted_value = str(value)
+                    lines.append(("fg:ansicyan", f"    {name}: {formatted_value}"))
                     lines.append(("", "\n"))
             else:
                 lines.append(("fg:ansibrightblack", "  Using all default settings"))
@@ -884,8 +889,30 @@ def show_model_settings_summary(model_name: Optional[str] = None) -> None:
         return
 
     emit_info(f"Settings for {model}:")
+    
+    # Create case-insensitive lookup for definitions since configparser lowercases keys
+    def_lookup = {k.lower(): v for k, v in SETTING_DEFINITIONS.items()}
+
     for setting_key, value in settings.items():
-        setting_def = SETTING_DEFINITIONS.get(setting_key, {})
+        # Try exact match first, then case-insensitive
+        setting_def = SETTING_DEFINITIONS.get(setting_key)
+        if not setting_def:
+            setting_def = def_lookup.get(setting_key.lower(), {})
+
         name = setting_def.get("name", setting_key)
-        fmt = setting_def.get("format", "{:.2f}")
-        emit_info(f"  {name}: {fmt.format(value)}")
+        
+        # Format based on type to avoid crashing on strings/bools
+        setting_type = setting_def.get("type")
+        
+        if setting_type == "boolean":
+            display_value = "Enabled" if value else "Disabled"
+        elif setting_type == "choice":
+            display_value = str(value)
+        else:
+            fmt = setting_def.get("format", "{:.2f}")
+            try:
+                display_value = fmt.format(value)
+            except (ValueError, TypeError):
+                display_value = str(value)
+                
+        emit_info(f"  {name}: {display_value}")

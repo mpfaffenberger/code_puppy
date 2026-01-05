@@ -126,10 +126,17 @@ def make_model_settings(
         # Enable thinking for custom Gemini models with includeThoughts=True
         # so we can see the actual thinking content, not just the signature
         from pydantic_ai.models.google import GoogleModelSettings
+        
+        # Get settings with defaults (handle case-insensitivity of configparser)
+        # configparser lowercases keys, so we check for both just in case
+        thinking_enabled = effective_settings.get("thinkingenabled", effective_settings.get("thinkingEnabled", True))
+        thinking_level = effective_settings.get("thinkinglevel", effective_settings.get("thinkingLevel", "low"))
 
-        model_settings_dict["google_thinking_config"] = {
-            "includeThoughts": True,
-        }
+        if thinking_enabled:
+            model_settings_dict["google_thinking_config"] = {
+                "includeThoughts": True,
+                "thinkingLevel": thinking_level
+            }
         model_settings = GoogleModelSettings(**model_settings_dict)
 
     return model_settings

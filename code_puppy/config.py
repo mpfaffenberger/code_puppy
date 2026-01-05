@@ -474,14 +474,27 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         # Get supported_settings list, default to supporting common settings
         supported_settings = model_config.get("supported_settings")
 
+        # Normalize setting name to lowercase for case-insensitive comparison
+        # (configparser lowercases all keys, so we need to match that)
+        setting_lower = setting.lower()
+
         if supported_settings is None:
             # Default: assume common settings are supported for backwards compatibility
             # For Anthropic/Claude models, include extended thinking settings
             if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
-                return setting in ["temperature", "extended_thinking", "budget_tokens"]
-            return setting in ["temperature", "seed"]
+                claude_settings = ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
+                return setting_lower in claude_settings
 
-        return setting in supported_settings
+            # For Gemini models, include thinking settings
+            if model_config.get("type") == "custom_gemini" or "gemini" in model_name:
+                gemini_settings = ["thinkingenabled", "thinkinglevel", "temperature", "seed"]
+                return setting_lower in gemini_settings
+
+            return setting_lower in ["temperature", "seed"]
+
+        # Also do case-insensitive check for explicit supported_settings
+        supported_settings_lower = [s.lower() for s in supported_settings]
+        return setting_lower in supported_settings_lower
     except Exception:
         # If we can't check, assume supported for safety
         return True

@@ -10,6 +10,7 @@ serialization, avoiding httpx/Pydantic internals.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Callable
 
 import httpx

@@ -524,6 +524,7 @@ requires-dist = [
     { name = "logfire", specifier = ">=0.7.1" },
     { name = "markdownify", specifier = ">=0.11.0" },
     { name = "openai", specifier = ">=1.99.1" },
+    { name = "pillow", specifier = ">=10.0.0" },
     { name = "pillow", specifier = ">=12.0.0" },
     { name = "playwright", specifier = ">=1.40.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
@@ -3730,14 +3731,14 @@ wheels = [
 [[package]]
 name = "termflow-md"
 version = "0.1.6"
-source = { registry = "https://pypi.org/simple" }
+source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
 dependencies = [
     { name = "pygments" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/ea/fb1cfcba06bace24cf17b326e99f595621369eae072e303a15b0934e6bc0/termflow_md-0.1.6.tar.gz", hash = "sha256:5b77818c2e64e3f113c0c81cfc40feb4f039d8528336386483963b31b84a6ead", size = 115069, upload-time = "2026-01-03T02:41:47.574Z" }
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/eb/ea/fb1cfcba06bace24cf17b326e99f595621369eae072e303a15b0934e6bc0/termflow_md-0.1.6.tar.gz", hash = "sha256:5b77818c2e64e3f113c0c81cfc40feb4f039d8528336386483963b31b84a6ead" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/6a/9e13117b7cd41b0a9caa80bd0aed3f4a0dd4a64e4fe30a0615da74642a3c/termflow_md-0.1.6-py3-none-any.whl", hash = "sha256:0e45784436509f96f0c085678f6763c1f015bf758379ceeb8816dfcaa5e81fc7", size = 57422, upload-time = "2026-01-03T02:41:46.12Z" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ad/6a/9e13117b7cd41b0a9caa80bd0aed3f4a0dd4a64e4fe30a0615da74642a3c/termflow_md-0.1.6-py3-none-any.whl", hash = "sha256:0e45784436509f96f0c085678f6763c1f015bf758379ceeb8816dfcaa5e81fc7" },
 ]
 
 [[package]]

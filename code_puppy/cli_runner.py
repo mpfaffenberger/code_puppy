@@ -440,7 +440,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         "Use /diff to configure diff highlighting colors for file changes.",
         dim=True,
     )
-    emit_system_message("To re-run the tutorial, use /tutorial.")
     try:
         from code_puppy.command_line.motd import print_motd
 
@@ -536,45 +535,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_warning("Falling back to basic input without tab completion")
 
     # Autosave loading is now manual - use /autosave_load command
-
-    # Auto-run tutorial on first startup
-    try:
-        from code_puppy.command_line.onboarding_wizard import should_show_onboarding
-
-        if should_show_onboarding():
-            import asyncio
-            import concurrent.futures
-
-            from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
-            from code_puppy.config import set_model_name
-            from code_puppy.messaging import emit_info
-
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(lambda: asyncio.run(run_onboarding_wizard()))
-                result = future.result(timeout=300)
-
-            if result == "chatgpt":
-                emit_info("🔐 Starting ChatGPT OAuth flow...")
-                from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
-
-                run_oauth_flow()
-                set_model_name("chatgpt-gpt-5.2-codex")
-            elif result == "claude":
-                emit_info("🔐 Starting Claude Code OAuth flow...")
-                from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-                    _perform_authentication,
-                )
-
-                _perform_authentication()
-                set_model_name("claude-code-claude-opus-4-5-20251101")
-            elif result == "completed":
-                emit_info("🎉 Tutorial complete! Happy coding!")
-            elif result == "skipped":
-                emit_info("⏭️ Tutorial skipped. Run /tutorial anytime!")
-    except Exception as e:
-        from code_puppy.messaging import emit_warning
-
-        emit_warning(f"Tutorial auto-start failed: {e}")
 
     # Track the current agent task for cancellation on quit
     current_agent_task = None
