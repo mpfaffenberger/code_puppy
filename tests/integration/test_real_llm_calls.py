@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 import pexpect
+import pytest
 
 from tests.integration.cli_expect.fixtures import (
     CliHarness,
@@ -13,6 +14,7 @@ from tests.integration.cli_expect.fixtures import (
 )
 
 
+@pytest.mark.skip(reason="Flaky in CI - LLM response times are unpredictable")
 def test_real_llm_commands_always_include_carriage_returns(
     cli_harness: CliHarness,
     live_cli: SpawnResult,
@@ -25,10 +27,10 @@ def test_real_llm_commands_always_include_carriage_returns(
     result.sendline("/help\r")
     time.sleep(0.5)
     result.sendline("Write a simple Python function to add two numbers\r")
-    time.sleep(10)
+    time.sleep(30)  # Give LLM time to finish responding
 
     log_output = result.read_log().lower()
     assert "python" in log_output or "function" in log_output
 
     result.sendline("/quit\r")
-    result.child.expect(pexpect.EOF, timeout=20)
+    result.child.expect(pexpect.EOF, timeout=30)

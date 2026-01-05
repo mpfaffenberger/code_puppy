@@ -7,6 +7,7 @@ MCP servers from the catalog.
 import os
 from typing import Dict, Optional
 
+from code_puppy.command_line.utils import safe_input
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 # Helpful hints for common environment variables
@@ -52,7 +53,7 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
     # Get custom name
     default_name = server.name
     try:
-        name_input = input(f"  Server name [{default_name}]: ").strip()
+        name_input = safe_input(f"  Server name [{default_name}]: ")
         server_name = name_input if name_input else default_name
     except (KeyboardInterrupt, EOFError):
         emit_info("")
@@ -63,9 +64,7 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
     existing = find_server_id_by_name(manager, server_name)
     if existing:
         try:
-            override = input(
-                f"  Server '{server_name}' exists. Override? [y/N]: "
-            ).strip()
+            override = safe_input(f"  Server '{server_name}' exists. Override? [y/N]: ")
             if not override.lower().startswith("y"):
                 emit_warning("Installation cancelled")
                 return None
@@ -91,7 +90,7 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
                     hint = get_env_var_hint(var)
                     if hint:
                         emit_info(f"     {hint}")
-                    value = input(f"     Enter {var}: ").strip()
+                    value = safe_input(f"     Enter {var}: ")
                     if value:
                         env_vars[var] = value
                         # Save to config for future use
@@ -119,7 +118,7 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
                 prompt_str += " (optional)"
 
             try:
-                value = input(f"{prompt_str}: ").strip()
+                value = safe_input(f"{prompt_str}: ")
                 if value:
                     cmd_args[name] = value
                 elif default:
