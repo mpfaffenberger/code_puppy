@@ -381,7 +381,7 @@ def test_network_traffic_on_simple_message(
 
     # STRICT WHITELIST - Only these domains are allowed!
     ALLOWED_DOMAINS = {
-        "api.cerebras.ai",
+        "api.synthetic.new",
         "pypi.org",
     }
 
