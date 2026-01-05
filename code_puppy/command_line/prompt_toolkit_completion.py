@@ -648,28 +648,14 @@ async def get_input_with_combined_completion(
         else:
             event.current_buffer.validate_and_handle()
 
-    # Handle bracketed paste (triggered by most terminal Cmd+V / Ctrl+V)
-    # This is the PRIMARY paste handler - works with Cmd+V on macOS terminals
+    # Handle bracketed paste - TEXT ONLY, never check clipboard for images.
+    # Drag-and-drop sends file paths through this handler (as text), and paste
+    # operations send text through here too. We should NOT conflate this with
+    # clipboard image capture - those are separate operations (Ctrl+V / F3).
     @bindings.add(Keys.BracketedPaste)
     def handle_bracketed_paste(event):
-        """Handle bracketed paste - works with Cmd+V on macOS terminals."""
-        # The pasted data is in event.data
+        """Handle bracketed paste - insert text data only."""
         pasted_data = event.data
-
-        # Check if clipboard has an image (the pasted text might just be empty or a file path)
-        try:
-            if has_image_in_clipboard():
-                placeholder = capture_clipboard_image_to_pending()
-                if placeholder:
-                    event.app.current_buffer.insert_text(placeholder + " ")
-                    # The placeholder itself is visible feedback - no need for extra output
-                    # Use bell for audible feedback (works in most terminals)
-                    event.app.output.bell()
-                    return  # Don't also paste the text data
-        except Exception:
-            pass
-
-        # No image - insert the pasted text as normal, sanitizing Windows newlines
         if pasted_data:
             # Normalize Windows line endings to Unix style
             sanitized_data = pasted_data.replace("\r\n", "\n").replace("\r", "\n")
