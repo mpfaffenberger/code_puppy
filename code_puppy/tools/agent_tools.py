@@ -21,6 +21,7 @@ from code_puppy.config import (
     DATA_DIR,
     get_message_limit,
     get_use_dbos,
+    get_value,
 )
 from code_puppy.messaging import (
     SubAgentInvocationMessage,
@@ -471,26 +472,70 @@ def register_invoke_agent(agent):
             subagent_name = f"temp-invoke-agent-{session_id}"
             model_settings = make_model_settings(model_name)
 
-            temp_agent = Agent(
-                model=model,
-                instructions=instructions,
-                output_type=str,
-                retries=3,
-                history_processors=[agent_config.message_history_accumulator],
-                model_settings=model_settings,
-            )
+            # Get MCP servers for sub-agents (same as main agent)
+            from code_puppy.mcp_ import get_mcp_manager
 
-            # Register the tools that the agent needs
-            from code_puppy.tools import register_tools_for_agent
+            mcp_servers = []
+            mcp_disabled = get_value("disable_mcp_servers")
+            if not (
+                mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on")
+            ):
+                manager = get_mcp_manager()
+                mcp_servers = manager.get_servers_for_agent()
 
-            agent_tools = agent_config.get_available_tools()
-            register_tools_for_agent(temp_agent, agent_tools)
+            # Get the event_stream_handler for streaming output
+            from code_puppy.agents.event_stream_handler import event_stream_handler
 
             if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
 
-                dbos_agent = DBOSAgent(temp_agent, name=subagent_name)
+                # For DBOS, create agent without MCP servers (to avoid serialization issues)
+                # and add them at runtime
+                temp_agent = Agent(
+                    model=model,
+                    instructions=instructions,
+                    output_type=str,
+                    retries=3,
+                    toolsets=[],  # MCP servers added separately for DBOS
+                    history_processors=[agent_config.message_history_accumulator],
+                    model_settings=model_settings,
+                )
+
+                # Register the tools that the agent needs
+                from code_puppy.tools import register_tools_for_agent
+
+                agent_tools = agent_config.get_available_tools()
+                register_tools_for_agent(temp_agent, agent_tools)
+
+                # Wrap with DBOS - pass event_stream_handler for streaming output
+                dbos_agent = DBOSAgent(
+                    temp_agent,
+                    name=subagent_name,
+                    event_stream_handler=event_stream_handler,
+                )
                 temp_agent = dbos_agent
+
+                # Store MCP servers to add at runtime
+                subagent_mcp_servers = mcp_servers
+            else:
+                # Non-DBOS path - include MCP servers directly in the agent
+                temp_agent = Agent(
+                    model=model,
+                    instructions=instructions,
+                    output_type=str,
+                    retries=3,
+                    toolsets=mcp_servers,
+                    history_processors=[agent_config.message_history_accumulator],
+                    model_settings=model_settings,
+                )
+
+                # Register the tools that the agent needs
+                from code_puppy.tools import register_tools_for_agent
+
+                agent_tools = agent_config.get_available_tools()
+                register_tools_for_agent(temp_agent, agent_tools)
+
+                subagent_mcp_servers = None
 
             # Run the temporary agent with the provided prompt as an asyncio task
             # Pass the message_history from the session to continue the conversation
@@ -498,12 +543,19 @@ def register_invoke_agent(agent):
             if get_use_dbos():
                 # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
                 workflow_id = _generate_dbos_workflow_id(group_id)
+
+                # Add MCP servers to the DBOS agent's toolsets
+                # (temp_agent is discarded after this invocation, so no need to restore)
+                if subagent_mcp_servers:
+                    temp_agent._toolsets = temp_agent._toolsets + subagent_mcp_servers
+
                 with SetWorkflowID(workflow_id):
                     task = asyncio.create_task(
                         temp_agent.run(
                             prompt,
                             message_history=message_history,
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
+                            event_stream_handler=event_stream_handler,
                         )
                     )
                     _active_subagent_tasks.add(task)
@@ -513,6 +565,7 @@ def register_invoke_agent(agent):
                         prompt,
                         message_history=message_history,
                         usage_limits=UsageLimits(request_limit=get_message_limit()),
+                        event_stream_handler=event_stream_handler,
                     )
                 )
                 _active_subagent_tasks.add(task)
