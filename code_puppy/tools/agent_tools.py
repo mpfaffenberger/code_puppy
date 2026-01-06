@@ -483,8 +483,8 @@ def register_invoke_agent(agent):
                 manager = get_mcp_manager()
                 mcp_servers = manager.get_servers_for_agent()
 
-            # Get the event_stream_handler for streaming output
-            from code_puppy.agents.event_stream_handler import event_stream_handler
+            # Import display function for non-streaming output
+            from code_puppy.tools.display import display_non_streamed_result
 
             if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
@@ -507,11 +507,10 @@ def register_invoke_agent(agent):
                 agent_tools = agent_config.get_available_tools()
                 register_tools_for_agent(temp_agent, agent_tools)
 
-                # Wrap with DBOS - pass event_stream_handler for streaming output
+                # Wrap with DBOS - no streaming for sub-agents
                 dbos_agent = DBOSAgent(
                     temp_agent,
                     name=subagent_name,
-                    event_stream_handler=event_stream_handler,
                 )
                 temp_agent = dbos_agent
 
@@ -555,7 +554,6 @@ def register_invoke_agent(agent):
                             prompt,
                             message_history=message_history,
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
-                            event_stream_handler=event_stream_handler,
                         )
                     )
                     _active_subagent_tasks.add(task)
@@ -565,7 +563,6 @@ def register_invoke_agent(agent):
                         prompt,
                         message_history=message_history,
                         usage_limits=UsageLimits(request_limit=get_message_limit()),
-                        event_stream_handler=event_stream_handler,
                     )
                 )
                 _active_subagent_tasks.add(task)
@@ -580,6 +577,16 @@ def register_invoke_agent(agent):
 
             # Extract the response from the result
             response = result.output
+
+            # Display the response using non-streaming output
+            from code_puppy.agents.event_stream_handler import get_streaming_console
+
+            display_non_streamed_result(
+                content=response,
+                console=get_streaming_console(),
+                banner_text=f"\u2713 {agent_name.upper()} RESPONSE",
+                banner_name="subagent_response",
+            )
 
             # Update the session history with the new messages from this interaction
             # The result contains all_messages which includes the full conversation
