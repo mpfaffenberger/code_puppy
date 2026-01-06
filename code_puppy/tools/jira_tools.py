@@ -27,6 +27,11 @@ from code_puppy.plugins.walmart_specific.jira_client import (
     JiraError,
     JiraNotFoundError,
 )
+from code_puppy.plugins.walmart_specific.jira_field_config import (
+    get_epic_link_field,
+    get_sprint_field,
+    get_story_points_field,
+)
 
 
 # =============================================================================
@@ -127,9 +132,36 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
             - updated (str): Last update timestamp.
             - description (str): Issue description.
             - labels (list[str]): List of labels.
+            - components (list[str]): List of component names.
+            - epic_link (str | None): Linked epic issue key.
+            - sprint (dict | None): Current sprint info (id, name, state).
+            - story_points (number | None): Story point estimate.
             - project (str): Project key.
     """
     fields = issue.get("fields", {})
+
+    # Extract component names from the components array
+    components = [c.get("name") for c in fields.get("components", []) if c.get("name")]
+
+    # Epic link (configurable custom field)
+    epic_link = fields.get(get_epic_link_field())
+
+    # Sprint (configurable custom field - returns array of sprint objects)
+    sprint_data = fields.get(get_sprint_field())
+    sprint = None
+    if sprint_data and isinstance(sprint_data, list) and len(sprint_data) > 0:
+        # Get the most recent/active sprint (last in list)
+        active_sprint = sprint_data[-1]
+        if isinstance(active_sprint, dict):
+            sprint = {
+                "id": active_sprint.get("id"),
+                "name": active_sprint.get("name"),
+                "state": active_sprint.get("state"),
+            }
+
+    # Story Points (configurable custom field)
+    story_points = fields.get(get_story_points_field())
+
     return {
         "key": issue.get("key"),
         "summary": fields.get("summary"),
@@ -146,6 +178,10 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
         "updated": fields.get("updated"),
         "description": fields.get("description"),
         "labels": fields.get("labels", []),
+        "components": components,
+        "epic_link": epic_link,
+        "sprint": sprint,
+        "story_points": story_points,
         "project": fields.get("project", {}).get("key"),
     }
 
@@ -455,6 +491,11 @@ def jira_create_issue(
     issue_type: str,
     summary: str,
     description: str | None = None,
+    labels: list[str] | None = None,
+    components: list[str] | None = None,
+    epic_link: str | None = None,
+    sprint_id: int | None = None,
+    story_points: int | float | None = None,
 ) -> dict[str, Any]:
     """Create a new Jira issue.
 
@@ -464,6 +505,14 @@ def jira_create_issue(
         issue_type: Issue type name (e.g., "Story", "Bug", "Task", "Epic").
         summary: Issue title/summary.
         description: Detailed description. Defaults to None.
+        labels: List of label strings to apply (e.g., ["backend", "urgent"]).
+            Defaults to None.
+        components: List of component names (e.g., ["API", "Frontend"]).
+            Defaults to None.
+        epic_link: Epic issue key to link this issue to (e.g., "PROJ-100").
+            Only applies to non-Epic issue types. Defaults to None.
+        sprint_id: Sprint ID to assign the issue to. Defaults to None.
+        story_points: Story point estimate (e.g., 1, 2, 3, 5, 8). Defaults to None.
 
     Returns:
         dict[str, Any]: Creation result containing:
@@ -471,34 +520,89 @@ def jira_create_issue(
             - issue_key (str): The created issue key (e.g., "PROJ-456").
             - issue_id (str): The created issue ID.
             - summary (str): The issue summary that was set.
+            - labels (list[str], optional): Labels that were applied.
+            - components (list[str], optional): Components that were applied.
+            - epic_link (str, optional): Epic that was linked.
+            - sprint_id (int, optional): Sprint that was assigned.
+            - story_points (number, optional): Story points that were set.
             - error (str, optional): Error message if creation failed.
             - error_type (str, optional): Error category if creation failed.
     """
+    # Build info message with optional fields
+    info_parts = [f"➕ [bold cyan]{project_key}[/bold cyan] - {issue_type}"]
+    if labels:
+        info_parts.append(f"labels: {labels}")
+    if components:
+        info_parts.append(f"components: {components}")
+    if epic_link:
+        info_parts.append(f"epic: {epic_link}")
+    if sprint_id:
+        info_parts.append(f"sprint: {sprint_id}")
+    if story_points is not None:
+        info_parts.append(f"points: {story_points}")
+
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] JIRA CREATE ISSUE [/bold white on blue] "
-            f"➕ [bold cyan]{project_key}[/bold cyan] - {issue_type}"
+            f"{' | '.join(info_parts)}"
         )
     )
 
     try:
+        # Build extra fields for labels, components, and epic link
+        extra_fields: dict[str, Any] = {}
+
+        if labels:
+            extra_fields["labels"] = labels
+
+        if components:
+            # Components require the {"name": "..."} format
+            extra_fields["components"] = [{"name": c} for c in components]
+
+        if epic_link:
+            # Epic Link (configurable custom field)
+            extra_fields[get_epic_link_field()] = epic_link
+
+        if sprint_id is not None:
+            # Sprint (configurable custom field)
+            extra_fields[get_sprint_field()] = sprint_id
+
+        if story_points is not None:
+            # Story Points (configurable custom field)
+            extra_fields[get_story_points_field()] = story_points
+
         with JiraClient() as client:
             result = client.create_issue(
                 project_key=project_key,
                 issue_type=issue_type,
                 summary=summary,
                 description=description,
+                **extra_fields,
             )
 
             issue_key = result.get("key")
             emit_success(f"Created issue: {issue_key}")
 
-            return {
+            response: dict[str, Any] = {
                 "success": True,
                 "issue_key": issue_key,
                 "issue_id": result.get("id"),
                 "summary": summary,
             }
+
+            # Include applied fields in response for confirmation
+            if labels:
+                response["labels"] = labels
+            if components:
+                response["components"] = components
+            if epic_link:
+                response["epic_link"] = epic_link
+            if sprint_id is not None:
+                response["sprint_id"] = sprint_id
+            if story_points is not None:
+                response["story_points"] = story_points
+
+            return response
 
     except Exception as e:
         return _handle_jira_error(e)
@@ -588,10 +692,21 @@ def jira_update_issue(
     summary: str | None = None,
     description: str | None = None,
     assignee: str | None = None,
+    labels: list[str] | None = None,
+    add_labels: list[str] | None = None,
+    remove_labels: list[str] | None = None,
+    components: list[str] | None = None,
+    add_components: list[str] | None = None,
+    remove_components: list[str] | None = None,
+    epic_link: str | None = None,
+    sprint_id: int | None = None,
+    story_points: int | float | None = None,
 ) -> dict[str, Any]:
     """Update fields on a Jira issue.
 
-    At least one field (summary, description, or assignee) must be provided.
+    At least one field must be provided. For labels and components, you can either:
+    - Set them directly (replaces all existing values)
+    - Use add_*/remove_* to incrementally modify
 
     Args:
         ctx: PydanticAI run context.
@@ -599,6 +714,15 @@ def jira_update_issue(
         summary: New summary/title. Defaults to None (no change).
         description: New description. Defaults to None (no change).
         assignee: New assignee username. Defaults to None (no change).
+        labels: Replace all labels with this list. Defaults to None (no change).
+        add_labels: Labels to add (keeps existing). Defaults to None.
+        remove_labels: Labels to remove. Defaults to None.
+        components: Replace all components with this list. Defaults to None (no change).
+        add_components: Components to add (keeps existing). Defaults to None.
+        remove_components: Components to remove. Defaults to None.
+        epic_link: Epic issue key to link to (e.g., "PROJ-100"). Defaults to None.
+        sprint_id: Sprint ID to assign the issue to. Defaults to None.
+        story_points: Story point estimate (e.g., 1, 2, 3, 5, 8). Defaults to None.
 
     Returns:
         dict[str, Any]: Update result containing:
@@ -617,14 +741,64 @@ def jira_update_issue(
 
     try:
         fields: dict[str, Any] = {}
+        update: dict[str, Any] = {}
+        updated_field_names: list[str] = []
+
+        # Direct field updates
         if summary:
             fields["summary"] = summary
+            updated_field_names.append("summary")
         if description:
             fields["description"] = description
+            updated_field_names.append("description")
         if assignee:
             fields["assignee"] = {"name": assignee}
+            updated_field_names.append("assignee")
 
-        if not fields:
+        # Labels - either replace all or add/remove incrementally
+        if labels is not None:
+            fields["labels"] = labels
+            updated_field_names.append("labels")
+        else:
+            label_ops = []
+            if add_labels:
+                label_ops.extend([{"add": lbl} for lbl in add_labels])
+            if remove_labels:
+                label_ops.extend([{"remove": lbl} for lbl in remove_labels])
+            if label_ops:
+                update["labels"] = label_ops
+                updated_field_names.append("labels")
+
+        # Components - either replace all or add/remove incrementally
+        if components is not None:
+            fields["components"] = [{"name": c} for c in components]
+            updated_field_names.append("components")
+        else:
+            component_ops = []
+            if add_components:
+                component_ops.extend([{"add": {"name": c}} for c in add_components])
+            if remove_components:
+                component_ops.extend([{"remove": {"name": c}} for c in remove_components])
+            if component_ops:
+                update["components"] = component_ops
+                updated_field_names.append("components")
+
+        # Epic link (configurable custom field)
+        if epic_link is not None:
+            fields[get_epic_link_field()] = epic_link
+            updated_field_names.append("epic_link")
+
+        # Sprint (configurable custom field)
+        if sprint_id is not None:
+            fields[get_sprint_field()] = sprint_id
+            updated_field_names.append("sprint_id")
+
+        # Story Points (configurable custom field)
+        if story_points is not None:
+            fields[get_story_points_field()] = story_points
+            updated_field_names.append("story_points")
+
+        if not fields and not update:
             return {
                 "success": False,
                 "error": "No fields provided to update",
@@ -632,14 +806,18 @@ def jira_update_issue(
             }
 
         with JiraClient() as client:
-            client.update_issue(issue_key, fields=fields)
+            client.update_issue(
+                issue_key,
+                fields=fields if fields else None,
+                update=update if update else None,
+            )
 
             emit_success(f"Updated issue: {issue_key}")
 
             return {
                 "success": True,
                 "issue_key": issue_key,
-                "updated_fields": list(fields.keys()),
+                "updated_fields": updated_field_names,
             }
 
     except Exception as e:
