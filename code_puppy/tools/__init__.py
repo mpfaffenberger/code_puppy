@@ -59,15 +59,13 @@ from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
 )
-from code_puppy.tools.display import (
-    display_non_streamed_result as display_non_streamed_result,
-)
 from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
 from code_puppy.tools.file_operations import (
     register_grep,
     register_list_files,
     register_read_file,
 )
+from code_puppy.tools.search_tool import register_search
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
@@ -84,6 +82,8 @@ TOOL_REGISTRY = {
     # Command Runner
     "agent_run_shell_command": register_agent_run_shell_command,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
+    # Search
+    "search": register_search,
     # Browser Control
     "browser_initialize": register_initialize_browser,
     "browser_close": register_close_browser,
