@@ -199,8 +199,24 @@ def _format_issue_summary(issue: dict[str, Any]) -> dict[str, Any]:
             - status (str): Current status name.
             - type (str): Issue type name.
             - assignee (str | None): Assignee display name.
+            - sprint (dict | None): Current sprint info (id, name, state).
+            - epic_link (str | None): Linked epic issue key.
+            - story_points (number | None): Story point estimate.
     """
     fields = issue.get("fields", {})
+
+    # Sprint (configurable custom field - returns array of sprint objects)
+    sprint_data = fields.get(get_sprint_field())
+    sprint = None
+    if sprint_data and isinstance(sprint_data, list) and len(sprint_data) > 0:
+        active_sprint = sprint_data[-1]
+        if isinstance(active_sprint, dict):
+            sprint = {
+                "id": active_sprint.get("id"),
+                "name": active_sprint.get("name"),
+                "state": active_sprint.get("state"),
+            }
+
     return {
         "key": issue.get("key"),
         "summary": fields.get("summary"),
@@ -209,6 +225,9 @@ def _format_issue_summary(issue: dict[str, Any]) -> dict[str, Any]:
         "assignee": fields.get("assignee", {}).get("displayName")
         if fields.get("assignee")
         else None,
+        "sprint": sprint,
+        "epic_link": fields.get(get_epic_link_field()),
+        "story_points": fields.get(get_story_points_field()),
     }
 
 
@@ -344,10 +363,22 @@ def jira_search(
             # Cap max_results at 50 to avoid huge responses
             effective_max = min(max_results, 50)
 
+            # Include custom fields for sprint, epic link, and story points
+            search_fields = [
+                "summary",
+                "status",
+                "issuetype",
+                "assignee",
+                "priority",
+                get_sprint_field(),
+                get_epic_link_field(),
+                get_story_points_field(),
+            ]
+
             results = client.search_issues(
                 jql=jql,
                 max_results=effective_max,
-                fields=["summary", "status", "issuetype", "assignee", "priority"],
+                fields=search_fields,
             )
 
             issues = results.get("issues", [])
@@ -427,7 +458,25 @@ def jira_get_issue(
 
     try:
         with JiraClient() as client:
-            issue = client.get_issue(issue_key)
+            # Explicitly request custom fields along with standard fields
+            issue_fields = [
+                "summary",
+                "status",
+                "issuetype",
+                "priority",
+                "assignee",
+                "reporter",
+                "created",
+                "updated",
+                "description",
+                "labels",
+                "components",
+                "project",
+                get_epic_link_field(),
+                get_sprint_field(),
+                get_story_points_field(),
+            ]
+            issue = client.get_issue(issue_key, fields=issue_fields)
             formatted = _format_issue(issue)
 
             # Apply truncation guardrails to description
