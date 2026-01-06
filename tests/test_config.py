@@ -301,6 +301,7 @@ class TestGetConfigKeys:
                 "compaction_threshold",
                 "default_agent",
                 "diff_context_lines",
+                "enable_streaming",
                 "enable_dbos",
                 "http2",
                 "key1",

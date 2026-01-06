@@ -5,6 +5,7 @@ from code_puppy.model_utils import (
     PreparedPrompt,
     get_claude_code_instructions,
     is_claude_code_model,
+    is_gemini_model,
     prepare_prompt_for_model,
 )
 
@@ -34,6 +35,40 @@ class TestIsClaudeCodeModel:
         """Partial matches should return False."""
         assert is_claude_code_model("code-claude") is False
         assert is_claude_code_model("my-claude-code-model") is False
+
+
+class TestIsGeminiModel:
+    """Tests for is_gemini_model function."""
+
+    def test_gemini_in_name_returns_true(self):
+        """Models with 'gemini' in the name should return True."""
+        assert is_gemini_model("gemini-pro") is True
+        assert is_gemini_model("gemini-1.5-pro") is True
+        assert is_gemini_model("gemini-1.5-flash") is True
+        assert is_gemini_model("google/gemini-pro") is True
+        assert is_gemini_model("gemini-2.0-flash") is True
+
+    def test_gemini_case_insensitive(self):
+        """Check should be case-insensitive."""
+        assert is_gemini_model("GEMINI-PRO") is True
+        assert is_gemini_model("Gemini-Flash") is True
+        assert is_gemini_model("GeMiNi-2.0") is True
+
+    def test_non_gemini_returns_false(self):
+        """Models without 'gemini' should return False."""
+        assert is_gemini_model("gpt-4") is False
+        assert is_gemini_model("claude-3-sonnet") is False
+        assert is_gemini_model("claude-code-opus") is False
+        assert is_gemini_model("llama-3.1-70b") is False
+
+    def test_empty_string_returns_false(self):
+        """Empty string should return False."""
+        assert is_gemini_model("") is False
+
+    def test_none_like_behavior(self):
+        """None-ish values should not crash."""
+        # Note: function expects str, but we handle empty gracefully
+        assert is_gemini_model("") is False
 
 
 class TestPreparePromptForModel:

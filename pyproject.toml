@@ -50,7 +50,7 @@ dependencies = [
     "winrt-windows-graphics-imaging>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
     "winrt-windows-media-ocr>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
     "winrt-windows-storage-streams>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
-    "termflow-md>=0.1.6",
+    "termflow-md>=0.1.9",
     "Pillow>=10.0.0",
 ]
 dev-dependencies = [

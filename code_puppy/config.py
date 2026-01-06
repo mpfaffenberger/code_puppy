@@ -166,6 +166,19 @@ def get_allow_recursion() -> bool:
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
+def get_enable_streaming() -> bool:
+    """
+    Get the enable_streaming configuration value.
+    Controls whether streaming (SSE) is used for model responses.
+    Returns True if streaming is enabled, False otherwise.
+    Defaults to True.
+    """
+    val = get_value("enable_streaming")
+    if val is None:
+        return True  # Default to True for better UX
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
 def get_model_context_length() -> int:
     """
     Get the context length for the currently configured model from models.json
@@ -208,6 +221,7 @@ def get_config_keys():
         "diff_context_lines",
         "default_agent",
         "temperature",
+        "enable_streaming",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")

@@ -57,6 +57,7 @@ from code_puppy.config import (
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
+    get_enable_streaming,
     get_global_model_name,
     get_message_limit,
     get_protected_token_count,
@@ -1534,245 +1535,6 @@ class BaseAgent(ABC):
                 # Only display the most recent model response's text
                 break
 
-    async def _event_stream_handler(
-        self, ctx: RunContext, events: AsyncIterable[Any]
-    ) -> None:
-        """Handle streaming events from the agent run.
-
-        This method processes streaming events and emits TextPart, ThinkingPart,
-        and ToolCallPart content with styled banners/tokens as they stream in.
-
-        Args:
-            ctx: The run context.
-            events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
-        """
-        import logging
-        import os
-        import time as time_module
-
-        from pydantic_ai import PartDeltaEvent, PartStartEvent
-        from pydantic_ai.messages import (
-            TextPartDelta,
-            ThinkingPartDelta,
-            ToolCallPartDelta,
-        )
-        from rich.console import Console
-        from rich.markup import escape
-
-        from code_puppy.messaging.spinner import pause_all_spinners
-
-        # IMPORTANT: Use the shared console (set by cli_runner) to avoid conflicts
-        # with the spinner's Live display. Multiple Console instances with separate
-        # Live displays cause cursor positioning chaos and line duplication.
-        if self._console is not None:
-            console = self._console
-        else:
-            # Fallback if console not set (shouldn't happen in normal use)
-            console = Console()
-
-        # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
-        streaming_parts: set[int] = set()
-        thinking_parts: set[int] = (
-            set()
-        )  # Track which parts are thinking (for dim style)
-        text_parts: set[int] = set()  # Track which parts are text
-        tool_parts: set[int] = set()  # Track which parts are tool calls
-        banner_printed: set[int] = set()  # Track if banner was already printed
-        token_count: dict[int, int] = {}  # Track token count per text/tool part
-        did_stream_anything = False  # Track if we streamed any content
-
-        # Termflow streaming state for text parts
-        from termflow import Parser as TermflowParser
-        from termflow import Renderer as TermflowRenderer
-
-        termflow_parsers: dict[int, TermflowParser] = {}
-        termflow_renderers: dict[int, TermflowRenderer] = {}
-        termflow_line_buffers: dict[int, str] = {}  # Buffer incomplete lines
-
-        def _print_thinking_banner() -> None:
-            """Print the THINKING banner with spinner pause and line clear."""
-            nonlocal did_stream_anything
-            import time
-
-            from code_puppy.config import get_banner_color
-
-            pause_all_spinners()
-            time.sleep(0.1)  # Delay to let spinner fully clear
-            # Clear line and print newline before banner
-            console.print(" " * 50, end="\r")
-            console.print()  # Newline before banner
-            # Bold banner with configurable color and lightning bolt
-            thinking_color = get_banner_color("thinking")
-            console.print(
-                Text.from_markup(
-                    f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] [dim]⚡ "
-                ),
-                end="",
-            )
-            did_stream_anything = True
-
-        def _print_response_banner() -> None:
-            """Print the AGENT RESPONSE banner with spinner pause and line clear."""
-            nonlocal did_stream_anything
-            import time
-
-            from code_puppy.config import get_banner_color
-
-            pause_all_spinners()
-            time.sleep(0.1)  # Delay to let spinner fully clear
-            # Clear line and print newline before banner
-            console.print(" " * 50, end="\r")
-            console.print()  # Newline before banner
-            response_color = get_banner_color("agent_response")
-            console.print(
-                Text.from_markup(
-                    f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
-                )
-            )
-            did_stream_anything = True
-
-        async for event in events:
-            # PartStartEvent - register the part but defer banner until content arrives
-            if isinstance(event, PartStartEvent):
-                part = event.part
-                if isinstance(part, ThinkingPart):
-                    streaming_parts.add(event.index)
-                    thinking_parts.add(event.index)
-                    # If there's initial content, print banner + content now
-                    if part.content and part.content.strip():
-                        _print_thinking_banner()
-                        escaped = escape(part.content)
-                        console.print(f"[dim]{escaped}[/dim]", end="")
-                        banner_printed.add(event.index)
-                elif isinstance(part, TextPart):
-                    streaming_parts.add(event.index)
-                    text_parts.add(event.index)
-                    # Initialize termflow streaming for this text part
-                    termflow_parsers[event.index] = TermflowParser()
-                    termflow_renderers[event.index] = TermflowRenderer(
-                        output=console.file, width=console.width
-                    )
-                    termflow_line_buffers[event.index] = ""
-                    # Handle initial content if present
-                    if part.content and part.content.strip():
-                        _print_response_banner()
-                        banner_printed.add(event.index)
-                        termflow_line_buffers[event.index] = part.content
-                elif isinstance(part, ToolCallPart):
-                    streaming_parts.add(event.index)
-                    tool_parts.add(event.index)
-                    token_count[event.index] = 0  # Initialize token counter
-                    # Track tool name for display
-                    banner_printed.add(
-                        event.index
-                    )  # Use banner_printed to track if we've shown tool info
-
-            # PartDeltaEvent - stream the content as it arrives
-            elif isinstance(event, PartDeltaEvent):
-                if event.index in streaming_parts:
-                    delta = event.delta
-                    if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
-                        if delta.content_delta:
-                            # For text parts, stream markdown with termflow
-                            if event.index in text_parts:
-                                # Print banner on first content
-                                if event.index not in banner_printed:
-                                    _print_response_banner()
-                                    banner_printed.add(event.index)
-
-                                # Add content to line buffer
-                                termflow_line_buffers[event.index] += (
-                                    delta.content_delta
-                                )
-
-                                # Process complete lines
-                                parser = termflow_parsers[event.index]
-                                renderer = termflow_renderers[event.index]
-                                buffer = termflow_line_buffers[event.index]
-
-                                while "\n" in buffer:
-                                    line, buffer = buffer.split("\n", 1)
-                                    events_to_render = parser.parse_line(line)
-                                    renderer.render_all(events_to_render)
-
-                                termflow_line_buffers[event.index] = buffer
-                            else:
-                                # For thinking parts, stream immediately (dim)
-                                if event.index not in banner_printed:
-                                    _print_thinking_banner()
-                                    banner_printed.add(event.index)
-                                escaped = escape(delta.content_delta)
-                                console.print(f"[dim]{escaped}[/dim]", end="")
-                    elif isinstance(delta, ToolCallPartDelta):
-                        # For tool calls, count chunks received
-                        token_count[event.index] += 1
-                        # Get tool name if available
-                        tool_name = getattr(delta, "tool_name_delta", "")
-                        count = token_count[event.index]
-                        # Display with tool wrench icon and tool name
-                        if tool_name:
-                            console.print(
-                                f"  🔧 Calling {tool_name}... {count} chunks   ",
-                                end="\r",
-                            )
-                        else:
-                            console.print(
-                                f"  🔧 Calling tool... {count} chunks   ",
-                                end="\r",
-                            )
-
-            # PartEndEvent - finish the streaming with a newline
-            elif isinstance(event, PartEndEvent):
-                if event.index in streaming_parts:
-                    # For text parts, finalize termflow rendering
-                    if event.index in text_parts:
-                        # Render any remaining buffered content
-                        if event.index in termflow_parsers:
-                            parser = termflow_parsers[event.index]
-                            renderer = termflow_renderers[event.index]
-                            remaining = termflow_line_buffers.get(event.index, "")
-
-                            # Parse and render any remaining partial line
-                            if remaining.strip():
-                                events_to_render = parser.parse_line(remaining)
-                                renderer.render_all(events_to_render)
-
-                            # Finalize the parser to close any open blocks
-                            final_events = parser.finalize()
-                            renderer.render_all(final_events)
-
-                            # Clean up termflow state
-                            del termflow_parsers[event.index]
-                            del termflow_renderers[event.index]
-                            del termflow_line_buffers[event.index]
-                    # For tool parts, clear the chunk counter line
-                    elif event.index in tool_parts:
-                        # Clear the chunk counter line by printing spaces and returning
-                        console.print(" " * 50, end="\r")
-                    # For thinking parts, just print newline
-                    elif event.index in banner_printed:
-                        console.print()  # Final newline after streaming
-
-                    # Clean up token count
-                    token_count.pop(event.index, None)
-                    # Clean up all tracking sets
-                    streaming_parts.discard(event.index)
-                    thinking_parts.discard(event.index)
-                    text_parts.discard(event.index)
-                    tool_parts.discard(event.index)
-                    banner_printed.discard(event.index)
-
-                    # Resume spinner if next part is NOT text/thinking/tool (avoid race condition)
-                    # If next part is None or handled differently, it's safe to resume
-                    # Note: spinner itself handles blank line before appearing
-                    from code_puppy.messaging.spinner import resume_all_spinners
-
-                    next_kind = getattr(event, "next_part_kind", None)
-                    if next_kind not in ("text", "thinking", "tool-call"):
-                        resume_all_spinners()
-
-        # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
-
     def _spawn_ctrl_x_key_listener(
         self,
         stop_event: threading.Event,
@@ -1972,7 +1734,11 @@ class BaseAgent(ABC):
             pydantic_agent = self._create_agent_with_output_type(output_type)
 
         # Handle claude-code and chatgpt-codex models: prepend system prompt to first user message
-        from code_puppy.model_utils import is_chatgpt_codex_model, is_claude_code_model
+        from code_puppy.model_utils import (
+            is_chatgpt_codex_model,
+            is_claude_code_model,
+            is_gemini_model,
+        )
 
         if is_claude_code_model(self.get_model_name()) or is_chatgpt_codex_model(
             self.get_model_name()
@@ -1998,6 +1764,14 @@ class BaseAgent(ABC):
             prompt_payload.extend(attachment_parts)
         else:
             prompt_payload = prompt
+
+        # Determine if streaming is enabled:
+        # - Streaming must be enabled in config
+        # - Gemini models cannot stream (proxy doesn't support SSE)
+        use_streaming = get_enable_streaming() and not is_gemini_model(
+            self.get_model_name()
+        )
+        stream_handler = event_stream_handler if use_streaming else None
 
         async def run_agent_task():
             try:
@@ -2040,7 +1814,7 @@ class BaseAgent(ABC):
                                 prompt_payload,
                                 message_history=self.get_message_history(),
                                 usage_limits=usage_limits,
-                                event_stream_handler=event_stream_handler,
+                                event_stream_handler=stream_handler,
                                 **kwargs,
                             )
                             return result_
@@ -2053,7 +1827,7 @@ class BaseAgent(ABC):
                             prompt_payload,
                             message_history=self.get_message_history(),
                             usage_limits=usage_limits,
-                            event_stream_handler=event_stream_handler,
+                            event_stream_handler=stream_handler,
                             **kwargs,
                         )
                         return result_
@@ -2063,7 +1837,7 @@ class BaseAgent(ABC):
                         prompt_payload,
                         message_history=self.get_message_history(),
                         usage_limits=usage_limits,
-                        event_stream_handler=event_stream_handler,
+                        event_stream_handler=stream_handler,
                         **kwargs,
                     )
                     return result_
@@ -2305,6 +2079,10 @@ class BaseAgent(ABC):
 
             # Wait for the task to complete or be cancelled
             result = await agent_task
+
+            # Display response for non-streaming mode (e.g., Gemini or streaming disabled)
+            if not use_streaming and result is not None:
+                await self._display_non_streamed_response(result)
 
             # Update MCP tool cache after successful run for accurate token estimation
             if hasattr(self, "_mcp_servers") and self._mcp_servers:

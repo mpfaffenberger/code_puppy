@@ -59,6 +59,18 @@ def is_chatgpt_codex_model(model_name: str) -> bool:
     return model_name.startswith("chatgpt-")
 
 
+def is_gemini_model(model_name: str) -> bool:
+    """Check if a model is a Gemini model.
+
+    Gemini models don't support SSE streaming through the proxy,
+    so we disable streaming for these models.
+    """
+    if not model_name:
+        return False
+    lower_name = model_name.lower()
+    return "gemini" in lower_name
+
+
 def prepare_prompt_for_model(
     model_name: str,
     system_prompt: str,
