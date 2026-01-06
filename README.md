@@ -87,6 +87,48 @@ uvx code-puppy
 
 ## Usage
 
+### Research Agent (Tavily Search)
+
+Set your API key:
+
+```bash
+export SEARCH_API_KEY="tvly-..."
+```
+
+Optional provider override:
+
+```bash
+export SEARCH_PROVIDER="tavily"
+```
+
+Run the research agent:
+
+```bash
+python -m code_puppy --agent research-agent "What is app.tavily.com? Cite sources."
+```
+
+Search parameters supported: `search_depth`, `topic`, `time_range`, `include_domains`, `exclude_domains`, `include_raw_content`, `include_images`, `include_answer`.
+
+### Troubleshooting
+
+If `uv` warns about hardlinking during installs/tests on Windows, set:
+
+```bash
+export UV_LINK_MODE=copy
+```
+
+PowerShell:
+
+```powershell
+$env:UV_LINK_MODE="copy"
+```
+
+CMD:
+
+```cmd
+set UV_LINK_MODE=copy
+```
+
 ### Adding Models from models.dev 🆕
 
 While there are several models configured right out of the box from providers like Synthetic, Cerebras, OpenAI, Google, and Anthropic, Code Puppy integrates with [models.dev](https://models.dev) to let you browse and add models from **65+ providers** with a single command:
