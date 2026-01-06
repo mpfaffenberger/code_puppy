@@ -48,6 +48,9 @@ Code Puppy features a modular agent architecture. Each agent has its own system 
 | **Go Reviewer** | `golang-reviewer` | Go code review specialist |
 | **JS Reviewer** | `javascript-reviewer` | JavaScript code review specialist |
 | **TS Reviewer** | `typescript-reviewer` | TypeScript code review specialist |
+| 📊 **Data Analytics** | `data-analytics` | Data analyst agent with custom knowledge base and BigQuery integration |
+| 📊 **BigQuery Explorer** | `bigquery-explorer` | Explore and query Google BigQuery databases |
+| 🔷 **Databricks** | `databricks` | Explore and query Databricks SQL warehouses with OAuth |
 
 ### Switching Agents
 
@@ -104,6 +107,9 @@ Code Puppy features a modular agent architecture. Each agent has its own system 
 | `agent_golang_reviewer.py` | Go review agent |
 | `agent_javascript_reviewer.py` | JavaScript review agent |
 | `agent_typescript_reviewer.py` | TypeScript review agent |
+| `agent_data_analytics.py` | Data analytics agent with knowledge base support |
+| `agent_bigquery_explorer.py` | BigQuery exploration agent |
+| `agent_databricks.py` | Databricks SQL exploration agent |
 
 ### `code_puppy/tools/`
 

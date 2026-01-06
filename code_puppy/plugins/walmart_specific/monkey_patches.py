@@ -516,20 +516,20 @@ def patch_requests():
         return original_get(url, **kwargs)
 
     @functools.wraps(original_post)
-    def patched_post(url, **kwargs):
+    def patched_post(url, data=None, json=None, **kwargs):
         """Patched requests.post that transforms GitHub URLs and handles SSL for internal domains."""
-        original_github_url = url if url.startswith(GITHUB_BASE) else None
-        url = transform_github_url(url)
+        original_github_url = url if isinstance(url, str) and url.startswith(GITHUB_BASE) else None
+        url = transform_github_url(url) if isinstance(url, str) else url
 
         # Disable SSL verification for problematic domains if not explicitly set
-        if "verify" not in kwargs and should_skip_ssl_verification(url):
+        if "verify" not in kwargs and isinstance(url, str) and should_skip_ssl_verification(url):
             kwargs["verify"] = False
 
         # Try multiple artifactory URLs if DNS resolution fails
-        if "generic.ci.artifacts.walmart.com" in url:
+        if isinstance(url, str) and "generic.ci.artifacts.walmart.com" in url:
             # Try primary URL first
             try:
-                return original_post(url, **kwargs)
+                return original_post(url, data=data, json=json, **kwargs)
             except Exception as e:
                 if "getaddrinfo failed" in str(e) or "Name or service not known" in str(
                     e
@@ -553,7 +553,7 @@ def patch_requests():
                                 if Text
                                 else f"Trying alternative: {alt_url[:60]}..."
                             )
-                            return original_post(alt_url, **kwargs)
+                            return original_post(alt_url, data=data, json=json, **kwargs)
                         except Exception as alt_e:
                             emit_info(
                                 Text.from_markup(
@@ -568,7 +568,7 @@ def patch_requests():
                     if original_github_url:
                         try:
                             return try_github_fallback(
-                                original_github_url, url, original_post, **kwargs
+                                original_github_url, url, original_post, data=data, json=json, **kwargs
                             )
                         except Exception:
                             pass  # Fall through to re-raise original exception
@@ -579,13 +579,13 @@ def patch_requests():
                     # For non-DNS errors, re-raise immediately
                     raise
 
-        return original_post(url, **kwargs)
+        return original_post(url, data=data, json=json, **kwargs)
 
     @functools.wraps(original_request)
     def patched_request(method, url, **kwargs):
         """Patched requests.request that transforms GitHub URLs and handles SSL for internal domains."""
-        original_github_url = url if url.startswith(GITHUB_BASE) else None
-        url = transform_github_url(url)
+        original_github_url = url if isinstance(url, str) and url.startswith(GITHUB_BASE) else None
+        url = transform_github_url(url) if isinstance(url, str) else url
 
         # Disable SSL verification for problematic domains if not explicitly set
         if "verify" not in kwargs and should_skip_ssl_verification(url):

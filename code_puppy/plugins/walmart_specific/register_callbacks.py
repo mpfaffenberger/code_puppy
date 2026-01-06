@@ -49,6 +49,10 @@ from code_puppy.plugins.walmart_specific.disclaimer import (
     get_disclaimer_help,
     handle_disclaimer_command,
 )
+from code_puppy.plugins.walmart_specific.databricks_auth import (
+    get_databricks_auth_help,
+    handle_databricks_auth_command,
+)
 from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_delete_file_telemetry_data,
     build_shell_command_telemetry_data,
@@ -246,3 +250,5 @@ register_callback("custom_command", handle_disclaimer_command)
 register_callback("custom_command_help", get_msgraph_auth_help)
 register_callback("custom_command", handle_msgraph_auth_command)
 register_callback("custom_command", handle_msgraph_test_command)
+register_callback("custom_command_help", get_databricks_auth_help)
+register_callback("custom_command", handle_databricks_auth_command)

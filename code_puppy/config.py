@@ -230,6 +230,8 @@ def get_config_keys():
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
+    # Add data analytics knowledge base path configuration
+    default_keys.append("data_analytics_knowledge_path")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
