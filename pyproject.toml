@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.345"
+version = "0.0.348"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -26,6 +26,7 @@ dependencies = [
     "tenacity>=8.2.0",
     "playwright>=1.40.0",
     "camoufox>=0.4.11",
+    "dbos>=2.5.0",
     "uvicorn>=0.30.0",
     "fastapi>=0.111.0",
     "markdownify>=0.11.0",

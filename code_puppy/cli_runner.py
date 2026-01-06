@@ -12,9 +12,11 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 import traceback
 from pathlib import Path
 
+from dbos import DBOS, DBOSConfig
 from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
@@ -24,8 +26,10 @@ from code_puppy.command_line.clipboard import get_clipboard_manager
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
+    DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
+    get_use_dbos,
     initialize_command_history_file,
     save_command_to_history,
 )
@@ -334,6 +338,33 @@ async def main():
 
     await callbacks.on_startup()
 
+    # Initialize DBOS if not disabled
+    if get_use_dbos():
+        # Append a Unix timestamp in ms to the version for uniqueness
+        dbos_app_version = os.environ.get(
+            "DBOS_APP_VERSION", f"{current_version}-{int(time.time() * 1000)}"
+        )
+        dbos_config: DBOSConfig = {
+            "name": "dbos-code-puppy",
+            "system_database_url": DBOS_DATABASE_URL,
+            "run_admin_server": False,
+            "conductor_key": os.environ.get(
+                "DBOS_CONDUCTOR_KEY"
+            ),  # Optional, if set in env, connect to conductor
+            "log_level": os.environ.get(
+                "DBOS_LOG_LEVEL", "ERROR"
+            ),  # Default to ERROR level to suppress verbose logs
+            "application_version": dbos_app_version,  # Match DBOS app version to Code Puppy version
+        }
+        try:
+            DBOS(config=dbos_config)
+            DBOS.launch()
+        except Exception as e:
+            emit_error(f"Error initializing DBOS: {e}")
+            sys.exit(1)
+    else:
+        pass
+
     global shutdown_flag
     shutdown_flag = False
     try:
@@ -358,6 +389,8 @@ async def main():
         if bus_renderer:
             bus_renderer.stop()
         callbacks.on_shutdown()
+        if get_use_dbos():
+            DBOS.destroy()
 
 
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
@@ -811,11 +844,12 @@ async def run_prompt_with_attachments(
 
     link_attachments = [link.url_part for link in processed_prompt.link_attachments]
 
-    # IMPORTANT: Set the shared console on the agent so that streaming output
+    # IMPORTANT: Set the shared console for streaming output so it
     # uses the same console as the spinner. This prevents Live display conflicts
     # that cause line duplication during markdown streaming.
-    if spinner_console is not None:
-        agent._console = spinner_console
+    from code_puppy.agents.event_stream_handler import set_streaming_console
+
+    set_streaming_console(spinner_console)
 
     # Create the agent task first so we can track and cancel it
     agent_task = asyncio.create_task(
@@ -891,6 +925,8 @@ def main_entry():
     except KeyboardInterrupt:
         # Note: Using sys.stderr for crash output - messaging system may not be available
         sys.stderr.write(traceback.format_exc())
+        if get_use_dbos():
+            DBOS.destroy()
         return 0
     finally:
         # Reset terminal on Unix-like systems (not Windows)

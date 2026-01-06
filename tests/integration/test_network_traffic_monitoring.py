@@ -379,8 +379,9 @@ def test_network_traffic_on_simple_message(
     print(f"  - {report_json_path}")
     print("=" * 80 + "\n")
 
-    # STRICT WHITELIST - Only these domains are allowed!
+    # STRICT WHITELIST - Only these two domains are allowed!
     ALLOWED_DOMAINS = {
+        "cloud.dbos.dev",
         "api.synthetic.new",
         "pypi.org",
     }
