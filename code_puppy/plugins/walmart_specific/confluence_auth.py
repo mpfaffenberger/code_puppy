@@ -263,6 +263,10 @@ def handle_confluence_auth_command(command: str, name: str) -> Optional[str]:
 
         return "Confluence authentication successful!"
 
+    except KeyboardInterrupt:
+        emit_info("\n🛑 Authentication cancelled by user.")
+        return "Authentication cancelled."
+
     except Exception as e:
         emit_error(f"❌ Authentication failed: {str(e)}")
         return f"Authentication failed: {str(e)}"

@@ -307,6 +307,10 @@ def handle_jira_auth_command(command: str, name: str) -> str | None:
         )
         return "Jira authentication successful!"
 
+    except KeyboardInterrupt:
+        emit_info("\n🛑 Authentication cancelled by user.")
+        return "Authentication cancelled."
+
     except Exception as e:
         emit_error(f"❌ Authentication failed: {e!s}")
         return f"Authentication failed: {e!s}"
