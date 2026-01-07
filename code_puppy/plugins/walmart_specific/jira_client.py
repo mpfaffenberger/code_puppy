@@ -268,6 +268,125 @@ class JiraClient:
             raise JiraAPIError(f"HTTP request failed: {e}") from e
 
     # =========================================================================
+    # PROJECT DISCOVERY
+    # =========================================================================
+
+    def list_projects(
+        self,
+        max_results: int = 50,
+        start_at: int = 0,
+    ) -> dict[str, Any]:
+        """List available Jira projects.
+
+        Use this to discover project keys before constructing JQL queries.
+        Project keys are short uppercase identifiers (e.g., 'PROJ', 'MYPROJ')
+        that should be used in JQL instead of long project names.
+
+        Args:
+            max_results: Maximum number of projects to return. Defaults to 50.
+            start_at: Index of the first project to return. Defaults to 0.
+
+        Returns:
+            Dictionary containing:
+                - projects: List of project objects with key, name, id
+                - total: Total number of projects available
+                - maxResults: Number of results returned
+
+        Example:
+            projects = client.list_projects()
+            for p in projects['projects']:
+                print(f"{p['key']}: {p['name']}")
+        """
+        params = {
+            "maxResults": min(max_results, 50),
+            "startAt": start_at,
+        }
+
+        # Use the project search endpoint for better results
+        response = self._make_request(
+            "GET",
+            "/rest/api/2/project",
+            params=params,
+        )
+
+        # The /rest/api/2/project endpoint returns a list directly
+        if isinstance(response, list):
+            projects = response
+            return {
+                "projects": [
+                    {
+                        "key": p.get("key"),
+                        "name": p.get("name"),
+                        "id": p.get("id"),
+                        "projectTypeKey": p.get("projectTypeKey"),
+                    }
+                    for p in projects[:max_results]
+                ],
+                "total": len(projects),
+                "maxResults": min(len(projects), max_results),
+            }
+
+        return response
+
+    def search_projects(
+        self,
+        query: str,
+        max_results: int = 20,
+    ) -> dict[str, Any]:
+        """Search for Jira projects by name or key.
+
+        Args:
+            query: Search string to match against project names or keys.
+            max_results: Maximum number of projects to return. Defaults to 20.
+
+        Returns:
+            Dictionary containing matching projects.
+
+        Example:
+            results = client.search_projects("financial")
+            for p in results['projects']:
+                print(f"{p['key']}: {p['name']}")
+        """
+        params = {
+            "query": query,
+            "maxResults": min(max_results, 50),
+        }
+
+        response = self._make_request(
+            "GET",
+            "/rest/api/2/project/search",
+            params=params,
+        )
+
+        # Handle both list and paginated responses
+        if isinstance(response, list):
+            return {
+                "projects": [
+                    {
+                        "key": p.get("key"),
+                        "name": p.get("name"),
+                        "id": p.get("id"),
+                    }
+                    for p in response[:max_results]
+                ],
+                "total": len(response),
+            }
+
+        # Paginated response format
+        values = response.get("values", [])
+        return {
+            "projects": [
+                {
+                    "key": p.get("key"),
+                    "name": p.get("name"),
+                    "id": p.get("id"),
+                }
+                for p in values
+            ],
+            "total": response.get("total", len(values)),
+        }
+
+    # =========================================================================
     # ISSUE RETRIEVAL
     # =========================================================================
 

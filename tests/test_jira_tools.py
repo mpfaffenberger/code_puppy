@@ -669,3 +669,181 @@ class TestJiraGetComments:
         # When offset > 0, returns combined content format
         assert "comments_content" in result
         assert result["character_offset"] == 10
+
+
+# =============================================================================
+# JQL ERROR SUGGESTION TESTS
+# =============================================================================
+
+
+class TestParseJqlErrorSuggestion:
+    """Test suite for _parse_jql_error_suggestion helper."""
+
+    def test_project_name_vs_key_suggestion(self):
+        """Test suggestion for project name vs key error."""
+        from code_puppy.tools.jira_tools import _parse_jql_error_suggestion
+
+        error_msg = (
+            "The value 'My Long Project Name' does not exist for the field 'project'."
+        )
+        suggestion = _parse_jql_error_suggestion(error_msg)
+
+        assert suggestion is not None
+        assert (
+            "project KEY" in suggestion.lower() or "project key" in suggestion.lower()
+        )
+        assert "jira_list_projects" in suggestion
+
+    def test_field_not_exist_suggestion(self):
+        """Test suggestion for field not exist error."""
+        from code_puppy.tools.jira_tools import _parse_jql_error_suggestion
+
+        error_msg = "Field 'Start Date' does not exist or you do not have permission."
+        suggestion = _parse_jql_error_suggestion(error_msg)
+
+        assert suggestion is not None
+        assert "quotes" in suggestion.lower() or "quoting" in suggestion.lower()
+
+    def test_jql_syntax_error_suggestion(self):
+        """Test suggestion for general JQL syntax errors."""
+        from code_puppy.tools.jira_tools import _parse_jql_error_suggestion
+
+        error_msg = "Error in the JQL Query: Unable to parse the query."
+        suggestion = _parse_jql_error_suggestion(error_msg)
+
+        assert suggestion is not None
+        assert "quote" in suggestion.lower()
+
+    def test_no_suggestion_for_unknown_error(self):
+        """Test that unknown errors return None."""
+        from code_puppy.tools.jira_tools import _parse_jql_error_suggestion
+
+        error_msg = "Some completely random error message."
+        suggestion = _parse_jql_error_suggestion(error_msg)
+
+        assert suggestion is None
+
+    def test_invalid_operator_suggestion(self):
+        """Test suggestion for invalid operator error."""
+        from code_puppy.tools.jira_tools import _parse_jql_error_suggestion
+
+        error_msg = "'LIKE' is not a valid operator for this field."
+        suggestion = _parse_jql_error_suggestion(error_msg)
+
+        assert suggestion is not None
+        assert "operator" in suggestion.lower()
+
+
+class TestHandleJiraErrorWithSuggestions:
+    """Test that _handle_jira_error provides suggestions for API errors."""
+
+    def test_api_error_with_project_suggestion(self):
+        """Test that project name error gets helpful suggestion."""
+        error = JiraAPIError(
+            "Jira API error (HTTP 400): The value 'My Project' does not exist for the field 'project'.",
+            status_code=400,
+        )
+        result = _handle_jira_error(error)
+
+        assert result["success"] is False
+        assert result["error_type"] == "api_error"
+        assert "suggestion" in result
+        assert "jira_list_projects" in result["suggestion"]
+
+    def test_api_error_without_suggestion(self):
+        """Test that unknown API error doesn't crash when no suggestion."""
+        error = JiraAPIError("Some random API error", status_code=500)
+        result = _handle_jira_error(error)
+
+        assert result["success"] is False
+        assert result["error_type"] == "api_error"
+        # Should not have suggestion key if no suggestion available
+        # (or it could be present but None)
+
+
+# =============================================================================
+# JIRA LIST PROJECTS TESTS
+# =============================================================================
+
+
+class TestJiraListProjects:
+    """Test suite for jira_list_projects tool."""
+
+    def test_list_projects_success(self, mock_context):
+        """Test successful project listing."""
+        from code_puppy.tools.jira_tools import jira_list_projects
+
+        mock_client = MagicMock()
+        mock_client.list_projects.return_value = {
+            "projects": [
+                {"key": "PROJ", "name": "My Project", "id": "10001"},
+                {"key": "TEST", "name": "Test Project", "id": "10002"},
+            ],
+            "total": 2,
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch("code_puppy.tools.jira_tools.JiraClient", return_value=mock_client):
+            result = jira_list_projects(mock_context)
+
+        assert result["success"] is True
+        assert len(result["projects"]) == 2
+        assert result["projects"][0]["key"] == "PROJ"
+        assert result["total"] == 2
+        assert "hint" in result  # Should include usage hint
+
+    def test_list_projects_with_search(self, mock_context):
+        """Test project listing with search query."""
+        from code_puppy.tools.jira_tools import jira_list_projects
+
+        mock_client = MagicMock()
+        mock_client.search_projects.return_value = {
+            "projects": [
+                {"key": "FIN", "name": "Financial Services", "id": "10003"},
+            ],
+            "total": 1,
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch("code_puppy.tools.jira_tools.JiraClient", return_value=mock_client):
+            result = jira_list_projects(mock_context, search_query="financial")
+
+        assert result["success"] is True
+        assert len(result["projects"]) == 1
+        assert result["projects"][0]["key"] == "FIN"
+        # Should have called search_projects, not list_projects
+        mock_client.search_projects.assert_called_once_with(
+            query="financial", max_results=20
+        )
+
+    def test_list_projects_caps_max_results(self, mock_context):
+        """Test that max_results is capped at 50."""
+        from code_puppy.tools.jira_tools import jira_list_projects
+
+        mock_client = MagicMock()
+        mock_client.list_projects.return_value = {"projects": [], "total": 0}
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch("code_puppy.tools.jira_tools.JiraClient", return_value=mock_client):
+            jira_list_projects(mock_context, max_results=100)
+
+        # Should cap at 50
+        mock_client.list_projects.assert_called_once_with(max_results=50)
+
+    def test_list_projects_error(self, mock_context):
+        """Test error handling for project listing."""
+        from code_puppy.tools.jira_tools import jira_list_projects
+
+        mock_client = MagicMock()
+        mock_client.list_projects.side_effect = JiraAuthError("Auth failed")
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch("code_puppy.tools.jira_tools.JiraClient", return_value=mock_client):
+            result = jira_list_projects(mock_context)
+
+        assert result["success"] is False
+        assert result["error_type"] == "authentication"

@@ -51,8 +51,68 @@ def get_jira_client() -> JiraClient:
     return JiraClient()
 
 
+def _parse_jql_error_suggestion(error_message: str) -> str | None:
+    """Parse JQL error messages and return helpful suggestions.
+
+    Args:
+        error_message: The error message from Jira API.
+
+    Returns:
+        A helpful suggestion string, or None if no suggestion is available.
+    """
+    error_lower = error_message.lower()
+
+    # Project name vs key confusion
+    if "does not exist for the field 'project'" in error_lower:
+        return (
+            "It looks like you used a project NAME instead of project KEY. "
+            "Project keys are short uppercase identifiers (e.g., 'PROJ', 'MYPROJ'). "
+            "Use jira_list_projects to discover available project keys."
+        )
+
+    # Field doesn't exist
+    if "field '" in error_lower and "does not exist" in error_lower:
+        return (
+            "The field name may be incorrect or need quoting. "
+            'Custom fields with spaces need quotes: "Start Date" >= 2025-01-01. '
+            "Check the exact field name in Jira."
+        )
+
+    # Value parsing issues (often unquoted values with spaces)
+    if "error in the jql query" in error_lower or "unable to parse" in error_lower:
+        return (
+            "JQL syntax error. Common fixes: "
+            '1) Quote values with spaces: status = "In Progress" '
+            '2) Quote usernames: assignee = "john.doe" '
+            "3) Use currentUser() for yourself (no quotes)"
+        )
+
+    # Invalid operator
+    if "not a valid operator" in error_lower:
+        return (
+            "Invalid JQL operator. Common operators: "
+            "= (equals), != (not equals), ~ (contains), "
+            "IN (list), IS EMPTY, IS NOT EMPTY, >=, <="
+        )
+
+    # Function usage errors
+    if "function" in error_lower and (
+        "not found" in error_lower or "invalid" in error_lower
+    ):
+        return (
+            "Check function syntax. Common functions: "
+            "currentUser(), now(), startOfDay(), endOfDay(), "
+            "startOfWeek(), startOfMonth()"
+        )
+
+    return None
+
+
 def _handle_jira_error(e: Exception) -> dict[str, Any]:
     """Convert Jira exceptions to structured error responses.
+
+    Provides intelligent suggestions based on common JQL errors to help
+    users fix their queries.
 
     Args:
         e: The exception raised during Jira API operations.
@@ -63,7 +123,7 @@ def _handle_jira_error(e: Exception) -> dict[str, Any]:
             - error (str): Human-readable error message.
             - error_type (str): Category of error (authentication, not_found,
                 api_error, jira, unknown).
-            - suggestion (str, optional): Suggested action for auth errors.
+            - suggestion (str, optional): Helpful suggestion to fix the issue.
     """
     if isinstance(e, JiraAuthError):
         error_msg = f"Authentication failed: {e}"
@@ -72,7 +132,7 @@ def _handle_jira_error(e: Exception) -> dict[str, Any]:
             "success": False,
             "error": error_msg,
             "error_type": "authentication",
-            "suggestion": "Jira re-authentication required.",
+            "suggestion": "Use jira_authenticate to refresh your session.",
         }
     elif isinstance(e, JiraNotFoundError):
         error_msg = f"Not found: {e}"
@@ -81,15 +141,25 @@ def _handle_jira_error(e: Exception) -> dict[str, Any]:
             "success": False,
             "error": error_msg,
             "error_type": "not_found",
+            "suggestion": "Check that the issue key or resource exists.",
         }
     elif isinstance(e, JiraAPIError):
         error_msg = f"API error: {e}"
         emit_error(error_msg)
-        return {
+
+        # Try to provide a helpful suggestion based on the error
+        suggestion = _parse_jql_error_suggestion(str(e))
+
+        result: dict[str, Any] = {
             "success": False,
             "error": error_msg,
             "error_type": "api_error",
         }
+        if suggestion:
+            result["suggestion"] = suggestion
+            emit_warning(f"💡 Suggestion: {suggestion}")
+
+        return result
     elif isinstance(e, JiraError):
         error_msg = f"Jira error: {e}"
         emit_error(error_msg)
@@ -343,6 +413,102 @@ def register_jira_search(agent: Any) -> Tool:
         Tool: The registered Tool instance.
     """
     return agent.tool(jira_search)
+
+
+# =============================================================================
+# JIRA LIST PROJECTS TOOL
+# =============================================================================
+
+
+def jira_list_projects(
+    ctx: RunContext,
+    search_query: str | None = None,
+    max_results: int = 20,
+) -> dict[str, Any]:
+    """List available Jira projects or search for projects by name.
+
+    Use this tool to discover project KEYS before constructing JQL queries.
+    Project keys are short uppercase identifiers (e.g., 'PROJ', 'MYPROJ')
+    that should be used in JQL instead of long project names.
+
+    IMPORTANT: When writing JQL, always use the project KEY, not the name:
+        - CORRECT: project = PROJ
+        - WRONG: project = "My Project Name"
+
+    Args:
+        ctx: PydanticAI run context.
+        search_query: Optional search string to filter projects by name or key.
+            If None, returns all projects (up to max_results).
+        max_results: Maximum number of projects to return. Defaults to 20.
+            Values above 50 are capped to 50.
+
+    Returns:
+        dict[str, Any]: Project list containing:
+            - success (bool): Whether the request succeeded.
+            - projects (list[dict]): List of projects with key, name, id.
+            - total (int): Total number of matching projects.
+            - hint (str): Reminder about using project keys in JQL.
+            - error (str, optional): Error message if request failed.
+
+    Example:
+        # List all accessible projects
+        jira_list_projects()
+
+        # Search for projects containing "financial"
+        jira_list_projects(search_query="financial")
+    """
+    action = f"searching for '{search_query}'" if search_query else "listing all"
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA PROJECTS [/bold white on blue] "
+            f"📊 [bold cyan]{action}[/bold cyan]"
+        )
+    )
+
+    try:
+        with JiraClient() as client:
+            effective_max = min(max_results, 50)
+
+            if search_query:
+                results = client.search_projects(
+                    query=search_query,
+                    max_results=effective_max,
+                )
+            else:
+                results = client.list_projects(
+                    max_results=effective_max,
+                )
+
+            projects = results.get("projects", [])
+            total = results.get("total", len(projects))
+
+            emit_success(f"Found {total} project(s), returning {len(projects)}")
+
+            return {
+                "success": True,
+                "projects": projects,
+                "total": total,
+                "returned": len(projects),
+                "hint": (
+                    "Use the 'key' field (e.g., 'PROJ') in JQL queries, "
+                    "not the 'name' field. Example: project = PROJ"
+                ),
+            }
+
+    except Exception as e:
+        return _handle_jira_error(e)
+
+
+def register_jira_list_projects(agent: Any) -> Tool:
+    """Register the jira_list_projects tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
+    return agent.tool(jira_list_projects)
 
 
 # =============================================================================
